@@ -1,11 +1,12 @@
-# Mac Bot 规划 v0.2
+# Mac Bot 规划 v0.3
 
 > 状态：规划中，尚未开始编码。
+> v0.3 变更：移动端增加 iOS，改用 Kotlin Multiplatform + Compose Multiplatform；补充开发环境说明。
 > v0.2 变更：去掉虚拟机和沙箱；改为多 Bot，每个 Bot 有独立工作间；新增群聊和 Bot 间协作；电脑操控改为控制系统自带的浏览器，并推迟到后续阶段；交互全面对齐 Grok Bot；Android 改用原生技术栈。
 
 ## 1. 定位
 
-**自托管版 Grok Bot。** 一个人拥有一支 Bot 团队，这些 Bot 运行在自己 24 小时常开的 Apple Silicon Mac 上。每个 Bot 有名字和明确职责；Bot 之间可以拉群、互发消息、交接任务。用户在 macOS、Windows 或 Android 客户端上填入 `host:port` 并完成配对后，就可以像和同事聊天一样给 Bot 派活。
+**自托管版 Grok Bot。** 一个人拥有一支 Bot 团队，这些 Bot 运行在自己 24 小时常开的 Apple Silicon Mac 上。每个 Bot 有名字和明确职责；Bot 之间可以拉群、互发消息、交接任务。用户在 macOS、Windows、Android 或 iOS 客户端上填入 `host:port` 并完成配对后，就可以像和同事聊天一样给 Bot 派活。
 
 ## 2. 已确认的决策
 
@@ -20,8 +21,8 @@
 | 模型 | 用户自定义 provider 和模型；默认认为模型支持看图 |
 | 存储 | SQLite |
 | 桌面端 | Rust + GPUI（macOS / Windows） |
-| 移动端 | Android（小米 17）：**Kotlin + Jetpack Compose**，开发快、原生观感、APK 小 |
-| 通知 | App 内长连接加系统通知 |
+| 移动端 | **Android（小米 17）+ iOS**：**Kotlin Multiplatform + Compose Multiplatform**，一套代码同时出 Android 和 iOS 两端，UI、网络、状态全部共享。Android 端本身就是原生 Compose，APK 小；Compose 的 iOS 支持从 1.8.0 起已经稳定 |
+| 通知 | Android：前台服务保持长连接，收到事件后弹系统通知。iOS：App 进后台后无法保持长连接，必须走 **APNs**，由 macbot-server 直接调用 APNs HTTP/2 接口，使用用户自己的 .p8 密钥（需要 Apple 开发者账号）；没有配置时，只在 App 前台运行期间通知 |
 | 签名和公证 | 由用户负责 |
 | 交互和页面 | **全面参考 Grok Bot** |
 | 断电恢复 | 暂不考虑 |
@@ -115,10 +116,11 @@
 │ 文件：~/MacBot/bots/<bot>/workspace   ~/MacBot/shared               │
 └───────────────────────────────────────────────────────────────────┘
         ▲ ws://host:port                     ▲
- ┌──────┴──────────┐                ┌────────┴─────────┐
- │ Desktop（GPUI）  │                │ Android（Compose）│
- │ macOS / Windows  │                │ OkHttp WebSocket  │
- └─────────────────┘                └──────────────────┘
+ ┌──────┴──────────┐            ┌────────────┴─────────────┐
+ │ Desktop（GPUI）  │            │ Mobile（Compose MP）      │
+ │ macOS / Windows  │            │ Android + iOS，Ktor WS    │
+ └─────────────────┘            │ iOS 后台通知走 APNs        │
+                                └──────────────────────────┘
         ▲ 后期：Chrome 扩展「Mac Bot Connector」通过 localhost 连接服务端
 ```
 
@@ -138,7 +140,10 @@ mac-bot/
 │   └── macbot-client        # 桌面端共用的协议客户端（重连、本地缓存）
 ├── apps/
 │   ├── desktop/             # GPUI + gpui-component
-│   ├── android/             # Kotlin + Compose + Material 3
+│   ├── mobile/              # Kotlin Multiplatform + Compose Multiplatform
+│   │   ├── shared/          #   共享代码：UI、ViewModel、Ktor WebSocket、kotlinx.serialization、本地缓存
+│   │   ├── androidApp/      #   Android 外壳（前台服务、通知）
+│   │   └── iosApp/          #   Xcode 工程外壳（APNs 注册）
 │   └── chrome-extension/    # 后期
 └── docs/
 ```
@@ -234,14 +239,25 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 | **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、单个 Bot 私聊流式对话、durable resume、配对、GPUI 侧栏和聊天 | 桌面端填 host:port 并配对后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
 | **P2 多 Bot 与群聊** | Bot 增删改、Pin/Hide/Duplicate、独立 workspace 和基础工具、审批卡片、群聊路由、@ 和 Reply、Bot 间消息与 handoff、防循环 | 3 个 Bot 在群里分工完成一个任务，中间有交接；审批只出现在私聊里 |
 | **P3 记忆与技能** | 用户画像和 Bot 笔记、session_search、Memory 页、Skills 和 `/` 引用 | 跨会话记住用户偏好，能回答「我上周说过什么」 |
-| **P4 Android** | Compose 客户端：会话列表、聊天、群聊、审批、通知、搜索 | 在小米 17 上完成 P2 的场景 |
+| **P4 移动端** | Compose Multiplatform 客户端：会话列表、聊天、群聊、审批、通知、搜索；Android 前台服务；iOS 接入 APNs | 在小米 17 和 iPhone 上都能完成 P2 的场景 |
 | **P5 Routines** | 调度器、通过对话创建、Test run、运行历史 | 「每天 9 点总结 xxx」按时执行并推送结果 |
 | **P6 电脑操控** | 先用 Playwright MCP 扩展模式过渡，再上 Mac Bot Connector 扩展；Agent Computer 实时画面和接管；可选接入 cua-driver | 用系统 Chrome 已有的 X 登录态刷帖并总结 |
 | **P7 打磨** | Windows 打包、语音、文件页、全局搜索、用量统计、自动更新 | |
 
-## 8. 暂不考虑（记录在案）
+## 8. 开发环境
+
+| 用途 | 工具 | 备注 |
+|------|------|------|
+| 服务端和桌面端 | Rust stable（rustfmt、clippy），Xcode（提供 Metal 编译器，GPUI 需要） | crates.io 走清华 tuna 镜像 |
+| GPUI | `gpui` 0.2.x、`gpui-component` 0.7.x（crates.io） | |
+| 移动端 | JDK 21、Gradle（项目内使用 wrapper）、Android SDK 36 + build-tools 36.1、platform-tools（adb） | 真机调试用 USB 或无线 adb 连接小米 17 |
+| iOS | Xcode 26 + iOS Simulator 运行时；真机需要签名 | |
+| Windows 客户端 | **只能在 Windows 上构建**（GPUI 的 Windows 后端需要在 Windows 上编译 DirectX 着色器），用 GitHub Actions 的 windows runner 构建 | |
+| 浏览器扩展 | Chrome | P6 阶段 |
+
+## 9. 暂不考虑（记录在案）
 断电重启后自动恢复、TLS 和审计、公网代理、虚拟机或沙箱、示范一次生成技能、小米厂商推送、多用户。
 
-## 9. 待确认
+## 10. 待确认
 1. 日常使用的浏览器是 **Chrome**（或其他 Chromium 系）吗？如果是 Safari，第 5.8 节的方案需要重新设计。
 2. 用户画像默认所有 Bot 共享、Bot 笔记各自独立，这样可以吗？
