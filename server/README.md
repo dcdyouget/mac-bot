@@ -103,9 +103,9 @@ python3 server/macbotd/tests/smoke_packaging.py --pkg target/MacBot-Server.pkg
 
 `server/macbotd/tests/smoke_mock.py` 验证隔离 mock 的协议、事件补发、轨迹游标和画面 ACK。正式模式的 `smoke_runtime.py`、`smoke_collaboration.py`、`smoke_features.py`、`smoke_screen.py` 使用本机 fake provider 与独立数据目录；运行参数见各脚本 `--help`。开发测试必须显式选择 file secrets 的临时目录，使用不同端口，不连接真实模型。
 
-`smoke_conversation.py` 验证连续两轮 provider 请求、共享消息序号及 `after_seq`、混合 write/read/bash 审批、私聊待处理工作台和已读状态。`smoke_recovery.py` 验证安全私聊 kill9 后以同一 run 自动恢复，并确认不安全工具暂停等待审批、不会自动重放。
+`smoke_conversation.py` 验证连续多轮 provider 请求、known text Markdown 与重启后的事件正文、共享消息序号及 `after_seq`、混合 write/read/bash 审批、私聊待处理工作台和已读状态。`smoke_recovery.py` 验证安全私聊 kill9 后以同一 run 自动恢复，并确认不安全工具暂停等待审批、不会自动重放。
 
-以下场景自行启动和关闭隔离服务；每次使用新的 `--home`。Python 依赖为 `websockets` 和 `jsonschema`，可安装在仓库外的 venv。`smoke_trace.py` 验证进行中的文本与游标补发，`smoke_routines.py` 验证调度、通知和禁用；定时场景使用隔离日志中的到期时间，不改变正式服务的最短周期。
+以下场景自行启动和关闭隔离服务；每次使用新的 `--home`。Python 依赖为 `websockets` 和 `jsonschema`，可安装在仓库外的 venv。`smoke_loop.py` 验证防循环暂停、继续、结束及 canonical message ID；`smoke_question.py` 验证私聊提问、工作台和同 run 回答恢复。`smoke_trace.py` 验证进行中的文本与游标补发，`smoke_routines.py` 验证调度、通知和禁用；定时场景使用隔离日志中的到期时间，不改变正式服务的最短周期。
 
 ```sh
 python3 server/macbotd/tests/smoke_runtime.py \
@@ -121,3 +121,11 @@ python3 server/macbotd/tests/smoke_screen.py \
   --daemon-command 'server/target/debug/macbotd --port 7830 --password dev' \
   --home /tmp/macbot-screen-check --browser-bin "$PWD/server/target/sidecars/agent-browser"
 ```
+
+`smoke_screen.py` 启动本机标记页面并驱动真实 Chrome；断言实际 JPEG/URL、low 宽度上限、同连接接管/交还状态，以及按帧缩放的点击和键盘回显。它不使用外部网站或真实账号。
+
+主 Bot 协调与私聊的模型调用按每个 Bot、每种模式每分钟 60 次限速，不占任务并发名额。滑动窗口保存于 `data/limits/model-calls.json`；达到上限时等待，已有 durable checkpoint 和 run ID 保留，停止请求可取消等待。
+
+生产协作路径会生成项目、任务、委派和待验收卡片。项目任务投递到该项目群；不建群的委派在主 Bot 私聊报告结果。Bot 间私信写入独立的只读 `bot_dm` 会话，在源群显示引用。worker 完成后通知主 Bot，由主 Bot 汇总产物请求验收；用户提出修改意见后重新唤醒主 Bot。确认完成会保存群总结及项目记忆。
+
+阻塞、失败、完成但未汇报，以及两小时没有新 `ack/progress` 的项目任务会生成系统提醒并唤醒主 Bot。提醒标记随 orchestrator 恢复，取消任务不会触发提醒。公告、产物、任务晋升和待验收状态均通过持久事件补发。

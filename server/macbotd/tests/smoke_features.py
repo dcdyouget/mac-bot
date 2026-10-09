@@ -419,16 +419,28 @@ def wait_for_run_evidence(base: str, password: str, home: Path, instruction: str
             run_id = item.get("run_id")
             if run_id:
                 run_ids.add(run_id)
-        for path in (home / "data" / "jobs").glob("*.json"):
+        # Job checkpoints are not keyed by assignment_id.  Match the durable
+        # run request instead; the request carries both the assignment id and
+        # the exact marker that started this scenario.  Looking at every job
+        # in the home and choosing a lexical maximum can associate a memory
+        # entry with an unrelated coordinator run.
+        for path in (home / "data" / "run_requests").glob("run_*.json"):
             try:
-                job = json.loads(path.read_text())
+                request = json.loads(path.read_text())
             except (OSError, json.JSONDecodeError):
                 continue
-            run_id = job.get("checkpoint", {}).get("run_id")
-            if run_id:
-                run_ids.add(run_id)
+            if (
+                request.get("assignment_id") == assignment_id
+                and request.get("instruction") == instruction
+                and request.get("run_id")
+            ):
+                run_ids.add(request["run_id"])
         if run_ids:
-            return assignment, sorted(run_ids)[-1]
+            if len(run_ids) != 1:
+                raise AssertionError(
+                    f"multiple run ids for assignment {assignment_id}: {sorted(run_ids)}"
+                )
+            return assignment, next(iter(run_ids))
         time.sleep(0.25)
     raise AssertionError(f"no durable run_id for assignment {assignment_id}: trace={trace}")
 
