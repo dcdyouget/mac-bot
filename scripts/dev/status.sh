@@ -81,6 +81,7 @@ if [ -n "$desktop_pid" ]; then printf 'process: running (pid %s)\n' "$desktop_pi
 
 printf '\n[android]\n'
 printf 'installed sha: %s\n' "$(cat "$MACBOT_CACHE_ROOT/android-installed-sha" 2>/dev/null || printf 'unknown')"
+printf 'installed variant: %s\n' "$(cat "$MACBOT_CACHE_ROOT/android-installed-variant" 2>/dev/null || printf 'unknown')"
 if macbot_find_android_sdk; then
   if macbot_find_android_serial; then
     printf 'avd: %s (%s)\n' "$MACBOT_AVD_NAME" "$MACBOT_ANDROID_SERIAL"

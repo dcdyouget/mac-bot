@@ -445,13 +445,30 @@ macbot_build_android() {
   gradle="$project_dir/gradlew"
   [ -x "$gradle" ] || { macbot_error "Android 工程存在但缺少可执行 gradlew"; return 1; }
   macbot_find_android_sdk || { macbot_error "找不到 Android SDK"; return 1; }
-  macbot_log "编译 Android APK：$gradle :androidApp:assembleDebug"
+  android_variant=${MACBOT_ANDROID_VARIANT:-$(cat "$MACBOT_CACHE_ROOT/android-installed-variant" 2>/dev/null || printf debug)}
+  case "$android_variant" in
+    debug) android_task=assembleDebug ;;
+    release) android_task=assembleRelease ;;
+    *) macbot_error "MACBOT_ANDROID_VARIANT 只能为 debug 或 release"; return 1 ;;
+  esac
+  MACBOT_ANDROID_BUILT_VARIANT="$android_variant"
+  macbot_log "编译 Android APK：$gradle :androidApp:$android_task"
   (cd "$project_dir" && export ANDROID_HOME="$MACBOT_ANDROID_SDK" && \
     export JAVA_HOME="${JAVA_HOME:-$(/usr/libexec/java_home -v 21)}" && \
-    "$gradle" --no-daemon :androidApp:assembleDebug) || {
+    if [ "$android_variant" = release ]; then
+      signing_env=${MACBOT_ANDROID_SIGNING_ENV:-$HOME/.local/share/macbot/android-signing/release.env}
+      if [ -f "$signing_env" ]; then . "$signing_env" || exit 1; fi
+      if [ -z "${MACBOT_ANDROID_KEYSTORE:-}" ] || [ -z "${MACBOT_ANDROID_STORE_PASSWORD:-}" ] || \
+         [ -z "${MACBOT_ANDROID_KEY_ALIAS:-}" ] || [ -z "${MACBOT_ANDROID_KEY_PASSWORD:-}" ]; then
+        macbot_error "Release 缺少本机签名环境；保留已安装 App，不安装 unsigned APK"
+        exit 1
+      fi
+      export MACBOT_ANDROID_KEYSTORE MACBOT_ANDROID_STORE_PASSWORD MACBOT_ANDROID_KEY_ALIAS MACBOT_ANDROID_KEY_PASSWORD
+    fi
+    "$gradle" --no-daemon ":androidApp:$android_task") || {
     macbot_error "Android 编译失败"; return 1;
   }
-  MACBOT_ANDROID_APK="$project_dir/androidApp/build/outputs/apk/debug/androidApp-debug.apk"
+  MACBOT_ANDROID_APK="$project_dir/androidApp/build/outputs/apk/$android_variant/androidApp-$android_variant.apk"
   [ -f "$MACBOT_ANDROID_APK" ] || {
     macbot_error "Android 编译完成但没有找到 $MACBOT_ANDROID_APK"; return 1;
   }
@@ -460,10 +477,12 @@ macbot_build_android() {
 macbot_install_android() {
   macbot_start_android || return 1
   macbot_log "安装 Android APK 到 $MACBOT_ANDROID_SERIAL"
-  "$MACBOT_ANDROID_ADB" -s "$MACBOT_ANDROID_SERIAL" install -r "$MACBOT_ANDROID_APK" >/dev/null || {
-    macbot_error "Android APK 安装失败"; return 1;
+  "$MACBOT_ANDROID_ADB" -s "$MACBOT_ANDROID_SERIAL" install -r "$MACBOT_ANDROID_APK" || {
+    macbot_error "Android APK 安装失败；签名不匹配时保留现有 App 和数据，不自动卸载"
+    return 1;
   }
   printf '%s\n' "$MACBOT_MAIN_SHA" > "$MACBOT_CACHE_ROOT/android-installed-sha" || return 1
+  printf '%s\n' "$MACBOT_ANDROID_BUILT_VARIANT" > "$MACBOT_CACHE_ROOT/android-installed-variant" || return 1
   "$MACBOT_ANDROID_ADB" -s "$MACBOT_ANDROID_SERIAL" shell monkey -p bot.mac.mobile -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || \
     macbot_warn "无法自动打开 bot.mac.mobile；请在模拟器中手动启动 App"
 }

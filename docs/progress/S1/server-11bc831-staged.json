@@ -1,0 +1,11 @@
+{
+  "source_commit": "11bc831df3cead8d8ec667501769aad92adec472",
+  "checked_at": "2026-10-09T17:54:45.682795+08:00",
+  "bytes": 12051840,
+  "sha256": "21ca51287bbc60e490abf8b97c3285fde9191674bb32bc7cb846ab2426ccff77",
+  "result": "clean archive server release build passed; staged only, not started",
+  "path": "/Users/gongshaojie/Library/Caches/MacBot/integrator/staged/11bc831df3cead8d8ec667501769aad92adec472/macbotd",
+  "log": "~/Library/Caches/MacBot/integrator/watch/server-stage-11bc831.log",
+  "shared_mock": "f368824; unchanged",
+  "production_provider": "disabled"
+}
