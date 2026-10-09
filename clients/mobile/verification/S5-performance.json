@@ -1,0 +1,78 @@
+{
+  "build": "signed release (R8 + resource shrink)",
+  "application_id": "bot.mac.mobile",
+  "api": 36,
+  "initial_install_cold_ms": 1335,
+  "cold_launch_samples": [
+    {
+      "TotalTime": 1005,
+      "WaitTime": 1006
+    },
+    {
+      "TotalTime": 1154,
+      "WaitTime": 1353
+    },
+    {
+      "TotalTime": 1466,
+      "WaitTime": 1472
+    }
+  ],
+  "apk_bytes": 2111878,
+  "certificate_sha256": "f0e092d192020efd8c41c351f8c7d62f7df10ee2c9806f8611b564c18073b161",
+  "total_pss_kib": 38955,
+  "total_rss_kib": 174804,
+  "ui_sample": {
+    "frames": 89,
+    "janky_frames": 68,
+    "jank_percent": 76.4,
+    "median_frame_ms": 38,
+    "p90_frame_ms": 85,
+    "scenario": "navigation + dashboard chart scroll/tap, emulator screenshots active",
+    "limitation": "Software-rendered emulator sample; screenshots active; not a physical-device performance claim."
+  },
+  "hardware_gpu_cold_launch_samples": [
+    {
+      "TotalTime": 156,
+      "WaitTime": 159
+    },
+    {
+      "TotalTime": 241,
+      "WaitTime": 245
+    },
+    {
+      "TotalTime": 250,
+      "WaitTime": 254
+    }
+  ],
+  "gpu_backend": "Android Emulator OpenGL ES Translator (Apple M4), OpenGL ES 3.0 / Metal 90.5; emulator -gpu host",
+  "hardware_gpu_ui_sample": {
+    "frames": 70.0,
+    "jank_percent": 20.0,
+    "median_frame_ms": 17.0,
+    "p90_frame_ms": 69.0,
+    "scenario": "group open, announcement expand, app navigation, screen captures"
+  },
+  "hardware_gpu_total_pss_kib": 40720,
+  "apk_sha256": "ea869b9a7e0be638abcd9dd308194547fc322a8f6627a249343bd81c93faa978",
+  "build_source_revision": "d1e7e1a",
+  "performance_sample_source_revision": "f5223b8",
+  "software_gpu_backend": "SwiftShader software Vulkan (original AVD GPU disabled)",
+  "emulator_stability": "One QEMU process exited 139 after main/CPU thread hangs with -gpu host; restarted without wiping user data. Hardware samples are not physical device or stability certification.",
+  "final_release_cold_launch_samples": [
+    {
+      "TotalTime": 1262,
+      "WaitTime": 1285
+    },
+    {
+      "TotalTime": 1071,
+      "WaitTime": 1138
+    },
+    {
+      "TotalTime": 1048,
+      "WaitTime": 1051
+    }
+  ],
+  "final_release_total_pss_kib": 30913,
+  "final_release_total_rss_kib": 161476,
+  "final_release_cold_launch_source_revision": "e8f69bc"
+}
