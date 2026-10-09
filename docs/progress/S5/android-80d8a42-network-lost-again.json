@@ -1,0 +1,11 @@
+{
+  "observed_at": "2026-10-09T19:07:00+08:00",
+  "installed_source": "80d8a42",
+  "screenshot": "android-80d8a42-current-connecting.png",
+  "ui": "cached Bot/session list visible; connecting banner remains",
+  "route": "empty",
+  "host_7789_probe": "Network is unreachable",
+  "root_actions": "read-only screencap, ip route and nc; no restart, install or force-stop",
+  "owner": "client-android",
+  "status": "BLOCKED"
+}
