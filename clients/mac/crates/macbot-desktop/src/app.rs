@@ -561,6 +561,7 @@ impl MacBot {
         cx.notify();
     }
     fn rpc_result(&mut self, method: &str, params: &Value, value: Value, cx: &mut Context<Self>) {
+        let previous_page = self.page.clone();
         self.feature_result(method, params, &value, cx);
         if let Some(message) = value.get("message") {
             insert(&mut self.state.messages, message, "id");
@@ -661,6 +662,9 @@ impl MacBot {
                 }
             }
             _ => {}
+        }
+        if self.page != previous_page {
+            self.focus_root(cx);
         }
         self.sync_views(cx);
         self.persist_cache(false);
@@ -1069,6 +1073,15 @@ impl MacBot {
         self.context_visible = true;
         cx.notify();
     }
+    fn focus_root(&self, cx: &mut Context<Self>) {
+        let focus = self.focus.clone();
+        let handle = cx.active_window();
+        cx.defer(move |cx| {
+            if let Some(handle) = handle {
+                let _ = handle.update(cx, |_, window, cx| focus.focus(window, cx));
+            }
+        });
+    }
     fn navigate(&mut self, page: &str, cx: &mut Context<Self>) {
         self.close_trace(cx);
         self.close_screen();
@@ -1081,6 +1094,7 @@ impl MacBot {
             self.editor_reload = false;
         }
         self.page = page.into();
+        self.focus_root(cx);
         self.fetch_page(cx);
         cx.notify();
     }

@@ -799,6 +799,25 @@ pub fn bot_create_params(
     params
 }
 
+pub struct BotCreateOptions {
+    pub tools: Value,
+    pub notifications: bool,
+    pub avatar: Option<Value>,
+}
+
+pub fn bot_create_params_with_options(mut params: Value, options: BotCreateOptions) -> Value {
+    params["tools"] = options.tools;
+    params["notifications"] = json!(options.notifications);
+    if let Some(avatar) = options.avatar {
+        params["avatar"] = avatar;
+    }
+    params
+}
+
+fn default_bot_tools() -> Value {
+    json!({"files": true, "bash": true, "browser": false, "subagent": false, "web": false, "mcp": false})
+}
+
 pub fn bot_update_params(
     bot_id: &str,
     name: &str,
@@ -1035,13 +1054,28 @@ fn bot_save_button(
             } else {
                 (
                     "bot.create",
-                    bot_create_params(
-                        &name_value,
-                        &label_value,
-                        &description_value,
-                        &model_value,
-                        &parallel_value,
-                        &browser_value,
+                    bot_create_params_with_options(
+                        bot_create_params(
+                            &name_value,
+                            &label_value,
+                            &description_value,
+                            &model_value,
+                            &parallel_value,
+                            &browser_value,
+                        ),
+                        BotCreateOptions {
+                            tools: this
+                                .data
+                                .get("tools")
+                                .cloned()
+                                .unwrap_or_else(default_bot_tools),
+                            notifications: this
+                                .data
+                                .get("notifications")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(true),
+                            avatar: this.data.get("avatar").cloned(),
+                        },
                     ),
                 )
             };
@@ -1771,12 +1805,21 @@ fn workbench_model_label(job: &Value, data: &Value) -> String {
                 .and_then(Value::as_str)
                 == Some(model_ref)
         }) {
-            return string(model_item, "label", &string(model_item, "name", model_ref));
+            return string(
+                model_item,
+                "display_name",
+                &string(model_item, "label", &string(model_item, "name", model_ref)),
+            );
         }
         return model_ref.to_owned();
     }
     model
-        .and_then(|value| value.get("label").or_else(|| value.get("name")))
+        .and_then(|value| {
+            value
+                .get("display_name")
+                .or_else(|| value.get("label"))
+                .or_else(|| value.get("name"))
+        })
         .and_then(Value::as_str)
         .unwrap_or(t("common.unknown"))
         .to_owned()
@@ -2515,7 +2558,12 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
         }
         let axis_labels = data
             .get("timeseries")
-            .and_then(|timeseries| timeseries.get("labels").or_else(|| timeseries.get("dates")))
+            .and_then(|timeseries| {
+                timeseries
+                    .get("buckets")
+                    .or_else(|| timeseries.get("labels"))
+                    .or_else(|| timeseries.get("dates"))
+            })
             .and_then(Value::as_array)
             .map(|labels| {
                 labels
@@ -2655,8 +2703,10 @@ fn skills(
                 .unwrap_or(true);
             div()
                 .flex()
+                .flex_wrap()
                 .items_center()
-                .justify_between()
+                .gap_2()
+                .w_full()
                 .p_2()
                 .rounded_md()
                 .bg(
@@ -2666,13 +2716,13 @@ fn skills(
                         tokens.window
                     },
                 )
-                .child(format!(
+                .child(div().flex_1().min_w_0().truncate().child(format!(
                     "ϟ {name} · {} · {}",
                     skill_source(skill),
                     skill_invocations(skill)
-                ))
+                )))
                 .child({
-                    let mut actions = div().flex().gap_2();
+                    let mut actions = div().flex().flex_wrap().gap_2().flex_shrink_0();
                     actions = actions.child(action_button_with_id(
                         format!("skill-{index}-toggle"),
                         if enabled {
@@ -3088,7 +3138,11 @@ fn bot_editor(
         .child(labeled_field(t("settings.tools"), tool_picker))
         .child(bot_notification_toggle(data, cx))
         .child(avatar_picker)
-        .child(card(title, body, tokens))
+        .child(if data.get("id").is_some() {
+            card(title, body, tokens).into_any_element()
+        } else {
+            div().into_any_element()
+        })
         .child(bot_save_button(
             t("settings.save"),
             data,
@@ -3117,10 +3171,8 @@ fn bot_notification_toggle(
         .checked(enabled)
         .on_change(cx.listener(move |this, next, _, cx| {
             if bot_id.is_empty() {
-                this.emit_action(
-                    FeatureAction::Toast(t("bot.notifications_after_create").to_owned()),
-                    cx,
-                );
+                this.data["notifications"] = json!(*next);
+                cx.notify();
             } else {
                 this.emit_action(
                     FeatureAction::Rpc {
@@ -3149,8 +3201,10 @@ fn bot_model_picker(
                 .map(str::to_owned)
                 .or_else(|| item.get("ref").and_then(Value::as_str).map(str::to_owned))?;
             let label = item
-                .get("label")
+                .get("display_name")
                 .and_then(Value::as_str)
+                .or_else(|| item.get("label").and_then(Value::as_str))
+                .or_else(|| item.get("name").and_then(Value::as_str))
                 .unwrap_or(&value)
                 .to_owned();
             let model = model.clone();
@@ -3195,9 +3249,7 @@ fn bot_tools_picker(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoEle
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
-    let tools = data.get("tools").cloned().unwrap_or_else(|| {
-        json!({"files": false, "bash": false, "browser": false, "subagent": false, "web": false, "mcp": false})
-    });
+    let tools = data.get("tools").cloned().unwrap_or_else(default_bot_tools);
     div().flex().flex_wrap().gap_2().children(
         ["files", "bash", "browser", "subagent", "web", "mcp"]
             .into_iter()
@@ -3217,14 +3269,20 @@ fn bot_tools_picker(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoEle
                     .checked(checked)
                     .on_change(cx.listener(move |this, next, _, cx| {
                         if bot_id.is_empty() {
-                            this.emit_action(
-                                FeatureAction::Toast(t("bot.tools_after_create").to_owned()),
-                                cx,
-                            );
+                            let mut next_tools = this
+                                .data
+                                .get("tools")
+                                .cloned()
+                                .unwrap_or_else(default_bot_tools);
+                            next_tools[key.clone()] = json!(*next);
+                            this.data["tools"] = next_tools;
+                            cx.notify();
                         } else {
-                            let mut next_tools = this.data.get("tools").cloned().unwrap_or_else(|| {
-                                json!({"files": false, "bash": false, "browser": false, "subagent": false, "web": false, "mcp": false})
-                            });
+                            let mut next_tools = this
+                                .data
+                                .get("tools")
+                                .cloned()
+                                .unwrap_or_else(default_bot_tools);
                             next_tools[key.clone()] = json!(*next);
                             this.data["tools"] = next_tools.clone();
                             this.emit_action(
@@ -3283,10 +3341,8 @@ fn bot_avatar_button(
         .label(label)
         .on_click(cx.listener(move |this, _, _, cx| {
             if bot_id.is_empty() {
-                this.emit_action(
-                    FeatureAction::Toast(t("bot.avatar_after_create").to_string()),
-                    cx,
-                );
+                this.data["avatar"] = avatar.clone();
+                cx.notify();
             } else {
                 this.emit_action(
                     FeatureAction::Rpc {

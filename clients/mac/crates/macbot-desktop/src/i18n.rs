@@ -2,6 +2,7 @@ use gpui_kit::SharedString;
 
 pub fn tr(key: &str) -> SharedString {
     match key {
+        "computer.browser" => "的浏览器",
         "settings.connection_ok" => "连接成功",
         "settings.connection_failed" => "连接失败",
         "file.unavailable" => "产物文件暂不可用",
