@@ -30,21 +30,89 @@ else:
     print('No completed deployment yet')
 PY
 
+macbot_pid_executable() {
+  pid="$1"
+  [ -n "$pid" ] || return 0
+  if [ -x /usr/sbin/lsof ]; then
+    /usr/sbin/lsof -n -p "$pid" -a -d txt -Fn 2>/dev/null |
+      sed -n 's/^n//p' | sed -n '1p'
+  fi
+}
+
+macbot_source_marker() {
+  binary="$1"
+  case "$binary" in
+    */Contents/MacOS/*)
+      app_root=${binary%/Contents/MacOS/*}
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+  for marker in \
+    "$app_root/Contents/Resources/source-commit" \
+    "$app_root/Contents/Resources/source-commit.txt"; do
+    if [ -f "$marker" ]; then
+      tr -d '\r\n' < "$marker"
+      return 0
+    fi
+  done
+  if [ -f "$app_root/Contents/Info.plist" ]; then
+    /usr/libexec/PlistBuddy -c 'Print :MacBotSourceCommit' \
+      "$app_root/Contents/Info.plist" 2>/dev/null || true
+  fi
+}
+
 show_service() {
-  title="$1"; label="$2"; port="$3"; binary="$4"; log_path="$5"
+  title="$1"; label="$2"; port="$3"; log_path="$4"; shift 4
   agent_pid=$(macbot_launchctl_pid "$label")
   listen_pid=$(macbot_port_pid "$port")
   if [ -n "$agent_pid" ]; then agent_state="running (pid $agent_pid)"; else agent_state="stopped"; fi
   if [ -n "$listen_pid" ]; then port_state="listening (pid $listen_pid)"; else port_state="closed"; fi
+  agent_binary=$(macbot_pid_executable "$agent_pid")
+  listen_binary=$(macbot_pid_executable "$listen_pid")
+  actual_binary="$listen_binary"
+  [ -n "$actual_binary" ] || actual_binary="$agent_binary"
   printf '\n[%s]\n' "$title"
-  source_marker="$(dirname "$binary")/../Resources/source-commit"
-  printf 'installed sha: %s\n' "$(cat "$source_marker" 2>/dev/null || printf 'unknown')"
   printf 'launchagent: %s\n' "$agent_state"
   printf 'port %s: %s\n' "$port" "$port_state"
-  if [ -x "$binary" ]; then
-    printf 'binary: installed\n'
+  if [ -n "$agent_pid" ] && [ -n "$listen_pid" ]; then
+    if [ "$agent_pid" = "$listen_pid" ]; then
+      printf 'pid match: yes (%s)\n' "$agent_pid"
+    else
+      printf 'pid match: no (agent %s, listen %s)\n' "$agent_pid" "$listen_pid"
+    fi
   else
-    printf 'binary: missing (%s)\n' "$binary"
+    printf 'pid match: unknown (agent/listen PID incomplete)\n'
+  fi
+  if [ -n "$agent_binary" ]; then printf 'agent binary: %s\n' "$agent_binary"; fi
+  if [ -n "$listen_binary" ]; then printf 'listen binary: %s\n' "$listen_binary"; fi
+  if [ -n "$agent_binary" ] && [ -n "$listen_binary" ]; then
+    if [ "$agent_binary" = "$listen_binary" ]; then
+      printf 'binary match: yes\n'
+    else
+      printf 'binary match: no\n'
+    fi
+  fi
+  if [ -n "$actual_binary" ]; then
+    printf 'binary source: %s\n' "$actual_binary"
+    source_sha=$(macbot_source_marker "$actual_binary")
+    printf 'installed sha: %s\n' "${source_sha:-unknown}"
+  else
+    printf 'binary source: unavailable (no process executable resolved)\n'
+    printf 'installed sha: unknown\n'
+  fi
+  printf 'known paths:\n'
+  known_path_count=0
+  for candidate in "$@"; do
+    if [ -e "$candidate" ]; then
+      known_path_count=$((known_path_count + 1))
+      candidate_sha=$(macbot_source_marker "$candidate")
+      printf '  %s (%s)\n' "$candidate" "${candidate_sha:-source unknown}"
+    fi
+  done
+  if [ "$known_path_count" -eq 0 ]; then
+    printf '  none\n'
   fi
   if macbot_have curl; then
     health=$(curl --fail --silent --show-error --max-time 2 "http://127.0.0.1:$port/api/v1/health" 2>/dev/null || true)
@@ -59,11 +127,13 @@ show_service() {
   macbot_safe_log_tail "$log_path" 8
 }
 
-show_service "server" "$MACBOT_SERVER_LABEL" 7788 \
-  "$HOME/Applications/MacBotServer.app/Contents/MacOS/macbotd" "$MACBOT_SERVER_LOG"
+show_service "server" "$MACBOT_SERVER_LABEL" 7788 "$MACBOT_SERVER_LOG" \
+  "$HOME/Applications/MacBotServer.app/Contents/MacOS/macbotd" \
+  "$HOME/Applications/MacBot Server.app/Contents/MacOS/macbotd" \
+  "/Applications/MacBot Server.app/Contents/MacOS/macbotd"
 macbot_safe_log_tail "$MACBOT_SERVER_ERR_LOG" 8
-show_service "mock" "$MACBOT_MOCK_LABEL" 7789 \
-  "$HOME/Applications/MacBotMock.app/Contents/MacOS/macbotd" "$MACBOT_MOCK_LOG"
+show_service "mock" "$MACBOT_MOCK_LABEL" 7789 "$MACBOT_MOCK_LOG" \
+  "$HOME/Applications/MacBotMock.app/Contents/MacOS/macbotd"
 macbot_safe_log_tail "$MACBOT_MOCK_ERR_LOG" 8
 
 printf '\n[desktop]\n'
@@ -92,15 +162,33 @@ if macbot_find_android_sdk; then
     python3 - "$MACBOT_ANDROID_ADB" "$MACBOT_ANDROID_SERIAL" <<'PY'
 import subprocess
 import sys
+import time
 adb, serial = sys.argv[1:]
 try:
     route = subprocess.run([adb, "-s", serial, "shell", "ip", "route"],
                            capture_output=True, text=True, timeout=5)
     print("network route:", "present" if route.returncode == 0 and route.stdout.strip() else "missing")
-    probe = subprocess.run([adb, "-s", serial, "shell", "toybox", "nc", "-w", "3", "10.0.2.2", "7789"],
-                           input="GET /api/v1/health HTTP/1.1\r\nHost: 10.0.2.2\r\nConnection: close\r\n\r\n",
-                           capture_output=True, text=True, timeout=5)
-    print("mock from emulator:", "reachable" if probe.returncode == 0 and "200 OK" in probe.stdout.split("\r\n\r\n", 1)[0] else "unreachable")
+    request = "GET /api/v1/health HTTP/1.1\r\nHost: 10.0.2.2\r\nConnection: close\r\n\r\n"
+    for port, label in ((7788, "formal"), (7789, "mock")):
+        proc = subprocess.Popen(
+            [adb, "-s", serial, "shell", "toybox", "nc", "-w", "3", "10.0.2.2", str(port)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True)
+        proc.stdin.write(request)
+        proc.stdin.flush()
+        # Some toybox nc builds report EOF immediately if stdin is closed before
+        # the server has had a chance to write the HTTP response.
+        time.sleep(0.25)
+        proc.stdin.close()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        stdout = proc.stdout.read()
+        header = stdout.split("\r\n\r\n", 1)[0]
+        reachable = proc.returncode == 0 and "200 OK" in header
+        print(label + " from emulator:", "reachable" if reachable else "unreachable")
 except (subprocess.SubprocessError, OSError):
     print("emulator network probe: unavailable")
 PY
