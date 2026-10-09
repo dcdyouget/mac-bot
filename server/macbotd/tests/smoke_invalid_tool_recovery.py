@@ -101,6 +101,19 @@ def run_case(args: argparse.Namespace, daemon: RestartDaemon, worker: str, proje
     assert request["bot_id"] == worker and request["chat_id"] == project["chat"]["id"]
     assert request["project_id"] == project["project"]["id"]
     assert Path(request["cwd"]) == InvalidProvider.project_home
+    mapping_path = args.home / "data/approval-map" / f"{first['id']}.json"
+    def approval_checkpoint_committed() -> bool:
+        if not mapping_path.exists():
+            return False
+        mapping = json.loads(mapping_path.read_text())
+        jobs = [json.loads(path.read_text()) for path in (args.home / "data/jobs").glob("*.json")]
+        return any(job["status"] in ("waiting", "suspended")
+            and job["checkpoint"].get("run_id") == run_id
+            and job["checkpoint"].get("pending_tool", {}).get("call_id") == mapping["call_id"]
+            for job in jobs)
+    # Approval publication precedes its checkpoint/map writes. Kill only at
+    # the persisted waiting boundary that this upgrade case intends to test.
+    wait_until(approval_checkpoint_committed, "mapped waiting checkpoint", 15)
     if old:
         assert "project_id" not in old_detail if marker != "INVALID_PATH_OLD" else "resolved_path" not in old_detail
         daemon.kill9_stop()
@@ -114,7 +127,7 @@ def run_case(args: argparse.Namespace, daemon: RestartDaemon, worker: str, proje
             operations = [json.loads(line) for line in operations_path.read_text().splitlines()]
             operations[-1]["snapshot"] = state
             operations_path.write_text("".join(json.dumps(row) + "\n" for row in operations))
-            mapping = json.loads((args.home / "data/approval-map" / f"{first['id']}.json").read_text())
+            mapping = json.loads(mapping_path.read_text())
             receipt = {"approval_id": first["id"], "run_id": run_id, "call_id": mapping["call_id"], "tool": first["tool"],
                 "args": old_detail, "bot_id": first["bot_id"], "chat_id": first["chat_id"], "assignment_id": assignment_id}
             root = args.home / "data/invalid-tool-recovery"
