@@ -1,0 +1,16 @@
+{
+  "checked_at": "2026-10-09T15:54:16.225340+08:00",
+  "screen_capture_preflight": true,
+  "probe": "CGPreflightScreenCaptureAccess (read-only)",
+  "visible_window": {
+    "owner": "Mac Bot",
+    "window_id": 55929,
+    "owner_pid": 10693,
+    "source": "client-mac development worktree"
+  },
+  "installed_process_pid": 13222,
+  "installed_window_visible": false,
+  "finding": "Screen capture permission was granted to the diagnostic process and a target window was visible. Prior screencapture wrote complete PNGs then timed out; exit/finalization issue remains unresolved. This does not prove permissions for every launch context.",
+  "capture_flags": "-x -l <windowid> <file> are valid; -u opens UI and ignores output file",
+  "full_s0_pass": false
+}
