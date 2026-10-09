@@ -1674,9 +1674,12 @@ impl ExecutionEngine {
                     .with_cancellation(self.state.cancellation_for(&request.run_id).await)
                     .with_output_channel(call.call_id.clone(), output_tx);
                 let started = now_ms();
+                let background = background_tool_call(&call);
                 let result = tool.call(&context, call.args.clone()).await;
                 drop(context);
-                let _ = output_forwarder.await;
+                if !background {
+                    let _ = output_forwarder.await;
+                }
                 self.trace(
                     &request,
                     "tool.end",
@@ -1980,9 +1983,12 @@ impl ExecutionEngine {
         .with_cancellation(self.state.cancellation_for(&request.run_id).await)
         .with_output_channel(call.call_id.clone(), output_tx);
         let started = now_ms();
+        let background = background_tool_call(&call);
         let result = tool.call(&context, call.args.clone()).await;
         drop(context);
-        let _ = output_forwarder.await;
+        if !background {
+            let _ = output_forwarder.await;
+        }
         self.trace(
             request,
             "tool.end",
@@ -2365,9 +2371,12 @@ impl ExecutionEngine {
             )
             .with_cancellation(self.state.cancellation_for(&request.run_id).await)
             .with_output_channel(call.call_id.clone(), output_tx);
+            let background = background_tool_call(&call);
             let result = tool.call(&context, call.args.clone()).await;
             drop(context);
-            let _ = output_forwarder.await;
+            if !background {
+                let _ = output_forwarder.await;
+            }
             result
         } else {
             ToolResult::error(format!("unknown tool: {}", call.name))
@@ -2382,12 +2391,16 @@ impl ExecutionEngine {
     ) -> tokio::task::JoinHandle<()> {
         let sink = self.sink.clone();
         let stream = trace_scope(request);
+        let assignment_id = request.assignment_id.clone();
+        let chat_id = request.chat_id.clone();
         tokio::spawn(async move {
             while let Some(chunk) = output.recv().await {
                 sink.emit(ExecutionEvent {
                     event: "trace.tool_output".into(),
                     data: json!({
                         "stream":stream,
+                        "assignment_id":assignment_id,
+                        "chat_id":chat_id,
                         "call_id":chunk.call_id,
                         "chunk":chunk.chunk
                     }),
@@ -2972,6 +2985,10 @@ fn send_msg_intent(args: &Value) -> Result<&str, String> {
     }
 }
 
+fn background_tool_call(call: &ToolCall) -> bool {
+    call.name == "bash" && call.args.get("background").and_then(Value::as_bool) == Some(true)
+}
+
 fn can_parallelize_tool_call(
     request: &ExecutionRequest,
     call: &ToolCall,
@@ -3366,7 +3383,7 @@ fn risky_call_allowed_from_settings(
 mod tests {
     use super::*;
     use macbot_providers::{MockProvider, ToolCall};
-    use macbot_tools::{BashTool, ReadTool, WriteTool};
+    use macbot_tools::{BashJobManager, BashTool, ReadTool, WriteTool};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Mutex as StdMutex;
     use std::time::Duration;
@@ -3411,6 +3428,61 @@ mod tests {
                 return_canonical_id: true,
                 ..Default::default()
             }
+        }
+    }
+
+    struct BackgroundGateProvider {
+        calls: Arc<AtomicUsize>,
+        second_started: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for BackgroundGateProvider {
+        async fn stream(
+            &self,
+            _: ModelRequest,
+            events: mpsc::Sender<ModelEvent>,
+        ) -> macbot_providers::Result<Completion> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let completion = if call == 0 {
+                Completion {
+                    tool_calls: vec![ToolCall {
+                        call_id: "bash_background_gate".into(),
+                        name: "bash".into(),
+                        args: json!({
+                            "command":"sleep 0.1; printf background-output; sleep 30",
+                            "background":true
+                        }),
+                    }],
+                    stop_reason: "tool_calls".into(),
+                    ..Default::default()
+                }
+            } else {
+                self.second_started.notify_one();
+                self.release.notified().await;
+                Completion {
+                    text: "done".into(),
+                    stop_reason: "stop".into(),
+                    ..Default::default()
+                }
+            };
+            let _ = events
+                .send(ModelEvent::TextDelta {
+                    text: completion.text.clone(),
+                })
+                .await;
+            let _ = events
+                .send(ModelEvent::Usage {
+                    usage: completion.usage.clone(),
+                })
+                .await;
+            let _ = events
+                .send(ModelEvent::Stop {
+                    reason: completion.stop_reason.clone(),
+                })
+                .await;
+            Ok(completion)
         }
     }
     #[async_trait]
@@ -4496,6 +4568,174 @@ mod tests {
                     .is_some_and(|chunk| chunk.contains("realtime"))
                 && !event.persistent
         }));
+    }
+
+    #[tokio::test]
+    async fn background_bash_does_not_wait_for_output_channel_close() {
+        let dir = tempdir().unwrap();
+        let sink = Arc::new(RecordingSink::default());
+        let second_started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let provider = Arc::new(BackgroundGateProvider {
+            calls: Arc::new(AtomicUsize::new(0)),
+            second_started: second_started.clone(),
+            release: release.clone(),
+        });
+        let jobs = BashJobManager::default();
+        let engine = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            provider,
+            vec![Arc::new(BashTool::with_jobs(jobs.clone())) as Arc<dyn Tool>],
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+        let worker = tokio::spawn(async move { engine.run(request(true)).await });
+        let started = tokio::time::timeout(Duration::from_secs(2), second_started.notified())
+            .await
+            .is_ok();
+        let saw_tool_end = sink.events.lock().unwrap().iter().any(|event| {
+            event.event == "trace.item"
+                && event.data["item"]["type"] == "tool.end"
+                && event.data["item"]["data"]["call_id"] == "bash_background_gate"
+        });
+        let job_id = sink.events.lock().unwrap().iter().find_map(|event| {
+            (event.event == "trace.item"
+                && event.data["item"]["type"] == "tool.end"
+                && event.data["item"]["data"]["call_id"] == "bash_background_gate")
+                .then(|| event.data["item"]["data"]["details"]["job_id"].as_str())
+                .flatten()
+                .map(str::to_owned)
+        });
+        let still_running = if let Some(job_id) = job_id {
+            jobs.status(&job_id)
+                .await
+                .is_some_and(|(status, _)| status.is_none())
+        } else {
+            false
+        };
+        let mut saw_output_after_tool_end = false;
+        for _ in 0..50 {
+            saw_output_after_tool_end = sink.events.lock().unwrap().iter().any(|event| {
+                event.event == "trace.tool_output"
+                    && event.data["call_id"] == "bash_background_gate"
+                    && event.data["chunk"]
+                        .as_str()
+                        .is_some_and(|chunk| chunk.contains("background-output"))
+            });
+            if saw_output_after_tool_end {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        release.notify_one();
+        let outcome = match tokio::time::timeout(Duration::from_secs(2), worker).await {
+            Ok(Ok(Ok(value))) => Some(value),
+            _ => None,
+        };
+        let _ = jobs.cleanup().await;
+        assert!(started);
+        assert!(saw_tool_end);
+        assert!(still_running);
+        assert!(saw_output_after_tool_end);
+        assert_eq!(outcome.map(|value| value.status), Some("done".into()));
+    }
+
+    #[tokio::test]
+    async fn approved_background_bash_resumes_without_waiting_for_output_eof() {
+        let dir = tempdir().unwrap();
+        let sink = Arc::new(RecordingSink::default());
+        let provider = Arc::new(MockProvider::new(vec![
+            Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "bash_approved_background".into(),
+                    name: "bash".into(),
+                    args: json!({"command":"printf approved; sleep 30","background":true}),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+            Completion {
+                text: "done".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            },
+        ]));
+        let jobs = BashJobManager::default();
+        let engine = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            provider,
+            vec![Arc::new(BashTool::with_jobs(jobs.clone())) as Arc<dyn Tool>],
+            sink,
+            dir.path(),
+        )
+        .unwrap();
+        let mut req = request(true);
+        req.allow_unsafe = false;
+        assert_eq!(engine.run(req.clone()).await.unwrap().status, "suspended");
+        let outcome =
+            tokio::time::timeout(Duration::from_secs(2), engine.continue_approved(req)).await;
+        let _ = jobs.cleanup().await;
+        let outcome = outcome.unwrap().unwrap();
+        assert_eq!(outcome.status, "done");
+    }
+
+    #[tokio::test]
+    async fn background_followup_approval_does_not_wait_for_output_eof() {
+        let dir = tempdir().unwrap();
+        let sink = Arc::new(RecordingSink::default());
+        let provider = Arc::new(MockProvider::new(vec![
+            Completion {
+                tool_calls: vec![
+                    ToolCall {
+                        call_id: "bash_followup_one".into(),
+                        name: "bash".into(),
+                        args: json!({"command":"printf one; sleep 30","background":true}),
+                    },
+                    ToolCall {
+                        call_id: "bash_followup_two".into(),
+                        name: "bash".into(),
+                        args: json!({"command":"printf two; sleep 30","background":true}),
+                    },
+                ],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+            Completion {
+                text: "done".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            },
+        ]));
+        let jobs = BashJobManager::default();
+        let engine = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            provider,
+            vec![Arc::new(BashTool::with_jobs(jobs.clone())) as Arc<dyn Tool>],
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+        let mut req = request(true);
+        req.allow_unsafe = false;
+        assert_eq!(engine.run(req.clone()).await.unwrap().status, "suspended");
+        let first = tokio::time::timeout(
+            Duration::from_secs(2),
+            engine.continue_approved(req.clone()),
+        )
+        .await;
+        if !matches!(&first, Ok(Ok(outcome)) if outcome.status == "suspended") {
+            let _ = jobs.cleanup().await;
+            panic!("background follow-up approval did not suspend cleanly: {first:?}");
+        }
+        let first = first.unwrap().unwrap();
+        assert_eq!(first.status, "suspended");
+        assert_eq!(sink.approvals.lock().unwrap().len(), 2);
+        let second =
+            tokio::time::timeout(Duration::from_secs(2), engine.continue_approved(req)).await;
+        let _ = jobs.cleanup().await;
+        let second = second.unwrap().unwrap();
+        assert_eq!(second.status, "done");
     }
 
     #[tokio::test]

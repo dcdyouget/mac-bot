@@ -1047,6 +1047,11 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                                         .and_then(Value::as_object_mut)
                                     {
                                         object.insert("stream".into(), json!(stream_id));
+                                        // Runtime-only routing survives background output
+                                        // after its model request finishes. Keep it out
+                                        // of the public trace envelope.
+                                        object.remove("assignment_id");
+                                        object.remove("chat_id");
                                     }
                                     frames.push(frame);
                                 }
