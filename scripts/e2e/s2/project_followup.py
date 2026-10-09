@@ -1390,7 +1390,11 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             observations.append(observation)
             has_coder = any(item.get("status") == "done" for item in observation["coding_assignments"])
             has_tester = any(item.get("status") == "done" for item in observation["tester_assignments"])
-            has_demo = any(Path(item["path"]).name in {"index.html", "app.html"} for item in observation["home_files"])
+            has_demo = any(
+                Path(item["path"]).name in {"index.html", "app.html", "login.html"}
+                and item.get("size", 0) > 0
+                for item in observation["home_files"]
+            )
             has_report = any(Path(item["path"]).name.lower() in {"test.md", "report.md", "test-report.md"} for item in observation["home_files"])
             has_verified_steer = bool(observation["steers"]) and all(item.get("verified") is True for item in observation["steers"])
             if not (has_coder and has_tester and has_demo and has_report and has_verified_steer):
