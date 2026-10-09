@@ -296,3 +296,9 @@
 - server-mac负责下一补丁：恢复原qid关联、保留answered及原答案，启动安全续接原run送达已存选项文本；不造新Q/run、模型child或自动批准工具，Main无options仍由明确reply_to用户答复处理。当前尚未question.answer、Main reply或重发项目，原现场保持；先前诊断由pending-only清单造成，已按完整对象更正。
 - S4旧b5 Bot在7968重启后直接两JPEG low640x316/原t2与URL/ACK/同WS bot→user→bot通过，rawJPEG已核图，无新模型/browser_open请求。S4/production-7968e7e-screen-restored.json、screen-7968e7e-restored/；只计transport，不计native/input或双端整阶段。
 - Android只读当前截图已归档S2/production-7968e7e-android-current.png/json：Production侧栏原两项目可见，名称未变不证明本轮新鲜事件/Question或协作完成；Mac重查screen_locked=1，桌面capture/CUA仍阻断。只有S0完整通过保持，S1–S5真实双端与S5fresh仍待验。
+
+## server-mac：S2 已回答旧决策的原 run 答案送达修复（2026-10-10）
+- 更正此前 pending-only 排查：正式两个 Product Question 本体存在且 answered/option0，真实缺口为答案未送达 durable 原 run及 Message.question_id/wire 关联。保留原 qid/state/answer/answer.at，不重开问题、不再次要求 question.answer；缺失 Question 的旧版兼容仍保留。
+- 启动交叉确认安全 Waiting/Suspended checkpoint、唯一 canonical Message/run request/Question/asg/Bot/chat；恢复原关联，并将已有 answer.text 或已保存 options[option_index]送达同一 run。允许合法 working/wait=null 或精确 decision wait；排除 unsafe_replay、未决工具、queued/terminal/blocked、路由冲突及歧义。Main无 options 仍只接受明确 reply_to，不猜正文。后续工具遵循原审批，不自动批准。
+- 验证：313 workspace tests、all-targets clippy -D warnings、fmt/build通过；新隔离重启用例覆盖answered已提交而continuation未送达，原qid/答案时间/message ID/seq/created_at不变，同run自动done，重复重启无额外provider调用。完整协作24 assignments/27 jobs全done，三角色接力、真实开场、卡片/过滤、双群、插话、Question、父子恢复、blocked与子代理trace均通过。
+- 证据：/tmp/macbot-answered-decision-20261010c.evidence.log及同名home；/tmp/macbot-answered-decision-collaboration-20261010c.evidence.log及同名home；/tmp/macbot-answered-decision-rebase-workspace-20261010.log、/tmp/macbot-answered-decision-rebase-clippy-20261010.log。rebase最新origin/main后server/protocol内容未变；安全门禁独立复核通过。未修改正式7788、mock7789、客户端、GUI或AVD，隔离fake通过不替代真实双端验收。固定SHA交集成server-only部署，沿用旧两项目和原Main等待。
