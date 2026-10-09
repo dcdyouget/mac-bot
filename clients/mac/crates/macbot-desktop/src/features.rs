@@ -2386,39 +2386,40 @@ fn heatmap(
         ];
         let month_row = div()
             .flex()
-            .gap_1()
-            .child(div().w(px(24.)).h(px(16.)))
+            .gap(px(2.))
+            .child(div().w(px(20.)).h(px(16.)))
             .children(month_labels.iter().map(|month| {
                 div()
-                    .w(px(18.))
+                    .w(px(13.))
                     .text_xs()
                     .text_color(tokens.secondary)
                     .child(month.clone())
             }));
-        let weekday_column = div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .children(weekday_labels.iter().map(|label| {
-                div()
-                    .w(px(24.))
-                    .h(px(18.))
-                    .text_xs()
-                    .text_color(tokens.secondary)
-                    .child(*label)
-            }));
+        let weekday_column =
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .children(weekday_labels.iter().map(|label| {
+                    div()
+                        .w(px(20.))
+                        .h(px(16.))
+                        .text_xs()
+                        .text_color(tokens.secondary)
+                        .child(*label)
+                }));
         let weeks_grid = div()
             .flex()
-            .gap_1()
+            .gap(px(2.))
             .child(weekday_column)
             .children(weeks.iter().map(|week| {
                 div()
                     .flex()
                     .flex_col()
-                    .gap_1()
+                    .gap(px(2.))
                     .children(week.iter().map(|day| {
                         if day.is_null() {
-                            return div().size(px(14.)).into_any_element();
+                            return div().size(px(11.)).into_any_element();
                         }
                         let from_input = from_input.clone();
                         let to_input = to_input.clone();
@@ -2441,7 +2442,7 @@ fn heatmap(
                         let selected = date == selected_day;
                         div()
                             .id(format!("heatmap-day-{date}"))
-                            .size(px(if selected { 18. } else { 14. }))
+                            .size(px(if selected { 13. } else { 11. }))
                             .rounded_sm()
                             .bg(color)
                             .border_1()
@@ -2777,6 +2778,7 @@ fn shared_trend_plot(
         move |bounds: Bounds<gpui_kit::gpui::Pixels>, _, _| {
             let width = bounds.size.width.as_f32();
             let height = bounds.size.height.as_f32();
+            let origin = bounds.origin;
             let left = 38.;
             let right = (width - 8.).max(left + 1.);
             let top = 8.;
@@ -2787,8 +2789,8 @@ fn shared_trend_plot(
             for y_ratio in [0., 0.5, 1.] {
                 let y = bottom - (bottom - top) * y_ratio;
                 let mut builder = PathBuilder::stroke(px(1.));
-                builder.move_to(point(px(left), px(y)));
-                builder.line_to(point(px(right), px(y)));
+                builder.move_to(point(origin.x + px(left), origin.y + px(y)));
+                builder.line_to(point(origin.x + px(right), origin.y + px(y)));
                 if let Ok(path) = builder.build() {
                     paths.push((path, grid_color));
                 }
@@ -2809,7 +2811,7 @@ fn shared_trend_plot(
                     };
                     let ratio = ((*value - y_min) / span).clamp(0., 1.) as f32;
                     let y = bottom - (bottom - top) * ratio;
-                    let point = point(px(x), px(y));
+                    let point = point(origin.x + px(x), origin.y + px(y));
                     if index == 0 {
                         builder.move_to(point);
                     } else {
