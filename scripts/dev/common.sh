@@ -348,7 +348,8 @@ macbot_build_desktop() {
   macbot_prepare_target_dir desktop "$desktop_target" || return 1
   if [ -n "$package_script" ]; then
     macbot_log "执行桌面打包脚本：$package_script"
-    (cd "$package_cwd" && CARGO_TARGET_DIR="$desktop_target" /bin/zsh "$package_script" debug app) || {
+    (cd "$package_cwd" && MACBOT_SOURCE_COMMIT="$MACBOT_MAIN_SHA" \
+      CARGO_TARGET_DIR="$desktop_target" /bin/zsh "$package_script" debug app) || {
       macbot_error "桌面打包失败"; return 1;
     }
     MACBOT_DESKTOP_APP="$MACBOT_SOURCE_DIR/clients/mac/dist/MacBot.app"

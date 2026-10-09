@@ -1,0 +1,30 @@
+{
+  "checked_at": "2026-10-09T17:16:18.174652+08:00",
+  "result": "desktop packaging blocked; mock binary staged",
+  "desktop_checkpoint": {
+    "source_commit": "2633ff9c046e12349ad16e29949ba0f7b54aeba8",
+    "clean_archive_compile": "passed 20.66s",
+    "packaging": "failed: git rev-parse HEAD requires .git in archive",
+    "app_installable": false,
+    "log": "~/Library/Caches/MacBot/integrator/watch/desktop-stage-2633ff9.log",
+    "owner": "client-mac",
+    "fix_reported": "58a6081 support MACBOT_SOURCE_COMMIT, final main SHA pending",
+    "read_only_review": "bootstrap reset reloads selected chat.history; skill row IDs independent; live GUI regression still required"
+  },
+  "mock_staged": {
+    "source_commit": "d173babd99c20a2cc791c12cd3b751fb4a3092a3",
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/integrator/staged/d173babd99c20a2cc791c12cd3b751fb4a3092a3/macbotd",
+    "sha256": "712aabadc4cfd37e84d5b80d6081f5519fecc8c514e5496a501fa350265d86ce",
+    "bytes": 11923120,
+    "status": "compiled and staged; not installed or running",
+    "checked_at": "2026-10-09T17:16:18.174652+08:00"
+  },
+  "preserved": {
+    "installed_desktop_source_commit": "eb088fa09c8c841235abe5979220edaa5971bd32",
+    "installed_desktop_pid": 86980,
+    "shared_mock_source_commit": "0ed0a0757d33f564642e6d9b59316fae566ef7bb",
+    "client_mac_qa_pid": 14081,
+    "android": "signed Release verification hold"
+  },
+  "stage_acceptance": "S1-S5 remain unaccepted; no deployment/UI or real provider performed"
+}

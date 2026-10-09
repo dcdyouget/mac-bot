@@ -15,7 +15,9 @@
 | S4 | 浏览器画面、接管、定时任务和通知 | 未验收 | `docs/progress/S4/` |
 | S5 | pkg 全新安装、两端连接和完整场景 | 未验收 | `docs/progress/S5/` |
 
-每个阶段只有在三条开发线都在 `COORDINATION.md` 打卡，并且集成线完成真实联调、保存两端截图后，才会标记为“通过”。最新结果和遗留问题以根目录 `COORDINATION.md` 为准。契约发布核查见 [contracts-published.json](S0/contracts-published.json)。历史初次预检见 [verification.json](S0/verification.json)。最新桌面部署核查见 [main-desktop-preview.json](S0/main-desktop-preview.json)，截图：[连接页](S0/main-72d4353-desktop-connect.png)、[协议示例会话](S0/main-72d4353-desktop-fixtures.png)。开发 worktree mock 的 [bootstrap 预检](S0/unreleased-mock-api.json)通过，但不是 main 联调。
+每个阶段只有在三条开发线都在 `COORDINATION.md` 打卡，并且集成线完成真实联调、保存两端截图后，才会标记为“通过”。
+
+桌面功能 checkpoint `2633ff9` 的干净快照编译通过，但打包脚本依赖 `.git` 而失败，尚未替换安装版；client-mac 已报告 archive 修复 `58a6081`，等待最终 main SHA。集成已将固定 SHA 传入打包接口。mock `d173bab` 的 release binary 已构建暂存，等待共享 QA 窗口交回后升级。详情见 [构建暂存记录](S1/checkpoint-2633ff9-build.json)；这些准备不代表 S1–S5 联调通过。最新结果和遗留问题以根目录 `COORDINATION.md` 为准。契约发布核查见 [contracts-published.json](S0/contracts-published.json)。历史初次预检见 [verification.json](S0/verification.json)。最新桌面部署核查见 [main-desktop-preview.json](S0/main-desktop-preview.json)，截图：[连接页](S0/main-72d4353-desktop-connect.png)、[协议示例会话](S0/main-72d4353-desktop-fixtures.png)。开发 worktree mock 的 [bootstrap 预检](S0/unreleased-mock-api.json)通过，但不是 main 联调。
 
 ## 快速查看效果
 
