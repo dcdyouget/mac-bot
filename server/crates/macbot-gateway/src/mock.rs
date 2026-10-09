@@ -192,13 +192,226 @@ async fn dispatch(
         "usage.heatmap" => usage_heatmap(&params),
         "usage.timeseries" => usage_timeseries(&params),
         "usage.breakdown" => usage_breakdown(&params),
-        "search" => Ok(json!({"results":[]})),
+        "search" => search(state, &params),
         _ => Err(rpc_error(
             "invalid_params",
             &format!("unknown method: {method}"),
             None,
         )),
     }
+}
+
+fn search(state: &MockState, params: &Value) -> RpcResult {
+    let query = params
+        .get("query")
+        .and_then(Value::as_str)
+        .ok_or_else(|| rpc_error("invalid_params", "query is required", None))?
+        .to_lowercase();
+    let kinds = params
+        .get("kinds")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_lowercase)
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let limit = params
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(20)
+        .clamp(1, 100) as usize;
+    let accepts = |kind: &str| kinds.is_empty() || kinds.contains(kind);
+    let mut hits = Vec::new();
+    let mut add = |kind: &str,
+                   id: Option<&str>,
+                   chat_id: Option<&str>,
+                   title: String,
+                   snippet: String,
+                   at: Option<&str>| {
+        let Some(id) = id.filter(|value| !value.is_empty()) else {
+            return;
+        };
+        if !accepts(kind) {
+            return;
+        }
+        let haystack = format!("{} {} {}", id, title, snippet).to_lowercase();
+        if !query.is_empty() && !haystack.contains(&query) {
+            return;
+        }
+        hits.push(json!({
+            "kind":kind,
+            "id":id,
+            "chat_id":chat_id,
+            "title":title,
+            "snippet":snippet,
+            "at":at,
+        }));
+    };
+
+    for bot in &state.bots {
+        let title = bot
+            .get("name")
+            .or_else(|| bot.get("label"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let snippet = bot
+            .get("description")
+            .or_else(|| bot.get("label"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        add(
+            "bot",
+            bot.get("id").and_then(Value::as_str),
+            bot.get("dm_chat_id").and_then(Value::as_str),
+            title,
+            snippet,
+            bot.get("updated_at").and_then(Value::as_str),
+        );
+    }
+    for chat in &state.chats {
+        let title = chat
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let snippet = chat
+            .get("last_message")
+            .and_then(|message| message.get("fallback_text").or(Some(message)))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        add(
+            "chat",
+            chat.get("id").and_then(Value::as_str),
+            chat.get("id").and_then(Value::as_str),
+            title,
+            snippet,
+            chat.get("updated_at").and_then(Value::as_str),
+        );
+    }
+    let mut artifact_ids = std::collections::HashSet::new();
+    for (chat_id, messages) in &state.messages {
+        for message in messages {
+            let snippet = message
+                .get("fallback_text")
+                .or_else(|| message.get("text"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            add(
+                "message",
+                message.get("id").and_then(Value::as_str),
+                Some(chat_id),
+                snippet.clone(),
+                snippet,
+                message.get("created_at").and_then(Value::as_str),
+            );
+            if let Some(blocks) = message.get("blocks").and_then(Value::as_array) {
+                for block in blocks {
+                    for artifact in block
+                        .get("artifacts")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        let id = artifact
+                            .get("id")
+                            .or_else(|| artifact.get("artifact_id"))
+                            .and_then(Value::as_str);
+                        if id.is_some_and(|value| artifact_ids.insert(value.to_owned())) {
+                            let title = artifact
+                                .get("title")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_owned();
+                            let path = artifact
+                                .get("path_or_url")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_owned();
+                            add(
+                                "artifact",
+                                id,
+                                Some(chat_id),
+                                title,
+                                path,
+                                artifact
+                                    .get("updated_at")
+                                    .or_else(|| artifact.get("created_at"))
+                                    .and_then(Value::as_str),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for announcement in extra_get(state, "announcements") {
+        for artifact in announcement
+            .get("artifacts")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let id = artifact.get("id").and_then(Value::as_str);
+            if id.is_some_and(|value| artifact_ids.insert(value.to_owned())) {
+                add(
+                    "artifact",
+                    id,
+                    None,
+                    artifact
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    artifact
+                        .get("path_or_url")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    artifact
+                        .get("updated_at")
+                        .or_else(|| artifact.get("created_at"))
+                        .and_then(Value::as_str),
+                );
+            }
+        }
+    }
+    for routine in extra_get(state, "routines") {
+        add(
+            "routine",
+            routine.get("id").and_then(Value::as_str),
+            None,
+            routine
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            routine
+                .get("instructions")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            routine.get("updated_at").and_then(Value::as_str),
+        );
+    }
+    hits.sort_by(|left, right| {
+        left.get("kind")
+            .and_then(Value::as_str)
+            .cmp(&right.get("kind").and_then(Value::as_str))
+            .then_with(|| {
+                left.get("id")
+                    .and_then(Value::as_str)
+                    .cmp(&right.get("id").and_then(Value::as_str))
+            })
+    });
+    hits.truncate(limit);
+    Ok(json!({"results":hits}))
 }
 
 fn takeover_bot_id(params: &Value) -> String {
@@ -1911,8 +2124,8 @@ mod contract_tests {
     use chrono::{Duration, Utc};
     use macbot_protocol::{
         Announcement, Assignment, Bot, Chat, Device, Message, Model, Project, Provider, Routine,
-        RoutineRun, Settings, Skill, SkillDetail, UsageBreakdownResult, UsageSummaryResult,
-        UsageTimeseriesResult, WorkbenchResult,
+        RoutineRun, SearchHit, SearchResult, Settings, Skill, SkillDetail, UsageBreakdownResult,
+        UsageSummaryResult, UsageTimeseriesResult, WorkbenchResult,
     };
     use serde_json::{json, Value};
 
@@ -2083,6 +2296,63 @@ mod contract_tests {
 
         let projects = call(&gateway, "project.list", json!({"status":["active"]})).await;
         assert!(projects["projects"].is_array());
+    }
+
+    #[tokio::test]
+    async fn search_indexes_fixture_corpus_and_honors_filters() {
+        let gateway = gateway().await;
+        let artifacts = call(
+            &gateway,
+            "search",
+            json!({"query":"PRD","kinds":["artifact"],"limit":10}),
+        )
+        .await;
+        let typed: SearchResult = serde_json::from_value(artifacts.clone()).unwrap();
+        assert!(
+            !typed.results.is_empty(),
+            "fixture artifact corpus is empty"
+        );
+        assert!(typed
+            .results
+            .iter()
+            .all(|hit| hit.kind == macbot_protocol::SearchKind::Artifact));
+        for hit in artifacts["results"].as_array().unwrap() {
+            let _: SearchHit = serde_json::from_value(hit.clone()).unwrap();
+            assert_eq!(hit.as_object().unwrap().len(), 6);
+        }
+
+        let messages = call(
+            &gateway,
+            "search",
+            json!({"query":"邮箱","kinds":["message"],"limit":1}),
+        )
+        .await;
+        let typed: SearchResult = serde_json::from_value(messages).unwrap();
+        assert_eq!(typed.results.len(), 1);
+        assert_eq!(typed.results[0].kind, macbot_protocol::SearchKind::Message);
+
+        let routine = call(
+            &gateway,
+            "routine.create",
+            json!({
+                "bot_id":"bot_main",
+                "name":"夜间 PRD 巡检",
+                "instructions":"检查 PRD 更新",
+                "schedules":[{"cron":"0 * * * *","label":"hourly"}],
+                "timezone":"Asia/Shanghai",
+                "client_request_id":"search-routine"
+            }),
+        )
+        .await;
+        let routine_id = routine["routine"]["id"].as_str().unwrap();
+        let routines = call(
+            &gateway,
+            "search",
+            json!({"query":"巡检","kinds":["routine"],"limit":10}),
+        )
+        .await;
+        let typed: SearchResult = serde_json::from_value(routines).unwrap();
+        assert!(typed.results.iter().any(|hit| hit.id == routine_id));
     }
 
     #[tokio::test]
