@@ -9,34 +9,11 @@ macbot_acquire_lock || exit 1
 trap macbot_release_lock EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-fetch_log="$MACBOT_LOG_DIR/fetch.log"
-mkdir -p "$MACBOT_LOG_DIR" || exit 1
-fetch_timed_out=0
-GIT_TERMINAL_PROMPT=0 git -C "$MACBOT_REPO_ROOT" fetch origin main >> "$fetch_log" 2>&1 &
-fetch_pid=$!
-fetch_elapsed=0
-while kill -0 "$fetch_pid" >/dev/null 2>&1; do
-  if [ "$fetch_elapsed" -ge 15 ]; then
-    kill "$fetch_pid" >/dev/null 2>&1 || true
-    fetch_timed_out=1
-    macbot_warn "git fetch origin main 超时；继续使用本地 main"
-    break
-  fi
-  sleep 1
-  fetch_elapsed=$((fetch_elapsed + 1))
-done
-if [ "$fetch_timed_out" -eq 0 ] && ! wait "$fetch_pid"; then
-  macbot_warn "git fetch origin main 失败；继续使用本地 main"
-fi
-origin_main_sha=$(git -C "$MACBOT_REPO_ROOT" rev-parse --verify origin/main^{commit} 2>/dev/null || true)
-local_main_sha=$(git -C "$MACBOT_REPO_ROOT" rev-parse --verify main^{commit} 2>/dev/null || true)
-if [ -n "$origin_main_sha" ] && [ -n "$local_main_sha" ]; then
-  merge_base=$(git -C "$MACBOT_REPO_ROOT" merge-base main origin/main 2>/dev/null || true)
-  if [ "$merge_base" = "$local_main_sha" ] && [ "$merge_base" != "$origin_main_sha" ]; then
-    macbot_warn "本地 main 落后 origin/main；按约定继续部署本地 main"
-  elif [ "$merge_base" != "$local_main_sha" ] && [ "$merge_base" != "$origin_main_sha" ]; then
-    macbot_warn "本地 main 与 origin/main 已分叉；按约定继续部署本地 main"
-  fi
+if [ -n "${MACBOT_DEPLOY_SHA-}" ]; then
+  macbot_resolve_main_sha || exit 1
+else
+  macbot_sync_main_ref || true
+  macbot_resolve_main_sha || exit 1
 fi
 macbot_prepare_main_source || exit 1
 macbot_ensure_password || exit 1

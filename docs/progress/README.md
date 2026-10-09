@@ -4,18 +4,18 @@
 
 ## 现在的状态
 
-截至 `b1ba8f9` 的业务状态，仓库仍处于 S0 契约与工程骨架阶段。协议和完整场景文档已经提交，但服务端、桌面端、Android 端尚未完成三线合入，因此还没有通过任何阶段的联调验收。
+截至 `7abde23`，协议 Rust crate、35 份 schema、对象/消息块/事件/轨迹 fixtures 和登录场景已发布；服务端 mock、桌面 App 和 Android APK 仍未发布可运行版本，因此 S0 还未通过联调验收。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
-| S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 阻塞：main 尚无可运行组件 | `docs/progress/S0/` |
+| S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 契约已发布；等待 mock 和客户端 | `docs/progress/S0/` |
 | S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未验收 | `docs/progress/S1/` |
 | S2 | 主 Bot、群协作、插话和待验收 | 未验收 | `docs/progress/S2/` |
 | S3 | 技能、仪表盘、搜索和记忆 | 未验收 | `docs/progress/S3/` |
 | S4 | 浏览器画面、接管、定时任务和通知 | 未验收 | `docs/progress/S4/` |
 | S5 | pkg 全新安装、两端连接和完整场景 | 未验收 | `docs/progress/S5/` |
 
-每个阶段只有在三条开发线都在 `COORDINATION.md` 打卡，并且集成线完成真实联调、保存两端截图后，才会标记为“通过”。最新结果和遗留问题以根目录 `COORDINATION.md` 为准。当前证据见 [S0 verification.json](S0/verification.json)：部署已实测逐项跳过，bootstrap 因 mock 未启动失败；没有产品截图。
+每个阶段只有在三条开发线都在 `COORDINATION.md` 打卡，并且集成线完成真实联调、保存两端截图后，才会标记为“通过”。最新结果和遗留问题以根目录 `COORDINATION.md` 为准。契约发布核查见 [contracts-published.json](S0/contracts-published.json)。初次预检证据见 [S0 verification.json](S0/verification.json)：部署已实测逐项跳过，bootstrap 因 mock 未启动失败；没有产品截图。
 
 ## 快速查看效果
 
@@ -78,13 +78,13 @@ mock 的客户端地址是桌面端 `127.0.0.1:7789`、模拟器 `10.0.2.2:7789`
 
 ## 持续部署与模型配置
 
-集成线可安装本机定时检查，每 60 秒检查本地 `main` 的提交：
+集成线可安装本机定时检查，每 60 秒获取并检查 `main` 与 `origin/main` 的提交：
 
 ```sh
 python3 scripts/dev/watch.py --install
 ```
 
-源码从本地 `main` 的固定提交导出到 `~/Library/Caches/MacBot/integrator/source/`，不会切换其他开发线的 worktree。远端更新需要先合入本地 `main`；fetch 不等于合入。部署与初步 S0 API 检查日志保存在 `~/Library/Caches/MacBot/integrator/watch/`，API 成功不代表两端界面已验收。停止持续检查：`python3 scripts/dev/watch.py --uninstall`。
+源码从 `main` 分支的固定提交导出到 `~/Library/Caches/MacBot/integrator/source/`，不会切换其他开发线的 worktree。远端 `origin/main` 若领先则部署其固定 SHA；本地 main 若领先则部署本地 SHA。二者分叉时停止部署并报告，避免自动选错版本；网络失败时使用已获取的 main 引用。部署与初步 S0 API 检查日志保存在 `~/Library/Caches/MacBot/integrator/watch/`，API 成功不代表两端界面已验收。停止持续检查：`python3 scripts/dev/watch.py --uninstall`。
 
 MiniMax CN 国内官方 [Anthropic 接口](https://platform.minimax.cn/docs/api-reference/text-anthropic-api) 的 base URL 为 `https://api.minimax.cn/anthropic`；本机已实测 `MiniMax-M2.5` 文本调用成功。用户密钥保存在登录钥匙串，service 为 `bot.mac.integrator.minimax-cn`，account 为 `macbot-integrator`；服务端未就绪前不会标记为已配置。
 

@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-09T07:31:43.076009+00:00",
+  "source_main": "7abde23",
+  "contract_commits": [
+    "e12a9e7",
+    "8baa23d"
+  ],
+  "published": {
+    "schema": 35,
+    "blocks": 17,
+    "trace": 11,
+    "events": 35
+  },
+  "e2e_fixture_compatibility": "passed: main Bot/chat and Trace keys match current RPC scripts",
+  "server_contract_tests": "reported passed by server-mac, not rerun by integrator",
+  "stage_acceptance": "S0 not accepted: runnable mock and clients pending",
+  "screenshots": []
+}

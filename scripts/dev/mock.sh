@@ -8,6 +8,12 @@ macbot_acquire_lock || exit 1
 trap macbot_release_lock EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+if [ -n "${MACBOT_DEPLOY_SHA-}" ]; then
+  macbot_resolve_main_sha || exit 1
+else
+  macbot_sync_main_ref || true
+  macbot_resolve_main_sha || exit 1
+fi
 macbot_prepare_main_source || exit 1
 macbot_ensure_log_dir
 

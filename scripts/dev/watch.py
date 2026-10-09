@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploy each new local main commit; retain logs without touching other worktrees."""
+"""Deploy new main releases from a fixed commit without changing other worktrees."""
 from __future__ import annotations
 
 import argparse
@@ -26,7 +26,19 @@ def run_once() -> int:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return 0
-        sha = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "main"], text=True).strip()
+        resolved = subprocess.run(
+            ["/bin/bash", "-c", '. "$1"; macbot_sync_main_ref >&2 || true; '
+             'macbot_resolve_main_sha >&2 && printf "%s\\n" "$MACBOT_MAIN_SHA"',
+             str(ROOT / "scripts/dev/watch.py"), str(ROOT / "scripts/dev/common.sh")],
+            capture_output=True, text=True, timeout=25,
+        )
+        if resolved.stderr:
+            print(resolved.stderr.strip(), file=sys.stderr)
+        if resolved.returncode:
+            return resolved.returncode
+        sha = resolved.stdout.strip()
+        if len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
+            raise RuntimeError("Main resolver returned an invalid commit")
         previous_file = STATE / "latest.json"
         previous = json.loads(previous_file.read_text()) if previous_file.exists() else {}
         if previous.get("sha") == sha and previous.get("integration_exit") == 0:
@@ -95,7 +107,7 @@ def install() -> None:
     plist_path.chmod(0o600)
     subprocess.run(["launchctl", "bootout", f"gui/{uid}/{LABEL}"], capture_output=True)
     subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(plist_path)], check=True)
-    print(f"Watching local main every 60 seconds; evidence: {STATE}")
+    print(f"Watching local and origin/main every 60 seconds; evidence: {STATE}")
 
 
 def main() -> int:

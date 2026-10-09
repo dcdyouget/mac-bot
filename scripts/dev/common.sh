@@ -8,6 +8,7 @@ MACBOT_CACHE_ROOT=${MACBOT_CACHE_ROOT:-"$HOME/Library/Caches/MacBot/integrator"}
 MACBOT_SOURCE_ROOT="$MACBOT_CACHE_ROOT/source"
 MACBOT_LOCK_DIR="$MACBOT_CACHE_ROOT/deploy.lock"
 MACBOT_MAIN_SHA=
+MACBOT_FETCH_OK=
 MACBOT_SOURCE_DIR=
 MACBOT_SERVER_BINARY=
 MACBOT_DESKTOP_APP=
@@ -29,6 +30,107 @@ macbot_log() { printf '[MacBot] %s\n' "$*"; }
 macbot_warn() { printf '[MacBot] warning: %s\n' "$*" >&2; }
 macbot_error() { printf '[MacBot] error: %s\n' "$*" >&2; }
 macbot_have() { command -v "$1" >/dev/null 2>&1; }
+
+macbot_sync_main_ref() {
+  if [ -n "${MACBOT_DEPLOY_SHA-}" ]; then
+    MACBOT_FETCH_OK=skipped
+    return 0
+  fi
+  if ! macbot_have python3; then
+    MACBOT_FETCH_OK=failed
+    macbot_warn "找不到 python3，无法 fetch origin/main；继续按现有本地 refs 解析"
+    return 1
+  fi
+  fetch_stderr=$(mktemp "${TMPDIR:-/tmp}/macbot-fetch.XXXXXX") || {
+    MACBOT_FETCH_OK=failed
+    macbot_warn "无法创建 fetch 临时文件；继续按现有本地 refs 解析"
+    return 1
+  }
+  python3 - "$MACBOT_REPO_ROOT" > /dev/null 2> "$fetch_stderr" <<'PY'
+import os
+import subprocess
+import sys
+
+try:
+    result = subprocess.run(
+        ["git", "fetch", "origin", "main"],
+        cwd=sys.argv[1],
+        env=dict(os.environ, GIT_TERMINAL_PROMPT="0"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=15,
+    )
+except subprocess.TimeoutExpired:
+    print("timeout after 15 seconds", file=sys.stderr)
+    raise SystemExit(124)
+if result.returncode and result.stderr:
+    print(result.stderr[-1000:], file=sys.stderr)
+raise SystemExit(result.returncode)
+PY
+  fetch_rc=$?
+  if [ "$fetch_rc" -eq 0 ]; then
+    MACBOT_FETCH_OK=ok
+    rm -f "$fetch_stderr"
+    return 0
+  fi
+  fetch_detail=$(tr '\n' ' ' < "$fetch_stderr" | sed -E \
+    's#(https?://)[^/@[:space:]]+@#\1<redacted>@#g; s/(password|token|key)[=:][^[:space:]]*/\1=<redacted>/gI' | cut -c 1-240)
+  rm -f "$fetch_stderr"
+  MACBOT_FETCH_OK=failed
+  if [ -n "$fetch_detail" ]; then
+    macbot_warn "git fetch origin/main 失败（继续按现有本地 refs 解析）：$fetch_detail"
+  else
+    macbot_warn "git fetch origin/main 失败（继续按现有本地 refs 解析）"
+  fi
+  return 1
+}
+
+macbot_resolve_main_sha() {
+  requested_sha=${MACBOT_DEPLOY_SHA-}
+  if [ -n "$requested_sha" ]; then
+    case "$requested_sha" in
+      *[!0-9a-fA-F]*)
+        macbot_error "MACBOT_DEPLOY_SHA 不是十六进制 commit SHA"
+        return 1
+        ;;
+    esac
+    resolved_sha=$(git -C "$MACBOT_REPO_ROOT" rev-parse --verify "$requested_sha^{commit}" 2>/dev/null || true)
+    if [ -z "$resolved_sha" ]; then
+      macbot_error "MACBOT_DEPLOY_SHA 不存在：$requested_sha"
+      return 1
+    fi
+    MACBOT_MAIN_SHA="$resolved_sha"
+    macbot_log "使用固定部署 SHA $MACBOT_MAIN_SHA"
+    return 0
+  fi
+
+  local_sha=$(git -C "$MACBOT_REPO_ROOT" rev-parse --verify main^{commit} 2>/dev/null || true)
+  if [ -z "$local_sha" ]; then
+    macbot_error "无法解析本地 main"
+    return 1
+  fi
+  remote_sha=$(git -C "$MACBOT_REPO_ROOT" rev-parse --verify origin/main^{commit} 2>/dev/null || true)
+  if [ -z "$remote_sha" ]; then
+    MACBOT_MAIN_SHA="$local_sha"
+    macbot_warn "没有 origin/main；使用本地 main $MACBOT_MAIN_SHA"
+    return 0
+  fi
+  if [ "$local_sha" = "$remote_sha" ]; then
+    MACBOT_MAIN_SHA="$local_sha"
+    return 0
+  fi
+  if git -C "$MACBOT_REPO_ROOT" merge-base --is-ancestor "$local_sha" "$remote_sha"; then
+    MACBOT_MAIN_SHA="$remote_sha"
+    macbot_log "origin/main 是本地 main 的后代；使用远端 SHA $MACBOT_MAIN_SHA"
+  elif git -C "$MACBOT_REPO_ROOT" merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+    MACBOT_MAIN_SHA="$local_sha"
+    macbot_log "本地 main 领先 origin/main；使用本地 SHA $MACBOT_MAIN_SHA"
+  else
+    macbot_error "本地 main 与 origin/main 已分叉，拒绝部署"
+    return 1
+  fi
+}
 
 macbot_acquire_lock() {
   mkdir -p "$MACBOT_CACHE_ROOT" || return 1
@@ -57,9 +159,7 @@ macbot_release_lock() {
 }
 
 macbot_prepare_main_source() {
-  MACBOT_MAIN_SHA=$(git -C "$MACBOT_REPO_ROOT" rev-parse --verify "${MACBOT_DEPLOY_SHA:-main}^{commit}") || {
-    macbot_error "无法解析 main 分支"; return 1;
-  }
+  [ -n "$MACBOT_MAIN_SHA" ] || macbot_resolve_main_sha || return 1
   MACBOT_SOURCE_DIR="$MACBOT_SOURCE_ROOT/$MACBOT_MAIN_SHA"
   mkdir -p "$MACBOT_SOURCE_ROOT" || return 1
   if [ -f "$MACBOT_SOURCE_DIR/.macbot-source-sha" ] && \

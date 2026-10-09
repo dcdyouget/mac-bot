@@ -51,13 +51,16 @@ def validate_bootstrap(result: Any) -> dict[str, Any]:
     if len(main_bots) != 1:
         raise ValueError(f"bootstrap must contain exactly one main bot (found {len(main_bots)})")
     main_dm_chat_id = main_bots[0].get("dm_chat_id")
-    chat_ids = {chat.get("id") for chat in result["chats"] if isinstance(chat, dict)}
+    chat_by_id = {chat.get("id"): chat for chat in result["chats"] if isinstance(chat, dict)}
+    chat_ids = set(chat_by_id)
     if not isinstance(main_dm_chat_id, str) or not main_dm_chat_id or main_dm_chat_id not in chat_ids:
         raise ValueError("main bot dm_chat_id must identify a chat in bootstrap.chats")
+    if chat_by_id[main_dm_chat_id].get("kind") != "main":
+        raise ValueError("main bot dm_chat_id must identify a main chat")
     if not isinstance(result["pending"], dict):
         raise ValueError("bootstrap.pending must be an object")
-    # `chats` is the protocol's session list. It is valid for a fresh Host to
-    # have zero sessions, so presence and type are checked rather than count.
+    # `chats` is the protocol's session list; S0 requires the built-in main
+    # session so a successful check proves the Host is usable by a client.
     return {
         "seq": result["seq"],
         "protocol": hello["protocol"],
