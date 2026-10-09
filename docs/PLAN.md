@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.8
+# Mac Bot 规划 v0.9
 
 > 状态：规划中，尚未开始编码。
+> v0.9 变更：新增「记忆与上下文管理」（每个会话独立执行线程、四层记忆、当前项目由会话决定、分段与压缩、群上下文包）。
 > v0.8 变更：界面和组件设计拆分到 DESIGN.md（含线框图、设计语言、群聊专章）。
 > v0.7 变更：安全部分精简为「每次连接带上密码」；浏览器操控改用 vercel-labs/agent-browser（三种模式评估、实时画面代理）；记忆增加项目级共享层。
 > v0.6 变更：鉴权改为「访问密码」，去掉配对；密码换会话令牌，管理页也需要密码；首次设置向导；防暴力破解。
@@ -41,6 +42,8 @@
 | **hermes-agent**（[GitHub](https://github.com/NousResearch/hermes-agent)） | 记忆系统：两份有字数上限的 curated 笔记 + 快照注入 + 会话全文检索 |
 | **pi / pi-ai**（[GitHub](https://github.com/earendil-works/pi/tree/main/packages/ai)） | Provider 层：按 API 类型抽象、模型目录（能力和价格）、任意 OpenAI 兼容端点 |
 | **pi / pi-durable**（[GitHub](https://github.com/earendil-works/pi/tree/main/packages/durable)） | 持久化运行：Entry、Commit、Task checkpoint、inbox 排队、`requestId` 幂等、resume、compaction |
+| **nightly-labs/openbot**（[GitHub](https://github.com/nightly-labs/openbot)，PolyForm 非商用许可，**只参考设计，不复用代码**） | 与本项目形态最接近的开源实现：本地优先的 AI 队友桌面应用；每个 agent 有独立工作区；**频道（群聊）里每个 agent × 每个频道有一条独立执行线程**；按包组装频道上下文；先做确定性路由；单个负责人加显式委派；每个根请求最多 8 次自动委派；按 80% 阈值压缩；频道记忆；还能从 Grok Bot 导入 agent |
+| **CopilotKit/OpenBot**（[GitHub](https://github.com/CopilotKit/OpenBot)，MIT） | 企业版的「每个 Bot 一台电脑」：常驻角色在每个频道都生效；接管流程有审计记录；用 CEL 写策略；集中的 Memory 页 |
 | **OpenClaw**（[多 Agent 文档](https://docs.openclaw.ai/multi-agent)） | 每个 agent 一套独立的 workspace 和会话存储；默认隔离，显式开启跨 agent 通信；设备配对 |
 | **LobeHub Agent Groups**（[RFC 130](https://lobehub.com/blog/rfc-130)） | 群聊编排：supervisor 决定下一个发言者，以及公开发言还是私信 |
 | **AutoGen GroupChat** | Selector 模式：由 LLM 选下一个发言者，并设置终止条件 |
@@ -233,17 +236,21 @@ mac-bot/
 
 ```
 bots(id, node_id, name, label, description, avatar, model_ref, pinned, hidden, created_at)
-chats(id, node_id, kind[direct|group|bot_dm], title, project_id, created_at)   -- 群聊可绑定项目
+chats(id, node_id, kind[direct|group|bot_dm], title, purpose, project_id, owner_bot_id, created_at)
+                                                            -- 群聊：purpose=群目标；project_id=绑定项目
+threads(id, bot_id, chat_id, active_project_id, segment_no, summary_entry_id, token_estimate, updated_at)
+                                                            -- 执行线程：每个 (Bot, 会话) 一条，见 5.5
+thread_segments(id, thread_id, no, reason[start|compact|project_switch|new_topic], summary, memory_snapshot_json, created_at)
 chat_members(chat_id, member_kind[user|bot], member_id)
 messages(id, chat_id, seq, sender_kind, sender_id, reply_to, mentions, content_json, created_at)   -- FTS5
-runs(id, bot_id, chat_id, trigger_message_id, status, owner_task_id, started_at, ended_at)
-entries(id, run_id|conversation_id, seq, kind, json)       -- 不可变，参照 pi-durable 的 Entry
+runs(id, bot_id, chat_id, thread_id, trigger_message_id, status, owner_task_id, started_at, ended_at)
+entries(id, thread_id, segment_no, run_id, seq, kind, json) -- 不可变，参照 pi-durable 的 Entry
 tasks(id, owner, kind, status, checkpoint_json, updated_at) -- 可恢复的状态机
 submissions(id, bot_id, request_id UNIQUE, status)          -- 幂等
 approvals(id, bot_id, run_id, tool, args_json, status, decision, rule_id)
 projects(id, name, description, is_global, created_at)
 bot_projects(bot_id, project_id)
-memories(id, scope[user|project|bot], project_id, bot_id, content, updated_at)
+memories(id, scope[user|project|chat|bot], project_id, chat_id, bot_id, content, source_bot_id, source_chat_id, updated_at)   -- FTS5
 skills(id, name, description, body_md, updated_at)
 routines(id, bot_id, name, schedule, tz, instructions, enabled, next_run_at)
 routine_runs(id, routine_id, run_id, status, started_at)   -- 每个 Routine 只保留 20 条
@@ -262,7 +269,8 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 - 每个 Bot 是一个 actor，有一个持久化的 **inbox**。消息来源包括：用户私聊、群聊里被路由到它、其他 Bot 的消息、Routine 触发。
 - 同一时间只执行一个 run。用户私聊的新消息作为 **steer** 插入当前 run，在下一轮生效；其他来源的消息排队。
 - 每一步都先提交到 SQLite 再推送给客户端。进程重启后自动 resume。有副作用的工具调用标记为「不可安全重放」，resume 到这类调用时先询问用户。
-- 上下文组装顺序：system 提示（Bot 资料 + 用户画像快照 + Bot 笔记快照 + 可用技能清单）→ 当前会话最近的消息（群聊时是群的最近 N 条）→ 本次 run 的内部 entries。
+- 同一个 Bot 在所有会话中**同一时间只执行一个 run**（共用一个 inbox）；但每个会话有**各自独立的执行线程**，上下文互不污染（见 5.5）。
+- 上下文怎么组装、何时压缩、切换项目会发生什么：见 5.5。
 
 ### 5.4 群聊路由（核心算法）
 1. 用户消息 @ 了某些 Bot：只投递给被 @ 的 Bot。
@@ -274,25 +282,88 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 
 Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话。用户可以查看，但默认不显示在主列表，而是在双方会话里以「交接」卡片的形式出现。
 
-### 5.5 记忆（hermes 风格，三层作用域）
+### 5.5 记忆与上下文管理
 
-| 作用域 | 谁能看到 | 内容 | 例子 |
-|--------|----------|------|------|
-| **用户画像**（`scope=user`） | 所有 Bot | 用户是谁、有什么偏好 | 「我在上海，回复用中文，周报周五交」 |
-| **项目记忆**（`scope=project`） | 关联了该项目的 Bot | 某个项目或主题的共享事实、约定、进展 | 「mac-bot 项目用 Rust + gpui-kit，仓库在 …；当前在做 P2」 |
-| **Bot 笔记**（`scope=bot`） | 只有这个 Bot | 它在自己职责范围内学到的东西 | 「X 时间线总结时跳过广告和转推」 |
+> 参考：hermes-agent（冻结快照、压缩前先存记忆、会话链）、OpenClaw（压缩和裁剪、只自动加载今天和昨天的日记）、**nightly-labs/openbot**（每个 Bot × 每个频道一条独立执行线程；按包组装频道上下文；按 80% 阈值压缩；记忆写入在一轮成功结束后才提交）、**CopilotKit/OpenBot**（「常驻角色在每个频道都生效，频道消息只是角色内的具体任务」）。
 
-- **项目（Project）** 是一个共享记忆空间，由 `projects` 表加 `bot_projects` 关联表组成。
-  - 内置一个「**全局**」项目，所有 Bot 默认关联，用来放团队级的共享事实。
-  - 其他项目由用户或 Bot 创建，然后把相关 Bot 拉进来。
-  - **群聊可以绑定一个项目**：群里的 Bot 在这个群里工作时，自动读写这个项目的记忆，即使它平时没有关联该项目。群聊协作的上下文就是这样共享的。
-- **注入方式**：会话开始时以快照形式注入，各层有自己的字数上限。顺序是用户画像、关联项目（全局项目在前，当前群绑定的项目优先）、Bot 笔记。运行中通过 `memory(scope, project?, action, content)` 工具增删改，下次会话生效。
-- **写入权限**：Bot 可以写自己的笔记，也可以写它关联的项目记忆；用户画像也允许 Bot 写，但客户端会给出「Bot 更新了你的画像」提示，方便用户审查。
-- `session_search`：对 messages 做 FTS5 检索，用于回答「我之前说过什么」。默认搜索本 Bot 参与过的会话，加上它关联项目所绑定的群聊。
-- 客户端入口：
-  - Bot 详情 → Memory 页：编辑这个 Bot 的笔记，查看它关联了哪些项目
-  - 侧栏 → Projects 页：管理项目、项目记忆和成员
-  - Settings → Profile 页：编辑用户画像
+#### 5.5.1 核心原则
+
+1. **Bot 的身份恒定，工作现场按会话隔离。**
+   - Bot 的资料（名字、头衔、长期规则）和 Bot 笔记在任何会话里都一样，这是它「负责某个方向」的体现。
+   - 同一个 Bot 在私聊、群 A、群 B 里各有一条**独立的执行线程（thread）**，各自有对话记录、摘要和压缩进度。群里的讨论不会挤进它的私聊上下文，反过来也一样。
+2. **长期记忆共享，短期上下文不共享。** 记忆层（画像、项目、群备忘、Bot 笔记）是跨线程共享的「硬盘」。线程里的对话记录是各自的「内存」。线程之间只能通过记忆、或者主动检索来互通。
+3. **切换项目不会删除任何记忆，只是换掉「摊在桌面上的那一份」。** 旧项目的记忆仍然在库里，随时可以用 `memory_search` 检索。
+4. **自动注入的内容只放「小而精」的部分，其余都靠工具按需检索。** 这样上下文不会被历史淹没，也有利于 prompt cache。
+
+#### 5.5.2 记忆作用域（四层）
+
+| 作用域 | 谁能看到 | 内容 | 自动注入上限 |
+|--------|----------|------|-------------|
+| **用户画像** `user` | 所有 Bot | 用户是谁、有什么偏好 | 1,500 字 |
+| **项目记忆** `project` | 关联了这个项目的 Bot | 某个项目或主题的事实、约定、进展。内置「全局」项目，所有 Bot 默认关联 | 全局 2,000 字 + 当前项目 3,000 字 |
+| **群备忘** `chat` | 这个群的成员 | 群里达成的决议、分工、约定（类似群公告），由成员 Bot 或用户写入 | 1,500 字 |
+| **Bot 笔记** `bot` | 只有这个 Bot | 它在自己职责范围内学到的经验 | 2,500 字 |
+
+- 字数上限是刻意设的：写满之后，`memory` 工具会返回「已满」，Bot 必须合并或替换旧条目，从而迫使它整理记忆（hermes 的做法）。
+- 每条记忆记录**来源**（哪个 Bot、哪个会话、什么时间写的），界面上可以查看和撤销。
+- 写入时机：在一轮 run 中先暂存，**这一轮成功结束后才提交**；被中断或失败的 run 不留下记忆（nightly-labs 的做法）。
+
+#### 5.5.3 「当前项目」由会话决定，而不是由 Bot 决定
+
+- **群聊**：当前项目就是群绑定的项目。群里每个成员 Bot 都使用它，即使这个 Bot 平时没有关联该项目。
+- **私聊**：每条私聊线程有一个 `active_project_id`。
+  - 默认值是这个 Bot 关联的第一个非全局项目，可以为空。
+  - 用户可以在私聊顶部的项目标签上切换；Bot 也可以在对话里提议切换，例如「这件事属于 # mac-bot，要切过去吗？」
+- **定时任务**：在定时任务里指定项目。
+- `bot_projects` 表示「这个 Bot 有权访问哪些项目」；`active_project_id` 表示「当前加载了哪一个」。两者是不同的概念。
+
+**切换项目时会发生什么**（例如在私聊里从 # mac-bot 切到 # 周报）：
+1. 当前线程结束一个**段（segment）**：为这一段生成一份摘要，压缩前先做一次记忆提取（见 5.5.5）。
+2. 新段开始：重新生成记忆快照，加载 # 周报 的项目记忆，卸下 # mac-bot 的；用户画像、全局项目、Bot 笔记保持不变。
+3. 新段的对话上下文 = 上一段的简短摘要 + 一条系统提示「已切换到 # 周报」。
+4. 界面上出现系统事件「已切换到项目 # 周报，开始新的话题段」。之前的消息仍然在聊天记录里，可以向上翻。
+
+所以：**不会丢记忆，只会换掉加载的那一份项目记忆；对话上下文会收敛成一段摘要。**
+
+#### 5.5.4 每一轮的上下文组装（按稳定程度排序，越稳定越靠前，便于 prompt cache）
+
+| 层 | 内容 | 什么时候变 |
+|----|------|-----------|
+| L0 平台规则 | Mac Bot 的通用行为规范：工具使用、审批、群聊礼仪、交接格式 | 发版时 |
+| L1 Bot 身份 | 「你是 X 侦察，头衔是…，长期规则是…」+ 可用技能清单 + 工具清单 | 编辑 Bot 时 |
+| L2 记忆快照 | 用户画像、全局项目、当前项目、（群聊时）群备忘、Bot 笔记 | **只在新段开始时生成**；中途写入的记忆下一段才可见（hermes 的冻结快照） |
+| L3 会话上下文 | 私聊：段摘要 + 最近的消息。群聊：**群上下文包**（见下） | 每轮 |
+| L4 当前 run | 本次的工具调用和结果；旧的工具输出会先被裁剪 | 每步 |
+| 按需检索（不自动注入） | `session_search`（历史消息全文检索）、`memory_search`（所有可访问的记忆）、`chat_history`（翻群聊记录）、读文件 | Bot 自己决定调用 |
+
+**群上下文包**（参考 nightly-labs，每轮给群成员 Bot 的内容，而不是整个群聊记录）：
+- 群目标、当前负责人、每个成员的分工
+- 本次要处理的请求，以及它引用或回复的原消息
+- 群备忘（已形成的决议）
+- 最近 N 条群消息（默认 30 条）
+- 更早消息的**版本化摘要**（记录覆盖到哪个 seq），完整消息可以用 `chat_history` 取回
+- 附件只给引用，不给内容
+
+**Bot 间消息**必须**自包含**：交接或私信时要写清楚请求、必要背景和期望的产出。接收方不需要去读发送方的上下文（nightly-labs 的通讯规范）。
+
+**群聊路由器**只读取群摘要和成员资料，不读完整记录，也不带工具。能确定性判断的情况（@、回复、只有一个人在做的任务）直接路由，不调用模型。
+
+#### 5.5.5 压缩（compaction）
+
+- **触发**：线程估算的 token 数超过模型上下文窗口的 **80%**；或者用户点击「压缩」；或者开始新话题、切换项目。
+- **步骤**：
+  1. **记忆提取**：先跑一轮只开放 `memory` 工具的 run，让 Bot 把值得长期保存的内容写进记忆（hermes / OpenClaw 的 memory flush）。
+  2. **裁剪**：去掉旧的工具输出（只保留「调用了什么、结果摘要」）。
+  3. **摘要**：用辅助模型（默认与路由器相同的便宜模型）为较早的对话生成摘要；最近几轮原样保留；摘要长度约为被压缩内容的 20%，介于 2k 到 8k token 之间。
+  4. **开新段**：`thread_segments` 新增一行，记录原因和摘要，并重新生成记忆快照。
+- **完整记录永远保留**：messages 表和旧段的 entries 都不删除，都可以被检索。压缩只影响「下一轮送进模型的内容」。
+- 压缩期间，这个 Bot 的 inbox 暂停派发新任务，状态显示为「整理中」。
+
+#### 5.5.6 记忆整理（让 Bot 越用越懂行）
+
+- **run 结束时**：如果这一轮里用户表达了偏好、纠正了 Bot，或者形成了结论，就提示 Bot 考虑写入记忆。这只是 L0 规范里的一条指令，不额外调用模型。
+- **每日整理**（可选，默认关闭）：Bot 空闲时跑一个内置任务，合并重复的记忆、删除过期的、把群备忘里稳定下来的决议提升为项目记忆。整理结果在界面上提示，可以撤销。
+- 记忆被修改后，相关线程在**下一段**生效。如果需要立即生效，可以在界面上点「刷新上下文」，它会结束当前段并开始新段。
 
 ### 5.6 Provider
 - API 类型：`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative`。
@@ -350,9 +421,9 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 
 | 阶段 | 内容 | 验收 |
 |------|------|------|
-| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、单个 Bot 私聊流式对话、durable resume、密码鉴权、`/admin` 管理页（含首次设置密码）、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 和密码后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
+| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、单个 Bot 私聊流式对话、durable resume、执行线程和分段、基础压缩（80% 阈值，先做摘要；记忆提取放到 P3）、密码鉴权、`/admin` 管理页（含首次设置密码）、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 和密码后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
 | **P2 多 Bot 与群聊** | Bot 增删改、Pin/Hide/Duplicate、独立 workspace 和基础工具、审批卡片、群聊路由、@ 和 Reply、Bot 间消息与 handoff、防循环 | 3 个 Bot 在群里分工完成一个任务，中间有交接；审批只出现在私聊里 |
-| **P3 记忆与技能** | 用户画像、项目记忆（含全局项目、群聊绑定项目）、Bot 笔记、session_search、Memory 页、Skills 和 `/` 引用 | 跨会话记住用户偏好，能回答「我上周说过什么」 |
+| **P3 记忆与技能** | 四层记忆（用户画像、项目、群备忘、Bot 笔记）、私聊当前项目和切换、压缩前的记忆提取、session_search / memory_search、上下文用量面板、Memory 页、Skills 和 `/` 引用 | 跨会话记住用户偏好，能回答「我上周说过什么」 |
 | **P4 移动端** | Compose Multiplatform 客户端：会话列表、聊天、群聊、审批、通知、搜索；Android 前台服务；iOS 接入 APNs | 在小米 17 和 iPhone 上都能完成 P2 的场景 |
 | **P5 Routines** | 调度器、通过对话创建、Test run、运行历史 | 「每天 9 点总结 xxx」按时执行并推送结果 |
 | **P6 电脑操控** | 以 sidecar 方式集成 agent-browser（每个 Bot 一个会话，复用 Chrome profile）；macbotd 代理实时画面和输入；Agent Computer 面板和接管 | 用系统 Chrome 已有的 X 登录态刷帖并总结 |
