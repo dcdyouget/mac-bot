@@ -466,7 +466,7 @@ async fn run_worker(
                 request_frame(&resume_id, "session.resume", resume_params).to_string(),
             ))
             .await;
-        let (resumed, resume_result) = match receive_response(
+        let (resume_result, resume_sync_seq) = match receive_response_with_meta(
             &mut socket,
             &resume_id,
             config.request_timeout,
@@ -476,11 +476,8 @@ async fn run_worker(
         )
         .await
         {
-            Ok(result) => (
-                result.get("mode").and_then(Value::as_str) == Some("replay"),
-                Ok(result),
-            ),
-            Err(error) => (false, Err(error)),
+            Ok(receipt) => (Ok(receipt.value), receipt.sync_seq),
+            Err(error) => (Err(error), None),
         };
         if resume_result.is_err() {
             let _ = events
@@ -493,6 +490,25 @@ async fn run_worker(
             }
             continue;
         }
+
+        // A server restart or state reset can leave the persisted client
+        // cursor ahead of the server's current event log.  Such a response
+        // must not be treated as a successful replay: doing so would keep
+        // stale cached state and suppress the bootstrap that repairs it.
+        let server_seq = hello.get("last_seq").and_then(Value::as_u64);
+        let rolled_back = config.has_cached_state
+            && (server_seq.is_some_and(|seq| seq < resume_last_seq)
+                || resume_sync_seq.is_some_and(|seq| seq < resume_last_seq));
+        if rolled_back {
+            last_seq = 0;
+        }
+        let resumed = !rolled_back
+            && resume_result
+                .as_ref()
+                .ok()
+                .and_then(|result| result.get("mode"))
+                .and_then(Value::as_str)
+                == Some("replay");
 
         let _ = events.send(ClientEvent::Connected { hello, resumed }).await;
         if !resumed {
@@ -684,9 +700,28 @@ async fn receive_response(
     last_seq: &mut u64,
     wait_sync: bool,
 ) -> Result<Value> {
+    receive_response_with_meta(socket, id, wait, events, last_seq, wait_sync)
+        .await
+        .map(|receipt| receipt.value)
+}
+
+struct ResponseReceipt {
+    value: Value,
+    sync_seq: Option<u64>,
+}
+
+async fn receive_response_with_meta(
+    socket: &mut Socket,
+    id: &str,
+    wait: Duration,
+    events: &mpsc::Sender<ClientEvent>,
+    last_seq: &mut u64,
+    wait_sync: bool,
+) -> Result<ResponseReceipt> {
     timeout(wait, async {
         let mut response = None;
         let mut sync_seen = false;
+        let mut sync_seq = None;
         let mut out_of_order = BTreeSet::new();
         while let Some(message) = socket.next().await {
             match message.map_err(|error| CoreError::WebSocket(Box::new(error)))? {
@@ -698,10 +733,16 @@ async fn receive_response(
                         let result = response_result(&frame)?;
                         let replay = result.get("mode").and_then(Value::as_str) == Some("replay");
                         if !wait_sync || !replay {
-                            return Ok(result);
+                            return Ok(ResponseReceipt {
+                                value: result,
+                                sync_seq,
+                            });
                         }
                         if sync_seen {
-                            return Ok(result);
+                            return Ok(ResponseReceipt {
+                                value: result,
+                                sync_seq,
+                            });
                         }
                         response = Some(result);
                     }
@@ -719,6 +760,7 @@ async fn receive_response(
                                     .and_then(|data| data.get("seq"))
                                     .and_then(Value::as_u64)
                                 {
+                                    sync_seq = Some(seq);
                                     advance_contiguous(last_seq, seq, &mut out_of_order)?;
                                 }
                                 completed = response.take();
@@ -731,7 +773,10 @@ async fn receive_response(
                                 }))
                                 .await;
                             if let Some(result) = completed {
-                                return Ok(result);
+                                return Ok(ResponseReceipt {
+                                    value: result,
+                                    sync_seq,
+                                });
                             }
                         }
                     }
@@ -745,7 +790,10 @@ async fn receive_response(
             }
         }
         if let Some(result) = response {
-            return Ok(result);
+            return Ok(ResponseReceipt {
+                value: result,
+                sync_seq,
+            });
         }
         Err(CoreError::Closed)
     })
@@ -2264,6 +2312,135 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(bootstrap["seq"], 3);
+    }
+
+    async fn assert_resume_watermark_rollback(hello_seq: u64, sync_seq: u64) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let endpoint = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            socket
+                .send(Message::Text(
+                    json!({
+                        "v": 1,
+                        "kind": "evt",
+                        "event": "hello",
+                        "data": {
+                            "protocol": 1,
+                            "node_id": "node_rollback",
+                            "server_version": "test",
+                            "last_seq": hello_seq
+                        }
+                    })
+                    .to_string(),
+                ))
+                .await
+                .unwrap();
+
+            let Some(Ok(Message::Text(text))) = socket.next().await else {
+                panic!("client closed before session.resume");
+            };
+            let resume: Value = serde_json::from_str(text.as_ref()).unwrap();
+            assert_eq!(resume["method"], "session.resume");
+            assert_eq!(resume["params"]["last_seq"], 10);
+            socket
+                .send(Message::Text(
+                    json!({
+                        "v": 1,
+                        "kind": "res",
+                        "id": resume["id"],
+                        "ok": true,
+                        "result": {"mode": "replay"}
+                    })
+                    .to_string(),
+                ))
+                .await
+                .unwrap();
+            socket
+                .send(Message::Text(
+                    json!({
+                        "v": 1,
+                        "kind": "evt",
+                        "event": "sync.done",
+                        "data": {"seq": sync_seq}
+                    })
+                    .to_string(),
+                ))
+                .await
+                .unwrap();
+
+            let Some(Ok(Message::Text(text))) = socket.next().await else {
+                panic!("rollback resume did not request bootstrap");
+            };
+            let bootstrap: Value = serde_json::from_str(text.as_ref()).unwrap();
+            assert_eq!(bootstrap["method"], "bootstrap");
+            socket
+                .send(Message::Text(
+                    json!({
+                        "v": 1,
+                        "kind": "res",
+                        "id": bootstrap["id"],
+                        "ok": true,
+                        "result": {
+                            "seq": sync_seq,
+                            "hello": {"node_id": "node_rollback"},
+                            "bots": [],
+                            "chats": [],
+                            "projects": [],
+                            "settings": {},
+                            "pending": {}
+                        }
+                    })
+                    .to_string(),
+                ))
+                .await
+                .unwrap();
+        });
+
+        let mut config = ClientConfig::new(&endpoint, "dev");
+        config.node_id = Some("node_rollback".into());
+        config.has_cached_state = true;
+        config.last_seq = 10;
+        config.request_timeout = Duration::from_secs(1);
+        config.reconnect.initial_delay = Duration::from_millis(5);
+        config.reconnect.max_delay = Duration::from_millis(5);
+        config.reconnect.jitter = 0.0;
+        let handle = ClientHandle::spawn(config);
+        let client = handle.client.clone();
+        let mut events = handle.events;
+        let mut saw_connected = false;
+        let mut saw_bootstrap = false;
+        while !saw_bootstrap {
+            let event = timeout(Duration::from_secs(2), events.recv())
+                .await
+                .unwrap()
+                .expect("client event stream closed");
+            match event {
+                ClientEvent::Connected { resumed, .. } => {
+                    assert!(!resumed, "watermark rollback must force a fresh bootstrap");
+                    saw_connected = true;
+                }
+                ClientEvent::Bootstrap(value) => {
+                    assert_eq!(value["seq"], sync_seq);
+                    saw_bootstrap = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_connected);
+        client.close().await;
+        server.await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn resume_hello_watermark_rollback_forces_bootstrap() {
+        assert_resume_watermark_rollback(3, 10).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn resume_sync_watermark_rollback_forces_bootstrap() {
+        assert_resume_watermark_rollback(10, 3).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
