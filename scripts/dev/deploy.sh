@@ -64,7 +64,7 @@ case "$server_rc" in
   0)
     if ! install_server; then
       failures=1
-    elif ! macbot_wait_health 7788 30 || ! macbot_verify_service_pid "$MACBOT_SERVER_LABEL" 7788; then
+    elif ! macbot_wait_health 7788 30 || ! macbot_verify_service_pid "$MACBOT_SERVER_LABEL" 7788 || ! macbot_verify_rpc_access 7788; then
       failures=1
     fi
     ;;

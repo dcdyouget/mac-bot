@@ -549,6 +549,34 @@ macbot_wait_health() {
   macbot_error "端口 $port 健康检查失败"; return 1
 }
 
+macbot_verify_rpc_access() {
+  if ! python3 - "$1" "$(macbot_password_file)" <<'PY'
+import json
+from pathlib import Path
+import sys
+import urllib.request
+port, password_path = sys.argv[1:]
+try:
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/v1/rpc",
+        data=b'{"method":"bootstrap","params":{}}',
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + Path(password_path).read_text().strip()},
+        method="POST")
+    with urllib.request.urlopen(request, timeout=10) as response:
+        payload = json.load(response)
+    if payload.get("ok") is not True:
+        raise ValueError("bootstrap rejected")
+except Exception:
+    sys.exit(1)
+PY
+  then
+    macbot_error "正式服务 RPC 鉴权失败；已有 auth 不会被 --password 覆盖，请核对本机密码文件与 CLI passwd"
+    return 1
+  fi
+  macbot_log "正式服务 RPC 鉴权通过"
+}
+
 macbot_verify_service_pid() {
   label="$1"; port="$2"
   agent_pid=$(macbot_launchctl_pid "$label")
