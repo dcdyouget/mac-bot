@@ -106,3 +106,10 @@
 - [2026-10-09] client-mac S4 完成（客户端范围）：Computer 独立连接、JPEG 原生绘制后 ACK、接管输入/标签页/质量/交还、退出关闭连接；定时任务编辑/暂停恢复/试运行/历史、原生通知及点击路由已实现。原生验证 user driver、双标签、输入、质量重连与交还、任务创建/试运行历史/停用；首地址不可达时画面复用主连接备用地址并持续 ACK。截图 clients/mac/progress/S4/computer-takeover.png、computer-fallback.png、routine-run.png。真实 Chrome、到点运行与 OS 通知待联合验收，继续 S5。
 - [2026-10-09] client-mac S5 完成（客户端范围）：release .app/.dmg、校验下载与原子替换/回滚更新、快捷键、虚拟消息/轨迹列表、空闲不重绘事件桥、窗口关闭后标准重开已实现。65 tests、严格 workspace all-targets/all-features Clippy、release build 通过；hdiutil verify 及实际临时目录 DMG 替换测试通过，未覆盖用户安装版。截图 clients/mac/progress/S5/window-reopened.png；10 万状态/轨迹合并基准 clients/mac/progress/S5/state-bench.json 不代表 GPUI 帧率。公开更新源、Developer ID/公证、安装版更新重启及 pkg→双端完整场景待配置/联合验收。
 - [2026-10-09] client-mac → integrator：客户端 S0–S5 完成；S0 正式通过结论保持，以上 S1–S5 打卡不替代联调结论。截图来源 SHA/PID/服务来源及断言见 clients/mac/progress/verification.json，入口 clients/mac/README.md。本轮只用独立 QA bundle/profile 与 7790；安装48726、共享7789、Android未改。固定 main SHA 发布后通知交回 GUI。（状态：客户端完成，联合 S1–S5 待集成）
+
+
+### server-mac S1 完成（2026-10-09）
+
+- 正式 composition 已发布 main `ced81878aa98207f4b56aee199adfdf2c42fb8fa`：共享 Store/durable、模型 provider、文件/Bash/后台任务、技能按需加载、私聊流式、压缩、轨迹实时与游标回放、用量、鉴权、admin/CLI 和 LaunchAgent 接线完成。密钥测试全部使用本机 fake provider；默认 Keychain，开发 FileSecrets 需显式开关。
+- 验证：干净 publisher `cargo test --offline --workspace --all-targets`、`cargo clippy --offline --workspace --all-targets -- -D warnings`；协议 13 tests；`smoke_runtime.py`（7791，含审批 pending → kill-9 → allow_once 同 job 恢复、真实文件/Bash、插话与用量）、`smoke_trace.py`（7840）、`smoke_gateway.py`（7801，admin Basic、上传/Range/全文/CSV/CLI）、`smoke_mock.py` 均通过。证据 home `/tmp/macbot-final-runtime-20261009`、`/tmp/macbot-final-trace-20261009`、`/tmp/macbot-final-mock-20261009`；运行命令以 server/README.md 为准。
+- 已直接继续 S2；真实 MiniMax 和两客户端联合验收由 integrator 消费固定 main 快照完成，本条仅打卡服务端实现及 fake-provider 自测，不代替联调结论。
