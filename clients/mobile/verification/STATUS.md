@@ -41,3 +41,4 @@ This records Android implementation, mock checks and the explicitly listed real-
 - Identical simultaneous writes now have independent request IDs; failed/cancelled calls release their lease and reuse their own retry ID. Skills save/publish refresh the full detail, not only the list.
 - The foreground service subscribes before connection initialization, seeds notification history at hello before replay, skips streaming placeholders, and notifies each final message once. Host connection failures are visible in localized UI text.
 - Main/direct private chats expose their chat-scoped trace from the header even when messages have no assignment ID.
+- Trend axis values stay on one line on phone widths. Final signed Release screenshots were recaptured after the fix: both saved Hosts connected, active Production sessions, private chat/replay and dashboard. Device test output: `S5-device-tests.txt`; installed artifact identity: `S5-continuation-release.json`.
