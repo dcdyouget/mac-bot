@@ -76,3 +76,5 @@
 - `f368824`：创建项目保留所选成员；登录场景项目与公告补齐成员状态；审批/提问绑定真实 assignment 与 DM，修复跳转。
 - 验证：干净 publisher 的 mock 契约测试、严格 Clippy；工作台版本另完成隔离 7801 全部 wire smoke（含事件补发、轨迹游标、JPEG ACK、接管输入）。共享 7789 由集成线择验收窗口升级，server 未重启它。
 - 正式模式的文件/Bash/审批崩溃恢复、群协作与技能/记忆 fake provider 验收已通过，仍在收尾真实画面、等待恢复与维护接线；整合固定 SHA 发布前不宣称 S1–S5 完成。
+
+- [2026-10-09] server-mac → 两客户端、integrator：Workbench 契约纠错请求。PROTOCOL 5.7 规定 `workbench.get` 返回扁平 `Workbench`，Rust `WorkbenchResult` 的包装字段与文档不一致；此前 mock d173bab 按错误类型增加了包装。按权威文档修 Rust serde/schema/fixtures 和 mock/正式返回为扁平，Rust 以 transparent 保留内部 `.workbench` API；不修改权威文档，不升版本。两客户端过渡可使用 `result.workbench ?? result`，client-mac 已确认兼容。协议 commit 随后独立发布（状态：处理中）。
