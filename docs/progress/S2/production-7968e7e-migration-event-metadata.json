@@ -1,0 +1,389 @@
+{
+  "scenario": "S2 decision migration event metadata read-only",
+  "source_commit": "7968e7e2a1b6806f857b996ba561a4bfbbbff2da",
+  "scope": "exact f6b1/f0bc decision IDs; metadata only; no payload text/options/provider/key",
+  "event_log": {
+    "path": "/Users/gongshaojie/MacBot/data/events/events.jsonl",
+    "exists": true,
+    "line_count": 776,
+    "last_event_seq": 776,
+    "decision_recovery_markers": [
+      {
+        "event_seq": 776,
+        "event": "assignment.updated",
+        "kind": "decision-recovery",
+        "target_message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+        "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+        "status": "waiting_bot",
+        "wait_reason": "decision",
+        "wait_message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34"
+      }
+    ]
+  },
+  "decisions": {
+    "f6b1": {
+      "message_id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "message_assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+      "wait_assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+      "canonical_message_events": [
+        {
+          "event_seq": 688,
+          "event": "message.created",
+          "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+          "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "seq": 2,
+          "has_question_block": false,
+          "intent": "decision"
+        }
+      ],
+      "message_assignment_event_sequences": {
+        "assignment.created": [
+          600
+        ],
+        "message.created": [
+          601,
+          688
+        ],
+        "trace.item": [
+          605,
+          606,
+          612,
+          613,
+          614,
+          615,
+          617,
+          618,
+          619,
+          656,
+          657,
+          658,
+          659,
+          666,
+          667,
+          668,
+          671,
+          672,
+          673,
+          674,
+          686,
+          687,
+          692,
+          693
+        ],
+        "assignment.updated": [
+          611,
+          616,
+          665,
+          685
+        ],
+        "question.answered": [
+          696
+        ]
+      },
+      "wait_assignment_event_sequences": {
+        "assignment.created": [
+          690,
+          775
+        ],
+        "message.created": [
+          691,
+          708,
+          753
+        ],
+        "trace.item": [
+          694,
+          695,
+          698,
+          699,
+          700,
+          711,
+          712,
+          713,
+          714,
+          726,
+          727,
+          728,
+          736,
+          737,
+          738,
+          739,
+          746,
+          747,
+          748,
+          749,
+          751,
+          752,
+          755,
+          756
+        ],
+        "assignment.updated": [
+          697,
+          725,
+          745,
+          750,
+          776
+        ],
+        "question.asked": [
+          705
+        ],
+        "message.updated": [
+          707
+        ],
+        "question.answered": [
+          710
+        ]
+      },
+      "question_asked_or_answered_for_wait_assignment": [
+        {
+          "event_seq": 705,
+          "event": "question.asked",
+          "id": "01a12170-cb4e-73fb-b58a-73031310860d",
+          "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "bot_id": "main",
+          "state": "pending",
+          "question_id": "01a12170-cb4e-73fb-b58a-73031310860d"
+        },
+        {
+          "event_seq": 710,
+          "event": "question.answered",
+          "id": "01a12170-cb4e-73fb-b58a-73031310860d",
+          "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "bot_id": "main",
+          "state": "answered",
+          "question_id": "01a12170-cb4e-73fb-b58a-73031310860d"
+        }
+      ],
+      "question_message_updates_for_wait_assignment": [
+        {
+          "event_seq": 707,
+          "event": "message.updated",
+          "id": "msg_question_run_01a12170-b386-776a-96da-513ceaaf93ea",
+          "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "seq": 4,
+          "has_question_block": true
+        },
+        {
+          "event_seq": 708,
+          "event": "message.created",
+          "id": "msg_question_run_01a12170-b386-776a-96da-513ceaaf93ea",
+          "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "seq": 4,
+          "has_question_block": true
+        }
+      ],
+      "assessment": {
+        "canonical_message_has_direct_question_event": false,
+        "question_event_count_on_wait_assignment": 2,
+        "question_message_update_count_on_wait_assignment": 2
+      }
+    },
+    "f0bc": {
+      "message_id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "message_assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "wait_assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "canonical_message_events": [
+        {
+          "event_seq": 770,
+          "event": "message.created",
+          "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+          "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+          "seq": 2,
+          "has_question_block": false,
+          "intent": "decision"
+        }
+      ],
+      "message_assignment_event_sequences": {
+        "assignment.created": [
+          635
+        ],
+        "message.created": [
+          636,
+          770
+        ],
+        "trace.item": [
+          643,
+          644,
+          646,
+          647,
+          648,
+          649,
+          651,
+          652,
+          653,
+          661,
+          662,
+          663,
+          664,
+          676,
+          677,
+          678,
+          681,
+          682,
+          683,
+          684,
+          702,
+          703,
+          704,
+          716,
+          717,
+          718,
+          719,
+          721,
+          722,
+          723,
+          724,
+          731,
+          732,
+          733,
+          741,
+          742,
+          743,
+          744,
+          758,
+          759,
+          760,
+          763,
+          764,
+          765,
+          766,
+          768,
+          769,
+          772,
+          773
+        ],
+        "assignment.updated": [
+          645,
+          650,
+          675,
+          701,
+          720,
+          730,
+          757,
+          767
+        ],
+        "question.answered": [
+          774
+        ]
+      },
+      "wait_assignment_event_sequences": {
+        "assignment.created": [
+          635
+        ],
+        "message.created": [
+          636,
+          770
+        ],
+        "trace.item": [
+          643,
+          644,
+          646,
+          647,
+          648,
+          649,
+          651,
+          652,
+          653,
+          661,
+          662,
+          663,
+          664,
+          676,
+          677,
+          678,
+          681,
+          682,
+          683,
+          684,
+          702,
+          703,
+          704,
+          716,
+          717,
+          718,
+          719,
+          721,
+          722,
+          723,
+          724,
+          731,
+          732,
+          733,
+          741,
+          742,
+          743,
+          744,
+          758,
+          759,
+          760,
+          763,
+          764,
+          765,
+          766,
+          768,
+          769,
+          772,
+          773
+        ],
+        "assignment.updated": [
+          645,
+          650,
+          675,
+          701,
+          720,
+          730,
+          757,
+          767
+        ],
+        "question.answered": [
+          774
+        ]
+      },
+      "question_asked_or_answered_for_wait_assignment": [
+        {
+          "event_seq": 774,
+          "event": "question.answered",
+          "id": "01a12174-9595-70d1-994f-657145f20584",
+          "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "state": "answered",
+          "question_id": "01a12174-9595-70d1-994f-657145f20584"
+        }
+      ],
+      "question_message_updates_for_wait_assignment": [],
+      "assessment": {
+        "canonical_message_has_direct_question_event": false,
+        "question_event_count_on_wait_assignment": 1,
+        "question_message_update_count_on_wait_assignment": 0
+      }
+    }
+  },
+  "main_cc34": {
+    "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+    "linked_decision_recovery_event_count": 1,
+    "note": "Only the Main wait/recovery marker is present in events; it is not a Product f6b1/f0bc question migration event."
+  },
+  "operations_log": {
+    "path": "/Users/gongshaojie/MacBot/data/orchestrator/operations.jsonl",
+    "exists": true,
+    "line_count": 621,
+    "last_line_number": 621,
+    "decision_recovery_count": 0,
+    "recent_decision_recovery": []
+  },
+  "conclusion": {
+    "f6b1_question_migration_event_present": false,
+    "f0bc_question_migration_event_present": false,
+    "historical_main_question_event_present": true,
+    "decision_recovery_marker_present_for_main_cc34": true,
+    "interpretation": "The event log contains canonical decision message creation and later Main wait/recovery activity. It contains no question event/message update that attaches a new Question block to either f6b1 or f0bc; the only question.asked/message question block is the historical Main ask_user path. operations.jsonl has no decision.recovery entry."
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "checked_at": "2026-10-09T17:28:40.796836+00:00",
+  "android_source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "server_source_commit": "7968e7e2a1b6806f857b996ba561a4bfbbbff2da",
+  "server_pid": 24284,
+  "capture": "adb exec-out screencap -p",
+  "image": "docs/progress/S2/production-7968e7e-android-current.png",
+  "sha256": "f763a0dc2d42af79965b950db63ef3b66710ce81b83f277b0050b9d0ac8c1ff0",
+  "visually_checked": true,
+  "observed_host_label": "Production",
+  "observed_projects": [
+    "macbot-e2e-s2-login-6770085010b5",
+    "macbot-e2e-s2-parallel-670fbcbf1d89"
+  ],
+  "note": "Read-only current sidebar screenshot; unchanged project names alone do not prove live reconnect, Question migration, or S2 completion. Desktop capture blocked by screen_locked=1."
+}

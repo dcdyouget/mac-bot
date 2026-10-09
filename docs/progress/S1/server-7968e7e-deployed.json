@@ -1,0 +1,38 @@
+{
+  "artifact": "production server deployment evidence",
+  "observed_at": "2026-10-09T17:26:05Z",
+  "source_commit": "7968e7e2a1b6806f857b996ba561a4bfbbbff2da",
+  "deploy_log": "~/Library/Caches/MacBot/integrator/watch/server-deploy-7968e7e.log",
+  "deploy_result": {
+    "fixed_source_archive": true,
+    "exit_code": 0,
+    "authentication_probe": "passed per deployment run; credential value not recorded"
+  },
+  "service": {
+    "label": "com.macbot.server",
+    "launchagent_pid": 24284,
+    "listener_pid": 24284,
+    "listen": "*:7788",
+    "executable": "~/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+    "installed_source_marker": "7968e7e2a1b6806f857b996ba561a4bfbbbff2da",
+    "pid_match": true,
+    "argv": "omitted"
+  },
+  "health": {
+    "endpoint": "GET http://127.0.0.1:7788/api/v1/health",
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false,
+    "mock": false
+  },
+  "verification": {
+    "read_only": true,
+    "password_or_environment_recorded": false,
+    "screen_or_browser_acceptance": "not_checked",
+    "s1_joint_acceptance": "not_passed",
+    "s2_migration": "incomplete; two Product Questions not restored",
+    "s4_acceptance": "not_passed",
+    "s5_fresh_install": "not_passed"
+  }
+}

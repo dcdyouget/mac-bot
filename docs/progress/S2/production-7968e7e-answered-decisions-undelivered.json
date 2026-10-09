@@ -1,0 +1,95 @@
+{
+  "scenario": "S2 answered decision objects and wire delivery read-only",
+  "source_commit": "7968e7e2a1b6806f857b996ba561a4bfbbbff2da",
+  "scope": "state.json whitelist only; no question text/options/answer text/provider/key; no mutation",
+  "state_file": {
+    "path": "/Users/gongshaojie/MacBot/data/orchestrator/state.json",
+    "exists": true,
+    "question_count": 3
+  },
+  "decisions": [
+    {
+      "label": "f6b1",
+      "question": {
+        "id": "01a12170-b386-776a-96da-513b6dc64bfd",
+        "state": "answered",
+        "allow_free_text": true,
+        "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "options_count": 2,
+        "answer": {
+          "present": true,
+          "state": "answered",
+          "at": "2026-10-09T16:13:19.034758+00:00",
+          "option_index": 0,
+          "text_present": false
+        }
+      },
+      "original_decision_message": {
+        "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+        "present": true,
+        "intent": "decision",
+        "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "sender_bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "block_types": []
+      },
+      "matching": {
+        "question_id_is_known": true,
+        "message_id_is_known": true,
+        "assignment_id_match": true,
+        "bot_id_match": true,
+        "chat_id_match": true,
+        "message_intent_is_decision": true,
+        "all_identity_fields_match": true
+      }
+    },
+    {
+      "label": "f0bc",
+      "question": {
+        "id": "01a12174-9595-70d1-994f-657145f20584",
+        "state": "answered",
+        "allow_free_text": true,
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "options_count": 2,
+        "answer": {
+          "present": true,
+          "state": "answered",
+          "at": "2026-10-09T16:17:33.267874+00:00",
+          "option_index": 0,
+          "text_present": false
+        }
+      },
+      "original_decision_message": {
+        "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+        "present": true,
+        "intent": "decision",
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "sender_bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "block_types": []
+      },
+      "matching": {
+        "question_id_is_known": true,
+        "message_id_is_known": true,
+        "assignment_id_match": true,
+        "bot_id_match": true,
+        "chat_id_match": true,
+        "message_intent_is_decision": true,
+        "all_identity_fields_match": true
+      }
+    }
+  ],
+  "assessment": {
+    "question_objects_present": true,
+    "question_objects_answered": true,
+    "answers_are_option_zero": true,
+    "canonical_message_identity_matches_question": true,
+    "wire_delivery_observation": "Earlier event/API evidence showed no question block on the canonical decision messages and no same-run answer-delivery event; state confirms Q objects and answers exist.",
+    "migration_status": "IDENTITY_PASS_MIGRATION_INCOMPLETE"
+  },
+  "conclusion": "Both Product Question objects exist in orchestrator state, are answered with option_index=0, and match their original decision message by assignment/bot/chat identity. The remaining gap is wire/run delivery or same-run resume linkage, not missing Question objects; retain migration incomplete."
+}

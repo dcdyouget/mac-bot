@@ -1,0 +1,431 @@
+{
+  "scenario": "S2 decision migration read-only",
+  "url": "http://127.0.0.1:7788",
+  "before_artifact": "docs/progress/S2/production-f9109a3-decision-before-upgrade.json",
+  "scope": "same two legacy projects; no mutation",
+  "projects": [
+    {
+      "marker": "macbot-e2e-s2-login-6770085010b5",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "canonical_messages": [
+        {
+          "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+          "present": true,
+          "identity_unchanged": true,
+          "before_seq": 2,
+          "after_seq": 2,
+          "before_created_at": "2026-10-09T16:13:16.550963+00:00",
+          "after_created_at": "2026-10-09T16:13:16.550963+00:00",
+          "blocks": [
+            {
+              "markdown": "项目 [macbot-e2e-s2-login-6770085010b5] 的本地 PRD 已编写完成，请确认登录方式：",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+          "present": true,
+          "identity_unchanged": true,
+          "before_seq": 5,
+          "after_seq": 5,
+          "before_created_at": "2026-10-09T16:17:25.411795+00:00",
+          "after_created_at": "2026-10-09T16:17:25.411795+00:00",
+          "blocks": [
+            {
+              "markdown": "✅ 用户已确认登录方式为：**邮箱登录**（仅邮箱验证）\n\n请产品 Bot 更新 PRD，编码 Bot 准备进入实现阶段。",
+              "type": "text"
+            }
+          ]
+        }
+      ],
+      "question_blocks": [
+        {
+          "message_id": "msg_question_run_01a12170-b386-776a-96da-513ceaaf93ea",
+          "seq": 4,
+          "created_at": "2026-10-09T16:13:22.299Z",
+          "question_id": "01a12170-cb4e-73fb-b58a-73031310860d",
+          "type": "question",
+          "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+          "sender": {
+            "kind": "bot",
+            "bot_id": "main"
+          },
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "options_count": 0,
+          "classification": "historical_main_ask_user_already_answered"
+        }
+      ],
+      "question_associations": [],
+      "assignment_filter": {
+        "requested_project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "returned_count": 2,
+        "project_scoped_count": 2
+      },
+      "assignments": [
+        {
+          "id": "01a12170-b386-776a-96da-513ceaaf93ea",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "bot_id": "main",
+          "status": "waiting_bot",
+          "wait": {
+            "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+            "reason": "decision"
+          },
+          "run_ids": [
+            "run_01a12170-b386-776a-96da-513ceaaf93ea"
+          ],
+          "waiting_trace": [
+            {
+              "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+              "aseq": 5,
+              "at": "2026-10-09T16:13:21.846Z",
+              "reason": "decision",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+              "aseq": 12,
+              "at": "2026-10-09T16:14:37.229Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+              "aseq": 24,
+              "at": "2026-10-09T16:17:25.572Z",
+              "reason": "decision",
+              "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34"
+            }
+          ],
+          "trace_count": 24,
+          "trace_first_aseq": 1,
+          "trace_last_aseq": 24
+        },
+        {
+          "id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "status": "working",
+          "wait": null,
+          "run_ids": [
+            "run_01a12164-7c88-764d-8e90-510303cc1a58"
+          ],
+          "waiting_trace": [
+            {
+              "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+              "aseq": 9,
+              "at": "2026-10-09T16:00:02.773Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+              "aseq": 16,
+              "at": "2026-10-09T16:13:10.974Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+              "aseq": 24,
+              "at": "2026-10-09T16:13:16.722Z",
+              "reason": "decision",
+              "message_id": "01a12170-b386-776a-96da-513ab4e7f6b1"
+            }
+          ],
+          "trace_count": 24,
+          "trace_first_aseq": 1,
+          "trace_last_aseq": 24
+        }
+      ],
+      "main_cc34": {
+        "message_present": true,
+        "has_question_block": false,
+        "wait_refs": [
+          {
+            "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+            "aseq": 24,
+            "at": "2026-10-09T16:17:25.572Z",
+            "reason": "decision",
+            "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34"
+          }
+        ]
+      },
+      "question_block_associations": []
+    },
+    {
+      "marker": "macbot-e2e-s2-parallel-670fbcbf1d89",
+      "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "canonical_messages": [
+        {
+          "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+          "present": true,
+          "identity_unchanged": true,
+          "before_seq": 2,
+          "after_seq": 2,
+          "before_created_at": "2026-10-09T16:17:31.029311+00:00",
+          "after_created_at": "2026-10-09T16:17:31.029311+00:00",
+          "blocks": [
+            {
+              "markdown": "macbot-e2e-s2-parallel-670fbcbf1d89 项目的登录方式选择？",
+              "type": "text"
+            }
+          ]
+        }
+      ],
+      "question_blocks": [],
+      "question_associations": [],
+      "assignment_filter": {
+        "requested_project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+        "returned_count": 1,
+        "project_scoped_count": 1
+      },
+      "assignments": [
+        {
+          "id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "status": "working",
+          "wait": null,
+          "run_ids": [
+            "run_01a12167-a1fb-73c5-b084-9eee39ef7972"
+          ],
+          "waiting_trace": [
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 9,
+              "at": "2026-10-09T16:03:34.037Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 16,
+              "at": "2026-10-09T16:13:14.451Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 23,
+              "at": "2026-10-09T16:13:22.516Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 34,
+              "at": "2026-10-09T16:14:38.042Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 41,
+              "at": "2026-10-09T16:17:25.871Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 49,
+              "at": "2026-10-09T16:17:31.193Z",
+              "reason": "decision",
+              "message_id": "01a12174-9595-70d1-994f-65707bf0f0bc"
+            }
+          ],
+          "trace_count": 49,
+          "trace_first_aseq": 1,
+          "trace_last_aseq": 49
+        }
+      ],
+      "main_cc34": {
+        "message_present": false,
+        "has_question_block": false,
+        "wait_refs": []
+      },
+      "question_block_associations": []
+    }
+  ],
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false,
+    "mock": null
+  },
+  "question_surfaces": {
+    "bootstrap_pending_count": 0,
+    "workbench_waiting_count": 0,
+    "bootstrap_pending": [],
+    "workbench_waiting": []
+  },
+  "checkpoints": {
+    "jobs_dir": "~/MacBot/data/jobs",
+    "matched_jobs": [
+      {
+        "file": "job_01a12164-5108-73a0-a9ac-4de856d4f431.json",
+        "status": "done",
+        "run_id": "run_chat_01a12164_501f_7705_b591_7732b44352e8",
+        "pending_tool": false,
+        "pending_tools_empty": false,
+        "waiting_reason": null,
+        "wait_intent": null,
+        "waiting_message_id": null,
+        "unsafe_replay": false
+      },
+      {
+        "file": "job_01a12164-809f-7316-bd5f-82da38a1793e.json",
+        "status": "waiting",
+        "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+        "pending_tool": false,
+        "pending_tools_empty": true,
+        "waiting_reason": "decision",
+        "wait_intent": "decision",
+        "waiting_message_id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+        "unsafe_replay": false
+      },
+      {
+        "file": "job_01a12167-62e6-7284-9343-6f1ce942db40.json",
+        "status": "done",
+        "run_id": "run_chat_01a12167_61f0_7416_9fda_11a64f745cdd",
+        "pending_tool": false,
+        "pending_tools_empty": false,
+        "waiting_reason": null,
+        "wait_intent": null,
+        "waiting_message_id": null,
+        "unsafe_replay": false
+      },
+      {
+        "file": "job_01a12167-b4b2-7276-bd22-32e1ec7ef105.json",
+        "status": "waiting",
+        "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "pending_tool": false,
+        "pending_tools_empty": true,
+        "waiting_reason": "decision",
+        "wait_intent": "decision",
+        "waiting_message_id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+        "unsafe_replay": false
+      },
+      {
+        "file": "job_01a12170-b4d7-75cd-80fe-3d6f93352c2b.json",
+        "status": "waiting",
+        "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+        "pending_tool": false,
+        "pending_tools_empty": true,
+        "waiting_reason": "decision",
+        "wait_intent": "decision",
+        "waiting_message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+        "unsafe_replay": false
+      }
+    ]
+  },
+  "run_requests": [
+    {
+      "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+      "present": true,
+      "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "phase": "work"
+    },
+    {
+      "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "present": true,
+      "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "phase": "work"
+    },
+    {
+      "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+      "present": true,
+      "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "bot_id": "main",
+      "phase": "coordinate"
+    }
+  ],
+  "process_source": [
+    {
+      "pid": 24284,
+      "ps": "24284 /Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+      "executable": "/Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+      "listening_ports": [
+        "*:7788"
+      ],
+      "source_commit_file": "~/Applications/MacBotServer.app/Contents/Resources/source-commit",
+      "source_commit": "7968e7e2a1b6806f857b996ba561a4bfbbbff2da"
+    },
+    {
+      "pid": 66750,
+      "ps": "66750 /Users/gongshaojie/Applications/MacBotMock.app/Contents/MacOS/macbotd",
+      "executable": "/Users/gongshaojie/Applications/MacBotMock.app/Contents/MacOS/macbotd",
+      "listening_ports": [
+        "*:7789"
+      ]
+    }
+  ],
+  "status": "IDENTITY_PASS_MIGRATION_INCOMPLETE",
+  "conclusion": "IDENTITY_PASS_MIGRATION_INCOMPLETE: canonical decision messages f6b1/f0bc remain stable. Their Product Question objects are present in orchestrator state, answered with option_index=0, and match the original messages by assignment/bot/chat identity. The remaining defect is missing wire/same-run answer delivery or resume linkage; it is not missing Question-object creation. API pending surfaces were empty after the answers. The historical Main seq4 question and cc34 wait-only path remain separate.",
+  "deployment_observation": {
+    "expected_source_commit": "7968e7e",
+    "formal_host_pid": 24284,
+    "formal_port": 7788,
+    "mock_host_pid": 66750,
+    "mock_port": 7789
+  },
+  "assessment": {
+    "canonical_decisions": "PASS: f6b1 and f0bc decision messages retain canonical id/seq/created_at; both have options_count=2 but no question block.",
+    "missing_questions": "CORRECTED: the two Product Question objects are present in orchestrator state and both are answered with option_index=0; the API/bootstrap pending Question/workbench surfaces were empty because answers had already been recorded. The remaining gap is wire/same-run answer delivery or resume linkage, not Question-object creation.",
+    "historical_main_question": "seq4 question block remains a separate historical Main ask_user path; do not use it to infer Product Q absence. cc34 is a separate Main text reply with no question block and wait-only association.",
+    "canonical_state": "Recorded assignment_id, sender, chat_id, options_count, and question-block presence without message正文/options正文.",
+    "jobs_and_requests": "PASS: exact three jobs have unsafe_replay=false, waiting decision metadata, empty pending_tools, and run_request mappings.",
+    "installed_source": "PASS: formal executable source-commit is the full SHA 7968e7e2a1b6806f857b996ba561a4bfbbbff2da.",
+    "migration_status": "IDENTITY_PASS_MIGRATION_INCOMPLETE",
+    "answered_decisions": "PASS_READONLY: QIDs 01a12170-b386-776a-96da-513b6dc64bfd and 01a12174-9595-70d1-994f-657145f20584 are state=answered, answer option_index=0, and match f6b1/f0bc messages by assignment_id/bot_id/chat_id.",
+    "wire_delivery_gap": "INCOMPLETE: retained events/API show canonical decision messages without question blocks and no same-run answer-delivery event; state.json confirms the Q objects and answers exist."
+  },
+  "canonical_message_state": [
+    {
+      "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+      "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+      "sender": {
+        "kind": "bot",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30"
+      },
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "options_count": 2,
+      "has_question_block": false
+    },
+    {
+      "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+      "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "sender": {
+        "kind": "bot",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30"
+      },
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "options_count": 2,
+      "has_question_block": false
+    },
+    {
+      "id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+      "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+      "sender": {
+        "kind": "bot",
+        "bot_id": "main"
+      },
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "options_count": 0,
+      "has_question_block": false
+    }
+  ],
+  "answered_decisions_artifact": "docs/progress/S2/production-7968e7e-answered-decisions-undelivered.json"
+}

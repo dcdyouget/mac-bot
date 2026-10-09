@@ -1,0 +1,23 @@
+{
+  "latest_snapshot_method": "takeover.release",
+  "messages": [
+    {
+      "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+      "present_in_latest_operation_snapshot": true,
+      "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+      "options_count": 2
+    },
+    {
+      "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+      "present_in_latest_operation_snapshot": true,
+      "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "options_count": 2
+    },
+    {
+      "id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+      "present_in_latest_operation_snapshot": true,
+      "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+      "options_count": 0
+    }
+  ]
+}
