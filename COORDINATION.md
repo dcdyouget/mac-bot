@@ -471,3 +471,10 @@
 
 - 后续原 busy Coder 同 run 完成三轮精确 index.html edit；首轮因 oldText 不唯一返回 tool.error，模型显式重试后两轮均成功，只放行本项目 HTML 目标/唯一 checkpoint。最终原 assignment done、单 run.start、无本任务 pending；S2/production-d799dda-first-index-edit-{approval,retry,final}.json、production-d799dda-first-index-run-final.json。新 index.html 14596bytes/f03b877f… 经隔离真实浏览器验证登录后仅成功区、刷新保持、退出、错误输入及375px布局全部通过，PNG已视觉核验，S2/production-d799dda-first-index-demo.json；原 login.html 未改，其失败不被覆盖。没有集成手改 HTML，没有确认项目完成或把任务 done 当 Tester实测。
 - busy_user_steer.py 发送前新增本机 run_request 的 run/asg/Bot/project/chat 严格身份校验与负向 self-test；既有 Tester journal 后补只读身份复核，明确不是新请求或新决策。原重复 approval observation 仍只是同一次 decision。19测试及两脚本 self-test/py_compile/diff-check通过。Mac锁屏仍true，桌面连续帧/输入、完整S2与S5fresh仍未通过；根协调独立提交仅更新真实专项与阻塞边界。
+
+## integrator：7481d8e 取消审批正式升级局部通过（2026-10-10）
+
+- 固定 clean archive 7481d8e4b988e866bb3feade18db7e603b6aba5e server-only部署exit0，PID86386与7788监听一致、source/node/health/auth/ping通过；桌面66995、Android20943、mock66750 PID保持，未安装/重启客户端或AVD。S1/server-7481d8e-deployed.json。
+- 已Cancelled Coder01a122b9-cfd9…0c67的subagent审批01a122ba-359b…1837启动后自动expired，decided_at严格等于原finished_at，bootstrap.pending/workbench消失，exact1 approval.resolved。原run/job/request/checkpoint/args/finished_at/trace hash全部保持，run.start1/tool.start1/tool.end0/run.end1，无重放、恢复、批准或伪造tool.end；未调用旧decision/stop/模型。S2/production-7481d8e-cancelled-approval-{before,after,checkpoint}.json。
+- 其余6个terminal任务遗留pending按原关联expired；14个有效pending保持，原detail hash一致。只有取消审批P1升级专项PASS，不提升完整S2/双端或fresh；旧任务/未知审批仍按各自状态保留。
+- matching pkg source/dirty=false、实际pkg/daemon/官方sidecar SHA独立展开核验通过，S5/server-pkg-7481d8e-verified.json；初次包审计记录截断63字符无效，已按实际文件重算64字符并保留纠正说明。正式运行来自archive构建，未使用installer/payload/fresh。根协调单独提交理由：归档真实升级的终态收敛与有效审批隔离证据。
