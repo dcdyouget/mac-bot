@@ -12,9 +12,9 @@ use crate::{
         SubagentDispatchRequest, WebCredentialStore, WebSearchConfig,
     },
     execution::{
-        invalid_pending_tool_args, ExecutionEngine, ExecutionError, ExecutionEvent,
-        ExecutionOutcome, ExecutionRequest, ExecutionSink, ExecutionState, GatewayStateSink,
-        GroupMessageBridge, ProviderResolver,
+        invalid_memory_target_args, invalid_pending_tool_args, ExecutionEngine, ExecutionError,
+        ExecutionEvent, ExecutionOutcome, ExecutionRequest, ExecutionSink, ExecutionState,
+        GatewayStateSink, GroupMessageBridge, ProviderResolver,
     },
     features::{
         FeatureService, MaintenanceUsageContext, MaintenanceUsageSink, ModelMaintenanceAdapter,
@@ -198,7 +198,7 @@ impl ComposedBackend {
         for (approval_id, approval) in approvals {
             if !matches!(
                 approval.get("tool").and_then(Value::as_str),
-                Some("memory" | "write" | "edit")
+                Some("memory" | "memory_search" | "write" | "edit")
             ) || !matches!(
                 approval.get("state").and_then(Value::as_str),
                 Some("pending" | "expired")
@@ -212,9 +212,13 @@ impl ComposedBackend {
             else {
                 continue;
             };
-            if invalid_pending_tool_args(approval["tool"].as_str().unwrap_or_default(), &args, None)
-                .is_none()
-                || args.get("resolved_path").is_some()
+            let tool_name = approval["tool"].as_str().unwrap_or_default();
+            let syntax_error = invalid_pending_tool_args(tool_name, &args, None);
+            let target_error = matches!(tool_name, "memory" | "memory_search")
+                .then(|| invalid_memory_target_args(tool_name, &args, &snapshot))
+                .flatten();
+            if (syntax_error.is_none() && target_error.is_none())
+                || (matches!(tool_name, "write" | "edit") && args.get("resolved_path").is_some())
             {
                 continue;
             }

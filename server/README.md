@@ -140,7 +140,7 @@ Question 已为 `answered` 而 durable job 仍安全等待时，启动会补齐�
 
 `smoke_decision_migration.py` 验证隔离进程 kill9 后丢失 Question/wait 的修复、工作台与事件、未回答时恢复期间无模型请求、回答后同 run 完成；还覆盖已回答但未送达的旧版边界，断言启动自动送达原答案、原 qid/答案时间不变、重复重启不重复调用模型。参数与其他 runtime smoke 相同。
 
-`memory(scope=project)` 必须显式提供 `project_id`，`scope=bot` 必须提供 `bot_id`，不从运行上下文猜目标。无效目标参数会在审批前成为工具错误，模型可在同一 run 修正。旧版已挂起的无效调用，仅在 approval-map、原 pending call、run request 和当前任务路由唯一一致时使审批过期，返回参数错误并续接原 run；不批准、不取消任务、不改旧参数。同批未执行调用收到 deferred 错误，必须重新请求并经过正常审批。过期回执先持久化，覆盖过期后尚未续接的崩溃边界。
+`memory(scope=project)` 必须显式提供 `project_id`，`scope=bot` 必须提供 `bot_id`，不从运行上下文猜目标。`memory` 与 `memory_search` 的目标必须存在于权威 Bot/项目快照中；项目名字、场景 marker 或不存在的 ID 在审批前成为工具错误，模型可在同一 run 修正。有效的显式跨目标请求仍遵循原有角色/成员授权规则，不强制等于当前 run 的项目。旧版已挂起的无效调用，仅在 approval-map、原 pending call、run request 和当前任务路由唯一一致时使审批过期，返回参数错误并续接原 run；不批准、不取消任务、不改旧参数。同批未执行调用收到 deferred 错误，必须重新请求并经过正常审批。过期回执先持久化，覆盖过期后尚未续接的崩溃边界。
 
 文件工具支持 `~` 和 `~/` 展开为当前用户 HOME（不是 `MACBOT_HOME`），仍限制实际目标位于当前工作目录内。审批 detail 保留原始参数，并记录 `resolved_path` 与 `path_resolution=home-v1`，与执行共用解析函数。旧版缺少该元数据的 `~/` write/edit 审批不沿用授权：启动后使其过期、向原 run 返回路径语义错误，要求模型显式绝对路径重试并重新审批。已完成的旧写入及其 receipt 不迁移、不重放。
 
@@ -154,6 +154,27 @@ python3 server/macbotd/tests/smoke_invalid_tool_recovery.py \
 ```
 
 使用尚不存在、位于真实用户 HOME 下的隔离数据目录，以覆盖新合法 `~/` 写入；不改进程 HOME。覆盖旧缺目标审批、过期回执的重启恢复、旧 tilde 审批和新缺参调用；断言无未授权副作用、修正后必须新审批、原 run 完成、重复重启幂等。
+
+不存在的显式 Bot/项目 ID 升级回归：
+
+```sh
+python3 server/macbotd/tests/smoke_memory_targets.py \
+  --url http://127.0.0.1:7861 --home /tmp/macbot-memory-target-smoke \
+  --legacy-command '/path/to/d43a2bb/macbotd --port 7861 --password dev' \
+  --new-command '/path/to/new/macbotd --port 7861 --password dev'
+```
+
+覆盖旧非空错误目标审批的精确过期、剩余 batch 不执行、新写入/检索无效目标不生成审批，以及修正参数新审批后原 run 完成；再次重启不重复返回错误或调用模型。
+
+正式 RPC `ping` 返回当前 `server_time`，不等待业务写锁、不写操作日志；可通过 HTTP 或现有主 WebSocket 调用。主连接 20 秒 fallback 心跳回归：
+
+```sh
+python3 server/macbotd/tests/smoke_ping.py \
+  --url http://127.0.0.1:7862 --home /tmp/macbot-ping-smoke \
+  --daemon-command '/path/to/macbotd --port 7862 --password dev'
+```
+
+只使用一个 WebSocket，连续四次 `ping` 跨三个 20 秒间隔，再取 bootstrap；不以重连掩盖持活失败。该测试不配置模型或调用 provider。
 
 后台 Bash 的工具调用与进程生命周期分开：`background=true` 返回 job_id 后立即产生 tool.end 并让模型继续；输出继续按原 run/call 推送给对应 trace 订阅，直到输出 EOF。前台 Bash 仍等待输出结束。取消任务或正常结束时清理本 run 的非 persistent 进程，已经注册为本地产物服务的保留规则不变。
 

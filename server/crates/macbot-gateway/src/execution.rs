@@ -580,6 +580,47 @@ impl ExecutionEngine {
         coordination_tool_requires_approval_from_settings(&settings, tool_name, args)
     }
 
+    fn invalid_memory_args_for_request(
+        &self,
+        _request: &ExecutionRequest,
+        name: &str,
+        args: &Value,
+    ) -> Option<String> {
+        if !matches!(name, "memory" | "memory_search") {
+            return None;
+        }
+        if let Some(error) = invalid_memory_tool_args(name, args) {
+            return Some(error);
+        }
+        // User-scoped memory (and an unscoped memory_search) does not refer to
+        // an orchestrator object. Keep this path usable for standalone
+        // engines whose store has no orchestrator snapshot yet.
+        if args.get("scope").and_then(Value::as_str) == Some("user")
+            || (name == "memory_search" && args.get("scope").is_none())
+        {
+            return None;
+        }
+        let snapshot = match self
+            .store
+            .read_snapshot::<Value>("data/orchestrator/state.json")
+        {
+            Ok(Some(snapshot)) => snapshot,
+            _ => return Some("memory target registry is unavailable".into()),
+        };
+        invalid_memory_target_args(name, args, &snapshot)
+    }
+
+    fn invalid_pending_tool_args_for_request(
+        &self,
+        request: &ExecutionRequest,
+        name: &str,
+        args: &Value,
+        approval_detail: Option<&Value>,
+    ) -> Option<String> {
+        self.invalid_memory_args_for_request(request, name, args)
+            .or_else(|| invalid_pending_tool_args(name, args, approval_detail))
+    }
+
     fn persist_model_request(
         &self,
         request: &ExecutionRequest,
@@ -1030,7 +1071,8 @@ impl ExecutionEngine {
                     false,
                 )?;
             } else {
-                if let Some(error) = invalid_pending_tool_args(
+                if let Some(error) = self.invalid_pending_tool_args_for_request(
+                    &request,
                     &call.name,
                     &call.args,
                     job.checkpoint.get("approval_detail"),
@@ -1366,7 +1408,9 @@ impl ExecutionEngine {
                     self.trace(&request, "tool.end", json!({"call_id":call.call_id,"is_error":true,"preview":"tool is not permitted for this run","details":{},"truncated":false,"full_output":null,"duration_ms":0})).await?;
                     continue;
                 }
-                if let Some(error) = invalid_memory_tool_args(&call.name, &call.args) {
+                if let Some(error) =
+                    self.invalid_memory_args_for_request(&request, &call.name, &call.args)
+                {
                     let result = ToolResult::error(error);
                     messages.push(tool_message(&call.call_id, &result));
                     self.trace(
@@ -1880,12 +1924,14 @@ impl ExecutionEngine {
                 return Ok(None);
             };
             if call.call_id != expected_call_id
-                || invalid_pending_tool_args(
-                    &call.name,
-                    &call.args,
-                    job.checkpoint.get("approval_detail"),
-                )
-                .is_none()
+                || self
+                    .invalid_pending_tool_args_for_request(
+                        &request,
+                        &call.name,
+                        &call.args,
+                        job.checkpoint.get("approval_detail"),
+                    )
+                    .is_none()
             {
                 return Ok(None);
             }
@@ -1903,12 +1949,14 @@ impl ExecutionEngine {
                 .as_array()
                 .cloned()
                 .unwrap_or_default();
-            let error = invalid_pending_tool_args(
-                &call.name,
-                &call.args,
-                job.checkpoint.get("approval_detail"),
-            )
-            .expect("invalid pending tool was checked above");
+            let error = self
+                .invalid_pending_tool_args_for_request(
+                    &request,
+                    &call.name,
+                    &call.args,
+                    job.checkpoint.get("approval_detail"),
+                )
+                .expect("invalid pending tool was checked above");
             messages.push(tool_message(&call.call_id, &ToolResult::error(error)));
             for deferred in &pending {
                 messages.push(json!({
@@ -2043,7 +2091,9 @@ impl ExecutionEngine {
                 continue;
             }
 
-            if let Some(error) = invalid_memory_tool_args(&call.name, &call.args) {
+            if let Some(error) =
+                self.invalid_memory_args_for_request(request, &call.name, &call.args)
+            {
                 self.trace(
                     request,
                     "tool.start",
@@ -2854,14 +2904,14 @@ fn trace_phase(request: &ExecutionRequest) -> &str {
 }
 
 pub(crate) fn invalid_memory_tool_args(name: &str, args: &Value) -> Option<String> {
-    if name != "memory" {
+    if !matches!(name, "memory" | "memory_search") {
         return None;
     }
     let Some(object) = args.as_object() else {
         return Some("memory arguments must be an object".into());
     };
     let Some(scope) = object.get("scope").and_then(Value::as_str) else {
-        return Some("memory scope is required".into());
+        return (name == "memory").then(|| "memory scope is required".into());
     };
     match scope {
         "user" => None,
@@ -2869,7 +2919,7 @@ pub(crate) fn invalid_memory_tool_args(name: &str, args: &Value) -> Option<Strin
             if object
                 .get("bot_id")
                 .and_then(Value::as_str)
-                .is_some_and(|value| !value.is_empty()) =>
+                .is_some_and(|value| !value.trim().is_empty()) =>
         {
             None
         }
@@ -2878,12 +2928,56 @@ pub(crate) fn invalid_memory_tool_args(name: &str, args: &Value) -> Option<Strin
             if object
                 .get("project_id")
                 .and_then(Value::as_str)
-                .is_some_and(|value| !value.is_empty()) =>
+                .is_some_and(|value| !value.trim().is_empty()) =>
         {
             None
         }
         "project" => Some("memory project scope requires project_id".into()),
         other => Some(format!("unknown memory scope: {other}")),
+    }
+}
+
+/// Validate target references against the authoritative orchestrator snapshot.
+///
+/// Cross-bot and cross-project targets remain valid when they exist; access
+/// policy is enforced by the existing memory service. This check only prevents
+/// malformed or stale approval arguments from being retried indefinitely.
+pub(crate) fn invalid_memory_target_args(
+    name: &str,
+    args: &Value,
+    snapshot: &Value,
+) -> Option<String> {
+    if !matches!(name, "memory" | "memory_search") {
+        return None;
+    }
+    if let Some(error) = invalid_memory_tool_args(name, args) {
+        return Some(error);
+    }
+    let Some(scope) = args.get("scope").and_then(Value::as_str) else {
+        // memory_search permits an omitted scope and resolves it through its
+        // existing default behavior; the strict `memory` shape was handled
+        // above by invalid_memory_tool_args.
+        return None;
+    };
+    match scope {
+        "user" => None,
+        "bot" => {
+            let bot_id = args.get("bot_id").and_then(Value::as_str)?;
+            let exists = snapshot
+                .get("bots")
+                .and_then(Value::as_object)
+                .is_some_and(|bots| bots.contains_key(bot_id));
+            (!exists).then(|| "memory bot does not exist".into())
+        }
+        "project" => {
+            let project_id = args.get("project_id").and_then(Value::as_str)?;
+            let exists = snapshot
+                .get("projects")
+                .and_then(Value::as_object)
+                .is_some_and(|projects| projects.contains_key(project_id));
+            (!exists).then(|| "memory project does not exist".into())
+        }
+        _ => None,
     }
 }
 
@@ -3411,6 +3505,94 @@ mod tests {
             invalid_memory_tool_args("memory", &json!({})),
             Some("memory scope is required".into())
         );
+        assert_eq!(invalid_memory_tool_args("memory_search", &json!({})), None);
+    }
+
+    #[test]
+    fn memory_targets_require_existing_bot_or_project_records() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store
+            .write_snapshot(
+                "data/orchestrator/state.json",
+                &json!({
+                    "bots":{"bot-a":{"id":"bot-a"}},
+                    "projects":{"project-a":{"id":"project-a"}}
+                }),
+            )
+            .unwrap();
+        let engine = ExecutionEngine::new(
+            store,
+            Arc::new(MockProvider::new(Vec::new())),
+            Vec::<Arc<dyn Tool>>::new(),
+            Arc::new(RecordingSink::default()),
+            dir.path(),
+        )
+        .unwrap();
+        let request = request(false);
+        assert!(engine
+            .invalid_memory_args_for_request(
+                &request,
+                "memory",
+                &json!({"scope":"project","project_id":"missing"})
+            )
+            .is_some());
+        assert!(engine
+            .invalid_memory_args_for_request(
+                &request,
+                "memory",
+                &json!({"scope":"bot","bot_id":"missing"})
+            )
+            .is_some());
+        assert!(engine
+            .invalid_memory_args_for_request(
+                &request,
+                "memory",
+                &json!({"scope":"project","project_id":"project-a"})
+            )
+            .is_none());
+        assert!(engine
+            .invalid_memory_args_for_request(
+                &request,
+                "memory",
+                &json!({"scope":"bot","bot_id":"bot-a"})
+            )
+            .is_none());
+        assert!(engine
+            .invalid_memory_args_for_request(
+                &request,
+                "memory_search",
+                &json!({"scope":"project","project_id":"missing"})
+            )
+            .is_some_and(|error| error.contains("does not exist")));
+        assert!(engine
+            .invalid_memory_args_for_request(
+                &request,
+                "memory_search",
+                &json!({"scope":"project","project_id":"project-a"})
+            )
+            .is_none());
+    }
+
+    #[test]
+    fn user_memory_validation_does_not_require_orchestrator_snapshot() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let engine = ExecutionEngine::new(
+            store,
+            Arc::new(MockProvider::new(Vec::new())),
+            Vec::<Arc<dyn Tool>>::new(),
+            Arc::new(RecordingSink::default()),
+            dir.path(),
+        )
+        .unwrap();
+        let request = request(false);
+        assert!(engine
+            .invalid_memory_args_for_request(&request, "memory", &json!({"scope":"user"}))
+            .is_none());
+        assert!(engine
+            .invalid_memory_args_for_request(&request, "memory_search", &json!({}))
+            .is_none());
     }
 
     #[derive(Default)]
@@ -3731,13 +3913,17 @@ mod tests {
             .last()
             .and_then(|message| message["fallback_text"].as_str())
             .is_some_and(|text| text.contains("context compaction failed")));
+        // A usage/trace task can briefly retain an engine clone after run.end.
+        // The next engine must share this Store rather than race a second
+        // open against its still-owned process lock.
+        let recovered_store = engine.store.clone();
         drop(engine);
 
         let mut recovered_request = request(true);
         recovered_request.run_id = "run_recovered".into();
         let recovered_sink = Arc::new(RecordingSink::default());
         let recovered_engine = ExecutionEngine::new(
-            Store::open(dir.path()).unwrap(),
+            recovered_store,
             Arc::new(MockProvider::new(vec![Completion {
                 text: "recovered".into(),
                 stop_reason: "stop".into(),
@@ -6065,6 +6251,15 @@ mod tests {
     async fn invalid_memory_approval_is_rejected_atomically_and_retried() {
         let dir = tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
+        store
+            .write_snapshot(
+                "data/orchestrator/state.json",
+                &json!({
+                    "bots":{"bot_mock":{"id":"bot_mock"}},
+                    "projects":{"project-valid":{"id":"project-valid"}}
+                }),
+            )
+            .unwrap();
         let invalid = ToolCall {
             call_id: "invalid-memory".into(),
             name: "memory".into(),
@@ -6121,6 +6316,7 @@ mod tests {
         .unwrap();
         let mut req = request(false);
         req.run_id = "legacy-memory".into();
+        req.project_id = Some("project-valid".into());
         req.allow_unsafe = false;
         let outcome = engine
             .reject_invalid_pending_tool(req.clone(), "invalid-memory")

@@ -557,6 +557,13 @@ impl ProductionBackend {
                 &receipt["args"],
                 None,
             )
+            .or_else(|| {
+                crate::execution::invalid_memory_target_args(
+                    receipt["tool"].as_str().unwrap_or_default(),
+                    &receipt["args"],
+                    &snapshot,
+                )
+            })
             .is_none()
         {
             return Ok(false);
@@ -1933,6 +1940,11 @@ impl RpcBackend for ProductionBackend {
     }
 
     async fn call(&self, method: &str, params: Value, state: &GatewayState) -> RpcResult {
+        // Liveness probes must not wait behind the mutation writer.  The
+        // protocol requires a fresh server timestamp in the response.
+        if method == "ping" {
+            return Ok(json!({"server_time": now()}));
+        }
         // Duplicate uses a shared FeatureService and must own the writer lock
         // across Bot creation and persistence. Route it before the generic
         // lock so the state-aware helper cannot deadlock on a second lock.
@@ -6006,6 +6018,7 @@ fn validate_json_shape(method: &str, value: &Value) -> Result<(), String> {
         }};
     }
     match method {
+        "ping" => parse!(macbot_protocol::PingResult, value),
         "bootstrap" => {
             parse!(Hello, value["hello"]);
             parse!(Vec<Bot>, value["bots"]);
@@ -6123,6 +6136,33 @@ mod tests {
         let mut incomplete = result.clone();
         incomplete.as_object_mut().unwrap().remove("chat");
         assert!(validate_json_shape("project.create", &incomplete).is_err());
+    }
+
+    #[tokio::test]
+    async fn production_ping_returns_protocol_server_time_without_persistence() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let _writer = backend.write_lock.lock().await;
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            backend.call("ping", json!({}), &gateway.state),
+        )
+        .await
+        .expect("ping must not wait for the mutation writer")
+        .unwrap();
+        validate_json_shape("ping", &result).unwrap();
+        let timestamp = result["server_time"].as_str().unwrap();
+        assert!(chrono::DateTime::parse_from_rfc3339(timestamp).is_ok());
+        assert!(backend.store.events_since(0).unwrap().is_empty());
+        assert!(backend
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
