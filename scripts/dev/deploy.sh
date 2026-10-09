@@ -26,6 +26,14 @@ install_server() {
   mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources" || return 1
   cp "$MACBOT_SERVER_BINARY" "$binary_path" || return 1
   chmod 755 "$binary_path" || return 1
+  sidecar_script="$MACBOT_SOURCE_DIR/server/macbotd/packaging/prepare-sidecar.sh"
+  if [ -f "$sidecar_script" ]; then
+    "$sidecar_script" "$app_path/Contents/MacOS/agent-browser" || return 1
+    cp "$MACBOT_SOURCE_DIR/server/macbotd/packaging/agent-browser.LICENSE" \
+      "$app_path/Contents/Resources/agent-browser.LICENSE" || return 1
+  else
+    macbot_warn "server：此版本没有浏览器 sidecar 打包入口，浏览器验收待补"
+  fi
   printf '%s\n' "$MACBOT_MAIN_SHA" > "$app_path/Contents/Resources/source-commit" || return 1
   printf '%s\n' \
     '<?xml version="1.0" encoding="UTF-8"?>' \
