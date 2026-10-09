@@ -206,22 +206,27 @@ impl DurableRuntime {
             .read_jsonl::<JobCommit>("data/jobs/commits.jsonl")?
             .len() as u64
             + 1;
-        let ids = self
+        let mut resumable = self
             .jobs
             .values()
-            .filter(|job| {
-                matches!(job.status, JobStatus::Running | JobStatus::Queued) && job.unsafe_replay
-            })
-            .map(|job| job.id.clone())
+            .filter(|job| matches!(job.status, JobStatus::Running | JobStatus::Queued))
+            .cloned()
             .collect::<Vec<_>>();
-        let mut changed = Vec::with_capacity(ids.len());
-        for (next_seq, id) in (first_seq..).zip(ids) {
-            validate_id("job", &id)?;
-            let current = self
-                .jobs
-                .get(&id)
-                .cloned()
-                .ok_or_else(|| DurableError::JobNotFound(id.clone()))?;
+        // HashMap iteration is deliberately unordered. Keep recovery stable so
+        // the backend starts jobs in the same order after every restart.
+        resumable.sort_by(|left, right| {
+            left.commit_seq
+                .cmp(&right.commit_seq)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        let mut plan = Vec::with_capacity(resumable.len());
+        let mut next_seq = first_seq;
+        for current in resumable {
+            if !current.unsafe_replay {
+                plan.push(current);
+                continue;
+            }
+            validate_id("job", &current.id)?;
             let job = Job {
                 status: JobStatus::Suspended,
                 commit_seq: next_seq,
@@ -232,10 +237,11 @@ impl DurableRuntime {
                 .append_jsonl("data/jobs/commits.jsonl", &JobCommit { job: job.clone() })?;
             self.store
                 .write_snapshot(format!("data/jobs/{}.json", job.id), &job)?;
-            self.jobs.insert(id, job.clone());
-            changed.push(job);
+            self.jobs.insert(job.id.clone(), job.clone());
+            plan.push(job);
+            next_seq += 1;
         }
-        Ok(changed)
+        Ok(plan)
     }
 
     pub fn enqueue_steer(
@@ -473,6 +479,80 @@ mod tests {
         let mut rt = DurableRuntime::open(dir.path()).unwrap();
         let changed = rt.resume_plan().unwrap();
         assert_eq!(changed[0].status, JobStatus::Suspended);
+    }
+
+    #[test]
+    fn resume_plan_returns_safe_work_and_suspends_unsafe_work() {
+        let dir = tempdir().unwrap();
+        let mut rt = DurableRuntime::open(dir.path()).unwrap();
+        let safe_queued = rt
+            .create_job("bot", "dm", serde_json::json!({"run_id": "safe_queued"}))
+            .unwrap();
+        let safe_running = rt
+            .create_job("bot", "dm", serde_json::json!({"run_id": "safe_running"}))
+            .unwrap();
+        rt.commit(
+            &safe_running.id,
+            JobStatus::Running,
+            safe_running.checkpoint.clone(),
+            false,
+        )
+        .unwrap();
+        let unsafe_running = rt
+            .create_job(
+                "bot",
+                "bash",
+                serde_json::json!({"run_id": "unsafe_running"}),
+            )
+            .unwrap();
+        rt.commit(
+            &unsafe_running.id,
+            JobStatus::Running,
+            unsafe_running.checkpoint.clone(),
+            true,
+        )
+        .unwrap();
+        let waiting = rt
+            .create_job("bot", "dm", serde_json::json!({"run_id": "waiting"}))
+            .unwrap();
+        rt.commit(
+            &waiting.id,
+            JobStatus::Waiting,
+            waiting.checkpoint.clone(),
+            false,
+        )
+        .unwrap();
+        drop(rt);
+
+        let mut rt = DurableRuntime::open(dir.path()).unwrap();
+        let plan = rt.resume_plan().unwrap();
+        assert_eq!(plan.len(), 3);
+        assert_eq!(
+            plan.iter()
+                .find(|job| job.id == safe_queued.id)
+                .unwrap()
+                .status,
+            JobStatus::Queued
+        );
+        assert_eq!(
+            plan.iter()
+                .find(|job| job.id == safe_running.id)
+                .unwrap()
+                .status,
+            JobStatus::Running
+        );
+        assert_eq!(
+            plan.iter()
+                .find(|job| job.id == unsafe_running.id)
+                .unwrap()
+                .status,
+            JobStatus::Suspended
+        );
+        assert!(plan.iter().all(|job| job.id != waiting.id));
+        assert_eq!(
+            rt.job(&unsafe_running.id).unwrap().status,
+            JobStatus::Suspended
+        );
     }
 
     #[test]

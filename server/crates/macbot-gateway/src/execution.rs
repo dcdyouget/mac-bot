@@ -3573,6 +3573,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn execution_recover_returns_safe_jobs_and_suspends_unsafe_jobs() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let state = ExecutionState::from_store(store.clone()).unwrap();
+        let (safe_queued, safe_running, unsafe_running) = {
+            let mut durable = state.durable.lock().await;
+            let safe_queued = durable
+                .create_job("bot_mock", "dm", json!({"run_id": "safe_queued"}))
+                .unwrap();
+            let safe_running = durable
+                .create_job("bot_mock", "dm", json!({"run_id": "safe_running"}))
+                .unwrap();
+            durable
+                .commit(
+                    &safe_running.id,
+                    JobStatus::Running,
+                    safe_running.checkpoint.clone(),
+                    false,
+                )
+                .unwrap();
+            let unsafe_running = durable
+                .create_job("bot_mock", "bash", json!({"run_id": "unsafe_running"}))
+                .unwrap();
+            durable
+                .commit(
+                    &unsafe_running.id,
+                    JobStatus::Running,
+                    unsafe_running.checkpoint.clone(),
+                    true,
+                )
+                .unwrap();
+            (safe_queued, safe_running, unsafe_running)
+        };
+        let usage = Arc::new(Mutex::new(
+            macbot_usage::UsageLedger::from_store(store.clone()).unwrap(),
+        ));
+        let engine = ExecutionEngine::new_with_usage_and_state(
+            store,
+            Arc::new(MockProvider::new(Vec::new())),
+            std::iter::empty::<Arc<dyn Tool>>(),
+            Arc::new(RecordingSink::default()),
+            dir.path(),
+            usage,
+            state,
+        )
+        .unwrap();
+
+        let recovered = engine.recover().await.unwrap();
+        assert_eq!(recovered.len(), 3);
+        assert_eq!(
+            recovered
+                .iter()
+                .find(|job| job.id == safe_queued.id)
+                .unwrap()
+                .status,
+            JobStatus::Queued
+        );
+        assert_eq!(
+            recovered
+                .iter()
+                .find(|job| job.id == safe_running.id)
+                .unwrap()
+                .status,
+            JobStatus::Running
+        );
+        assert_eq!(
+            recovered
+                .iter()
+                .find(|job| job.id == unsafe_running.id)
+                .unwrap()
+                .status,
+            JobStatus::Suspended
+        );
+    }
+
+    #[tokio::test]
     async fn provider_is_resolved_per_run_from_live_registry() {
         let dir = tempdir().unwrap();
         let sink = Arc::new(RecordingSink::default());
