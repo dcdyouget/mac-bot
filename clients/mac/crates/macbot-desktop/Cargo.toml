@@ -20,3 +20,7 @@ security-framework = "3.7"
 security-framework-sys = "2.17"
 core-foundation = "0.10"
 sha2 = "0.10"
+
+[dev-dependencies]
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }

@@ -4231,7 +4231,12 @@ fn search_target(result: &Value, kind: &str) -> Option<String> {
             .map(|chat_id| format!("chat/{chat_id}"))
             .or_else(|| Some(format!("chat/{id}"))),
         "chat" => Some(format!("chat/{id}")),
-        "bot" => Some(format!("bot/{id}")),
+        "bot" => result
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .filter(|chat_id| !chat_id.is_empty())
+            .map(|chat_id| format!("search_bot/{id}?chat_id={chat_id}"))
+            .or_else(|| Some(format!("search_bot/{id}"))),
         "routine" => Some(format!("routine/{id}")),
         "artifact" => Some(format!("artifact/{id}")),
         _ => None,
@@ -4621,6 +4626,23 @@ mod tests {
             skill_enabled_params("skill.demo", false, Some("bot_1")),
             json!({"name":"skill.demo","enabled":false,"bot_id":"bot_1"})
         );
+    }
+
+    #[test]
+    fn search_target_bot_uses_optional_chat_hint() {
+        assert_eq!(
+            search_target(&json!({"id":"bot_1", "chat_id":"chat_1"}), "bot"),
+            Some("search_bot/bot_1?chat_id=chat_1".into())
+        );
+        assert_eq!(
+            search_target(&json!({"id":"bot_1"}), "bot"),
+            Some("search_bot/bot_1".into())
+        );
+        assert_eq!(
+            search_target(&json!({"id":"bot_1", "chat_id":""}), "bot"),
+            Some("search_bot/bot_1".into())
+        );
+        assert_eq!(search_target(&json!({"chat_id":"chat_1"}), "bot"), None);
     }
 
     #[test]

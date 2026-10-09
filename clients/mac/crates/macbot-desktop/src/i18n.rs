@@ -2,6 +2,8 @@ use gpui_kit::SharedString;
 
 pub fn tr(key: &str) -> SharedString {
     match key {
+        "search.opening_bot" => "正在打开 Bot 私聊…",
+        "search.open_failed" => "无法打开 Bot 私聊，请刷新搜索后重试",
         "computer.browser" => "的浏览器",
         "settings.connection_ok" => "连接成功",
         "settings.connection_failed" => "连接失败",

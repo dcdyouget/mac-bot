@@ -3836,6 +3836,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "core-foundation 0.10.1",
+ "futures-util",
  "gpui-kit",
  "image",
  "macbot-client-core",
@@ -3846,6 +3847,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "tokio-tungstenite",
  "uuid",
 ]
 

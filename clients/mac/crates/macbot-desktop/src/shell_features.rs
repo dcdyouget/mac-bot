@@ -5,6 +5,67 @@ use crate::trace_view::TraceAction;
 use chrono::{Duration, Utc};
 
 impl MacBot {
+    fn open_search_bot(
+        &mut self,
+        bot_id: String,
+        chat_hint: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(client) = self.client.clone().filter(|_| self.connected) else {
+            self.notice = tr("error.offline").to_string();
+            cx.notify();
+            return;
+        };
+        self.search_open_epoch = self.search_open_epoch.wrapping_add(1);
+        let epoch = self.search_open_epoch;
+        let generation = self.connection_generation;
+        let bot = self.state.bots.get(&bot_id).cloned();
+        let chats = self.state.chats.values().cloned().collect();
+        self.notice = tr("search.opening_bot").to_string();
+        cx.notify();
+        let task = self.runtime.spawn(async move {
+            crate::search_navigation::resolve_bot_chat(
+                &client,
+                &bot_id,
+                chat_hint.as_deref(),
+                bot,
+                chats,
+            )
+            .await
+        });
+        let executor = cx.background_executor().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            while !task.is_finished() {
+                executor.timer(std::time::Duration::from_millis(50)).await;
+            }
+            let result = task.await;
+            let _ = this.update_in(cx, |view, window, cx| {
+                if view.connection_generation != generation
+                    || view.search_open_epoch != epoch
+                    || view.page != "search"
+                    || !view.connected
+                {
+                    return;
+                }
+                match result {
+                    Ok(Ok(target)) => {
+                        let chat_id = s(&target.chat, "id").to_owned();
+                        insert(&mut view.state.bots, &target.bot, "id");
+                        insert(&mut view.state.chats, &target.chat, "id");
+                        view.notice.clear();
+                        view.select_chat(chat_id, window, cx);
+                        view.sync_views(cx);
+                        view.persist_cache(false);
+                    }
+                    _ => view.notice = tr("search.open_failed").to_string(),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn sync_views(&mut self, cx: &mut Context<Self>) {
         let data = self.page_data();
         self.feature_view
@@ -314,6 +375,17 @@ impl MacBot {
             FeatureAction::Toast(text) => self.notice = text.clone(),
             FeatureAction::Navigate(target) => {
                 let (page, query) = target.split_once('?').unwrap_or((target, ""));
+                if let Some(id) = page.strip_prefix("search_bot/") {
+                    let hint = reqwest::Url::parse(&format!("http://localhost/?{query}"))
+                        .ok()
+                        .and_then(|url| {
+                            url.query_pairs()
+                                .find(|(key, _)| key == "chat_id")
+                                .map(|(_, value)| value.into_owned())
+                        });
+                    self.open_search_bot(id.to_owned(), hint, window, cx);
+                    return;
+                }
                 if page == "usage/export.csv" {
                     self.export_usage(cx);
                     return;

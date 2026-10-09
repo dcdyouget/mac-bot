@@ -58,6 +58,7 @@ pub struct MacBot {
     editor_reload: bool,
     feature_route: String,
     connection_generation: u64,
+    search_open_epoch: u64,
     trace_epoch: u64,
     last_cache: std::time::Instant,
     _update_task: Option<Task<()>>,
@@ -173,6 +174,7 @@ impl MacBot {
             editor_reload: false,
             feature_route: String::new(),
             connection_generation: 0,
+            search_open_epoch: 0,
             trace_epoch: 0,
             last_cache: std::time::Instant::now(),
             _update_task: None,
@@ -290,7 +292,14 @@ impl MacBot {
         });
         view
     }
+    fn cancel_search_open(&mut self) {
+        self.search_open_epoch = self.search_open_epoch.wrapping_add(1);
+        if self.notice == tr("search.opening_bot").as_ref() {
+            self.notice.clear();
+        }
+    }
     fn connect(&mut self, cx: &mut Context<Self>) {
+        self.cancel_search_open();
         let endpoint = self.address.read(cx).value().to_string();
         let password = self.password.read(cx).value().to_string();
         if endpoint.trim().is_empty() {
@@ -406,6 +415,9 @@ impl MacBot {
         cx.notify();
     }
     fn rpc(&mut self, method: &str, mut params: Value, cx: &mut Context<Self>) {
+        if method == "search" {
+            self.cancel_search_open();
+        }
         let Some(client) = self.client.as_ref().cloned() else {
             self.notice = tr("error.offline").to_string();
             cx.notify();
@@ -905,6 +917,7 @@ impl MacBot {
         .detach();
     }
     fn select_main(&mut self, cx: &mut Context<Self>) {
+        self.cancel_search_open();
         self.close_trace(cx);
         self.close_screen();
         self.context.clear();
@@ -919,6 +932,7 @@ impl MacBot {
         }
     }
     fn select_chat(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_search_open();
         self.close_trace(cx);
         self.close_screen();
         self.focus.focus(window, cx);
@@ -1170,6 +1184,7 @@ impl MacBot {
         });
     }
     fn navigate(&mut self, page: &str, cx: &mut Context<Self>) {
+        self.cancel_search_open();
         self.close_trace(cx);
         self.close_screen();
         self.context.clear();
@@ -1196,6 +1211,7 @@ impl MacBot {
         cx.notify();
     }
     fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_search_open();
         if !self.context.is_empty() {
             self.context.pop();
             self.close_trace(cx);
