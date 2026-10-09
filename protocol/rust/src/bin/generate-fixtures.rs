@@ -921,6 +921,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     events(&root)?;
     scenario(&root)?;
     write(
+        &root.join("results"),
+        "usage_heatmap_calendar.json",
+        json!({
+            "days":[{"date":"2026-10-09","value":150.0,"tokens":150,"cost":null,"requests":2,"top_bot_id":"bot_code"}],
+            "thresholds":[25.0,50.0,100.0]
+        }),
+    )?;
+    let mut matrix = vec![vec![0.0; 24]; 7];
+    matrix[4][10] = 150.0;
+    write(
+        &root.join("results"),
+        "usage_heatmap_weekhour.json",
+        json!({"matrix":matrix,"thresholds":[25.0,50.0,100.0]}),
+    )?;
+    write(
         &root.join("frames"),
         "screen-state.json",
         json!({"bot_id":"bot_main","driver":"bot","tabs":[{"tab_id":"tab_1","title":"App","url":"http://localhost:3000","assignment_id":"asg_1","active":true}],"width":1280,"height":720}),

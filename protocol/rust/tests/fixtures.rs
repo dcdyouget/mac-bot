@@ -14,6 +14,24 @@ type Value = serde_json::Value;
 type FixtureParser = fn(Value) -> Result<Value, Box<dyn std::error::Error>>;
 
 #[test]
+fn heatmap_result_decodes_flat_protocol_shapes_without_field_loss() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/results");
+    for filename in ["usage_heatmap_calendar.json", "usage_heatmap_weekhour.json"] {
+        roundtrip(&root.join(filename), |value| {
+            let result = MethodResult::decode(&Method::UsageHeatmap, value)?;
+            let MethodResult::UsageHeatmap(heatmap) = result else {
+                unreachable!()
+            };
+            Ok(serde_json::to_value(heatmap)?)
+        });
+    }
+    assert!(serde_json::from_value::<HeatmapResult>(
+        serde_json::json!({"calendar":null,"weekhour":null})
+    )
+    .is_err());
+}
+
+#[test]
 fn fixture_objects_roundtrip_without_field_loss() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/objects");
     let parsers: &[(&str, FixtureParser)] = &[

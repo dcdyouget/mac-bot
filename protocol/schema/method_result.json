@@ -1944,29 +1944,14 @@
       ]
     },
     "HeatmapResult": {
-      "type": "object",
-      "properties": {
-        "calendar": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/CalendarHeatmap"
-            },
-            {
-              "type": "null"
-            }
-          ]
+      "anyOf": [
+        {
+          "$ref": "#/definitions/CalendarHeatmap"
         },
-        "weekhour": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/WeekhourHeatmap"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        {
+          "$ref": "#/definitions/WeekhourHeatmap"
         }
-      }
+      ]
     },
     "Hello": {
       "type": "object",

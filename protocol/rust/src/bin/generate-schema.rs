@@ -29,6 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("settings", schema_for!(Settings)),
         ("device", schema_for!(Device)),
         ("usage_totals", schema_for!(UsageTotals)),
+        ("usage_heatmap", schema_for!(HeatmapResult)),
         ("workbench", schema_for!(Workbench)),
         ("method", schema_for!(Method)),
         ("method_params", schema_for!(MethodParams)),
@@ -45,12 +46,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("screen_client_frame", schema_for!(ScreenClientFrame)),
         ("screen_frame_header", schema_for!(ScreenFrameHeader)),
     ];
+    let count = roots.len();
     for (name, schema) in roots {
         fs::write(
             out.join(format!("{name}.json")),
             serde_json::to_string_pretty(&schema)? + "\n",
         )?;
     }
-    println!("wrote {} schemas to {}", 36, out.display());
+    println!("wrote {} schemas to {}", count, out.display());
     Ok(())
 }

@@ -2060,9 +2060,10 @@ pub enum UsageMetric {
     Requests,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct HeatmapResult {
-    pub calendar: Option<CalendarHeatmap>,
-    pub weekhour: Option<WeekhourHeatmap>,
+#[serde(untagged)]
+pub enum HeatmapResult {
+    Calendar(CalendarHeatmap),
+    Weekhour(WeekhourHeatmap),
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct CalendarHeatmap {

@@ -1,0 +1,17 @@
+{
+  "days": [
+    {
+      "cost": null,
+      "date": "2026-10-09",
+      "requests": 2,
+      "tokens": 150,
+      "top_bot_id": "bot_code",
+      "value": 150.0
+    }
+  ],
+  "thresholds": [
+    25.0,
+    50.0,
+    100.0
+  ]
+}
