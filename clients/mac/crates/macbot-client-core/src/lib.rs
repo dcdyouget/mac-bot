@@ -5,7 +5,7 @@
 //! so newly added fields survive a client/server version skew.
 
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     time::{Duration, Instant},
 };
 
@@ -40,6 +40,8 @@ pub enum CoreError {
     Http(#[source] Box<reqwest::Error>),
     #[error("request timed out")]
     RequestTimeout,
+    #[error("event gap exceeded {0} buffered sequence values; reconnect required")]
+    EventGapExceeded(usize),
     #[error("connection closed")]
     Closed,
     #[error("server error {code}: {message}")]
@@ -49,6 +51,11 @@ pub enum CoreError {
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;
+
+/// Maximum number of future sequence values retained while waiting for a gap
+/// to close. A larger gap is treated as a resync request rather than allowing
+/// unbounded memory growth during a damaged or adversarial stream.
+pub const MAX_BUFFERED_EVENTS: usize = 2048;
 
 #[derive(Clone, Debug)]
 pub struct ReconnectConfig {
@@ -316,6 +323,10 @@ impl Client {
             add_idempotency_key(&mut params);
         }
         let (response, receiver) = oneshot::channel();
+        if let Err(error) = validate_rpc_params(&method, &params) {
+            let _ = response.send(Err(error));
+            return receiver;
+        }
         let command = Command::Request(RequestCommand {
             method,
             params,
@@ -437,14 +448,9 @@ async fn run_worker(
                         error: Some(error.to_string()),
                     })
                     .await;
-                tokio::select! {
-                    command = commands.recv() => match command {
-                        Some(Command::Request(request)) => pending.push_back(request),
-                        Some(Command::Close) | None => return,
-                    },
-                    _ = sleep(config.reconnect.delay(attempt, rand::thread_rng().gen())) => {},
+                if !wait_for_reconnect(&config, &mut commands, &mut pending, &mut attempt).await {
+                    return;
                 }
-                attempt = attempt.saturating_add(1);
                 continue;
             }
         };
@@ -482,19 +488,29 @@ async fn run_worker(
                     error: resume_result.err().map(|e| e.to_string()),
                 })
                 .await;
+            if !wait_for_reconnect(&config, &mut commands, &mut pending, &mut attempt).await {
+                return;
+            }
             continue;
         }
 
         let _ = events.send(ClientEvent::Connected { hello, resumed }).await;
         if !resumed {
             let bootstrap_id = Uuid::now_v7().to_string();
-            if socket
+            if let Err(error) = socket
                 .send(Message::Text(
                     request_frame(&bootstrap_id, "bootstrap", json!({})).to_string(),
                 ))
                 .await
-                .is_err()
             {
+                let _ = events
+                    .send(ClientEvent::Disconnected {
+                        error: Some(error.to_string()),
+                    })
+                    .await;
+                if !wait_for_reconnect(&config, &mut commands, &mut pending, &mut attempt).await {
+                    return;
+                }
                 continue;
             }
             match receive_response(
@@ -520,12 +536,16 @@ async fn run_worker(
                             error: Some(error.to_string()),
                         })
                         .await;
+                    if !wait_for_reconnect(&config, &mut commands, &mut pending, &mut attempt).await
+                    {
+                        return;
+                    }
                     continue;
                 }
             }
         }
 
-        if let Err(error) = run_connected(
+        match run_connected(
             config.request_timeout,
             &mut socket,
             &mut commands,
@@ -535,22 +555,42 @@ async fn run_worker(
         )
         .await
         {
-            let _ = events
-                .send(ClientEvent::Disconnected {
-                    error: Some(error.to_string()),
-                })
-                .await;
+            Ok(ConnectedExit::Closed) => return,
+            Err(error) => {
+                let _ = events
+                    .send(ClientEvent::Disconnected {
+                        error: Some(error.to_string()),
+                    })
+                    .await;
+            }
         }
         let _ = events.send(ClientEvent::Disconnected { error: None }).await;
-        tokio::select! {
-            command = commands.recv() => match command {
-                Some(Command::Request(request)) => pending.push_back(request),
-                Some(Command::Close) | None => return,
-            },
-            _ = sleep(config.reconnect.delay(attempt, rand::thread_rng().gen())) => {},
+        if !wait_for_reconnect(&config, &mut commands, &mut pending, &mut attempt).await {
+            return;
         }
-        attempt = attempt.saturating_add(1);
     }
+}
+
+async fn wait_for_reconnect(
+    config: &ClientConfig,
+    commands: &mut mpsc::Receiver<Command>,
+    pending: &mut VecDeque<RequestCommand>,
+    attempt: &mut u32,
+) -> bool {
+    let keep_running = tokio::select! {
+        command = commands.recv() => match command {
+            Some(Command::Request(request)) => {
+                pending.push_back(request);
+                true
+            }
+            Some(Command::Close) | None => false,
+        },
+        _ = sleep(config.reconnect.delay(*attempt, rand::thread_rng().gen())) => true,
+    };
+    if keep_running {
+        *attempt = (*attempt).saturating_add(1);
+    }
+    keep_running
 }
 
 type Socket =
@@ -608,12 +648,22 @@ fn request_frame(id: &str, method: &str, params: Value) -> Value {
     // put the original JSON on the wire. Re-serializing MethodParams would
     // silently drop client extensions and retry metadata such as
     // `client_request_id`; unknown future methods must remain sendable too.
-    if let Ok(method_type) =
-        serde_json::from_value::<protocol::Method>(Value::String(method.to_owned()))
-    {
-        let _ = protocol::MethodParams::decode(&method_type, params.clone());
-    }
+    let _ = validate_rpc_params(method, &params);
     json!({"v":1,"kind":"req","id":id,"method":method,"params":params})
+}
+
+/// Validate required fields for methods known by the shared protocol while
+/// leaving the original JSON untouched. Unknown method names remain valid so
+/// a newer server can be used before this client learns its typed contract.
+pub fn validate_rpc_params(method: &str, params: &Value) -> Result<()> {
+    let Ok(method_type) =
+        serde_json::from_value::<protocol::Method>(Value::String(method.to_owned()))
+    else {
+        return Ok(());
+    };
+    protocol::MethodParams::decode(&method_type, params.clone())
+        .map(|_| ())
+        .map_err(CoreError::Protocol)
 }
 
 /// Validate a result with the method-specific protocol type while returning
@@ -637,6 +687,7 @@ async fn receive_response(
     timeout(wait, async {
         let mut response = None;
         let mut sync_seen = false;
+        let mut out_of_order = BTreeSet::new();
         while let Some(message) = socket.next().await {
             match message.map_err(|error| CoreError::WebSocket(Box::new(error)))? {
                 Message::Text(text) => {
@@ -657,7 +708,7 @@ async fn receive_response(
                     if frame.get("kind").and_then(Value::as_str) == Some("evt") {
                         let seq = frame.get("seq").and_then(Value::as_u64);
                         if let Some(seq) = seq {
-                            *last_seq = (*last_seq).max(seq);
+                            advance_contiguous(last_seq, seq, &mut out_of_order)?;
                         }
                         if let Some(event) = frame.get("event").and_then(Value::as_str) {
                             let mut completed = None;
@@ -668,7 +719,7 @@ async fn receive_response(
                                     .and_then(|data| data.get("seq"))
                                     .and_then(Value::as_u64)
                                 {
-                                    *last_seq = (*last_seq).max(seq);
+                                    advance_contiguous(last_seq, seq, &mut out_of_order)?;
                                 }
                                 completed = response.take();
                             }
@@ -721,6 +772,29 @@ fn response_result(frame: &Value) -> Result<Value> {
     })
 }
 
+/// Advance only through a contiguous event prefix. Persisting the largest
+/// observed sequence would make a reconnect skip an earlier event when a
+/// frame arrives out of order or a frame is lost before the socket closes.
+fn advance_contiguous(cursor: &mut u64, seq: u64, out_of_order: &mut BTreeSet<u64>) -> Result<()> {
+    if seq <= *cursor {
+        return Ok(());
+    }
+    out_of_order.insert(seq);
+    while out_of_order.remove(&cursor.saturating_add(1)) {
+        *cursor = cursor.saturating_add(1);
+    }
+    if out_of_order.len() > MAX_BUFFERED_EVENTS {
+        out_of_order.clear();
+        return Err(CoreError::EventGapExceeded(MAX_BUFFERED_EVENTS));
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+enum ConnectedExit {
+    Closed,
+}
+
 async fn run_connected(
     request_timeout: Duration,
     socket: &mut Socket,
@@ -728,10 +802,11 @@ async fn run_connected(
     events: &mpsc::Sender<ClientEvent>,
     pending: &mut VecDeque<RequestCommand>,
     last_seq: &mut u64,
-) -> Result<()> {
+) -> Result<ConnectedExit> {
     let mut heartbeat = tokio::time::interval(Duration::from_secs(20));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut in_flight: Option<(String, RequestCommand, Instant)> = None;
+    let mut out_of_order = BTreeSet::new();
     loop {
         if in_flight.is_none() {
             if let Some(request) = pending.pop_front() {
@@ -750,34 +825,58 @@ async fn run_connected(
             _ = heartbeat.tick() => if let Err(error) = socket.send(Message::Ping(Vec::new())).await {
                 requeue(&mut in_flight, pending);
                 return Err(CoreError::WebSocket(Box::new(error)));
-            } else if in_flight.as_ref().is_some_and(|(_, _, started)| started.elapsed() >= request_timeout) {
-                if let Some((_, request, _)) = in_flight.take() { let _ = request.response.send(Err(CoreError::RequestTimeout)); }
+            },
+            timed_out = async {
+                if let Some((_, _, started)) = in_flight.as_ref() {
+                    sleep(request_timeout.saturating_sub(started.elapsed())).await;
+                    true
+                } else {
+                    std::future::pending::<bool>().await
+                }
+            } => if timed_out {
+                if let Some((_, request, _)) = in_flight.take() {
+                    let _ = request.response.send(Err(CoreError::RequestTimeout));
+                }
             },
             command = commands.recv() => match command {
                 Some(Command::Request(request)) => pending.push_back(request),
-                Some(Command::Close) | None => return Ok(()),
+                Some(Command::Close) | None => return Ok(ConnectedExit::Closed),
             },
             message = socket.next() => match message {
                 Some(Ok(Message::Text(text))) => {
                     let frame: Value = serde_json::from_str(&text)?;
                     match frame.get("kind").and_then(Value::as_str) {
                         Some("res") => {
-                            if let Some((id, request, _)) = in_flight.take() {
-                                if frame.get("id").and_then(Value::as_str) == Some(id.as_str()) {
-                                    let _ = request.response.send(response_result(&frame));
-                                } else {
-                                    // Preserve the request if a server response is for another id.
-                                    pending.push_front(request);
+                            let response_id = frame.get("id").and_then(Value::as_str);
+                            if response_id
+                                == in_flight
+                                    .as_ref()
+                                    .map(|(id, _, _)| id.as_str())
+                            {
+                                if let Some((_, request, _)) = in_flight.take() {
+                                    let result = response_result(&frame);
+                                    if request.method == "bootstrap" {
+                                        if let Ok(bootstrap) = &result {
+                                            reset_cursor_from_bootstrap(
+                                                last_seq,
+                                                &mut out_of_order,
+                                                bootstrap,
+                                            );
+                                        }
+                                    }
+                                    let _ = request.response.send(result);
                                 }
                             }
                         }
                         Some("evt") => {
                             let seq = frame.get("seq").and_then(Value::as_u64);
-                            if let Some(value) = seq { *last_seq = (*last_seq).max(value); }
+                            if let Some(value) = seq {
+                                advance_contiguous(last_seq, value, &mut out_of_order)?;
+                            }
                             if let Some(event) = frame.get("event").and_then(Value::as_str) {
                                 if event == "sync.done" {
                                     if let Some(seq) = frame.get("data").and_then(|data| data.get("seq")).and_then(Value::as_u64) {
-                                        *last_seq = (*last_seq).max(seq);
+                                        advance_contiguous(last_seq, seq, &mut out_of_order)?;
                                     }
                                 }
                                 let _ = events.send(ClientEvent::Protocol(ProtocolEvent { seq, event: event.into(), data: frame.get("data").cloned().unwrap_or(Value::Null) })).await;
@@ -807,6 +906,17 @@ fn requeue(
     }
 }
 
+fn reset_cursor_from_bootstrap(
+    last_seq: &mut u64,
+    out_of_order: &mut BTreeSet<u64>,
+    bootstrap: &Value,
+) {
+    if let Some(seq) = bootstrap.get("seq").and_then(Value::as_u64) {
+        *last_seq = seq;
+    }
+    out_of_order.clear();
+}
+
 /// State held by the UI. Unknown objects and fields survive round trips.
 #[derive(Clone, Debug, Default)]
 pub struct AppState {
@@ -829,6 +939,9 @@ pub struct AppState {
     pub bot_status: BTreeMap<String, Value>,
     pub settings: Option<Value>,
     pub pending: Option<Value>,
+    /// Set when the ordered event gap exceeded the bounded buffer. The UI
+    /// should request a fresh `bootstrap` before presenting later events.
+    pub needs_resync: bool,
     buffered_events: BTreeMap<u64, ProtocolEvent>,
 }
 
@@ -854,12 +967,18 @@ impl AppState {
             "models": values(&self.models),
             "settings": self.settings,
             "pending": self.pending,
+            "needs_resync": self.needs_resync,
         })
     }
 
     pub fn from_bootstrap_cache(value: Value) -> Self {
+        let needs_resync = value
+            .get("needs_resync")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let mut state = Self::default();
         state.apply_bootstrap(value);
+        state.needs_resync = needs_resync;
         state
     }
 
@@ -884,10 +1003,14 @@ impl AppState {
             self.approvals = indexed(pending.get("approvals"));
             self.questions = indexed(pending.get("questions"));
         }
-        self.buffered_events.retain(|seq, _| *seq > self.last_seq);
+        self.buffered_events.clear();
+        self.needs_resync = false;
     }
 
     pub fn apply_event(&mut self, event: ProtocolEvent) {
+        if self.needs_resync {
+            return;
+        }
         let Some(seq) = event.seq else {
             self.apply_event_now(&event);
             return;
@@ -900,6 +1023,10 @@ impl AppState {
             self.apply_event_now(&next);
             self.last_seq += 1;
         }
+        if self.buffered_events.len() > MAX_BUFFERED_EVENTS {
+            self.buffered_events.clear();
+            self.needs_resync = true;
+        }
     }
 
     fn apply_event_now(&mut self, event: &ProtocolEvent) {
@@ -910,13 +1037,20 @@ impl AppState {
             .or_else(|| event.event.strip_suffix(".updated"));
         if let Some(kind) = base {
             if let Some(object) = first_object(data) {
-                if let Some(id) = object
-                    .get("id")
-                    .or_else(|| object.get("name"))
-                    .or_else(|| object.get("ref"))
-                    .or_else(|| object.get("project_id"))
-                    .and_then(Value::as_str)
-                {
+                let key = match kind {
+                    // Bootstrap indexes announcements by project_id, so
+                    // updates must use the same stable key even when the
+                    // server also includes an announcement record id.
+                    "announcement" => object.get("project_id").or_else(|| object.get("id")),
+                    "skill" => object.get("name").or_else(|| object.get("id")),
+                    "model" => object.get("ref").or_else(|| object.get("id")),
+                    _ => object
+                        .get("id")
+                        .or_else(|| object.get("name"))
+                        .or_else(|| object.get("ref"))
+                        .or_else(|| object.get("project_id")),
+                };
+                if let Some(id) = key.and_then(Value::as_str) {
                     match kind {
                         "bot" => {
                             merge(&mut self.bots, id, object.clone());
@@ -948,6 +1082,9 @@ impl AppState {
                         "routine" => {
                             merge(&mut self.routines, id, object.clone());
                         }
+                        "model" => {
+                            merge(&mut self.models, id, object.clone());
+                        }
                         "provider" => {
                             merge(&mut self.providers, id, object.clone());
                         }
@@ -959,11 +1096,16 @@ impl AppState {
         }
         if event.event.ends_with(".deleted") {
             let kind = event.event.trim_end_matches(".deleted");
-            let id = data
-                .get("id")
-                .or_else(|| data.get("bot_id"))
-                .or_else(|| data.get("chat_id"))
-                .or_else(|| data.get("project_id"));
+            let id = match kind {
+                "announcement" => data.get("project_id").or_else(|| data.get("id")),
+                "model" => data.get("ref").or_else(|| data.get("id")),
+                "skill" => data.get("name").or_else(|| data.get("id")),
+                _ => data
+                    .get("id")
+                    .or_else(|| data.get("bot_id"))
+                    .or_else(|| data.get("chat_id"))
+                    .or_else(|| data.get("project_id")),
+            };
             if let Some(id) = id.and_then(Value::as_str) {
                 match kind {
                     "bot" => {
@@ -995,6 +1137,12 @@ impl AppState {
                     }
                     "provider" => {
                         self.providers.remove(id);
+                    }
+                    "announcement" => {
+                        self.announcements.remove(id);
+                    }
+                    "model" => {
+                        self.models.remove(id);
                     }
                     _ => {}
                 }
@@ -1117,6 +1265,7 @@ fn first_object(value: &Value) -> Option<&Value> {
         "skill",
         "routine",
         "provider",
+        "model",
         "settings",
     ]
     .iter()
@@ -1375,7 +1524,10 @@ async fn run_screen(
                 command = commands.recv() => match command {
                     Some(ScreenControl::Send(command)) => socket.send(Message::Text(serde_json::to_string(&command)?)).await.map_err(|error| CoreError::WebSocket(Box::new(error)))?,
                     Some(ScreenControl::Close) => { let _ = socket.close(None).await; return Ok(()); }
-                    None => return Ok(()),
+                    None => {
+                        let _ = socket.close(None).await;
+                        return Ok(());
+                    }
                 },
                 message = socket.next() => match message {
                     Some(Ok(Message::Text(text))) => {
@@ -1521,6 +1673,336 @@ mod tests {
             data: json!({"bot":{"id":"bot_a","name":"bad"}}),
         });
         assert_eq!(state.bots["bot_a"]["name"], "new");
+    }
+
+    #[test]
+    fn event_maps_keep_bootstrap_keys_for_announcements_skills_and_models() {
+        let mut state = AppState::default();
+        state.apply_bootstrap(json!({
+            "seq": 1,
+            "announcements": [{"id":"announcement-1","project_id":"project-1","title":"old"}],
+            "skills": [{"id":"skill-1","name":"skill-name","enabled":false}],
+            "models": [{"ref":"provider/model","display_name":"old"}]
+        }));
+        state.apply_event(ProtocolEvent {
+            seq: Some(2),
+            event: "announcement.updated".into(),
+            data: json!({"announcement":{"id":"announcement-1","project_id":"project-1","title":"new"}}),
+        });
+        state.apply_event(ProtocolEvent {
+            seq: Some(3),
+            event: "skill.updated".into(),
+            data: json!({"skill":{"id":"skill-1","name":"skill-name","enabled":true}}),
+        });
+        state.apply_event(ProtocolEvent {
+            seq: Some(4),
+            event: "model.updated".into(),
+            data: json!({"model":{"ref":"provider/model","display_name":"new"}}),
+        });
+        assert_eq!(state.announcements["project-1"]["title"], "new");
+        assert_eq!(state.skills["skill-name"]["enabled"], true);
+        assert_eq!(state.models["provider/model"]["display_name"], "new");
+        state.apply_event(ProtocolEvent {
+            seq: Some(5),
+            event: "announcement.deleted".into(),
+            data: json!({"project_id":"project-1"}),
+        });
+        state.apply_event(ProtocolEvent {
+            seq: Some(6),
+            event: "skill.deleted".into(),
+            data: json!({"name":"skill-name"}),
+        });
+        state.apply_event(ProtocolEvent {
+            seq: Some(7),
+            event: "model.deleted".into(),
+            data: json!({"ref":"provider/model"}),
+        });
+        assert!(state.announcements.is_empty());
+        assert!(state.skills.is_empty());
+        assert!(state.models.is_empty());
+    }
+
+    #[test]
+    fn transport_cursor_does_not_skip_an_event_gap() {
+        let mut cursor = 2;
+        let mut out_of_order = BTreeSet::new();
+        advance_contiguous(&mut cursor, 4, &mut out_of_order).unwrap();
+        assert_eq!(cursor, 2);
+        advance_contiguous(&mut cursor, 3, &mut out_of_order).unwrap();
+        assert_eq!(cursor, 4);
+        advance_contiguous(&mut cursor, 3, &mut out_of_order).unwrap();
+        assert_eq!(cursor, 4);
+    }
+
+    #[test]
+    fn app_state_gap_flood_requests_resync_and_bootstrap_recovers() {
+        let mut state = AppState::default();
+        for seq in 2..=(MAX_BUFFERED_EVENTS as u64 + 2) {
+            state.apply_event(ProtocolEvent {
+                seq: Some(seq),
+                event: "bot.updated".into(),
+                data: json!({"bot":{"id":"bot_gap","name":seq}}),
+            });
+        }
+        assert!(state.needs_resync);
+        assert_eq!(state.last_seq, 0);
+        let cached = state.to_bootstrap_cache();
+        assert!(AppState::from_bootstrap_cache(cached).needs_resync);
+        state.apply_event(ProtocolEvent {
+            seq: Some(1),
+            event: "bot.updated".into(),
+            data: json!({"bot":{"id":"bot_gap","name":"must-wait"}}),
+        });
+        assert!(!state.bots.contains_key("bot_gap"));
+
+        state.apply_bootstrap(json!({
+            "seq": 40,
+            "bots": [{"id":"bot_gap","name":"fresh"}],
+            "chats": [], "projects": [], "messages": []
+        }));
+        assert!(!state.needs_resync);
+        assert_eq!(state.last_seq, 40);
+        state.apply_event(ProtocolEvent {
+            seq: Some(41),
+            event: "bot.updated".into(),
+            data: json!({"bot":{"id":"bot_gap","name":"after-bootstrap"}}),
+        });
+        assert_eq!(state.bots["bot_gap"]["name"], "after-bootstrap");
+    }
+
+    #[test]
+    fn transport_gap_flood_is_bounded_and_cleared_for_reconnect() {
+        let mut cursor = 0;
+        let mut out_of_order = BTreeSet::new();
+        for seq in 2..=(MAX_BUFFERED_EVENTS as u64 + 1) {
+            advance_contiguous(&mut cursor, seq, &mut out_of_order).unwrap();
+        }
+        assert_eq!(out_of_order.len(), MAX_BUFFERED_EVENTS);
+        let error = advance_contiguous(
+            &mut cursor,
+            MAX_BUFFERED_EVENTS as u64 + 2,
+            &mut out_of_order,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, CoreError::EventGapExceeded(MAX_BUFFERED_EVENTS)),
+            "unexpected transport result: {error:?}"
+        );
+        assert!(out_of_order.is_empty());
+        assert_eq!(cursor, 0);
+    }
+
+    #[test]
+    fn bootstrap_cursor_resets_transport_gap() {
+        let mut cursor = 7;
+        let mut out_of_order = BTreeSet::new();
+        advance_contiguous(&mut cursor, 9, &mut out_of_order).unwrap();
+        assert!(!out_of_order.is_empty());
+        reset_cursor_from_bootstrap(&mut cursor, &mut out_of_order, &json!({"seq": 42}));
+        assert_eq!(cursor, 42);
+        assert!(out_of_order.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn connected_transport_disconnects_on_gap_flood() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let endpoint = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            for seq in 2..=(MAX_BUFFERED_EVENTS as u64 + 2) {
+                socket
+                    .send(Message::Text(
+                        json!({
+                            "v": 1,
+                            "kind": "evt",
+                            "seq": seq,
+                            "event": "bot.updated",
+                            "data": {"bot":{"id":"gap-bot","name":seq}}
+                        })
+                        .to_string(),
+                    ))
+                    .await
+                    .unwrap();
+            }
+            sleep(Duration::from_millis(250)).await;
+            let _ = socket.close(None).await;
+        });
+        let url = websocket_url(&endpoint, "/ws").unwrap();
+        let (mut socket, _) = connect_async(url).await.unwrap();
+        let (_command_tx, mut commands) = mpsc::channel(1);
+        let (events, _received) = mpsc::channel(4096);
+        let mut pending = VecDeque::new();
+        let mut last_seq = 0;
+        let error = run_connected(
+            Duration::from_secs(1),
+            &mut socket,
+            &mut commands,
+            &events,
+            &mut pending,
+            &mut last_seq,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(error, CoreError::EventGapExceeded(MAX_BUFFERED_EVENTS)),
+            "unexpected transport result: {error:?}"
+        );
+        assert_eq!(last_seq, 0);
+        server.await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn close_command_exits_connected_worker_without_reconnect() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let endpoint = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let _socket = accept_async(stream).await.unwrap();
+            sleep(Duration::from_millis(100)).await;
+        });
+        let url = websocket_url(&endpoint, "/ws").unwrap();
+        let (mut socket, _) = connect_async(url).await.unwrap();
+        let (command_tx, mut commands) = mpsc::channel(1);
+        command_tx.send(Command::Close).await.unwrap();
+        let (events, _received) = mpsc::channel(8);
+        let mut pending = VecDeque::new();
+        let mut last_seq = 0;
+        let result = run_connected(
+            Duration::from_secs(1),
+            &mut socket,
+            &mut commands,
+            &events,
+            &mut pending,
+            &mut last_seq,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(result, ConnectedExit::Closed));
+        server.await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn in_flight_request_timeout_is_independent_of_heartbeat_interval() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let endpoint = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            let _ = socket.next().await;
+            sleep(Duration::from_millis(100)).await;
+            let _ = socket.close(None).await;
+        });
+        let url = websocket_url(&endpoint, "/ws").unwrap();
+        let (mut socket, _) = connect_async(url).await.unwrap();
+        let (command_tx, mut commands) = mpsc::channel(1);
+        let (response, receiver) = oneshot::channel();
+        command_tx
+            .send(Command::Request(RequestCommand {
+                method: "ping".into(),
+                params: json!({}),
+                response,
+            }))
+            .await
+            .unwrap();
+        let (events, _received) = mpsc::channel(8);
+        let mut pending = VecDeque::new();
+        let mut last_seq = 0;
+        let run = tokio::spawn(async move {
+            run_connected(
+                Duration::from_millis(20),
+                &mut socket,
+                &mut commands,
+                &events,
+                &mut pending,
+                &mut last_seq,
+            )
+            .await
+        });
+        let error = timeout(Duration::from_millis(500), receiver)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(error, CoreError::RequestTimeout));
+        let _ = run.await;
+        server.await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unrelated_response_id_does_not_requeue_current_request() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let endpoint = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            let Some(Ok(Message::Text(text))) = socket.next().await else {
+                return;
+            };
+            let request: Value = serde_json::from_str(text.as_ref()).unwrap();
+            socket
+                .send(Message::Text(
+                    json!({
+                        "v": 1,
+                        "kind": "res",
+                        "id": "unrelated-response",
+                        "ok": true,
+                        "result": {"ignored": true}
+                    })
+                    .to_string(),
+                ))
+                .await
+                .unwrap();
+            socket
+                .send(Message::Text(
+                    json!({
+                        "v": 1,
+                        "kind": "res",
+                        "id": request["id"],
+                        "ok": true,
+                        "result": {"accepted": true}
+                    })
+                    .to_string(),
+                ))
+                .await
+                .unwrap();
+            sleep(Duration::from_millis(100)).await;
+            let _ = socket.close(None).await;
+        });
+        let url = websocket_url(&endpoint, "/ws").unwrap();
+        let (mut socket, _) = connect_async(url).await.unwrap();
+        let (command_tx, mut commands) = mpsc::channel(1);
+        let (response, receiver) = oneshot::channel();
+        command_tx
+            .send(Command::Request(RequestCommand {
+                method: "ping".into(),
+                params: json!({}),
+                response,
+            }))
+            .await
+            .unwrap();
+        let (events, _received) = mpsc::channel(8);
+        let mut pending = VecDeque::new();
+        let mut last_seq = 0;
+        let run = tokio::spawn(async move {
+            run_connected(
+                Duration::from_secs(1),
+                &mut socket,
+                &mut commands,
+                &events,
+                &mut pending,
+                &mut last_seq,
+            )
+            .await
+        });
+        let result = timeout(Duration::from_millis(500), receiver)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(result["accepted"], true);
+        let _ = run.await;
+        server.await.unwrap();
     }
 
     #[test]
@@ -1675,6 +2157,20 @@ mod tests {
         );
         assert_eq!(future["method"], "future.method");
         assert_eq!(future["params"]["extension"], true);
+    }
+
+    #[test]
+    fn known_params_validate_required_fields_without_rejecting_extensions() {
+        let mut params = json!({
+            "chat_id": "chat-1",
+            "text": "hello",
+            "mentions": [],
+            "future_field": {"kept": true}
+        });
+        add_idempotency_key(&mut params);
+        assert!(validate_rpc_params("chat.send", &params).is_ok());
+        assert!(validate_rpc_params("chat.send", &json!({"text":"missing chat"})).is_err());
+        assert!(validate_rpc_params("future.method", &json!({"any":true})).is_ok());
     }
 
     #[test]
@@ -1868,9 +2364,10 @@ mod tests {
         let handle = ClientHandle::spawn(config);
         let response = timeout(
             Duration::from_secs(3),
-            handle
-                .client
-                .request("chat.send", json!({"chat_id":"chat_retry","text":"hello"})),
+            handle.client.request(
+                "chat.send",
+                json!({"chat_id":"chat_retry","text":"hello","mentions":[]}),
+            ),
         )
         .await
         .unwrap()

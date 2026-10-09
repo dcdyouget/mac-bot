@@ -19,4 +19,5 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 macbot-protocol = { path = "../../../../protocol/rust" }
 
 [dev-dependencies]
+libc = "0.2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "test-util"] }
