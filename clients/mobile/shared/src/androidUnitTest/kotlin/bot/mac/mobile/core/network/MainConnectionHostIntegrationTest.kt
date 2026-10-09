@@ -198,6 +198,53 @@ class MainConnectionHostIntegrationTest {
     }
 
     @Test
+    fun rpcHeartbeatKeepsOkHttpConnectionAliveAndRequestsUsable() {
+        runBlocking {
+        val server = MockWebServer()
+        val pings = Channel<Unit>(Channel.UNLIMITED)
+        server.enqueue(upgrade { socket, request ->
+            when (request.string("method")) {
+                "session.resume" -> {
+                    socket.send(response(request.id(), buildJsonObject { put("mode", "replay") }))
+                    socket.send(event("sync.done", buildJsonObject { put("seq", 0) }, 0))
+                }
+                "ping" -> {
+                    pings.trySend(Unit)
+                    socket.send(response(request.id(), buildJsonObject { put("server_time", "2026-10-09T00:00:00Z") }))
+                }
+                "echo" -> socket.send(response(request.id(), buildJsonObject { put("ok", true) }))
+            }
+        })
+        server.start()
+        val client = HttpClient(OkHttp) { install(WebSockets) }
+        val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val connection = MainConnection(
+            client = client,
+            host = host(server),
+            identity = identity(),
+            lastSeqStore = InMemoryLastSeqStore(),
+            scope = scope,
+            heartbeatMillis = 100L,
+        )
+        try {
+            connection.start()
+            withTimeout(5_000) { connection.status.first { it == ConnectionStatus.CONNECTED } }
+            repeat(3) { withTimeout(2_000) { pings.receive() } }
+            assertEquals(ConnectionStatus.CONNECTED, connection.status.value)
+            val result = withTimeout(2_000) {
+                connection.request("echo", buildJsonObject { put("value", "after-heartbeat") })
+            }
+            assertEquals("true", result["ok"]?.jsonPrimitive?.content)
+        } finally {
+            connection.stop()
+            scope.cancel()
+            client.close()
+            server.close()
+        }
+        }
+    }
+
+    @Test
     fun failingPersistentHandlerDoesNotAdvanceCursor() {
         runBlocking {
         val server = MockWebServer()

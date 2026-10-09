@@ -55,6 +55,7 @@ class MainConnection(
     private val backoff: BackoffPolicy = BackoffPolicy(),
     private val ids: IdGenerator = RandomIdGenerator,
     private val onEvent: suspend (MainEvent) -> Unit = {},
+    private val heartbeatMillis: Long = HEARTBEAT_MILLIS,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val lock = Mutex()
@@ -145,7 +146,7 @@ class MainConnection(
         } finally {
             // A request that timed out must not be replayed forever. Reconnect replay
             // happens while the caller is still waiting; completed requests are removed here.
-            lock.withLock { requests.remove(tracked.id) }
+            withContext(NonCancellable) { lock.withLock { requests.remove(tracked.id) } }
         }
     }
 
@@ -200,8 +201,10 @@ class MainConnection(
             }
             val heartbeat = launch {
                 while (isActive) {
-                    delay(HEARTBEAT_MILLIS)
-                    send(Frame.Ping(ByteArray(0)))
+                    delay(heartbeatMillis)
+                    // OkHttp only accepts data/close frames through Ktor's send();
+                    // use the protocol heartbeat on platforms without manual ping.
+                    requestInternal("ping", buildJsonObject {}, false, null, requireReady = true)
                 }
             }
             try {

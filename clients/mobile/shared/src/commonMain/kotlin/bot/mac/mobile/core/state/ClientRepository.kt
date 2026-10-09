@@ -53,7 +53,14 @@ class ClientRepository(
     private val hostGeneration = mutableMapOf<String, Long>()
     private val hostSessions = mutableMapOf<String, HostSession>()
     private val writeMutex = Mutex()
-    private val pendingWrites = mutableMapOf<String, String>()
+    /**
+     * A write id is a retry lease, rather than an id for the request's payload.
+     * Multiple identical user actions may be in flight at the same time, so each
+     * active call needs a distinct id. Failed leases remain in this queue and are
+     * reused by a later retry of the same action.
+     */
+    private val pendingWrites = mutableMapOf<String, MutableList<String>>()
+    private val activeWriteIds = mutableMapOf<String, MutableSet<String>>()
     private val client = HttpClient {
         install(WebSockets) { extensions { install(WebSocketDeflateExtension) } }
     }
@@ -177,18 +184,10 @@ class ClientRepository(
         val session = hostMutex.withLock { hostSessions[hostId] ?: error("Host is not connected: " + hostId) }
         val write = method in WRITE_METHODS
         val retryKey = hostId + ":" + method + ":" + params
-        val stableId = if (write) writeMutex.withLock {
-            val id = pendingWrites[retryKey] ?: storage.read("write_id:" + retryKey)
-                ?: RandomIdGenerator.nextId().also { storage.write("write_id:" + retryKey, it) }
-            pendingWrites[retryKey] = id
-            id
-        } else null
+        val stableId = if (write) leaseWriteId(retryKey) else null
         try {
             val result = session.connection.request(method, params, write = write, clientRequestId = stableId)
-            if (write) writeMutex.withLock {
-                pendingWrites.remove(retryKey)
-                storage.delete("write_id:" + retryKey)
-            }
+            if (write) completeWrite(retryKey, stableId!!)
             hostMutex.withLock {
                 if (hostSessions[hostId] !== session) return@withLock
                 mutex.withLock {
@@ -200,8 +199,10 @@ class ClientRepository(
             }
             return result
         } catch (cancelled: CancellationException) {
+            if (write) withContext(NonCancellable) { releaseWrite(retryKey, stableId!!) }
             throw cancelled
         } catch (failure: Throwable) {
+            if (write) releaseWrite(retryKey, stableId!!)
             hostMutex.withLock {
                 if (hostSessions[hostId] === session) {
                     mutex.withLock {
@@ -213,6 +214,56 @@ class ClientRepository(
             }
             throw failure
         }
+    }
+
+    private suspend fun leaseWriteId(retryKey: String): String = writeMutex.withLock {
+        val candidates = pendingWrites[retryKey] ?: decodeWriteIds(storage.read(writeIdKey(retryKey))).also {
+            pendingWrites[retryKey] = it
+        }
+        val active = activeWriteIds.getOrPut(retryKey) { mutableSetOf() }
+        val id = candidates.firstOrNull { it !in active } ?: RandomIdGenerator.nextId().also { candidates += it }
+        active += id
+        persistWriteIds(retryKey, candidates)
+        id
+    }
+
+    private suspend fun completeWrite(retryKey: String, id: String) = writeMutex.withLock {
+        activeWriteIds[retryKey]?.let { active ->
+            active.remove(id)
+            if (active.isEmpty()) activeWriteIds.remove(retryKey)
+        }
+        pendingWrites[retryKey]?.let { candidates ->
+            candidates.remove(id)
+            if (candidates.isEmpty()) pendingWrites.remove(retryKey)
+            persistWriteIds(retryKey, candidates)
+        }
+    }
+
+    /** Releases the active lease while retaining the id for a later user retry. */
+    private suspend fun releaseWrite(retryKey: String, id: String) = writeMutex.withLock {
+        activeWriteIds[retryKey]?.let { active ->
+            active.remove(id)
+            if (active.isEmpty()) activeWriteIds.remove(retryKey)
+        }
+        pendingWrites[retryKey]?.let { persistWriteIds(retryKey, it) }
+    }
+
+    private fun writeIdKey(retryKey: String): String = "write_id:" + retryKey
+
+    private fun decodeWriteIds(raw: String?): MutableList<String> {
+        val value = raw?.trim().orEmpty()
+        if (value.isBlank()) return mutableListOf()
+        if (!value.startsWith("[")) return mutableListOf(value)
+        return runCatching {
+            protocolJson.parseToJsonElement(value).jsonArray
+                .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                .toMutableList()
+        }.getOrDefault(mutableListOf())
+    }
+
+    private suspend fun persistWriteIds(retryKey: String, ids: List<String>) {
+        if (ids.isEmpty()) storage.delete(writeIdKey(retryKey))
+        else storage.write(writeIdKey(retryKey), JsonArray(ids.map(::JsonPrimitive)).toString())
     }
 
     override suspend fun refresh() {

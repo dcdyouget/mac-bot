@@ -5,11 +5,14 @@ import bot.mac.mobile.core.network.MainEvent
 import bot.mac.mobile.core.platform.CredentialStore
 import bot.mac.mobile.core.platform.PersistentStore
 import bot.mac.mobile.core.protocol.protocolJson
+import bot.mac.mobile.core.protocol.obj
+import bot.mac.mobile.core.protocol.str
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
@@ -30,9 +33,106 @@ import okio.ByteString
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
 
 class ClientRepositoryMultiHostTest {
+    @Test
+    fun identicalConcurrentWritesLeaseDistinctClientRequestIds(): Unit = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val repository = repository(hostA, hostB)
+        try {
+            awaitConnected(repository, "a", "b")
+            hostA.blockChatSends = true
+            val params = buildJsonObject {
+                put("chat_id", "chat_same")
+                put("text", "same payload")
+                put("mentions", kotlinx.serialization.json.buildJsonArray {})
+            }
+            val first = async { repository.callOnHost("a", "chat.send", params) }
+            val second = async { repository.callOnHost("a", "chat.send", params) }
+            val requests = listOf(
+                withTimeout(2_000) { hostA.writeRequests.receive() },
+                withTimeout(2_000) { hostA.writeRequests.receive() },
+            )
+            assertNotEquals(
+                requests[0].obj("params").str("client_request_id"),
+                requests[1].obj("params").str("client_request_id"),
+            )
+            hostA.releaseChatSends.countDown()
+            first.await()
+            second.await()
+        } finally {
+            hostA.releaseChatSends.countDown()
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
+    @Test
+    fun failedWriteKeepsItsClientRequestIdForTheNextRetry() = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val repository = repository(hostA, hostB)
+        try {
+            awaitConnected(repository, "a", "b")
+            hostA.failNextChatSend.set(true)
+            val params = buildJsonObject {
+                put("chat_id", "chat_retry")
+                put("text", "retry me")
+                put("mentions", kotlinx.serialization.json.buildJsonArray {})
+            }
+            runCatching { repository.callOnHost("a", "chat.send", params) }
+                .onSuccess { error("first write unexpectedly succeeded") }
+            repository.callOnHost("a", "chat.send", params)
+            val first = withTimeout(2_000) { hostA.writeRequests.receive() }
+            val second = withTimeout(2_000) { hostA.writeRequests.receive() }
+            assertEquals(
+                first.obj("params").str("client_request_id"),
+                second.obj("params").str("client_request_id"),
+            )
+        } finally {
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
+    @Test
+    fun cancelledWriteReleasesItsLeaseForTheNextRetry() = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val repository = repository(hostA, hostB)
+        try {
+            awaitConnected(repository, "a", "b")
+            hostA.blockChatSends = true
+            val params = buildJsonObject {
+                put("chat_id", "chat_cancel")
+                put("text", "cancel me")
+                put("mentions", kotlinx.serialization.json.buildJsonArray {})
+            }
+            val cancelled = async { repository.callOnHost("a", "chat.send", params) }
+            val first = withTimeout(2_000) { hostA.writeRequests.receive() }
+            cancelled.cancelAndJoin()
+            hostA.blockChatSends = false
+            repository.callOnHost("a", "chat.send", params)
+            val second = withTimeout(2_000) { hostA.writeRequests.receive() }
+            assertEquals(
+                first.obj("params").str("client_request_id"),
+                second.obj("params").str("client_request_id"),
+            )
+        } finally {
+            hostA.releaseChatSends.countDown()
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
     @Test
     fun inactiveHostEventsStayScopedAndSelectingDoesNotDisconnectOtherHosts(): Unit = runBlocking {
         val hostA = TestHost("node-a")
@@ -137,6 +237,10 @@ class ClientRepositoryMultiHostTest {
     private class TestHost(private val nodeId: String) {
         val server = MockWebServer()
         val sockets = Channel<WebSocket>(Channel.UNLIMITED)
+        val writeRequests = Channel<JsonObject>(Channel.UNLIMITED)
+        var blockChatSends = false
+        val releaseChatSends = CountDownLatch(1)
+        val failNextChatSend = AtomicBoolean(false)
         private val allSockets = mutableListOf<WebSocket>()
 
         init {
@@ -145,7 +249,7 @@ class ClientRepositoryMultiHostTest {
         }
 
         fun enqueueConnection() {
-            server.enqueue(MockResponse.Builder().webSocketUpgrade(Listener(nodeId, sockets, allSockets)).build())
+            server.enqueue(MockResponse.Builder().webSocketUpgrade(Listener(nodeId, sockets, allSockets, this)).build())
         }
 
         fun address(): String = server.url("/").toString()
@@ -166,6 +270,7 @@ class ClientRepositoryMultiHostTest {
         private val nodeId: String,
         private val sockets: Channel<WebSocket>,
         private val allSockets: MutableList<WebSocket>,
+        private val host: TestHost,
     ) : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
             sockets.trySend(webSocket)
@@ -188,6 +293,19 @@ class ClientRepositoryMultiHostTest {
             when (request["method"]?.toString()?.trim('"')) {
                 "session.resume" -> webSocket.send(response(id, buildJsonObject { put("mode", "reset") }))
                 "bootstrap" -> webSocket.send(response(id, buildJsonObject { put("seq", 0) }))
+                "chat.send" -> {
+                    host.writeRequests.trySend(request)
+                    if (host.failNextChatSend.compareAndSet(true, false)) {
+                        webSocket.send(errorResponse(id))
+                    } else if (host.blockChatSends) {
+                        Thread {
+                            host.releaseChatSends.await()
+                            webSocket.send(response(id, buildJsonObject {}))
+                        }.start()
+                    } else {
+                        webSocket.send(response(id, buildJsonObject {}))
+                    }
+                }
                 else -> webSocket.send(response(id, buildJsonObject {}))
             }
         }
@@ -204,6 +322,17 @@ class ClientRepositoryMultiHostTest {
             put("id", id)
             put("ok", true)
             put("result", result)
+        }.toString()
+
+        private fun errorResponse(id: String): String = buildJsonObject {
+            put("v", 1)
+            put("kind", "res")
+            put("id", id)
+            put("ok", false)
+            put("error", buildJsonObject {
+                put("code", "internal")
+                put("message", "test failure")
+            })
         }.toString()
     }
 
