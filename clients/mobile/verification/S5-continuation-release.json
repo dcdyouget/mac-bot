@@ -1,0 +1,70 @@
+{
+  "checked_at_utc": "2026-10-09T15:51:01.558794+00:00",
+  "source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "application_id": "bot.mac.mobile",
+  "variant": "distribution-signed Release, R8 and resource shrink",
+  "apk_path": "clients/mobile/androidApp/build/outputs/apk/release/androidApp-release.apk",
+  "apk_bytes": 2111890,
+  "apk_sha256": "8ecb6e7df554af1e56b2d0bc5e0b62f0b343f864f25a39c27dfa1b0f30448664",
+  "installed_base_sha256": "8ecb6e7df554af1e56b2d0bc5e0b62f0b343f864f25a39c27dfa1b0f30448664",
+  "signature_verified": true,
+  "device": {
+    "serial": "emulator-5554",
+    "avd": "macbot_api36",
+    "api": 36,
+    "pid": "14036",
+    "active_host": "Production",
+    "connected_hosts": [
+      "10.0.2.2:7788",
+      "10.0.2.2:7789"
+    ]
+  },
+  "validation": {
+    "common_and_android_host_tests": 54,
+    "failed_tests": 0,
+    "signed_debug_device_tests": 4,
+    "generator_cli_tests": 5,
+    "schema_models": 220,
+    "fixture_values": 168,
+    "fixture_files": 94,
+    "release_and_lint": "passed",
+    "signed_device_test_log": "S5-device-tests.txt"
+  },
+  "screenshots": [
+    {
+      "file": "S0-production-and-mock-connected.png",
+      "sha256": "693a6b17648e7a199271f9ee437baac924a61396a3579dd51a44b957f2e6c0c1"
+    },
+    {
+      "file": "S0-production-sessions.png",
+      "sha256": "895a3944f2b5c816cedab9ed37a6f2db84e7a6efd8a0ecd314798d8c921e3ecf"
+    },
+    {
+      "file": "S1-production-heartbeat-chat.png",
+      "sha256": "67531332ef3a26e9665f78e51f45d9a94300859e7bd10e797a3c245253e691c2"
+    },
+    {
+      "file": "S1-production-chat-trace.png",
+      "sha256": "04cc979b891f2dddcaf255810d959916a77cf2511e98770da6b96306e4772b96"
+    },
+    {
+      "file": "S3-production-dashboard.png",
+      "sha256": "23295a8d5feb3b1d2e6b56f81083cb2dc4c8f3eec3ecfcca9c036c57b9295cdf"
+    }
+  ],
+  "service_sources": {
+    "production_7788": "ae3009b412be7d1f643c12733a4a15f332afec72",
+    "mock_7789": "11bc831"
+  },
+  "real_checks": [
+    "private chat known Markdown user and real MiniMax response",
+    "chat-scoped replay with four records and completed run",
+    "30-day usage summary 231196 tokens/66 requests/unpriced versus near-contemporaneous RPC"
+  ],
+  "limits": [
+    "Historical S0–S5 mock/performance evidence has its own source revisions.",
+    "These partial real-service checks do not replace PLAN full S1–S5 two-client joint acceptance.",
+    "Device tests run on same-key Debug to avoid R8 stripping runner dependencies; optimized Release restored with adb install -r.",
+    "A prior Gradle connectedReleaseAndroidTest attempt reset local test-app data and discovered zero tests; it is excluded. Mock/Production Host configurations restored, later manual update test flow preserved them."
+  ]
+}
