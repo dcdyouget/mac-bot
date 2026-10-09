@@ -154,3 +154,25 @@ python3 server/macbotd/tests/smoke_invalid_tool_recovery.py \
 ```
 
 使用尚不存在、位于真实用户 HOME 下的隔离数据目录，以覆盖新合法 `~/` 写入；不改进程 HOME。覆盖旧缺目标审批、过期回执的重启恢复、旧 tilde 审批和新缺参调用；断言无未授权副作用、修正后必须新审批、原 run 完成、重复重启幂等。
+
+后台 Bash 的工具调用与进程生命周期分开：`background=true` 返回 job_id 后立即产生 tool.end 并让模型继续；输出继续按原 run/call 推送给对应 trace 订阅，直到输出 EOF。前台 Bash 仍等待输出结束。取消任务或正常结束时清理本 run 的非 persistent 进程，已经注册为本地产物服务的保留规则不变。
+
+旧版已经启动但卡在输出 EOF 的 Bash 不自动恢复执行：其 Running/unsafe checkpoint 在启动后变为 Suspended，保持原 pending call；不会重放命令或补造成功 tool.end。旧 manager 的 job_id/PID 没有写入该 checkpoint，不能仅凭 command/cwd 推断进程归属并接管。读取精确白名单：
+
+```sh
+python3 server/macbotd/tests/inspect_background_checkpoint.py --home "$HOME/MacBot" \
+  --assignment-id asg_id_1 --assignment-id asg_id_2
+```
+
+输出原 run/asg/job/call、状态、unsafe、head 一致性、cwd 与参数哈希，不打印命令正文/密钥、不修改文件或进程。升级前后应核同一身份、Running/unsafe→Suspended、无新增该 call 的执行/进程启动。保留已有审批 journal 与 PID/cwd/进程组证据；不再次批准旧 call。若明确终止旧任务，只通过 `assignment.stop({assignment_id})` 将 run/assignment 收敛为 cancelled，不伪造 done；该操作不会追溯接管重启前的未知 PID。旧进程的处置必须单独核定归属，不能自动杀服务；如需继续检查已启动服务，使用明确的只读新任务，不再启动原命令。
+
+独立旧版升级、实际 WebSocket 输出与取消回归：
+
+```sh
+python3 server/macbotd/tests/smoke_background_bash.py \
+  --url http://127.0.0.1:7861 --home /tmp/macbot-background-smoke \
+  --legacy-command '/path/to/d97e48f/macbotd --port 7861 --password dev' \
+  --new-command '/path/to/new/macbotd --port 7861 --password dev'
+```
+
+只使用新隔离 home 和本机 fake provider。覆盖旧 unsafe 调用不重放、逐项审批和同 response 后续后台调用、tool.end 后持续输出、跨群 run/call 隔离和取消仅终止本 run 的非 persistent 子进程；测试结束清理其自有进程。
