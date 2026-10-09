@@ -139,3 +139,18 @@ python3 server/macbotd/tests/smoke_screen.py \
 Question 已为 `answered` 而 durable job 仍安全等待时，启动会补齐原消息与原 qid 的关联，并自动把已保存的 `answer.text` 或 `options[answer.option_index]` 送达原 run。原 Question、答案时间和消息 ID/seq/时间均保留，不重开问题、不创建新 run，也不批准工具；后续工具仍走正常审批。没有可用答案、映射冲突或存在未决工具的 job 不自动恢复。
 
 `smoke_decision_migration.py` 验证隔离进程 kill9 后丢失 Question/wait 的修复、工作台与事件、未回答时恢复期间无模型请求、回答后同 run 完成；还覆盖已回答但未送达的旧版边界，断言启动自动送达原答案、原 qid/答案时间不变、重复重启不重复调用模型。参数与其他 runtime smoke 相同。
+
+`memory(scope=project)` 必须显式提供 `project_id`，`scope=bot` 必须提供 `bot_id`，不从运行上下文猜目标。无效目标参数会在审批前成为工具错误，模型可在同一 run 修正。旧版已挂起的无效调用，仅在 approval-map、原 pending call、run request 和当前任务路由唯一一致时使审批过期，返回参数错误并续接原 run；不批准、不取消任务、不改旧参数。同批未执行调用收到 deferred 错误，必须重新请求并经过正常审批。过期回执先持久化，覆盖过期后尚未续接的崩溃边界。
+
+文件工具支持 `~` 和 `~/` 展开为当前用户 HOME（不是 `MACBOT_HOME`），仍限制实际目标位于当前工作目录内。审批 detail 保留原始参数，并记录 `resolved_path` 与 `path_resolution=home-v1`，与执行共用解析函数。旧版缺少该元数据的 `~/` write/edit 审批不沿用授权：启动后使其过期、向原 run 返回路径语义错误，要求模型显式绝对路径重试并重新审批。已完成的旧写入及其 receipt 不迁移、不重放。
+
+升级回归（只使用隔离 home 与本机 fake provider）：
+
+```sh
+python3 server/macbotd/tests/smoke_invalid_tool_recovery.py \
+  --url http://127.0.0.1:7858 --home /tmp/macbot-invalid-tools-smoke \
+  --legacy-command '/path/to/c6ffcfc/macbotd --port 7858 --password dev' \
+  --new-command '/path/to/new/macbotd --port 7858 --password dev'
+```
+
+覆盖旧缺目标审批、过期回执的重启恢复、旧 tilde 审批和新缺参调用；断言无未授权副作用、修正后必须新审批、原 run 完成、重复重启幂等。
