@@ -1,0 +1,9 @@
+{
+  "data": {
+    "bot_id": "bot_main"
+  },
+  "event": "bot.deleted",
+  "kind": "evt",
+  "seq": 10,
+  "v": 1
+}

@@ -1,0 +1,9 @@
+{
+  "data": {
+    "chat_id": "chat_main"
+  },
+  "event": "chat.deleted",
+  "kind": "evt",
+  "seq": 3,
+  "v": 1
+}

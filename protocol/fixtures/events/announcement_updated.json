@@ -1,0 +1,15 @@
+{
+  "data": {
+    "announcement": {
+      "artifacts": [],
+      "highlights": [],
+      "members": [],
+      "project_id": "prj_login",
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  "event": "announcement.updated",
+  "kind": "evt",
+  "seq": 13,
+  "v": 1
+}

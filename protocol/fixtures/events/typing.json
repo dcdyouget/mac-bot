@@ -1,0 +1,11 @@
+{
+  "data": {
+    "bot_id": "bot_main",
+    "chat_id": "chat_main",
+    "on": true
+  },
+  "event": "typing",
+  "kind": "evt",
+  "seq": 32,
+  "v": 1
+}

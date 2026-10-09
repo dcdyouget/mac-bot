@@ -1,0 +1,6 @@
+{
+  "hops": 3,
+  "root_message_id": "msg_1",
+  "state": "paused",
+  "type": "loop_paused"
+}

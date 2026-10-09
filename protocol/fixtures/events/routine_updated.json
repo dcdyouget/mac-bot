@@ -1,0 +1,36 @@
+{
+  "data": {
+    "routine": {
+      "bot_id": "bot_main",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "enabled": true,
+      "id": "rtn_1",
+      "instructions": "汇总消息",
+      "last_run": {
+        "assignment_id": null,
+        "error": null,
+        "finished_at": "2026-10-09T10:19:02.312Z",
+        "id": "rrn_1",
+        "routine_id": "rtn_1",
+        "started_at": "2026-10-09T10:19:02.312Z",
+        "status": "done",
+        "trigger": "test"
+      },
+      "name": "晨报",
+      "next_run_at": "2026-10-09T10:19:02.312Z",
+      "project_id": null,
+      "schedules": [
+        {
+          "cron": "0 9 * * 1-5",
+          "label": "工作日 09:00"
+        }
+      ],
+      "timezone": "Asia/Shanghai",
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  "event": "routine.updated",
+  "kind": "evt",
+  "seq": 23,
+  "v": 1
+}

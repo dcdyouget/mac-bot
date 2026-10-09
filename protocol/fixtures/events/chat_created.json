@@ -1,0 +1,24 @@
+{
+  "data": {
+    "chat": {
+      "attention": "none",
+      "bot_id": "bot_main",
+      "id": "chat_main",
+      "kind": "main",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [],
+      "muted": false,
+      "pinned": true,
+      "project_id": null,
+      "title": "总管",
+      "unread": 0,
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  "event": "chat.created",
+  "kind": "evt",
+  "seq": 1,
+  "v": 1
+}

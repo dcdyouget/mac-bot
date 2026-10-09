@@ -1,0 +1,15 @@
+{
+  "aseq": 1,
+  "assignment_id": "asg_1",
+  "at": "2026-10-09T10:19:02.312Z",
+  "chat_id": "chat_login",
+  "data": {
+    "args": {
+      "text": "收到"
+    },
+    "call_id": "call_1",
+    "name": "send_msg"
+  },
+  "run_id": "run_1",
+  "type": "tool.start"
+}

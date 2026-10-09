@@ -1,0 +1,23 @@
+{
+  "chat_id": "chat_login",
+  "created_at": "2026-10-09T10:19:02.312Z",
+  "created_by": {
+    "kind": "user"
+  },
+  "deadline": "2026-10-12",
+  "done_at": null,
+  "flow": [
+    "产品",
+    "编码",
+    "测试"
+  ],
+  "goal": "给 App 加邮箱登录",
+  "home_path": "~/MacBot/projects/login/",
+  "id": "prj_login",
+  "lead_bot_id": "bot_main",
+  "members": [],
+  "name": "登录功能",
+  "slug": "login",
+  "status": "active",
+  "updated_at": "2026-10-09T10:19:02.312Z"
+}

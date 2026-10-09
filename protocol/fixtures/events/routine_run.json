@@ -1,0 +1,18 @@
+{
+  "data": {
+    "run": {
+      "assignment_id": null,
+      "error": null,
+      "finished_at": "2026-10-09T10:19:02.312Z",
+      "id": "rrn_1",
+      "routine_id": "rtn_1",
+      "started_at": "2026-10-09T10:19:02.312Z",
+      "status": "done",
+      "trigger": "test"
+    }
+  },
+  "event": "routine.run",
+  "kind": "evt",
+  "seq": 25,
+  "v": 1
+}

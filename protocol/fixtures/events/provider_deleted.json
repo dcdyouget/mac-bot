@@ -1,0 +1,9 @@
+{
+  "data": {
+    "provider_id": "prv_mock"
+  },
+  "event": "provider.deleted",
+  "kind": "evt",
+  "seq": 27,
+  "v": 1
+}

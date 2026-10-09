@@ -1,0 +1,17 @@
+{
+  "data": {
+    "assignment_id": "asg_1",
+    "usage": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 10,
+      "output_tokens": 20,
+      "requests": 1
+    }
+  },
+  "event": "usage.tick",
+  "kind": "evt",
+  "seq": 34,
+  "v": 1
+}

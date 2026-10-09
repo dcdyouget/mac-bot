@@ -1,0 +1,12 @@
+{
+  "data": {
+    "global_limit": 4,
+    "queued": 0,
+    "running": 1,
+    "subagents_running": 0
+  },
+  "event": "host.status",
+  "kind": "evt",
+  "seq": 35,
+  "v": 1
+}

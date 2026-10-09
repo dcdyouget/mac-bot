@@ -1,0 +1,42 @@
+{
+  "data": {
+    "bot": {
+      "avatar": {
+        "color": 0,
+        "kind": "bean"
+      },
+      "browser_mode": "headless",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "description": "协调团队",
+      "dm_chat_id": "chat_main",
+      "hidden": false,
+      "id": "bot_main",
+      "is_main": true,
+      "label": "主 Bot",
+      "max_parallel": 1,
+      "model": null,
+      "name": "总管",
+      "notifications": true,
+      "pinned": true,
+      "status": {
+        "active": 0,
+        "queued": 0,
+        "summary": "idle",
+        "waiting": 0
+      },
+      "tools": {
+        "bash": false,
+        "browser": false,
+        "files": false,
+        "mcp": false,
+        "subagent": false,
+        "web": false
+      },
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  "event": "bot.updated",
+  "kind": "evt",
+  "seq": 9,
+  "v": 1
+}

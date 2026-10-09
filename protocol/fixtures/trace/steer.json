@@ -1,0 +1,15 @@
+{
+  "aseq": 1,
+  "assignment_id": "asg_1",
+  "at": "2026-10-09T10:19:02.312Z",
+  "chat_id": "chat_login",
+  "data": {
+    "from": {
+      "kind": "user"
+    },
+    "message_id": "msg_3",
+    "text": "只做邮箱登录"
+  },
+  "run_id": "run_1",
+  "type": "steer"
+}

@@ -1,0 +1,9 @@
+{
+  "data": {
+    "name": "old"
+  },
+  "event": "skill.deleted",
+  "kind": "evt",
+  "seq": 22,
+  "v": 1
+}

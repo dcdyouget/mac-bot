@@ -1,0 +1,22 @@
+{
+  "data": {
+    "question": {
+      "allow_free_text": true,
+      "answer": null,
+      "assignment_id": "asg_1",
+      "bot_id": "bot_main",
+      "chat_id": "chat_main",
+      "id": "que_1",
+      "options": [
+        "是",
+        "否"
+      ],
+      "state": "pending",
+      "text": "继续？"
+    }
+  },
+  "event": "question.answered",
+  "kind": "evt",
+  "seq": 20,
+  "v": 1
+}

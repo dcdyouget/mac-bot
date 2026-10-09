@@ -1,0 +1,13 @@
+{
+  "aseq": 1,
+  "assignment_id": "asg_1",
+  "at": "2026-10-09T10:19:02.312Z",
+  "chat_id": "chat_login",
+  "data": {
+    "after_tokens": 500,
+    "before_tokens": 1000,
+    "reason": "context_limit"
+  },
+  "run_id": "run_1",
+  "type": "compaction"
+}

@@ -1,0 +1,15 @@
+{
+  "caps": {
+    "reasoning": false,
+    "tools": true,
+    "vision": true
+  },
+  "context_window": 128000,
+  "display_name": "Mock Model",
+  "enabled": true,
+  "max_output": 4096,
+  "model_id": "mock-model",
+  "price": null,
+  "provider_id": "prv_mock",
+  "ref": "prv_mock/mock-model"
+}

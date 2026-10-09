@@ -1,0 +1,35 @@
+{
+  "data": {
+    "models": [
+      {
+        "caps": {
+          "reasoning": false,
+          "tools": true,
+          "vision": true
+        },
+        "context_window": 128000,
+        "display_name": "Mock Model",
+        "enabled": true,
+        "max_output": 4096,
+        "model_id": "mock-model",
+        "price": null,
+        "provider_id": "prv_mock",
+        "ref": "prv_mock/mock-model"
+      }
+    ],
+    "provider": {
+      "api_kind": "openai-completions",
+      "base_url": "http://mock.invalid/v1",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "has_key": false,
+      "headers": {},
+      "id": "prv_mock",
+      "name": "Mock",
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  "event": "provider.updated",
+  "kind": "evt",
+  "seq": 26,
+  "v": 1
+}

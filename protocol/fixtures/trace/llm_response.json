@@ -1,0 +1,25 @@
+{
+  "aseq": 1,
+  "assignment_id": "asg_1",
+  "at": "2026-10-09T10:19:02.312Z",
+  "chat_id": "chat_login",
+  "data": {
+    "latency_ms": 100,
+    "request_id": "req_1",
+    "stop_reason": "stop",
+    "text": "收到",
+    "thinking": null,
+    "tool_calls": [],
+    "ttft_ms": 20,
+    "usage": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 10,
+      "output_tokens": 20,
+      "requests": 1
+    }
+  },
+  "run_id": "run_1",
+  "type": "llm.response"
+}

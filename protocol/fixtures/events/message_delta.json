@@ -1,0 +1,11 @@
+{
+  "data": {
+    "chat_id": "chat_main",
+    "message_id": "msg_1",
+    "text": "片段"
+  },
+  "event": "message.delta",
+  "kind": "evt",
+  "seq": 31,
+  "v": 1
+}

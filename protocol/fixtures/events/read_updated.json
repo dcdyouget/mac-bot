@@ -1,0 +1,10 @@
+{
+  "data": {
+    "chat_id": "chat_main",
+    "last_read_seq": 1
+  },
+  "event": "read.updated",
+  "kind": "evt",
+  "seq": 4,
+  "v": 1
+}

@@ -1,0 +1,11 @@
+{
+  "event": {
+    "action": "click",
+    "button": "left",
+    "click_count": 1,
+    "type": "mouse",
+    "x": 10.0,
+    "y": 20.0
+  },
+  "type": "input"
+}

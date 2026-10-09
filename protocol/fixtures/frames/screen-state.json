@@ -1,0 +1,15 @@
+{
+  "bot_id": "bot_main",
+  "driver": "bot",
+  "height": 720,
+  "tabs": [
+    {
+      "active": true,
+      "assignment_id": "asg_1",
+      "tab_id": "tab_1",
+      "title": "App",
+      "url": "http://localhost:3000"
+    }
+  ],
+  "width": 1280
+}

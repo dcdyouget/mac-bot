@@ -1,0 +1,12 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "art_prd",
+      "path_or_url": "product/prd.md",
+      "title": "PRD"
+    }
+  ],
+  "project_id": "prj_login",
+  "state": "pending",
+  "type": "review_card"
+}

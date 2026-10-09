@@ -1,0 +1,15 @@
+{
+  "data": {
+    "bot_id": "bot_main",
+    "status": {
+      "active": 0,
+      "queued": 0,
+      "summary": "idle",
+      "waiting": 0
+    }
+  },
+  "event": "bot.status",
+  "kind": "evt",
+  "seq": 33,
+  "v": 1
+}

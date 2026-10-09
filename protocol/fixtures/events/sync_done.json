@@ -1,0 +1,9 @@
+{
+  "data": {
+    "seq": 1
+  },
+  "event": "sync.done",
+  "kind": "evt",
+  "seq": 30,
+  "v": 1
+}

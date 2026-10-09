@@ -1,0 +1,18 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "art_prd",
+      "path_or_url": "product/prd.md",
+      "title": "PRD"
+    }
+  ],
+  "next": [
+    {
+      "bot_id": "bot_main",
+      "instruction": "继续"
+    }
+  ],
+  "notify_main": true,
+  "summary": "完成",
+  "type": "completion"
+}

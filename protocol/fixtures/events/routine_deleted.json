@@ -1,0 +1,9 @@
+{
+  "data": {
+    "routine_id": "rtn_1"
+  },
+  "event": "routine.deleted",
+  "kind": "evt",
+  "seq": 24,
+  "v": 1
+}

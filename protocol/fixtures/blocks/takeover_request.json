@@ -1,0 +1,6 @@
+{
+  "bot_id": "bot_main",
+  "reason": "需要登录",
+  "state": "pending",
+  "type": "takeover_request"
+}

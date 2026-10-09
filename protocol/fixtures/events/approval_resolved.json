@@ -1,0 +1,21 @@
+{
+  "data": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "bot_main",
+      "chat_id": "chat_main",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "decided_at": null,
+      "detail": "cargo test",
+      "id": "apr_1",
+      "risk": "exec",
+      "state": "pending",
+      "summary": "运行测试",
+      "tool": "bash"
+    }
+  },
+  "event": "approval.resolved",
+  "kind": "evt",
+  "seq": 18,
+  "v": 1
+}

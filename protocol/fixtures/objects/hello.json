@@ -1,0 +1,13 @@
+{
+  "currency": "CNY",
+  "features": [
+    "browser"
+  ],
+  "host_name": "Mac mini",
+  "last_seq": 7,
+  "node_id": "node_1",
+  "protocol": 1,
+  "server_time": "2026-10-09T10:19:02.312Z",
+  "server_version": "0.1.0",
+  "timezone": "Asia/Shanghai"
+}

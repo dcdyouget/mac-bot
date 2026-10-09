@@ -1,0 +1,55 @@
+{
+  "approvals": {
+    "mode": "require",
+    "rules": []
+  },
+  "browser": {
+    "chrome_profile": "Default",
+    "default_mode": "headless",
+    "stream": {
+      "desktop": {
+        "max_fps": 15,
+        "max_width": 1280,
+        "quality": 70
+      },
+      "mobile": {
+        "max_fps": 10,
+        "max_width": 720,
+        "quality": 50
+      }
+    }
+  },
+  "concurrency": {
+    "bot_default": 2,
+    "global": 4,
+    "loop_hops": 3,
+    "subagent_global": 8,
+    "subagent_per_run": 3
+  },
+  "currency": "CNY",
+  "host_name": "Mac mini",
+  "main_bot": {
+    "auto_create_project": true
+  },
+  "models": {
+    "bot_default": "prv_mock/mock-model",
+    "main": null,
+    "maintenance": null,
+    "subagent": "inherit"
+  },
+  "push": {
+    "apns_configured": false
+  },
+  "skills": {
+    "extra_dirs": []
+  },
+  "timezone": "Asia/Shanghai",
+  "trace": {
+    "save_full_requests": false
+  },
+  "web_search": {
+    "endpoint": null,
+    "has_key": false,
+    "provider": null
+  }
+}
