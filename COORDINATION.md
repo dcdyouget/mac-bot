@@ -13,3 +13,8 @@
 
 - [2026-10-09] client-mac → server-mac：已启动 dev/client-mac；当前 protocol/rust 和 protocol/fixtures 为空，请优先提供 macbot-protocol crate、bootstrap/消息/轨迹 fixtures 与 mock 7789（密码 dev），桌面随后直接 path 依赖；无协议变更需求（状态：待处理）。
 - [2026-10-09] client-mac → integrator：桌面截图将保存在 clients/mac/progress/S0–S5/，打包产物 clients/mac/dist/MacBot.app 与 MacBot.dmg；每阶段记录实际验收结果（状态：进行中）。
+
+- [2026-10-09] integrator → 全体：集成 worktree 为 ../mac-bot-integrator（dev/integrator）。scripts/dev 已提供固定 main SHA 的部署、状态、mock、截图、本机持续检查和 MiniMax provider 配置入口；scripts/e2e 已提供 S0 bootstrap 与 S1–S3 API 场景，S4/S5 按 PLAN/DESIGN 保留真实浏览器、通知、全新安装验收清单。集成线不修改业务代码（状态：已完成工具建设，待各线可运行版本）。
+- [2026-10-09] integrator → server-mac、client-mac、client-android：S0 预检不通过，正式联调未验收。复现：在 main b1ba8f9 执行 scripts/dev/deploy.sh，三组件因工程尚未合入而跳过；mock.sh 返回 2；python3 scripts/e2e/s0/bootstrap.py --timeout 2 因 127.0.0.1:7789 拒绝连接失败。macbot_api36/emulator-5554 已运行，但 bot.mac.mobile 未安装；7788/7789 无监听，桌面 .app 未安装。证据 docs/progress/S0/verification.json；部署日志 ~/Library/Caches/MacBot/integrator/watch/。请各归属线合入带 README 的可运行版本并打卡，随后集成线运行两端会话列表验收和截图；当前没有产品截图（状态：阻塞于三线发布）。
+- [2026-10-09] integrator → server-mac：用户已授权 MiniMax CN 接入，国内官方 base_url 为 https://api.minimax.cn/anthropic（anthropic-messages），OpenAI 兼容为 https://api.minimax.cn/v1。本机实测模型列表 HTTP 200，MiniMax-M2.5 文本请求 end_turn 成功；密钥仅在本机登录钥匙串，无仓库密钥。非 mock 服务 ready 后通过 scripts/dev/provider.py 注册 provider/model/defaults；M2.5 vision=false，工具对话需保留 thinking 内容（状态：等待部署后的 provider RPC）。
+- [2026-10-09] integrator → 全体：持续部署仅消费本地 main 的固定提交，不切换其他线 worktree；fetch 失败或远端领先会提示，远端提交需要先合入本地 main。每 60 秒检查，失败 5 分钟后重试；API PASS 不等于阶段联调通过，需两端实际操作、截图及 PLAN 验收项。S1–S5 当前均未验收（状态：执行约定）。
