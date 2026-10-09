@@ -63,6 +63,45 @@ private suspend fun <T> skillRequest(onError: (String) -> Unit, block: suspend (
     null
 }
 
+/** Applies a skill mutation, refreshes the list cache, then reads the full detail. */
+internal suspend fun mutateSkillAndRefresh(
+    repository: MobileRepository,
+    name: String,
+    method: String,
+    params: JsonObject,
+): JsonObject {
+    repository.call(method, params)
+    repository.call("skill.list")
+    return repository.call("skill.get", buildJsonObject { put("name", name) })
+        .obj("skill")
+        .takeIf { it.str("name").isNotBlank() }
+        ?: error("skill.get returned no detail for $name")
+}
+
+internal suspend fun saveSkillAndRefresh(
+    repository: MobileRepository,
+    existingName: String?,
+    name: String,
+    description: String,
+    content: String,
+): JsonObject = mutateSkillAndRefresh(
+    repository = repository,
+    name = existingName ?: name.trim(),
+    method = if (existingName == null) "skill.create" else "skill.update",
+    params = buildJsonObject {
+        put("name", existingName ?: name.trim())
+        put("content", skillContent(existingName ?: name.trim(), description, content))
+    },
+)
+
+internal suspend fun publishSkillAndRefresh(repository: MobileRepository, name: String): JsonObject =
+    mutateSkillAndRefresh(
+        repository,
+        name,
+        "skill.publish",
+        buildJsonObject { put("name", name) },
+    )
+
 @Composable
 fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
     val state by repository.state.collectAsState()
@@ -135,11 +174,8 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
                     }
                 }, onPublish = {
                     detail?.str("name")?.let { name -> scope.launch {
-                        skillRequest({ actionError = it }) {
-                            repository.call("skill.publish", buildJsonObject { put("name", name) })
-                            repository.call("skill.list")
-                            repository.call("skill.get", buildJsonObject { put("name", name) })
-                        }?.let { detail = it.obj("skill") }
+                        skillRequest({ actionError = it }) { publishSkillAndRefresh(repository, name) }
+                            ?.let { detail = it }
                     } }
                 }, onToggleBot = { botId, enabled ->
                     detail?.str("name")?.let { name -> scope.launch {
@@ -168,17 +204,9 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
             }
         }
     }
-    if (showEditor) SkillEditor(detail, onDismiss = { showEditor = false }, onSaved = {
+    if (showEditor) SkillEditor(detail, onDismiss = { showEditor = false }, onSaved = { refreshed ->
         showEditor = false
-        scope.launch {
-            val name = selectedName
-            skillRequest({ actionError = it }) {
-                repository.call("skill.list")
-                if (name != null) repository.call("skill.get", buildJsonObject { put("name", name) }) else buildJsonObject { }
-            }?.let { refreshed ->
-                if (name != null) detail = refreshed.obj("skill")
-            }
-        }
+        if (selectedName != null) detail = refreshed
     }, onError = { actionError = it }, repository = repository)
     if (showImport) SkillImportDialog(onDismiss = { showImport = false; scope.launch { skillRequest({ actionError = it }) { repository.call("skill.list") } } }, onError = { actionError = it }, repository = repository)
 }
@@ -254,7 +282,7 @@ private fun sourceLabel(source: String): String = when (source) {
 }
 
 @Composable
-private fun SkillEditor(skill: JsonObject?, onDismiss: () -> Unit, onSaved: () -> Unit, onError: (String) -> Unit, repository: MobileRepository) {
+private fun SkillEditor(skill: JsonObject?, onDismiss: () -> Unit, onSaved: (JsonObject) -> Unit, onError: (String) -> Unit, repository: MobileRepository) {
     var name by remember(skill) { mutableStateOf(skill?.str("name") ?: "") }
     var content by remember(skill) { mutableStateOf(skill?.str("content") ?: "") }
     var description by remember(skill) { mutableStateOf(skill?.str("description") ?: "") }
@@ -268,11 +296,8 @@ private fun SkillEditor(skill: JsonObject?, onDismiss: () -> Unit, onSaved: () -
     }, confirmButton = { Button(enabled = name.isNotBlank() && content.isNotBlank(), onClick = {
         scope.launch {
             skillRequest({ onError(it) }) {
-                repository.call(if (skill == null) "skill.create" else "skill.update", buildJsonObject {
-                    put("name", skill?.str("name") ?: name.trim())
-                    put("content", skillContent(skill?.str("name") ?: name.trim(), description, content))
-                })
-            }?.let { onSaved() }
+                saveSkillAndRefresh(repository, skill?.str("name"), name, description, content)
+            }?.let(onSaved)
         }
     }) { Text(stringResource(Res.string.skills_save)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_close)) } })
 }
