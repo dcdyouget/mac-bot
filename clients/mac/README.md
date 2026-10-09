@@ -49,7 +49,7 @@ open dist/MacBot.app
 
 打包支持无 `.git` 的干净 archive；集成线用 `MACBOT_SOURCE_COMMIT` 显式传入快照 SHA，写入 `Contents/Resources/source-commit`。普通 worktree 自动记录 HEAD 与未提交源码标记；没有 SHA 时写 `unknown`，不会阻断打包。
 
-可选签名：`CODESIGN_IDENTITY="Developer ID Application: ..." packaging/package.sh release all`；本地临时签名使用 `MACBOT_ADHOC_SIGN=1`。未设置签名变量时保留未签名 bundle，便于开发机直接查看。`Info.plist` 的 Bundle ID 是 `bot.mac.desktop`，可执行文件名是 `macbot-desktop`。
+打包默认对完整 App 使用本机 ad hoc 签名；可用 `CODESIGN_IDENTITY="Developer ID Application: ..." packaging/package.sh release all` 指定签名身份。所有 fixtures、源码标记和 Info.plist 写入后才签名，并在生成 DMG 前对 App 及复制后的 bundle 执行 `codesign --verify --deep --strict`，失败时停止打包。`MACBOT_ADHOC_SIGN=1` 旧调用仍兼容默认行为。`Info.plist` 的 Bundle ID 是 `bot.mac.desktop`，可执行文件名是 `macbot-desktop`。
 
 也可以直接运行 bundle 或 target 二进制，并覆盖连接配置：
 

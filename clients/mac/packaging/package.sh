@@ -19,7 +19,7 @@ usage() {
   print ""
   print "Environment:"
   print "  SKIP_BUILD=1             Reuse target output instead of running cargo build"
-  print "  CODESIGN_IDENTITY=...    Sign the app with this codesign identity"
+  print "  CODESIGN_IDENTITY=...    Sign the app with this identity (default: ad hoc)"
   print "  MACBOT_VERSION=...       Override CFBundle version (default: 0.1.0)"
   print "  MACBOT_SOURCE_COMMIT=... Stamp source SHA when building a git archive"
   exit 2
@@ -80,11 +80,10 @@ make_app() {
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$APP_DIR/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$APP_DIR/Contents/Info.plist"
 
-  if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
-    codesign --force --sign "$CODESIGN_IDENTITY" --timestamp=none "$APP_DIR"
-  elif [[ "${MACBOT_ADHOC_SIGN:-0}" == "1" ]]; then
-    codesign --force --sign - --timestamp=none "$APP_DIR"
-  fi
+  # The linker signature covers only the Mach-O. Seal the complete bundle
+  # after every resource and plist write, before copying it into the DMG.
+  codesign --force --sign "${CODESIGN_IDENTITY:--}" --timestamp=none "$APP_DIR"
+  codesign --verify --deep --strict "$APP_DIR"
 
   print "Created $APP_DIR (bundle id: $BUNDLE_ID, configuration: $CONFIG)"
 }
@@ -108,6 +107,7 @@ make_dmg() {
   }
   trap cleanup_dmg_root EXIT
   cp -R "$APP_DIR" "$DMG_ROOT/MacBot.app"
+  codesign --verify --deep --strict "$DMG_ROOT/MacBot.app"
   ln -s /Applications "$DMG_ROOT/Applications"
   DMG_TEMP="$DIST_DIR/.MacBot.$$.tmp.dmg"
   rm -f "$DMG_TEMP"
