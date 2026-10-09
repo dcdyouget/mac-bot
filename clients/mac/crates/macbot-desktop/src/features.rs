@@ -3523,7 +3523,7 @@ fn routine_editor(
         .map(|h| {
             format!(
                 "{} · {} · {}",
-                string(h, "at", t("common.unknown")),
+                string(h, "started_at", t("common.unknown")),
                 routine_trigger(h),
                 string(h, "status", t("routine.done"))
             )
@@ -3546,9 +3546,9 @@ fn routine_editor(
                         "{}   {}",
                         t("routine.active"),
                         if data.get("enabled").and_then(Value::as_bool).unwrap_or(true) {
-                            t("common.confirm")
+                            t("routine.enabled")
                         } else {
-                            t("common.cancel")
+                            t("routine.disabled")
                         }
                     ),
                 ],

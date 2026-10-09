@@ -164,6 +164,8 @@ pub fn text(key: &str) -> &'static str {
         "routine.schedule" => "运行时间",
         "routine.add_schedule" => "＋ 添加时间",
         "routine.active" => "已启用",
+        "routine.enabled" => "已启用",
+        "routine.disabled" => "已停用",
         "routine.test_run" => "试运行",
         "routine.toggle" => "启用/停用",
         "routine.delete" => "删除任务",

@@ -11,17 +11,18 @@ use macbot_client_core::{Client, ClientConfig, ClientEvent, ScreenEvent, ScreenH
 use serde_json::{json, Value};
 use tokio::time::timeout;
 
-const ENDPOINT: &str = "127.0.0.1:7789";
-const PASSWORD: &str = "dev";
+const DEFAULT_ENDPOINT: &str = "127.0.0.1:7789";
+const DEFAULT_PASSWORD: &str = "dev";
+const DEFAULT_OUTPUT: &str = "progress/S0/development-mock-probe.json";
 
 fn env_or(name: &str, fallback: &str) -> String {
     env::var(name).unwrap_or_else(|_| fallback.into())
 }
 
-fn metadata() -> Value {
+fn metadata(endpoint: &str) -> Value {
     json!({
-        "endpoint": ENDPOINT,
-        "password_source": "probe constant (not persisted)",
+        "endpoint": endpoint,
+        "password_source": "MACBOT_PROBE_PASSWORD (not persisted)",
         "server_pid": env_or("MACBOT_PROBE_SERVER_PID", "unknown"),
         "server_command": env_or("MACBOT_PROBE_SERVER_COMMAND", "unknown"),
         "server_executable": env_or("MACBOT_PROBE_SERVER_EXECUTABLE", "unknown"),
@@ -33,6 +34,10 @@ fn metadata() -> Value {
             .unwrap_or_default()
             .as_secs(),
     })
+}
+
+fn read_only() -> bool {
+    matches!(env::var("MACBOT_PROBE_READ_ONLY").as_deref(), Ok("1"))
 }
 
 async fn wait_connected(
@@ -172,7 +177,10 @@ async fn screen_probe(config: ClientConfig, bot_id: &str) -> Value {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = ClientConfig::new(ENDPOINT, PASSWORD);
+    let endpoint = env_or("MACBOT_PROBE_ENDPOINT", DEFAULT_ENDPOINT);
+    let password = env_or("MACBOT_PROBE_PASSWORD", DEFAULT_PASSWORD);
+    let is_read_only = read_only();
+    let mut config = ClientConfig::new(endpoint.clone(), password);
     config.request_timeout = Duration::from_secs(5);
     let mut handle = Client::spawn(config.clone());
     let connected = wait_connected(&mut handle.events).await;
@@ -182,92 +190,112 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rows.push(json!({"method":"connect","ok":false,"error":error}));
     }
     if connected.is_ok() {
-        for (method, params) in [
-            ("ping", json!({})),
-            ("bootstrap", json!({})),
-            ("chat.list", json!({})),
-            ("bot.list", json!({})),
-            ("project.list", json!({})),
-            ("assignment.list", json!({})),
-            ("approval.list", json!({})),
-            ("settings.get", json!({})),
-            ("provider.list", json!({})),
-            ("workbench.get", json!({})),
-            (
-                "usage.summary",
-                json!({"from":"2026-01-01T00:00:00Z","to":"2026-12-31T23:59:59Z"}),
-            ),
-            (
-                "usage.heatmap",
-                json!({"mode":"calendar","from":"2026-01-01T00:00:00Z","to":"2026-12-31T23:59:59Z","metric":"tokens"}),
-            ),
-            (
-                "usage.timeseries",
-                json!({"from":"2026-01-01T00:00:00Z","to":"2026-12-31T23:59:59Z","granularity":"day","dimension":"bot","metric":"tokens"}),
-            ),
-            (
-                "usage.breakdown",
-                json!({"from":"2026-01-01T00:00:00Z","to":"2026-12-31T23:59:59Z","dimension":"bot"}),
-            ),
-            ("skill.list", json!({})),
-            ("routine.list", json!({})),
-            ("bot.templates", json!({})),
-        ] {
+        let methods = if is_read_only {
+            vec![
+                ("bootstrap", json!({})),
+                ("chat.history", json!({"chat_id":"chat_main"})),
+                ("skill.list", json!({})),
+                ("workbench.get", json!({})),
+                ("routine.list", json!({})),
+            ]
+        } else {
+            vec![
+                ("ping", json!({})),
+                ("bootstrap", json!({})),
+                ("chat.list", json!({})),
+                ("bot.list", json!({})),
+                ("project.list", json!({})),
+                ("assignment.list", json!({})),
+                ("approval.list", json!({})),
+                ("settings.get", json!({})),
+                ("provider.list", json!({})),
+                ("workbench.get", json!({})),
+                (
+                    "usage.summary",
+                    json!({"from":"2026-01-01T00:00:00Z","to":"2026-12-31T23:59:59Z"}),
+                ),
+                (
+                    "usage.heatmap",
+                    json!({"mode":"calendar","from":"2026-01-01T00:00:00Z","to":"2026-12-31T23:59:59Z","metric":"tokens"}),
+                ),
+                (
+                    "usage.timeseries",
+                    json!({"from":"2026-01-01T00:00:00Z","to":"2026-12-31T23:59:59Z","granularity":"day","dimension":"bot","metric":"tokens"}),
+                ),
+                (
+                    "usage.breakdown",
+                    json!({"from":"2026-01-01T00:00:00Z","to":"2026-12-31T23:59:59Z","dimension":"bot"}),
+                ),
+                ("skill.list", json!({})),
+                ("routine.list", json!({})),
+                ("bot.templates", json!({})),
+            ]
+        };
+        for (method, params) in methods {
             rows.push(rpc(&handle, method, params).await);
         }
-        if let Some(chat_id) = id_from(&rows, "chat.list", "chats") {
-            rows.push(rpc(&handle, "chat.history", json!({"chat_id":chat_id})).await);
-            rows.push(
-                rpc(
+        if !is_read_only {
+            if let Some(chat_id) = id_from(&rows, "chat.list", "chats") {
+                rows.push(rpc(&handle, "chat.history", json!({"chat_id":chat_id})).await);
+                rows.push(
+                    rpc(
+                        &handle,
+                        "trace.history",
+                        json!({"chat_id":chat_id,"tail":true}),
+                    )
+                    .await,
+                );
+                let subscription = rpc(
                     &handle,
-                    "trace.history",
-                    json!({"chat_id":chat_id,"tail":true}),
+                    "trace.subscribe",
+                    json!({"chat_id":chat_id,"since_aseq":0}),
                 )
-                .await,
-            );
-            let subscription = rpc(
-                &handle,
-                "trace.subscribe",
-                json!({"chat_id":chat_id,"since_aseq":0}),
-            )
-            .await;
-            let stream = result_value(&subscription)
-                .and_then(|result| result.get("stream"))
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            rows.push(subscription);
-            if let Some(stream) = stream {
-                rows.push(rpc(&handle, "trace.unsubscribe", json!({"stream":stream})).await);
+                .await;
+                let stream = result_value(&subscription)
+                    .and_then(|result| result.get("stream"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                rows.push(subscription);
+                if let Some(stream) = stream {
+                    rows.push(rpc(&handle, "trace.unsubscribe", json!({"stream":stream})).await);
+                }
+            } else {
+                rows.push(rpc(&handle, "chat.history", json!({"limit":1})).await);
             }
         }
-        rows.push(rpc(&handle, "chat.history", json!({"limit":1})).await);
     }
     let event_tail = drain_events(&mut handle.events);
     handle.close().await;
 
-    let bot_id = id_from(&rows, "bot.list", "bots").unwrap_or_else(|| "bot_main".into());
-    let screen = screen_probe(config.clone(), &bot_id).await;
+    let (screen, resumed, fallback) = if is_read_only {
+        (Value::Null, Value::Null, Value::Null)
+    } else {
+        let bot_id = id_from(&rows, "bot.list", "bots").unwrap_or_else(|| "bot_main".into());
+        let screen = screen_probe(config.clone(), &bot_id).await;
 
-    let mut resumed_config = config.clone();
-    resumed_config.has_cached_state = true;
-    resumed_config.last_seq = 0;
-    let mut resumed_handle = Client::spawn(resumed_config);
-    let resumed = wait_connected(&mut resumed_handle.events).await;
-    resumed_handle.close().await;
+        let mut resumed_config = config.clone();
+        resumed_config.has_cached_state = true;
+        resumed_config.last_seq = 0;
+        let mut resumed_handle = Client::spawn(resumed_config);
+        let resumed = wait_connected(&mut resumed_handle.events).await;
+        resumed_handle.close().await;
 
-    let mut fallback_config = config;
-    fallback_config.endpoint = "127.0.0.1:1".into();
-    fallback_config.addresses = vec!["127.0.0.1:1".into(), ENDPOINT.into()];
-    fallback_config.reconnect.initial_delay = Duration::from_millis(5);
-    fallback_config.reconnect.max_delay = Duration::from_millis(5);
-    let mut fallback_handle = Client::spawn(fallback_config);
-    let fallback = wait_connected(&mut fallback_handle.events).await;
-    fallback_handle.close().await;
+        let mut fallback_config = config.clone();
+        fallback_config.endpoint = "127.0.0.1:1".into();
+        fallback_config.addresses = vec!["127.0.0.1:1".into(), endpoint.clone()];
+        fallback_config.reconnect.initial_delay = Duration::from_millis(5);
+        fallback_config.reconnect.max_delay = Duration::from_millis(5);
+        let mut fallback_handle = Client::spawn(fallback_config);
+        let fallback = wait_connected(&mut fallback_handle.events).await;
+        fallback_handle.close().await;
+        (screen, json!(resumed), json!(fallback))
+    };
 
     let output = json!({
         "schema": 1,
         "probe": "client-mac core against server-mac mock",
-        "metadata": metadata(),
+        "read_only": is_read_only,
+        "metadata": metadata(&endpoint),
         "connection": connected,
         "rpc": rows,
         "events_after_rpc": event_tail,
@@ -276,7 +304,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "address_fallback": fallback,
         "reconnect_note": "The shared mock process was not killed; resume and address fallback were exercised without disrupting the Mac mini session.",
     });
-    let path = PathBuf::from("progress/S0/development-mock-probe.json");
+    let output_path = env_or("MACBOT_PROBE_OUTPUT", DEFAULT_OUTPUT);
+    let path = PathBuf::from(output_path);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
