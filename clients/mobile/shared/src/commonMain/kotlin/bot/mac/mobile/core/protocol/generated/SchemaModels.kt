@@ -1705,12 +1705,6 @@ data class WorkbenchBot(override val raw: JsonObject) : RawProtocolModel {
 }
 object WorkbenchBotSerializer : RawModelSerializer<WorkbenchBot>(::WorkbenchBot)
 
-@Serializable(with = WorkbenchResultSerializer::class)
-data class WorkbenchResult(override val raw: JsonObject) : RawProtocolModel {
-    val workbench: Workbench get() = Workbench(raw.obj("workbench"))
-}
-object WorkbenchResultSerializer : RawModelSerializer<WorkbenchResult>(::WorkbenchResult)
-
 @Serializable(with = WorkbenchWaitingSerializer::class)
 data class WorkbenchWaiting(override val raw: JsonObject) : RawProtocolModel {
 }

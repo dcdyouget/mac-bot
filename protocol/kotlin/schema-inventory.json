@@ -37,6 +37,6 @@
     "protocol/schema/workbench.json",
     "protocol/schema/write_meta.json"
   ],
-  "fixtures": 165,
+  "fixtures": 166,
   "generated_models": "clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/protocol/generated/SchemaModels.kt"
 }

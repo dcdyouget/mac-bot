@@ -36,6 +36,10 @@ class FixtureContractTest {
         assertEquals("message.created", event.event)
         assertEquals("msg_1", event.data.raw.obj("message").str("id"))
 
+        val workbench = decode(WorkbenchSerializer, fixture("results/workbench.json"))
+        assertEquals("bot_main", workbench.bots.single().botId)
+        assertEquals("chat_login", workbench.bots.single().assignments.single().originChatId)
+
         val screen = decode(ScreenStateSerializer, fixture("frames/screen-state.json"))
         assertEquals("bot_main", screen.botId)
         assertEquals("tab_1", screen.tabs.single().tabId)
@@ -79,6 +83,7 @@ class FixtureContractTest {
         path == "frames/screen-header.json" -> ScreenFrameHeaderSerializer
         path == "frames/screen-state.json" -> ScreenStateSerializer
         path == "frames/screen-input.json" || path == "frames/screen-ack.json" -> ScreenClientFrameSerializer
+        path == "results/workbench.json" -> WorkbenchSerializer
         path == "results/usage_heatmap_calendar.json" || path == "results/usage_heatmap_weekhour.json" -> HeatmapResultSerializer
         path.startsWith("blocks/") -> BlockSerializer
         else -> null
