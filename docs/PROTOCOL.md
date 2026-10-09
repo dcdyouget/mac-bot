@@ -1,6 +1,7 @@
-# Mac Bot 客户端 ↔ 服务端协议 v1（契约草案）
+# Mac Bot 客户端 ↔ 服务端协议 v1（契约草案，修订 2）
 
 > 本文是 **server-mac、client-mac、client-android、client-ios 四条开发线共同遵守的契约**。
+> 修订 2：群消息不流式（只来自 Bot 的 `send_msg` 工具调用）；去掉发言模型；插话带送达状态；运行轨迹只在用户打开时推送。
 > - 修改协议要走「协议变更」流程（见 AGENTS.md）：先改本文，再由 server-mac 更新 Rust 类型和 JSON Schema，最后各客户端跟进。
 > - 机器可读的定义以 `protocol/schema/*.json`（由 Rust 类型导出）为准；示例数据在 `protocol/fixtures/`。
 > - 字段命名使用 `snake_case`；时间统一用 RFC 3339 UTC 字符串；ID 用 UUIDv7 字符串。
@@ -31,8 +32,9 @@
 | 场景 | 主连接流量 |
 |------|-----------|
 | 后台挂着，只收群消息和状态 | 每分钟几 KB |
-| 打开一个群，Bot 在群里发言（流式） | 1–3 KB/s 的短时峰值 |
-| 打开工作详情，看一个 Bot 的运行轨迹（模型输出 + 工具调用流式） | 平均 2–10 KB/s；工具输出过长时只推前 8 KB，其余按需用 HTTP 取 |
+| 打开一个群：Bot 用 `send_msg` 发的完整消息（**不流式**） | 每条几百字节到几 KB |
+| 和 Bot 私聊：回复流式显示 | 1–3 KB/s 的短时峰值 |
+| 点开某个 Bot 的工作详情，看它的运行轨迹（执行中流式推送；**只有打开时才推**） | 平均 2–10 KB/s；工具输出过长时只推前 8 KB，其余按需用 HTTP 取 |
 | 打开 Agent Computer（单独的画面连接） | 100–700 KB/s，取决于画质、尺寸和帧率；只在打开时产生 |
 
 主连接上的文本帧启用 `permessage-deflate` 压缩。
@@ -98,7 +100,7 @@
 ```jsonc
 // Bot
 { "id": "bot_…", "name": "编码", "label": "写代码、部署", "description": "…", "avatar": {"kind":"bean","color":3},
-  "is_main": false, "work_model": "anthropic/claude-sonnet", "voice_model": "anthropic/claude-haiku",
+  "is_main": false, "model": "anthropic/claude-sonnet",
   "max_parallel": 3, "tools": {"files":true,"bash":true,"browser":true,"subagent":true,"web":true,"mcp":false},
   "pinned": false, "hidden": false,
   "status": { "summary": "working", "active": 2, "queued": 1, "waiting_user": 0 } }
@@ -110,7 +112,11 @@
 // Message
 { "id": "msg_…", "chat_id": "chat_…", "seq": 812, "sender": {"kind":"user|bot|system","id":"bot_…"},
   "created_at": "2026-10-09T10:19:02Z", "reply_to": "msg_…|null", "mentions": ["bot_…"],
-  "blocks": [ /* 见 3.1 */ ], "streaming": false }
+  "blocks": [ /* 见 3.1 */ ],
+  "intent": "ack|progress|decision|done|blocked|null",   // Bot 通过 send_msg 发出的消息才有，见 3.2
+  "assignment_id": "asg_…|null",                          // 这条消息属于哪个任务
+  "streaming": false,                                     // 只有私聊里的 Bot 回复可能为 true
+  "delivery": [ {"bot_id": "bot_…", "state": "queued|delivered|read", "assignment_id": "asg_…"} ] }  // 只出现在用户 @ Bot 的消息上
 
 // Project（= 群）
 { "id": "prj_…", "chat_id": "chat_…", "name": "登录功能", "slug": "login", "goal": "…", "flow": ["产品","编码","测试"],
@@ -124,13 +130,15 @@
 
 // Assignment（任务）
 { "id": "asg_…", "project_id": "prj_…|null", "origin_chat_id": "chat_…", "bot_id": "bot_…", "title": "实现登录",
-  "instruction": "…", "from": {"kind":"user|bot","id":"…"}, "status": "queued|acked|working|blocked|waiting_user|done|failed|cancelled",
+  "instruction": "…", "from": {"kind":"user|bot","id":"…"}, "status": "queued|working|waiting_user|waiting_bot|blocked|done|failed|cancelled",
   "queue_reason": "bot_parallel_limit|global_limit|serial_in_project|null",
   "started_at": "…", "finished_at": null, "usage": {"input_tokens": 61200, "output_tokens": 26800, "cost": 0.42},
   "subagents_active": 2, "steers": [{"text":"只做邮箱登录","at":"…","applied_at":"…"}] }
 ```
 
 ### 3.1 消息块（Message.blocks）
+
+> 群里 Bot 发出的每条消息都来自它调用的 `send_msg` 工具（见 3.2），是一条完整的消息，**不会有流式片段**。
 
 客户端按 `type` 渲染；不认识的类型显示为纯文本兜底（`fallback_text` 字段一定存在）。
 
@@ -139,20 +147,43 @@
 | `text` | Markdown 正文 | `markdown` |
 | `image` / `file` | 附件 | `url`（HTTP 路径）、`name`、`size`、`mime` |
 | `task_card` | 任务卡片（实时更新） | `assignment_id` |
-| `completion` | 完成报告 | `summary`、`artifacts[]`、`next: {bot_id, instruction}` |
-| `blocked` | 卡住报告 | `reason`、`need: user|bot`、`who` |
-| `progress` | 进展小字 | `text` |
+| `completion` | 完成报告（`send_msg` intent=done） | `summary`、`artifacts[]`、`handoff: [{bot_id, instruction}]` |
+| `blocked` | 卡住报告（intent=blocked） | `reason`、`mentions[]` |
+| `progress` | 阶段进展（intent=progress） | `text` |
 | `project_card` | 新群卡片 | `project_id` |
 | `review_card` | 待验收卡片 | `project_id`、`artifacts[]`、`actions: [confirm, request_changes]` |
 | `delegation` | 「↪ 交给 调研」 | `bot_id`、`assignment_id` |
 | `approval` | 审批卡片（只在私聊里出现） | `approval_id`、`tool`、`summary`、`detail`、`state` |
 | `approval_ref` | 群里的「⚑ 在私聊里等待你审批」 | `approval_id`、`chat_id` |
-| `question` | 提问卡片 | `question_id`、`text`、`options[]`、`state` |
+| `question` | 需要决策（intent=decision 且带 options） | `question_id`、`text`、`options[]`、`state` |
 | `takeover_request` | 请求接管 | `bot_id`、`project_id`、`reason` |
 | `bot_dm_ref` | 「✉ A 私信了 B」 | `chat_id`、`count` |
 | `memory_note` | 「✎ 记住了」 | `memory_id`、`scope`、`content` |
 | `system` | 系统事件 | `text` |
 | `loop_paused` | 防循环横幅 | `root_message_id`、`hops` |
+
+### 3.2 `send_msg` 与消息的对应关系
+
+Bot 在干活过程中调用 `send_msg(text, intent, to?, mentions?, artifacts?, handoff?, options?)`（定义见 PLAN 5.3.2），服务端据此生成一条 Message：
+
+| intent | 生成的 Message | 任务状态变化 |
+|--------|---------------|--------------|
+| `ack` | `text` 块 | 不变（派发时已经是 `working`） |
+| `progress` | `progress` 块 | 不变 |
+| `decision` | `text` 块；有 options 时为 `question` 块 | `waiting_user` 或 `waiting_bot`（run 挂起） |
+| `done` | `completion` 块（含产物和交接） | `done`；为每个交接对象创建新任务 |
+| `blocked` | `blocked` 块 | `blocked`（run 挂起） |
+
+客户端根据 `Message.intent` 渲染不同样式；任务状态以 `assignment.updated` 为准。
+
+### 3.3 插话的送达状态
+
+用户在群里 @ 一个正在干活或挂起中的 Bot 时，这条消息会作为 steer 进入该任务的 run（见 PLAN 5.3.4），服务端**不会立即生成回复**。消息的 `delivery` 字段通过 `message.updated` 依次更新：
+- `queued`：已收到，正在排队（Bot 正在执行一个步骤）
+- `delivered`：已经注入 run，下一次模型调用就会看到
+- `read`：Bot 已经处理了这条消息（模型调用已经包含它）
+
+客户端在用户气泡下面显示「已送达 · 等下一步」或「编码 已读取」。
 
 ---
 
@@ -187,10 +218,10 @@
 
 | 事件 | 发给谁 | 内容 |
 |------|--------|------|
-| `message.delta` | 所有在线客户端 | Bot 发言的流式片段 `{message_id, text}`；结束时由 `message.updated`（`streaming:false`）给出完整内容 |
-| `typing` | 所有在线客户端 | `{chat_id, bot_ids[]}` |
+| `message.delta` | 所有在线客户端 | **只用于私聊**：Bot 回复的流式片段 `{message_id, text}`；结束时由 `message.updated`（`streaming:false`）给出完整内容。群消息没有 delta |
+| `typing` | 所有在线客户端 | **只用于私聊**：`{chat_id, bot_id}` |
 | `bot.status` | 所有在线客户端 | 综合状态和并发数，变化时推送 |
-| `usage.tick` | 所有在线客户端 | `{assignment_id, input_tokens, output_tokens, cost}`，每个任务每 2 秒最多一次 |
+| `usage.tick` | 所有在线客户端 | `{assignment_id, input_tokens, output_tokens, cost}`，每个任务每 10 秒最多一次（用于工作台；群里的任务卡片不显示 token） |
 | `trace.event` | **只发给订阅了该 stream 的客户端** | 见第 6 节 |
 | `host.status` | 所有在线客户端 | 运行中的任务数、全局并发占用 |
 
@@ -198,7 +229,9 @@
 
 ## 6. 运行轨迹（Trace）：Bot 干活过程的流式查看和回放
 
-Bot 干活这一路（模型请求、模型输出、思考、工具调用和结果、子代理、插话、压缩、审批等待）全部**持久化**在服务端的线程日志里，并可以**流式**订阅。
+Bot 执行任务的 durable 过程（模型请求、模型输出、思考、工具调用和结果、`send_msg`、子代理、插话、挂起和恢复、压缩、审批等待）全部**持久化**在服务端的线程日志里。
+
+**只有用户点开某个 Bot 的工作详情时**，客户端才订阅；任务执行中流式推送，结束后用 history 回放。没有订阅时，服务端只落盘，不推送。
 
 ### 6.1 订阅流程
 
@@ -230,7 +263,9 @@ client ── req trace.subscribe {assignment_id} ──────────
 | `tool.start` | `{call_id, name, args}` | |
 | `tool.output` | `{call_id, chunk}` | 长时间运行的工具（bash、子代理）的流式输出；每次调用最多推 8 KB，超出部分只在结束时给出路径 |
 | `tool.end` | `{call_id, is_error, preview, details, truncated, full_output_url?}` | `details` 供界面渲染（diff、退出码、截图等） |
-| `steer` | `{text, from, message_id}` | 插话被注入 |
+| `steer` | `{text, from, message_id}` | 插话被注入（对应消息的 delivery 变为 `delivered`） |
+| `send_msg` | `{call_id, intent, message_id, chat_id}` | Bot 往群里发了一条消息，客户端可以链接过去 |
+| `run.wait` / `run.resume` | `{reason: decision|blocked|approval, message_id?}` / `{by_message_id?}` | run 挂起等待 / 被回复唤醒 |
 | `approval.wait` / `approval.done` | `{approval_id, tool, decision?}` | 等待审批 |
 | `compaction` | `{reason, before_tokens, after_tokens}` | 开新段 |
 | `run.end` | `{status: done|failed|cancelled, error?}` | |

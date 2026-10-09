@@ -44,8 +44,8 @@
 - macbot-providers：OpenAI 兼容（chat/completions）和 Anthropic Messages 两种 API 类型，流式 SSE、工具调用、usage；provider 和模型配置通过 provider.* / model.list 接口管理，API Key 存 macOS 钥匙串（security-framework）；另外实现一个用于测试的 mock provider。
 - macbot-tools：按 PLAN 5.10.1 / 5.10.2 实现工具框架，以及 read、write、edit、ls、find、grep、bash、bash_job。截断规则是 2,000 行或 50 KB，完整输出写入 runs/。出错时返回 is_error 结果，不要抛异常。审批钩子先做成默认放行，但要留好接口。
 - macbot-skills：扫描 ~/MacBot/skills 下的 SKILL.md（遵循 Agent Skills 规范），实现 skill 工具；系统提示里只放技能的名字、描述和路径。
-- 一个默认的普通 Bot（例如「助手」）：在私聊里可以对话、调用上面的工具、流式回复（message.delta → message.updated）。
-- 运行轨迹：按 PLAN 5.11 和 PROTOCOL 第 6 节，把 TraceItem 写入 entries.jsonl，并实现 trace.subscribe / trace.history，按 (run_id, tseq) 排序。
+- 一个默认的普通 Bot（例如「助手」）：在私聊里可以对话、调用上面的工具、流式回复（message.delta → message.updated）。注意：私聊是对话模式，回复可以流式；**群里是工作模式，Bot 只通过 send_msg 工具发完整消息，不流式**（PLAN 5.3）。send_msg 和群协作属于 S2，但 durable run 的设计（落盘、恢复、steer 注入、挂起等待）要在 S1 就按 5.3.4 和 5.3.6 预留好。
+- 运行轨迹：按 PLAN 5.11 和 PROTOCOL 第 6 节，把 TraceItem 写入 entries.jsonl，并实现 trace.subscribe / trace.history，按 (run_id, tseq) 排序。只给订阅了的客户端推送；没有订阅时只落盘。
 - 用量：每次模型调用往 usage/raw 写一行。
 - 鉴权：auth.json 存 argon2 哈希，每个连接都要求 Bearer 密码；没设置密码时返回 setup_required。
 - /admin：首次设置密码页（设置之前只允许本机访问）+ 状态页，单个 HTML 文件嵌入二进制（rust-embed）。
@@ -91,9 +91,9 @@
 5. fixtures 模式：设置环境变量后，直接读取 protocol/fixtures 渲染界面，不需要连接服务端。server-mac 的 mock 合入 main 之后，改为连接 macbotd --mock --password dev。
 
 【S1：单 Bot 跑通】
-- 私聊界面：消息列表用虚拟滚动；Markdown 渲染；流式显示 message.delta；用户气泡和 Bot 气泡样式按 DESIGN 第 2 章；输入框支持 Shift+Enter 换行；按 Bot 发送和停止。
+- 私聊界面：消息列表用虚拟滚动；Markdown 渲染；流式显示 message.delta（只有私聊有流式；群消息都是完整消息）；用户气泡和 Bot 气泡样式按 DESIGN 第 2 章；输入框支持 Shift+Enter 换行；按 Bot 发送和停止。
 - 消息块渲染：text、system、memory_note、approval（含三个按钮）、question、file、image；不认识的块用 fallback_text 显示。
-- 运行轨迹（DESIGN 4.6）：右侧面板的简版，加上全屏轨迹视图。先 trace.history 分页，再 trace.subscribe 接收实时推送，按 (run_id, tseq) 合并去重；支持「跟随最新」；模型请求、工具调用、子代理可以折叠和展开；工具输出被截断时通过 HTTP 获取全文。任务结束后同一个页面用于回放。
+- 运行轨迹（DESIGN 4.6）：右侧面板的简版，加上全屏轨迹视图。只在用户打开时订阅，关闭时退订。先 trace.history 分页，再 trace.subscribe 接收实时推送，按 (run_id, tseq) 合并去重；支持「跟随最新」；模型请求、工具调用、子代理可以折叠和展开；工具输出被截断时通过 HTTP 获取全文。任务结束后同一个页面用于回放。
 - 设置：模型与服务商页（provider.list / save / test、model.list）。
 - 错误和断线状态：按 DESIGN 4.14。
 
@@ -139,7 +139,7 @@
 7. 先用 fixtures 开发；server-mac 的 macbotd --mock 合入后，改为连接 mock。手机需要访问 Mac 的局域网 IP。
 
 【S1：单 Bot 跑通】
-- feature/chat：会话列表（主 Bot 固定在最上面，然后是「群」「Bot」两组，带注意力状态）；私聊界面（流式消息、Markdown、长按菜单）；消息块渲染：text、system、memory_note、approval、question、file、image，不认识的块用 fallback_text；输入框。
+- feature/chat：会话列表（主 Bot 固定在最上面，然后是「群」「Bot」两组，带注意力状态）；私聊界面（流式消息、Markdown、长按菜单；只有私聊有流式）；用户消息下方的送达状态（delivery 字段，见 PROTOCOL 3.3）；消息块渲染：text、system、memory_note、approval、question、file、image，不认识的块用 fallback_text；输入框。
 - feature/approval：私聊里的审批卡片，以及通知里直接点「允许一次」或「拒绝」。
 
 【S1 验收】在小米 17 上：添加 Host（填 Mac 的局域网 IP）→ 和 Bot 私聊 → 看到流式回复；App 切到后台再回来，消息不丢；断网重连后不重复。commonTest 和 androidUnitTest 都通过；iOS 目标能编译（./gradlew :shared:linkDebugFrameworkIosSimulatorArm64）。
@@ -184,7 +184,7 @@
 
 【S1：单 Bot 跑通】
 - feature/trace（DESIGN 4.6 和第 5 章）：工作详情全屏页和历史任务列表。
-  - 先 trace.history 分页，再 trace.subscribe 接收实时推送，按 (run_id, tseq) 合并去重。
+  - 只在用户打开时订阅，离开页面时退订。先 trace.history 分页，再 trace.subscribe 接收实时推送，按 (run_id, tseq) 合并去重。
   - 支持「跟随最新」；模型请求、工具调用、子代理可以折叠和展开；手机上默认折叠思考和工具输出；工具输出被截断时通过 HTTP 获取全文。
   - 任务结束后同一个页面用于回放。
   - 提供 [停止] [@ 它] 按钮。
