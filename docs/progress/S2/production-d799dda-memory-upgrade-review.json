@@ -1,0 +1,53 @@
+{
+  "at": "2026-10-09T22:00:20.941708+00:00",
+  "source_commit": "d799ddaa676471394d667dd31faf474052552432",
+  "old_approval": {
+    "id": "01a12292-7d4c-7085-9cd8-3d680692ae6d",
+    "state": "expired",
+    "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+    "tool": "memory"
+  },
+  "assignment": {
+    "id": "01a12291-4b55-7243-bc26-be662b64a950",
+    "status": "waiting_user",
+    "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+    "project_id": "01a12236-b308-7080-9877-6fc078239999",
+    "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+    "parent_assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+    "wait": {
+      "message_id": null,
+      "reason": "approval"
+    }
+  },
+  "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+  "original_args_unchanged": true,
+  "old_call_start_count": 1,
+  "old_call_ends": [
+    {
+      "type": "tool.end",
+      "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+      "aseq": 18,
+      "call_id": "call_function_kst63ertoctf_1",
+      "is_error": true,
+      "preview": "invalid tool arguments"
+    }
+  ],
+  "run_start_count": 1,
+  "new_pending": [
+    {
+      "id": "01a122ae-6152-7455-a8bf-b82189b0325b",
+      "tool": "memory",
+      "risk": "write",
+      "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+      "args_keys": [
+        "action",
+        "content",
+        "kind",
+        "project_id",
+        "scope"
+      ]
+    }
+  ],
+  "decision_sent": false,
+  "full_s2_pass": false
+}

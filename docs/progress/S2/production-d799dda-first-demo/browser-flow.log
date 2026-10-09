@@ -1,0 +1,102 @@
+✓ 邮箱登录 - macbot-e2e-s2-login-522c6b619b92
+  http://127.0.0.1:52203/login.html
+
+- generic
+  - heading "邮箱登录" [level=1, ref=e1]
+  - paragraph
+    - StaticText "请使用邮箱账号登录"
+  - form
+    - LabelText
+    - textbox "邮箱地址" [ref=e2]
+    - LabelText
+    - generic
+      - textbox "密码" [ref=e4]
+      - generic [ref=e5] clickable [cursor:pointer]
+    - button "登录" [ref=e3]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-demo/initial.png
+
+✓ Done
+
+✓ Done
+
+true
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-demo/invalid-email.png
+
+✓ Done
+
+✓ Done
+
+✓ Done
+
+true
+
+账号或密码错误
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-demo/wrong-password.png
+
+✓ Done
+
+✓ Done
+
+✓ Done
+
+- generic
+  - heading "邮箱登录" [level=1, ref=e1]
+  - paragraph
+    - StaticText "请使用邮箱账号登录"
+  - form
+    - LabelText
+    - textbox "邮箱地址" [ref=e2]: demo@example.com
+    - LabelText
+    - generic
+      - textbox "密码" [ref=e4]: •••••••
+      - generic [ref=e5] clickable [cursor:pointer]
+    - button "登录" [ref=e3]
+- generic
+  - heading "登录成功" [level=2, ref=e6]
+  - button "退出登录" [ref=e7]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-demo/correct-login.png
+
+http://127.0.0.1:52203/login.html
+
+✓ Done
+
+- generic
+  - heading "邮箱登录" [level=1, ref=e8]
+  - paragraph
+    - StaticText "请使用邮箱账号登录"
+  - form
+    - LabelText
+    - textbox "邮箱地址" [ref=e11]
+    - LabelText
+    - generic
+      - textbox "密码" [ref=e13]
+      - generic [ref=e14] clickable [cursor:pointer]
+    - button "登录" [ref=e12]
+- generic
+  - heading "登录成功" [level=2, ref=e9]
+  - button "退出登录" [ref=e10]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-demo/refresh-retained.png
+
+✓ Done
+
+✓ Done
+
+- generic
+  - heading "邮箱登录" [level=1, ref=e8]
+  - paragraph
+    - StaticText "请使用邮箱账号登录"
+  - form
+    - LabelText
+    - textbox "邮箱地址" [ref=e11]
+    - LabelText
+    - generic
+      - textbox "密码" [ref=e13]
+      - generic [ref=e14] clickable [cursor:pointer]
+    - button "登录" [ref=e12]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-demo/logout.png

@@ -1,0 +1,20 @@
+✓ 邮箱登录 - macbot-e2e-s2-parallel-fc45ecd3b62c
+  http://127.0.0.1:52201/login.html
+
+✓ Done
+
+✓ Done
+
+✓ Done
+
+false
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-parallel-demo/invalid-email.png
+
+✓ Done
+
+✓ Done
+
+true
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-parallel-demo/invalid-email-custom.png

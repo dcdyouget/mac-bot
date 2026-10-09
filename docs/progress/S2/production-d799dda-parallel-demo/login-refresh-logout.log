@@ -1,0 +1,48 @@
+✓ 邮箱登录 - macbot-e2e-s2-parallel-fc45ecd3b62c
+  http://127.0.0.1:52201/login.html
+
+✓ Done
+
+✓ Done
+
+✓ Done
+
+✓ Done
+
+- generic
+  - heading "登录成功" [level=1, ref=e1]
+  - StaticText "项目: macbot-e2e-s2-parallel-fc45ecd3b62c | 标记: macbot-e2e-s2-followup-b74f5aff98d5"
+  - button "退出登录" [ref=e2]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-parallel-demo/correct-login.png
+
+http://127.0.0.1:52201/login.html
+
+✓ Done
+
+- generic
+  - heading "登录成功" [level=1, ref=e3]
+  - StaticText "项目: macbot-e2e-s2-parallel-fc45ecd3b62c | 标记: macbot-e2e-s2-followup-b74f5aff98d5"
+  - button "退出登录" [ref=e4]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-parallel-demo/refresh-retained.png
+
+✓ Done
+
+✓ Done
+
+- generic
+  - heading "邮箱登录" [level=1, ref=e5]
+  - paragraph
+    - StaticText "欢迎使用邮箱账号登录"
+  - StaticText "项目: macbot-e2e-s2-parallel-fc45ecd3b62c | 标记: macbot-e2e-s2-followup-b74f5aff98d5"
+  - form
+    - LabelText
+    - textbox "邮箱地址" [ref=e6]
+    - LabelText
+    - generic
+      - textbox "密码" [ref=e8]
+      - generic [ref=e9] clickable [cursor:pointer]
+    - button "登录" [ref=e7]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-parallel-demo/logout.png

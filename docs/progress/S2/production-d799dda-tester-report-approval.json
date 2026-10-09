@@ -1,0 +1,40 @@
+{
+  "checked_at": "2026-10-09T22:10:30.068152+00:00",
+  "approval_id": "01a122b7-342d-7309-89b8-383decec5834",
+  "scope": {
+    "authorized": true,
+    "reason": "scenario-owned and path-scoped",
+    "tool": "write",
+    "operation": "project_home_file_mutation"
+  },
+  "checkpoint": {
+    "approval_id": "01a122b7-342d-7309-89b8-383decec5834",
+    "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+    "project_id": "01a12236-b308-7080-9877-6fc078239999",
+    "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+    "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+    "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+    "job_id": "job_01a12291-548e-73e1-a0d2-a4234da6ee4c",
+    "call_id": "call_function_39r1f4pzcrzt_1",
+    "job_status": "waiting",
+    "checkpoint_head_match": true,
+    "pending_tools_count": 1,
+    "run_request_match": true,
+    "detail_args_match": true,
+    "detail_metadata_keys": [
+      "path_resolution",
+      "resolved_path"
+    ],
+    "args_keys": [
+      "content",
+      "path"
+    ]
+  },
+  "actual_target": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/TEST.md",
+  "content_sha256": "ac5881ca9bed67fbe97d160839044478fa762f7e1fdfaac8a543c2aab77ee8f7",
+  "content_chars": 2573,
+  "steer_marker": "macbot-e2e-s2-steer-2d2888ef9281",
+  "report_claims_runtime_test": false,
+  "decision": "allowed_once",
+  "full_s2_pass": false
+}

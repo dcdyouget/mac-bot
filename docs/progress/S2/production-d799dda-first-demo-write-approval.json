@@ -1,0 +1,68 @@
+{
+  "checked_at": "2026-10-09T22:18:45.363778+00:00",
+  "source_commit": "d799ddaa676471394d667dd31faf474052552432",
+  "main_binding": {
+    "run_id": "run_01a122b9-5604-7035-82b1-7451ba2970bc",
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "main_assignment_id": "01a122b9-5604-7035-82b1-7451ba2970bc",
+    "root_assignment_id": "01a122b9-fa78-724f-a06f-fd7f155a1745",
+    "canonical_message_id": "01a122b9-5604-7035-82b1-7450b4e0dc3b",
+    "canonical_seq": 82,
+    "instruction": {
+      "len": 570,
+      "sha256": "3820c5fa1b29362f03969756b326380094e94a6c9f59f1751543385c70cf7ef7"
+    },
+    "fallback_text": {
+      "len": 570,
+      "sha256": "3820c5fa1b29362f03969756b326380094e94a6c9f59f1751543385c70cf7ef7"
+    },
+    "knownText_markdown": {
+      "len": 570,
+      "sha256": "3820c5fa1b29362f03969756b326380094e94a6c9f59f1751543385c70cf7ef7"
+    },
+    "instruction_matches_fallback": true,
+    "instruction_matches_knownText": true,
+    "canonical_user_matches": true,
+    "trace_run_items": 23,
+    "assign_call_id": "call_function_d0x7wzapnrr5_1",
+    "assign_start_aseq": 10,
+    "assign_end_aseq": 11,
+    "triggered_main_assignment": true
+  },
+  "approval_id": "01a122be-a62c-73c2-8ba4-93ec6965cedc",
+  "scope": {
+    "authorized": true,
+    "reason": "scenario-owned and path-scoped",
+    "tool": "write",
+    "operation": "project_home_file_mutation"
+  },
+  "checkpoint": {
+    "approval_id": "01a122be-a62c-73c2-8ba4-93ec6965cedc",
+    "assignment_id": "01a122b9-fa78-724f-a06f-fd7f155a1745",
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "run_id": "run_01a122b9-fa78-724f-a06f-fd7f155a1745",
+    "job_id": "job_01a122bd-f8ef-744d-be9a-74345a7f76b1",
+    "call_id": "call_function_0vp6ruh737xc_1",
+    "job_status": "waiting",
+    "checkpoint_head_match": true,
+    "pending_tools_count": 1,
+    "run_request_match": true,
+    "detail_args_match": true,
+    "detail_metadata_keys": [
+      "path_resolution",
+      "resolved_path"
+    ],
+    "args_keys": [
+      "content",
+      "path"
+    ]
+  },
+  "actual_target": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/login.html",
+  "content_chars": 12346,
+  "content_sha256": "7d1febbb3288c84cf80128442f24514d93500c1bc994aaa76d78a06092372d68",
+  "decision": "allowed_once",
+  "full_s2_pass": false
+}

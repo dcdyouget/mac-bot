@@ -1,0 +1,58 @@
+{
+  "at": "2026-10-09T21:58:50.540349+00:00",
+  "source_commit": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+  "approval_id": "01a12292-7d4c-7085-9cd8-3d680692ae6d",
+  "checkpoint": {
+    "approval_id": "01a12292-7d4c-7085-9cd8-3d680692ae6d",
+    "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+    "project_id": "01a12236-b308-7080-9877-6fc078239999",
+    "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+    "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+    "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+    "job_id": "job_01a12291-548e-73e1-a0d2-a4234da6ee4c",
+    "call_id": "call_function_kst63ertoctf_1",
+    "job_status": "waiting",
+    "checkpoint_head_match": true,
+    "pending_tools_count": 1,
+    "run_request_match": true,
+    "detail_args_match": true,
+    "detail_metadata_keys": [],
+    "args_keys": [
+      "action",
+      "content",
+      "id",
+      "kind",
+      "project_id",
+      "scope"
+    ]
+  },
+  "assignment": {
+    "id": "01a12291-4b55-7243-bc26-be662b64a950",
+    "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+    "project_id": "01a12236-b308-7080-9877-6fc078239999",
+    "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+    "status": "waiting_user",
+    "parent_assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+    "trigger_message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd",
+    "wait": {
+      "message_id": null,
+      "reason": "approval"
+    }
+  },
+  "args": {
+    "action": "replace",
+    "scope": "project",
+    "project_id": "01a12236-b308-7080-9877-6fc078239999",
+    "kind": "project_status",
+    "id": "macbot-e2e-s2-parallel-fc45ecd3b62c-status"
+  },
+  "original_args_sha256": "f70d36da108eff31676aaceab7f246bb25d584e32687de47a5e05025cdd4c651",
+  "trace": {
+    "tool_start_count": 1,
+    "tool_end_count": 0,
+    "last_aseq": 17,
+    "run_start_count": 1
+  },
+  "decision_sent": false,
+  "full_s2_pass": false
+}

@@ -1,0 +1,23 @@
+✓ Done
+
+✓ 邮箱登录 - macbot-e2e-s2-login-522c6b619b92
+  http://127.0.0.1:52203/login.html
+
+375
+
+375
+
+- generic
+  - heading "邮箱登录" [level=1, ref=e1]
+  - paragraph
+    - StaticText "请使用邮箱账号登录"
+  - form
+    - LabelText
+    - textbox "邮箱地址" [ref=e2]
+    - LabelText
+    - generic
+      - textbox "密码" [ref=e4]
+      - generic [ref=e5] clickable [cursor:pointer]
+    - button "登录" [ref=e3]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-demo/narrow-375x844.png

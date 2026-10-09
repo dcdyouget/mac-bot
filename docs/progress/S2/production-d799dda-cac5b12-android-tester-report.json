@@ -1,0 +1,21 @@
+{
+  "observed_at": "2026-10-09T22:15:00.923165+00:00",
+  "server_source": "d799ddaa676471394d667dd31faf474052552432",
+  "android_source": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "app_pid": 20943,
+  "host_id": "d152bb68-f2b3-40c4-85eb-e68535af71d2",
+  "project_id": "01a12236-b308-7080-9877-6fc078239999",
+  "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+  "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+  "marker": "macbot-e2e-s2-steer-2d2888ef9281",
+  "navigation": "existing Activity deep link then native history swipes",
+  "visible": [
+    "marker",
+    "源代码检查（已完成）",
+    "实际运行测试（因工具限制未执行）",
+    "未经实际运行验证，不能声称测试完全通过"
+  ],
+  "screenshot": "production-d799dda-cac5b12-android-tester-report.png",
+  "full_s2_pass": false,
+  "desktop_native_blocked_by_lock": true
+}

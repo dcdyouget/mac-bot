@@ -1023,7 +1023,6 @@ def handle_approvals(
             persist(journal, journal_path)
             raise FollowupStop(f"approval decision for {candidate.get('id')} is unresolved; refusing to approve again")
         observation["decision"] = "pending_decision"
-        journal.setdefault("approval_observations", []).append(observation)
         persist(journal, journal_path)
         try:
             result = require_dict(client.call("approval.decide", {"approval_id": candidate.get("id"), "decision": "allow_once"}), "approval.decide result")
@@ -1184,6 +1183,7 @@ def steer_evidence(client: Any, project: dict[str, Any], steer: dict[str, Any], 
     deliveries = [
         item for item in message.get("delivery", [])
         if isinstance(item, dict) and item.get("bot_id") == coding_id
+        and item.get("assignment_id") == assignment_id
     ] if isinstance(message.get("delivery"), list) else []
     trace = complete_trace_items(client, assignment_id)
     applied = bool(assignment_steers and assignment_steers[-1].get("applied_at") is not None)

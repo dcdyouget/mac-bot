@@ -1,0 +1,49 @@
+{
+  "checked_at": "2026-10-09T22:11:08.101160+00:00",
+  "service_source": "d799ddaa676471394d667dd31faf474052552432",
+  "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+  "status": "done",
+  "run_start_count": 1,
+  "pending": [],
+  "trace_tail": [
+    {
+      "aseq": 43,
+      "type": "llm.request",
+      "call_id": null,
+      "is_error": null
+    },
+    {
+      "aseq": 44,
+      "type": "llm.response",
+      "call_id": null,
+      "is_error": null
+    },
+    {
+      "aseq": 45,
+      "type": "tool.start",
+      "call_id": "call_function_whhq1o9r3mpy_1",
+      "is_error": null
+    },
+    {
+      "aseq": 46,
+      "type": "send_msg",
+      "call_id": "call_function_whhq1o9r3mpy_1",
+      "is_error": null
+    },
+    {
+      "aseq": 47,
+      "type": "run.end",
+      "call_id": null,
+      "is_error": null
+    }
+  ],
+  "report": {
+    "exists": true,
+    "bytes": 4220,
+    "sha256": "ac5881ca9bed67fbe97d160839044478fa762f7e1fdfaac8a543c2aab77ee8f7",
+    "steer_marker_present": true,
+    "disclaims_runtime_pass": true,
+    "model_date_is_incorrect": true
+  },
+  "full_s2_pass": false
+}

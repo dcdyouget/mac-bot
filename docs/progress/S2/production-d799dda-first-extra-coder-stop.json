@@ -1,0 +1,37 @@
+{
+  "observed_at": "2026-10-09T22:17:13.256863+00:00",
+  "service_source": "d799ddaa676471394d667dd31faf474052552432",
+  "main_assignment_id": "01a122b9-5604-7035-82b1-7451ba2970bc",
+  "main_run_id": "run_01a122b9-5604-7035-82b1-7451ba2970bc",
+  "canonical_user_id": "01a122b9-5604-7035-82b1-7450b4e0dc3b",
+  "main_send_msg_id": "01a122b9-cfd9-711b-ae58-fa1b8c71dfcf",
+  "main_send_call_id": "call_function_75xfz1pf8ohr_1",
+  "extra_coder_assignment_id": "01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+  "preserved_assign_coder_id": "01a122b9-fa78-724f-a06f-fd7f155a1745",
+  "unapproved_checkpoint": {
+    "approval_id": "01a122ba-359b-7756-8588-a3effa401837",
+    "assignment_id": "01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "run_id": "run_01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+    "job_id": "job_01a122b9-dbb7-70a2-8561-a86a8833c795",
+    "call_id": "call_function_uafvpydckgwa_1",
+    "job_status": "waiting",
+    "checkpoint_head_match": true,
+    "pending_tools_count": 1,
+    "run_request_match": true,
+    "detail_args_match": true,
+    "detail_metadata_keys": [],
+    "args_keys": [
+      "action",
+      "subagent_id",
+      "task"
+    ]
+  },
+  "reason": "scenario-owned extra progress-mention branch blocked intended assign task; no subagent tool executed or approval granted",
+  "status": "CANCELLED_SCENARIO_OWNED_EXTRA_BRANCH",
+  "full_s2_pass": false,
+  "assignment_after_status": "cancelled",
+  "preserved_assign_status": "working"
+}

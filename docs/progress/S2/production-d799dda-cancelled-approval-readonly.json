@@ -1,0 +1,12 @@
+{
+  "checked_at": "2026-10-09T22:24:44.189598+00:00",
+  "source": "d799ddaa676471394d667dd31faf474052552432",
+  "assignment_id": "01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+  "assignment_status": "cancelled",
+  "approval_id": "01a122ba-359b-7756-8588-a3effa401837",
+  "still_in_pending_approval_list": true,
+  "workbench_has_same_approval_id": true,
+  "no_approval_decision_sent": true,
+  "scope": "stopped scenario-owned extra Coder branch only",
+  "full_s2_pass": false
+}

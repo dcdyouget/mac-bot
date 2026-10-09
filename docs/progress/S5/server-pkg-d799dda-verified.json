@@ -1,0 +1,59 @@
+{
+  "artifact": "server package read-only audit",
+  "checked_at": "2026-10-10",
+  "package_path": "/tmp/MacBot-Server-user-steer-d799dda-20261010.pkg",
+  "package_sha256": {
+    "expected": "7273a9980fa037b51d66d9fec008d5bc3cbe95dc066003b36680a3d015012885",
+    "actual": "7273a9980fa037b51d66d9fec008d5bc3cbe95dc066003b36680a3d015012885",
+    "match": true
+  },
+  "expanded_path": "/tmp/macbot-integrator-d799dda-audit.4IeAtZ/expanded",
+  "package_info": {
+    "identifier": "com.macbot.server",
+    "version": "0.1.0",
+    "install_location": "/",
+    "payload_files": 29,
+    "postinstall_present": true,
+    "postinstall_executed": false
+  },
+  "source": {
+    "expected_commit": "d799ddaa676471394d667dd31faf474052552432",
+    "source_commit_txt": "d799ddaa676471394d667dd31faf474052552432",
+    "build_info_commit": "d799ddaa676471394d667dd31faf474052552432",
+    "info_plist_commit": "d799ddaa676471394d667dd31faf474052552432",
+    "dirty": false,
+    "commit_match": true
+  },
+  "binaries": {
+    "macbotd": {
+      "expected_sha256": "0238ec79f00ec61f192410bcc498c7eb01dd91c2daa6e8c0a10b09b216b96cde",
+      "actual_sha256": "0238ec79f00ec61f192410bcc498c7eb01dd91c2daa6e8c0a10b09b216b96cde",
+      "match": true
+    },
+    "agent_browser": {
+      "expected_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "actual_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "match": true
+    }
+  },
+  "info_plist": {
+    "bundle_identifier": "com.macbot.server",
+    "bundle_executable": "macbotd",
+    "bundle_version": "0.1.0",
+    "source_commit": "d799ddaa676471394d667dd31faf474052552432"
+  },
+  "launchagent_template": {
+    "label": "com.macbot.server",
+    "macbot_home_placeholder": true,
+    "program_placeholder": true,
+    "secret_values_read": false
+  },
+  "verification_scope": {
+    "read_only_package_audit": true,
+    "installed": false,
+    "payload_executed": false,
+    "fresh_install_passed": false,
+    "full_s5_pass": false,
+    "credentials_read": false
+  }
+}

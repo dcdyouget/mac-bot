@@ -1,0 +1,119 @@
+{
+  "artifact": "integrator real-browser local demo verification",
+  "checked_at": "2026-10-10",
+  "source_project": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+  "source_file": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/login.html",
+  "source_sha256": "c29ab7473522d7d7bac14e12797f98893e9646be27300daa1e29d978bb433f4a",
+  "serve": {
+    "url": "http://127.0.0.1:52201/login.html",
+    "server": "python3 -m http.server",
+    "port_owned_by_integrator": true,
+    "http_pid_cleaned": true
+  },
+  "browser": {
+    "binary": "/Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/agent-browser",
+    "version": "0.38.2",
+    "headless": true,
+    "isolated_namespace": "d799e0xx",
+    "isolated_sessions": [
+      "e016",
+      "e017",
+      "e018",
+      "e019",
+      "e020",
+      "e021",
+      "e022",
+      "e023"
+    ],
+    "profile": "integrator-owned temporary profiles under /tmp/macbot-integrator-demo-profile.*",
+    "existing_sessions_touched": false
+  },
+  "steps": [
+    {
+      "name": "initial_dom",
+      "status": "PASS",
+      "observed": "邮箱登录表单、邮箱/密码输入框和登录按钮在 batch 截图可见；早先 initial-snapshot.txt 是 empty page，不作为通过证据",
+      "evidence": [
+        "batch-initial.png"
+      ]
+    },
+    {
+      "name": "invalid_email",
+      "status": "PARTIAL",
+      "inputs": {
+        "email": "invalid-email",
+        "password": "anything"
+      },
+      "observed": "HTML input type=email 的原生约束阻止 submit，页面自定义 emailError 不可见；使用 foo@example 继续验证后，自定义 emailError 可见",
+      "evidence": [
+        "invalid-email.log",
+        "invalid-email.png",
+        "invalid-email-custom.png"
+      ]
+    },
+    {
+      "name": "wrong_password",
+      "status": "PASS_LOCAL_FORM_REMAINS",
+      "inputs": {
+        "email": "test@example.com",
+        "password": "wrong-password"
+      },
+      "observed": "等待 800ms 后仍停留登录表单；JSON CLI 警告捕获 JavaScript dialog，实际 message 为“登录失败：账号或密码错误”",
+      "evidence": [
+        "wrong-password.log",
+        "wrong-password.png",
+        "wrong-password-dialog-probe.log"
+      ],
+      "dialog_observed": true,
+      "dialog_message": "登录失败：账号或密码错误"
+    },
+    {
+      "name": "correct_login",
+      "status": "PASS",
+      "inputs": {
+        "email": "test@example.com",
+        "password": "password123"
+      },
+      "observed": "出现‘登录成功’和‘退出登录’",
+      "evidence": [
+        "login-refresh-logout.log",
+        "correct-login.png"
+      ]
+    },
+    {
+      "name": "refresh_retains_login",
+      "status": "PASS",
+      "observed": "reload 后仍显示‘登录成功’和‘退出登录’",
+      "evidence": [
+        "login-refresh-logout.log",
+        "refresh-retained.png"
+      ]
+    },
+    {
+      "name": "logout",
+      "status": "PASS",
+      "observed": "点击退出登录后回到邮箱登录表单",
+      "evidence": [
+        "login-refresh-logout.log",
+        "logout.png"
+      ]
+    },
+    {
+      "name": "narrow_390px",
+      "status": "PASS_LAYOUT_LOCAL",
+      "viewport": "390x844",
+      "observed": "DOM 可见；innerWidth=390，documentElement.scrollWidth=390，无水平溢出证据",
+      "evidence": [
+        "narrow-390x844.log",
+        "narrow-390x844.png"
+      ]
+    }
+  ],
+  "limits": {
+    "real_model_or_server_used": false,
+    "first_login_project_verified": false,
+    "performance_thresholds_verified": false,
+    "full_s2_pass": false,
+    "note": "这是 parallel 项目的本地静态 Demo 实浏览器专项；源码和本地演练不等于两项目完成或 S2 联调通过。"
+  }
+}

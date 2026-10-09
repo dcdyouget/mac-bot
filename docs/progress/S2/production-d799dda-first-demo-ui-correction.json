@@ -1,0 +1,48 @@
+{
+  "created_at": "2026-10-09T22:21:25.823253+00:00",
+  "scenario": "real model fixes own first demo visibility failure",
+  "source_journal": "docs/progress/S2/production-d799dda-first-demo-followup.json",
+  "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+  "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+  "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+  "marker": "macbot-e2e-s2-demo-fix-568128b803e8",
+  "requests": [
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "marker": "macbot-e2e-s2-demo-fix-568128b803e8",
+      "kind": "demo_ui_correction",
+      "client_request_id": "681f44c8-a505-4534-a8ae-8301ec19c2cf",
+      "status": "sent",
+      "created_at": "2026-10-09T22:21:25.825651Z",
+      "message_id": "01a122c1-c1e0-74e3-aab9-61fd9a382c92",
+      "seq": 103,
+      "message_created_at": "2026-10-09T22:21:25.856732+00:00"
+    }
+  ],
+  "status": "APPLIED_ORIGINAL_BUSY_RUN",
+  "full_s2_pass": false,
+  "request": {
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "marker": "macbot-e2e-s2-demo-fix-568128b803e8",
+    "kind": "demo_ui_correction",
+    "client_request_id": "681f44c8-a505-4534-a8ae-8301ec19c2cf",
+    "status": "sent",
+    "created_at": "2026-10-09T22:21:25.825651Z",
+    "message_id": "01a122c1-c1e0-74e3-aab9-61fd9a382c92",
+    "seq": 103,
+    "message_created_at": "2026-10-09T22:21:25.856732+00:00"
+  },
+  "routed_assignment_id": "01a12293-133d-71bd-92e7-f8cd863d5e2b",
+  "steer": {
+    "message_id": "01a122c1-c1e0-74e3-aab9-61fd9a382c92",
+    "assignment_id": "01a12293-133d-71bd-92e7-f8cd863d5e2b",
+    "delivery": {
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "state": "read",
+      "at": "2026-10-09T22:24:19.916612+00:00"
+    },
+    "applied_at": "2026-10-09T22:24:19.916612+00:00",
+    "trace_steer": true,
+    "verified": true
+  }
+}

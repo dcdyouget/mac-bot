@@ -1,0 +1,27 @@
+{
+  "observed_at": "2026-10-09T22:19:17.651547+00:00",
+  "source_commit": "d799ddaa676471394d667dd31faf474052552432",
+  "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+  "name": "macbot-e2e-s2-20261009-9e70-测试",
+  "browser_mode": "headless",
+  "previous_tools": {
+    "bash": true,
+    "browser": false,
+    "files": true,
+    "mcp": false,
+    "subagent": true,
+    "web": false
+  },
+  "new_tools": {
+    "bash": true,
+    "browser": true,
+    "files": true,
+    "mcp": false,
+    "subagent": true,
+    "web": false
+  },
+  "reason": "scenario-owned Tester needs actual headless local demo verification; previous browser=false explains absent browser tool",
+  "client_request_id": "1a897327-337e-4ae3-866f-2af0ca47fc6d",
+  "status": "BROWSER_ENABLED_OWNED_TESTER",
+  "full_s2_pass": false
+}
