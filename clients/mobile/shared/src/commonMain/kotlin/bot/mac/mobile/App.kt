@@ -2,6 +2,7 @@ package bot.mac.mobile
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.material3.*
@@ -9,7 +10,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.design.*
@@ -209,8 +212,37 @@ import org.jetbrains.compose.resources.stringResource
     val bot=state.bots.firstOrNull { it.str("id")==chat.str("bot_id") }
     val attention=chat.str("attention")
     var menu by remember { mutableStateOf(false) }
+    val swipeThreshold = with(LocalDensity.current) { 48.dp.toPx() }
+    var suppressNextClick by remember { mutableStateOf(false) }
     val scope=rememberCoroutineScope()
-    Row(Modifier.fillMaxWidth().clickable { onChat(chat.str("id")) }.padding(horizontal=16.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+    LaunchedEffect(menu) { if (!menu) suppressNextClick = false }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pointerInput(chat.str("id"), swipeThreshold) {
+                var swipeDistance = 0f
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { change, amount ->
+                        change.consume()
+                        swipeDistance = (swipeDistance + amount).coerceIn(-swipeThreshold * 3, 0f)
+                    },
+                    onDragEnd = {
+                        if (swipeDistance <= -swipeThreshold) {
+                            suppressNextClick = true
+                            menu = true
+                        }
+                        swipeDistance = 0f
+                    },
+                    onDragCancel = { swipeDistance = 0f },
+                )
+            }
+            .clickable {
+                if (suppressNextClick) suppressNextClick = false else onChat(chat.str("id"))
+            }
+            .padding(horizontal=16.dp,vertical=10.dp),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.spacedBy(12.dp),
+    ) {
         BotAvatar(repository,bot,chat.str("kind")=="main",bot?.obj("status")?.str("summary") ?: attention)
         Column(Modifier.weight(1f)) {
             Text(chat.str("title"),style=MaterialTheme.typography.titleMedium)
@@ -221,8 +253,11 @@ import org.jetbrains.compose.resources.stringResource
             if(chat.long("unread")>0) Badge { Text(chat.long("unread").toString()) }
         }
         Box { TextButton(onClick={menu=true}) { Text("⋮") }; DropdownMenu(menu,{menu=false}) {
-            DropdownMenuItem(text={Text(stringResource(Res.string.chat_pin))},onClick={menu=false;scope.launch{runCatching{repository.call("chat.set_pinned",buildJsonObject{put("chat_id",chat.str("id"));put("pinned",!chat.boolean("pinned"))})}}})
-            DropdownMenuItem(text={Text(stringResource(Res.string.chat_mute))},onClick={menu=false;scope.launch{runCatching{repository.call("chat.set_muted",buildJsonObject{put("chat_id",chat.str("id"));put("muted",!chat.boolean("muted"))})}}})
+            DropdownMenuItem(text={Text(stringResource(if (chat.boolean("pinned")) Res.string.chat_unpin else Res.string.chat_pin))},onClick={menu=false;scope.launch{runCatching{repository.call("chat.set_pinned",buildJsonObject{put("chat_id",chat.str("id"));put("pinned",!chat.boolean("pinned"))})}}})
+            DropdownMenuItem(text={Text(stringResource(if (chat.boolean("muted")) Res.string.chat_unmute else Res.string.chat_mute))},onClick={menu=false;scope.launch{runCatching{repository.call("chat.set_muted",buildJsonObject{put("chat_id",chat.str("id"));put("muted",!chat.boolean("muted"))})}}})
+            chat.str("project_id").takeIf { it.isNotBlank() }?.let { projectId ->
+                DropdownMenuItem(text={Text(stringResource(Res.string.chat_confirm_done))},onClick={menu=false;scope.launch{runCatching{repository.call("project.confirm_done",buildJsonObject{put("project_id",projectId)})}}})
+            }
         } }
     }
 }
