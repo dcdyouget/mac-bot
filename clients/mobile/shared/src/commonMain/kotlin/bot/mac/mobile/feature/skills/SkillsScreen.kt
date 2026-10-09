@@ -138,7 +138,8 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
                         skillRequest({ actionError = it }) {
                             repository.call("skill.publish", buildJsonObject { put("name", name) })
                             repository.call("skill.list")
-                        }
+                            repository.call("skill.get", buildJsonObject { put("name", name) })
+                        }?.let { detail = it.obj("skill") }
                     } }
                 }, onToggleBot = { botId, enabled ->
                     detail?.str("name")?.let { name -> scope.launch {
@@ -167,7 +168,18 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
             }
         }
     }
-    if (showEditor) SkillEditor(detail, onDismiss = { showEditor = false }, onSaved = { showEditor = false; scope.launch { skillRequest({ actionError = it }) { repository.call("skill.list") } } }, onError = { actionError = it }, repository = repository)
+    if (showEditor) SkillEditor(detail, onDismiss = { showEditor = false }, onSaved = {
+        showEditor = false
+        scope.launch {
+            val name = selectedName
+            skillRequest({ actionError = it }) {
+                repository.call("skill.list")
+                if (name != null) repository.call("skill.get", buildJsonObject { put("name", name) }) else buildJsonObject { }
+            }?.let { refreshed ->
+                if (name != null) detail = refreshed.obj("skill")
+            }
+        }
+    }, onError = { actionError = it }, repository = repository)
     if (showImport) SkillImportDialog(onDismiss = { showImport = false; scope.launch { skillRequest({ actionError = it }) { repository.call("skill.list") } } }, onError = { actionError = it }, repository = repository)
 }
 
