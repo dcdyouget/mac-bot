@@ -4,14 +4,16 @@
 
 | 端 | v1 | 以后 |
 |----|----|------|
-| **Server**（`macbotd`，Rust，无界面守护进程，SQLite） | macOS（Apple Silicon） | Linux |
+| **Server**（`macbotd`，Rust，无界面守护进程，JSON 文件存储） | macOS（Apple Silicon） | — |
 | **Client** 桌面（Rust + GPUI） | macOS | Windows |
 | **Client** 移动（Kotlin + Compose Multiplatform） | Android、iOS | |
 
 > 🚧 规划阶段：
 > - [docs/DESIGN.md](docs/DESIGN.md)：组件、界面与交互设计（含线框图）
 > - [docs/PLAN.md](docs/PLAN.md)：架构、数据模型、里程碑
+> - [docs/PROTOCOL.md](docs/PROTOCOL.md)：客户端 ↔ 服务端协议契约
 > - [docs/REFERENCES.md](docs/REFERENCES.md)：各组件参考的开源项目
+> - [AGENTS.md](AGENTS.md)：多 agent 并行开发约定 · [docs/AGENT_PROMPTS.md](docs/AGENT_PROMPTS.md)：各开发线的启动 prompt
 
 ## License
 

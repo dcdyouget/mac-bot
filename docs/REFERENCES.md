@@ -44,7 +44,7 @@
 
 | 项目 | 许可证 | 借鉴什么 | 使用方式 |
 |------|--------|----------|----------|
-| **[earendil-works/pi](https://github.com/earendil-works/pi)** `packages/durable` | MIT | 不可变的 Entry、原子 Commit、先落盘再展示；Task 按步保存检查点、崩溃后 `resume()`；Submission 按 `requestId` 幂等；inbox 排队和 steer（插话）；compaction；每个会话一个持久的 sessionId（用于 prompt cache 亲和） | 借鉴设计（Rust 重写 `macbot-durable`） |
+| **[earendil-works/pi](https://github.com/earendil-works/pi)** `packages/durable` | MIT | 不可变的 Entry、原子 Commit、先落盘再展示；Task 按步保存检查点、崩溃后 `resume()`；**JSONL 存储后端**（我们的 JSON 文件存储沿用「追加日志是事实来源」的思路）；Submission 按 `requestId` 幂等；inbox 排队和 steer（插话）；compaction；每个会话一个持久的 sessionId（用于 prompt cache 亲和） | 借鉴设计（Rust 重写 `macbot-durable`） |
 
 ## 3. 模型接入
 
@@ -170,7 +170,8 @@
 | 异步运行时 | `tokio` | 1.x |
 | HTTP / WebSocket 服务 | `axum`、`tokio-tungstenite` | 0.8 / 0.30 |
 | HTTP 客户端（调用模型 API） | `reqwest`、`eventsource-stream`（解析 SSE） | 0.13 / 0.2 |
-| SQLite（含 FTS5） | `rusqlite`（`bundled` 特性） | 0.40 |
+| JSON 存储 | `serde_json`；`fs4`（`data/.lock` 文件锁）；`tempfile`（先写临时文件再 rename 原子替换） | 1.x / 1.1 / 3.x |
+| 检索（扫描 JSONL） | `grep-searcher`、`grep-regex`（与 grep 工具共用） | 0.1 |
 | JSON Schema（工具参数） | `schemars`、`serde`、`serde_json` | 1.2 |
 | grep / find / ls | `grep-searcher`、`grep-regex`、`ignore` | 0.1 / 0.4 |
 | 编辑 diff 渲染 | `similar` | 3.x |

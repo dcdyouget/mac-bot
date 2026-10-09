@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.14
+# Mac Bot 规划 v0.15
 
 > 状态：规划中，尚未开始编码。
+> v0.15 变更：服务端只做 macOS（不做 Linux）；存储改为 JSON 文件（JSONL 日志 + 快照）；连接方案改为主连接 + 按需的画面连接 + HTTP，详见新增的 PROTOCOL.md；新增「运行轨迹」（干活过程的流式查看和回放）；仓库结构按四条开发线划分；新增多 agent 并行开发计划。
 > v0.14 变更：明确平台矩阵（Server：macOS，Linux 以后支持；Client：macOS / Android / iOS，Windows 以后支持）和 Linux 的适配点；许可证为 MIT。
 > v0.13 变更：参考项目整理到 REFERENCES.md。
 > v0.12 变更：主 Bot 只协调不干活（转交小事、提醒验收、新增待验收状态）；新增 5.10「工具与技能」（pi 风格的文件和 bash 工具、agent-browser 工具、子代理、技能管理、各角色的工具权限）；仪表盘（热力图、按模型 / Bot / 项目的每日折线）的 API。
@@ -23,27 +24,17 @@
 
 ### 2.1 平台矩阵
 
-系统分为 **Server**（macbotd，运行 Bot）和 **Client**（看和操控 Bot），两边只通过一个端口的协议通信。
+系统分为 **Server**（macbotd，运行 Bot）和 **Client**（看和操控 Bot），两边只通过一个端口的协议通信（见 [PROTOCOL.md](PROTOCOL.md)）。客户端可以用**任意 IP 或域名**连接服务端：局域网地址、`.local` 域名，或者用户自己用 frp / 反向代理暴露出去的公网域名。
 
 | 端 | 平台 | v1 | 以后 | 技术 |
 |----|------|:--:|:----:|------|
-| **Server** | macOS（Apple Silicon） | ✅ | | Rust，无界面守护进程，LaunchAgent |
-| | Linux（x86_64 / arm64） | | ✅ | 同一份 Rust 代码，systemd 用户服务 |
+| **Server** | macOS（Apple Silicon） | ✅ | | Rust，无界面守护进程，LaunchAgent，**JSON 文件存储** |
 | **Client** | macOS | ✅ | | Rust + GPUI（gpui-kit） |
 | | Android | ✅ | | Kotlin + Compose Multiplatform |
 | | iOS | ✅ | | Kotlin + Compose Multiplatform |
 | | Windows | | ✅ | Rust + GPUI（与 macOS 共用代码，只能在 Windows 上编译） |
-| | Linux 桌面 | | 可选 | GPUI 也支持 Linux，需要时成本很低 |
 
-**Linux Server 需要补的平台适配**（核心代码不用改，只实现 5.0 第 9 条里的平台 trait）：
-
-| 能力 | macOS 实现 | Linux 实现 |
-|------|-----------|-----------|
-| 开机自启和守护 | LaunchAgent / SMAppService | systemd `--user` 服务（`loginctl enable-linger` 可以在不登录时运行） |
-| 密钥存储 | 钥匙串（security-framework） | Secret Service（`keyring` crate）；无桌面环境时退回到 0600 权限的加密文件 |
-| 浏览器 | agent-browser + 本机 Chrome profile | agent-browser + Chromium；没有显示器时用无头模式，或 agent-browser 自带的 Xvfb 有头模式 |
-| 原生桌面控制 | cua-driver（可选） | 不支持 |
-| 安装包 | .pkg | 单个二进制 + `install.sh`（以后可以加 .deb / .rpm、Docker 镜像） |
+**服务端只支持 macOS，不做 Linux。** 平台相关的能力仍然放在 trait 后面，但只实现 macOS 版本。
 
 ### 2.2 其他决策
 
@@ -51,7 +42,7 @@
 | 项 | 决策 |
 |----|------|
 | 部署形态 | **无界面服务端 + 客户端**（详见 5.0）：服务端 `macbotd` 是守护进程，只带一个极简的本机 Web 管理页（`/admin`）和 CLI；Bot、模型、记忆等所有配置都通过客户端走 API；客户端可以连接多台 Host |
-| 部署 | v1 服务端运行在 M 系列 Mac 上（开发机是 16 GB 内存的 Mac mini），Linux 以后支持；**不用虚拟机，不做沙箱**（沙箱作为远期可选项） |
+| 部署 | 服务端只运行在 M 系列 Mac 上（开发机是 16 GB 内存的 Mac mini）；**不用虚拟机，不做沙箱**（沙箱作为远期可选项） |
 | 网络 | 服务端监听一个固定端口，客户端填 `host:port` 直连。公网代理由用户自行解决，不在本项目范围内 |
 | 安全 | v1 **只做访问密码**：客户端每次连接都带上密码，管理页用同一个密码；其他安全措施全部放到以后（详见 5.0.1） |
 | Bot | 支持多个 Bot，**每个 Bot 有独立工作间**（目录、记忆、会话、定时任务）；支持**群聊和 Bot 间消息** |
@@ -66,7 +57,7 @@
 | 电脑操控 | 以网页任务为主，**使用系统浏览器**（复用已有的登录凭证）；放到后续阶段，先把 Bot 形态跑通 |
 | 系统权限 | 屏幕录制和辅助功能权限**不强制**；没授权时提示「部分功能不可用」 |
 | 模型 | 用户自定义 provider 和模型；默认认为模型支持看图 |
-| 存储 | SQLite |
+| 存储 | **JSON 文件**：JSONL 追加日志是事实来源，JSON 快照用于快速读取；不使用数据库（见 5.2） |
 | 桌面端 | Rust + GPUI（gpui-kit）。**v1 只做 macOS**；Windows 客户端和 Computer Node 放到 v2 |
 | 许可证 | **MIT** |
 | 移动端 | **Android（小米 17）+ iOS**：**Kotlin Multiplatform + Compose Multiplatform**，一套代码同时出 Android 和 iOS 两端，UI、网络、状态全部共享。Android 端本身就是原生 Compose，APK 小；Compose 的 iOS 支持从 1.8.0 起已经稳定 |
@@ -181,7 +172,7 @@
 6. **桌面 App（GPUI）和手机 App 都只是客户端**，不再内置 Host，也不管理服务端的生命周期。
 7. **Client 支持多个 Host**：侧栏顶部有一个 Host 切换器，类似 Slack 切换工作区，可以同时连接家里的 Mac mini 和办公室的另一台 Mac。「操控另一台机器上的 Bot」就是靠这个实现的。
 8. **全局唯一标识**：每台 Host 有一个 `node_id`（UUID）和名字；Bot、会话、消息的 ID 都用 UUIDv7，并记录所属的 `node_id`。Bot 的完整地址写作 `bot_id@node_id`。
-9. **服务端核心与平台无关**：和平台相关的能力都放在 trait 后面，包括密钥存储、自启动、浏览器桥接、桌面操控。服务端没有界面，所以以后移植到 Windows、Linux（例如 NAS），只需要实现这几个 trait。
+9. **平台相关的能力放在 trait 后面**：密钥存储、自启动、浏览器桥接、桌面操控。服务端只实现 macOS 版本；这样分层只是为了代码清晰和可测试（测试时可以换成假实现）。
 
 **首次使用流程**
 1. 在 Mac mini 上双击 `MacBot-Server.pkg` 安装，安装结束后浏览器自动打开 `localhost:7788/admin`。
@@ -210,7 +201,7 @@
 
 ```
 ┌──────────── Mac（macbotd，无界面守护进程，LaunchAgent）──────────────┐
-│ Gateway  axum，固定端口（默认 7788）：/ws /api/v1 /admin               │
+│ Gateway  axum，固定端口（默认 7788）：/ws /ws/screen /api/v1 /admin    │
 │   密码鉴权 / 协议版本 / 事件流（按 seq 断线续传）                    │
 │ Local CLI  Unix socket ← `macbot status|passwd|logs`               │
 │                                                                   │
@@ -224,7 +215,7 @@
 │           send_message / handoff / memory / session_search /       │
 │           routine / ask_user / [后期] browser / desktop / MCP       │
 │ Scheduler（并发、排队、Routines）  Usage（每次模型调用都记账）        │
-│ Store：SQLite（rusqlite + FTS5）  Secrets：macOS 钥匙串             │
+│ Store：JSON 文件（JSONL 日志 + JSON 快照）  Secrets：macOS 钥匙串  │
 │ 文件：~/MacBot/projects/<群>/（Home）  ~/MacBot/bots/<bot>/          │
 └───────────────────────────────────────────────────────────────────┘
         ▲ ws://host:port                     ▲
@@ -236,28 +227,40 @@
         macbotd ⇄ agent-browser（sidecar，每个 Bot 一个会话；画面流只监听 localhost，由 macbotd 代理）
 ```
 
-### 5.1 仓库结构
+### 5.1 仓库结构（按开发线划分，每条线只改自己的目录）
 
 ```
 mac-bot/
-├── crates/
-│   ├── macbot-protocol      # 消息与事件定义（serde），协议版本
-│   ├── macbot-store         # SQLite 表结构、迁移、FTS5
-│   ├── macbot-durable       # Entry / Commit / Task / Inbox / Resume / Compaction
-│   ├── macbot-providers     # LLM provider 与模型目录
-│   ├── macbot-memory        # curated memory + session_search
-│   ├── macbot-orchestrator  # 群聊路由、Bot 间消息、handoff
-│   ├── macbot-tools         # 内置工具；后期加入 browser、desktop、mcp
-│   ├── macbot-server        # 守护进程 + CLI，二进制名为 macbotd（`macbot` 是指向它的软链接）；内嵌 /admin 页面
-│   └── macbot-client        # 桌面端用的协议客户端（重连、本地缓存）
-├── apps/
-│   ├── desktop/             # gpui-kit（只依赖这一个 crate，它会固定匹配的 GPUI 版本）
-│   └── mobile/              # Kotlin Multiplatform + Compose Multiplatform
-│       ├── shared/          #   共享代码：UI、ViewModel、Ktor WebSocket、kotlinx.serialization、本地缓存
-│       ├── androidApp/      #   Android 外壳（前台服务、通知）
-│       └── iosApp/          #   Xcode 工程外壳（APNs 注册）
-└── docs/
+├── AGENTS.md                # 多 agent 并行开发的约定：目录归属、分支、协议变更流程
+├── docs/                    # PLAN / DESIGN / PROTOCOL / REFERENCES / AGENT_PROMPTS
+├── protocol/                # 【契约】由 server-mac 维护
+│   ├── rust/                #   macbot-protocol crate：所有消息、事件、对象的 serde 类型（server 和 client-mac 共用）
+│   ├── schema/              #   从 Rust 类型导出的 JSON Schema（生成物，提交到仓库）
+│   ├── fixtures/            #   示例 JSON（每种事件、消息块、对象各一份）和 scenarios/*.jsonl（mock 回放场景）
+│   └── kotlin/              #   由 client-android 维护的 Kotlin 代码生成脚本（schema → kotlinx.serialization 数据类）
+├── server/                  # 【server-mac】独立的 Cargo workspace
+│   ├── crates/
+│   │   ├── macbot-store         # JSON 文件存储：JSONL 日志、快照、文件锁、内存索引
+│   │   ├── macbot-durable       # Entry / Commit / Job / Inbox / Resume / Compaction
+│   │   ├── macbot-providers     # 模型接入与模型目录
+│   │   ├── macbot-tools         # 工具框架和内置工具（文件、bash、browser、subagent、web…）
+│   │   ├── macbot-skills        # 技能扫描、索引、加载
+│   │   ├── macbot-memory        # 三种记忆、检索、整理
+│   │   ├── macbot-orchestrator  # 主 Bot、群、任务流转、路由、并发调度
+│   │   ├── macbot-usage         # 用量记账和汇总
+│   │   └── macbot-gateway       # axum：/ws、/ws/screen、/api/v1、/admin
+│   └── macbotd/                 # 二进制：守护进程 + CLI（macbot）+ --mock 模式；内嵌 /admin 页面
+├── clients/
+│   ├── mac/                 # 【client-mac】独立的 Cargo workspace：GPUI + gpui-kit 桌面客户端，依赖 protocol/rust
+│   └── mobile/              # 【client-android + client-ios】Kotlin Multiplatform 工程
+│       ├── shared/          #   commonMain：core（网络、协议模型、状态、设计系统）+ feature/*（各页面）
+│       ├── androidApp/      #   Android 外壳（前台服务、通知、Keystore）
+│       └── iosApp/          #   Xcode 工程外壳（APNs、Keychain、生命周期）
+└── scripts/                 # 跨模块脚本：协议代码生成、打包、端到端测试
 ```
+
+- `server/` 和 `clients/mac/` 是**两个独立的 Cargo workspace**，各有各的 Cargo.lock，两条开发线不会互相改到对方的依赖；两者都用 path 依赖引用 `protocol/rust`。
+- `clients/mobile/shared` 由 client-android 和 client-ios 两条线共用，按目录划分归属（见 AGENTS.md）。
 
 **分发产物**
 
@@ -269,7 +272,53 @@ mac-bot/
 
 另外提供 `install.sh`（`curl … \| sh`），给喜欢命令行安装的用户。
 
-### 5.2 数据模型（SQLite 草案）
+### 5.2 数据存储：JSON 文件
+
+**不使用数据库。** 所有数据都是 `~/MacBot/data/` 下的 JSON / JSONL 文件，人可以直接打开看，复制整个目录就是备份。
+
+```
+~/MacBot/
+├── data/
+│   ├── node.json                         # 本机身份 node_id、名称
+│   ├── auth.json                         # 密码的 argon2 哈希（权限 0600）
+│   ├── settings.json                     # 并发上限、默认模型等
+│   ├── providers.json  models.json       # 服务商和模型（API Key 存钥匙串，这里只存引用）
+│   ├── bots/<bot_id>.json                # 每个 Bot 一个文件
+│   ├── projects/<project_id>.json        # 群 = 项目
+│   ├── chats/<chat_id>/
+│   │   ├── chat.json                     # 会话元信息、成员、已读位置
+│   │   └── messages.jsonl                # 消息，追加写入，每行一条（编辑和删除也作为新的一行追加）
+│   ├── assignments/<yyyy-mm>/<assignment_id>.json
+│   ├── artifacts/<project_id>.jsonl
+│   ├── threads/<thread_id>/
+│   │   ├── thread.json                   # 执行线程元信息、当前段号
+│   │   ├── segments/<n>.json             # 段摘要、记忆快照
+│   │   └── entries.jsonl                 # 运行轨迹（TraceItem 和 durable Entry），追加写入
+│   ├── jobs/<job_id>.json                # durable 检查点
+│   ├── memories/{user.json, bots/<bot_id>.json, projects/<project_id>.json}
+│   ├── approvals.jsonl  questions.jsonl
+│   ├── routines/<routine_id>.json + runs.jsonl
+│   ├── skills-index.json
+│   ├── usage/raw/<yyyy-mm-dd>.jsonl      # 每次模型调用一行
+│   ├── usage/hourly/<yyyy-mm>.json       # 按小时汇总（仪表盘只读这个）
+│   └── events/<segment>.jsonl            # 持久事件日志（带 seq，用于断线补发），按大小滚动，保留 7 天
+├── projects/<slug>/                       # 项目 Home（产物）
+├── bots/<bot_id>/                         # Bot 自己的目录
+├── skills/<name>/SKILL.md
+└── runs/<run_id>/<call_id>.out            # 被截断的工具输出全文
+```
+
+**写入规则**（保证崩溃后不会出现半个文件）：
+- **JSONL 日志**（消息、轨迹、事件、用量）：只追加。每行是一个完整的 JSON 加换行，写完后 `fsync`。启动时如果最后一行不完整，就截掉。**日志是事实来源。**
+- **JSON 快照**（Bot、群、任务、记忆…）：先写临时文件，`fsync`，再 `rename` 覆盖（原子替换）。快照可以从日志重建。
+- **一次逻辑提交涉及多个文件时**：先把提交记录追加到 `events` 日志，再更新各快照。重启时回放尚未体现到快照里的事件，因此没有跨文件事务也能保持一致（与 pi-durable 的 JSONL 存储同一思路）。
+- **并发**：只有 macbotd 一个进程写数据。启动时对 `data/.lock` 加文件锁，防止启动两个服务端。进程内按文件或实体加锁，写入经过单一的写队列（actor）串行化。
+- **内存索引**：启动时把 Bot、群、任务、记忆、技能、未完成的 job 等小对象全部读进内存；消息和轨迹不全量加载，按需从 JSONL 尾部分页读取（为每个 JSONL 维护 `seq → 字节偏移` 的稀疏索引文件）。
+- **检索**：`session_search`、`memory_search` 和全局搜索用 ripgrep 的库（`grep-searcher`）直接扫描 JSONL；对个人规模的数据（几十万条消息）足够快。如果以后不够快，再加 tantivy 索引作为附加文件，存储格式不变。
+- **用量汇总**：`usage/raw` 追加一行的同时，更新内存里的小时汇总；每分钟把汇总落盘一次，重启时用 raw 日志补齐。
+
+**实体字段**（每个实体对应上面的一个 JSON 文件或 JSONL 中的一行；以 `protocol/schema` 为准）：
+
 
 ```
 bots(id, node_id, name, label, description, avatar, is_main, work_model_ref, voice_model_ref, max_parallel, tools_json, pinned, hidden, created_at)
@@ -280,7 +329,7 @@ threads(id, kind[bot|subagent], bot_id, chat_id, parent_run_id, loaded_project_i
                                                             -- 执行线程：每个 (Bot, 会话) 一条，见 5.5
 thread_segments(id, thread_id, no, reason[start|compact|project_loaded|snapshot_stale], summary, memory_snapshot_json, created_at)
 chat_members(chat_id, member_kind[user|bot], member_id)
-messages(id, chat_id, seq, sender_kind, sender_id, reply_to, mentions, content_json, created_at)   -- FTS5
+messages(id, chat_id, seq, sender_kind, sender_id, reply_to, mentions, content_json, created_at)
 runs(id, bot_id, chat_id, thread_id, assignment_id, phase[voice|work|memory|compact], trigger_message_id, status, started_at, ended_at)
 entries(id, thread_id, segment_no, run_id, seq, kind, json) -- 不可变，参照 pi-durable 的 Entry
 jobs(id, owner, kind, status, checkpoint_json, updated_at)  -- durable 引擎内部可恢复的状态机（原 pi-durable Task）
@@ -294,8 +343,8 @@ approvals(id, bot_id, run_id, tool, args_json, status, decision, rule_id)
 projects(id, name, slug, goal, flow, deadline, home_path, status[active|review|done|archived], lead_bot_id, chat_id, created_by[user|bot_id], created_at, done_at)
                                                             -- 一个项目 = 一个群；lead 默认为主 Bot
 project_members(project_id, bot_id, role_note)            -- 主 Bot + 1–6 个 Bot；role_note=分工
-memories(id, scope[user|bot|project], kind[fact|self|worklog|summary], bot_id, project_id, content, source_bot_id, source_chat_id, updated_at)   -- FTS5
-skills(name PRIMARY KEY, path, source[builtin|user|imported], description, enabled, disabled_bot_ids_json, scanned_at)   -- 只是索引；内容在磁盘 SKILL.md
+memories(id, scope[user|bot|project], kind[fact|self|worklog|summary], bot_id, project_id, content, source_bot_id, source_chat_id, updated_at)
+skills(name PRIMARY KEY, path, source[builtin|user|imported], description, enabled, disabled_bot_ids_json, scanned_at)   -- 存在 skills-index.json；内容在磁盘 SKILL.md
 skill_invocations(id, skill_name, bot_id, run_id, ts)
 routines(id, bot_id, project_id, name, schedule, tz, instructions, enabled, next_run_at)
 routine_runs(id, routine_id, run_id, status, started_at)   -- 每个 Routine 只保留 20 条
@@ -308,7 +357,7 @@ usage(id, ts, bot_id, project_id, chat_id, assignment_id, run_id, phase[voice|wo
       provider_id, model_id, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost)
 usage_hourly(hour, bot_id, project_id, model_id, phase, input_tokens, output_tokens, cache_read_tokens, requests, cost)   -- 汇总表，供仪表盘查询（天、周由它聚合）
 settings(key, value_json)                                   -- 并发上限、默认模型等
-events(seq, chat_id, type, payload_json)                    -- 推送和断线补发
+events(seq, type, data)                                     -- data/events/*.jsonl：推送和断线补发
 ```
 
 三层分开存储：
@@ -386,7 +435,7 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 
 #### 5.3.3 持久化与恢复
 
-- 每一步都先提交到 SQLite 再推送。进程重启后，处于 `working` 的 assignment 自动 resume。
+- 每一步都先追加写入 JSONL 并 `fsync`，然后才推送。进程重启后，处于 `working` 的 assignment 自动 resume。
 - 有副作用的工具调用标记为「不可安全重放」，resume 到这类调用时，先问用户或主 Bot。
 - 上下文怎么组装、何时压缩：见 5.5。
 
@@ -522,7 +571,7 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 - **每次模型调用都记一行 `usage`**，包括 Bot、群、任务、阶段（发言 / 干活 / 子代理 / 协调 / 记忆 / 压缩）、服务商、模型、输入和输出 token、缓存读写 token、费用。
   - 费用 = token × `models.cost_json` 里配置的单价；没有配置单价时费用为空。
   - 子代理的消耗记在调用它的 Bot 名下，phase 为 `subagent`。
-- 写入时同时更新 `usage_hourly` 汇总表（同一个事务里 upsert）。仪表盘只查汇总表，天和周由它聚合。
+- 写入 `usage/raw` 的同时更新内存里的小时汇总，每分钟落盘到 `usage/hourly/`。仪表盘只读小时汇总，天和周由它聚合。
 - 任务卡片上的实时 token 数由 `usage.tick` 事件推送，每个任务每 2 秒最多推一次。
 - **仪表盘 API**：
   - `GET /api/v1/usage/summary?from&to`：指标卡数据，附带与上一个同长度周期的对比。
@@ -537,11 +586,17 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 - 统一的流式事件：TextDelta、ThinkingDelta、ToolCallDelta、Usage、Stop。
 - 每个 Bot 单独选**干活模型**和**发言模型**；发言模型默认用全局设置里便宜、快的模型。记忆整理和压缩也有单独的默认模型。
 
-### 5.7 协议
-- WebSocket，JSON 帧 `{v, id, type, payload}`，请求/响应和服务端推送并存。
-- 重连时带上 `last_seq`，服务端从 `events` 表补发。
-- 鉴权：每次连接都在 `Authorization: Bearer <密码>` 里带上密码，服务端校验通过后返回 `node_id`。密码错误时，客户端提示重新输入。
-- 多 Host：客户端为每台 Host 分别保存 `{node_id, name, host:port, device_token}`。握手时服务端返回自己的 `node_id`，客户端据此识别同一台 Host 地址变化的情况（例如局域网 IP 和公网域名是同一台）。
+### 5.7 协议与连接
+
+完整契约见 **[PROTOCOL.md](PROTOCOL.md)**。要点：
+- **一条 `/ws` 主连接承载所有业务**：请求和响应、持久事件（带全局 `seq`，断线后用 `last_seq` 补发）、临时事件（发言的流式片段、正在输入、状态、用量）、**运行轨迹的流式推送**（订阅制：只推正在看的任务）、心跳（每 20 秒 ping，服务端 60 秒收不到帧就断开）。
+- **流量**：只看群消息时每分钟几 KB；看运行轨迹时平均 2–10 KB/s（模型输出每 50ms 合并推送一次，工具输出最多推 8 KB，其余按需取）。一条连接完全够用。
+- **两类数据不走主连接**，避免大块数据阻塞心跳和消息（队头阻塞）：
+  - Agent Computer 画面：按需建立的 `/ws/screen` 连接，100–700 KB/s，只在打开画面时存在。
+  - 文件、产物、附件、被截断的工具输出：走 HTTP `/api/v1`，支持 Range。
+- **鉴权**：每条连接和每个 HTTP 请求都带 `Authorization: Bearer <密码>`。
+- **多 Host / 多地址**：客户端为每台 Host 保存 `{node_id, name, addresses[], password}`，按顺序尝试多个地址（局域网、公网域名），用 `node_id` 判断是不是同一台。
+- **移动端后台**：Android 用前台服务保持主连接；iOS 进入后台后连接断开，回到前台时用 `last_seq` 补齐，后台期间的提醒走 APNs。
 
 ### 5.8 电脑操控：浏览器使用 vercel-labs/agent-browser
 
@@ -694,6 +749,18 @@ subagent(
 - **生成技能**：Bot 可以用 `write` 在 `~/MacBot/skills/<name>/` 下写一份草稿，但需要用户在技能页确认后才会启用。
 - **内置技能**：`agent-browser`（浏览器操作）、`macbot-collab`（完成报告、交接、卡住时的写法）、`project-home`（Home 目录的约定）。
 
+### 5.11 运行轨迹：看 Bot 在某个群里具体怎么干活
+
+「工作详情」要能看到 Bot 干活这一路的**具体过程**：每一次模型请求（模型、上下文各层大小、token、耗时、费用）、模型的流式输出和思考、每一次工具调用（参数、流式输出、结果）、子代理（嵌套展开）、插话、审批等待、压缩。**进行中的任务可以实时看，结束后可以回放。**
+
+- **记录**：干活 run 的每一步都以 TraceItem 的形式追加到 `threads/<thread_id>/entries.jsonl`（与 durable Entry 在同一个文件，用 `type` 区分）。因此恢复运行和回放用的是同一份数据。
+  - 模型的流式片段**不逐条落盘**：每次模型调用结束时，写一条完整的 `llm.response`（含全文）。片段只用于实时推送。
+  - 提示词默认只记录各层的大小和哈希；设置里打开「保存完整请求」后，把完整请求写到 `runs/<run_id>/requests/<request_id>.json`，用于调试。
+- **实时推送**：客户端 `trace.subscribe {assignment_id}` → 先用 `trace.history` 分页拉取已经发生的部分 → 再接收实时的 `trace.event`。两者用 `(run_id, tseq)` 合并去重。
+- **回放**：任务结束后用 `trace.history` 分页读取，界面与实时查看完全相同。在 Bot 详情 →「历史任务」里，可以按群筛选并打开任意一个任务的轨迹。
+- **范围**：轨迹只包含**干活**这一路；群里发言那一路就是群消息本身，不重复记录（发言调用的用量仍然记账，phase=`voice`）。
+- 每条轨迹都带 `project_id` 和 `bot_id`，所以可以回答「编码在『登录功能』里具体做了什么」。
+
 ## 6. 界面与组件设计
 
 已迁移到 **[DESIGN.md](DESIGN.md)**，包括组件划分、每个组件的界面和功能、线框图、设计语言、群聊交互、移动端和管理页。
@@ -712,11 +779,28 @@ subagent(
 | **v2** | Windows 客户端；Computer Node（在 Windows 上以 `macbotd node` 运行）| Mac 上的 Bot 能操作 Windows 上的浏览器 |
 | **v3（可选）** | Host 联邦：跨 Host 的 Bot 消息和群聊 | |
 
+### 7.1 多 agent 并行开发
+
+**四条开发线同时推进**：server-mac、client-mac、client-android、client-ios。具体约定见 [AGENTS.md](../AGENTS.md)，各条线的启动 prompt 见 [AGENT_PROMPTS.md](AGENT_PROMPTS.md)。
+
+**先契约，后并行**：协议（PROTOCOL.md）已经定好。server-mac 第一步先产出 Rust 协议类型、JSON Schema、fixtures 和 `macbotd --mock`，客户端一开始先用 fixtures 开发，mock 就绪后改为连接 mock，最后连接真实服务端。
+
+| 阶段 | server-mac | client-mac | client-android | client-ios | 汇合点（端到端验收） |
+|------|-----------|-----------|----------------|-----------|------------------|
+| **S0 契约与骨架** | `protocol/rust` 类型 + schema 导出 + fixtures；server workspace 骨架；`--mock` 回放 | GPUI 工程骨架、三栏布局、设计 token、连接页（填地址和密码） | KMP 工程骨架、**core**（Ktor WS 客户端、重连和补发、协议模型代码生成、状态存储、设计系统）、Android 外壳 | iosApp 工程、iOS 生命周期和 Keychain、**feature/workbench 和 feature/dashboard 的界面（先用 fixtures）** | 三个客户端都能连上 `macbotd --mock`，看到会话列表 |
+| **S1 单 Bot 跑通** | JSON 存储、durable、providers、工具（文件、bash）、技能加载、和一个 Bot 的私聊、运行轨迹记录和订阅、密码鉴权、/admin、CLI | 私聊界面（流式消息）、**运行轨迹面板**（实时 + 回放）、设置里的模型与服务商 | feature/chat（私聊、流式消息）、消息块渲染 | feature/trace（运行轨迹，实时 + 回放）、APNs 注册（服务端还没有推送时先用本地通知） | 真实服务端：在三个客户端上和一个 Bot 对话，它能读写文件、跑命令，轨迹能实时看到也能回放 |
+| **S2 主 Bot 与群协作** | 主 Bot、群、任务流转、两段式输出、插话、子代理、并发调度、审批、工作台数据 | 群界面（状态条、公告、任务卡片、插话）、工作台、审批 | feature/group、feature/main_bot（新群卡片、待验收卡片）、审批 | feature/workbench 接真实数据、审批通知（通知里直接操作） | 「登录功能」完整场景在三端都能操作；两个群并行 |
+| **S3 记忆、技能、仪表盘** | 三种记忆、压缩、技能管理接口、用量汇总和仪表盘接口 | 仪表盘（热力图、折线）、技能页、记忆页 | feature/memory、feature/skills（只看） | feature/dashboard 接真实数据 | 仪表盘数据在三端一致 |
+| **S4 浏览器与定时任务** | agent-browser 集成、`/ws/screen`、定时任务 | Agent Computer、定时任务编辑 | Agent Computer（触摸接管） | Agent Computer、推送完善 | 用 Chrome 的登录状态刷 X 并总结；手机上接管登录 |
+
+- 每个阶段结束时，在 main 分支上做一次**联调**：按「汇合点」一栏的场景走一遍，问题记成 issue，下个阶段开头处理。
+- 阶段内的协议变更要走 AGENTS.md 里的流程，并同步更新 fixtures。
+
 ## 8. 开发环境
 
 | 用途 | 工具 | 备注 |
 |------|------|------|
-| 服务端和桌面端 | Rust stable（rustfmt、clippy），Xcode（提供 Metal 编译器，GPUI 需要） | crates.io 走清华 tuna 镜像 |
+| 服务端和桌面端 | Rust stable（rustfmt、clippy），Xcode（提供 Metal 编译器，GPUI 需要） | crates.io 走清华 tuna 镜像；`server/` 和 `clients/mac/` 是两个独立的 workspace |
 | GPUI | 只依赖 `gpui-kit` 0.7.x（它会 re-export GPUI、gpui-base、gpui-component 和 Lucide 图标），不单独依赖 `gpui` | Xcode 26 需要额外下载 Metal 工具链：`xcodebuild -downloadComponent MetalToolchain` |
 | 移动端 | JDK 21、Gradle（项目内使用 wrapper）、Android SDK 36 + build-tools 36.1、platform-tools（adb） | 真机调试用 USB 或无线 adb 连接小米 17 |
 | iOS | Xcode 26 + iOS Simulator 运行时；真机需要签名 | |

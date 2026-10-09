@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Rust
+**/target/
+
+# Kotlin / Gradle / Android
+.gradle/
+**/build/
+.kotlin/
+local.properties
+*.iml
+.idea/
+captures/
+*.apk
+*.aab
+
+# Xcode
+**/xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# Local logs
+/logs/
