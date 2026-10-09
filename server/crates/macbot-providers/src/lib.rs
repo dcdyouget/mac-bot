@@ -130,6 +130,10 @@ pub struct Completion {
     pub tool_calls: Vec<ToolCall>,
     pub usage: TokenUsage,
     pub stop_reason: String,
+    /// Provider-native assistant blocks, including signed thinking. Internal
+    /// context only: these must be replayed to the same API after tool calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_content: Option<Value>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -246,7 +250,18 @@ pub fn wire_request(kind: ApiKind, request: &ModelRequest) -> (String, Value) {
     let max_output = request.max_output.max(1);
     match kind {
         ApiKind::OpenaiCompletions => {
-            let mut body = json!({"model":request.model,"messages":request.messages,"max_tokens":max_output,"stream":true,"stream_options":{"include_usage":true}});
+            let messages = request
+                .messages
+                .iter()
+                .map(|message| {
+                    let mut message = message.clone();
+                    if let Some(object) = message.as_object_mut() {
+                        object.remove("assistant_content");
+                    }
+                    message
+                })
+                .collect::<Vec<_>>();
+            let mut body = json!({"model":request.model,"messages":messages,"max_tokens":max_output,"stream":true,"stream_options":{"include_usage":true}});
             if !request.tools.is_empty() {
                 body["tools"] = json!(request.tools);
             }
@@ -301,7 +316,11 @@ pub fn wire_request(kind: ApiKind, request: &ModelRequest) -> (String, Value) {
                     system.push(message["content"].as_str().unwrap_or("").to_owned());
                     continue;
                 }
-                let content = if role == "tool" {
+                let content = if role == "assistant"
+                    && message["assistant_content"]["api_kind"] == "anthropic-messages"
+                {
+                    message["assistant_content"]["content"].clone()
+                } else if role == "tool" {
                     json!([{"type":"tool_result","tool_use_id":message["tool_call_id"],"content":message["content"]}])
                 } else {
                     let mut parts = Vec::new();
@@ -349,6 +368,21 @@ pub fn wire_request(kind: ApiKind, request: &ModelRequest) -> (String, Value) {
                     continue;
                 }
                 let mut parts = Vec::new();
+                if role == "assistant"
+                    && message["assistant_content"]["api_kind"] == "google-generative"
+                {
+                    for call in message["tool_calls"].as_array().into_iter().flatten() {
+                        if let (Some(id), Some(name)) =
+                            (call["id"].as_str(), call["function"]["name"].as_str())
+                        {
+                            call_names.insert(id, name);
+                        }
+                    }
+                    contents.push(
+                        json!({"role":"model","parts":message["assistant_content"]["content"]}),
+                    );
+                    continue;
+                }
                 if role == "tool" {
                     let id = message["tool_call_id"].as_str().unwrap_or("");
                     parts.push(json!({"functionResponse":{"name":call_names.get(id).copied().unwrap_or("tool"),"response":{"output":message["content"]}}}));
@@ -408,6 +442,8 @@ fn data_image(url: &str) -> Option<(&str, &str)> {
 #[derive(Default)]
 struct Accumulator {
     result: Completion,
+    native_blocks: BTreeMap<String, Value>,
+    google_parts: Vec<Value>,
     calls: BTreeMap<String, (String, String, String)>,
 }
 fn n(value: &Value, key: &str) -> u64 {
@@ -510,6 +546,8 @@ impl Accumulator {
                 }
                 "content_block_start" => {
                     let block = &value["content_block"];
+                    self.native_blocks
+                        .insert(value["index"].to_string(), block.clone());
                     if block["type"] == "tool_use" {
                         let initial = block
                             .get("input")
@@ -527,8 +565,18 @@ impl Accumulator {
                         );
                     }
                     self.text(block["text"].as_str(), false, &mut events);
+                    self.text(block["thinking"].as_str(), true, &mut events);
                 }
                 "content_block_delta" => {
+                    if let Some(block) = self.native_blocks.get_mut(&value["index"].to_string()) {
+                        for key in ["text", "thinking", "signature"] {
+                            if let Some(delta) = value["delta"][key].as_str() {
+                                let mut accumulated = block[key].as_str().unwrap_or("").to_owned();
+                                accumulated.push_str(delta);
+                                block[key] = json!(accumulated);
+                            }
+                        }
+                    }
                     self.text(value["delta"]["text"].as_str(), false, &mut events);
                     self.text(value["delta"]["thinking"].as_str(), true, &mut events);
                     if let Some(args) = value["delta"]["partial_json"].as_str() {
@@ -553,6 +601,7 @@ impl Accumulator {
                     .into_iter()
                     .flatten()
                 {
+                    self.google_parts.push(part.clone());
                     self.text(
                         part["text"].as_str(),
                         part["thought"].as_bool().unwrap_or(false),
@@ -623,13 +672,18 @@ impl Accumulator {
         });
     }
     fn finish(mut self) -> Result<Completion> {
-        for (_, (call_id, name, args)) in self.calls {
+        for (index, (call_id, name, args)) in self.calls {
             let args = if args.is_empty() {
                 json!({})
             } else {
                 serde_json::from_str(&args)
                     .map_err(|_| Error::Response("invalid tool arguments JSON".into()))?
             };
+            if let Some(block) = self.native_blocks.get_mut(&index) {
+                if block["type"] == "tool_use" {
+                    block["input"] = args.clone();
+                }
+            }
             self.result.tool_calls.push(ToolCall {
                 call_id,
                 name,
@@ -640,6 +694,16 @@ impl Accumulator {
             return Err(Error::Response(
                 "model stream ended before stop event".into(),
             ));
+        }
+        if !self.native_blocks.is_empty() {
+            let mut blocks = self.native_blocks.into_iter().collect::<Vec<_>>();
+            blocks.sort_by_key(|(index, _)| index.parse::<u64>().unwrap_or(0));
+            self.result.assistant_content = Some(
+                json!({"api_kind":"anthropic-messages","content":blocks.into_iter().map(|(_, block)| block).collect::<Vec<_>>()}),
+            );
+        } else if !self.google_parts.is_empty() {
+            self.result.assistant_content =
+                Some(json!({"api_kind":"google-generative","content":self.google_parts}));
         }
         Ok(self.result)
     }
@@ -760,6 +824,67 @@ impl ModelProvider for MockProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn signed_thinking_survives_tool_result_continuation() {
+        let mut a = Accumulator::default();
+        for event in [
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan"}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"signed"}}),
+            json!({"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call1","name":"read","input":{}}}),
+            json!({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"file\"}"}}),
+            json!({"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":4}}),
+        ] {
+            a.parse(ApiKind::AnthropicMessages, &event).unwrap();
+        }
+        let completion = a.finish().unwrap();
+        let request = ModelRequest {
+            messages: vec![
+                json!({"role":"assistant","content":"","assistant_content":completion.assistant_content,"tool_calls":[{"id":"call1","function":{"name":"read","arguments":"{\"path\":\"file\"}"}}]}),
+                json!({"role":"tool","tool_call_id":"call1","content":"found"}),
+            ],
+            ..Default::default()
+        };
+        let (_, wire) = wire_request(ApiKind::AnthropicMessages, &request);
+        assert_eq!(
+            wire["messages"][0]["content"][0],
+            json!({"type":"thinking","thinking":"plan","signature":"signed"})
+        );
+        assert_eq!(
+            wire["messages"][0]["content"][1]["input"],
+            json!({"path":"file"})
+        );
+        assert_eq!(wire["messages"][1]["content"][0]["tool_use_id"], "call1");
+    }
+    #[test]
+    fn google_thought_signature_survives_native_function_response() {
+        let part =
+            json!({"functionCall":{"name":"read","args":{"path":"f"}},"thoughtSignature":"signed"});
+        let mut a = Accumulator::default();
+        a.parse(
+            ApiKind::GoogleGenerative,
+            &json!({"candidates":[{"content":{"parts":[part]},"finishReason":"STOP"}]}),
+        )
+        .unwrap();
+        let completion = a.finish().unwrap();
+        let call = &completion.tool_calls[0];
+        let request = ModelRequest {
+            messages: vec![
+                json!({"role":"assistant","assistant_content":completion.assistant_content,"tool_calls":[{"id":call.call_id,"function":{"name":call.name}}]}),
+                json!({"role":"tool","tool_call_id":call.call_id,"content":"found"}),
+            ],
+            ..Default::default()
+        };
+        let (_, wire) = wire_request(ApiKind::GoogleGenerative, &request);
+        assert_eq!(
+            wire["contents"][0]["parts"][0]["thoughtSignature"],
+            "signed"
+        );
+        assert_eq!(
+            wire["contents"][1]["parts"][0]["functionResponse"]["name"],
+            "read"
+        );
+    }
     #[test]
     fn split_tool_arguments_and_usage() {
         let mut a = Accumulator::default();

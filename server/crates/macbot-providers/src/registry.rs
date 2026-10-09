@@ -375,7 +375,7 @@ impl ProviderRegistry {
                 .or_else(|| remote.get("name"))
                 .and_then(Value::as_str)
                 .map(|id| id.trim_start_matches("models/"))
-                .filter(|id| !id.is_empty() && !id.contains('/'))
+                .filter(|id| !id.is_empty())
             else {
                 continue;
             };
@@ -668,9 +668,9 @@ fn validate_model_parts(
     context_window: Option<u64>,
     max_output: Option<u64>,
 ) -> Result<()> {
-    if model_id.trim().is_empty() || model_id.contains('/') {
+    if model_id.trim().is_empty() || model_id.chars().any(char::is_control) {
         return Err(RegistryError::Invalid(
-            "model_id must be non-empty and contain no slash".into(),
+            "model_id must be non-empty and contain no control characters".into(),
         ));
     }
     if context_window == Some(0) || max_output == Some(0) {
@@ -732,6 +732,31 @@ mod tests {
         json!({"name":"Fake","api_kind":"openai-completions","base_url":base_url,"api_key":"secret-value","client_request_id":cid})
     }
 
+    #[tokio::test]
+    async fn model_ref_keeps_namespaced_provider_model_id() {
+        let (_dir, mut registry) = registry();
+        let created = registry
+            .rpc(
+                "provider.create",
+                create_params("p", "http://127.0.0.1:1/v1"),
+                &[],
+            )
+            .await
+            .unwrap();
+        let provider_id = created.result["provider"]["id"].as_str().unwrap();
+        let reply = registry
+            .rpc(
+                "model.upsert",
+                json!({"provider_id":provider_id,"model_id":"vendor/model"}),
+                &[],
+            )
+            .await
+            .unwrap();
+        let reference = reply.result["model"]["ref"].as_str().unwrap();
+        let (model, _) = registry.resolve_model(reference).unwrap();
+        assert_eq!(model.model_id, "vendor/model");
+        assert_eq!(model.r#ref, format!("{provider_id}/vendor/model"));
+    }
     #[tokio::test]
     async fn crud_wal_restart_and_idempotency_never_persist_key() {
         let (dir, mut registry) = registry();
