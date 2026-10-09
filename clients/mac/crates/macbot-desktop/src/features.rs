@@ -1519,7 +1519,10 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
         .child(card(t("workbench.title"), active_groups, tokens))
         .child(card(
             t("workbench.done_today"),
-            rows(done.iter().map(workbench_done_label), tokens),
+            rows(
+                done.iter().map(|job| workbench_done_label(job, data)),
+                tokens,
+            ),
             tokens,
         ));
     div()
@@ -1565,7 +1568,7 @@ fn workbench_group_key(job: &Value, mode: &str, data: &Value) -> String {
             job.get("project_id").and_then(Value::as_str),
             t("workbench.no_project"),
         ),
-        "status" => string(job, "status", t("common.unknown")),
+        "status" => workbench_status_label(job.get("status").and_then(Value::as_str)),
         _ => {
             let bot_id = job.get("bot_id").and_then(Value::as_str);
             let bot = string(job, "bot", "");
@@ -1602,6 +1605,19 @@ fn workbench_group_label(mode: &str) -> &'static str {
     }
 }
 
+fn workbench_status_label(status: Option<&str>) -> String {
+    match status.unwrap_or_default() {
+        "queued" => t("workbench.status_queued").to_owned(),
+        "working" | "running" => t("workbench.status_working").to_owned(),
+        "waiting" => t("workbench.status_waiting").to_owned(),
+        "paused" => t("workbench.status_paused").to_owned(),
+        "failed" => t("workbench.status_failed").to_owned(),
+        "done" => t("workbench.status_done").to_owned(),
+        "cancelled" => t("workbench.status_cancelled").to_owned(),
+        _ => t("common.unknown").to_owned(),
+    }
+}
+
 fn workbench_job_row(
     job: &Value,
     data: &Value,
@@ -1629,8 +1645,12 @@ fn workbench_job_row(
         job.get("project_id").and_then(Value::as_str),
         t("workbench.no_project"),
     );
-    let status = string(job, "status", t("common.unknown"));
-    let elapsed = string(job, "elapsed", t("common.unknown"));
+    let status_raw = job
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let status = workbench_status_label(Some(status_raw));
+    let elapsed = workbench_elapsed(job);
     let usage = job
         .get("usage")
         .and_then(|usage| usage.get("input_tokens").and_then(Value::as_u64))
@@ -1639,7 +1659,7 @@ fn workbench_job_row(
             .get("usage")
             .and_then(|usage| usage.get("output_tokens").and_then(Value::as_u64))
             .unwrap_or(0);
-    let model = string(job, "model", t("common.unknown"));
+    let model = workbench_model_label(job, data);
     let subagents = job
         .get("subagents_active")
         .and_then(Value::as_u64)
@@ -1662,7 +1682,7 @@ fn workbench_job_row(
             stop.clone(),
             cx,
         ));
-        if status == "queued" {
+        if status_raw == "queued" {
             actions = actions.child(action_button_with_id(
                 format!("workbench-{row_key}-cancel"),
                 t("workbench.cancel"),
@@ -1670,7 +1690,7 @@ fn workbench_job_row(
                 cx,
             ));
         }
-        if status == "failed" {
+        if status_raw == "failed" {
             actions = actions.child(action_button_with_id(
                 format!("workbench-{row_key}-retry"),
                 t("workbench.retry"),
@@ -1699,12 +1719,67 @@ fn workbench_job_row(
         .child(actions)
 }
 
-fn workbench_done_label(job: &Value) -> String {
+fn workbench_done_label(job: &Value, data: &Value) -> String {
+    let project = workbench_entity_label(
+        data,
+        "projects",
+        job.get("project_id").and_then(Value::as_str),
+        t("workbench.no_project"),
+    );
     format!(
         "✓ {} · {}",
-        string(job, "project_id", t("workbench.no_project")),
+        project,
         string(job, "title", t("common.unnamed_task"))
     )
+}
+
+fn workbench_elapsed(job: &Value) -> String {
+    if let Some(elapsed) = job.get("elapsed").and_then(Value::as_str)
+        && !elapsed.trim().is_empty()
+    {
+        return elapsed.to_owned();
+    }
+    let started = job
+        .get("started_at")
+        .or_else(|| job.get("created_at"))
+        .and_then(Value::as_str)
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok());
+    let Some(started) = started else {
+        return t("common.unknown").to_owned();
+    };
+    let minutes = (Utc::now() - started.with_timezone(&Utc))
+        .num_minutes()
+        .max(0);
+    if minutes == 0 {
+        t("common.just_now").to_owned()
+    } else {
+        format!("{minutes} {}", t("workbench.minutes"))
+    }
+}
+
+fn workbench_model_label(job: &Value, data: &Value) -> String {
+    let model = job.get("model");
+    let model_ref = model.and_then(Value::as_str).or_else(|| {
+        model
+            .and_then(|value| value.get("ref"))
+            .and_then(Value::as_str)
+    });
+    if let Some(model_ref) = model_ref {
+        if let Some(model_item) = array(data, "models").iter().find(|item| {
+            item.get("ref")
+                .or_else(|| item.get("id"))
+                .and_then(Value::as_str)
+                == Some(model_ref)
+        }) {
+            return string(model_item, "label", &string(model_item, "name", model_ref));
+        }
+        return model_ref.to_owned();
+    }
+    model
+        .and_then(|value| value.get("label").or_else(|| value.get("name")))
+        .and_then(Value::as_str)
+        .unwrap_or(t("common.unknown"))
+        .to_owned()
 }
 
 #[allow(clippy::collapsible_if)]

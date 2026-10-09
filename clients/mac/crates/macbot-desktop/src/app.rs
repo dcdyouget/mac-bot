@@ -916,9 +916,17 @@ impl MacBot {
                 if this
                     .update(cx, |view, cx| {
                         match event {
-                            ScreenEvent::State(state) => view
-                                .computer
-                                .update(cx, |screen, cx| screen.set_state_in(state, cx)),
+                            ScreenEvent::State(mut state) => {
+                                if let Some(bot) = view.state.bots.get(&view.screen_bot) {
+                                    state["title"] = json!(format!(
+                                        "{}{}",
+                                        s(bot, "name"),
+                                        tr("computer.browser")
+                                    ));
+                                }
+                                view.computer
+                                    .update(cx, |screen, cx| screen.set_state_in(state, cx));
+                            }
                             ScreenEvent::Frame(frame) => view.computer.update(cx, |screen, cx| {
                                 screen.set_frame(
                                     frame.header.seq,
