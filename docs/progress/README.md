@@ -4,8 +4,7 @@
 
 ## 现在的状态
 
-桌面安装版 `fb0da7c`、mock `11bc831` 已在 Mac mini 运行；Android 签名 Release 已于 `80d8a42` 正式交回，模拟器已安装 APK 的大小和哈希经集成线独立核对一致。两端已连接 mock 并实际看到主 Bot/群/Bot 会话列表；桌面开发期使用本机文件保存 Host 密码，无钥匙串提示。S0 联调通过；Android S0–S5 客户端自测已打卡，S1–S5 真实联合验收仍待服务端 ready，当前只运行 `7789/dev` mock。
-
+桌面安装版 `222fda9`、mock `11bc831` 已在 Mac mini 运行。集成线已实际验证自动连接与4条主会话历史、技能增改删、mock 画面接管/交还、关闭窗口后 Finder 双击重开。Android 签名 Release `80d8a42` 已安装且 APK 哈希独立核对一致；网络恢复后白屏仍待 Android 线诊断。S0 历史联调通过；S1–S5 客户端自测已打卡，真实联合验收尚未通过。正式服务已发布 `bd6e7c2`，集成线正在从固定干净快照部署 `7788` 并配置本机 MiniMax。
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
 | S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 通过：两端连接 mock 并看到会话列表 | `docs/progress/S0/` |
@@ -19,9 +18,11 @@
 
 Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/性能资料清单](S5/android-80d8a42-artifact-manifest.json)已归档至各阶段目录，文件名带 `android-owner-80d8a42-`。这些是客户端 mock/专项证据，包含历史截图，不代表由集成线在最终 APK 上重新完成场景。Release 为 2,111,878 bytes；集成线拉取已安装 `base.apk` 的 SHA-256 与归属线一致，未重复安装或重启。性能 JSON 保留不同源码修订及软件/硬件模拟器限制；QEMU 曾 exit139，不能据样本认定真机性能或稳定性通过。
 
-当前阻断：交回后模拟器 Wi-Fi 未关联、无路由；重新连接 `AndroidWifi` 后 `10.0.2.2:7789` 健康检查已200，但 App 截图连续显示白屏，进程仍在前台，交由 Android 线诊断；[网络/UI核查](S5/android-80d8a42-network-precheck.json)。桌面 PID48726 暂无可见窗口，归属线已在独立QA验证事件桥与窗口重开修复，待固定发布SHA复验。历史S0通过保留，当前两端重连UI不计通过。
+当前阻断：Android 恢复 `AndroidWifi` 后 `10.0.2.2:7789` 健康检查已200，但 App 连续白屏、进程仍在前台，交由 Android 线诊断；[网络/UI核查](S5/android-80d8a42-network-precheck.json)。
 
-桌面修复版 `fb0da7c` 已从干净 archive 打包并安装，启动后总管4条历史消息实见：[安装核查](S1/main-fb0da7c-installed-precheck.json)、[窗口截图](S1/main-fb0da7c-installed-history.png)。CUA 绑定返回 `cgWindowNotFound`，技能页点击及 mock 重连后的历史恢复仍待复验；截图 finalize 超时后已人工核图恢复。已解除 `2633ff9` 无 `.git` 打包阻断。mock `f368824` 的[成员/pending预检](S2/mock-f368824-members-api.json)通过，登录群/项目/公告均4成员；搜索[预检](S3/mock-search-0e882ac-api.json)通过。共享 mock 已升级 `11bc831`，Workbench 扁平返回、4成员、2个 pending 引用与 PRD 搜索[契约预检](S2/mock-11bc831-contract-precheck.json)通过。构建、静态截图和 mock API 结果不代表 S1–S5 联调通过。最新结果和遗留问题以根目录 `COORDINATION.md` 为准。
+桌面最终安装版证据：[历史](S1/main-222fda9-desktop-history.png)、[技能修改](S3/main-222fda9-skill-edited.png)、[接管](S4/main-222fda9-computer-takeover.png)、[窗口重开](S5/main-222fda9-window-reopened.png)及[重开记录](S5/main-222fda9-reopen.json)。技能内容由 RPC 独立读回验证，测试技能已删除；接管后已交还。以上使用共享 mock，不计真实阶段通过。14份桌面归属线截图的来源见[清单](S5/desktop-222fda9-owner-manifest.json)，同样不替代联合验收。Release DMG 已独立校验并只读挂载确认源码标记222；[DMG记录](S5/desktop-dmg-222fda9-candidate.json)。旧服务端 pkg689仅作载荷候选记录，正式 S5 将使用完整 composition 包。
+
+共享 mock `11bc831` 的[契约预检](S2/mock-11bc831-contract-precheck.json)通过：Workbench 扁平返回、登录群4成员、2个 pending 引用和PRD搜索。历史失败截图保留，最新结论以 `COORDINATION.md` 为准。
 
 ## 快速查看效果
 
@@ -35,8 +36,7 @@ cd /Users/gongshaojie/Project/mac-bot
 
 `deploy.sh` 会按当前代码可用性编译并部署 `macbotd`、桌面 `.app` 和 Android APK；缺少某条开发线产物时会跳过并打印提示。正式服务使用端口 `7788`，数据目录为 `~/MacBot`，访问密码只从本机文件 `~/.macbot-dev-password` 读取或由部署流程设置，密码内容不写入仓库。
 
-S0 两端会话列表验收已归档：[记录](S0/main-s0-current.json)、[桌面会话](S0/main-eb088fa-desktop-sessions.png)、[Android 会话](S0/main-08462a4-android.png)。当前安装 `fb0da7c` 已实际显示总管历史，技能页及重连回归未完成；Android 签名 Release 已交回，APK 哈希核对通过；设备网络恢复与两端原生复验继续。历史失败证据保留。
-
+S0 两端会话列表验收已归档：[记录](S0/main-s0-current.json)、[桌面](S0/main-eb088fa-desktop-sessions.png)、[Android](S0/main-08462a4-android.png)。当前桌面222专项回归通过；Android 当前白屏不能认定连接界面通过。
 桌面端：双击打开 `~/Applications/MacBot.app`；当前 mock 地址为 `127.0.0.1:7789`，密码 `dev`，开发部署已启用文件凭据后端。正式服务 ready 后填写 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`。
 
 Android 模拟器：需要时先执行：
@@ -96,7 +96,7 @@ LaunchAgent、独立 MACBOT_HOME、APK 安装与 Activity 命令见 `server/READ
 
 ## 真实模型
 
-真实服务端接入模型时，通过 `/api/v1/rpc` 的 `provider.create` 配置 provider。按用户最新授权，开发期使用本机明文凭据文件，放在仓库外、权限 `0600`；不写入 README、脚本、日志、截图或 Git。MiniMax Key 位于 `~/MacBot-dev-secrets/minimax-cn.key`，配置脚本只读取环境变量或此文件，不再访问钥匙串。真实 provider 当前暂不配置，端到端场景继续使用 mock。
+真实服务端接入模型时，通过 `/api/v1/rpc` 的 `provider.create` 配置 provider。按用户最新授权，开发期使用本机明文凭据文件，放在仓库外、权限 `0600`；不写入 README、脚本、日志、截图或 Git。MiniMax Key 位于 `~/MacBot-dev-secrets/minimax-cn.key`，配置脚本只读取环境变量或此文件，不再访问钥匙串。正式服务已 ready，正在通过 RPC 配置真实 provider；配置及实际执行通过后另行记录。
 
 ## 持续部署与模型配置
 
@@ -106,7 +106,7 @@ LaunchAgent、独立 MACBOT_HOME、APK 安装与 Activity 命令见 `server/READ
 python3 scripts/dev/watch.py --install
 ```
 
-Android 当前是已交回的签名 Release，允许同签名更新；Debug 签名不同，不卸载或清空数据。当前本机 `watch/mock-only` 标记暂缓正式服务部署；`7788` 执行 ready 后由集成负责人移除此标记。本机 `watch/ui-validation-hold` 当前仅为桌面 QA 窗口暂缓周期部署，桌面交回后移除恢复；只部署桌面可显式指定 `MACBOT_SKIP_PRODUCTION=1 MACBOT_SKIP_ANDROID=1`。
+Android 当前是已交回的签名 Release，允许同签名更新；Debug 签名不同，不卸载或清空数据。当前本机 `watch/mock-only` 标记暂缓正式服务部署；`7788` 执行 ready 后由集成负责人移除此标记。本机 `watch/ui-validation-hold` 当前仅为桌面 QA 窗口暂缓周期部署，本轮正式服务与原生回归结束后移除恢复；保留桌面可用 `MACBOT_SKIP_DESKTOP=1`；只部署桌面可显式指定 `MACBOT_SKIP_PRODUCTION=1 MACBOT_SKIP_ANDROID=1`。
 
 Android 部署用 `MACBOT_ANDROID_VARIANT=debug|release` 选择构建，未指定时沿用本机 `android-installed-variant` 记录，否则默认 Debug；本机当前记录为 Release。Release 从 `~/.local/share/macbot/android-signing/release.env` 加载签名环境，可用 `MACBOT_ANDROID_SIGNING_ENV` 指定其他仓库外文件。仅安装 `androidApp-release.apk`；缺少签名或安装签名不匹配时失败并保留已有 App/数据，不卸载、不安装 unsigned APK。变体逻辑已用临时假 Gradle/假签名验证，实际 Release 构建与更新待 Android 交回后执行。
 
@@ -114,9 +114,9 @@ Android 部署用 `MACBOT_ANDROID_VARIANT=debug|release` 选择构建，未指�
 
 编译 target 使用独立共享缓存：`~/Library/Caches/MacBot/integrator/target/server` 和 `~/Library/Caches/MacBot/integrator/target/desktop`。每个 main 快照下的 `server/target`、`clients/mac/target` 会链接到对应缓存，减少重复编译；缓存属于本机开发数据，不提交 Git。部署锁会串行化使用同一缓存的构建。
 
-MiniMax CN 国内官方 [Anthropic 接口](https://platform.minimax.cn/docs/api-reference/text-anthropic-api) 的 base URL 为 `https://api.minimax.cn/anthropic`。本机已实测 `MiniMax-M2.5` 文本请求成功，开发凭据现存于 `~/MacBot-dev-secrets/minimax-cn.key`。可用 `MINIMAX_API_KEY_FILE` 指向新的本机文件，或设置 `MINIMAX_API_KEY`；部署服务尚未配置真实 provider，等待执行链路 ready。
+MiniMax CN 国内官方 [Anthropic 接口](https://platform.minimax.cn/docs/api-reference/text-anthropic-api) 的 base URL 为 `https://api.minimax.cn/anthropic`。本机已实测 `MiniMax-M2.5` 文本请求成功，开发凭据现存于 `~/MacBot-dev-secrets/minimax-cn.key`。可用 `MINIMAX_API_KEY_FILE` 指向新的本机文件，或设置 `MINIMAX_API_KEY`；部署服务正在配置真实 provider。
 
-本机 `watch/file-secrets` 标记让部署使用 `MACBOT_SECRET_BACKEND=file`。桌面 Host 密码保存于 `~/Library/Application Support/MacBot/development-secrets.json`（文件0600、目录0700），此模式不访问钥匙串。服务端文件后端仍等待 adapter 完整发布；用户后续可替换本机 MiniMax Key 文件，再重新运行 provider 配置命令。
+本机 `watch/file-secrets` 标记让部署使用 `MACBOT_SECRET_BACKEND=file`。桌面 Host 密码保存于 `~/Library/Application Support/MacBot/development-secrets.json`（文件0600、目录0700），此模式不访问钥匙串。服务端正式 file adapter 已发布；用户后续可替换本机 MiniMax Key 文件，再重新运行 provider 配置命令。
 
 真实服务端 ready 后，运行：
 

@@ -32,6 +32,11 @@ def args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     add_connection_args(parser)
     parser.add_argument("--bot-id", help="Bot to test; default is the first non-main Bot")
+    parser.add_argument(
+        "--create-worker",
+        action="store_true",
+        help="Create a fresh non-main Bot when the production Host has no worker yet",
+    )
     return parser
 
 
@@ -91,14 +96,34 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
     health = ready_health(client, args)
     require_production_host(client, health)
     state = bootstrap(client)
+    marker = unique_marker("macbot-e2e-s1")
+    if args.bot_id and args.create_worker:
+        raise ValueError("--bot-id and --create-worker are mutually exclusive")
     bots = [bot for bot in require_list(state["bots"], "bootstrap.bots") if isinstance(bot, dict)]
-    bot = next((bot for bot in bots if bot.get("id") == args.bot_id), None) if args.bot_id else None
-    if args.bot_id and bot is None:
-        raise ValueError("requested Bot is absent from bootstrap")
-    if bot is None:
-        bot = next((candidate for candidate in bots if candidate.get("is_main") is False), None)
+    created_worker = False
+    if args.create_worker:
+        worker_name = f"macbot-e2e-s1-{marker.rsplit('-', 1)[-1]}"
+        created = require_dict(client.call("bot.create", {"name": worker_name}), "bot.create result")
+        created_bot = require_dict(created.get("bot"), "bot.create.bot")
+        created_chat = require_dict(created.get("dm_chat"), "bot.create.dm_chat")
+        if created_bot.get("is_main") is not False or created_chat.get("kind") != "direct":
+            raise ValueError("bot.create did not return a non-main Bot with a direct DM")
+        if created_bot.get("dm_chat_id") != created_chat.get("id"):
+            raise ValueError("bot.create Bot dm_chat_id does not match dm_chat.id")
+        # Re-read bootstrap so the scenario only proceeds after the new Bot and
+        # its session are visible through the same contract clients consume.
+        state = bootstrap(client)
+        bots = [bot for bot in require_list(state["bots"], "bootstrap.bots") if isinstance(bot, dict)]
+        bot = next((item for item in bots if item.get("id") == created_bot.get("id")), None)
+        created_worker = True
+    else:
+        bot = next((bot for bot in bots if bot.get("id") == args.bot_id), None) if args.bot_id else None
+        if args.bot_id and bot is None:
+            raise ValueError("requested Bot is absent from bootstrap")
+        if bot is None:
+            bot = next((candidate for candidate in bots if candidate.get("is_main") is False), None)
     if not isinstance(bot, dict) or not isinstance(bot.get("id"), str):
-        raise ValueError("S1 requires a non-main Bot; pass --bot-id explicitly")
+        raise ValueError("S1 requires a non-main Bot; pass --bot-id or use --create-worker")
     bot_id = bot["id"]
     chat_id = bot.get("dm_chat_id")
     if not isinstance(chat_id, str) or not chat_id:
@@ -108,7 +133,6 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
     if not isinstance(chat, dict) or chat.get("kind") != "direct":
         raise ValueError("selected Bot dm_chat_id does not identify a direct session")
 
-    marker = unique_marker("macbot-e2e-s1")
     path = f"e2e/{marker}.txt"
     text = (
         f"S1 API evidence marker {marker}. Use the file tools to write EXACTLY {marker} to {path}, "
@@ -145,6 +169,7 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
         "health_version": health.get("version"),
         "bot_id": bot_id,
         "chat_id": chat_id,
+        "created_worker": created_worker,
         "marker": marker,
         "reply": reply,
         "trace": trace,

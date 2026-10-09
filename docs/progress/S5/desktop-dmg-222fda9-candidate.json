@@ -1,0 +1,12 @@
+{
+  "owner_source_claim": "222fda9808e1c624ba12a4b356cfe509cd56b8a4",
+  "bytes": 12967871,
+  "sha256": "687f44650bf6fbd664e6d5be4de3a19613f3db9a90e6fc005251abe43fa58ef2",
+  "artifact": "/Users/gongshaojie/Library/Caches/MacBot/integrator/staged/222fda9808e1c624ba12a4b356cfe509cd56b8a4/MacBot.dmg",
+  "hdiutil_verify": "passed",
+  "scope": "Release DMG independently verified and mounted read-only; exact source marker matches. Not installed via DMG; full S5 acceptance pending.",
+  "joint_S5": "not accepted; complete server pkg/real service full scenario pending",
+  "source_marker": "222fda9808e1c624ba12a4b356cfe509cd56b8a4",
+  "bundle_id": "bot.mac.desktop",
+  "source_dirty": false
+}

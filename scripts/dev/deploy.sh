@@ -65,7 +65,12 @@ case "$server_rc" in
 esac
 
 desktop_rc=0
-macbot_build_desktop || desktop_rc=$?
+if [ "${MACBOT_SKIP_DESKTOP:-0}" = 1 ]; then
+  macbot_log "client-mac：保留当前安装与验证窗口，跳过构建/安装"
+  desktop_rc=2
+else
+  macbot_build_desktop || desktop_rc=$?
+fi
 case "$desktop_rc" in
   0)
     desktop_destination="$HOME/Applications/MacBot.app"

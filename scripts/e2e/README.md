@@ -30,6 +30,8 @@ S0 脚本默认连接 `127.0.0.1:7789`，固定使用 mock 约定的密码 `dev`
 
 ```sh
 python3 scripts/e2e/s1/private_chat.py --url http://127.0.0.1:7788 --bot-id <bot_id>
+# 全新生产 Host 只有主 Bot 时，先由场景创建一个独立 worker：
+python3 scripts/e2e/s1/private_chat.py --url http://127.0.0.1:7788 --create-worker
 python3 scripts/e2e/s2/login_feature.py --product-bot-id <id> --coding-bot-id <id> --test-bot-id <id>
 python3 scripts/e2e/s3/skills_usage_search.py --bot-id <non_main_bot_id>
 ```

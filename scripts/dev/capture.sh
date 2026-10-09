@@ -41,16 +41,29 @@ let deadline = Date().addingTimeInterval(10)
 var found = false
 repeat {
   let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+  var bestArea = 0.0
+  var bestNumber: Int? = nil
+  var bestPID: Int? = nil
   for window in windows {
     let ownerPID = window[kCGWindowOwnerPID as String] as? Int ?? 0
     let layer = window[kCGWindowLayer as String] as? Int ?? 1
     let alpha = window[kCGWindowAlpha as String] as? Double ?? 1
-    if wanted.contains(Int32(ownerPID)), layer == 0, alpha > 0,
-       let number = window[kCGWindowNumber as String] as? Int {
-      print("\(number) \(ownerPID)")
-      found = true
-      break
+    guard wanted.contains(Int32(ownerPID)), layer == 0, alpha > 0,
+          let number = window[kCGWindowNumber as String] as? Int,
+          let bounds = window[kCGWindowBounds as String] as? [String: Any],
+          let width = (bounds["Width"] as? NSNumber)?.doubleValue,
+          let height = (bounds["Height"] as? NSNumber)?.doubleValue,
+          width >= 200, height >= 200 else { continue }
+    let area = width * height
+    if area > bestArea {
+      bestArea = area
+      bestNumber = number
+      bestPID = ownerPID
     }
+  }
+  if let number = bestNumber, let ownerPID = bestPID {
+    print("\(number) \(ownerPID)")
+    found = true
   }
   if !found { Thread.sleep(forTimeInterval: 0.25) }
 } while !found && Date() < deadline' > "$OUT/$STAMP-desktop-window.txt" 2>/dev/null || true

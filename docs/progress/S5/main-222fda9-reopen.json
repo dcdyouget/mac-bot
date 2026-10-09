@@ -1,0 +1,14 @@
+{
+  "source": "222fda9808e1c624ba12a4b356cfe509cd56b8a4",
+  "mock_source": "11bc831df3cead8d8ec667501769aad92adec472",
+  "pid": 80219,
+  "window_id": 57294,
+  "closed_before": true,
+  "reopen_action": "Finder double-click installed MacBot",
+  "same_pid_after": true,
+  "history_messages_visible": 4,
+  "image": "docs/progress/S5/main-222fda9-window-reopened.png",
+  "screencapture_finalize_timeout_recovered": true,
+  "scope": "installed mock UI regression; not joint S5",
+  "timestamp": "2026-10-09T18:54:45.285024"
+}
