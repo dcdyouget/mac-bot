@@ -18,7 +18,7 @@
 
 Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/性能资料清单](S5/android-80d8a42-artifact-manifest.json)已归档至各阶段目录，文件名带 `android-owner-80d8a42-`。这些是客户端 mock/专项证据，包含历史截图，不代表由集成线在最终 APK 上重新完成场景。Release 为 2,111,878 bytes；集成线拉取已安装 `base.apk` 的 SHA-256 与归属线一致，未重复安装或重启。性能 JSON 保留不同源码修订及软件/硬件模拟器限制；QEMU 曾 exit139，不能据样本认定真机性能或稳定性通过。
 
-当前阻断：正式服务新建 Bot 的 dm_chat.id 与 Bot.dm_chat_id 不一致，bootstrap 又把用户私聊标为bot_dm；[复现](S1/production-bd6e7c2-dm-contract-failure.json)，S1未通过。真实服务[配置记录](S1/minimax-bd6e7c2-config.json)与[技能CRUD/用量API局部预检](S3/production-bd6e7c2-api-subset.json)已归档。Android 恢复 `AndroidWifi` 后 `10.0.2.2:7789` 健康检查已200，但 App 连续白屏、进程仍在前台，交由 Android 线诊断；[网络/UI核查](S5/android-80d8a42-network-precheck.json)。
+当前阻断：正式服务新建 Bot 的 dm_chat.id 与 Bot.dm_chat_id 不一致，bootstrap 又把用户私聊标为bot_dm；[复现](S1/production-bd6e7c2-dm-contract-failure.json)，S1未通过。routine.test_run也因默认模型读取遗漏停留working，180s超时；[失败与清理](S4/production-bd6e7c2-routine-pending.json)。真实服务[配置记录](S1/minimax-bd6e7c2-config.json)与[技能CRUD/用量API局部预检](S3/production-bd6e7c2-api-subset.json)已归档。Android 恢复 `AndroidWifi` 后 `10.0.2.2:7789` 健康检查已200，但 App 连续白屏、进程仍在前台，交由 Android 线诊断；[网络/UI核查](S5/android-80d8a42-network-precheck.json)。
 
 桌面最终安装版证据：[历史](S1/main-222fda9-desktop-history.png)、[技能修改](S3/main-222fda9-skill-edited.png)、[接管](S4/main-222fda9-computer-takeover.png)、[窗口重开](S5/main-222fda9-window-reopened.png)及[重开记录](S5/main-222fda9-reopen.json)。技能内容由 RPC 独立读回验证，测试技能已删除；接管后已交还。以上使用共享 mock，不计真实阶段通过。14份桌面归属线截图的来源见[清单](S5/desktop-222fda9-owner-manifest.json)，同样不替代联合验收。Release DMG 已独立校验并只读挂载确认源码标记222；[DMG记录](S5/desktop-dmg-222fda9-candidate.json)。旧服务端 pkg689仅作载荷候选记录，正式 S5 将使用完整 composition 包。
 
