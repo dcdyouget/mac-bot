@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.7
+# Mac Bot 规划 v0.8
 
 > 状态：规划中，尚未开始编码。
+> v0.8 变更：界面和组件设计拆分到 DESIGN.md（含线框图、设计语言、群聊专章）。
 > v0.7 变更：安全部分精简为「每次连接带上密码」；浏览器操控改用 vercel-labs/agent-browser（三种模式评估、实时画面代理）；记忆增加项目级共享层。
 > v0.6 变更：鉴权改为「访问密码」，去掉配对；密码换会话令牌，管理页也需要密码；首次设置向导；防暴力破解。
 > v0.5 变更：服务端改为无界面守护进程 macbotd（.pkg 安装、LaunchAgent），只带极简的本机 Web 管理页和 CLI；所有业务配置都通过客户端走 API；桌面 App 改为纯客户端。
@@ -52,6 +53,8 @@
 > cua 和 lume：lume 是在 Apple Silicon 上管理 macOS/Linux 虚拟机的工具，cua 是跑在虚拟机里的电脑操控 Agent 框架。我们不用虚拟机，所以**不采用 lume**；同一仓库里的 **cua-driver**（不用虚拟机、直接后台操控本机 App）可以作为原生桌面操控的候选。
 
 ## 4. 从 Grok Bot 提炼的交互规格
+
+> 本节是需求层面的规格。落到界面上的具体设计见 [DESIGN.md](DESIGN.md)。
 
 ### 4.1 Bot
 - 创建入口：侧栏点 **New** 或按 `Cmd/Ctrl+N`，打开 **New chat** 面板，选 **Create new Bot**；也可以直接输入名字后选 **Create "xxx" Bot**。
@@ -339,18 +342,9 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 
 **P6 开工时需要先确认**：`--profile Default` 读取 Chrome cookie 时是否会触发钥匙串弹窗（Chrome 的 cookie 由钥匙串里的 "Chrome Safe Storage" 加密）；`--profile` 与 `--restore` 组合使用时的行为。
 
-## 6. 页面清单（桌面端）
+## 6. 界面与组件设计
 
-| 区域 | 内容 |
-|------|------|
-| 侧栏 | 顶部是 Host 切换器（显示在线状态，可添加新 Host：填 host:port 和密码）；下面是 New（`Cmd+N`）、Search、置顶的 Bot、Bot 列表、群聊列表、Projects、Hidden Bots、Skills、Settings；每项显示状态点（空闲 / 运行中 / 等待你） |
-| 会话主区 | 头部（头像、名字、Label，以及后期的 Agent Computer 按钮、详情按钮）；消息流；输入框 |
-| 会话详情抽屉 | Profile、Routines、Files、Memory、Members（群聊） |
-| New chat 面板 | Create new Bot / 选 2 到 6 个 Bot 建群 |
-| Skills 页 | 列表、编辑、新建 |
-| Projects 页 | 项目列表；项目记忆的查看和编辑；成员 Bot；绑定的群聊 |
-| Settings | Models & Providers、Agent（Auto Review 档位与允许/拒绝规则）、Devices、Computer（后期）、Appearance、Language、Usage、Host（当前 Host 的名称、版本、node_id；添加和切换 Host） |
-| Agent Computer | 后期：右侧面板，显示实时画面，提供接管按钮 |
+已迁移到 **[DESIGN.md](DESIGN.md)**，包括组件划分、每个组件的界面和功能、线框图、设计语言、群聊交互、移动端和管理页。
 
 ## 7. 里程碑（按顺序推进，不先做技术验证）
 

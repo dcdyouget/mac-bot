@@ -6,4 +6,6 @@
 - 桌面客户端：Rust + GPUI（v1 只做 macOS，Windows 放到 v2）
 - 移动端：Kotlin Multiplatform + Compose Multiplatform（Android / iOS）
 
-> 🚧 规划阶段，详见 [docs/PLAN.md](docs/PLAN.md)。
+> 🚧 规划阶段：
+> - [docs/DESIGN.md](docs/DESIGN.md)：组件、界面与交互设计（含线框图）
+> - [docs/PLAN.md](docs/PLAN.md)：架构、数据模型、里程碑
