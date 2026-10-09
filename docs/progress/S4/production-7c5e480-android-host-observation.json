@@ -1,0 +1,38 @@
+{
+  "scenario": "Android host/source observation",
+  "status": "OBSERVED_FORMAL_DATA_FRESHNESS_UNKNOWN",
+  "screenshot": {
+    "path": "docs/progress/S4/20261009-235101-android.png",
+    "sha256": "28b9f3163f7f977777aba7c05bae574202d1768bce221d6d69698db69f21916d",
+    "dimensions": "1080x2424 RGBA",
+    "observed_ui": "Production selector; main session; project macbot-e2e-s2-login-9ab8ddf045fb-登录功能; formal-style Bot list",
+    "formal_data_match": "project marker matches docs/progress/S2/production-ae3009b-login-scene.json and its formal server source record"
+  },
+  "emulator": {
+    "adb_serial": "emulator-5554",
+    "state": "device",
+    "sdk": 36,
+    "boot_completed": "1",
+    "app_package": "bot.mac.mobile",
+    "app_pid": "14036",
+    "app_version": "0.1.0",
+    "app_last_update_time": "2026-10-09 23:48:41"
+  },
+  "network_read_only": {
+    "formal_10_0_2_2_7788_tcp_reachable": true,
+    "mock_10_0_2_2_7789_tcp_reachable": true,
+    "meaning": "both Host ports are reachable from the emulator; TCP reachability does not identify which endpoint supplied the screenshot data"
+  },
+  "source_boundary": {
+    "current_host_observed": "Production/formal-identical-data",
+    "live_freshness": "unknown",
+    "why": "screenshot and project marker support formal-data observation, but no timestamped in-app RPC response or app connection log was read; both formal and mock endpoints are reachable",
+    "not_claimed": [
+      "fresh formal connection",
+      "Android UI PASS",
+      "mock disconnected",
+      "S2 full acceptance"
+    ]
+  },
+  "conclusion": "The captured Android screen visibly shows Production and the formal S2 project data. The emulator/app and both endpoint reachability are confirmed read-only; live source freshness remains unknown."
+}

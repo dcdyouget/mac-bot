@@ -1,0 +1,55 @@
+{
+  "artifact": "server pkg audit",
+  "checked_at": "2026-10-09",
+  "package_path": "/tmp/MacBot-Server-cumulative-1f771c7-20261009.pkg",
+  "package_sha256_expected": "230d96d3ba5eda84c25deb7155bcd751f42061431db2d9a06f42b1777ea53587",
+  "package_sha256_actual": "230d96d3ba5eda84c25deb7155bcd751f42061431db2d9a06f42b1777ea53587",
+  "package_sha256_match": true,
+  "expanded_path": "/tmp/macbot-final-cumulative-1f771c7-expanded",
+  "source_commit_expected": "1f771c757b061a3145f1a3f021fc789c08b97911",
+  "source_commit_embedded": "1f771c757b061a3145f1a3f021fc789c08b97911",
+  "source_dirty": false,
+  "build_info": {
+    "version": "0.1.0",
+    "macbotd_sha256_expected": "5238c37d34bd21b7515e863b897f97682848bdc58ebf6dd95d85612227ec964d",
+    "macbotd_sha256_actual": "5238c37d34bd21b7515e863b897f97682848bdc58ebf6dd95d85612227ec964d",
+    "agent_browser_sha256_expected": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+    "agent_browser_sha256_actual": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+    "hashes_match": true
+  },
+  "bundle": {
+    "identifier": "com.macbot.server",
+    "version": "0.1.0",
+    "executable": "macbotd"
+  },
+  "launchagent": {
+    "label": "com.macbot.server",
+    "run_at_load": true,
+    "keep_alive": true,
+    "program_arguments_shape": [
+      "<macbotd app binary>"
+    ],
+    "environment_keys": [
+      "MACBOT_HOME"
+    ],
+    "macbot_home_placeholder": "__MACBOT_HOME__",
+    "default_secret_backend": "Keychain (no MACBOT_SECRET_BACKEND override embedded)",
+    "data_path_placeholder": "__MACBOT_HOME__/data/macbot.log"
+  },
+  "package_info": {
+    "identifier": "com.macbot.server",
+    "payload_number_of_files": 29,
+    "install_location": "/",
+    "postinstall_registers_user_launchagent": true
+  },
+  "verification_scope": {
+    "installed_or_started": false,
+    "fresh_install_passed": false,
+    "read_only_package_audit": true,
+    "notes": [
+      "Hashes and embedded metadata match the supplied release values.",
+      "The package contains the arm64 agent-browser sidecar and a postinstall LaunchAgent bootstrap script.",
+      "No credentials or password values were read or included."
+    ]
+  }
+}

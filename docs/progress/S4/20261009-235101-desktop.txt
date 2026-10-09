@@ -1,0 +1,5 @@
+app=/Users/gongshaojie/Applications/MacBot.app
+executable=/Users/gongshaojie/Applications/MacBot.app/Contents/MacOS/macbot-desktop
+window_pid=66995
+window_id=58491
+source_commit=7c5e480f3a2582068198df3bfca6b6d2db452ff1

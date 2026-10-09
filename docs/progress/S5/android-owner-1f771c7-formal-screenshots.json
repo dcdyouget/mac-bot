@@ -1,0 +1,66 @@
+{
+  "artifact": "Android owner formal screenshot archive",
+  "source_tree": "origin/main",
+  "source_tree_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+  "android_source_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+  "apk_sha256": "8ecb6e7df554af1e56b2d0bc5e0b62f0b343f864f25a39c27dfa1b0f30448664",
+  "device": {
+    "serial": "emulator-5554",
+    "avd": "macbot_api36",
+    "api": 36
+  },
+  "host_evidence": {
+    "production": "10.0.2.2:7788",
+    "mock": "10.0.2.2:7789"
+  },
+  "screenshots": [
+    {
+      "source_path": "clients/mobile/verification/S0-production-and-mock-connected.png",
+      "archived_path": "docs/progress/S5/android-owner-1f771c7-s0-production-and-mock-connected.png",
+      "source_tree": "origin/main",
+      "source_tree_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+      "file_source_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+      "bytes": 141487,
+      "sha256": "693a6b17648e7a199271f9ee437baac924a61396a3579dd51a44b957f2e6c0c1"
+    },
+    {
+      "source_path": "clients/mobile/verification/S1-production-heartbeat-chat.png",
+      "archived_path": "docs/progress/S5/android-owner-1f771c7-s1-production-heartbeat-chat.png",
+      "source_tree": "origin/main",
+      "source_tree_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+      "file_source_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+      "bytes": 212720,
+      "sha256": "67531332ef3a26e9665f78e51f45d9a94300859e7bd10e797a3c245253e691c2"
+    },
+    {
+      "source_path": "clients/mobile/verification/S1-production-chat-trace.png",
+      "archived_path": "docs/progress/S5/android-owner-1f771c7-s1-production-chat-trace.png",
+      "source_tree": "origin/main",
+      "source_tree_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+      "file_source_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+      "bytes": 144940,
+      "sha256": "04cc979b891f2dddcaf255810d959916a77cf2511e98770da6b96306e4772b96"
+    },
+    {
+      "source_path": "clients/mobile/verification/S3-production-dashboard.png",
+      "archived_path": "docs/progress/S5/android-owner-1f771c7-s3-production-dashboard.png",
+      "source_tree": "origin/main",
+      "source_tree_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+      "file_source_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+      "bytes": 150364,
+      "sha256": "23295a8d5feb3b1d2e6b56f81083cb2dc4c8f3eec3ecfcca9c036c57b9295cdf"
+    }
+  ],
+  "owner_scope": {
+    "source_commit_owner_release": "1f771c757b061a3145f1a3f021fc789c08b97911",
+    "captured_in_owner_release_workflow": true,
+    "root_or_integrator_reverified": false,
+    "integrator_joint_acceptance": "not_passed",
+    "full_plan_s0_s5_pass": "not_claimed",
+    "note": "These owner screenshots document signed Release/local Production and Mock connectivity plus partial chat/trace/dashboard checks; they do not establish root full-scenario or two-client joint acceptance."
+  },
+  "verification_scope": {
+    "gui_or_adb_run_here": false,
+    "credentials_read": false
+  }
+}

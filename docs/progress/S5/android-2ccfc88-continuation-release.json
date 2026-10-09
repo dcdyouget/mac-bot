@@ -1,0 +1,85 @@
+{
+  "origin_main": "1f771c757b061a3145f1a3f021fc789c08b97911",
+  "source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "source_commit_role": "owner Android continuation Release evidence source",
+  "application_id": "bot.mac.mobile",
+  "variant": "distribution-signed Release with R8/resource shrink",
+  "apk": {
+    "path": "clients/mobile/androidApp/build/outputs/apk/release/androidApp-release.apk",
+    "bytes": 2111890,
+    "sha256": "8ecb6e7df554af1e56b2d0bc5e0b62f0b343f864f25a39c27dfa1b0f30448664",
+    "installed_base_sha256": "8ecb6e7df554af1e56b2d0bc5e0b62f0b343f864f25a39c27dfa1b0f30448664",
+    "signature_verified": true
+  },
+  "device": {
+    "serial": "emulator-5554",
+    "avd": "macbot_api36",
+    "api": 36,
+    "pid": "14036",
+    "active_host": "Production",
+    "connected_hosts": [
+      "10.0.2.2:7788",
+      "10.0.2.2:7789"
+    ]
+  },
+  "owner_validation": {
+    "common_and_android_host_tests": 54,
+    "failed_tests": 0,
+    "signed_debug_device_tests": 4,
+    "generator_cli_tests": 5,
+    "schema_models": 220,
+    "fixture_values": 168,
+    "fixture_files": 94,
+    "release_and_lint": "passed",
+    "real_checks": [
+      "private chat known Markdown with real MiniMax response",
+      "chat-scoped replay with four records and completed run",
+      "30-day usage summary matched a near-contemporaneous RPC sample"
+    ]
+  },
+  "service_sources": {
+    "production_7788": "ae3009b412be7d1f643c12733a4a15f332afec72",
+    "mock_7789": "11bc831"
+  },
+  "screenshots": [
+    {
+      "source": "clients/mobile/verification/S5-release-fresh-install.png",
+      "archived_path": "S5/android-owner-2ccfc88-release-fresh-install.png",
+      "sha256": "8f26cd25e97190ec9a31967639038a989b165cea5a226c2041fd9f0da129176f",
+      "bytes": 98055
+    },
+    {
+      "source": "clients/mobile/verification/S5-release-connected.png",
+      "archived_path": "S5/android-owner-2ccfc88-release-connected.png",
+      "sha256": "c03fe07505bb9dd7b8f40954789046add0c3044f42b4c5504c6bf7ee2710b65b",
+      "bytes": 77226
+    },
+    {
+      "source": "clients/mobile/verification/S5-dark-theme.png",
+      "archived_path": "S5/android-owner-2ccfc88-dark-theme.png",
+      "sha256": "2da15fc06efb4b4c75964be5db705b7afa8ee5f220c0640bf03a5d826565dc83",
+      "bytes": 82054
+    },
+    {
+      "source": "clients/mobile/verification/S5-swipe-actions.png",
+      "archived_path": "S5/android-owner-2ccfc88-swipe-actions.png",
+      "sha256": "f6fa57d75924f57ad67b922801ac3453c5d6f8ed3a6998d26bf5b1a206390dce",
+      "bytes": 91705
+    }
+  ],
+  "acceptance_boundary": {
+    "owner_evidence_scope": "Android owner continuation and partial Production checks",
+    "integrator_joint_acceptance": "not_passed",
+    "full_plan_s0_s5_two_client_acceptance": "not_replaced_by_owner_evidence",
+    "s5_fresh_install_joint_passed": false,
+    "note": "Owner screenshots/tests are archived for traceability; they do not establish root/integrator full-scenario PASS."
+  },
+  "validation_scope": [
+    "git show from origin/main",
+    "metadata-only evidence extraction",
+    "owner screenshot archive",
+    "no GUI",
+    "no install",
+    "no credentials"
+  ]
+}

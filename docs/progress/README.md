@@ -4,7 +4,7 @@
 
 ## 现在的状态
 
-正式服务 `ae3009b` 已从固定干净 archive 部署到 `7788`（PID `63443`），MiniMax-M2.5 沿用本机 file backend。桌面 `91a18ad`（PID `52177`，窗口 `58402`）已部署并通过安装后 strict 签名校验；其功能与完成热图/技能专项的 `50f4c08` 相同。此前 af14e69 的文字/Computer 证据保留。Android 签名 Release `80d8a42` 与共享 mock `11bc831` 保持；Android 正式 UI 仍受 CUA Qt 绑定限制，替代操作等待用户回应。持续部署保留 UI 验证 hold，避免中断现场。
+正式服务 `ae3009b` 已从固定干净 archive 部署到 `7788`（PID `63443`），MiniMax-M2.5 沿用本机 file backend。桌面当前是 `deploy.sh` 的 debug 开发安装 `7c5e480f`（PID `66995`，窗口 `58491`），Release DMG 仅完成候选校验；[现场截图](S4/20261009-235101-desktop.png)显示真实欢迎连接页“正在连接”，不能作为 formal 已连接证据。`lsof` 的 7788 ESTABLISHED 只证明 TCP；CUA fullpath、Finder、Activity Monitor 均 `cgWindowNotFound`，native 连续帧和输入仍未验收。[3 秒样本](S5/desktop-dmg-7c5e480-deployment.json)不能据 AppKit idle/connect timer 判定冻结。Android 当前 owner continuation Release 来源为 `2ccfc88e`，APK `2,111,890` bytes、SHA-256 `8ecb6e7d…30448664`，连接目标为正式 `10.0.2.2:7788`；owner 证据是局部 Production 检查，不等于集成线全场景 PASS。持续部署保留 UI 验证 hold，避免中断现场。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
@@ -19,7 +19,9 @@
 
 Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/性能资料清单](S5/android-80d8a42-artifact-manifest.json)已归档至各阶段目录，文件名带 `android-owner-80d8a42-`。这些是客户端 mock/专项证据，包含历史截图，不代表由集成线在最终 APK 上重新完成场景。Release 为 2,111,878 bytes；集成线拉取已安装 `base.apk` 的 SHA-256 与归属线一致，未重复安装或重启。性能 JSON 保留不同源码修订及软件/硬件模拟器限制；QEMU 曾 exit139，不能据样本认定真机性能或稳定性通过。
 
-当前阻断：S2 新请求已建项目并成功调用 `create_project/assign`，但主会话完整增量历史没有 `project_card`，项目 `flow=[]`；[取证](S2/production-ae3009b-login-scene-partial.json)已交 server-mac，服务端已确认缺少持久项目卡路径，正补工具 schema 的流程/成员校验；HTTP flow 字段允许省略，但完整场景仍要求正确流程。脚本新增 `--resume-partial`，恢复时核对原 request ID/seq/角色 ID，不重复发送；旧审批只按本次唯一 marker 匹配，原 9e 待审批不影响新请求。Android 正式 Host 操作等待 CUA 替代方式回应；桌面窗口 Raise 后外层滚动已成功，canvas 实际键鼠输入仍未验收，画布偶发白帧正在客户端隔离修复。S5 尚未做全新安装。
+最新 Android continuation owner 证据已按 [2ccfc88e Release 记录](S5/android-2ccfc88-continuation-release.json)归档；对应的 [fresh-install](S5/android-owner-2ccfc88-release-fresh-install.png)、[connected](S5/android-owner-2ccfc88-release-connected.png)、[dark-theme](S5/android-owner-2ccfc88-dark-theme.png) 和 [swipe-actions](S5/android-owner-2ccfc88-swipe-actions.png) 截图来自 owner 工作流。它确认签名 Release、模拟器安装哈希、Production/Mock Host 配置和局部真实聊天/trace/dashboard 检查；不替代 PLAN 第 6 章的集成线 S0–S5 双端联合验收，也不将 owner 截图记为 root 全场景通过。
+
+当前阻断：S2 新请求已建项目并成功调用 `create_project/assign`，但主会话完整增量历史没有 `project_card`，项目 `flow=[]`；[取证](S2/production-ae3009b-login-scene-partial.json)已交 server-mac，服务端已确认缺少持久项目卡路径，正补工具 schema 的流程/成员校验；HTTP flow 字段允许省略，但完整场景仍要求正确流程。脚本新增 `--resume-partial`，恢复时核对原 request ID/seq/角色 ID，不重复发送；旧审批只按本次唯一 marker 匹配，原 9e 待审批不影响新请求。Android 正式 Host 操作等待 CUA 替代方式回应；7c5e480f 已发布客户端逻辑修复，但 native 连续帧、formal 连接和输入仍待验收；服务端累计的 screen 15 分钟 idle eviction 后恢复缺口仍在修复。S5 尚未做全新安装。
 
 最新 `ae3009b` 证据：[实际部署来源](S1/server-ae3009b-deployed.json)、[旧6消息原 ID/seq/时间戳与文字恢复](S1/production-ae3009b-history-repaired.json)、[新 write/read/bash 与已知 Markdown](S1/production-ae3009b-private-chat.json)、[原生只读消息与 trace](S1/production-af14e69-ae3009b-native-read.json)、[文字截图](S1/20261009-214932-desktop.png)、[同连接接管/交还与低画质](S4/production-ae3009b-screen-transport.json)、[桌面 Computer 专项](S4/production-af14e69-ae3009b-native-computer.json)、[包来源与哈希](S5/server-pkg-ae3009b-verified.json)。首次 browser 工具结束后即读到流式占位的记录保留为 early snapshot incomplete，[最终只读复核](S4/production-ae3009b-browser-final.json)已确认文字和 URL。API、桌面专项和候选包校验均不替代真实双端整体验收。最新[桌面摘要](S3/production-af14e69-ae3009b-dashboard-summary.json)与同range RPC一致；[heatmap只读核查](S3/production-af14e69-ae3009b-heatmap-check.json)有Oct9非零数据，不以灰图推断数据缺失。[原生技能新建](S3/production-af14e69-ae3009b-native-skill.json)已落盘，保存按钮在页底，工具滚动限制使修改尚未触发；源码未确认误绑，样例已停用保留复现。
 
@@ -37,6 +39,8 @@ Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/
 本轮桌面 `50f4c08` 已从 main 干净 archive 构建并部署，正式服务/共享 mock PID 未变化。[热图复验](S3/production-50f4c08-ae3009b-heatmap-data.json)：仅 Oct9 非零 203858 tokens/60 requests，三个阈值相同，原生显示绿色首档、零态仍灰；[截图](S3/20261009-231302-desktop.png)。[技能复验](S3/production-50f4c08-ae3009b-native-skill.json)：实际可见 Save 后 v2 已落盘且预览更新，停用操作保留 v3 未保存草稿、服务器仍为 v2；保存响应在飞时继续输入的严格时序尚未取证。窗口 Raise 后外层滚动已成功，旧 offscreen 尝试保留为历史未完成。正文更新将原停用样例变为启用，已交 server-mac 隔离核查；样例已原生恢复停用。
 
 [50f4c08 候选包](S5/desktop-dmg-50f4c08-candidate.json)哈希与 hdiutil 通过，但缺完整 bundle 签名；[91a18ad 打包修复候选](S5/desktop-dmg-91a18ad-candidate.json)默认完整 ad hoc 签名且 strict verify 通过。91a 只改打包/README，功能源码与50f相同；候选校验不等于 S5 全新安装。
+
+[7c5e480f Release 候选包](S5/desktop-dmg-7c5e480-candidate.json)的 source、binary、DMG 哈希、strict 签名和 hdiutil 校验均通过，integrator 已用 `git ls-remote` 确认 origin 精确提交；[Mac-only debug 开发安装记录](S5/desktop-dmg-7c5e480-deployment.json)显示已安装并运行，但不计为 Release DMG 实装、S5 全新安装或 native UI/input 通过。
 
 [91a 开发安装](S5/desktop-91a18ad-development-deployed.json)已核对 source/签名与服务监听 PID；仍是 debug 更新，不算 Release DMG 实装或 fresh。[本轮浏览器输入复验](S4/production-91a18ad-ae3009b-native-input.json)：新精确 URL 已有真实 browser_open 和最终文字，低画质可见本地页、接管/交还通过；输入未验证，自动画质白画布与低画质偶发白帧已交 client-mac 核查，正常 raw JPEG 保留供对照。新增标准库 `scripts/e2e/s3/skill_update_scope.py` 用于正文更新保持全局/per-Bot停用状态，待服务端累计修复后实跑。
 

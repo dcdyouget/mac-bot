@@ -1,0 +1,49 @@
+{
+  "candidate_source_commit": "7c5e480f3a2582068198df3bfca6b6d2db452ff1",
+  "deployment": {
+    "mode": "deploy.sh debug app (Mac-only archive deploy)",
+    "exit_code": 0,
+    "installed_app": "/Users/gongshaojie/Applications/MacBot.app",
+    "process_pid": 66995,
+    "window_id": 58491,
+    "strict_signature_verified": true,
+    "variant": "debug development install",
+    "release_dmg_installed": false
+  },
+  "runtime_evidence": {
+    "screenshot": "S4/20261009-235101-desktop.png",
+    "screenshot_observation": "Real welcome connection page showing 正在连接; formal authenticated connection not established in this evidence.",
+    "tcp_7788_established": true,
+    "tcp_interpretation": "lsof ESTABLISHED proves TCP transport only; it does not prove formal app connection/authentication.",
+    "cua_fullpath_result": "cgWindowNotFound",
+    "finder_result": "cgWindowNotFound",
+    "activity_monitor_result": "cgWindowNotFound",
+    "bundle_name_lookup": "Mac Bot invalid",
+    "cg_window_association": "PID66995/window58491 on-screen; association verified by capture metadata",
+    "native_continuous_frame_verified": false,
+    "native_input_verified": false,
+    "sample": "/tmp/macbot-integrator-7c5e480-sample.txt",
+    "sample_duration_seconds": 3,
+    "sample_observation": "AppKit idle/connect timer activity only; insufficient to classify the app as frozen."
+  },
+  "assessment": {
+    "candidate_package_verified": true,
+    "installed_and_running": true,
+    "s5_fresh_install_passed": false,
+    "ui_acceptance_passed": false,
+    "note": "The debug app is installed and running. The screenshot remains on the welcome connection page; TCP ESTABLISHED is transport-only. CUA/Finder/Activity Monitor could not associate a native window, so native continuous frames and input are unverified. This is not a Release DMG install or S5 fresh-install pass.",
+    "debug_development_install": true,
+    "release_dmg_installed": false,
+    "formal_connection_verified": false
+  },
+  "evidence_refs": {
+    "candidate": "S5/desktop-dmg-7c5e480-candidate.json",
+    "origin_confirmation": "integrator independent git ls-remote refs/heads/main",
+    "screenshot": "S4/20261009-235101-desktop.png",
+    "sample": "/tmp/macbot-integrator-7c5e480-sample.txt"
+  },
+  "restrictions_observed": [
+    "no GUI operation by this verification",
+    "no server/mock/Android restart"
+  ]
+}

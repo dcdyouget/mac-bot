@@ -1,0 +1,68 @@
+{
+  "candidate": {
+    "directory": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/7c5e480f",
+    "source_commit_expected": "7c5e480f3a2582068198df3bfca6b6d2db452ff1",
+    "source_commit_actual": "7c5e480f3a2582068198df3bfca6b6d2db452ff1",
+    "source_commit_match": true,
+    "source_dirty": false,
+    "configuration": "release",
+    "version": "0.1.0"
+  },
+  "app": {
+    "path": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/7c5e480f/MacBot.app",
+    "bundle_id": "bot.mac.desktop",
+    "bundle_name": "Mac Bot",
+    "binary_path": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/7c5e480f/MacBot.app/Contents/MacOS/macbot-desktop",
+    "binary_sha256_expected": "c46412010bc716424dec008119965d0c217434657184ecf9993d68363e0a9658",
+    "binary_sha256_actual": "c46412010bc716424dec008119965d0c217434657184ecf9993d68363e0a9658",
+    "binary_sha256_match": true,
+    "source_commit_file_sha256_expected": "92bc5164bf270601e5a554b5e1e29c12f5163727ba073de08fd6f7fbe94e5816",
+    "source_commit_file_sha256_actual": "92bc5164bf270601e5a554b5e1e29c12f5163727ba073de08fd6f7fbe94e5816",
+    "source_commit_file_sha256_match": true
+  },
+  "codesign": {
+    "identity": "ad hoc",
+    "strict_verify_rc": 0,
+    "strict_verify": true,
+    "metadata_app_strict_verify": true,
+    "metadata_staging_strict_verify": true
+  },
+  "dmg": {
+    "path": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/7c5e480f/MacBot.dmg",
+    "sha256_expected": "a432cbb5f3746d179c645e1109adc0e16004ccf0c999fa3c2bcfe4cab36f1d6f",
+    "sha256_actual": "a432cbb5f3746d179c645e1109adc0e16004ccf0c999fa3c2bcfe4cab36f1d6f",
+    "sha256_match": true,
+    "size_bytes": 12881903,
+    "hdiutil_verify": "VALID"
+  },
+  "metadata": {
+    "app_path_matches": true,
+    "dmg_path_matches": true,
+    "tests": {
+      "core": 33,
+      "desktop": 52
+    }
+  },
+  "provenance": {
+    "local_main_checked": true,
+    "origin_confirmation": "owner_confirmed",
+    "confirmed_by": "integrator independent git ls-remote",
+    "confirmation_ref": "refs/heads/main",
+    "confirmed_source_commit": "7c5e480f3a2582068198df3bfca6b6d2db452ff1",
+    "note": "Independent git ls-remote confirmed origin refs/heads/main at the exact 7c5e480f commit."
+  },
+  "deployment": {
+    "installed": false,
+    "gui_operated": false,
+    "s5_fresh_install_passed": false,
+    "status": "candidate_verified_only"
+  },
+  "validation_scope": [
+    "metadata read",
+    "App source/binary SHA256",
+    "strict codesign verify",
+    "DMG SHA256",
+    "hdiutil verify",
+    "no credentials read"
+  ]
+}

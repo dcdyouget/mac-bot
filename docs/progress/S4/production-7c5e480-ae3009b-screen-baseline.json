@@ -1,0 +1,12 @@
+{
+  "scenario": "S4 screen transport read-only baseline",
+  "status": "FAIL",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "tab_id": "t2",
+  "expected_url": "http://127.0.0.1:52200/?marker=macbot-e2e-native-input-91a18ad-20261009",
+  "takeover": false,
+  "frames": [],
+  "output": "docs/progress/S4/screen-7c5e480-baseline",
+  "error": "WebSocket closed while receiving a frame",
+  "conclusion": "No frame or URL evidence was produced; no takeover, input, model request, restart, or GUI operation was performed."
+}
