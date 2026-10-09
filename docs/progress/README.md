@@ -4,11 +4,11 @@
 
 ## 现在的状态
 
-桌面安装版 `eb088fa`、mock `b5bc51c` 与 Android 安装版 `08462a4` 已在 Mac mini 运行。两端已连接 mock 并实际看到主 Bot/群/Bot 会话列表；桌面开发期使用本机文件保存 Host 密码，本次无钥匙串提示。S0 操作验证通过，等待 client-mac 最终协调打卡归档；正式 `7788` 和真实模型执行尚未 ready，当前只运行 `7789/dev` mock。
+桌面安装版 `eb088fa`、mock `b5bc51c` 与 Android 安装版 `08462a4` 已在 Mac mini 运行。两端已连接 mock 并实际看到主 Bot/群/Bot 会话列表；桌面开发期使用本机文件保存 Host 密码，本次无钥匙串提示。三条开发线 S0 已打卡，S0 联调通过；正式 `7788` 和真实模型执行尚未 ready，当前只运行 `7789/dev` mock。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
-| S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 操作验证通过：两端列表可见，待 client-mac 最终打卡 | `docs/progress/S0/` |
+| S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 通过：两端连接 mock 并看到会话列表 | `docs/progress/S0/` |
 | S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未验收 | `docs/progress/S1/` |
 | S2 | 主 Bot、群协作、插话和待验收 | 未验收 | `docs/progress/S2/` |
 | S3 | 技能、仪表盘、搜索和记忆 | 未验收 | `docs/progress/S3/` |

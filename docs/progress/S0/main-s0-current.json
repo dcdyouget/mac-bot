@@ -1,7 +1,7 @@
 {
   "checked_at": "2026-10-09T16:42:20.222744+08:00",
   "stage": "S0",
-  "result": "passed_observed_pending_client_mac_coordination",
+  "result": "passed",
   "scope": "PLAN 6: both clients connect mock and display session lists",
   "mock": {
     "source_commit": "b5bc51cf4ed18320223c3875300a7a0c26a09296",
@@ -57,5 +57,6 @@
     "screencapture wrote complete hidden PNG but timed out after15 seconds; capture.sh exit1 retained as failure; manually inspected and renamed PNG for evidence",
     "S1-S5 remain unaccepted; production7788 and MiniMax provider deployment await server execution ready"
   ],
-  "credentials": "Only local file paths/modes recorded; no key values."
+  "credentials": "Only local file paths/modes recorded; no key values.",
+  "coordination": "server-mac S0 94fe046, Android S0 20b3785, client-mac S0 eb088fa recorded in main6f1ebbc"
 }
