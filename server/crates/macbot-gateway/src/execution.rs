@@ -6,6 +6,7 @@
 //! not know Axum or orchestrator internals, which keeps its side effects
 //! reviewable and makes the mock provider usable in tests.
 
+use crate::rate_limit::ModelRateLimiter;
 use async_trait::async_trait;
 use chrono::{SecondsFormat, Utc};
 use futures_util::future::join_all;
@@ -312,12 +313,14 @@ pub struct ExecutionState {
     pub cancellations: Arc<Mutex<HashMap<String, ToolCancellation>>>,
     usage_ticks: Arc<Mutex<HashMap<String, UsageTickState>>>,
     recovered: Mutex<bool>,
+    model_rate_limiter: ModelRateLimiter,
 }
 
 impl ExecutionState {
     pub fn from_store(store: Store) -> Result<Arc<Self>, ExecutionError> {
         Ok(Arc::new(Self {
-            durable: Arc::new(Mutex::new(DurableRuntime::from_store(store)?)),
+            durable: Arc::new(Mutex::new(DurableRuntime::from_store(store.clone())?)),
+            model_rate_limiter: ModelRateLimiter::new(store),
             aseq: Arc::new(Mutex::new(HashMap::new())),
             cancelled: Arc::new(Mutex::new(HashSet::new())),
             cancellations: Arc::new(Mutex::new(HashMap::new())),
@@ -1080,6 +1083,25 @@ impl ExecutionEngine {
                     usage,
                     turns: turns_used,
                 });
+            }
+            if let Some(bucket) = model_rate_bucket(&request) {
+                let cancellation = self.state.cancellation_for(&request.run_id).await;
+                if !self
+                    .state
+                    .model_rate_limiter
+                    .acquire(&bucket, &cancellation)
+                    .await?
+                {
+                    self.cleanup_run_tools(&request).await;
+                    return Ok(ExecutionOutcome {
+                        run_id: request.run_id.clone(),
+                        job_id: job.id.clone(),
+                        status: "cancelled".into(),
+                        text: final_text,
+                        usage,
+                        turns: turns_used,
+                    });
+                }
             }
             // A run/turn is one billable model request. Keeping this ID stable
             // makes a durable retry deduplicate its usage record.
@@ -2861,6 +2883,19 @@ fn canonical_message_id(message: &Value) -> Option<String> {
     .map(str::to_owned)
 }
 
+/// Private and coordinator calls use independent persisted rate buckets.
+fn model_rate_bucket(request: &ExecutionRequest) -> Option<String> {
+    if request.parent_run_id.is_some() || request.phase.as_deref() == Some("subagent") {
+        None
+    } else if request.phase.as_deref() == Some("coordinate") {
+        Some(format!("{}:coordinate", request.bot_id))
+    } else if request.private {
+        Some(format!("{}:private", request.bot_id))
+    } else {
+        None
+    }
+}
+
 /// Main-Bot coordination is governed by the RPC's own policy gates.  Routing
 /// these calls through the generic unsafe-tool approval would make ordinary
 /// project creation and assignment impossible under the default `require`
@@ -3393,6 +3428,24 @@ mod tests {
             &cwd,
             home
         ));
+    }
+
+    #[test]
+    fn model_call_limits_only_private_and_coordinator_buckets() {
+        let mut work = request(false);
+        assert_eq!(model_rate_bucket(&work), None);
+        work.phase = Some("coordinate".into());
+        assert_eq!(
+            model_rate_bucket(&work),
+            Some(format!("{}:coordinate", work.bot_id))
+        );
+        let mut private = request(true);
+        assert_eq!(
+            model_rate_bucket(&private),
+            Some(format!("{}:private", private.bot_id))
+        );
+        private.parent_run_id = Some("parent".into());
+        assert_eq!(model_rate_bucket(&private), None);
     }
 
     #[test]

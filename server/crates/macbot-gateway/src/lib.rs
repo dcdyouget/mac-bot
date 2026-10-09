@@ -49,6 +49,7 @@ mod housekeeping;
 #[allow(dead_code)]
 mod memory_tools;
 mod mock;
+mod rate_limit;
 
 mod adapter;
 mod backend;
