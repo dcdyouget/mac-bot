@@ -280,3 +280,11 @@
 - server-mac白名单实证确认Product旧canonical Message已保存非空options，但Question对象缺失；715只覆盖“已有Question缺wire/关联”，未覆盖“Question缺失+assignment working/wait=null”。归server-mac迁移覆盖缺口。下一补丁须按Waiting checkpoint/canonical Message/asg/bot/chat交叉确认，使用已存options重建Question，不从正文猜、不新child/模型调用；Main无options不造Question。现有请求/项目/run保持，尚未question.answer、Main reply或未知审批，等待新固定ready。
 - S4旧b5 Bot在715 daemon重启后直接screen再次通过，两JPEG low640x316/原t2与URL/ACK、同WS bot→user→bot，无新模型/browser_open请求；S4/production-715d099-screen-restored.json与screen-715d099-restored/。仅transport专项，不替代native paint/input、手机接管/通知或完整S4；Mac锁屏阻断仍保持。
 - 集成部署脚本增加同一LaunchAgent bootstrap/kickstart有限重试（各最多5次），永久失败仍非零；临时mock launchctl/sleep四项回归通过，无实际服务/密码调用。源于本轮实际启动失败，未把原deploy错误改写为成功。只有S0整阶段通过，S1–S5完整双端/fresh仍待验。
+
+
+## server-mac：S2 旧 Question 丢失的启动迁移补齐（2026-10-10）
+- 集成 715d099 实证纠正上一版迁移范围：旧 Product/parallel Message 的 options 与 intent 已保存，但 Question 本身缺失，assignment 留在 working/wait=null。上一版只关联已有 Question，不能覆盖该边界；三 durable jobs 的真实 checkpoint 已确认 waiting/decision、精确 canonical message ID 且 pending_tools=[]。
+- 启动仅以安全 durable Waiting/Suspended checkpoint、run request 与 canonical Message/asg/Bot/chat 的一致映射修复。用消息已存 options 幂等重建 Question（decision:<原 message ID>），恢复 wait 并持久化状态；message.updated/question.asked/assignment.updated 保证现有客户端获得状态。保持原消息 ID/seq/created_at，不重放模型、不创建 child、不从正文推断选项。Main 无 options 不造 Question。
+- 排除 unsafe_replay、待执行工具、终态/queued assignment、冲突 wait 与多 job 歧义；已回答 Question 不重新打开。构造阶段复用唯一持久化入口，在锁内取新 snapshot 并写 operation/state，重复启动事件增量为零。
+- 验证：309 workspace tests、strict all-targets clippy、fmt/build 通过；新 smoke_decision_migration.py 的任务及无 assignment 私聊 kill9/旧丢失边界/重启/答题同 run 完成通过，恢复期间 provider 调用不增加；完整协作再跑 24 assignments/27 jobs 全 done。
+- 证据：/tmp/macbot-decision-migration-20261010c.evidence.log（对应隔离 home 同名），/tmp/macbot-decision-migration-collaboration-20261010b.evidence.log；全量 /tmp/macbot-decision-migration-publish-workspace-20261010.log、同前缀 clippy/build。rebase 后 server/protocol 内容未变。只读核原测试 Message/Job 白名单，未修改正式 7788、mock 7789、GUI 或 AVD。交集成固定 SHA 复验原三个等待，不新建原项目；隔离证据不算双端整体通过。
