@@ -1,0 +1,65 @@
+{
+  "scenario": "S2 legacy migration read-only",
+  "url": "http://127.0.0.1:7788",
+  "project_id": "01a120ea-85ff-70a7-8240-416d22d7994a",
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false
+  },
+  "bootstrap": {
+    "seq": 604,
+    "main_chat_ids": [
+      "chat_main"
+    ],
+    "project_count": 2
+  },
+  "project": {
+    "id": "01a120ea-85ff-70a7-8240-416d22d7994a",
+    "chat_id": "01a120ea-85ff-70a7-8240-416eb5ceea3f",
+    "status": "active",
+    "flow": [],
+    "lead_bot_id": "main",
+    "member_bot_ids": null,
+    "name": "macbot-e2e-s2-login-9ab8ddf045fb-登录功能",
+    "goal": "macbot-e2e-s2-login-9ab8ddf045fb 邮箱登录 - 本地邮箱登录 demo 实现",
+    "home_path": "~/MacBot/projects/macbot-e2e-s2-login-9ab8ddf045fb/",
+    "name_marker_present": true,
+    "goal_marker_present": true
+  },
+  "announcement": {
+    "project_id": "01a120ea-85ff-70a7-8240-416d22d7994a"
+  },
+  "assignments": [
+    {
+      "id": "01a120ea-b372-762e-9f6d-1ee7e26330d7",
+      "project_id": "01a120ea-85ff-70a7-8240-416d22d7994a",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "parent_assignment_id": null,
+      "status": "waiting_user",
+      "trigger": null,
+      "result_message_id": null,
+      "run_id": null
+    }
+  ],
+  "assignment_count": 1,
+  "main_history": {
+    "chat_id": "chat_main",
+    "pages": 1,
+    "project_card_hits": [
+      {
+        "message_id": "msg_project_card_01a120ea-85ff-70a7-8240-416d22d7994a",
+        "seq": 14,
+        "block_project_id": "01a120ea-85ff-70a7-8240-416d22d7994a",
+        "block_keys": [
+          "project_id",
+          "type"
+        ]
+      }
+    ]
+  },
+  "conclusion": "MIGRATION_PASS_WITH_HISTORICAL_INCOMPLETE: legacy project/card identity and project-scoped assignment filtering are readable; historical flow=[] is preserved and no done run is replayed, as expected by the server migration contract. This is not a new-version S2 completion and does not prove the old project is resumable.",
+  "status": "MIGRATION_PASS_WITH_HISTORICAL_INCOMPLETE",
+  "read_only_scope": "No project.update, approval, chat.send, assignment mutation, or run was performed."
+}

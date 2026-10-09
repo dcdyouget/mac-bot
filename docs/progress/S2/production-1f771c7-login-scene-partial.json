@@ -1,0 +1,39 @@
+{
+  "partial_id": "macbot-e2e-s2-partial-b6f5e4f9da5f",
+  "markers": [
+    "macbot-e2e-s2-login-6770085010b5",
+    "macbot-e2e-s2-parallel-670fbcbf1d89"
+  ],
+  "requests": [
+    {
+      "marker": "macbot-e2e-s2-login-6770085010b5",
+      "name": "macbot-e2e-s2-login-6770085010b5-登录功能",
+      "message_id": "01a12164-501f-7705-b591-7732b44352e8",
+      "seq": 16
+    },
+    {
+      "marker": "macbot-e2e-s2-parallel-670fbcbf1d89",
+      "name": "macbot-e2e-s2-parallel-670fbcbf1d89-并行官网改版",
+      "message_id": "01a12167-61f0-7416-9fda-11a64f745cdd",
+      "seq": 19
+    }
+  ],
+  "projects": [
+    {
+      "marker": "macbot-e2e-s2-login-6770085010b5",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "card_message_id": "msg_project_card_01a12164-6b92-732d-9ecb-ed48e8a94ca8"
+    },
+    {
+      "marker": "macbot-e2e-s2-parallel-670fbcbf1d89",
+      "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "card_message_id": "msg_project_card_01a12167-8cc6-7452-9f10-15a518384bee"
+    }
+  ],
+  "status": "FAIL",
+  "error": "timed out waiting for S2 first main opening and product dispatch",
+  "server_source_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+  "context": "Descriptive role flow/order, project cards and member IDs passed. Only scenario-owned Home/file/memory calls were allowed once; the own project login method question was answered email-only. No coding assignment was observed before the timeout; trace shows decision waits. No attribution to model versus runtime routing until server investigation."
+}

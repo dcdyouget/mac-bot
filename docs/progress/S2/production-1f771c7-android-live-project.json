@@ -1,0 +1,55 @@
+{
+  "scenario": "S2 Android formal live project freshness observation",
+  "server_source_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+  "android_source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "host": "10.0.2.2:7788",
+  "device": {
+    "avd": "macbot_api36",
+    "serial": "emulator-5554",
+    "api": 36
+  },
+  "baseline": {
+    "capture": {
+      "label": "before new project observation",
+      "path": "docs/progress/S4/20261009-235101-android.png",
+      "bytes": 153979,
+      "sha256": "28b9f3163f7f977777aba7c05bae574202d1768bce221d6d69698db69f21916d"
+    },
+    "observed_at_local": "2026-10-09 23:51",
+    "marker_present": false,
+    "scope": "The new S2 marker was not visible in this earlier Android frame."
+  },
+  "current": {
+    "capture": {
+      "label": "after new project observation",
+      "path": "docs/progress/S4/20261010-000142-android.png",
+      "bytes": 161104,
+      "sha256": "3fccdc90e37f55cd34192402c8a61c6a7f91f41f22ef558ea795c30481650668"
+    },
+    "capture_method": "adb exec-out screencap -p",
+    "observed_at_local": "2026-10-10 00:01:42",
+    "marker": "macbot-e2e-s2-login-6770085010b5-登录功能",
+    "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+    "project_created_at_utc": "2026-10-09T15:59:51Z",
+    "project_created_at_local": "2026-10-09 23:59:51",
+    "marker_visible_in_formal_sidebar": true
+  },
+  "freshness": {
+    "baseline_to_current_shows_new_formal_sidebar_item": true,
+    "proves": "The formal Android sidebar received/displayed the newly created project after the 1f upgrade.",
+    "does_not_prove": [
+      "chat content",
+      "tool trace",
+      "group collaboration",
+      "approval completion",
+      "full S2 acceptance",
+      "desktop/Android joint UI acceptance"
+    ],
+    "integrator_joint_acceptance": "not_passed",
+    "root_full_scenario_pass": "not_claimed",
+    "new_chat_send_performed_for_this_observation": false,
+    "s2_helper_status": "continuation in progress; exact approval scope matcher is being repaired",
+    "desktop_capture": "not available in this observation; Android adb capture succeeded"
+  },
+  "read_only_scope": true
+}

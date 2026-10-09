@@ -1,0 +1,17 @@
+{
+  "scenario": "S4 screen close text envelopes after preserving handshake bytes",
+  "server_source_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "browser_mode": "headless",
+  "text_envelopes": [
+    {
+      "error": {
+        "code": "unavailable",
+        "message": "browser screencast is unavailable"
+      },
+      "type": "error"
+    }
+  ],
+  "binary_frames": 0,
+  "error": "WebSocket closed while receiving a frame"
+}

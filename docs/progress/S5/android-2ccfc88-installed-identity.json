@@ -1,0 +1,13 @@
+{
+  "scenario": "Android continuation installed APK identity",
+  "status": "PASS",
+  "avd": "macbot_api36",
+  "serial": "emulator-5554",
+  "application_id": "bot.mac.mobile",
+  "installed_base_apk_bytes": 2111890,
+  "installed_base_apk_sha256": "8ecb6e7df554af1e56b2d0bc5e0b62f0b343f864f25a39c27dfa1b0f30448664",
+  "expected_release_source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "hash_matches_owner_release": true,
+  "ui_scenario_verified": false,
+  "note": "Read-only installed base pull; no install/restart/UI action. Binary identity does not establish current Host freshness or full-stage acceptance."
+}

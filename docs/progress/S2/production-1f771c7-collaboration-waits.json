@@ -1,0 +1,279 @@
+[
+  {
+    "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+    "trace_count": 24,
+    "routing": [
+      {
+        "aseq": 9,
+        "at": "2026-10-09T16:00:02.773Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        }
+      },
+      {
+        "aseq": 10,
+        "at": "2026-10-09T16:13:02.043Z",
+        "type": "run.resume",
+        "data": {
+          "by_message_id": null
+        }
+      },
+      {
+        "aseq": 16,
+        "at": "2026-10-09T16:13:10.974Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        }
+      },
+      {
+        "aseq": 17,
+        "at": "2026-10-09T16:13:12.136Z",
+        "type": "run.resume",
+        "data": {
+          "by_message_id": null
+        }
+      },
+      {
+        "aseq": 22,
+        "at": "2026-10-09T16:13:16.414Z",
+        "name": "send_msg",
+        "args_keys": [
+          "intent",
+          "mentions",
+          "options",
+          "text"
+        ],
+        "routing": {
+          "intent": "decision",
+          "mentions": [
+            "01a120c6-2f16-7706-b1c5-e0db4d7acd30"
+          ]
+        }
+      },
+      {
+        "aseq": 23,
+        "at": "2026-10-09T16:13:16.696Z",
+        "type": "send_msg",
+        "data": {
+          "call_id": "call_function_eo7nglecvdal_1",
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "intent": "decision",
+          "message_id": "01a12170-b386-776a-96da-513ab4e7f6b1"
+        }
+      },
+      {
+        "aseq": 24,
+        "at": "2026-10-09T16:13:16.722Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+          "reason": "decision"
+        }
+      }
+    ]
+  },
+  {
+    "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+    "trace_count": 24,
+    "routing": [
+      {
+        "aseq": 5,
+        "at": "2026-10-09T16:13:21.846Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": null,
+          "reason": "decision"
+        }
+      },
+      {
+        "aseq": 6,
+        "at": "2026-10-09T16:14:31.740Z",
+        "type": "run.resume",
+        "data": {
+          "by_message_id": null
+        }
+      },
+      {
+        "aseq": 12,
+        "at": "2026-10-09T16:14:37.229Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        }
+      },
+      {
+        "aseq": 13,
+        "at": "2026-10-09T16:17:16.200Z",
+        "type": "run.resume",
+        "data": {
+          "by_message_id": null
+        }
+      },
+      {
+        "aseq": 22,
+        "at": "2026-10-09T16:17:25.300Z",
+        "name": "send_msg",
+        "args_keys": [
+          "chat_id",
+          "intent",
+          "text"
+        ],
+        "routing": {
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "intent": "decision"
+        }
+      },
+      {
+        "aseq": 23,
+        "at": "2026-10-09T16:17:25.546Z",
+        "type": "send_msg",
+        "data": {
+          "call_id": "call_function_7mk7vfgikues_1",
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "intent": "decision",
+          "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34"
+        }
+      },
+      {
+        "aseq": 24,
+        "at": "2026-10-09T16:17:25.572Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+          "reason": "decision"
+        }
+      }
+    ]
+  },
+  {
+    "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+    "trace_count": 49,
+    "routing": [
+      {
+        "aseq": 9,
+        "at": "2026-10-09T16:03:34.037Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        }
+      },
+      {
+        "aseq": 10,
+        "at": "2026-10-09T16:13:03.189Z",
+        "type": "run.resume",
+        "data": {
+          "by_message_id": null
+        }
+      },
+      {
+        "aseq": 16,
+        "at": "2026-10-09T16:13:14.451Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        }
+      },
+      {
+        "aseq": 17,
+        "at": "2026-10-09T16:13:15.311Z",
+        "type": "run.resume",
+        "data": {
+          "by_message_id": null
+        }
+      },
+      {
+        "aseq": 23,
+        "at": "2026-10-09T16:13:22.516Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        }
+      },
+      {
+        "aseq": 24,
+        "at": "2026-10-09T16:14:32.913Z",
+        "type": "run.resume",
+        "data": {
+          "by_message_id": null
+        }
+      },
+      {
+        "aseq": 34,
+        "at": "2026-10-09T16:14:38.042Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        }
+      },
+      {
+        "aseq": 35,
+        "at": "2026-10-09T16:17:17.655Z",
+        "type": "run.resume",
+        "data": {
+          "by_message_id": null
+        }
+      },
+      {
+        "aseq": 41,
+        "at": "2026-10-09T16:17:25.871Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        }
+      },
+      {
+        "aseq": 42,
+        "at": "2026-10-09T16:17:27.001Z",
+        "type": "run.resume",
+        "data": {
+          "by_message_id": null
+        }
+      },
+      {
+        "aseq": 47,
+        "at": "2026-10-09T16:17:30.882Z",
+        "name": "send_msg",
+        "args_keys": [
+          "intent",
+          "message_id",
+          "options",
+          "text"
+        ],
+        "routing": {
+          "intent": "decision",
+          "message_id": "macbot-e2e-s2-parallel-670fbcbf1d89"
+        }
+      },
+      {
+        "aseq": 48,
+        "at": "2026-10-09T16:17:31.166Z",
+        "type": "send_msg",
+        "data": {
+          "call_id": "call_function_77repr9ro5as_1",
+          "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+          "intent": "decision",
+          "message_id": "01a12174-9595-70d1-994f-65707bf0f0bc"
+        }
+      },
+      {
+        "aseq": 49,
+        "at": "2026-10-09T16:17:31.193Z",
+        "type": "run.wait",
+        "data": {
+          "message_id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+          "reason": "decision"
+        }
+      }
+    ]
+  }
+]

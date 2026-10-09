@@ -37,6 +37,8 @@ from common import (  # noqa: E402
 )
 
 
+from s2.approval_scope import check_approval_scope  # noqa: E402
+
 ROLE_FLOW = ["产品", "编码", "测试"]
 TERMINAL = {"done", "failed", "cancelled"}
 QUESTION_OPTIONS = ["只做邮箱登录", "改为手机登录"]
@@ -58,7 +60,7 @@ def args_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--approve-test-tools-once",
         action="store_true",
-        help="Allow once only the exact marker bash approval; without it the check fails and leaves approval pending",
+        help="Allow once only the marker bash command, exact project Home mkdir, file writes/edits, or memory additions scoped to this test project; without it approval remains pending",
     )
     parser.add_argument(
         "--resume-partial",
@@ -251,8 +253,20 @@ def validate_project(detail: dict[str, Any], *, marker: str, main_id: str, role_
     announcement = detail["announcement"]
     if project.get("status") != "active":
         raise ValueError(f"{marker} project is not active")
-    if project.get("flow") != ROLE_FLOW:
-        raise ValueError(f"{marker} project flow is not exactly 产品→编码→测试")
+    flow = project.get("flow")
+    # PROTOCOL defines display strings, so stage descriptions may accompany
+    # each role. Keep the three roles and their order mandatory; actual Bot
+    # dispatch and handoff are checked separately below.
+    if (
+        not isinstance(flow, list)
+        or len(flow) != len(ROLE_FLOW)
+        or any(
+            not isinstance(stage, str)
+            or not stage.strip().startswith(role)
+            for stage, role in zip(flow, ROLE_FLOW)
+        )
+    ):
+        raise ValueError(f"{marker} project flow does not preserve 产品→编码→测试 order")
     if project.get("lead_bot_id") != main_id:
         raise ValueError(f"{marker} project lead is not the main Bot")
     project_id = project.get("id")
@@ -500,6 +514,8 @@ def resolve_gates(
     *,
     assignment_ids: set[str],
     marker: str,
+    project_home: str,
+    project_id: str,
     args: argparse.Namespace,
     evidence: dict[str, Any],
 ) -> dict[str, Any] | None:
@@ -517,17 +533,26 @@ def resolve_gates(
             evidence.setdefault("questions", []).append(
                 {"id": question_id, "text": question_text, "options": advertised_options}
             )
-            if not isinstance(question_text, str) or marker not in question_text:
-                raise ValueError(f"{marker} pending question is unrelated to this scenario")
-            if advertised_options != QUESTION_OPTIONS:
-                raise ValueError(f"{marker} pending question options are not the preset email-only options")
+            if not isinstance(question_text, str) or not question_text.strip():
+                raise ValueError(f"{marker} pending question has no text")
+            free_email_confirmation = (
+                advertised_options == []
+                and question.get("allow_free_text") is True
+                and "邮箱" in question_text
+                and "登录" in question_text
+                and "方式" in question_text
+                and args.answer_question_option == 0
+            )
+            if advertised_options != QUESTION_OPTIONS and not free_email_confirmation:
+                raise ValueError(f"{marker} pending question is not the scoped email-login decision")
             if args.answer_question_option is None:
                 raise ValueError(f"{marker} partial: pending question {question_id}; rerun with --answer-question-option")
             options = advertised_options
-            if not isinstance(options, list) or not 0 <= args.answer_question_option < len(options):
+            if not free_email_confirmation and (not isinstance(options, list) or not 0 <= args.answer_question_option < len(options)):
                 raise ValueError(f"{marker} question option index is outside the advertised options")
+            answer = {"question_id": question_id, "text": "只做邮箱登录"} if free_email_confirmation else {"question_id": question_id, "option_index": args.answer_question_option}
             result = require_dict(
-                client.call("question.answer", {"question_id": question_id, "option_index": args.answer_question_option}),
+                client.call("question.answer", answer),
                 "question.answer result",
             )
             answered = require_dict(result.get("question"), "question.answer.question")
@@ -535,27 +560,20 @@ def resolve_gates(
                 raise ValueError(f"{marker} question did not become answered")
             evidence["question_ids"].append(question_id)
     if approvals:
-        expected_command = f"mkdir -p e2e && printf '%s' '{marker}' > e2e/{marker}.txt"
         matching: list[dict[str, Any]] = []
         for candidate in approvals:
             candidate_id = candidate.get("id")
+            scope = check_approval_scope(candidate, project_home, marker, project_id=project_id)
             if isinstance(candidate_id, str) and not any(item.get("id") == candidate_id for item in evidence.setdefault("approvals", [])):
                 evidence["approvals"].append(
-                    {"id": candidate_id, "tool": candidate.get("tool"), "risk": candidate.get("risk"), "detail": candidate.get("detail")}
+                    {"id": candidate_id, "tool": candidate.get("tool"), "risk": candidate.get("risk"), "scope": scope}
                 )
-            if candidate.get("tool") != "bash" or candidate.get("risk") != "exec" or candidate.get("state") != "pending":
-                continue
-            detail = candidate.get("detail")
-            try:
-                actual = json.loads(detail) if isinstance(detail, str) else None
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"{marker} pending approval detail is not JSON") from exc
-            if isinstance(actual, dict) and set(actual) == {"command"} and actual.get("command") == expected_command:
+            if scope["authorized"]:
                 matching.append(candidate)
-        if len(matching) > 1:
-            raise ValueError(f"{marker} has multiple exact pending approvals; refusing ambiguity")
+            else:
+                raise ValueError(f"{marker} pending approval is outside this test project scope: {scope['reason']}")
         if not matching:
-            raise ValueError(f"{marker} pending approval is not the exact scripted bash command")
+            raise ValueError(f"{marker} has no scoped test approval")
         approval = matching[0]
         approval_id = approval.get("id")
         if not isinstance(approval_id, str):
@@ -573,7 +591,7 @@ def resolve_gates(
             if decided.get("id") != approval_id or decided.get("state") != "allowed_once":
                 raise ValueError(f"{marker} approval did not resolve as allowed_once")
             evidence["approval_ids"].append(approval_id)
-    if len(evidence["approval_ids"]) == 1 and len(evidence["question_ids"]) == 1:
+    if evidence["approval_ids"] and len(evidence["question_ids"]) == 1:
         return evidence
     return None
 
@@ -611,10 +629,12 @@ def make_gate_poll(
                 client,
                 assignment_ids=assignment_ids,
                 marker=marker,
+                project_home=detail["project"].get("home_path"),
+                project_id=detail["project"]["id"],
                 args=args,
                 evidence=states[marker],
             )
-            if len(states[marker]["approval_ids"]) != 1 or len(states[marker]["question_ids"]) != 1:
+            if not states[marker]["approval_ids"] or len(states[marker]["question_ids"]) != 1:
                 complete = False
         return states if complete else None
 

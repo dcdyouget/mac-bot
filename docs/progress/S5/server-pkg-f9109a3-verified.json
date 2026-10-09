@@ -1,0 +1,53 @@
+{
+  "artifact": "server screen-restart package audit",
+  "checked_at": "2026-10-10",
+  "package_path": "/tmp/MacBot-Server-screen-restart-f9109a3-20261010.pkg",
+  "expanded_path": "/tmp/macbot-final-f9109a3-expanded-integrator-1791563044",
+  "package_sha256": {
+    "expected": "ec183b4d27c596d4f4d0845b96cc3a95314c50f5ea48f5f1fdf3af6f2cfb26a4",
+    "actual": "ec183b4d27c596d4f4d0845b96cc3a95314c50f5ea48f5f1fdf3af6f2cfb26a4",
+    "match": true
+  },
+  "source": {
+    "expected_commit": "f9109a3b7948645e37fd4b9205a505f396b3105c",
+    "embedded_commit": "f9109a3b7948645e37fd4b9205a505f396b3105c",
+    "dirty": false,
+    "match": true
+  },
+  "binaries": {
+    "macbotd": {
+      "expected_sha256": "b27dc06071b6a6eafe5d41b940cffb9c378106dee62c11eb076201d792eabf10",
+      "actual_sha256": "b27dc06071b6a6eafe5d41b940cffb9c378106dee62c11eb076201d792eabf10",
+      "match": true
+    },
+    "agent_browser": {
+      "expected_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "actual_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "match": true
+    }
+  },
+  "package_metadata": {
+    "identifier": "com.macbot.server",
+    "version": "0.1.0",
+    "payload_files": 29,
+    "install_location": "/",
+    "postinstall_script": true,
+    "launchagent_label": "com.macbot.server",
+    "run_at_load": true,
+    "keep_alive": true,
+    "environment_keys": ["MACBOT_HOME"],
+    "default_secret_backend": "Keychain; package does not embed a secret backend override",
+    "argv_recorded": false
+  },
+  "verification_scope": {
+    "read_only_package_audit": true,
+    "installed": false,
+    "runtime_pid_recorded": false,
+    "fresh_install_passed": false,
+    "credentials_read": false,
+    "notes": [
+      "The package, embedded source metadata, daemon hash, and official arm64 sidecar hash all match the supplied release values.",
+      "This artifact does not establish deployment, runtime health, screen restart behavior, or S4 acceptance."
+    ]
+  }
+}

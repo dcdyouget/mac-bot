@@ -61,6 +61,7 @@ class MiniWebSocket:
             raise WsError("WebSocket password contains invalid header characters")
         self._timeout = timeout
         self._sock: socket.socket | ssl.SSLSocket | None = None
+        self._receive_buffer = bytearray()
         self._connect(parsed, password)
 
     @staticmethod
@@ -126,7 +127,9 @@ class MiniWebSocket:
         ).encode("ascii")
         self._sock.sendall(request)
         raw = self._read_until(b"\r\n\r\n", self.MAX_HANDSHAKE)
-        head = raw.split(b"\r\n\r\n", 1)[0].split(b"\r\n")
+        header_bytes, frame_bytes = raw.split(b"\r\n\r\n", 1)
+        self._receive_buffer.extend(frame_bytes)
+        head = header_bytes.split(b"\r\n")
         if not head or not head[0].startswith(b"HTTP/1.1 101"):
             status = head[0].decode("latin-1", "replace") if head else "invalid response"
             raise WsError(f"WebSocket handshake rejected: {status}")
@@ -160,7 +163,8 @@ class MiniWebSocket:
     def _read_exact(self, size: int) -> bytes:
         if self._sock is None:
             raise WsError("WebSocket socket is closed")
-        data = bytearray()
+        data = bytearray(self._receive_buffer[:size])
+        del self._receive_buffer[:size]
         while len(data) < size:
             try:
                 chunk = self._sock.recv(size - len(data))

@@ -1,0 +1,43 @@
+{
+  "artifact": "production server deployment evidence",
+  "checked_at": "2026-10-10",
+  "source_commit": "1f771c757b061a3145f1a3f021fc789c08b97911",
+  "deploy_log": "~/Library/Caches/MacBot/integrator/watch/server-deploy-1f771c7.log",
+  "service": {
+    "label": "com.macbot.server",
+    "launchagent_state": "running",
+    "launchagent_pid": 77170,
+    "listener_pid": 77170,
+    "listen": "*:7788",
+    "executable": "/Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+    "installed_source_marker": "1f771c757b061a3145f1a3f021fc789c08b97911",
+    "macbot_home": "/Users/gongshaojie/MacBot",
+    "binary_argv": "omitted"
+  },
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false,
+    "mock": false
+  },
+  "authenticated_bootstrap": true,
+  "bootstrap": {
+    "node_id": "01a11fa3-345e-77a7-8e00-b6585c090f37",
+    "seq": 620,
+    "bots": 12,
+    "sessions": 14,
+    "projects": 2,
+    "main_bot_id": "main",
+    "main_dm_chat_id": "chat_main"
+  },
+  "verification": {
+    "health_endpoint": "GET /api/v1/health",
+    "rpc_endpoint": "POST /api/v1/rpc",
+    "auth_check": "bootstrap completed with local deployment password",
+    "read_only": true,
+    "password_or_argv_recorded": false,
+    "gui_or_android_revalidated": false,
+    "s1_joint_acceptance": "not_passed"
+  }
+}

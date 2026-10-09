@@ -1,0 +1,31 @@
+{
+  "artifact": "production server deployment evidence",
+  "checked_at": "2026-10-10",
+  "source_commit": "f9109a3b7948645e37fd4b9205a505f396b3105c",
+  "deploy_log": "~/Library/Caches/MacBot/integrator/watch/server-deploy-f9109a3.log",
+  "service": {
+    "label": "com.macbot.server",
+    "launchagent_pid": 91581,
+    "listener_pid": 91581,
+    "listen": "*:7788",
+    "executable": "/Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+    "installed_source_marker": "f9109a3b7948645e37fd4b9205a505f396b3105c",
+    "pid_match": true,
+    "argv": "omitted"
+  },
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false,
+    "mock": false
+  },
+  "verification": {
+    "health_endpoint": "GET /api/v1/health",
+    "read_only": true,
+    "environment_and_password_recorded": false,
+    "screen_or_browser_acceptance": "not_checked",
+    "s4_acceptance": "not_passed",
+    "s5_fresh_install": "not_passed"
+  }
+}

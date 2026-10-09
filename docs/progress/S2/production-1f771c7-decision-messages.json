@@ -1,0 +1,63 @@
+[
+  {
+    "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+    "seq": 2,
+    "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+    "sender": {
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "kind": "bot"
+    },
+    "intent": "decision",
+    "mentions": [
+      {
+        "kind": "main"
+      }
+    ],
+    "reply_to": null,
+    "fallback_text": "项目 [macbot-e2e-s2-login-6770085010b5] 的本地 PRD 已编写完成，请确认登录方式：",
+    "blocks": [
+      {
+        "markdown": "项目 [macbot-e2e-s2-login-6770085010b5] 的本地 PRD 已编写完成，请确认登录方式：",
+        "type": "text"
+      }
+    ]
+  },
+  {
+    "id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+    "seq": 5,
+    "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+    "sender": {
+      "bot_id": "main",
+      "kind": "bot"
+    },
+    "intent": "decision",
+    "mentions": [],
+    "reply_to": null,
+    "fallback_text": "✅ 用户已确认登录方式为：**邮箱登录**（仅邮箱验证）\n\n请产品 Bot 更新 PRD，编码 Bot 准备进入实现阶段。",
+    "blocks": [
+      {
+        "markdown": "✅ 用户已确认登录方式为：**邮箱登录**（仅邮箱验证）\n\n请产品 Bot 更新 PRD，编码 Bot 准备进入实现阶段。",
+        "type": "text"
+      }
+    ]
+  },
+  {
+    "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+    "seq": 2,
+    "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+    "sender": {
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "kind": "bot"
+    },
+    "intent": "decision",
+    "mentions": [],
+    "reply_to": null,
+    "fallback_text": "macbot-e2e-s2-parallel-670fbcbf1d89 项目的登录方式选择？",
+    "blocks": [
+      {
+        "markdown": "macbot-e2e-s2-parallel-670fbcbf1d89 项目的登录方式选择？",
+        "type": "text"
+      }
+    ]
+  }
+]
