@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.13
+# Mac Bot 规划 v0.14
 
 > 状态：规划中，尚未开始编码。
+> v0.14 变更：明确平台矩阵（Server：macOS，Linux 以后支持；Client：macOS / Android / iOS，Windows 以后支持）和 Linux 的适配点；许可证为 MIT。
 > v0.13 变更：参考项目整理到 REFERENCES.md。
 > v0.12 变更：主 Bot 只协调不干活（转交小事、提醒验收、新增待验收状态）；新增 5.10「工具与技能」（pi 风格的文件和 bash 工具、agent-browser 工具、子代理、技能管理、各角色的工具权限）；仪表盘（热力图、按模型 / Bot / 项目的每日折线）的 API。
 > v0.11 变更：新增主 Bot（日常对话 + 所有群的负责人）；任务接力（收到 → 工作中 → 完成 → @下一个）；两段式输出（发言 / 干活）；插话；系统维护的公告和产物；按群并行和并发上限；工作台和统计；用量记账。
@@ -20,10 +21,37 @@
 
 ## 2. 已确认的决策
 
+### 2.1 平台矩阵
+
+系统分为 **Server**（macbotd，运行 Bot）和 **Client**（看和操控 Bot），两边只通过一个端口的协议通信。
+
+| 端 | 平台 | v1 | 以后 | 技术 |
+|----|------|:--:|:----:|------|
+| **Server** | macOS（Apple Silicon） | ✅ | | Rust，无界面守护进程，LaunchAgent |
+| | Linux（x86_64 / arm64） | | ✅ | 同一份 Rust 代码，systemd 用户服务 |
+| **Client** | macOS | ✅ | | Rust + GPUI（gpui-kit） |
+| | Android | ✅ | | Kotlin + Compose Multiplatform |
+| | iOS | ✅ | | Kotlin + Compose Multiplatform |
+| | Windows | | ✅ | Rust + GPUI（与 macOS 共用代码，只能在 Windows 上编译） |
+| | Linux 桌面 | | 可选 | GPUI 也支持 Linux，需要时成本很低 |
+
+**Linux Server 需要补的平台适配**（核心代码不用改，只实现 5.0 第 9 条里的平台 trait）：
+
+| 能力 | macOS 实现 | Linux 实现 |
+|------|-----------|-----------|
+| 开机自启和守护 | LaunchAgent / SMAppService | systemd `--user` 服务（`loginctl enable-linger` 可以在不登录时运行） |
+| 密钥存储 | 钥匙串（security-framework） | Secret Service（`keyring` crate）；无桌面环境时退回到 0600 权限的加密文件 |
+| 浏览器 | agent-browser + 本机 Chrome profile | agent-browser + Chromium；没有显示器时用无头模式，或 agent-browser 自带的 Xvfb 有头模式 |
+| 原生桌面控制 | cua-driver（可选） | 不支持 |
+| 安装包 | .pkg | 单个二进制 + `install.sh`（以后可以加 .deb / .rpm、Docker 镜像） |
+
+### 2.2 其他决策
+
+
 | 项 | 决策 |
 |----|------|
 | 部署形态 | **无界面服务端 + 客户端**（详见 5.0）：服务端 `macbotd` 是守护进程，只带一个极简的本机 Web 管理页（`/admin`）和 CLI；Bot、模型、记忆等所有配置都通过客户端走 API；客户端可以连接多台 Host |
-| 部署 | 服务端运行在 M 系列 Mac 上，16 GB 内存；**不用虚拟机，不做沙箱**（沙箱作为远期可选项） |
+| 部署 | v1 服务端运行在 M 系列 Mac 上（开发机是 16 GB 内存的 Mac mini），Linux 以后支持；**不用虚拟机，不做沙箱**（沙箱作为远期可选项） |
 | 网络 | 服务端监听一个固定端口，客户端填 `host:port` 直连。公网代理由用户自行解决，不在本项目范围内 |
 | 安全 | v1 **只做访问密码**：客户端每次连接都带上密码，管理页用同一个密码；其他安全措施全部放到以后（详见 5.0.1） |
 | Bot | 支持多个 Bot，**每个 Bot 有独立工作间**（目录、记忆、会话、定时任务）；支持**群聊和 Bot 间消息** |
@@ -40,6 +68,7 @@
 | 模型 | 用户自定义 provider 和模型；默认认为模型支持看图 |
 | 存储 | SQLite |
 | 桌面端 | Rust + GPUI（gpui-kit）。**v1 只做 macOS**；Windows 客户端和 Computer Node 放到 v2 |
+| 许可证 | **MIT** |
 | 移动端 | **Android（小米 17）+ iOS**：**Kotlin Multiplatform + Compose Multiplatform**，一套代码同时出 Android 和 iOS 两端，UI、网络、状态全部共享。Android 端本身就是原生 Compose，APK 小；Compose 的 iOS 支持从 1.8.0 起已经稳定 |
 | 通知 | Android：前台服务保持长连接，收到事件后弹系统通知。iOS：App 进后台后无法保持长连接，必须走 **APNs**，由 macbot-server 直接调用 APNs HTTP/2 接口，使用用户自己的 .p8 密钥（需要 Apple 开发者账号）；没有配置时，只在 App 前台运行期间通知 |
 | 签名和公证 | 由用户负责 |
