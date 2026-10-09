@@ -1,0 +1,339 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Settings",
+  "type": "object",
+  "required": [
+    "approvals",
+    "browser",
+    "concurrency",
+    "currency",
+    "host_name",
+    "main_bot",
+    "models",
+    "push",
+    "skills",
+    "timezone",
+    "trace",
+    "web_search"
+  ],
+  "properties": {
+    "approvals": {
+      "$ref": "#/definitions/ApprovalSettings"
+    },
+    "browser": {
+      "$ref": "#/definitions/BrowserSettings"
+    },
+    "concurrency": {
+      "$ref": "#/definitions/Concurrency"
+    },
+    "currency": {
+      "type": "string"
+    },
+    "host_name": {
+      "type": "string"
+    },
+    "main_bot": {
+      "$ref": "#/definitions/MainBotSettings"
+    },
+    "models": {
+      "$ref": "#/definitions/ModelDefaults"
+    },
+    "push": {
+      "$ref": "#/definitions/PushSettings"
+    },
+    "skills": {
+      "$ref": "#/definitions/SkillSettings"
+    },
+    "timezone": {
+      "type": "string"
+    },
+    "trace": {
+      "$ref": "#/definitions/TraceSettings"
+    },
+    "web_search": {
+      "$ref": "#/definitions/WebSearchSettings"
+    }
+  },
+  "definitions": {
+    "ApprovalMode": {
+      "type": "string",
+      "enum": [
+        "require",
+        "always_allow"
+      ]
+    },
+    "ApprovalRule": {
+      "type": "object",
+      "required": [
+        "created_at",
+        "id",
+        "kind",
+        "text"
+      ],
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ApprovalRuleKind"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "ApprovalRuleKind": {
+      "type": "string",
+      "enum": [
+        "ask_first",
+        "auto_allow"
+      ]
+    },
+    "ApprovalSettings": {
+      "type": "object",
+      "required": [
+        "mode",
+        "rules"
+      ],
+      "properties": {
+        "mode": {
+          "$ref": "#/definitions/ApprovalMode"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApprovalRule"
+          }
+        }
+      }
+    },
+    "BrowserMode": {
+      "type": "string",
+      "enum": [
+        "headless",
+        "headless_profile",
+        "attach"
+      ]
+    },
+    "BrowserSettings": {
+      "type": "object",
+      "required": [
+        "chrome_profile",
+        "default_mode",
+        "stream"
+      ],
+      "properties": {
+        "chrome_profile": {
+          "type": "string"
+        },
+        "default_mode": {
+          "$ref": "#/definitions/BrowserMode"
+        },
+        "stream": {
+          "$ref": "#/definitions/StreamSettings"
+        }
+      }
+    },
+    "Concurrency": {
+      "type": "object",
+      "required": [
+        "bot_default",
+        "global",
+        "loop_hops",
+        "subagent_global",
+        "subagent_per_run"
+      ],
+      "properties": {
+        "bot_default": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "global": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "loop_hops": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "subagent_global": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "subagent_per_run": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "MainBotSettings": {
+      "type": "object",
+      "required": [
+        "auto_create_project"
+      ],
+      "properties": {
+        "auto_create_project": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ModelDefaults": {
+      "type": "object",
+      "required": [
+        "subagent"
+      ],
+      "properties": {
+        "bot_default": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "main": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maintenance": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subagent": {
+          "$ref": "#/definitions/SubagentModel"
+        }
+      }
+    },
+    "PushSettings": {
+      "type": "object",
+      "required": [
+        "apns_configured"
+      ],
+      "properties": {
+        "apns_configured": {
+          "type": "boolean"
+        }
+      }
+    },
+    "SkillSettings": {
+      "type": "object",
+      "required": [
+        "extra_dirs"
+      ],
+      "properties": {
+        "extra_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "StreamQuality": {
+      "type": "object",
+      "required": [
+        "max_fps",
+        "max_width",
+        "quality"
+      ],
+      "properties": {
+        "max_fps": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "max_width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "quality": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        }
+      }
+    },
+    "StreamSettings": {
+      "type": "object",
+      "required": [
+        "desktop",
+        "mobile"
+      ],
+      "properties": {
+        "desktop": {
+          "$ref": "#/definitions/StreamQuality"
+        },
+        "mobile": {
+          "$ref": "#/definitions/StreamQuality"
+        }
+      }
+    },
+    "SubagentModel": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "TraceSettings": {
+      "type": "object",
+      "required": [
+        "save_full_requests"
+      ],
+      "properties": {
+        "save_full_requests": {
+          "type": "boolean"
+        }
+      }
+    },
+    "WebSearchProvider": {
+      "type": "string",
+      "enum": [
+        "brave",
+        "tavily",
+        "searxng"
+      ]
+    },
+    "WebSearchSettings": {
+      "type": "object",
+      "required": [
+        "has_key"
+      ],
+      "properties": {
+        "endpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "has_key": {
+          "type": "boolean"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebSearchProvider"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RoutineRun",
+  "type": "object",
+  "required": [
+    "id",
+    "routine_id",
+    "started_at",
+    "status",
+    "trigger"
+  ],
+  "properties": {
+    "assignment_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "finished_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "routine_id": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/definitions/RoutineRunStatus"
+    },
+    "trigger": {
+      "$ref": "#/definitions/RoutineTrigger"
+    }
+  },
+  "definitions": {
+    "RoutineRunStatus": {
+      "type": "string",
+      "enum": [
+        "running",
+        "done",
+        "failed",
+        "skipped"
+      ]
+    },
+    "RoutineTrigger": {
+      "type": "string",
+      "enum": [
+        "schedule",
+        "test"
+      ]
+    }
+  }
+}

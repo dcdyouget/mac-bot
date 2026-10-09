@@ -1,0 +1,254 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ScreenClientFrame",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "seq",
+        "type"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "ack"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "tab_id",
+        "type"
+      ],
+      "properties": {
+        "tab_id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "switch_tab"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "event",
+        "type"
+      ],
+      "properties": {
+        "event": {
+          "$ref": "#/definitions/ScreenInput"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "input"
+          ]
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "KeyAction": {
+      "type": "string",
+      "enum": [
+        "down",
+        "up",
+        "press"
+      ]
+    },
+    "MouseAction": {
+      "type": "string",
+      "enum": [
+        "move",
+        "down",
+        "up",
+        "click"
+      ]
+    },
+    "MouseButton": {
+      "type": "string",
+      "enum": [
+        "left",
+        "right",
+        "middle"
+      ]
+    },
+    "ScreenInput": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "action",
+            "button",
+            "click_count",
+            "type",
+            "x",
+            "y"
+          ],
+          "properties": {
+            "action": {
+              "$ref": "#/definitions/MouseAction"
+            },
+            "button": {
+              "$ref": "#/definitions/MouseButton"
+            },
+            "click_count": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "mouse"
+              ]
+            },
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "dx",
+            "dy",
+            "type",
+            "x",
+            "y"
+          ],
+          "properties": {
+            "dx": {
+              "type": "number",
+              "format": "double"
+            },
+            "dy": {
+              "type": "number",
+              "format": "double"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "wheel"
+              ]
+            },
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "action",
+            "code",
+            "key",
+            "modifiers",
+            "type"
+          ],
+          "properties": {
+            "action": {
+              "$ref": "#/definitions/KeyAction"
+            },
+            "code": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "modifiers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "key"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "action",
+            "points",
+            "type"
+          ],
+          "properties": {
+            "action": {
+              "$ref": "#/definitions/TouchAction"
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TouchPoint"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "touch"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "TouchAction": {
+      "type": "string",
+      "enum": [
+        "start",
+        "move",
+        "end"
+      ]
+    },
+    "TouchPoint": {
+      "type": "object",
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number",
+          "format": "double"
+        },
+        "y": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    }
+  }
+}

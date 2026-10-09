@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Routine",
+  "type": "object",
+  "required": [
+    "bot_id",
+    "created_at",
+    "enabled",
+    "id",
+    "instructions",
+    "name",
+    "schedules",
+    "timezone",
+    "updated_at"
+  ],
+  "properties": {
+    "bot_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "id": {
+      "type": "string"
+    },
+    "instructions": {
+      "type": "string"
+    },
+    "last_run": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RoutineRun"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "name": {
+      "type": "string"
+    },
+    "next_run_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "project_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "schedules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Schedule"
+      }
+    },
+    "timezone": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "RoutineRun": {
+      "type": "object",
+      "required": [
+        "id",
+        "routine_id",
+        "started_at",
+        "status",
+        "trigger"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "finished_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "routine_id": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/RoutineRunStatus"
+        },
+        "trigger": {
+          "$ref": "#/definitions/RoutineTrigger"
+        }
+      }
+    },
+    "RoutineRunStatus": {
+      "type": "string",
+      "enum": [
+        "running",
+        "done",
+        "failed",
+        "skipped"
+      ]
+    },
+    "RoutineTrigger": {
+      "type": "string",
+      "enum": [
+        "schedule",
+        "test"
+      ]
+    },
+    "Schedule": {
+      "type": "object",
+      "required": [
+        "cron",
+        "label"
+      ],
+      "properties": {
+        "cron": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

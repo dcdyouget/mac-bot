@@ -1,0 +1,4619 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MethodResult",
+  "anyOf": [
+    {
+      "$ref": "#/definitions/SessionResumeResult"
+    },
+    {
+      "$ref": "#/definitions/PingResult"
+    },
+    {
+      "$ref": "#/definitions/BootstrapResult"
+    },
+    {
+      "$ref": "#/definitions/DeviceRegisterResult"
+    },
+    {
+      "$ref": "#/definitions/ChatListResult"
+    },
+    {
+      "$ref": "#/definitions/ChatGetResult"
+    },
+    {
+      "$ref": "#/definitions/ChatHistoryResult"
+    },
+    {
+      "$ref": "#/definitions/ChatThreadResult"
+    },
+    {
+      "$ref": "#/definitions/ChatSendResult"
+    },
+    {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/ChatReactResult"
+    },
+    {
+      "$ref": "#/definitions/ChatPinnedResult"
+    },
+    {
+      "$ref": "#/definitions/ChatMutedResult"
+    },
+    {
+      "$ref": "#/definitions/BotListResult"
+    },
+    {
+      "$ref": "#/definitions/BotGetResult"
+    },
+    {
+      "$ref": "#/definitions/BotCreateResult"
+    },
+    {
+      "$ref": "#/definitions/BotUpdateResult"
+    },
+    {
+      "$ref": "#/definitions/BotDuplicateResult"
+    },
+    {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/BotTemplatesResult"
+    },
+    {
+      "$ref": "#/definitions/CreateFromTemplateResult"
+    },
+    {
+      "$ref": "#/definitions/ProjectListResult"
+    },
+    {
+      "$ref": "#/definitions/ProjectGetResult"
+    },
+    {
+      "$ref": "#/definitions/ProjectCreateResult"
+    },
+    {
+      "$ref": "#/definitions/ProjectUpdateResult"
+    },
+    {
+      "$ref": "#/definitions/ProjectResult"
+    },
+    {
+      "$ref": "#/definitions/ProjectResult"
+    },
+    {
+      "$ref": "#/definitions/ProjectResult"
+    },
+    {
+      "$ref": "#/definitions/ProjectRequestChangesResult"
+    },
+    {
+      "$ref": "#/definitions/ProjectResult"
+    },
+    {
+      "$ref": "#/definitions/ProjectResult"
+    },
+    {
+      "$ref": "#/definitions/AssignmentListResult"
+    },
+    {
+      "$ref": "#/definitions/AssignmentGetResult"
+    },
+    {
+      "$ref": "#/definitions/AssignmentResult"
+    },
+    {
+      "$ref": "#/definitions/TraceHistoryResult"
+    },
+    {
+      "$ref": "#/definitions/TraceSubscribeResult"
+    },
+    {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/ApprovalListResult"
+    },
+    {
+      "$ref": "#/definitions/ApprovalResult"
+    },
+    {
+      "$ref": "#/definitions/QuestionResult"
+    },
+    {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/WorkbenchResult"
+    },
+    {
+      "$ref": "#/definitions/SkillListResult"
+    },
+    {
+      "$ref": "#/definitions/SkillGetResult"
+    },
+    {
+      "$ref": "#/definitions/SkillResult"
+    },
+    {
+      "$ref": "#/definitions/SkillResult"
+    },
+    {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/SkillResult"
+    },
+    {
+      "$ref": "#/definitions/SkillResult"
+    },
+    {
+      "$ref": "#/definitions/SkillImportResult"
+    },
+    {
+      "$ref": "#/definitions/RoutineListResult"
+    },
+    {
+      "$ref": "#/definitions/RoutineResult"
+    },
+    {
+      "$ref": "#/definitions/RoutineResult"
+    },
+    {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/RoutineResult"
+    },
+    {
+      "$ref": "#/definitions/RoutineRunResult"
+    },
+    {
+      "$ref": "#/definitions/RoutineRunsResult"
+    },
+    {
+      "$ref": "#/definitions/ProviderListResult"
+    },
+    {
+      "$ref": "#/definitions/ProviderResult"
+    },
+    {
+      "$ref": "#/definitions/ProviderResult"
+    },
+    {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/ProviderTestResult"
+    },
+    {
+      "$ref": "#/definitions/ModelRefreshResult"
+    },
+    {
+      "$ref": "#/definitions/ModelResult"
+    },
+    {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/SettingsResult"
+    },
+    {
+      "$ref": "#/definitions/SettingsResult"
+    },
+    {
+      "$ref": "#/definitions/UsageSummaryResult"
+    },
+    {
+      "$ref": "#/definitions/HeatmapResult"
+    },
+    {
+      "$ref": "#/definitions/UsageTimeseriesResult"
+    },
+    {
+      "$ref": "#/definitions/UsageBreakdownResult"
+    },
+    {
+      "$ref": "#/definitions/SearchResult"
+    }
+  ],
+  "definitions": {
+    "Announcement": {
+      "type": "object",
+      "required": [
+        "artifacts",
+        "highlights",
+        "members",
+        "project_id",
+        "updated_at"
+      ],
+      "properties": {
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Artifact"
+          }
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Highlight"
+          }
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AnnouncementMember"
+          }
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "AnnouncementMember": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "role_note",
+        "state"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "current_assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role_note": {
+          "type": "string"
+        },
+        "since": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/definitions/MemberState"
+        }
+      }
+    },
+    "ApiKind": {
+      "type": "string",
+      "enum": [
+        "openai-completions",
+        "openai-responses",
+        "anthropic-messages",
+        "google-generative"
+      ]
+    },
+    "Approval": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "chat_id",
+        "created_at",
+        "detail",
+        "id",
+        "risk",
+        "state",
+        "summary",
+        "tool"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bot_id": {
+          "type": "string"
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "risk": {
+          "$ref": "#/definitions/ApprovalRisk"
+        },
+        "state": {
+          "$ref": "#/definitions/ApprovalState"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        }
+      }
+    },
+    "ApprovalListResult": {
+      "type": "object",
+      "required": [
+        "approvals"
+      ],
+      "properties": {
+        "approvals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Approval"
+          }
+        }
+      }
+    },
+    "ApprovalMode": {
+      "type": "string",
+      "enum": [
+        "require",
+        "always_allow"
+      ]
+    },
+    "ApprovalResult": {
+      "type": "object",
+      "required": [
+        "approval"
+      ],
+      "properties": {
+        "approval": {
+          "$ref": "#/definitions/Approval"
+        }
+      }
+    },
+    "ApprovalRisk": {
+      "type": "string",
+      "enum": [
+        "write",
+        "exec",
+        "external"
+      ]
+    },
+    "ApprovalRule": {
+      "type": "object",
+      "required": [
+        "created_at",
+        "id",
+        "kind",
+        "text"
+      ],
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ApprovalRuleKind"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "ApprovalRuleKind": {
+      "type": "string",
+      "enum": [
+        "ask_first",
+        "auto_allow"
+      ]
+    },
+    "ApprovalSettings": {
+      "type": "object",
+      "required": [
+        "mode",
+        "rules"
+      ],
+      "properties": {
+        "mode": {
+          "$ref": "#/definitions/ApprovalMode"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApprovalRule"
+          }
+        }
+      }
+    },
+    "ApprovalState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "allowed_once",
+        "always_allowed",
+        "denied",
+        "expired"
+      ]
+    },
+    "Artifact": {
+      "type": "object",
+      "required": [
+        "assignment_id",
+        "bot_id",
+        "created_at",
+        "id",
+        "kind",
+        "path_or_url",
+        "project_id",
+        "title",
+        "updated_at"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": "string"
+        },
+        "bot_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ArtifactKind"
+        },
+        "path_or_url": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "ArtifactKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "dir",
+        "url"
+      ]
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "required": [
+        "artifact_id",
+        "path_or_url",
+        "title"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string"
+        },
+        "path_or_url": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "Assignment": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "created_at",
+        "from",
+        "id",
+        "instruction",
+        "model",
+        "origin_chat_id",
+        "status",
+        "steers",
+        "subagents_active",
+        "title",
+        "usage"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "finished_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "from": {
+          "$ref": "#/definitions/Sender"
+        },
+        "id": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "origin_chat_id": {
+          "type": "string"
+        },
+        "parent_assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "queue_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/QueueReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result_message_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/AssignmentStatus"
+        },
+        "steers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Steer"
+          }
+        },
+        "subagents_active": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "title": {
+          "type": "string"
+        },
+        "trigger_message_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage": {
+          "$ref": "#/definitions/UsageTotals"
+        },
+        "wait": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WaitState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "AssignmentGetResult": {
+      "type": "object",
+      "required": [
+        "assignment"
+      ],
+      "properties": {
+        "assignment": {
+          "$ref": "#/definitions/Assignment"
+        }
+      }
+    },
+    "AssignmentListResult": {
+      "type": "object",
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Assignment"
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "AssignmentResult": {
+      "type": "object",
+      "required": [
+        "assignment"
+      ],
+      "properties": {
+        "assignment": {
+          "$ref": "#/definitions/Assignment"
+        }
+      }
+    },
+    "AssignmentStatus": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "working",
+        "waiting_user",
+        "waiting_bot",
+        "blocked",
+        "done",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "Attention": {
+      "type": "string",
+      "enum": [
+        "none",
+        "unread",
+        "working",
+        "waiting_user",
+        "blocked",
+        "review"
+      ]
+    },
+    "Avatar": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "color",
+            "kind"
+          ],
+          "properties": {
+            "color": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bean"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "emoji",
+            "kind"
+          ],
+          "properties": {
+            "emoji": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "emoji"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "file",
+            "kind"
+          ],
+          "properties": {
+            "file": {
+              "$ref": "#/definitions/FileRef"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "image"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Block": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "markdown",
+            "type"
+          ],
+          "properties": {
+            "markdown": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "text"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "file",
+            "type"
+          ],
+          "properties": {
+            "file": {
+              "$ref": "#/definitions/FileRef"
+            },
+            "height": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "image"
+              ]
+            },
+            "width": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "file",
+            "type"
+          ],
+          "properties": {
+            "file": {
+              "$ref": "#/definitions/FileRef"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "file"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "assignment_id",
+            "type"
+          ],
+          "properties": {
+            "assignment_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "task_card"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "artifacts",
+            "next",
+            "notify_main",
+            "summary",
+            "type"
+          ],
+          "properties": {
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ArtifactRef"
+              }
+            },
+            "next": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/NextTask"
+              }
+            },
+            "notify_main": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "completion"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "text",
+            "type"
+          ],
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "progress"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "reason",
+            "type"
+          ],
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "blocked"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "question_id",
+            "type"
+          ],
+          "properties": {
+            "question_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "question"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "project_id",
+            "type"
+          ],
+          "properties": {
+            "project_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "project_card"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "artifacts",
+            "project_id",
+            "state",
+            "type"
+          ],
+          "properties": {
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ArtifactRef"
+              }
+            },
+            "project_id": {
+              "type": "string"
+            },
+            "state": {
+              "$ref": "#/definitions/ReviewState"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "review_card"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "assignment_id",
+            "bot_id",
+            "type"
+          ],
+          "properties": {
+            "assignment_id": {
+              "type": "string"
+            },
+            "bot_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "delegation"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "approval_id",
+            "type"
+          ],
+          "properties": {
+            "approval_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "approval"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "approval_id",
+            "chat_id",
+            "type"
+          ],
+          "properties": {
+            "approval_id": {
+              "type": "string"
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "approval_ref"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "reason",
+            "state",
+            "type"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "state": {
+              "$ref": "#/definitions/TakeoverState"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "takeover_request"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "chat_id",
+            "count",
+            "type"
+          ],
+          "properties": {
+            "chat_id": {
+              "type": "string"
+            },
+            "count": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "bot_dm_ref"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "code",
+            "text",
+            "type"
+          ],
+          "properties": {
+            "code": {
+              "$ref": "#/definitions/SystemCode"
+            },
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "system"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "hops",
+            "root_message_id",
+            "state",
+            "type"
+          ],
+          "properties": {
+            "hops": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "root_message_id": {
+              "type": "string"
+            },
+            "state": {
+              "$ref": "#/definitions/LoopState"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "loop_paused"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "BootstrapResult": {
+      "type": "object",
+      "required": [
+        "bots",
+        "chats",
+        "hello",
+        "pending",
+        "projects",
+        "seq",
+        "settings"
+      ],
+      "properties": {
+        "bots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Bot"
+          }
+        },
+        "chats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Chat"
+          }
+        },
+        "hello": {
+          "$ref": "#/definitions/Hello"
+        },
+        "pending": {
+          "$ref": "#/definitions/PendingItems"
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Project"
+          }
+        },
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "settings": {
+          "$ref": "#/definitions/Settings"
+        }
+      }
+    },
+    "Bot": {
+      "type": "object",
+      "required": [
+        "avatar",
+        "browser_mode",
+        "created_at",
+        "description",
+        "dm_chat_id",
+        "hidden",
+        "id",
+        "is_main",
+        "label",
+        "max_parallel",
+        "name",
+        "notifications",
+        "pinned",
+        "status",
+        "tools",
+        "updated_at"
+      ],
+      "properties": {
+        "avatar": {
+          "$ref": "#/definitions/Avatar"
+        },
+        "browser_mode": {
+          "$ref": "#/definitions/BrowserMode"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "dm_chat_id": {
+          "type": "string"
+        },
+        "hidden": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "is_main": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "max_parallel": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "notifications": {
+          "type": "boolean"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/definitions/BotStatus"
+        },
+        "tools": {
+          "$ref": "#/definitions/ToolToggles"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "BotCreateResult": {
+      "type": "object",
+      "required": [
+        "bot",
+        "dm_chat"
+      ],
+      "properties": {
+        "bot": {
+          "$ref": "#/definitions/Bot"
+        },
+        "dm_chat": {
+          "$ref": "#/definitions/Chat"
+        }
+      }
+    },
+    "BotDuplicateResult": {
+      "type": "object",
+      "required": [
+        "bot",
+        "dm_chat"
+      ],
+      "properties": {
+        "bot": {
+          "$ref": "#/definitions/Bot"
+        },
+        "dm_chat": {
+          "$ref": "#/definitions/Chat"
+        }
+      }
+    },
+    "BotGetResult": {
+      "type": "object",
+      "required": [
+        "bot"
+      ],
+      "properties": {
+        "bot": {
+          "$ref": "#/definitions/Bot"
+        }
+      }
+    },
+    "BotInvocation": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "count"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "BotListResult": {
+      "type": "object",
+      "required": [
+        "bots"
+      ],
+      "properties": {
+        "bots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Bot"
+          }
+        }
+      }
+    },
+    "BotStatus": {
+      "type": "object",
+      "required": [
+        "active",
+        "queued",
+        "summary",
+        "waiting"
+      ],
+      "properties": {
+        "active": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "queued": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "summary": {
+          "$ref": "#/definitions/BotSummary"
+        },
+        "waiting": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "BotSummary": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "working",
+        "waiting_user",
+        "blocked"
+      ]
+    },
+    "BotTemplate": {
+      "type": "object",
+      "required": [
+        "bots",
+        "description",
+        "id",
+        "name"
+      ],
+      "properties": {
+        "bots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BotTemplateEntry"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "BotTemplateEntry": {
+      "type": "object",
+      "required": [
+        "avatar",
+        "description",
+        "label",
+        "name"
+      ],
+      "properties": {
+        "avatar": {
+          "$ref": "#/definitions/Avatar"
+        },
+        "description": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "BotTemplatesResult": {
+      "type": "object",
+      "required": [
+        "templates"
+      ],
+      "properties": {
+        "templates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BotTemplate"
+          }
+        }
+      }
+    },
+    "BotUpdateResult": {
+      "type": "object",
+      "required": [
+        "bot"
+      ],
+      "properties": {
+        "bot": {
+          "$ref": "#/definitions/Bot"
+        }
+      }
+    },
+    "BrowserMode": {
+      "type": "string",
+      "enum": [
+        "headless",
+        "headless_profile",
+        "attach"
+      ]
+    },
+    "BrowserSettings": {
+      "type": "object",
+      "required": [
+        "chrome_profile",
+        "default_mode",
+        "stream"
+      ],
+      "properties": {
+        "chrome_profile": {
+          "type": "string"
+        },
+        "default_mode": {
+          "$ref": "#/definitions/BrowserMode"
+        },
+        "stream": {
+          "$ref": "#/definitions/StreamSettings"
+        }
+      }
+    },
+    "CalendarDay": {
+      "type": "object",
+      "required": [
+        "date",
+        "requests",
+        "tokens",
+        "value"
+      ],
+      "properties": {
+        "cost": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "date": {
+          "type": "string"
+        },
+        "requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "top_bot_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "CalendarHeatmap": {
+      "type": "object",
+      "required": [
+        "days",
+        "thresholds"
+      ],
+      "properties": {
+        "days": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CalendarDay"
+          }
+        },
+        "thresholds": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        }
+      }
+    },
+    "Chat": {
+      "type": "object",
+      "required": [
+        "attention",
+        "id",
+        "kind",
+        "last_read_seq",
+        "last_seq",
+        "member_bot_ids",
+        "muted",
+        "pinned",
+        "title",
+        "unread",
+        "updated_at"
+      ],
+      "properties": {
+        "attention": {
+          "$ref": "#/definitions/Attention"
+        },
+        "bot_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ChatKind"
+        },
+        "last_message": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MessagePreview"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_read_seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "last_seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "member_bot_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "unread": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "ChatGetResult": {
+      "type": "object",
+      "required": [
+        "chat"
+      ],
+      "properties": {
+        "chat": {
+          "$ref": "#/definitions/Chat"
+        }
+      }
+    },
+    "ChatHistoryResult": {
+      "type": "object",
+      "required": [
+        "has_more",
+        "messages"
+      ],
+      "properties": {
+        "has_more": {
+          "type": "boolean"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "ChatKind": {
+      "type": "string",
+      "enum": [
+        "main",
+        "direct",
+        "project",
+        "bot_dm"
+      ]
+    },
+    "ChatListResult": {
+      "type": "object",
+      "required": [
+        "chats"
+      ],
+      "properties": {
+        "chats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Chat"
+          }
+        }
+      }
+    },
+    "ChatMutedResult": {
+      "type": "object",
+      "required": [
+        "chat"
+      ],
+      "properties": {
+        "chat": {
+          "$ref": "#/definitions/Chat"
+        }
+      }
+    },
+    "ChatPinnedResult": {
+      "type": "object",
+      "required": [
+        "chat"
+      ],
+      "properties": {
+        "chat": {
+          "$ref": "#/definitions/Chat"
+        }
+      }
+    },
+    "ChatReactResult": {
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "$ref": "#/definitions/Message"
+        }
+      }
+    },
+    "ChatSendResult": {
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "$ref": "#/definitions/Message"
+        }
+      }
+    },
+    "ChatThreadResult": {
+      "type": "object",
+      "required": [
+        "replies",
+        "root"
+      ],
+      "properties": {
+        "replies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        },
+        "root": {
+          "$ref": "#/definitions/Message"
+        }
+      }
+    },
+    "Concurrency": {
+      "type": "object",
+      "required": [
+        "bot_default",
+        "global",
+        "loop_hops",
+        "subagent_global",
+        "subagent_per_run"
+      ],
+      "properties": {
+        "bot_default": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "global": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "loop_hops": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "subagent_global": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "subagent_per_run": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "CreateFromTemplateResult": {
+      "type": "object",
+      "required": [
+        "bots",
+        "dm_chats"
+      ],
+      "properties": {
+        "bots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Bot"
+          }
+        },
+        "dm_chats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Chat"
+          }
+        }
+      }
+    },
+    "Delivery": {
+      "type": "object",
+      "required": [
+        "at",
+        "bot_id",
+        "state"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "at": {
+          "type": "string"
+        },
+        "bot_id": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/DeliveryState"
+        }
+      }
+    },
+    "DeliveryState": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "delivered",
+        "read"
+      ]
+    },
+    "Device": {
+      "type": "object",
+      "required": [
+        "app_version",
+        "device_name",
+        "id",
+        "last_seen_at",
+        "platform"
+      ],
+      "properties": {
+        "app_version": {
+          "type": "string"
+        },
+        "device_name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "last_seen_at": {
+          "type": "string"
+        },
+        "platform": {
+          "$ref": "#/definitions/Platform"
+        },
+        "push_token": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "DeviceRegisterResult": {
+      "type": "object",
+      "required": [
+        "device"
+      ],
+      "properties": {
+        "device": {
+          "$ref": "#/definitions/Device"
+        }
+      }
+    },
+    "EmptyResult": {
+      "type": "object"
+    },
+    "FileRef": {
+      "type": "object",
+      "required": [
+        "mime",
+        "name",
+        "path",
+        "root",
+        "root_id",
+        "size"
+      ],
+      "properties": {
+        "mime": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "$ref": "#/definitions/FileRoot"
+        },
+        "root_id": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "FileRoot": {
+      "type": "string",
+      "enum": [
+        "project",
+        "bot",
+        "upload"
+      ]
+    },
+    "Granularity": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "hour",
+        "day",
+        "week"
+      ]
+    },
+    "HeatmapResult": {
+      "type": "object",
+      "properties": {
+        "calendar": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CalendarHeatmap"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "weekhour": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WeekhourHeatmap"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "Hello": {
+      "type": "object",
+      "required": [
+        "currency",
+        "features",
+        "host_name",
+        "last_seq",
+        "node_id",
+        "protocol",
+        "server_time",
+        "server_version",
+        "timezone"
+      ],
+      "properties": {
+        "currency": {
+          "type": "string"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "host_name": {
+          "type": "string"
+        },
+        "last_seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "protocol": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "server_time": {
+          "type": "string"
+        },
+        "server_version": {
+          "type": "string"
+        },
+        "timezone": {
+          "type": "string"
+        }
+      }
+    },
+    "Highlight": {
+      "type": "object",
+      "required": [
+        "at",
+        "text"
+      ],
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "InFlight": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "text",
+        "thinking"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "thinking": {
+          "type": "string"
+        }
+      }
+    },
+    "Intent": {
+      "type": "string",
+      "enum": [
+        "ack",
+        "progress",
+        "decision",
+        "done",
+        "blocked"
+      ]
+    },
+    "Invocations7d": {
+      "type": "object",
+      "required": [
+        "by_bot",
+        "total"
+      ],
+      "properties": {
+        "by_bot": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BotInvocation"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "LoopState": {
+      "type": "string",
+      "enum": [
+        "paused",
+        "continued",
+        "ended"
+      ]
+    },
+    "MainBotSettings": {
+      "type": "object",
+      "required": [
+        "auto_create_project"
+      ],
+      "properties": {
+        "auto_create_project": {
+          "type": "boolean"
+        }
+      }
+    },
+    "MemberState": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "queued",
+        "working",
+        "waiting_user",
+        "waiting_bot",
+        "blocked",
+        "done"
+      ]
+    },
+    "Mention": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "kind"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "instruction": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bot"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "main"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "user"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "everyone"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Message": {
+      "type": "object",
+      "required": [
+        "blocks",
+        "chat_id",
+        "created_at",
+        "deleted",
+        "delivery",
+        "fallback_text",
+        "id",
+        "mentions",
+        "reactions",
+        "sender",
+        "seq",
+        "streaming",
+        "thread_count"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Block"
+          }
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "delivery": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Delivery"
+          }
+        },
+        "edited_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fallback_text": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "intent": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Intent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Mention"
+          }
+        },
+        "reactions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Reaction"
+          }
+        },
+        "reply_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sender": {
+          "$ref": "#/definitions/Sender"
+        },
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "streaming": {
+          "type": "boolean"
+        },
+        "thread_count": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "MessagePreview": {
+      "type": "object",
+      "required": [
+        "created_at",
+        "message_id",
+        "sender",
+        "text"
+      ],
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "sender": {
+          "$ref": "#/definitions/Sender"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "Model": {
+      "type": "object",
+      "required": [
+        "caps",
+        "context_window",
+        "display_name",
+        "enabled",
+        "max_output",
+        "model_id",
+        "provider_id",
+        "ref"
+      ],
+      "properties": {
+        "caps": {
+          "$ref": "#/definitions/ModelCaps"
+        },
+        "context_window": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "max_output": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ModelPrice"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider_id": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    },
+    "ModelCaps": {
+      "type": "object",
+      "required": [
+        "reasoning",
+        "tools",
+        "vision"
+      ],
+      "properties": {
+        "reasoning": {
+          "type": "boolean"
+        },
+        "tools": {
+          "type": "boolean"
+        },
+        "vision": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ModelDefaults": {
+      "type": "object",
+      "required": [
+        "subagent"
+      ],
+      "properties": {
+        "bot_default": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "main": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maintenance": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subagent": {
+          "$ref": "#/definitions/SubagentModel"
+        }
+      }
+    },
+    "ModelPrice": {
+      "type": "object",
+      "required": [
+        "cache_read_per_mtok",
+        "cache_write_per_mtok",
+        "input_per_mtok",
+        "output_per_mtok"
+      ],
+      "properties": {
+        "cache_read_per_mtok": {
+          "type": "number",
+          "format": "double"
+        },
+        "cache_write_per_mtok": {
+          "type": "number",
+          "format": "double"
+        },
+        "input_per_mtok": {
+          "type": "number",
+          "format": "double"
+        },
+        "output_per_mtok": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "ModelRefreshResult": {
+      "type": "object",
+      "required": [
+        "models"
+      ],
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Model"
+          }
+        }
+      }
+    },
+    "ModelResult": {
+      "type": "object",
+      "required": [
+        "model"
+      ],
+      "properties": {
+        "model": {
+          "$ref": "#/definitions/Model"
+        }
+      }
+    },
+    "NextTask": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "instruction"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": "string"
+        }
+      }
+    },
+    "PendingItems": {
+      "type": "object",
+      "required": [
+        "approvals",
+        "questions",
+        "reviews"
+      ],
+      "properties": {
+        "approvals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Approval"
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Question"
+          }
+        },
+        "reviews": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "PingResult": {
+      "type": "object",
+      "required": [
+        "server_time"
+      ],
+      "properties": {
+        "server_time": {
+          "type": "string"
+        }
+      }
+    },
+    "Platform": {
+      "type": "string",
+      "enum": [
+        "macos",
+        "android",
+        "ios"
+      ]
+    },
+    "Project": {
+      "type": "object",
+      "required": [
+        "chat_id",
+        "created_at",
+        "created_by",
+        "flow",
+        "goal",
+        "home_path",
+        "id",
+        "lead_bot_id",
+        "members",
+        "name",
+        "slug",
+        "status",
+        "updated_at"
+      ],
+      "properties": {
+        "chat_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "$ref": "#/definitions/Sender"
+        },
+        "deadline": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "done_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "flow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "goal": {
+          "type": "string"
+        },
+        "home_path": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lead_bot_id": {
+          "type": "string"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectMember"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/ProjectStatus"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectCreateResult": {
+      "type": "object",
+      "required": [
+        "chat",
+        "project"
+      ],
+      "properties": {
+        "chat": {
+          "$ref": "#/definitions/Chat"
+        },
+        "project": {
+          "$ref": "#/definitions/Project"
+        }
+      }
+    },
+    "ProjectGetResult": {
+      "type": "object",
+      "required": [
+        "announcement",
+        "project"
+      ],
+      "properties": {
+        "announcement": {
+          "$ref": "#/definitions/Announcement"
+        },
+        "project": {
+          "$ref": "#/definitions/Project"
+        }
+      }
+    },
+    "ProjectListResult": {
+      "type": "object",
+      "required": [
+        "projects"
+      ],
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Project"
+          }
+        }
+      }
+    },
+    "ProjectMember": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "joined_at",
+        "role_note"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "joined_at": {
+          "type": "string"
+        },
+        "role_note": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectRequestChangesResult": {
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "$ref": "#/definitions/Message"
+        }
+      }
+    },
+    "ProjectResult": {
+      "type": "object",
+      "required": [
+        "project"
+      ],
+      "properties": {
+        "project": {
+          "$ref": "#/definitions/Project"
+        }
+      }
+    },
+    "ProjectStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "review",
+        "done",
+        "archived"
+      ]
+    },
+    "ProjectUpdateResult": {
+      "type": "object",
+      "required": [
+        "project"
+      ],
+      "properties": {
+        "project": {
+          "$ref": "#/definitions/Project"
+        }
+      }
+    },
+    "Provider": {
+      "type": "object",
+      "required": [
+        "api_kind",
+        "base_url",
+        "created_at",
+        "has_key",
+        "headers",
+        "id",
+        "name",
+        "updated_at"
+      ],
+      "properties": {
+        "api_kind": {
+          "$ref": "#/definitions/ApiKind"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "has_key": {
+          "type": "boolean"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "ProviderListResult": {
+      "type": "object",
+      "required": [
+        "models",
+        "providers"
+      ],
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Model"
+          }
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Provider"
+          }
+        }
+      }
+    },
+    "ProviderResult": {
+      "type": "object",
+      "required": [
+        "provider"
+      ],
+      "properties": {
+        "provider": {
+          "$ref": "#/definitions/Provider"
+        }
+      }
+    },
+    "ProviderTestResult": {
+      "type": "object",
+      "required": [
+        "latency_ms",
+        "ok"
+      ],
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "latency_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      }
+    },
+    "PushSettings": {
+      "type": "object",
+      "required": [
+        "apns_configured"
+      ],
+      "properties": {
+        "apns_configured": {
+          "type": "boolean"
+        }
+      }
+    },
+    "Question": {
+      "type": "object",
+      "required": [
+        "allow_free_text",
+        "assignment_id",
+        "bot_id",
+        "chat_id",
+        "id",
+        "options",
+        "state",
+        "text"
+      ],
+      "properties": {
+        "allow_free_text": {
+          "type": "boolean"
+        },
+        "answer": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/QuestionAnswer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "assignment_id": {
+          "type": "string"
+        },
+        "bot_id": {
+          "type": "string"
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "$ref": "#/definitions/QuestionState"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "QuestionAnswer": {
+      "type": "object",
+      "required": [
+        "at"
+      ],
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "option_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "QuestionResult": {
+      "type": "object",
+      "required": [
+        "question"
+      ],
+      "properties": {
+        "question": {
+          "$ref": "#/definitions/Question"
+        }
+      }
+    },
+    "QuestionState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "answered"
+      ]
+    },
+    "QueueReason": {
+      "type": "string",
+      "enum": [
+        "bot_parallel_limit",
+        "global_limit",
+        "serial_in_project"
+      ]
+    },
+    "Reaction": {
+      "type": "object",
+      "required": [
+        "by",
+        "emoji"
+      ],
+      "properties": {
+        "by": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Sender"
+          }
+        },
+        "emoji": {
+          "type": "string"
+        }
+      }
+    },
+    "ResumeMode": {
+      "type": "string",
+      "enum": [
+        "replay",
+        "reset"
+      ]
+    },
+    "ReviewState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "confirmed",
+        "changes_requested"
+      ]
+    },
+    "Routine": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "created_at",
+        "enabled",
+        "id",
+        "instructions",
+        "name",
+        "schedules",
+        "timezone",
+        "updated_at"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RoutineRun"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "next_run_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schedules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Schedule"
+          }
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "RoutineListResult": {
+      "type": "object",
+      "required": [
+        "routines"
+      ],
+      "properties": {
+        "routines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Routine"
+          }
+        }
+      }
+    },
+    "RoutineResult": {
+      "type": "object",
+      "required": [
+        "routine"
+      ],
+      "properties": {
+        "routine": {
+          "$ref": "#/definitions/Routine"
+        }
+      }
+    },
+    "RoutineRun": {
+      "type": "object",
+      "required": [
+        "id",
+        "routine_id",
+        "started_at",
+        "status",
+        "trigger"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "finished_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "routine_id": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/RoutineRunStatus"
+        },
+        "trigger": {
+          "$ref": "#/definitions/RoutineTrigger"
+        }
+      }
+    },
+    "RoutineRunResult": {
+      "type": "object",
+      "required": [
+        "run"
+      ],
+      "properties": {
+        "run": {
+          "$ref": "#/definitions/RoutineRun"
+        }
+      }
+    },
+    "RoutineRunStatus": {
+      "type": "string",
+      "enum": [
+        "running",
+        "done",
+        "failed",
+        "skipped"
+      ]
+    },
+    "RoutineRunsResult": {
+      "type": "object",
+      "required": [
+        "runs"
+      ],
+      "properties": {
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RoutineRun"
+          }
+        }
+      }
+    },
+    "RoutineTrigger": {
+      "type": "string",
+      "enum": [
+        "schedule",
+        "test"
+      ]
+    },
+    "RunEndStatus": {
+      "type": "string",
+      "enum": [
+        "done",
+        "failed",
+        "cancelled",
+        "suspended"
+      ]
+    },
+    "Schedule": {
+      "type": "object",
+      "required": [
+        "cron",
+        "label"
+      ],
+      "properties": {
+        "cron": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "SearchHit": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "snippet",
+        "title"
+      ],
+      "properties": {
+        "at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "chat_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/SearchKind"
+        },
+        "snippet": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "SearchKind": {
+      "type": "string",
+      "enum": [
+        "message",
+        "chat",
+        "bot",
+        "artifact",
+        "routine"
+      ]
+    },
+    "SearchResult": {
+      "type": "object",
+      "required": [
+        "results"
+      ],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchHit"
+          }
+        }
+      }
+    },
+    "Sender": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "user"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "kind"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bot"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "system"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "SessionResumeResult": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "$ref": "#/definitions/ResumeMode"
+        }
+      }
+    },
+    "Settings": {
+      "type": "object",
+      "required": [
+        "approvals",
+        "browser",
+        "concurrency",
+        "currency",
+        "host_name",
+        "main_bot",
+        "models",
+        "push",
+        "skills",
+        "timezone",
+        "trace",
+        "web_search"
+      ],
+      "properties": {
+        "approvals": {
+          "$ref": "#/definitions/ApprovalSettings"
+        },
+        "browser": {
+          "$ref": "#/definitions/BrowserSettings"
+        },
+        "concurrency": {
+          "$ref": "#/definitions/Concurrency"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "host_name": {
+          "type": "string"
+        },
+        "main_bot": {
+          "$ref": "#/definitions/MainBotSettings"
+        },
+        "models": {
+          "$ref": "#/definitions/ModelDefaults"
+        },
+        "push": {
+          "$ref": "#/definitions/PushSettings"
+        },
+        "skills": {
+          "$ref": "#/definitions/SkillSettings"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "trace": {
+          "$ref": "#/definitions/TraceSettings"
+        },
+        "web_search": {
+          "$ref": "#/definitions/WebSearchSettings"
+        }
+      }
+    },
+    "SettingsResult": {
+      "type": "object",
+      "required": [
+        "settings"
+      ],
+      "properties": {
+        "settings": {
+          "$ref": "#/definitions/Settings"
+        }
+      }
+    },
+    "Skill": {
+      "type": "object",
+      "required": [
+        "description",
+        "disabled_bot_ids",
+        "enabled",
+        "files",
+        "invocations_7d",
+        "name",
+        "path",
+        "source",
+        "updated_at"
+      ],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "disabled_bot_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "invocations_7d": {
+          "$ref": "#/definitions/Invocations7d"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SkillSource"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "SkillDetail": {
+      "type": "object",
+      "required": [
+        "content",
+        "description",
+        "disabled_bot_ids",
+        "enabled",
+        "files",
+        "invocations_7d",
+        "name",
+        "path",
+        "source",
+        "updated_at"
+      ],
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "disabled_bot_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "invocations_7d": {
+          "$ref": "#/definitions/Invocations7d"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SkillSource"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "SkillGetResult": {
+      "type": "object",
+      "required": [
+        "skill"
+      ],
+      "properties": {
+        "skill": {
+          "$ref": "#/definitions/SkillDetail"
+        }
+      }
+    },
+    "SkillImportResult": {
+      "type": "object",
+      "required": [
+        "skills"
+      ],
+      "properties": {
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Skill"
+          }
+        }
+      }
+    },
+    "SkillListResult": {
+      "type": "object",
+      "required": [
+        "skills"
+      ],
+      "properties": {
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Skill"
+          }
+        }
+      }
+    },
+    "SkillResult": {
+      "type": "object",
+      "required": [
+        "skill"
+      ],
+      "properties": {
+        "skill": {
+          "$ref": "#/definitions/Skill"
+        }
+      }
+    },
+    "SkillSettings": {
+      "type": "object",
+      "required": [
+        "extra_dirs"
+      ],
+      "properties": {
+        "extra_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "SkillSource": {
+      "type": "string",
+      "enum": [
+        "builtin",
+        "user",
+        "imported",
+        "draft"
+      ]
+    },
+    "Steer": {
+      "type": "object",
+      "required": [
+        "at",
+        "message_id",
+        "text"
+      ],
+      "properties": {
+        "applied_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "at": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "StreamQuality": {
+      "type": "object",
+      "required": [
+        "max_fps",
+        "max_width",
+        "quality"
+      ],
+      "properties": {
+        "max_fps": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "max_width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "quality": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        }
+      }
+    },
+    "StreamSettings": {
+      "type": "object",
+      "required": [
+        "desktop",
+        "mobile"
+      ],
+      "properties": {
+        "desktop": {
+          "$ref": "#/definitions/StreamQuality"
+        },
+        "mobile": {
+          "$ref": "#/definitions/StreamQuality"
+        }
+      }
+    },
+    "SubagentModel": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "SystemCode": {
+      "type": "string",
+      "enum": [
+        "member_added",
+        "member_removed",
+        "project_status",
+        "renamed",
+        "task_stopped",
+        "task_no_report",
+        "info"
+      ]
+    },
+    "TakeoverState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "active",
+        "done"
+      ]
+    },
+    "ToolToggles": {
+      "type": "object",
+      "required": [
+        "bash",
+        "browser",
+        "files",
+        "mcp",
+        "subagent",
+        "web"
+      ],
+      "properties": {
+        "bash": {
+          "type": "boolean"
+        },
+        "browser": {
+          "type": "boolean"
+        },
+        "files": {
+          "type": "boolean"
+        },
+        "mcp": {
+          "type": "boolean"
+        },
+        "subagent": {
+          "type": "boolean"
+        },
+        "web": {
+          "type": "boolean"
+        }
+      }
+    },
+    "TraceContext": {
+      "type": "object",
+      "required": [
+        "l0",
+        "l1",
+        "l2",
+        "l3",
+        "l4",
+        "total"
+      ],
+      "properties": {
+        "l0": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "l1": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "l2": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "l3": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "l4": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "TraceData": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "model",
+            "phase"
+          ],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "parent_run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "phase": {
+              "$ref": "#/definitions/TracePhase"
+            },
+            "subagent_task": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "context",
+            "model",
+            "request_id",
+            "tools"
+          ],
+          "properties": {
+            "context": {
+              "$ref": "#/definitions/TraceContext"
+            },
+            "model": {
+              "type": "string"
+            },
+            "prompt_ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "latency_ms",
+            "request_id",
+            "stop_reason",
+            "text",
+            "tool_calls",
+            "ttft_ms",
+            "usage"
+          ],
+          "properties": {
+            "latency_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "stop_reason": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "thinking": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_calls": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceToolCall"
+              }
+            },
+            "ttft_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "usage": {
+              "$ref": "#/definitions/UsageTotals"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "args",
+            "call_id",
+            "name"
+          ],
+          "properties": {
+            "args": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "call_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "call_id",
+            "details",
+            "duration_ms",
+            "is_error",
+            "preview",
+            "truncated"
+          ],
+          "properties": {
+            "call_id": {
+              "type": "string"
+            },
+            "details": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "duration_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "full_output": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/FileRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "is_error": {
+              "type": "boolean"
+            },
+            "preview": {
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "call_id",
+            "chat_id",
+            "intent",
+            "message_id"
+          ],
+          "properties": {
+            "call_id": {
+              "type": "string"
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "intent": {
+              "$ref": "#/definitions/Intent"
+            },
+            "message_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "from",
+            "message_id",
+            "text"
+          ],
+          "properties": {
+            "from": {
+              "$ref": "#/definitions/Sender"
+            },
+            "message_id": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "message_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "$ref": "#/definitions/WaitReason"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "after_tokens",
+            "before_tokens",
+            "reason"
+          ],
+          "properties": {
+            "after_tokens": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "before_tokens": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "error": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/definitions/RunEndStatus"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "by_message_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "TraceHistoryResult": {
+      "type": "object",
+      "required": [
+        "has_more_before",
+        "items",
+        "live"
+      ],
+      "properties": {
+        "first_aseq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "has_more_before": {
+          "type": "boolean"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TraceItem"
+          }
+        },
+        "last_aseq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "live": {
+          "type": "boolean"
+        }
+      }
+    },
+    "TraceItem": {
+      "type": "object",
+      "required": [
+        "aseq",
+        "at",
+        "chat_id",
+        "data",
+        "run_id",
+        "type"
+      ],
+      "properties": {
+        "aseq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "at": {
+          "type": "string"
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/definitions/TraceData"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/definitions/TraceType"
+        }
+      }
+    },
+    "TracePhase": {
+      "type": "string",
+      "enum": [
+        "chat",
+        "work",
+        "subagent",
+        "memory",
+        "compact"
+      ]
+    },
+    "TraceSettings": {
+      "type": "object",
+      "required": [
+        "save_full_requests"
+      ],
+      "properties": {
+        "save_full_requests": {
+          "type": "boolean"
+        }
+      }
+    },
+    "TraceSubscribeResult": {
+      "type": "object",
+      "required": [
+        "in_flight",
+        "stream"
+      ],
+      "properties": {
+        "in_flight": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/InFlight"
+          }
+        },
+        "stream": {
+          "type": "string"
+        }
+      }
+    },
+    "TraceToolCall": {
+      "type": "object",
+      "required": [
+        "args",
+        "call_id",
+        "name"
+      ],
+      "properties": {
+        "args": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "TraceType": {
+      "type": "string",
+      "enum": [
+        "run.start",
+        "llm.request",
+        "llm.response",
+        "tool.start",
+        "tool.end",
+        "send_msg",
+        "steer",
+        "run.wait",
+        "run.resume",
+        "compaction",
+        "run.end"
+      ]
+    },
+    "UsageBreakdownResult": {
+      "type": "object",
+      "required": [
+        "rows"
+      ],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UsageRow"
+          }
+        }
+      }
+    },
+    "UsageRow": {
+      "type": "object",
+      "required": [
+        "key",
+        "label",
+        "phases",
+        "sparkline",
+        "usage"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "phases": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "sparkline": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "usage": {
+          "$ref": "#/definitions/UsageTotals"
+        }
+      }
+    },
+    "UsageSeries": {
+      "type": "object",
+      "required": [
+        "key",
+        "label",
+        "total",
+        "values"
+      ],
+      "properties": {
+        "input_values": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "output_values": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "total": {
+          "type": "number",
+          "format": "double"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      }
+    },
+    "UsageSummaryResult": {
+      "type": "object",
+      "required": [
+        "current",
+        "previous"
+      ],
+      "properties": {
+        "current": {
+          "$ref": "#/definitions/UsageWithTasks"
+        },
+        "previous": {
+          "$ref": "#/definitions/UsageWithTasks"
+        }
+      }
+    },
+    "UsageTimeseriesResult": {
+      "type": "object",
+      "required": [
+        "buckets",
+        "granularity",
+        "series"
+      ],
+      "properties": {
+        "buckets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "granularity": {
+          "$ref": "#/definitions/Granularity"
+        },
+        "series": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UsageSeries"
+          }
+        }
+      }
+    },
+    "UsageTotals": {
+      "type": "object",
+      "required": [
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "input_tokens",
+        "output_tokens",
+        "requests"
+      ],
+      "properties": {
+        "cache_read_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "cache_write_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "cost": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "input_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "UsageWithTasks": {
+      "type": "object",
+      "required": [
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "input_tokens",
+        "output_tokens",
+        "requests",
+        "tasks_done"
+      ],
+      "properties": {
+        "cache_read_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "cache_write_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "cost": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "input_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "tasks_done": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "WaitReason": {
+      "type": "string",
+      "enum": [
+        "decision",
+        "blocked",
+        "approval",
+        "takeover"
+      ]
+    },
+    "WaitState": {
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "message_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/definitions/WaitReason"
+        }
+      }
+    },
+    "WebSearchProvider": {
+      "type": "string",
+      "enum": [
+        "brave",
+        "tavily",
+        "searxng"
+      ]
+    },
+    "WebSearchSettings": {
+      "type": "object",
+      "required": [
+        "has_key"
+      ],
+      "properties": {
+        "endpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "has_key": {
+          "type": "boolean"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebSearchProvider"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "WeekhourHeatmap": {
+      "type": "object",
+      "required": [
+        "matrix",
+        "thresholds"
+      ],
+      "properties": {
+        "matrix": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "thresholds": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        }
+      }
+    },
+    "Workbench": {
+      "type": "object",
+      "required": [
+        "bots",
+        "done_today",
+        "global_limit",
+        "running",
+        "subagents_running",
+        "waiting"
+      ],
+      "properties": {
+        "bots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkbenchBot"
+          }
+        },
+        "done_today": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Assignment"
+          }
+        },
+        "global_limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "running": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "subagents_running": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "waiting": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkbenchWaiting"
+          }
+        }
+      }
+    },
+    "WorkbenchBot": {
+      "type": "object",
+      "required": [
+        "active",
+        "assignments",
+        "bot_id",
+        "max_parallel"
+      ],
+      "properties": {
+        "active": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "assignments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Assignment"
+          }
+        },
+        "bot_id": {
+          "type": "string"
+        },
+        "max_parallel": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "WorkbenchResult": {
+      "type": "object",
+      "required": [
+        "workbench"
+      ],
+      "properties": {
+        "workbench": {
+          "$ref": "#/definitions/Workbench"
+        }
+      }
+    },
+    "WorkbenchWaiting": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "project_id",
+            "since"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "review"
+              ]
+            },
+            "project_id": {
+              "type": "string"
+            },
+            "since": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "approval",
+            "kind"
+          ],
+          "properties": {
+            "approval": {
+              "$ref": "#/definitions/Approval"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "approval"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "question"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "question"
+              ]
+            },
+            "question": {
+              "$ref": "#/definitions/Question"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "assignment_id",
+            "bot_id",
+            "kind",
+            "reason"
+          ],
+          "properties": {
+            "assignment_id": {
+              "type": "string"
+            },
+            "bot_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "takeover"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

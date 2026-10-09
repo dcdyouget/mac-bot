@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UsageTotals",
+  "type": "object",
+  "required": [
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "input_tokens",
+    "output_tokens",
+    "requests"
+  ],
+  "properties": {
+    "cache_read_tokens": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "cache_write_tokens": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "cost": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "input_tokens": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "output_tokens": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "requests": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    }
+  }
+}

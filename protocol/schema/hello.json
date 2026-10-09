@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Hello",
+  "type": "object",
+  "required": [
+    "currency",
+    "features",
+    "host_name",
+    "last_seq",
+    "node_id",
+    "protocol",
+    "server_time",
+    "server_version",
+    "timezone"
+  ],
+  "properties": {
+    "currency": {
+      "type": "string"
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "host_name": {
+      "type": "string"
+    },
+    "last_seq": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "node_id": {
+      "type": "string"
+    },
+    "protocol": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "server_time": {
+      "type": "string"
+    },
+    "server_version": {
+      "type": "string"
+    },
+    "timezone": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Provider",
+  "type": "object",
+  "required": [
+    "api_kind",
+    "base_url",
+    "created_at",
+    "has_key",
+    "headers",
+    "id",
+    "name",
+    "updated_at"
+  ],
+  "properties": {
+    "api_kind": {
+      "$ref": "#/definitions/ApiKind"
+    },
+    "base_url": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "has_key": {
+      "type": "boolean"
+    },
+    "headers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "ApiKind": {
+      "type": "string",
+      "enum": [
+        "openai-completions",
+        "openai-responses",
+        "anthropic-messages",
+        "google-generative"
+      ]
+    }
+  }
+}

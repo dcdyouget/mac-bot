@@ -1,0 +1,790 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Message",
+  "type": "object",
+  "required": [
+    "blocks",
+    "chat_id",
+    "created_at",
+    "deleted",
+    "delivery",
+    "fallback_text",
+    "id",
+    "mentions",
+    "reactions",
+    "sender",
+    "seq",
+    "streaming",
+    "thread_count"
+  ],
+  "properties": {
+    "assignment_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Block"
+      }
+    },
+    "chat_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "deleted": {
+      "type": "boolean"
+    },
+    "delivery": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Delivery"
+      }
+    },
+    "edited_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fallback_text": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "intent": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Intent"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mentions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Mention"
+      }
+    },
+    "reactions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Reaction"
+      }
+    },
+    "reply_to": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sender": {
+      "$ref": "#/definitions/Sender"
+    },
+    "seq": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "streaming": {
+      "type": "boolean"
+    },
+    "thread_count": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "ArtifactRef": {
+      "type": "object",
+      "required": [
+        "artifact_id",
+        "path_or_url",
+        "title"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string"
+        },
+        "path_or_url": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "Block": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "markdown",
+            "type"
+          ],
+          "properties": {
+            "markdown": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "text"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "file",
+            "type"
+          ],
+          "properties": {
+            "file": {
+              "$ref": "#/definitions/FileRef"
+            },
+            "height": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "image"
+              ]
+            },
+            "width": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "file",
+            "type"
+          ],
+          "properties": {
+            "file": {
+              "$ref": "#/definitions/FileRef"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "file"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "assignment_id",
+            "type"
+          ],
+          "properties": {
+            "assignment_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "task_card"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "artifacts",
+            "next",
+            "notify_main",
+            "summary",
+            "type"
+          ],
+          "properties": {
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ArtifactRef"
+              }
+            },
+            "next": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/NextTask"
+              }
+            },
+            "notify_main": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "completion"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "text",
+            "type"
+          ],
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "progress"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "reason",
+            "type"
+          ],
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "blocked"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "question_id",
+            "type"
+          ],
+          "properties": {
+            "question_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "question"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "project_id",
+            "type"
+          ],
+          "properties": {
+            "project_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "project_card"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "artifacts",
+            "project_id",
+            "state",
+            "type"
+          ],
+          "properties": {
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ArtifactRef"
+              }
+            },
+            "project_id": {
+              "type": "string"
+            },
+            "state": {
+              "$ref": "#/definitions/ReviewState"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "review_card"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "assignment_id",
+            "bot_id",
+            "type"
+          ],
+          "properties": {
+            "assignment_id": {
+              "type": "string"
+            },
+            "bot_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "delegation"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "approval_id",
+            "type"
+          ],
+          "properties": {
+            "approval_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "approval"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "approval_id",
+            "chat_id",
+            "type"
+          ],
+          "properties": {
+            "approval_id": {
+              "type": "string"
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "approval_ref"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "reason",
+            "state",
+            "type"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "state": {
+              "$ref": "#/definitions/TakeoverState"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "takeover_request"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "chat_id",
+            "count",
+            "type"
+          ],
+          "properties": {
+            "chat_id": {
+              "type": "string"
+            },
+            "count": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "bot_dm_ref"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "code",
+            "text",
+            "type"
+          ],
+          "properties": {
+            "code": {
+              "$ref": "#/definitions/SystemCode"
+            },
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "system"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "hops",
+            "root_message_id",
+            "state",
+            "type"
+          ],
+          "properties": {
+            "hops": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "root_message_id": {
+              "type": "string"
+            },
+            "state": {
+              "$ref": "#/definitions/LoopState"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "loop_paused"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Delivery": {
+      "type": "object",
+      "required": [
+        "at",
+        "bot_id",
+        "state"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "at": {
+          "type": "string"
+        },
+        "bot_id": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/DeliveryState"
+        }
+      }
+    },
+    "DeliveryState": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "delivered",
+        "read"
+      ]
+    },
+    "FileRef": {
+      "type": "object",
+      "required": [
+        "mime",
+        "name",
+        "path",
+        "root",
+        "root_id",
+        "size"
+      ],
+      "properties": {
+        "mime": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "$ref": "#/definitions/FileRoot"
+        },
+        "root_id": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "FileRoot": {
+      "type": "string",
+      "enum": [
+        "project",
+        "bot",
+        "upload"
+      ]
+    },
+    "Intent": {
+      "type": "string",
+      "enum": [
+        "ack",
+        "progress",
+        "decision",
+        "done",
+        "blocked"
+      ]
+    },
+    "LoopState": {
+      "type": "string",
+      "enum": [
+        "paused",
+        "continued",
+        "ended"
+      ]
+    },
+    "Mention": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "kind"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "instruction": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bot"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "main"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "user"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "everyone"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "NextTask": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "instruction"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": "string"
+        }
+      }
+    },
+    "Reaction": {
+      "type": "object",
+      "required": [
+        "by",
+        "emoji"
+      ],
+      "properties": {
+        "by": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Sender"
+          }
+        },
+        "emoji": {
+          "type": "string"
+        }
+      }
+    },
+    "ReviewState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "confirmed",
+        "changes_requested"
+      ]
+    },
+    "Sender": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "user"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "kind"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bot"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "system"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "SystemCode": {
+      "type": "string",
+      "enum": [
+        "member_added",
+        "member_removed",
+        "project_status",
+        "renamed",
+        "task_stopped",
+        "task_no_report",
+        "info"
+      ]
+    },
+    "TakeoverState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "active",
+        "done"
+      ]
+    }
+  }
+}

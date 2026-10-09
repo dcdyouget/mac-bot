@@ -1,0 +1,2722 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MethodParams",
+  "anyOf": [
+    {
+      "$ref": "#/definitions/SessionResumeParams"
+    },
+    {
+      "$ref": "#/definitions/EmptyParams"
+    },
+    {
+      "$ref": "#/definitions/EmptyParams"
+    },
+    {
+      "$ref": "#/definitions/DeviceRegisterParams"
+    },
+    {
+      "$ref": "#/definitions/IncludeArchivedParams"
+    },
+    {
+      "$ref": "#/definitions/ChatIdParams"
+    },
+    {
+      "$ref": "#/definitions/ChatHistoryParams"
+    },
+    {
+      "$ref": "#/definitions/ChatThreadParams"
+    },
+    {
+      "$ref": "#/definitions/ChatSendParams"
+    },
+    {
+      "$ref": "#/definitions/ChatMarkReadParams"
+    },
+    {
+      "$ref": "#/definitions/ChatReactParams"
+    },
+    {
+      "$ref": "#/definitions/ChatPinnedParams"
+    },
+    {
+      "$ref": "#/definitions/ChatMutedParams"
+    },
+    {
+      "$ref": "#/definitions/BotListParams"
+    },
+    {
+      "$ref": "#/definitions/BotIdParams"
+    },
+    {
+      "$ref": "#/definitions/BotCreateParams"
+    },
+    {
+      "$ref": "#/definitions/BotUpdateParams"
+    },
+    {
+      "$ref": "#/definitions/BotDuplicateParams"
+    },
+    {
+      "$ref": "#/definitions/BotIdParams"
+    },
+    {
+      "$ref": "#/definitions/EmptyParams"
+    },
+    {
+      "$ref": "#/definitions/CreateFromTemplateParams"
+    },
+    {
+      "$ref": "#/definitions/ProjectListParams"
+    },
+    {
+      "$ref": "#/definitions/ProjectIdParams"
+    },
+    {
+      "$ref": "#/definitions/ProjectCreateParams"
+    },
+    {
+      "$ref": "#/definitions/ProjectUpdateParams"
+    },
+    {
+      "$ref": "#/definitions/ProjectMemberParams"
+    },
+    {
+      "$ref": "#/definitions/ProjectRemoveMemberParams"
+    },
+    {
+      "$ref": "#/definitions/ProjectConfirmDoneParams"
+    },
+    {
+      "$ref": "#/definitions/ProjectRequestChangesParams"
+    },
+    {
+      "$ref": "#/definitions/ProjectIdParams"
+    },
+    {
+      "$ref": "#/definitions/ProjectIdParams"
+    },
+    {
+      "$ref": "#/definitions/AssignmentListParams"
+    },
+    {
+      "$ref": "#/definitions/AssignmentIdParams"
+    },
+    {
+      "$ref": "#/definitions/AssignmentIdParams"
+    },
+    {
+      "$ref": "#/definitions/TraceHistoryParams"
+    },
+    {
+      "$ref": "#/definitions/TraceSubscribeParams"
+    },
+    {
+      "$ref": "#/definitions/TraceUnsubscribeParams"
+    },
+    {
+      "$ref": "#/definitions/ApprovalListParams"
+    },
+    {
+      "$ref": "#/definitions/ApprovalDecideParams"
+    },
+    {
+      "$ref": "#/definitions/QuestionAnswerParams"
+    },
+    {
+      "$ref": "#/definitions/LoopResolveParams"
+    },
+    {
+      "$ref": "#/definitions/TakeoverStartParams"
+    },
+    {
+      "$ref": "#/definitions/TakeoverReleaseParams"
+    },
+    {
+      "$ref": "#/definitions/EmptyParams"
+    },
+    {
+      "$ref": "#/definitions/EmptyParams"
+    },
+    {
+      "$ref": "#/definitions/SkillNameParams"
+    },
+    {
+      "$ref": "#/definitions/SkillCreateParams"
+    },
+    {
+      "$ref": "#/definitions/SkillCreateParams"
+    },
+    {
+      "$ref": "#/definitions/SkillNameParams"
+    },
+    {
+      "$ref": "#/definitions/SkillSetEnabledParams"
+    },
+    {
+      "$ref": "#/definitions/SkillNameParams"
+    },
+    {
+      "$ref": "#/definitions/SkillImportParams"
+    },
+    {
+      "$ref": "#/definitions/RoutineListParams"
+    },
+    {
+      "$ref": "#/definitions/RoutineCreateParams"
+    },
+    {
+      "$ref": "#/definitions/RoutineUpdateParams"
+    },
+    {
+      "$ref": "#/definitions/RoutineIdParams"
+    },
+    {
+      "$ref": "#/definitions/RoutineEnabledParams"
+    },
+    {
+      "$ref": "#/definitions/RoutineIdParams"
+    },
+    {
+      "$ref": "#/definitions/RoutineIdParams"
+    },
+    {
+      "$ref": "#/definitions/EmptyParams"
+    },
+    {
+      "$ref": "#/definitions/ProviderCreateParams"
+    },
+    {
+      "$ref": "#/definitions/ProviderUpdateParams"
+    },
+    {
+      "$ref": "#/definitions/ProviderIdParams"
+    },
+    {
+      "$ref": "#/definitions/ProviderIdParams"
+    },
+    {
+      "$ref": "#/definitions/ProviderIdParams"
+    },
+    {
+      "$ref": "#/definitions/ModelUpsertParams"
+    },
+    {
+      "$ref": "#/definitions/ModelDeleteParams"
+    },
+    {
+      "$ref": "#/definitions/EmptyParams"
+    },
+    {
+      "$ref": "#/definitions/SettingsUpdateParams"
+    },
+    {
+      "$ref": "#/definitions/UsagePeriodParams"
+    },
+    {
+      "$ref": "#/definitions/UsageHeatmapParams"
+    },
+    {
+      "$ref": "#/definitions/UsageTimeseriesParams"
+    },
+    {
+      "$ref": "#/definitions/UsageBreakdownParams"
+    },
+    {
+      "$ref": "#/definitions/SearchParams"
+    }
+  ],
+  "definitions": {
+    "ApiKind": {
+      "type": "string",
+      "enum": [
+        "openai-completions",
+        "openai-responses",
+        "anthropic-messages",
+        "google-generative"
+      ]
+    },
+    "ApprovalDecideParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "approval_id",
+        "decision"
+      ],
+      "properties": {
+        "approval_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decision": {
+          "$ref": "#/definitions/ApprovalDecision"
+        }
+      }
+    },
+    "ApprovalDecision": {
+      "type": "string",
+      "enum": [
+        "allow_once",
+        "always_allow",
+        "deny"
+      ]
+    },
+    "ApprovalListParams": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/ApprovalState"
+          }
+        }
+      }
+    },
+    "ApprovalMode": {
+      "type": "string",
+      "enum": [
+        "require",
+        "always_allow"
+      ]
+    },
+    "ApprovalRule": {
+      "type": "object",
+      "required": [
+        "created_at",
+        "id",
+        "kind",
+        "text"
+      ],
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ApprovalRuleKind"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "ApprovalRuleKind": {
+      "type": "string",
+      "enum": [
+        "ask_first",
+        "auto_allow"
+      ]
+    },
+    "ApprovalSettings": {
+      "type": "object",
+      "required": [
+        "mode",
+        "rules"
+      ],
+      "properties": {
+        "mode": {
+          "$ref": "#/definitions/ApprovalMode"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApprovalRule"
+          }
+        }
+      }
+    },
+    "ApprovalState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "allowed_once",
+        "always_allowed",
+        "denied",
+        "expired"
+      ]
+    },
+    "AssignmentIdParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "assignment_id"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "AssignmentListParams": {
+      "type": "object",
+      "properties": {
+        "bot_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/AssignmentStatus"
+          }
+        }
+      }
+    },
+    "AssignmentStatus": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "working",
+        "waiting_user",
+        "waiting_bot",
+        "blocked",
+        "done",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "Avatar": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "color",
+            "kind"
+          ],
+          "properties": {
+            "color": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bean"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "emoji",
+            "kind"
+          ],
+          "properties": {
+            "emoji": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "emoji"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "file",
+            "kind"
+          ],
+          "properties": {
+            "file": {
+              "$ref": "#/definitions/FileRef"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "image"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "BotCreateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "avatar": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Avatar"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "browser_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_parallel": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "tools": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolToggles"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "BotDuplicateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "bot_id",
+        "name"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "BotIdParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "bot_id"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "BotListParams": {
+      "type": "object",
+      "properties": {
+        "include_hidden": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "BotPatch": {
+      "type": "object",
+      "properties": {
+        "avatar": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Avatar"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "browser_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hidden": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_parallel": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "model": {
+          "description": "`None` means omitted; `Some(None)` explicitly clears the model.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PatchString"
+            }
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notifications": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "pinned": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "tools": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolToggles"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "BotUpdateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "bot_id",
+        "patch"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "patch": {
+          "$ref": "#/definitions/BotPatch"
+        }
+      }
+    },
+    "BrowserMode": {
+      "type": "string",
+      "enum": [
+        "headless",
+        "headless_profile",
+        "attach"
+      ]
+    },
+    "BrowserSettings": {
+      "type": "object",
+      "required": [
+        "chrome_profile",
+        "default_mode",
+        "stream"
+      ],
+      "properties": {
+        "chrome_profile": {
+          "type": "string"
+        },
+        "default_mode": {
+          "$ref": "#/definitions/BrowserMode"
+        },
+        "stream": {
+          "$ref": "#/definitions/StreamSettings"
+        }
+      }
+    },
+    "ChatHistoryParams": {
+      "type": "object",
+      "required": [
+        "chat_id"
+      ],
+      "properties": {
+        "after_seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "before_seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ChatIdParams": {
+      "type": "object",
+      "required": [
+        "chat_id"
+      ],
+      "properties": {
+        "chat_id": {
+          "type": "string"
+        }
+      }
+    },
+    "ChatMarkReadParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "chat_id",
+        "seq"
+      ],
+      "properties": {
+        "chat_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ChatMutedParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "chat_id",
+        "muted"
+      ],
+      "properties": {
+        "chat_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "muted": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ChatPinnedParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "chat_id",
+        "pinned"
+      ],
+      "properties": {
+        "chat_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pinned": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ChatReactParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "emoji",
+        "message_id",
+        "on"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "emoji": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "on": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ChatSendParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "chat_id",
+        "mentions",
+        "text"
+      ],
+      "properties": {
+        "attachments": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Mention"
+          }
+        },
+        "reply_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "ChatThreadParams": {
+      "type": "object",
+      "required": [
+        "chat_id",
+        "root_message_id"
+      ],
+      "properties": {
+        "chat_id": {
+          "type": "string"
+        },
+        "root_message_id": {
+          "type": "string"
+        }
+      }
+    },
+    "ClientInfo": {
+      "type": "object",
+      "required": [
+        "app_version",
+        "device_id",
+        "device_name",
+        "platform"
+      ],
+      "properties": {
+        "app_version": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "device_name": {
+          "type": "string"
+        },
+        "platform": {
+          "$ref": "#/definitions/Platform"
+        }
+      }
+    },
+    "Concurrency": {
+      "type": "object",
+      "required": [
+        "bot_default",
+        "global",
+        "loop_hops",
+        "subagent_global",
+        "subagent_per_run"
+      ],
+      "properties": {
+        "bot_default": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "global": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "loop_hops": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "subagent_global": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "subagent_per_run": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "CreateFromTemplateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "template_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "template_id": {
+          "type": "string"
+        }
+      }
+    },
+    "DeviceRegisterParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "app_version",
+        "device_id",
+        "device_name",
+        "platform"
+      ],
+      "properties": {
+        "app_version": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "device_name": {
+          "type": "string"
+        },
+        "platform": {
+          "$ref": "#/definitions/Platform"
+        },
+        "push_token": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "EmptyParams": {
+      "type": "object"
+    },
+    "FileRef": {
+      "type": "object",
+      "required": [
+        "mime",
+        "name",
+        "path",
+        "root",
+        "root_id",
+        "size"
+      ],
+      "properties": {
+        "mime": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "$ref": "#/definitions/FileRoot"
+        },
+        "root_id": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "FileRoot": {
+      "type": "string",
+      "enum": [
+        "project",
+        "bot",
+        "upload"
+      ]
+    },
+    "Granularity": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "hour",
+        "day",
+        "week"
+      ]
+    },
+    "HeatmapMode": {
+      "type": "string",
+      "enum": [
+        "calendar",
+        "weekhour"
+      ]
+    },
+    "IncludeArchivedParams": {
+      "type": "object",
+      "properties": {
+        "include_archived": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "LoopAction": {
+      "type": "string",
+      "enum": [
+        "continue",
+        "end"
+      ]
+    },
+    "LoopResolveParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "action",
+        "root_message_id"
+      ],
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/LoopAction"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root_message_id": {
+          "type": "string"
+        }
+      }
+    },
+    "MainBotSettings": {
+      "type": "object",
+      "required": [
+        "auto_create_project"
+      ],
+      "properties": {
+        "auto_create_project": {
+          "type": "boolean"
+        }
+      }
+    },
+    "Mention": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "kind"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "instruction": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bot"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "main"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "user"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "everyone"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ModelCaps": {
+      "type": "object",
+      "required": [
+        "reasoning",
+        "tools",
+        "vision"
+      ],
+      "properties": {
+        "reasoning": {
+          "type": "boolean"
+        },
+        "tools": {
+          "type": "boolean"
+        },
+        "vision": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ModelDefaults": {
+      "type": "object",
+      "required": [
+        "subagent"
+      ],
+      "properties": {
+        "bot_default": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "main": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maintenance": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subagent": {
+          "$ref": "#/definitions/SubagentModel"
+        }
+      }
+    },
+    "ModelDeleteParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "ref"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    },
+    "ModelPrice": {
+      "type": "object",
+      "required": [
+        "cache_read_per_mtok",
+        "cache_write_per_mtok",
+        "input_per_mtok",
+        "output_per_mtok"
+      ],
+      "properties": {
+        "cache_read_per_mtok": {
+          "type": "number",
+          "format": "double"
+        },
+        "cache_write_per_mtok": {
+          "type": "number",
+          "format": "double"
+        },
+        "input_per_mtok": {
+          "type": "number",
+          "format": "double"
+        },
+        "output_per_mtok": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "ModelUpsertParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "model_id",
+        "provider_id"
+      ],
+      "properties": {
+        "caps": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ModelCaps"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "context_window": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "max_output": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "price": {
+          "$ref": "#/definitions/PatchModelPrice"
+        },
+        "provider_id": {
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "#/definitions/PatchString"
+        }
+      }
+    },
+    "PatchModelPrice": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ModelPrice"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "PatchString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "Platform": {
+      "type": "string",
+      "enum": [
+        "macos",
+        "android",
+        "ios"
+      ]
+    },
+    "ProjectConfirmDoneParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectCreateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "goal",
+        "member_bot_ids",
+        "name"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "deadline": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "flow": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "goal": {
+          "type": "string"
+        },
+        "member_bot_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectIdParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "project_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectListParams": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/ProjectStatus"
+          }
+        }
+      }
+    },
+    "ProjectMemberParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "bot_id",
+        "project_id"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "role_note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ProjectPatch": {
+      "type": "object",
+      "properties": {
+        "deadline": {
+          "description": "`None` means omitted; `Some(None)` explicitly clears the deadline.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PatchString"
+            }
+          ]
+        },
+        "flow": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "goal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ProjectRemoveMemberParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "bot_id",
+        "project_id"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectRequestChangesParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "project_id",
+        "text"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "review",
+        "done",
+        "archived"
+      ]
+    },
+    "ProjectUpdateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "patch",
+        "project_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "patch": {
+          "$ref": "#/definitions/ProjectPatch"
+        },
+        "project_id": {
+          "type": "string"
+        }
+      }
+    },
+    "ProviderCreateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "api_kind",
+        "base_url",
+        "name"
+      ],
+      "properties": {
+        "api_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "api_kind": {
+          "$ref": "#/definitions/ApiKind"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "headers": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "ProviderIdParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "provider_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider_id": {
+          "type": "string"
+        }
+      }
+    },
+    "ProviderPatch": {
+      "type": "object",
+      "properties": {
+        "api_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "headers": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ProviderUpdateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "patch",
+        "provider_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "patch": {
+          "$ref": "#/definitions/ProviderPatch"
+        },
+        "provider_id": {
+          "type": "string"
+        }
+      }
+    },
+    "QuestionAnswerParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "question_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "option_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "question_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "RoutineCreateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "bot_id",
+        "instructions",
+        "name",
+        "schedules"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schedules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Schedule"
+          }
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "RoutineEnabledParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "enabled",
+        "routine_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "routine_id": {
+          "type": "string"
+        }
+      }
+    },
+    "RoutineIdParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "routine_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "routine_id": {
+          "type": "string"
+        }
+      }
+    },
+    "RoutineListParams": {
+      "type": "object",
+      "properties": {
+        "bot_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "RoutinePatch": {
+      "type": "object",
+      "properties": {
+        "instructions": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/PatchString"
+            }
+          ]
+        },
+        "schedules": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/Schedule"
+          }
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "RoutineUpdateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "patch",
+        "routine_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "patch": {
+          "$ref": "#/definitions/RoutinePatch"
+        },
+        "routine_id": {
+          "type": "string"
+        }
+      }
+    },
+    "Schedule": {
+      "type": "object",
+      "required": [
+        "cron",
+        "label"
+      ],
+      "properties": {
+        "cron": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "SearchKind": {
+      "type": "string",
+      "enum": [
+        "message",
+        "chat",
+        "bot",
+        "artifact",
+        "routine"
+      ]
+    },
+    "SearchParams": {
+      "type": "object",
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "kinds": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/SearchKind"
+          }
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "query": {
+          "type": "string"
+        }
+      }
+    },
+    "SessionResumeParams": {
+      "type": "object",
+      "required": [
+        "client",
+        "last_seq"
+      ],
+      "properties": {
+        "client": {
+          "$ref": "#/definitions/ClientInfo"
+        },
+        "last_seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "SettingsPatch": {
+      "type": "object",
+      "properties": {
+        "approvals": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ApprovalSettings"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "browser": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserSettings"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "concurrency": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Concurrency"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "main_bot": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MainBotSettings"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "models": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ModelDefaults"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "skills": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SkillSettings"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trace": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TraceSettings"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "web_search": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebSearchSettings"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "SettingsUpdateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "patch"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "patch": {
+          "$ref": "#/definitions/SettingsPatch"
+        }
+      }
+    },
+    "SkillCreateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "content",
+        "name"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "SkillImportParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "source"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/definitions/SkillImportSource"
+        }
+      }
+    },
+    "SkillImportSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "url"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "git"
+              ]
+            },
+            "subdir": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "upload_id"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "upload"
+              ]
+            },
+            "upload_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "path"
+              ]
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SkillNameParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "SkillSetEnabledParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "enabled",
+        "name"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "SkillSettings": {
+      "type": "object",
+      "required": [
+        "extra_dirs"
+      ],
+      "properties": {
+        "extra_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "StreamQuality": {
+      "type": "object",
+      "required": [
+        "max_fps",
+        "max_width",
+        "quality"
+      ],
+      "properties": {
+        "max_fps": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "max_width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "quality": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        }
+      }
+    },
+    "StreamSettings": {
+      "type": "object",
+      "required": [
+        "desktop",
+        "mobile"
+      ],
+      "properties": {
+        "desktop": {
+          "$ref": "#/definitions/StreamQuality"
+        },
+        "mobile": {
+          "$ref": "#/definitions/StreamQuality"
+        }
+      }
+    },
+    "SubagentModel": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "TakeoverReleaseParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "bot_id"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "TakeoverStartParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "bot_id"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ToolToggles": {
+      "type": "object",
+      "required": [
+        "bash",
+        "browser",
+        "files",
+        "mcp",
+        "subagent",
+        "web"
+      ],
+      "properties": {
+        "bash": {
+          "type": "boolean"
+        },
+        "browser": {
+          "type": "boolean"
+        },
+        "files": {
+          "type": "boolean"
+        },
+        "mcp": {
+          "type": "boolean"
+        },
+        "subagent": {
+          "type": "boolean"
+        },
+        "web": {
+          "type": "boolean"
+        }
+      }
+    },
+    "TraceHistoryParams": {
+      "type": "object",
+      "properties": {
+        "after_aseq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "before_aseq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "chat_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "tail": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "TraceSettings": {
+      "type": "object",
+      "required": [
+        "save_full_requests"
+      ],
+      "properties": {
+        "save_full_requests": {
+          "type": "boolean"
+        }
+      }
+    },
+    "TraceSubscribeParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "since_aseq"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "chat_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "since_aseq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "TraceUnsubscribeParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "stream"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stream": {
+          "type": "string"
+        }
+      }
+    },
+    "UsageBreakdownParams": {
+      "type": "object",
+      "required": [
+        "dimension",
+        "from",
+        "to"
+      ],
+      "properties": {
+        "dimension": {
+          "$ref": "#/definitions/UsageDimension"
+        },
+        "drill": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/UsageDrill"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    },
+    "UsageDimension": {
+      "type": "string",
+      "enum": [
+        "model",
+        "bot",
+        "project"
+      ]
+    },
+    "UsageDrill": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "bot_id"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "project_id"
+          ],
+          "properties": {
+            "project_id": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "UsageHeatmapParams": {
+      "type": "object",
+      "required": [
+        "from",
+        "metric",
+        "mode",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "metric": {
+          "$ref": "#/definitions/UsageMetric"
+        },
+        "mode": {
+          "$ref": "#/definitions/HeatmapMode"
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    },
+    "UsageMetric": {
+      "type": "string",
+      "enum": [
+        "tokens",
+        "cost",
+        "requests"
+      ]
+    },
+    "UsagePeriodParams": {
+      "type": "object",
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    },
+    "UsageTimeseriesParams": {
+      "type": "object",
+      "required": [
+        "dimension",
+        "from",
+        "granularity",
+        "metric",
+        "to"
+      ],
+      "properties": {
+        "dimension": {
+          "$ref": "#/definitions/UsageDimension"
+        },
+        "from": {
+          "type": "string"
+        },
+        "granularity": {
+          "$ref": "#/definitions/Granularity"
+        },
+        "metric": {
+          "$ref": "#/definitions/UsageMetric"
+        },
+        "split_io": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "to": {
+          "type": "string"
+        },
+        "top": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "WebSearchProvider": {
+      "type": "string",
+      "enum": [
+        "brave",
+        "tavily",
+        "searxng"
+      ]
+    },
+    "WebSearchSettings": {
+      "type": "object",
+      "required": [
+        "has_key"
+      ],
+      "properties": {
+        "endpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "has_key": {
+          "type": "boolean"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebSearchProvider"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

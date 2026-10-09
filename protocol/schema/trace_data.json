@@ -1,0 +1,525 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TraceData",
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "model",
+        "phase"
+      ],
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "parent_run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "phase": {
+          "$ref": "#/definitions/TracePhase"
+        },
+        "subagent_task": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "context",
+        "model",
+        "request_id",
+        "tools"
+      ],
+      "properties": {
+        "context": {
+          "$ref": "#/definitions/TraceContext"
+        },
+        "model": {
+          "type": "string"
+        },
+        "prompt_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "latency_ms",
+        "request_id",
+        "stop_reason",
+        "text",
+        "tool_calls",
+        "ttft_ms",
+        "usage"
+      ],
+      "properties": {
+        "latency_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "stop_reason": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "thinking": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool_calls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TraceToolCall"
+          }
+        },
+        "ttft_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "usage": {
+          "$ref": "#/definitions/UsageTotals"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "args",
+        "call_id",
+        "name"
+      ],
+      "properties": {
+        "args": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "call_id",
+        "details",
+        "duration_ms",
+        "is_error",
+        "preview",
+        "truncated"
+      ],
+      "properties": {
+        "call_id": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "duration_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "full_output": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "is_error": {
+          "type": "boolean"
+        },
+        "preview": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "call_id",
+        "chat_id",
+        "intent",
+        "message_id"
+      ],
+      "properties": {
+        "call_id": {
+          "type": "string"
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "intent": {
+          "$ref": "#/definitions/Intent"
+        },
+        "message_id": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "from",
+        "message_id",
+        "text"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/definitions/Sender"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "message_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/definitions/WaitReason"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "after_tokens",
+        "before_tokens",
+        "reason"
+      ],
+      "properties": {
+        "after_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "before_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/RunEndStatus"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "properties": {
+        "by_message_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "FileRef": {
+      "type": "object",
+      "required": [
+        "mime",
+        "name",
+        "path",
+        "root",
+        "root_id",
+        "size"
+      ],
+      "properties": {
+        "mime": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "$ref": "#/definitions/FileRoot"
+        },
+        "root_id": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "FileRoot": {
+      "type": "string",
+      "enum": [
+        "project",
+        "bot",
+        "upload"
+      ]
+    },
+    "Intent": {
+      "type": "string",
+      "enum": [
+        "ack",
+        "progress",
+        "decision",
+        "done",
+        "blocked"
+      ]
+    },
+    "RunEndStatus": {
+      "type": "string",
+      "enum": [
+        "done",
+        "failed",
+        "cancelled",
+        "suspended"
+      ]
+    },
+    "Sender": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "user"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "kind"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bot"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "system"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "TraceContext": {
+      "type": "object",
+      "required": [
+        "l0",
+        "l1",
+        "l2",
+        "l3",
+        "l4",
+        "total"
+      ],
+      "properties": {
+        "l0": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "l1": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "l2": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "l3": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "l4": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "TracePhase": {
+      "type": "string",
+      "enum": [
+        "chat",
+        "work",
+        "subagent",
+        "memory",
+        "compact"
+      ]
+    },
+    "TraceToolCall": {
+      "type": "object",
+      "required": [
+        "args",
+        "call_id",
+        "name"
+      ],
+      "properties": {
+        "args": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "UsageTotals": {
+      "type": "object",
+      "required": [
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "input_tokens",
+        "output_tokens",
+        "requests"
+      ],
+      "properties": {
+        "cache_read_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "cache_write_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "cost": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "input_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "WaitReason": {
+      "type": "string",
+      "enum": [
+        "decision",
+        "blocked",
+        "approval",
+        "takeover"
+      ]
+    }
+  }
+}

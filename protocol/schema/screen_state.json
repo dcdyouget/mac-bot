@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ScreenState",
+  "type": "object",
+  "required": [
+    "bot_id",
+    "driver",
+    "height",
+    "tabs",
+    "width"
+  ],
+  "properties": {
+    "bot_id": {
+      "type": "string"
+    },
+    "driver": {
+      "$ref": "#/definitions/ScreenDriver"
+    },
+    "height": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "tabs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ScreenTab"
+      }
+    },
+    "width": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "ScreenDriver": {
+      "type": "string",
+      "enum": [
+        "bot",
+        "user",
+        "idle"
+      ]
+    },
+    "ScreenTab": {
+      "type": "object",
+      "required": [
+        "active",
+        "tab_id",
+        "title",
+        "url"
+      ],
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tab_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

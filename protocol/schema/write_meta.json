@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WriteMeta",
+  "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+  "type": "object",
+  "properties": {
+    "client_request_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

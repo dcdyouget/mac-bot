@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Model",
+  "type": "object",
+  "required": [
+    "caps",
+    "context_window",
+    "display_name",
+    "enabled",
+    "max_output",
+    "model_id",
+    "provider_id",
+    "ref"
+  ],
+  "properties": {
+    "caps": {
+      "$ref": "#/definitions/ModelCaps"
+    },
+    "context_window": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "max_output": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "model_id": {
+      "type": "string"
+    },
+    "price": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ModelPrice"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "provider_id": {
+      "type": "string"
+    },
+    "ref": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "ModelCaps": {
+      "type": "object",
+      "required": [
+        "reasoning",
+        "tools",
+        "vision"
+      ],
+      "properties": {
+        "reasoning": {
+          "type": "boolean"
+        },
+        "tools": {
+          "type": "boolean"
+        },
+        "vision": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ModelPrice": {
+      "type": "object",
+      "required": [
+        "cache_read_per_mtok",
+        "cache_write_per_mtok",
+        "input_per_mtok",
+        "output_per_mtok"
+      ],
+      "properties": {
+        "cache_read_per_mtok": {
+          "type": "number",
+          "format": "double"
+        },
+        "cache_write_per_mtok": {
+          "type": "number",
+          "format": "double"
+        },
+        "input_per_mtok": {
+          "type": "number",
+          "format": "double"
+        },
+        "output_per_mtok": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    }
+  }
+}

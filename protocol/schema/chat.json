@@ -1,0 +1,179 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Chat",
+  "type": "object",
+  "required": [
+    "attention",
+    "id",
+    "kind",
+    "last_read_seq",
+    "last_seq",
+    "member_bot_ids",
+    "muted",
+    "pinned",
+    "title",
+    "unread",
+    "updated_at"
+  ],
+  "properties": {
+    "attention": {
+      "$ref": "#/definitions/Attention"
+    },
+    "bot_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/definitions/ChatKind"
+    },
+    "last_message": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/MessagePreview"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "last_read_seq": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "last_seq": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "member_bot_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "muted": {
+      "type": "boolean"
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "project_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "unread": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "Attention": {
+      "type": "string",
+      "enum": [
+        "none",
+        "unread",
+        "working",
+        "waiting_user",
+        "blocked",
+        "review"
+      ]
+    },
+    "ChatKind": {
+      "type": "string",
+      "enum": [
+        "main",
+        "direct",
+        "project",
+        "bot_dm"
+      ]
+    },
+    "MessagePreview": {
+      "type": "object",
+      "required": [
+        "created_at",
+        "message_id",
+        "sender",
+        "text"
+      ],
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "sender": {
+          "$ref": "#/definitions/Sender"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "Sender": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "user"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "kind"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bot"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "system"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

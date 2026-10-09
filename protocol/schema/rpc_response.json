@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RpcResponse",
+  "type": "object",
+  "required": [
+    "id",
+    "kind",
+    "ok",
+    "v"
+  ],
+  "properties": {
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RpcError"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/definitions/ResponseKind"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "result": {
+      "description": "A response has no method discriminator on the wire. Keep this as raw JSON so an unknown/new result can never lose fields; callers that know the request method can use `MethodResult::decode`."
+    },
+    "v": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "ErrorCode": {
+      "type": "string",
+      "enum": [
+        "unauthorized",
+        "setup_required",
+        "version_unsupported",
+        "invalid_params",
+        "not_found",
+        "forbidden",
+        "conflict",
+        "rate_limited",
+        "busy",
+        "unavailable",
+        "internal"
+      ]
+    },
+    "ResponseKind": {
+      "type": "string",
+      "enum": [
+        "res"
+      ]
+    },
+    "RpcError": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/ErrorCode"
+        },
+        "details": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

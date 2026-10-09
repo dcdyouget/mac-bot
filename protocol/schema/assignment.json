@@ -1,0 +1,286 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Assignment",
+  "type": "object",
+  "required": [
+    "bot_id",
+    "created_at",
+    "from",
+    "id",
+    "instruction",
+    "model",
+    "origin_chat_id",
+    "status",
+    "steers",
+    "subagents_active",
+    "title",
+    "usage"
+  ],
+  "properties": {
+    "bot_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "from": {
+      "$ref": "#/definitions/Sender"
+    },
+    "id": {
+      "type": "string"
+    },
+    "instruction": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "origin_chat_id": {
+      "type": "string"
+    },
+    "parent_assignment_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "project_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "queue_reason": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/QueueReason"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result_message_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "started_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "$ref": "#/definitions/AssignmentStatus"
+    },
+    "steers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Steer"
+      }
+    },
+    "subagents_active": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "title": {
+      "type": "string"
+    },
+    "trigger_message_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "usage": {
+      "$ref": "#/definitions/UsageTotals"
+    },
+    "wait": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/WaitState"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "AssignmentStatus": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "working",
+        "waiting_user",
+        "waiting_bot",
+        "blocked",
+        "done",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "QueueReason": {
+      "type": "string",
+      "enum": [
+        "bot_parallel_limit",
+        "global_limit",
+        "serial_in_project"
+      ]
+    },
+    "Sender": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "user"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "kind"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bot"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "system"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Steer": {
+      "type": "object",
+      "required": [
+        "at",
+        "message_id",
+        "text"
+      ],
+      "properties": {
+        "applied_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "at": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "UsageTotals": {
+      "type": "object",
+      "required": [
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "input_tokens",
+        "output_tokens",
+        "requests"
+      ],
+      "properties": {
+        "cache_read_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "cache_write_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "cost": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "input_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "WaitReason": {
+      "type": "string",
+      "enum": [
+        "decision",
+        "blocked",
+        "approval",
+        "takeover"
+      ]
+    },
+    "WaitState": {
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "message_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/definitions/WaitReason"
+        }
+      }
+    }
+  }
+}

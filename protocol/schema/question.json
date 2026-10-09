@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Question",
+  "type": "object",
+  "required": [
+    "allow_free_text",
+    "assignment_id",
+    "bot_id",
+    "chat_id",
+    "id",
+    "options",
+    "state",
+    "text"
+  ],
+  "properties": {
+    "allow_free_text": {
+      "type": "boolean"
+    },
+    "answer": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/QuestionAnswer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "assignment_id": {
+      "type": "string"
+    },
+    "bot_id": {
+      "type": "string"
+    },
+    "chat_id": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "state": {
+      "$ref": "#/definitions/QuestionState"
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "QuestionAnswer": {
+      "type": "object",
+      "required": [
+        "at"
+      ],
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "option_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "QuestionState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "answered"
+      ]
+    }
+  }
+}

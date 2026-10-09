@@ -1,0 +1,159 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Project",
+  "type": "object",
+  "required": [
+    "chat_id",
+    "created_at",
+    "created_by",
+    "flow",
+    "goal",
+    "home_path",
+    "id",
+    "lead_bot_id",
+    "members",
+    "name",
+    "slug",
+    "status",
+    "updated_at"
+  ],
+  "properties": {
+    "chat_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "created_by": {
+      "$ref": "#/definitions/Sender"
+    },
+    "deadline": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "done_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "flow": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "goal": {
+      "type": "string"
+    },
+    "home_path": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "lead_bot_id": {
+      "type": "string"
+    },
+    "members": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ProjectMember"
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "slug": {
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/definitions/ProjectStatus"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "ProjectMember": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "joined_at",
+        "role_note"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "joined_at": {
+          "type": "string"
+        },
+        "role_note": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "review",
+        "done",
+        "archived"
+      ]
+    },
+    "Sender": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "user"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "kind"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bot"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "system"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SkillDetail",
+  "type": "object",
+  "required": [
+    "content",
+    "description",
+    "disabled_bot_ids",
+    "enabled",
+    "files",
+    "invocations_7d",
+    "name",
+    "path",
+    "source",
+    "updated_at"
+  ],
+  "properties": {
+    "content": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "disabled_bot_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "invocations_7d": {
+      "$ref": "#/definitions/Invocations7d"
+    },
+    "name": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/definitions/SkillSource"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "BotInvocation": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "count"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "Invocations7d": {
+      "type": "object",
+      "required": [
+        "by_bot",
+        "total"
+      ],
+      "properties": {
+        "by_bot": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BotInvocation"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "SkillSource": {
+      "type": "string",
+      "enum": [
+        "builtin",
+        "user",
+        "imported",
+        "draft"
+      ]
+    }
+  }
+}

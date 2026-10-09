@@ -1,0 +1,149 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Announcement",
+  "type": "object",
+  "required": [
+    "artifacts",
+    "highlights",
+    "members",
+    "project_id",
+    "updated_at"
+  ],
+  "properties": {
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Artifact"
+      }
+    },
+    "highlights": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Highlight"
+      }
+    },
+    "members": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/AnnouncementMember"
+      }
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "AnnouncementMember": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "role_note",
+        "state"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "current_assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role_note": {
+          "type": "string"
+        },
+        "since": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/definitions/MemberState"
+        }
+      }
+    },
+    "Artifact": {
+      "type": "object",
+      "required": [
+        "assignment_id",
+        "bot_id",
+        "created_at",
+        "id",
+        "kind",
+        "path_or_url",
+        "project_id",
+        "title",
+        "updated_at"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": "string"
+        },
+        "bot_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ArtifactKind"
+        },
+        "path_or_url": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "ArtifactKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "dir",
+        "url"
+      ]
+    },
+    "Highlight": {
+      "type": "object",
+      "required": [
+        "at",
+        "text"
+      ],
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "MemberState": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "queued",
+        "working",
+        "waiting_user",
+        "waiting_bot",
+        "blocked",
+        "done"
+      ]
+    }
+  }
+}

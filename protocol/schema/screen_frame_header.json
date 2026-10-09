@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ScreenFrameHeader",
+  "type": "object",
+  "required": [
+    "h",
+    "seq",
+    "tab_id",
+    "ts",
+    "url",
+    "w"
+  ],
+  "properties": {
+    "h": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "seq": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "tab_id": {
+      "type": "string"
+    },
+    "ts": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "url": {
+      "type": "string"
+    },
+    "w": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  }
+}
