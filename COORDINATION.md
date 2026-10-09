@@ -442,3 +442,5 @@
 - 验证：workspace 341 tests、严格 clippy 全 targets、fmt 通过；完整 production+fake provider 协作 26 assignments/29 jobs 全 done，证据 /tmp/macbot-steer-memory-collaboration-20261010b.evidence.log。真实用户 RPC 回归不调用 assignment.steer、不传内部 assignment_id/reply_to，覆盖工作中和 decision 等待时同 run 插话/重放/Provider body 文本一次；实际旧094 binary→新版隔离升级验证原 approval expired、call/tool.error、原 run done、旧 args 不变及 deferred write 不执行。证据 /tmp/macbot-user-steer-memory-20261010h.evidence.log；脚本 server/macbotd/tests/smoke_user_steer_memory.py，命令见 server/README.md。
 - 边界：未触正式094/7788、mock7789、旧错误插话 siblings、客户端或原项目；不迁移/取消/重放旧 siblings。无协议字段变更，无客户端生成要求。源码固定 SHA 对应包完成后由集成 server-only 消费；隔离 fake/包载荷测试不替代 S2 联合/native 或 S5 fresh，通过范围仍按集成证据记录。
 - 根协调单独提交理由：交付两项正式阻断的根因、真实入口测试和旧审批安全恢复边界。
+
+- Release 载荷复验：/tmp/macbot-user-steer-memory-release-20261010b.evidence.log 完整通过上述工作中/等待中用户插话、fresh memory 错误纠正及实际旧094 pending 升级。初次 Release a 测试因 tool.start 先于审批落盘而单次查询漏读 pending 超时，记录保留；3012b44 只修测试，等待精确纠正调用的审批或 tool.end 再决定，不放宽审批参数或服务策略。最终包仍从干净累计 SHA 构建并校验 source/dirty/hash，由集成独立消费，不计 fresh 安装。
