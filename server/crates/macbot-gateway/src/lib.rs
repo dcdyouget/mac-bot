@@ -1659,14 +1659,14 @@ async fn sidecar_reader(
                         // The JPEG may be downscaled for the client. Keep the
                         // browser's CDP viewport separately for input mapping.
                         let viewport_width = metadata
-                                .get("deviceWidth")
-                                .and_then(Value::as_u64)
+                            .get("deviceWidth")
+                            .and_then(Value::as_u64)
                             .and_then(|value| u32::try_from(value).ok())
                             .filter(|value| *value > 0)
                             .unwrap_or(width.max(1));
                         let viewport_height = metadata
-                                .get("deviceHeight")
-                                .and_then(Value::as_u64)
+                            .get("deviceHeight")
+                            .and_then(Value::as_u64)
                             .and_then(|value| u32::try_from(value).ok())
                             .filter(|value| *value > 0)
                             .unwrap_or(height.max(1));
@@ -1811,15 +1811,25 @@ fn sidecar_input(event: &Value, frame: Option<(u32, u32, u32, u32)>) -> Option<V
     );
     match kind {
         "mouse" => {
-            let button = event.get("button").and_then(Value::as_str).unwrap_or("left");
-            let click_count = event.get("click_count").and_then(Value::as_u64).unwrap_or(1);
+            let button = event
+                .get("button")
+                .and_then(Value::as_str)
+                .unwrap_or("left");
+            let click_count = event
+                .get("click_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(1);
             let message = |event_type: &str| {
                 json!({
                     "type":"input_mouse", "eventType":event_type,
                     "x":x, "y":y, "button":button, "clickCount":click_count
                 })
             };
-            match event.get("action").and_then(Value::as_str).unwrap_or("move") {
+            match event
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("move")
+            {
                 "click" => Some(vec![message("mousePressed"), message("mouseReleased")]),
                 "down" => Some(vec![message("mousePressed")]),
                 "up" => Some(vec![message("mouseReleased")]),
@@ -1842,13 +1852,18 @@ fn sidecar_input(event: &Value, frame: Option<(u32, u32, u32, u32)>) -> Option<V
         "key" => {
             let key = event.get("key").and_then(Value::as_str).unwrap_or("");
             let text = event.get("text").cloned().unwrap_or(Value::Null);
-            let message = |event_type: &str, text: Value| {
-                json!({"type":"input_keyboard","eventType":event_type,"key":key,"text":text})
-            };
-            match event.get("action").and_then(Value::as_str).unwrap_or("press") {
+            let message = |event_type: &str, text: Value| json!({"type":"input_keyboard","eventType":event_type,"key":key,"text":text});
+            match event
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("press")
+            {
                 "down" => Some(vec![message("keyDown", text)]),
                 "up" => Some(vec![message("keyUp", Value::Null)]),
-                _ => Some(vec![message("keyDown", text), message("keyUp", Value::Null)]),
+                _ => Some(vec![
+                    message("keyDown", text),
+                    message("keyUp", Value::Null),
+                ]),
             }
         }
         "touch" => Some(vec![json!({
@@ -1968,13 +1983,13 @@ async fn real_sidecar_screen_session(
     }
     let mut last_published_state = state.clone();
     let (reader_half, sidecar_writer) = match sidecar_connect(port, quality).await {
-            Ok(parts) => parts,
-            Err(error) => {
-                let _ = sink.send(screen_error("unavailable", error)).await;
-                release_screen_stream(&gw, &bot_id, &stream_scope).await;
-                return;
-            }
-        };
+        Ok(parts) => parts,
+        Err(error) => {
+            let _ = sink.send(screen_error("unavailable", error)).await;
+            release_screen_stream(&gw, &bot_id, &stream_scope).await;
+            return;
+        }
+    };
     let (out_tx, mut out_rx) = mpsc::channel::<(u8, Vec<u8>)>(8);
     let writer_task = tokio::spawn(async move {
         let mut sidecar_writer = sidecar_writer;

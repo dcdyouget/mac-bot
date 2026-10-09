@@ -553,7 +553,17 @@ impl ExecutionEngine {
             .ok()
             .flatten()
             .unwrap_or_default();
-        request.allow_unsafe || approval_settings_allow(&settings, tool_name, args)
+        risky_call_allowed_from_settings(&settings, request.allow_unsafe, tool_name, args)
+    }
+
+    fn coordination_tool_requires_approval(&self, tool_name: &str, args: &Value) -> bool {
+        let settings = self
+            .store
+            .read_snapshot::<Value>("data/settings.json")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        coordination_tool_requires_approval_from_settings(&settings, tool_name, args)
     }
 
     fn persist_model_request(
@@ -1495,8 +1505,12 @@ impl ExecutionEngine {
                 let cwd = request.cwd.as_deref().unwrap_or(self.home.as_path());
                 let builtin_risky =
                     builtin_requires_approval(&call.name, &call.args, cwd, &self.home);
-                let risky =
-                    matches!(&risk, Risk::Write | Risk::Exec | Risk::External) || builtin_risky;
+                let coordination_confirmation =
+                    self.coordination_tool_requires_approval(&call.name, &call.args);
+                let risky = coordination_confirmation
+                    || (!coordination_tool_uses_internal_policy(&call.name)
+                        && (matches!(&risk, Risk::Write | Risk::Exec | Risk::External)
+                            || builtin_risky));
                 if risky && !self.risky_call_allowed(&request, &call.name, &call.args) {
                     let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":tool_calls[call_index..]});
                     self.state.durable.lock().await.commit(
@@ -1966,7 +1980,12 @@ impl ExecutionEngine {
             let risk = tool.risk(&call.args);
             let cwd = request.cwd.as_deref().unwrap_or(self.home.as_path());
             let builtin_risky = builtin_requires_approval(&call.name, &call.args, cwd, &self.home);
-            let risky = matches!(&risk, Risk::Write | Risk::Exec | Risk::External) || builtin_risky;
+            let coordination_confirmation =
+                self.coordination_tool_requires_approval(&call.name, &call.args);
+            let risky = coordination_confirmation
+                || (!coordination_tool_uses_internal_policy(&call.name)
+                    && (matches!(&risk, Risk::Write | Risk::Exec | Risk::External)
+                        || builtin_risky));
             if risky && !self.risky_call_allowed(request, &call.name, &call.args) {
                 let mut all_calls = Vec::with_capacity(pending.len() + 1);
                 all_calls.push(call.clone());
@@ -2842,6 +2861,78 @@ fn canonical_message_id(message: &Value) -> Option<String> {
     .map(str::to_owned)
 }
 
+/// Main-Bot coordination is governed by the RPC's own policy gates.  Routing
+/// these calls through the generic unsafe-tool approval would make ordinary
+/// project creation and assignment impossible under the default `require`
+/// mode.  File, shell, browser, routine and subagent tools remain subject to
+/// the normal approval path.
+fn coordination_tool_uses_internal_policy(name: &str) -> bool {
+    matches!(
+        name,
+        "list_bots"
+            | "create_project"
+            | "project_create"
+            | "assign"
+            | "delegate"
+            | "project_status"
+            | "get_status"
+            | "request_review"
+            | "propose_bot"
+            | "notify_user"
+            | "remind"
+            | "send_msg"
+    )
+}
+
+fn coordination_tool_requires_approval_from_settings(
+    settings: &Value,
+    tool_name: &str,
+    args: &Value,
+) -> bool {
+    if auto_create_project_requires_confirmation(settings, tool_name) {
+        return true;
+    }
+    let Some(rules) = settings
+        .get("approvals")
+        .and_then(|approvals| approvals.get("rules"))
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    let summary = format!("Approval required for {tool_name}");
+    rules.iter().any(|rule| {
+        rule.get("enabled").and_then(Value::as_bool) != Some(false)
+            && rule.get("kind").and_then(Value::as_str) == Some("ask_first")
+            && (rule.get("tool").and_then(Value::as_str) == Some(tool_name)
+                || rule.get("text").and_then(Value::as_str) == Some(tool_name)
+                || rule.get("text").and_then(Value::as_str) == Some(summary.as_str())
+                || rule
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| contains_argument_literal(args, text)))
+    })
+}
+
+fn auto_create_project_requires_confirmation(settings: &Value, tool_name: &str) -> bool {
+    matches!(tool_name, "create_project" | "project_create")
+        && settings
+            .pointer("/main_bot/auto_create_project")
+            .and_then(Value::as_bool)
+            == Some(false)
+}
+
+fn risky_call_allowed_from_settings(
+    settings: &Value,
+    allow_unsafe: bool,
+    tool_name: &str,
+    args: &Value,
+) -> bool {
+    if auto_create_project_requires_confirmation(settings, tool_name) {
+        return allow_unsafe;
+    }
+    allow_unsafe || approval_settings_allow(settings, tool_name, args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3301,6 +3392,82 @@ mod tests {
             &json!({"command":"rm -rf /Users/test/MacBot/../outside"}),
             &cwd,
             home
+        ));
+    }
+
+    #[test]
+    fn coordination_tools_use_internal_policy_under_require_mode() {
+        for name in [
+            "list_bots",
+            "create_project",
+            "project_create",
+            "assign",
+            "delegate",
+            "project_status",
+            "get_status",
+            "request_review",
+            "propose_bot",
+            "notify_user",
+            "remind",
+            "send_msg",
+        ] {
+            assert!(coordination_tool_uses_internal_policy(name), "{name}");
+        }
+        for name in [
+            "write",
+            "bash",
+            "browser_open",
+            "routine",
+            "subagent",
+            "finish_project",
+        ] {
+            assert!(!coordination_tool_uses_internal_policy(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn project_creation_and_explicit_ask_first_are_internal_gates() {
+        let args = json!({"name":"new project"});
+        assert!(!coordination_tool_requires_approval_from_settings(
+            &json!({"main_bot":{"auto_create_project":true},"approvals":{"mode":"require","rules":[]}}),
+            "create_project",
+            &args,
+        ));
+        assert!(coordination_tool_requires_approval_from_settings(
+            &json!({"main_bot":{"auto_create_project":false},"approvals":{"mode":"require","rules":[]}}),
+            "create_project",
+            &args,
+        ));
+        assert!(coordination_tool_requires_approval_from_settings(
+            &json!({"main_bot":{"auto_create_project":true},"approvals":{"mode":"require","rules":[{"kind":"ask_first","tool":"assign"}]}}),
+            "assign",
+            &json!({"bot_id":"worker"}),
+        ));
+        assert!(!coordination_tool_requires_approval_from_settings(
+            &json!({"main_bot":{"auto_create_project":true},"approvals":{"mode":"require","rules":[]}}),
+            "assign",
+            &json!({"bot_id":"worker"}),
+        ));
+        assert!(!coordination_tool_requires_approval_from_settings(
+            &json!({"approvals":{"mode":"require","rules":[{"kind":"ask_first","tool":"assign","enabled":false}]}}),
+            "assign",
+            &json!({"bot_id":"worker"}),
+        ));
+        let always_allow = json!({
+            "main_bot":{"auto_create_project":false},
+            "approvals":{"mode":"always_allow","rules":[]}
+        });
+        assert!(!risky_call_allowed_from_settings(
+            &always_allow,
+            false,
+            "create_project",
+            &args,
+        ));
+        assert!(risky_call_allowed_from_settings(
+            &always_allow,
+            true,
+            "create_project",
+            &args,
         ));
     }
 
