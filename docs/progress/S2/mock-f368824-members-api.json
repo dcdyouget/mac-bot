@@ -71,5 +71,13 @@
     "wrapped": true,
     "authority": "PROTOCOL5.7 workbench.get returns flat Workbench",
     "status": "server confirmed Rust/schema/wire wrapper divergence, fix pending"
+  },
+  "capture": {
+    "log": "~/Library/Caches/MacBot/integrator/watch/mock-f368824-capture.log",
+    "command_exit": 1,
+    "desktop": "installed PID86980 has no visible window; no capture, did not Raise during QA ownership",
+    "android_file": "mock-f368824-emulator-home.png",
+    "android_observed": "AVD launcher home only; not MacBot foreground, no member/UI acceptance claimed",
+    "interaction": "read-only adb screencap; no App/AVD control"
   }
 }
