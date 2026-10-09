@@ -155,8 +155,68 @@ impl ProductionBackend {
             event_lock: Arc::new(Mutex::new(())),
             idempotency: Arc::new(Mutex::new(idempotency)),
         };
+        backend.repair_decision_question_messages()?;
         backend.repair_completed_operation_events(&operations)?;
         Ok(backend)
+    }
+
+    /// Older writers exposed option-bearing decisions as plain text. Repair
+    /// their canonical rows without creating a new question, message or seq.
+    fn repair_decision_question_messages(&self) -> Result<(), AdapterError> {
+        let snapshot = self
+            .orchestrator
+            .snapshot()
+            .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+        for message in snapshot
+            .get("messages")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|items| items.values())
+        {
+            let Some(question_id) = message.get("question_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(id) = message.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let mut wire = message.clone();
+            normalize_message(&mut wire);
+            let chat_id = message
+                .get("chat_id")
+                .and_then(Value::as_str)
+                .unwrap_or("chat_main");
+            let previous = self
+                .store
+                .read_jsonl::<Value>(format!(
+                    "data/chats/{}/messages.jsonl",
+                    takeover_component(chat_id)
+                ))?
+                .into_iter()
+                .rev()
+                .find(|value| value.get("id").and_then(Value::as_str) == Some(id));
+            let canonical = self
+                .persist_client_message(&wire)
+                .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+            if previous.as_ref().and_then(|value| value.get("blocks")) != canonical.get("blocks") {
+                self.store.append_event_once(
+                    &format!("decision-question:{question_id}:message"),
+                    "message.updated",
+                    json!({"message":canonical}),
+                )?;
+            }
+            if let Some(question) = snapshot
+                .get("questions")
+                .and_then(|items| items.get(question_id))
+                .filter(|question| question.get("state").and_then(Value::as_str) == Some("pending"))
+            {
+                self.store.append_event_once(
+                    &format!("decision-question:{question_id}:asked"),
+                    "question.asked",
+                    json!({"question":question}),
+                )?;
+            }
+        }
+        Ok(())
     }
 
     fn migrate_legacy_chat_sequences(
@@ -909,6 +969,41 @@ impl ProductionBackend {
             }
         }
         events.extend(self.repair_operation_cards(method, &base_key, &params, &canonical)?);
+        if method == "send_msg" {
+            let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+            for block in canonical
+                .get("blocks")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                if block.get("type").and_then(Value::as_str) != Some("question") {
+                    continue;
+                }
+                let Some(id) = block.get("question_id").and_then(Value::as_str) else {
+                    continue;
+                };
+                if let Some(question) = snapshot
+                    .get("questions")
+                    .and_then(|items| items.get(id))
+                    .filter(|question| {
+                        question.get("state").and_then(Value::as_str) == Some("pending")
+                    })
+                {
+                    if let Some(event) = self
+                        .store
+                        .append_event_once(
+                            &format!("decision-question:{id}:asked"),
+                            "question.asked",
+                            json!({"question":question}),
+                        )
+                        .map_err(store_error)?
+                    {
+                        events.push(event);
+                    }
+                }
+            }
+        }
         Ok(events)
     }
 
@@ -3309,6 +3404,17 @@ impl ProductionBackend {
         // folding it here repairs history and persists the canonical row via
         // sequence_chat_messages without changing message ids or seqs.
         for message in &mut messages {
+            // Persisted wire rows override compact snapshot rows. Retain the
+            // internal decision/question association restored by state.
+            if let Some(question_id) = message
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|id| snapshot.get("messages").and_then(|items| items.get(id)))
+                .and_then(|item| item.get("question_id"))
+                .filter(|id| id.is_string())
+            {
+                message["question_id"] = question_id.clone();
+            }
             normalize_message(message);
         }
         messages.sort_by(|left, right| {
@@ -5455,6 +5561,9 @@ fn normalize_message(value: &mut Value) {
         .unwrap_or("")
         .to_owned();
     let block = match intent {
+        "decision" if o.get("question_id").and_then(Value::as_str).is_some() => {
+            json!({"type":"question","question_id":o["question_id"]})
+        }
         "progress" => json!({"type":"progress","text":text}),
         "blocked" => json!({"type":"blocked","reason":text}),
         "task_stopped" => {
@@ -5466,6 +5575,11 @@ fn normalize_message(value: &mut Value) {
         }
         _ => json!({"type":"text","markdown":text}),
     };
+    // The internal question id is authoritative even for legacy text blocks.
+    if block.get("type").and_then(Value::as_str) == Some("question") {
+        o.insert("blocks".into(), json!([block]));
+    }
+    o.remove("question_id");
     let mut repaired_empty_text = false;
     if let Some(blocks) = o.get_mut("blocks").and_then(Value::as_array_mut) {
         if !text.is_empty() {
@@ -6724,6 +6838,140 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn decision_question_is_visible_idempotent_and_repaired_on_restart() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"decision worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = &bot["bot"]["id"];
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"decision project","goal":"choose login","member_bot_ids":[bot_id]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let chat_id = &project["project"]["chat_id"];
+        let assignment = backend.call("assignment.create", json!({"bot_id":bot_id,"project_id":project["project"]["id"],"origin_chat_id":chat_id,"title":"decision","instruction":"choose login"}), &gateway.state).await.unwrap();
+        let envelope = json!({"receipt":{"run_id":"decision-run","call_id":"decision-call"},"message":{"chat_id":chat_id,"bot_id":bot_id,"assignment_id":assignment["id"],"text":"Choose login","intent":"decision","options":["Email","Phone"],"mentions":["user"]}});
+        let first = backend
+            .execution_send_msg(&gateway.state, envelope.clone())
+            .await
+            .unwrap();
+        let repeated = backend
+            .execution_send_msg(&gateway.state, envelope)
+            .await
+            .unwrap();
+        assert_eq!(first, repeated);
+        let question_id = first["blocks"][0]["question_id"].as_str().unwrap();
+        assert_eq!(first["blocks"][0]["type"], "question");
+        serde_json::from_value::<Message>(first.clone()).unwrap();
+        let bootstrap = backend
+            .call("bootstrap", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        assert!(bootstrap["pending"]["questions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|q| q["id"] == question_id && q["options"] == json!(["Email", "Phone"])));
+        let workbench = backend
+            .call("workbench.get", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        assert!(workbench["waiting"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["question"]["id"] == question_id));
+        let events = backend.store.events_since(0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "question.asked"
+                    && event.data["question"]["id"] == question_id)
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "message.created"
+                    && event.data["message"]["id"] == first["id"])
+                .count(),
+            1
+        );
+
+        // Model an old release with a valid Question but no message reference
+        // and a text-only persisted wire row. Restoration must preserve ids,
+        // timestamps and cursors, rather than replaying the model/tool.
+        let mut old_snapshot = backend.orchestrator.snapshot().unwrap();
+        old_snapshot["messages"][first["id"].as_str().unwrap()]
+            .as_object_mut()
+            .unwrap()
+            .remove("question_id");
+        backend
+            .store
+            .append_jsonl(
+                "data/orchestrator/operations.jsonl",
+                &json!({"method":"legacy.fixture","status":"done","snapshot":old_snapshot}),
+            )
+            .unwrap();
+        let mut old_wire = first.clone();
+        old_wire["blocks"] = json!([{"type":"text","markdown":"Choose login"}]);
+        backend
+            .store
+            .append_jsonl(
+                format!("data/chats/{}/messages.jsonl", chat_id.as_str().unwrap()),
+                &old_wire,
+            )
+            .unwrap();
+        drop(backend);
+        let restarted = ProductionBackend::open(home.path()).unwrap();
+        let history = restarted
+            .call(
+                "chat.history",
+                json!({"chat_id":chat_id,"limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let repaired = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == first["id"])
+            .unwrap();
+        assert_eq!(repaired["blocks"], first["blocks"]);
+        for field in ["id", "seq", "created_at"] {
+            assert_eq!(repaired[field], first[field]);
+        }
+        let events = restarted.store.events_since(0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "question.asked"
+                    && event.data["question"]["id"] == question_id)
+                .count(),
+            1
+        );
+        assert!(events.iter().any(|event| event.event == "message.updated"
+            && event.data["message"]["id"] == first["id"]
+            && event.data["message"]["blocks"] == first["blocks"]));
     }
 
     #[tokio::test]

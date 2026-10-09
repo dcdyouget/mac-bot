@@ -153,6 +153,11 @@ pub struct Message {
     pub mentions: Vec<Mention>,
     pub artifacts: Vec<ArtifactRef>,
     pub options: Vec<String>,
+    /// Internal linkage for a decision question.  The gateway turns this
+    /// into the protocol `question` block and must not expose this field on
+    /// the wire Message shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question_id: Option<Id>,
     pub delivery: Vec<Delivery>,
     pub fallback_text: String,
 }

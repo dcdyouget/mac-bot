@@ -814,6 +814,21 @@ impl ExecutionEngine {
                         turns: job.checkpoint["turns"].as_u64().unwrap_or(0) as usize,
                     });
                 }
+                // A duplicate response can arrive while the first continuation
+                // is already inside the provider.  The durable Running state is
+                // the transition token: do not replay the model turn or emit a
+                // second provider call for the same run.
+                if request.resume_message.is_some() && job.status == JobStatus::Running {
+                    return Ok(ExecutionOutcome {
+                        run_id: request.run_id,
+                        job_id: job.id,
+                        status: "running".into(),
+                        text: job.checkpoint["text"].as_str().unwrap_or_default().into(),
+                        usage: serde_json::from_value(job.checkpoint["usage"].clone())
+                            .unwrap_or_default(),
+                        turns: job.checkpoint["round"].as_u64().unwrap_or(0) as usize,
+                    });
+                }
                 if matches!(job.status, JobStatus::Waiting | JobStatus::Suspended)
                     && !(request.resume_approved
                         && matches!(job.status, JobStatus::Waiting | JobStatus::Suspended))
@@ -1398,7 +1413,20 @@ impl ExecutionEngine {
                 }
                 let Some(tool) = self.tools.get(&call.name).cloned() else {
                     if call.name == "send_msg" {
-                        let intent = call.args["intent"].as_str().unwrap_or("progress");
+                        let intent = match send_msg_intent(&call.args) {
+                            Ok(intent) => intent,
+                            Err(error) => {
+                                let result = ToolResult::error(error);
+                                messages.push(tool_message(&call.call_id, &result));
+                                self.trace(
+                                    &request,
+                                    "tool.end",
+                                    json!({"call_id":call.call_id,"is_error":true,"preview":"invalid send_msg arguments","details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                                )
+                                .await?;
+                                continue;
+                            }
+                        };
                         if intent == "progress" && group_progress_count >= 3 {
                             let result = ToolResult::error(
                                 "progress messages are limited to three per task",
@@ -1876,7 +1904,20 @@ impl ExecutionEngine {
             // It is already idempotent by run/call and must be admitted once,
             // instead of being mistaken for a generic write follow-up.
             if call.name == "send_msg" {
-                let intent = call.args["intent"].as_str().unwrap_or("progress");
+                let intent = match send_msg_intent(&call.args) {
+                    Ok(intent) => intent,
+                    Err(error) => {
+                        let result = ToolResult::error(error);
+                        messages.push(tool_message(&call.call_id, &result));
+                        self.trace(
+                            request,
+                            "tool.end",
+                            json!({"call_id":call.call_id,"is_error":true,"preview":"invalid send_msg arguments","details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                        )
+                        .await?;
+                        continue;
+                    }
+                };
                 if intent == "progress" && *group_progress_count >= 3 {
                     messages.push(tool_message(
                         &call.call_id,
@@ -2154,7 +2195,7 @@ impl ExecutionEngine {
                 "type":"function",
                 "function":{
                     "name":"send_msg",
-                    "description":"Send a complete message to a group chat.",
+                    "description":"Send a complete message to a group chat. Use decision for a request that needs a response: include options for a user question or mentions for a Bot handoff. When answering an existing decision, use reply_to and progress or done; do not use decision to report an answer.",
                     "parameters":{
                         "type":"object",
                         "required":["intent","text"],
@@ -2166,7 +2207,8 @@ impl ExecutionEngine {
                                 "artifacts":{"type":"array","items":{"type":"object"}},
                                 "options":{"type":"array","items":{"type":"string"}},
                             "chat_id":{"type":"string"},
-                            "message_id":{"type":"string"}
+                            "message_id":{"type":"string"},
+                            "reply_to":{"type":"string"}
                         }
                     }
                 }
@@ -2612,6 +2654,18 @@ fn tool_allowed(request: &ExecutionRequest, name: &str) -> bool {
         )
 }
 
+fn send_msg_intent(args: &Value) -> Result<&str, String> {
+    let intent = args
+        .get("intent")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "send_msg.intent is required".to_owned())?;
+    if matches!(intent, "ack" | "progress" | "decision" | "done" | "blocked") {
+        Ok(intent)
+    } else {
+        Err("send_msg.intent must be one of ack, progress, decision, done, blocked".into())
+    }
+}
+
 fn can_parallelize_tool_call(
     request: &ExecutionRequest,
     call: &ToolCall,
@@ -2992,6 +3046,7 @@ mod tests {
     use macbot_tools::{BashTool, ReadTool, WriteTool};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Mutex as StdMutex;
+    use std::time::Duration;
     use tempfile::tempdir;
 
     #[derive(Default)]
@@ -3093,6 +3148,66 @@ mod tests {
             let _signal = ProviderDropSignal(self.dropped.clone());
             self.started.notify_one();
             std::future::pending().await
+        }
+    }
+
+    struct BlockingResumeProvider {
+        calls: Arc<AtomicUsize>,
+        started: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for BlockingResumeProvider {
+        async fn stream(
+            &self,
+            _: ModelRequest,
+            events: mpsc::Sender<ModelEvent>,
+        ) -> macbot_providers::Result<Completion> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let result = if call == 0 {
+                Completion {
+                    tool_calls: vec![ToolCall {
+                        call_id: "decision_once".into(),
+                        name: "send_msg".into(),
+                        args: json!({
+                            "intent":"decision",
+                            "text":"请回答",
+                            "options":["继续"]
+                        }),
+                    }],
+                    stop_reason: "tool_calls".into(),
+                    ..Default::default()
+                }
+            } else {
+                self.started.notify_one();
+                self.release.notified().await;
+                Completion {
+                    tool_calls: vec![ToolCall {
+                        call_id: "resume_done".into(),
+                        name: "send_msg".into(),
+                        args: json!({"intent":"done","text":"已继续","mentions":[]}),
+                    }],
+                    stop_reason: "tool_calls".into(),
+                    ..Default::default()
+                }
+            };
+            let _ = events
+                .send(ModelEvent::TextDelta {
+                    text: result.text.clone(),
+                })
+                .await;
+            let _ = events
+                .send(ModelEvent::Usage {
+                    usage: result.usage.clone(),
+                })
+                .await;
+            let _ = events
+                .send(ModelEvent::Stop {
+                    reason: result.stop_reason.clone(),
+                })
+                .await;
+            Ok(result)
         }
     }
 
@@ -3456,6 +3571,73 @@ mod tests {
         assert_eq!(execution_phase(&chat), "subagent");
         chat.phase = Some("custom".into());
         assert_eq!(execution_phase(&chat), "custom");
+    }
+
+    #[test]
+    fn send_msg_schema_declares_reply_to_and_decision_guidance() {
+        let dir = tempdir().unwrap();
+        let engine = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            Arc::new(MockProvider::new(Vec::new())),
+            Vec::<Arc<dyn Tool>>::new(),
+            Arc::new(RecordingSink::default()),
+            dir.path(),
+        )
+        .unwrap();
+        let schema = engine
+            .tool_schemas(&request(false), true)
+            .into_iter()
+            .find(|tool| tool.pointer("/function/name").and_then(Value::as_str) == Some("send_msg"))
+            .expect("send_msg schema");
+        assert_eq!(
+            schema.pointer("/function/parameters/properties/reply_to/type"),
+            Some(&json!("string"))
+        );
+        let description = schema["function"]["description"].as_str().unwrap();
+        assert!(description.contains("decision"));
+        assert!(description.contains("reply_to"));
+    }
+
+    #[tokio::test]
+    async fn send_msg_without_intent_returns_tool_error_instead_of_progress() {
+        let dir = tempdir().unwrap();
+        let sink = Arc::new(RecordingSink::default());
+        let provider = Arc::new(MockProvider::new(vec![
+            Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "missing_intent".into(),
+                    name: "send_msg".into(),
+                    args: json!({"text":"malformed"}),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+            Completion {
+                text: "recovered".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            },
+        ]));
+        let engine = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            provider,
+            Vec::<Arc<dyn Tool>>::new(),
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(engine.run(request(false)).await.unwrap().status, "done");
+        assert!(sink.groups.lock().unwrap().is_empty());
+        assert!(sink.events.lock().unwrap().iter().any(|event| {
+            event.event == "trace.item"
+                && event.data.pointer("/item/type").and_then(Value::as_str) == Some("tool.end")
+                && event
+                    .data
+                    .pointer("/item/data/call_id")
+                    .and_then(Value::as_str)
+                    == Some("missing_intent")
+                && event.data.pointer("/item/data/is_error") == Some(&json!(true))
+        }));
     }
 
     #[test]
@@ -3872,7 +4054,9 @@ mod tests {
             let request = request.clone();
             tokio::spawn(async move { engine.run(request).await.unwrap() })
         };
-        started.notified().await;
+        tokio::time::timeout(Duration::from_secs(5), started.notified())
+            .await
+            .unwrap();
         assert_eq!(
             engine.cancel(&request).await.unwrap().unwrap().status,
             "cancelled"
@@ -4009,6 +4193,81 @@ mod tests {
             let value: Value = serde_json::from_str(line).unwrap();
             value["type"] == "send_msg" && value["data"]["message_id"] == "canonical_msg_done_2"
         }));
+    }
+
+    #[tokio::test]
+    async fn duplicate_message_resume_does_not_replay_running_provider_turn() {
+        let dir = tempdir().unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let provider = Arc::new(BlockingResumeProvider {
+            calls: calls.clone(),
+            started: started.clone(),
+            release: release.clone(),
+        });
+        let engine = Arc::new(
+            ExecutionEngine::new(
+                Store::open(dir.path()).unwrap(),
+                provider,
+                std::iter::empty::<Arc<dyn Tool>>(),
+                Arc::new(RecordingSink::canonical_ids()),
+                dir.path(),
+            )
+            .unwrap(),
+        );
+        let mut request = request(false);
+        request.assignment_id = Some("assignment_resume_race".into());
+        assert_eq!(
+            engine.run(request.clone()).await.unwrap().status,
+            "suspended"
+        );
+
+        let first = {
+            let engine = engine.clone();
+            let request = request.clone();
+            tokio::spawn(async move { engine.continue_message(request, "继续").await.unwrap() })
+        };
+        started.notified().await;
+
+        let second = {
+            let engine = engine.clone();
+            let request = request.clone();
+            tokio::spawn(async move { engine.continue_message(request, "重复继续").await.unwrap() })
+        };
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), second)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            "running"
+        );
+        release.notify_one();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), first)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            "done"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        let trace =
+            std::fs::read_to_string(dir.path().join("data/traces/assignment_resume_race.jsonl"))
+                .unwrap();
+        assert_eq!(
+            trace
+                .lines()
+                .filter(|line| {
+                    serde_json::from_str::<Value>(line)
+                        .ok()
+                        .is_some_and(|value| value["type"] == "run.resume")
+                })
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]

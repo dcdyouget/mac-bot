@@ -977,6 +977,207 @@ impl ComposedBackend {
         }
     }
 
+    async fn finish_assignment_and_resume_parent(&self, assignment_id: String, text: String) {
+        // A child can itself be a coordination task.  Walk the durable
+        // parent links iteratively so a chain of completed subagents does not
+        // require recursive async futures.  The parent must still be waiting
+        // on a decision with a concrete message id; we never infer a target
+        // from the child text.
+        let mut completed_id = assignment_id;
+        let mut completed_text = text;
+        loop {
+            let snapshot = self.inner.orchestrator.snapshot().ok();
+            // Work-mode replies are the durable send_msg result. Model text
+            // after that tool is not the message delivered to the parent.
+            if let Some(text) = snapshot
+                .as_ref()
+                .and_then(|snapshot| assignment_result_text(snapshot, &completed_id))
+            {
+                completed_text = text;
+            }
+            let parent = snapshot
+                .as_ref()
+                .and_then(|snapshot| waiting_parent_for_child(snapshot, &completed_id));
+            let parent_wait_message_id = snapshot.as_ref().and_then(|snapshot| {
+                parent
+                    .as_deref()
+                    .and_then(|parent_id| waiting_message_id_for_assignment(snapshot, parent_id))
+            });
+
+            finish_assignment(self.inner.clone(), self.state.clone(), completed_id.clone()).await;
+            if completed_text.trim().is_empty() {
+                return;
+            }
+            let Some(parent_id) = parent else {
+                return;
+            };
+            if snapshot.as_ref().is_some_and(|snapshot| {
+                matches!(
+                    parent_wait_status(snapshot, &parent_id),
+                    Some("waiting_bot" | "waiting_user")
+                )
+            }) {
+                self.answer_parent_decision_question(&parent_id, &completed_text)
+                    .await;
+            }
+            match self
+                .runtime
+                .resume_message_for_decision(
+                    &parent_id,
+                    parent_wait_message_id.as_deref(),
+                    completed_text,
+                )
+                .await
+            {
+                Ok(Some((parent_assignment, outcome))) => {
+                    self.mark_waiting(
+                        parent_assignment.as_deref().or(Some(parent_id.as_str())),
+                        &outcome.run_id,
+                        matches!(outcome.status.as_str(), "waiting" | "blocked" | "suspended"),
+                    );
+                    let Some(parent_assignment) = parent_assignment else {
+                        return;
+                    };
+                    if outcome.status == "done" {
+                        completed_id = parent_assignment;
+                        completed_text = outcome.text;
+                    } else if matches!(outcome.status.as_str(), "failed" | "cancelled") {
+                        fail_assignment(
+                            self.inner.clone(),
+                            self.state.clone(),
+                            parent_assignment,
+                            &outcome.status,
+                        )
+                        .await;
+                        return;
+                    } else {
+                        return;
+                    }
+                }
+                Ok(None) => return,
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        %parent_id,
+                        %completed_id,
+                        "parent decision continuation failed"
+                    );
+                    return;
+                }
+            }
+        }
+    }
+
+    /// A child can finish before its parent's durable checkpoint reaches the
+    /// waiting state.  Once the parent checkpoint is committed, sweep only
+    /// its explicitly linked, already-done children and feed their canonical
+    /// result back through the same resume path.
+    async fn resume_completed_children(&self, parent_id: &str) {
+        let Some(snapshot) = self.inner.orchestrator.snapshot().ok() else {
+            return;
+        };
+        let children = snapshot
+            .get("assignments")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|assignments| assignments.values())
+            .filter(|assignment| {
+                assignment
+                    .get("parent_assignment_id")
+                    .and_then(Value::as_str)
+                    == Some(parent_id)
+                    && assignment.get("status").and_then(Value::as_str) == Some("done")
+            })
+            .filter_map(|assignment| {
+                let id = assignment.get("id").and_then(Value::as_str)?;
+                let text = assignment_result_text(&snapshot, id)?;
+                Some((id.to_owned(), text))
+            })
+            .collect::<Vec<_>>();
+        for (child_id, text) in children {
+            self.finish_assignment_and_resume_parent(child_id, text)
+                .await;
+        }
+    }
+
+    async fn answer_parent_decision_question(&self, parent_id: &str, text: &str) {
+        let Some(snapshot) = self.inner.orchestrator.snapshot().ok() else {
+            return;
+        };
+        let Some(message_id) = snapshot
+            .get("assignments")
+            .and_then(Value::as_object)
+            .and_then(|assignments| assignments.get(parent_id))
+            .and_then(|assignment| assignment.get("wait"))
+            .and_then(|wait| wait.get("message_id"))
+            .and_then(Value::as_str)
+        else {
+            return;
+        };
+        let Some(question_id) = pending_decision_question_id(&snapshot, parent_id, message_id)
+        else {
+            return;
+        };
+        let answer_result = if parent_wait_status(&snapshot, parent_id) == Some("waiting_bot") {
+            self.inner
+                .orchestrator
+                .answer_decision_for_child(parent_id, text.to_owned())
+                .map(|question| {
+                    question
+                        .map(|question| json!(question))
+                        .unwrap_or(Value::Null)
+                })
+        } else {
+            self.inner
+                .orchestrator
+                .rpc(
+                    "question.answer",
+                    json!({"question_id":question_id,"text":text}),
+                )
+                .await
+        };
+        if let Err(error) = answer_result {
+            tracing::warn!(%error, %parent_id, %question_id, "failed to answer child decision question");
+            return;
+        }
+        let result = self
+            .inner
+            .orchestrator
+            .snapshot()
+            .ok()
+            .and_then(|snapshot| {
+                snapshot
+                    .get("questions")
+                    .and_then(Value::as_object)
+                    .and_then(|questions| questions.get(&question_id))
+                    .cloned()
+            })
+            .unwrap_or_else(|| json!({"id":question_id,"state":"answered"}));
+        if let Err(error) = self
+            .inner
+            .persist_orchestrator(json!({
+                "method":"question.answer",
+                "params":{"question_id":question_id,"text":text,"parent_assignment_id":parent_id},
+                "result":{"question":result.clone()},
+                "status":"done",
+                "at":crate::now()
+            }))
+            .await
+        {
+            tracing::warn!(%error, %parent_id, %question_id, "failed to persist child decision answer");
+            return;
+        }
+        if let Ok(event) = self
+            .inner
+            .store
+            .append_event("question.answered", json!({"question":result}))
+        {
+            self.state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
+    }
+
     fn assignment_is_working(&self, assignment_id: &str) -> bool {
         self.inner
             .orchestrator
@@ -1092,7 +1293,9 @@ impl ComposedBackend {
                     scheduler.mark_waiting(assignment_id.as_deref(), &run_id, false);
                     if let Some(assignment_id) = assignment_id {
                         reconcile_steers(&runtime, &inner, &state, &assignment_id).await;
-                        finish_assignment(inner, state, assignment_id).await;
+                        scheduler
+                            .finish_assignment_and_resume_parent(assignment_id, outcome.text)
+                            .await;
                     }
                 }
                 Ok(outcome) if matches!(outcome.status.as_str(), "failed" | "cancelled") => {
@@ -1107,6 +1310,11 @@ impl ComposedBackend {
                         &outcome.run_id,
                         matches!(outcome.status.as_str(), "waiting" | "blocked" | "suspended"),
                     );
+                    if matches!(outcome.status.as_str(), "waiting" | "blocked" | "suspended") {
+                        if let Some(parent_id) = assignment_id.as_deref() {
+                            scheduler.resume_completed_children(parent_id).await;
+                        }
+                    }
                 }
                 Err(error) => {
                     tracing::error!(%error, "chat execution failed");
@@ -1573,6 +1781,176 @@ fn project_assignment_targets(
     targets
 }
 
+fn waiting_assignment_for_message(snapshot: &Value, message_id: &str) -> Option<String> {
+    snapshot
+        .get("assignments")
+        .and_then(Value::as_object)
+        .and_then(|assignments| {
+            assignments.values().find_map(|assignment| {
+                let result_message = assignment.get("result_message_id").and_then(Value::as_str);
+                let wait_message = assignment
+                    .get("wait")
+                    .and_then(|wait| wait.get("message_id"))
+                    .and_then(Value::as_str);
+                (matches!(
+                    assignment.get("status").and_then(Value::as_str),
+                    Some("waiting_user" | "waiting_bot" | "blocked")
+                ) && (result_message == Some(message_id) || wait_message == Some(message_id)))
+                .then(|| {
+                    assignment
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .flatten()
+            })
+        })
+}
+
+fn waiting_parent_for_child(snapshot: &Value, child_id: &str) -> Option<String> {
+    let assignments = snapshot.get("assignments")?.as_object()?;
+    let parent_id = assignments
+        .get(child_id)?
+        .get("parent_assignment_id")
+        .and_then(Value::as_str)?;
+    let parent = assignments.get(parent_id)?;
+    let wait_message_id = parent
+        .get("wait")
+        .and_then(|wait| wait.get("message_id"))
+        .and_then(Value::as_str)?;
+    let trigger_message_id = assignments
+        .get(child_id)?
+        .get("trigger_message_id")
+        .and_then(Value::as_str)?;
+    if trigger_message_id != wait_message_id {
+        return None;
+    }
+    (matches!(
+        parent.get("status").and_then(Value::as_str),
+        Some("waiting_bot" | "waiting_user")
+    ) && parent
+        .get("wait")
+        .and_then(|wait| wait.get("reason"))
+        .and_then(Value::as_str)
+        == Some("decision")
+        && parent
+            .get("wait")
+            .and_then(|wait| wait.get("message_id"))
+            .and_then(Value::as_str)
+            .is_some())
+    .then(|| parent_id.to_owned())
+}
+
+fn waiting_message_id_for_assignment(snapshot: &Value, assignment_id: &str) -> Option<String> {
+    snapshot
+        .get("assignments")
+        .and_then(Value::as_object)
+        .and_then(|assignments| assignments.get(assignment_id))
+        .and_then(|assignment| assignment.get("wait"))
+        .and_then(|wait| wait.get("message_id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
+fn waiting_checkpoint_matches_message(checkpoint: &Value, message_id: &str) -> bool {
+    matches!(
+        checkpoint.get("waiting_reason").and_then(Value::as_str),
+        Some("decision" | "blocked")
+    ) && checkpoint.get("pending_tool").is_none_or(Value::is_null)
+        && checkpoint.get("waiting_message_id").and_then(Value::as_str) == Some(message_id)
+}
+
+fn parent_wait_status<'a>(snapshot: &'a Value, parent_id: &str) -> Option<&'a str> {
+    snapshot
+        .get("assignments")
+        .and_then(Value::as_object)
+        .and_then(|assignments| assignments.get(parent_id))
+        .and_then(|parent| parent.get("status"))
+        .and_then(Value::as_str)
+}
+
+fn pending_decision_question_id(
+    snapshot: &Value,
+    parent_id: &str,
+    message_id: &str,
+) -> Option<String> {
+    let from_message = snapshot
+        .get("messages")
+        .and_then(Value::as_object)
+        .and_then(|messages| messages.get(message_id))
+        .and_then(|message| message.get("question_id"))
+        .and_then(Value::as_str)
+        .filter(|question_id| {
+            snapshot
+                .get("questions")
+                .and_then(Value::as_object)
+                .and_then(|questions| questions.get(*question_id))
+                .is_some_and(|question| {
+                    question.get("assignment_id").and_then(Value::as_str) == Some(parent_id)
+                        && question.get("state").and_then(Value::as_str) == Some("pending")
+                })
+        })
+        .map(str::to_owned);
+    from_message.or_else(|| {
+        let candidates = snapshot
+            .get("questions")
+            .and_then(Value::as_object)
+            .map(|questions| {
+                questions
+                    .values()
+                    .filter(|question| {
+                        question.get("assignment_id").and_then(Value::as_str) == Some(parent_id)
+                            && question.get("state").and_then(Value::as_str) == Some("pending")
+                    })
+                    .filter_map(|question| question.get("id").and_then(Value::as_str))
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        (candidates.len() == 1)
+            .then(|| candidates.into_iter().next())
+            .flatten()
+    })
+}
+
+fn decision_checkpoint_matches_question(checkpoint: &Value, message_id: &str) -> bool {
+    checkpoint.get("waiting_reason").and_then(Value::as_str) == Some("decision")
+        && checkpoint.get("pending_tool").is_none()
+        && checkpoint.get("waiting_message_id").and_then(Value::as_str) == Some(message_id)
+}
+
+fn assignment_result_text(snapshot: &Value, assignment_id: &str) -> Option<String> {
+    let message_id = snapshot
+        .get("assignments")
+        .and_then(Value::as_object)
+        .and_then(|assignments| assignments.get(assignment_id))
+        .and_then(|assignment| assignment.get("result_message_id"))
+        .and_then(Value::as_str)?;
+    let message = snapshot
+        .get("messages")
+        .and_then(Value::as_object)
+        .and_then(|messages| messages.get(message_id))?;
+    ["text", "content", "fallback_text"]
+        .into_iter()
+        .filter_map(|key| message.get(key).and_then(Value::as_str))
+        .find(|text| !text.trim().is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            message
+                .get("blocks")
+                .and_then(Value::as_array)
+                .and_then(|blocks| {
+                    blocks.iter().find_map(|block| {
+                        ["markdown", "text", "fallback_text"]
+                            .into_iter()
+                            .filter_map(|key| block.get(key).and_then(Value::as_str))
+                            .find(|text| !text.trim().is_empty())
+                            .map(str::to_owned)
+                    })
+                })
+        })
+}
+
 fn cancellation_priority(status: &str) -> u8 {
     match status {
         "queued" => 0,
@@ -1946,32 +2324,7 @@ impl crate::RpcBackend for ComposedBackend {
                             .snapshot()
                             .ok()
                             .and_then(|snapshot| {
-                                snapshot
-                                    .get("assignments")
-                                    .and_then(Value::as_object)
-                                    .and_then(|assignments| {
-                                        assignments.values().find_map(|assignment| {
-                                            (assignment
-                                                .get("result_message_id")
-                                                .and_then(Value::as_str)
-                                                == Some(reply_to)
-                                                && matches!(
-                                                    assignment
-                                                        .get("status")
-                                                        .and_then(Value::as_str),
-                                                    Some(
-                                                        "waiting_user" | "waiting_bot" | "blocked"
-                                                    )
-                                                ))
-                                            .then(|| {
-                                                assignment
-                                                    .get("id")
-                                                    .and_then(Value::as_str)
-                                                    .map(str::to_owned)
-                                            })
-                                            .flatten()
-                                        })
-                                    })
+                                waiting_assignment_for_message(&snapshot, reply_to)
                             })
                     })
                 });
@@ -1982,13 +2335,24 @@ impl crate::RpcBackend for ComposedBackend {
                     .and_then(Value::as_str)
                     .map(str::to_owned),
             ) {
+                let expected_wait_message_id = reply_to.clone().or_else(|| {
+                    self.inner
+                        .orchestrator
+                        .snapshot()
+                        .ok()
+                        .and_then(|snapshot| {
+                            waiting_message_id_for_assignment(&snapshot, &assignment_id)
+                        })
+                });
                 let runtime = self.runtime.clone();
-                let inner = self.inner.clone();
-                let state = self.state.clone();
                 let scheduler = self.clone();
                 self.mark_waiting(Some(&assignment_id), "", false);
                 resumed_waiting_message = runtime
-                    .resume_message(&assignment_id, text)
+                    .resume_message_for_decision(
+                        &assignment_id,
+                        expected_wait_message_id.as_deref(),
+                        text,
+                    )
                     .await
                     .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?
                     .map(|(assignment, outcome)| {
@@ -1999,10 +2363,14 @@ impl crate::RpcBackend for ComposedBackend {
                         );
                         if outcome.status == "done" {
                             if let Some(assignment) = assignment {
-                                let inner = inner.clone();
-                                let state = state.clone();
+                                let scheduler = scheduler.clone();
                                 tokio::spawn(async move {
-                                    finish_assignment(inner, state, assignment).await;
+                                    scheduler
+                                        .finish_assignment_and_resume_parent(
+                                            assignment,
+                                            outcome.text,
+                                        )
+                                        .await;
                                     scheduler.dispatch_ready_assignments().await;
                                 });
                             }
@@ -2148,7 +2516,12 @@ impl crate::RpcBackend for ComposedBackend {
                             );
                             if outcome.status == "done" {
                                 if let Some(assignment_id) = assignment_id {
-                                    finish_assignment(inner, state, assignment_id).await;
+                                    scheduler
+                                        .finish_assignment_and_resume_parent(
+                                            assignment_id,
+                                            outcome.text,
+                                        )
+                                        .await;
                                 }
                             } else if matches!(outcome.status.as_str(), "failed" | "cancelled") {
                                 if let Some(assignment_id) = assignment_id {
@@ -2185,7 +2558,14 @@ impl crate::RpcBackend for ComposedBackend {
                             .get("answer")
                             .and_then(|answer| answer.get("option_index"))
                             .and_then(Value::as_u64)
-                            .map(|index| format!("选项 {}", index + 1))
+                            .and_then(|index| {
+                                question
+                                    .get("options")
+                                    .and_then(Value::as_array)
+                                    .and_then(|options| options.get(index as usize))
+                                    .and_then(Value::as_str)
+                                    .map(str::to_owned)
+                            })
                     });
                 if let (Some(question_id), Some(answer)) = (question_id, answer) {
                     let question_assignment = question
@@ -2210,7 +2590,12 @@ impl crate::RpcBackend for ComposedBackend {
                                 );
                                 if outcome.status == "done" {
                                     if let Some(assignment_id) = assignment_id {
-                                        finish_assignment(inner, state, assignment_id).await;
+                                        scheduler
+                                            .finish_assignment_and_resume_parent(
+                                                assignment_id,
+                                                outcome.text,
+                                            )
+                                            .await;
                                     }
                                 } else if matches!(outcome.status.as_str(), "failed" | "cancelled")
                                 {
@@ -2270,7 +2655,12 @@ impl crate::RpcBackend for ComposedBackend {
                                 );
                                 if outcome.status == "done" {
                                     if let Some(assignment_id) = assignment_result {
-                                        finish_assignment(inner, state, assignment_id).await;
+                                        scheduler
+                                            .finish_assignment_and_resume_parent(
+                                                assignment_id,
+                                                outcome.text,
+                                            )
+                                            .await;
                                     }
                                 } else if matches!(outcome.status.as_str(), "failed" | "cancelled")
                                 {
@@ -2954,12 +3344,116 @@ impl RuntimeExecution {
         question_id: &str,
         answer: String,
     ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
+        if let Some(result) = self.resume_decision_question(question_id, &answer).await? {
+            return Ok(Some(result));
+        }
         self.resume_waiting_assignment(
             question_id,
             &["ask_user", "question"],
             WaitingContinuation::Question(answer),
         )
         .await
+    }
+
+    async fn resume_decision_question(
+        &self,
+        question_id: &str,
+        answer: &str,
+    ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
+        self.configure_feature_runtime().await?;
+        let Some(snapshot) = self.backend.orchestrator.snapshot().ok() else {
+            return Ok(None);
+        };
+        let Some(question) = snapshot
+            .get("questions")
+            .and_then(Value::as_object)
+            .and_then(|questions| questions.get(question_id))
+        else {
+            return Ok(None);
+        };
+        let question_assignment_id = question.get("assignment_id").and_then(Value::as_str);
+        let Some((message_id, chat_id)) = snapshot
+            .get("messages")
+            .and_then(Value::as_object)
+            .and_then(|messages| {
+                messages.values().find_map(|message| {
+                    (message.get("question_id").and_then(Value::as_str) == Some(question_id))
+                        .then(|| {
+                            Some((
+                                message.get("id").and_then(Value::as_str)?.to_owned(),
+                                message.get("chat_id").and_then(Value::as_str)?.to_owned(),
+                            ))
+                        })
+                        .flatten()
+                })
+            })
+        else {
+            return Ok(None);
+        };
+        let has_assignment = question_assignment_id.is_some_and(|id| {
+            snapshot
+                .get("assignments")
+                .and_then(Value::as_object)
+                .is_some_and(|assignments| assignments.contains_key(id))
+        });
+        let entries = match fs::read_dir(self.home.join("data/jobs")) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(RuntimeError::Execution(ExecutionError::Durable(
+                    error.into(),
+                )));
+            }
+        };
+        for entry in entries {
+            let entry = entry
+                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
+            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let file = fs::File::open(entry.path())
+                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
+            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
+                RuntimeError::Execution(ExecutionError::Durable(
+                    macbot_durable::DurableError::Invalid(error.to_string()),
+                ))
+            })?;
+            if !matches!(
+                job.status,
+                macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
+            ) || !decision_checkpoint_matches_question(&job.checkpoint, &message_id)
+            {
+                continue;
+            }
+            let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(request) = self
+                .store
+                .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+                .map_err(|error| RuntimeError::Execution(error.into()))?
+            else {
+                continue;
+            };
+            let matches_request = if has_assignment {
+                request.assignment_id.as_deref() == question_assignment_id
+            } else {
+                request.assignment_id.is_none() && request.chat_id == chat_id
+            };
+            if !matches_request
+                || question.get("bot_id").and_then(Value::as_str) != Some(request.bot_id.as_str())
+            {
+                continue;
+            }
+            let assignment = request.assignment_id.clone();
+            let _ = self.feature_service.begin_memory_run(&request.run_id);
+            let outcome = self
+                .engine_for(&request)?
+                .continue_message(request, answer.to_owned())
+                .await?;
+            return Ok(Some((assignment, outcome)));
+        }
+        Ok(None)
     }
 
     /// Resume a browser takeover after the driver has released control. The
@@ -2983,6 +3477,25 @@ impl RuntimeExecution {
         assignment_id: &str,
         message: String,
     ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
+        let expected_message_id = self
+            .backend
+            .orchestrator
+            .snapshot()
+            .ok()
+            .and_then(|snapshot| waiting_message_id_for_assignment(&snapshot, assignment_id));
+        self.resume_message_for_decision(assignment_id, expected_message_id.as_deref(), message)
+            .await
+    }
+
+    pub async fn resume_message_for_decision(
+        &self,
+        assignment_id: &str,
+        expected_message_id: Option<&str>,
+        message: String,
+    ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
+        let Some(expected_message_id) = expected_message_id.filter(|id| !id.is_empty()) else {
+            return Ok(None);
+        };
         self.configure_feature_runtime().await?;
         let entries = match fs::read_dir(self.home.join("data/jobs")) {
             Ok(entries) => entries,
@@ -3009,11 +3522,7 @@ impl RuntimeExecution {
             if !matches!(
                 job.status,
                 macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
-            ) || job
-                .checkpoint
-                .get("waiting_reason")
-                .and_then(Value::as_str)
-                .is_none()
+            ) || !waiting_checkpoint_matches_message(&job.checkpoint, expected_message_id)
             {
                 continue;
             }
@@ -4528,12 +5037,150 @@ mod model_resolution_tests {
         }
     }
     use super::{
-        is_run_status_boundary, missing_model_bot_from_snapshot, project_assignment_targets,
-        project_summary, resolve_model, routable_missing_model_chat_from_snapshot, ComposedBackend,
+        assignment_result_text, decision_checkpoint_matches_question, is_run_status_boundary,
+        missing_model_bot_from_snapshot, pending_decision_question_id, project_assignment_targets,
+        project_summary, resolve_model, routable_missing_model_chat_from_snapshot,
+        waiting_assignment_for_message, waiting_checkpoint_matches_message,
+        waiting_message_id_for_assignment, waiting_parent_for_child, ComposedBackend,
         ExecutionEvent, ModelRole,
     };
     use macbot_store::Event;
     use serde_json::json;
+
+    #[test]
+    fn waiting_message_reply_matches_decision_wait_id() {
+        let snapshot = json!({
+            "assignments": {
+                "assignment": {
+                    "id":"assignment",
+                    "status":"waiting_bot",
+                    "result_message_id":null,
+                    "wait":{"reason":"decision","message_id":"decision-message"}
+                }
+            }
+        });
+        assert_eq!(
+            waiting_assignment_for_message(&snapshot, "decision-message").as_deref(),
+            Some("assignment")
+        );
+    }
+
+    #[test]
+    fn decision_resume_rejects_old_checkpoint_for_same_assignment() {
+        let snapshot = json!({
+            "assignments": {
+                "assignment": {
+                    "status":"waiting_bot",
+                    "wait":{"reason":"decision","message_id":"current-message"}
+                }
+            }
+        });
+        assert_eq!(
+            waiting_message_id_for_assignment(&snapshot, "assignment").as_deref(),
+            Some("current-message")
+        );
+        assert!(waiting_checkpoint_matches_message(
+            &json!({
+                "waiting_reason":"decision",
+                "waiting_message_id":"current-message",
+                "pending_tool":null
+            }),
+            "current-message"
+        ));
+        assert!(!waiting_checkpoint_matches_message(
+            &json!({
+                "waiting_reason":"decision",
+                "waiting_message_id":"old-message",
+                "pending_tool":null
+            }),
+            "current-message"
+        ));
+        assert!(waiting_checkpoint_matches_message(
+            &json!({
+                "waiting_reason":"blocked",
+                "waiting_message_id":"current-message"
+            }),
+            "current-message"
+        ));
+    }
+
+    #[test]
+    fn child_completion_targets_only_a_waiting_decision_parent() {
+        let snapshot = json!({
+            "assignments": {
+                "parent": {
+                    "id":"parent",
+                    "status":"waiting_bot",
+                    "wait":{"reason":"decision","message_id":"decision-message"}
+                },
+                "child": {
+                    "id":"child",
+                    "status":"done",
+                    "parent_assignment_id":"parent",
+                    "trigger_message_id":"decision-message",
+                    "result_message_id":"child-result"
+                },
+                "other": {
+                    "id":"other",
+                    "status":"working"
+                },
+                "question-parent": {
+                    "id":"question-parent",
+                    "status":"waiting_user",
+                    "wait":{"reason":"decision","message_id":"question-message"}
+                },
+                "question-child": {
+                    "id":"question-child",
+                    "status":"done",
+                    "parent_assignment_id":"question-parent",
+                    "trigger_message_id":"question-message",
+                    "result_message_id":"question-result"
+                }
+            },
+            "messages": {
+                "child-result": {"fallback_text":"child completed"},
+                "question-message": {"question_id":"question-1"},
+                "question-result": {"fallback_text":"question child completed"}
+            },
+            "questions": {
+                "question-1": {
+                    "id":"question-1",
+                    "assignment_id":"question-parent",
+                    "state":"pending"
+                }
+                }
+        });
+        assert_eq!(
+            waiting_parent_for_child(&snapshot, "child").as_deref(),
+            Some("parent")
+        );
+        assert_eq!(waiting_parent_for_child(&snapshot, "other"), None);
+        assert_eq!(
+            assignment_result_text(&snapshot, "child").as_deref(),
+            Some("child completed")
+        );
+        assert_eq!(
+            waiting_parent_for_child(&snapshot, "question-child").as_deref(),
+            Some("question-parent")
+        );
+        assert_eq!(
+            pending_decision_question_id(&snapshot, "question-parent", "question-message")
+                .as_deref(),
+            Some("question-1")
+        );
+        assert!(decision_checkpoint_matches_question(
+            &json!({"waiting_reason":"decision","waiting_message_id":"question-message"}),
+            "question-message"
+        ));
+        assert!(!decision_checkpoint_matches_question(
+            &json!({"waiting_reason":"decision","waiting_message_id":"old-message"}),
+            "question-message"
+        ));
+        let mut stale = snapshot.clone();
+        stale["assignments"]["question-child"]["trigger_message_id"] =
+            json!("old-decision-message");
+        assert_eq!(waiting_parent_for_child(&stale, "question-child"), None);
+    }
 
     #[test]
     fn null_bot_models_use_live_role_defaults() {

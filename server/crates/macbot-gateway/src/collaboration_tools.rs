@@ -996,7 +996,7 @@ fn tool_value(value: Value) -> ToolResult {
 fn description(name: &str) -> &'static str {
     match name {
         "list_bots" => "List available worker Bots.",
-        "create_project" | "project_create" => "Create a project group. Use member_bot_ids with Bot IDs from list_bots and a non-empty ordered flow of plan steps.",
+        "create_project" | "project_create" => "Create a project group. Use member_bot_ids with Bot IDs from list_bots and a non-empty ordered flow of plan steps. After success, send a real opening message in the new project chat with send_msg and mention the first role; the task card alone is not an opening.",
         "assign" => "Assign a project task to a worker Bot.",
         "delegate" => "Delegate a small task to a worker Bot without creating a project.",
         "project_status" | "get_status" => "Read project status and announcement.",
@@ -1043,7 +1043,7 @@ fn schema(name: &str) -> Value {
             &["name"],
         ),
         "notify_user" | "remind" => object(
-            json!({"text":{"type":"string"},"intent":{"type":"string"}}),
+            json!({"text":{"type":"string"},"intent":{"type":"string"},"reply_to":{"type":"string"}}),
             &["text"],
         ),
         "routine" => object(
@@ -1145,6 +1145,18 @@ mod tests {
         assert!(!worker_names.iter().any(|name| name == "create_project"));
         assert!(worker_names.iter().any(|name| name == "subagent"));
         assert!(!worker_names.iter().any(|name| name == "send_msg"));
+    }
+
+    #[test]
+    fn project_creation_guides_real_group_opening() {
+        let text = description("create_project");
+        assert!(text.contains("real opening message"));
+        assert!(text.contains("mention the first role"));
+        assert!(text.contains("send_msg"));
+        assert_eq!(
+            schema("notify_user").pointer("/properties/reply_to/type"),
+            Some(&json!("string"))
+        );
     }
 
     #[tokio::test]
