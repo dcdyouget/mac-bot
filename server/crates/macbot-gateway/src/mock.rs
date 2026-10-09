@@ -5,9 +5,9 @@
 //! mutating method returns the object it changed and appends the corresponding
 //! protocol event to the gateway event log.
 
-use super::{id, now, rpc_error, GatewayState, MockState, RpcResult};
+use super::{GatewayState, MockState, RpcResult, id, now, rpc_error};
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) async fn mock_call(method: &str, params: Value, state: &GatewayState) -> RpcResult {
     let mut data = state.inner.write().await;
@@ -440,7 +440,17 @@ fn takeover_start(state: &mut MockState, params: &Value) -> RpcResult {
                 .and_then(|assignment| assignment.get("id").and_then(Value::as_str))
                 .map(str::to_owned)
         })
-        .unwrap_or_else(|| "asgn_mock_1".to_owned());
+        .or_else(|| {
+            state
+                .assignments
+                .iter()
+                .find(|assignment| {
+                    assignment.get("status").and_then(Value::as_str) == Some("working")
+                })
+                .and_then(|assignment| assignment.get("id").and_then(Value::as_str))
+                .map(str::to_owned)
+        })
+        .ok_or_else(|| rpc_error("not_found", "no working assignment", None))?;
     let reason = params
         .get("reason")
         .and_then(Value::as_str)
@@ -503,6 +513,231 @@ fn extra_set(state: &mut MockState, key: &str, values: Vec<Value>) {
     state.extra.insert(key.to_string(), values);
 }
 
+fn working_assignment_context(state: &MockState) -> Option<(String, String, String)> {
+    state
+        .assignments
+        .iter()
+        .find(|assignment| assignment.get("status").and_then(Value::as_str) == Some("working"))
+        .and_then(|assignment| {
+            let assignment_id = assignment.get("id").and_then(Value::as_str)?;
+            let bot_id = assignment.get("bot_id").and_then(Value::as_str)?;
+            let chat_id = state
+                .bots
+                .iter()
+                .find(|bot| bot.get("id").and_then(Value::as_str) == Some(bot_id))
+                .and_then(|bot| bot.get("dm_chat_id").and_then(Value::as_str))?;
+            Some((
+                assignment_id.to_owned(),
+                bot_id.to_owned(),
+                chat_id.to_owned(),
+            ))
+        })
+}
+
+fn login_member_bot_ids(state: &MockState) -> Vec<String> {
+    state
+        .chats
+        .iter()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some("chat_login"))
+        .and_then(|chat| chat.get("member_bot_ids").and_then(Value::as_array))
+        .map(|members| {
+            members
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .filter(|members: &Vec<String>| !members.is_empty())
+        .unwrap_or_else(|| {
+            state
+                .bots
+                .iter()
+                .filter_map(|bot| bot.get("id").and_then(Value::as_str))
+                .map(str::to_owned)
+                .collect()
+        })
+}
+
+fn bot_role_note(state: &MockState, bot_id: &str) -> String {
+    state
+        .bots
+        .iter()
+        .find(|bot| bot.get("id").and_then(Value::as_str) == Some(bot_id))
+        .and_then(|bot| bot.get("label").and_then(Value::as_str))
+        .unwrap_or("")
+        .to_owned()
+}
+
+fn login_project_members(
+    state: &MockState,
+    member_ids: &[String],
+    joined_at: &Value,
+) -> Vec<Value> {
+    member_ids
+        .iter()
+        .map(|bot_id| {
+            json!({
+                "bot_id": bot_id,
+                "role_note": bot_role_note(state, bot_id),
+                "joined_at": joined_at
+            })
+        })
+        .collect()
+}
+
+fn login_announcement_members(state: &MockState, member_ids: &[String]) -> Vec<Value> {
+    member_ids
+        .iter()
+        .map(|bot_id| {
+            let assignment = state
+                .assignments
+                .iter()
+                .filter(|assignment| {
+                    assignment.get("bot_id").and_then(Value::as_str) == Some(bot_id.as_str())
+                })
+                .find(|assignment| {
+                    matches!(
+                        assignment.get("status").and_then(Value::as_str),
+                        Some("working")
+                            | Some("waiting_user")
+                            | Some("waiting_bot")
+                            | Some("blocked")
+                    )
+                })
+                .or_else(|| {
+                    state.assignments.iter().find(|assignment| {
+                        assignment.get("bot_id").and_then(Value::as_str) == Some(bot_id.as_str())
+                            && assignment.get("status").and_then(Value::as_str) == Some("done")
+                    })
+                });
+            let (state_name, current_assignment_id, since) = match assignment {
+                Some(assignment) => match assignment.get("status").and_then(Value::as_str) {
+                    Some("working") => (
+                        "working",
+                        assignment.get("id").cloned().unwrap_or(Value::Null),
+                        assignment.get("started_at").cloned().unwrap_or(Value::Null),
+                    ),
+                    Some("waiting_user") => (
+                        "waiting_user",
+                        assignment.get("id").cloned().unwrap_or(Value::Null),
+                        assignment.get("started_at").cloned().unwrap_or(Value::Null),
+                    ),
+                    Some("waiting_bot") => (
+                        "waiting_bot",
+                        assignment.get("id").cloned().unwrap_or(Value::Null),
+                        assignment.get("started_at").cloned().unwrap_or(Value::Null),
+                    ),
+                    Some("blocked") => (
+                        "blocked",
+                        assignment.get("id").cloned().unwrap_or(Value::Null),
+                        assignment.get("started_at").cloned().unwrap_or(Value::Null),
+                    ),
+                    Some("done") => (
+                        "done",
+                        Value::Null,
+                        assignment
+                            .get("finished_at")
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                    ),
+                    _ => ("idle", Value::Null, Value::Null),
+                },
+                None => ("idle", Value::Null, Value::Null),
+            };
+            json!({
+                "bot_id": bot_id,
+                "role_note": bot_role_note(state, bot_id),
+                "state": state_name,
+                "current_assignment_id": current_assignment_id,
+                "since": since
+            })
+        })
+        .collect()
+}
+
+fn repair_login_members(state: &mut MockState) {
+    let member_ids = login_member_bot_ids(state);
+    let joined_at = state
+        .projects
+        .iter()
+        .find(|project| project.get("id").and_then(Value::as_str) == Some("prj_login"))
+        .and_then(|project| project.get("created_at"))
+        .cloned()
+        .unwrap_or_else(|| json!(now()));
+    let project_members = login_project_members(state, &member_ids, &joined_at);
+    for project in &mut state.projects {
+        if project.get("id").and_then(Value::as_str) == Some("prj_login") {
+            project["members"] = json!(project_members);
+        }
+    }
+    let mut announcements = extra_get(state, "announcements");
+    for announcement in &mut announcements {
+        if announcement.get("project_id").and_then(Value::as_str) == Some("prj_login") {
+            announcement["members"] = json!(login_announcement_members(state, &member_ids));
+        }
+    }
+    if !announcements.is_empty() {
+        extra_set(state, "announcements", announcements);
+    }
+}
+
+fn repair_waiting_references(state: &mut MockState) {
+    let context = working_assignment_context(state);
+    let mut approvals = extra_get(state, "approvals");
+    let mut questions = extra_get(state, "questions");
+    if let Some((assignment_id, bot_id, chat_id)) = context {
+        if approvals.is_empty() {
+            approvals.push(json!({
+                "id":"apr_mock_pending",
+                "bot_id":bot_id,
+                "assignment_id":assignment_id,
+                "chat_id":chat_id,
+                "tool":"bash",
+                "risk":"exec",
+                "summary":"Run the mock verification command",
+                "detail":"The deterministic mock keeps one pending approval for the workbench.",
+                "state":"pending",
+                "created_at":now(),
+                "decided_at":null
+            }));
+        }
+        if questions.is_empty() {
+            questions.push(json!({
+                "id":"q_mock_pending",
+                "bot_id":bot_id,
+                "assignment_id":assignment_id,
+                "chat_id":chat_id,
+                "text":"Which deterministic mock path should continue?",
+                "options":["safe","fast"],
+                "allow_free_text":true,
+                "state":"pending",
+                "answer":null
+            }));
+        }
+        for item in approvals
+            .iter_mut()
+            .filter(|item| item.get("id").and_then(Value::as_str) == Some("apr_mock_pending"))
+        {
+            item["bot_id"] = json!(bot_id);
+            item["assignment_id"] = json!(assignment_id);
+            item["chat_id"] = json!(chat_id);
+        }
+        for item in questions
+            .iter_mut()
+            .filter(|item| item.get("id").and_then(Value::as_str) == Some("q_mock_pending"))
+        {
+            item["bot_id"] = json!(bot_id);
+            item["assignment_id"] = json!(assignment_id);
+            item["chat_id"] = json!(chat_id);
+        }
+    } else {
+        approvals.retain(|item| item.get("id").and_then(Value::as_str) != Some("apr_mock_pending"));
+        questions.retain(|item| item.get("id").and_then(Value::as_str) != Some("q_mock_pending"));
+    }
+    extra_set(state, "approvals", approvals);
+    extra_set(state, "questions", questions);
+}
+
 fn ensure_mock_defaults(state: &mut MockState) {
     if extra_get(state, "skills").is_empty() {
         let skills = vec![
@@ -560,45 +795,11 @@ fn ensure_mock_defaults(state: &mut MockState) {
             })],
         );
     }
-    if extra_get(state, "approvals").is_empty() {
-        extra_set(
-            state,
-            "approvals",
-            vec![json!({
-                "id":"apr_mock_pending",
-                "bot_id":"bot_main",
-                "assignment_id":"asgn_mock_1",
-                "chat_id":"chat_main",
-                "tool":"bash",
-                "risk":"exec",
-                "summary":"Run the mock verification command",
-                "detail":"The deterministic mock keeps one pending approval for the workbench.",
-                "state":"pending",
-                "created_at":now(),
-                "decided_at":null
-            })],
-        );
-    }
-    if extra_get(state, "questions").is_empty() {
-        extra_set(
-            state,
-            "questions",
-            vec![json!({
-                "id":"q_mock_pending",
-                "bot_id":"bot_main",
-                "assignment_id":"asgn_mock_1",
-                "chat_id":"chat_main",
-                "text":"Which deterministic mock path should continue?",
-                "options":["safe","fast"],
-                "allow_free_text":true,
-                "state":"pending",
-                "answer":null
-            })],
-        );
-    }
+    repair_login_members(state);
+    repair_waiting_references(state);
 }
 fn pending(state: &MockState) -> Value {
-    json!({"approvals":extra_get(state,"approvals").iter().filter(|x| x.get("state").and_then(Value::as_str)==Some("pending")).cloned().collect::<Vec<_>>(),"questions":extra_get(state,"questions"),"reviews":[]})
+    json!({"approvals":extra_get(state,"approvals").iter().filter(|x| x.get("state").and_then(Value::as_str)==Some("pending")).cloned().collect::<Vec<_>>(),"questions":extra_get(state,"questions").iter().filter(|x| x.get("state").and_then(Value::as_str)==Some("pending")).cloned().collect::<Vec<_>>(),"reviews":[]})
 }
 #[derive(Clone)]
 struct UsageSample {
@@ -1368,9 +1569,40 @@ fn create_project(state: &mut MockState, params: &Value) -> RpcResult {
         .unwrap_or("project")
         .to_lowercase()
         .replace(' ', "-");
-    let members = params.get("member_bot_ids").cloned().unwrap_or(json!([]));
-    let project = json!({"id":project_id,"chat_id":chat_id,"name":name,"slug":slug,"goal":params.get("goal").cloned().unwrap_or(json!("")),"flow":params.get("flow").cloned().unwrap_or(json!([])),"deadline":params.get("deadline").cloned().unwrap_or(Value::Null),"home_path":format!("~/MacBot/projects/{slug}/"),"status":"active","lead_bot_id":"bot_main","members":[{"bot_id":"bot_main","role_note":"负责人","joined_at":now}],"created_by":{"kind":"user"},"created_at":now,"updated_at":now,"done_at":null,"highlights":[]});
-    let chat = json!({"id":chat_id,"kind":"project","title":project["name"],"bot_id":null,"project_id":project_id,"member_bot_ids":members,"last_message":null,"last_seq":0,"last_read_seq":0,"unread":0,"attention":"none","pinned":false,"muted":false,"updated_at":now});
+    let mut member_ids = vec!["bot_main".to_owned()];
+    if let Some(values) = params.get("member_bot_ids").and_then(Value::as_array) {
+        for bot_id in values.iter().filter_map(Value::as_str) {
+            if !member_ids.iter().any(|existing| existing == bot_id) {
+                member_ids.push(bot_id.to_owned());
+            }
+        }
+    }
+    let role_notes = member_ids
+        .iter()
+        .map(|bot_id| {
+            (
+                bot_id.clone(),
+                if bot_id == "bot_main" {
+                    "负责人".to_owned()
+                } else {
+                    bot_role_note(state, bot_id)
+                },
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let project_members = member_ids
+        .iter()
+        .map(|bot_id| {
+            json!({
+                "bot_id":bot_id,
+                "role_note":role_notes.get(bot_id).cloned().unwrap_or_default(),
+                "joined_at":now
+            })
+        })
+        .collect::<Vec<_>>();
+    let chat_members = member_ids.iter().map(|id| json!(id)).collect::<Vec<_>>();
+    let project = json!({"id":project_id,"chat_id":chat_id,"name":name,"slug":slug,"goal":params.get("goal").cloned().unwrap_or(json!("")),"flow":params.get("flow").cloned().unwrap_or(json!([])),"deadline":params.get("deadline").cloned().unwrap_or(Value::Null),"home_path":format!("~/MacBot/projects/{slug}/"),"status":"active","lead_bot_id":"bot_main","members":project_members,"created_by":{"kind":"user"},"created_at":now,"updated_at":now,"done_at":null,"highlights":[]});
+    let chat = json!({"id":chat_id,"kind":"project","title":project["name"],"bot_id":null,"project_id":project_id,"member_bot_ids":chat_members,"last_message":null,"last_seq":0,"last_read_seq":0,"unread":0,"attention":"none","pinned":false,"muted":false,"updated_at":now});
     state.projects.push(project.clone());
     state.chats.push(chat.clone());
     state.emit("project.created", json!({"project":project.clone()}));
@@ -1930,10 +2162,12 @@ fn routine_set_enabled(state: &mut MockState, params: &Value) -> RpcResult {
         .into_iter()
         .find(|x| x.get("id").and_then(Value::as_str) == Some(idv))
         .ok_or_else(|| rpc_error("not_found", "routine not found", None))?;
-    routine["enabled"] = json!(params
-        .get("enabled")
-        .and_then(Value::as_bool)
-        .unwrap_or(true));
+    routine["enabled"] = json!(
+        params
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+    );
     routine["updated_at"] = json!(now());
     replace_extra(state, "routines", routine.clone());
     state.emit("routine.updated", json!({"routine":routine.clone()}));
@@ -2127,7 +2361,7 @@ mod contract_tests {
         RoutineRun, SearchHit, SearchResult, Settings, Skill, SkillDetail, UsageBreakdownResult,
         UsageSummaryResult, UsageTimeseriesResult, WorkbenchResult,
     };
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     async fn gateway() -> Gateway {
         let home = tempfile::tempdir().unwrap();
@@ -2312,10 +2546,12 @@ mod contract_tests {
             !typed.results.is_empty(),
             "fixture artifact corpus is empty"
         );
-        assert!(typed
-            .results
-            .iter()
-            .all(|hit| hit.kind == macbot_protocol::SearchKind::Artifact));
+        assert!(
+            typed
+                .results
+                .iter()
+                .all(|hit| hit.kind == macbot_protocol::SearchKind::Artifact)
+        );
         for hit in artifacts["results"].as_array().unwrap() {
             let _: SearchHit = serde_json::from_value(hit.clone()).unwrap();
             assert_eq!(hit.as_object().unwrap().len(), 6);
@@ -2376,26 +2612,34 @@ mod contract_tests {
         let workbench = call(&gateway, "workbench.get", json!({})).await;
         let typed: WorkbenchResult = serde_json::from_value(workbench).unwrap();
         assert_eq!(typed.workbench.running as usize, expected_running);
-        assert!(typed
-            .workbench
-            .waiting
-            .iter()
-            .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Approval { .. }) }));
-        assert!(typed
-            .workbench
-            .waiting
-            .iter()
-            .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Question { .. }) }));
-        assert!(typed
-            .workbench
-            .bots
-            .iter()
-            .any(|bot| !bot.assignments.is_empty()));
-        assert!(typed
-            .workbench
-            .done_today
-            .iter()
-            .all(|assignment| assignment.status == macbot_protocol::AssignmentStatus::Done));
+        assert!(
+            typed
+                .workbench
+                .waiting
+                .iter()
+                .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Approval { .. }) })
+        );
+        assert!(
+            typed
+                .workbench
+                .waiting
+                .iter()
+                .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Question { .. }) })
+        );
+        assert!(
+            typed
+                .workbench
+                .bots
+                .iter()
+                .any(|bot| !bot.assignments.is_empty())
+        );
+        assert!(
+            typed
+                .workbench
+                .done_today
+                .iter()
+                .all(|assignment| assignment.status == macbot_protocol::AssignmentStatus::Done)
+        );
 
         call(
             &gateway,
@@ -2416,11 +2660,65 @@ mod contract_tests {
         .await;
         let released = call(&gateway, "workbench.get", json!({})).await;
         let released: WorkbenchResult = serde_json::from_value(released).unwrap();
-        assert!(!released
-            .workbench
-            .waiting
+        assert!(
+            !released
+                .workbench
+                .waiting
+                .iter()
+                .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Takeover { .. }) })
+        );
+    }
+
+    #[tokio::test]
+    async fn mock_members_and_waiting_items_are_referential() {
+        let gateway = gateway().await;
+        let bootstrap = call(&gateway, "bootstrap", json!({})).await;
+        let assignments = call(&gateway, "assignment.list", json!({})).await;
+        let bots = call(&gateway, "bot.list", json!({})).await;
+        let assignment_ids = assignments["items"]
+            .as_array()
+            .unwrap()
             .iter()
-            .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Takeover { .. }) }));
+            .filter_map(|item| item["id"].as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let bot_dm_chats = bots["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|bot| Some((bot["id"].as_str()?, bot["dm_chat_id"].as_str()?)))
+            .collect::<std::collections::HashMap<_, _>>();
+        for waiting in bootstrap["pending"]["approvals"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .chain(
+                bootstrap["pending"]["questions"]
+                    .as_array()
+                    .into_iter()
+                    .flatten(),
+            )
+        {
+            let assignment_id = waiting["assignment_id"].as_str().unwrap();
+            let bot_id = waiting["bot_id"].as_str().unwrap();
+            assert!(assignment_ids.contains(assignment_id));
+            assert_eq!(
+                waiting["chat_id"].as_str(),
+                bot_dm_chats.get(bot_id).copied()
+            );
+        }
+
+        let created = call(
+            &gateway,
+            "project.create",
+            json!({"name":"Selected members","member_bot_ids":["bot_code"]}),
+        )
+        .await;
+        let members = created["project"]["members"].as_array().unwrap();
+        assert!(members.iter().any(|member| member["bot_id"] == "bot_main"));
+        assert!(members.iter().any(|member| member["bot_id"] == "bot_code"));
+        let chat_members = created["chat"]["member_bot_ids"].as_array().unwrap();
+        assert!(chat_members.iter().any(|member| member == "bot_main"));
+        assert!(chat_members.iter().any(|member| member == "bot_code"));
     }
 
     #[tokio::test]
@@ -2492,10 +2790,12 @@ mod contract_tests {
         let timeseries: UsageTimeseriesResult = serde_json::from_value(timeseries).unwrap();
         assert!(!timeseries.buckets.is_empty());
         assert!(timeseries.series.iter().any(|series| series.key == "other"));
-        assert!(timeseries
-            .series
-            .iter()
-            .all(|series| series.values.len() == timeseries.buckets.len()));
+        assert!(
+            timeseries
+                .series
+                .iter()
+                .all(|series| series.values.len() == timeseries.buckets.len())
+        );
 
         let breakdown = call(
             &gateway,
@@ -2514,10 +2814,12 @@ mod contract_tests {
                 .sum::<u64>(),
             summary.current.usage.requests
         );
-        assert!(breakdown
-            .rows
-            .iter()
-            .any(|row| row.phases.contains_key("compact")));
+        assert!(
+            breakdown
+                .rows
+                .iter()
+                .any(|row| row.phases.contains_key("compact"))
+        );
 
         let model_breakdown = call(
             &gateway,
@@ -2527,9 +2829,11 @@ mod contract_tests {
         .await;
         let model_breakdown: UsageBreakdownResult =
             serde_json::from_value(model_breakdown).unwrap();
-        assert!(model_breakdown
-            .rows
-            .iter()
-            .any(|row| row.key == "free-model" && row.usage.cost.is_none()));
+        assert!(
+            model_breakdown
+                .rows
+                .iter()
+                .any(|row| row.key == "free-model" && row.usage.cost.is_none())
+        );
     }
 }
