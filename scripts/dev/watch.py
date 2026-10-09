@@ -67,8 +67,8 @@ def run_once() -> int:
             result["integration_exit"] = int(code != 0 or mock not in (0, 2)
                                                or result.get("s0_api_exit", 0) != 0)
             provider_marker = STATE / "provider-configured.json"
-            if code == 0 and not provider_marker.exists():
-                # Configure once when a real deployed service becomes available.
+            if code == 0 and (STATE / "provider-enabled").exists() and not provider_marker.exists():
+                # Health alone cannot confirm the non-mock execution chain is ready.
                 from urllib.request import urlopen
                 try:
                     with urlopen("http://127.0.0.1:7788/api/v1/health", timeout=2) as health_response:

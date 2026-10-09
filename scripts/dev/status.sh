@@ -8,6 +8,21 @@ main_sha=$(git -C "$MACBOT_REPO_ROOT" rev-parse --verify main^{commit} 2>/dev/nu
 printf 'MacBot status\n'
 printf 'main sha: %s\n' "$main_sha"
 printf 'host: %s\n' "$(scutil --get ComputerName 2>/dev/null || hostname)"
+printf '\n[deployment watcher]\n'
+watch_pid=$(macbot_launchctl_pid bot.mac.integrator.watch)
+if [ -n "$watch_pid" ]; then printf 'process: running (pid %s)\n' "$watch_pid"; else printf 'process: scheduled, currently idle\n'; fi
+python3 - "$MACBOT_CACHE_ROOT/watch/latest.json" <<'PY'
+import json
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+if path.exists():
+    data = json.loads(path.read_text())
+    print('last completed sha:', data.get('sha', 'unknown'))
+    print('last completed S0 API:', data.get('s0_api_status', 'not run'))
+else:
+    print('No completed deployment yet')
+PY
 
 show_service() {
   title="$1"; label="$2"; port="$3"; binary="$4"; log_path="$5"

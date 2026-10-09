@@ -1,0 +1,24 @@
+{
+  "sha": "72d4353bc1d94cd51961b4673f8d426847c120ed",
+  "at": "2026-10-09T07:38:18.589408+00:00",
+  "log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/watch/20261009-073818-72d4353bc1.log",
+  "deploy_exit": 0,
+  "mock_exit": 2,
+  "s0_api_status": "blocked: no mock source",
+  "integration_exit": 0,
+  "checked_at": "2026-10-09T15:49:29.787602+08:00",
+  "result": "desktop_main_preview_pass",
+  "full_s0_pass": false,
+  "desktop_app": "~/Applications/MacBot.app",
+  "screenshots": [
+    "main-72d4353-desktop-connect.png",
+    "main-72d4353-desktop-fixtures.png"
+  ],
+  "ui_verified": "Installed app opened, connect page and protocol fixture main Bot session visible",
+  "capture_note": "screencapture window mode wrote complete hidden PNGs but did not finalize before timeout. PNGs visually inspected and renamed manually; capture command itself failed.",
+  "pending": [
+    "main server mock release",
+    "main Android APK release",
+    "two clients connected to deployed main mock"
+  ]
+}

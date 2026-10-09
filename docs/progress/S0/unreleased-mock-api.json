@@ -1,0 +1,37 @@
+{
+  "stage": "S0",
+  "checked_at": "2026-10-09T15:38:54+08:00",
+  "result": "api_precheck_pass",
+  "qualification": "unreleased_server_worktree_only",
+  "qualification_note": "The listener is a debug macbotd from the server worktree, not a main-branch deployment. This evidence does not sign off the S0 client or full-stage acceptance.",
+  "endpoint": "http://127.0.0.1:7789",
+  "process": {
+    "pid": 88736,
+    "listen": "*:7789",
+    "executable": "/Users/gongshaojie/Project/mac-bot-server/server/target/debug/macbotd",
+    "cwd": "/Users/gongshaojie/Project/mac-bot-server"
+  },
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false
+  },
+  "bootstrap": {
+    "protocol": 1,
+    "server_version": "0.1.0",
+    "node_id": "node_mock",
+    "seq": 22,
+    "bots": 2,
+    "sessions": 3,
+    "projects": 3,
+    "main_bot_id": "bot_main",
+    "main_dm_chat_id": "chat_main"
+  },
+  "evidence": {
+    "command": "python3 scripts/e2e/s0/bootstrap.py --url http://127.0.0.1:7789 --password dev --timeout 5 --interval 0.2 --json",
+    "api_only": true,
+    "clients_verified": false,
+    "main_deployment_verified": false
+  }
+}

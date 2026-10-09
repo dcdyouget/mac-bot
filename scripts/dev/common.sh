@@ -6,6 +6,7 @@ MACBOT_SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 MACBOT_REPO_ROOT=$(CDPATH= cd -- "$MACBOT_SCRIPT_DIR/../.." && pwd)
 MACBOT_CACHE_ROOT=${MACBOT_CACHE_ROOT:-"$HOME/Library/Caches/MacBot/integrator"}
 MACBOT_SOURCE_ROOT="$MACBOT_CACHE_ROOT/source"
+MACBOT_TARGET_ROOT="$MACBOT_CACHE_ROOT/target"
 MACBOT_LOCK_DIR="$MACBOT_CACHE_ROOT/deploy.lock"
 MACBOT_MAIN_SHA=
 MACBOT_FETCH_OK=
@@ -179,6 +180,62 @@ macbot_prepare_main_source() {
   mv "$tmp_dir" "$MACBOT_SOURCE_DIR"
 }
 
+macbot_target_path_exists() {
+  [ -e "$1" ] || [ -L "$1" ]
+}
+
+macbot_prepare_target_dir() {
+  component="$1"
+  source_target="$2"
+  shared_target="$MACBOT_TARGET_ROOT/$component"
+  mkdir -p "$MACBOT_TARGET_ROOT" "$(dirname "$source_target")" || return 1
+
+  if [ -L "$source_target" ]; then
+    linked_target=$(readlink "$source_target" 2>/dev/null || true)
+    if [ "$linked_target" != "$shared_target" ]; then
+      macbot_error "$source_target 已指向非集成缓存 target：$linked_target"
+      return 1
+    fi
+    mkdir -p "$shared_target" || return 1
+    return 0
+  fi
+
+  if [ -e "$source_target" ]; then
+    [ -d "$source_target" ] || {
+      macbot_error "$source_target 不是目录，无法接入集成 target 缓存"; return 1;
+    }
+    if macbot_target_path_exists "$shared_target"; then
+      unused_root="$MACBOT_TARGET_ROOT/unused"
+      unused_target="$unused_root/${MACBOT_MAIN_SHA:-snapshot}-$component-$$"
+      suffix=0
+      while macbot_target_path_exists "$unused_target"; do
+        suffix=$((suffix + 1))
+        unused_target="$unused_root/${MACBOT_MAIN_SHA:-snapshot}-$component-$$-$suffix"
+      done
+      mkdir -p "$unused_root" || return 1
+      mv "$source_target" "$unused_target" || {
+        macbot_error "无法保留已有 $source_target（共享 target 已存在）"; return 1;
+      }
+      macbot_warn "共享 $component target 已存在；已有快照 target 已移到 $unused_target"
+    else
+      mv "$source_target" "$shared_target" || {
+        macbot_error "无法接管已有 $source_target 为共享 $component target"; return 1;
+      }
+      macbot_log "接管已有 $component target：$shared_target"
+    fi
+  else
+    mkdir -p "$shared_target" || return 1
+  fi
+
+  if ! macbot_target_path_exists "$shared_target" || [ ! -d "$shared_target" ]; then
+    macbot_error "共享 $component target 不可用：$shared_target"
+    return 1
+  fi
+  ln -s "$shared_target" "$source_target" || {
+    macbot_error "无法将 $source_target 链接到共享 $component target"; return 1;
+  }
+}
+
 macbot_ensure_log_dir() {
   mkdir -p "$MACBOT_LOG_DIR" || return 1
   chmod 700 "$MACBOT_LOG_DIR" 2>/dev/null || true
@@ -215,8 +272,10 @@ macbot_build_server() {
     macbot_log "server：main 中没有 Cargo workspace，跳过"; return 2
   fi
   macbot_have cargo || { macbot_error "server 有代码但找不到 cargo"; return 1; }
+  server_target="$MACBOT_SOURCE_DIR/server/target"
+  macbot_prepare_target_dir server "$server_target" || return 1
   macbot_log "编译 server：$manifest"
-  (cd "$MACBOT_SOURCE_DIR" && cargo build --release --manifest-path "$manifest") || {
+  (cd "$MACBOT_SOURCE_DIR" && CARGO_TARGET_DIR="$server_target" cargo build --release --manifest-path "$manifest") || {
     macbot_error "server 编译失败"; return 1;
   }
   MACBOT_SERVER_BINARY=
@@ -278,9 +337,11 @@ macbot_build_desktop() {
   if [ -z "$manifest" ] && [ -z "$package_script" ]; then
     macbot_log "client-mac：main 中没有工程或打包脚本，跳过"; return 2
   fi
+  desktop_target="$MACBOT_SOURCE_DIR/clients/mac/target"
+  macbot_prepare_target_dir desktop "$desktop_target" || return 1
   if [ -n "$package_script" ]; then
     macbot_log "执行桌面打包脚本：$package_script"
-    (cd "$package_cwd" && /bin/zsh "$package_script" debug app) || {
+    (cd "$package_cwd" && CARGO_TARGET_DIR="$desktop_target" /bin/zsh "$package_script" debug app) || {
       macbot_error "桌面打包失败"; return 1;
     }
     MACBOT_DESKTOP_APP="$MACBOT_SOURCE_DIR/clients/mac/dist/MacBot.app"
@@ -291,7 +352,7 @@ macbot_build_desktop() {
   fi
   macbot_have cargo || { macbot_error "client-mac 有代码但找不到 cargo"; return 1; }
   macbot_log "编译 client-mac：$manifest"
-  (cd "$MACBOT_SOURCE_DIR" && cargo build --release --manifest-path "$manifest") || {
+  (cd "$MACBOT_SOURCE_DIR" && CARGO_TARGET_DIR="$desktop_target" cargo build --release --manifest-path "$manifest") || {
     macbot_error "client-mac 编译失败"; return 1;
   }
   binary=

@@ -14,12 +14,27 @@ WINDOW="$(/usr/bin/swift -e 'import CoreGraphics
 let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
 for w in windows {
   let name = w[kCGWindowOwnerName as String] as? String ?? ""
-  if ["MacBot", "macbot-desktop"].contains(name), (w[kCGWindowLayer as String] as? Int) == 0 {
+  if ["MacBot", "Mac Bot", "macbot-desktop"].contains(name), (w[kCGWindowLayer as String] as? Int) == 0 {
     print(w[kCGWindowNumber as String] as? Int ?? 0); break
   }
 }' 2>/dev/null || true)"
 if [[ "$WINDOW" =~ ^[0-9]+$ ]]; then
-  screencapture -x -l "$WINDOW" "$OUT/$STAMP-desktop.png" || FAILED=1
+  python3 - "$WINDOW" "$OUT/$STAMP-desktop.png" <<'PY' || FAILED=1
+import os
+from pathlib import Path
+import subprocess
+import sys
+output = Path(sys.argv[2])
+try:
+    result = subprocess.run(["/usr/sbin/screencapture", "-x", "-l", sys.argv[1], str(output)],
+                            timeout=float(os.environ.get("MACBOT_SCREENSHOT_TIMEOUT", "15")))
+    if result.returncode or not output.is_file() or not output.stat().st_size:
+        raise RuntimeError("No desktop screenshot produced")
+except (subprocess.TimeoutExpired, RuntimeError) as exc:
+    output.unlink(missing_ok=True)
+    print(f"[capture] Desktop capture failed: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY
 else
   echo '[capture] No visible desktop client window; desktop evidence missing.' >&2
   FAILED=1
