@@ -6,6 +6,58 @@ use std::sync::Arc;
 use gpui_kit::base::v_virtual_list;
 use gpui_kit::prelude::FluentBuilder;
 
+#[cfg(test)]
+mod tests {
+    use super::{known_block, message_display_text, pending_message, s, text_block_markdown};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn queued_user_block_has_renderable_markdown_before_server_response() {
+        let params = json!({
+            "chat_id": "dm-pending",
+            "client_request_id": "request-pending",
+            "text": "请 **读取** 页面\n保留这条待发送消息",
+            "reply_to": "message-parent",
+            "mentions": [],
+            "upload_ids": ["upload-pending"]
+        });
+        let message = pending_message(&params);
+        assert_eq!(message["send_status"], "queued");
+        assert_eq!(message["in_flight"], true);
+        assert_eq!(message["blocks"][0]["type"], "text");
+        assert_eq!(
+            text_block_markdown(&message["blocks"][0]),
+            params["text"].as_str().unwrap()
+        );
+        assert_eq!(message["retry_params"], params);
+        assert_eq!(message["reply_to"], "message-parent");
+
+        let root =
+            std::env::temp_dir().join(format!("macbot-pending-render-{}", uuid::Uuid::new_v4()));
+        let pending = BTreeMap::from([("request-pending".to_owned(), message)]);
+        crate::outbox::save_at(&root, "host-pending", "node-pending", &pending).unwrap();
+        let restored = crate::outbox::load_at(&root, "host-pending", "node-pending").unwrap();
+        assert_eq!(
+            text_block_markdown(&restored["request-pending"]["blocks"][0]),
+            params["text"].as_str().unwrap()
+        );
+        assert_eq!(restored["request-pending"]["retry_params"], params);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn known_empty_text_block_does_not_use_message_fallback() {
+        let message = json!({
+            "blocks": [{"type":"text", "markdown":""}],
+            "fallback_text": "服务器摘要"
+        });
+        assert!(known_block(s(&message["blocks"][0], "type")));
+        assert_eq!(text_block_markdown(&message["blocks"][0]), "");
+        assert_eq!(message_display_text(&message), "服务器摘要");
+    }
+}
+
 #[derive(Default)]
 pub(super) struct MessageListCache {
     chat_id: String,
@@ -204,6 +256,27 @@ fn message_display_text(message: &Value) -> &str {
     } else {
         s(message, "text")
     }
+}
+
+pub(super) fn pending_message(params: &Value) -> Value {
+    json!({
+        "id": s(params, "client_request_id"),
+        "chat_id": params["chat_id"],
+        "seq": u64::MAX,
+        "sender": {"kind": "user"},
+        "created_at": chrono::Utc::now().to_rfc3339(),
+        "reply_to": params["reply_to"],
+        "deleted": false,
+        "blocks": [{"type": "text", "markdown": params["text"]}],
+        "fallback_text": params["text"],
+        "send_status": "queued",
+        "retry_params": params,
+        "in_flight": true,
+    })
+}
+
+fn text_block_markdown(block: &Value) -> &str {
+    s(block, "markdown")
 }
 
 fn known_block(kind: &str) -> bool {
@@ -1023,7 +1096,7 @@ impl MacBot {
             "text" => {
                 return TextView::markdown(
                     SharedString::from(format!("md-{id}")),
-                    s(block, "markdown").to_string(),
+                    text_block_markdown(block).to_string(),
                 )
                 .into_any_element();
             }

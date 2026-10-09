@@ -430,7 +430,8 @@ impl MacBot {
                 params["client_request_id"] = json!(uuid::Uuid::new_v4().to_string());
             }
             let id = s(&params, "client_request_id").to_string();
-            self.pending_messages.insert(id.clone(),json!({"id":id,"chat_id":params["chat_id"],"seq":u64::MAX,"sender":{"kind":"user"},"created_at":chrono::Utc::now().to_rfc3339(),"reply_to":params["reply_to"],"deleted":false,"blocks":[{"type":"text","text":params["text"]}],"fallback_text":params["text"],"send_status":"queued","retry_params":params,"in_flight":true}));
+            self.pending_messages
+                .insert(id, chat::pending_message(&params));
             self.persist_outbox();
         }
         let generation = self.connection_generation;
