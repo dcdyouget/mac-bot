@@ -1,0 +1,218 @@
+{
+  "source_commit": "22b3b106450092e3ac7e37e7930b5c2df2a0a757",
+  "scenario": "S4 scheduled routine r2",
+  "result": "FAIL",
+  "error": "scheduled send_msg trace is not linked to the delivered DM message",
+  "assignment": {
+    "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+    "created_at": "2026-10-09T12:07:01.109439+00:00",
+    "finished_at": "2026-10-09T12:07:04.434829+00:00",
+    "from": {
+      "bot_id": "routine",
+      "kind": "bot"
+    },
+    "id": "01a1208f-3ef5-73c0-a205-fe0af51f2d09",
+    "instruction": "S4 scheduled API marker macbot-e2e-s4-schedule-1e3f7a48b22d. Reply with exactly macbot-e2e-s4-schedule-1e3f7a48b22d, then call send_msg exactly once with intent=done and text containing macbot-e2e-s4-schedule-1e3f7a48b22d to report this routine result. Do not call any other tool, open a browser, modify files, or perform external actions. The send_msg report must contain no mentions or artifacts.",
+    "loop_hops": 0,
+    "model": "",
+    "origin_chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+    "parent_assignment_id": null,
+    "priority": 0,
+    "project_id": null,
+    "queue_reason": null,
+    "result_message_id": "01a1208f-4bb0-7515-b336-ba63f53ed1f1",
+    "root_message_id": null,
+    "started_at": "2026-10-09T12:07:01.109439+00:00",
+    "status": "done",
+    "steers": [],
+    "subagents_active": 0,
+    "title": "macbot-e2e-s4-schedule-1e3f7a48b22d-routine",
+    "trigger_message_id": null,
+    "usage": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 3548,
+      "output_tokens": 180,
+      "requests": 0
+    },
+    "wait": null
+  },
+  "trace_items": [
+    {
+      "aseq": 1,
+      "assignment_id": "01a1208f-3ef5-73c0-a205-fe0af51f2d09",
+      "at": "2026-10-09T12:07:01.209Z",
+      "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "data": {
+        "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "parent_run_id": null,
+        "phase": "work",
+        "subagent_task": null
+      },
+      "run_id": "01a1208f-3ef5-73c0-a205-fe0bb74ae247",
+      "type": "run.start"
+    },
+    {
+      "aseq": 2,
+      "assignment_id": "01a1208f-3ef5-73c0-a205-fe0af51f2d09",
+      "at": "2026-10-09T12:07:01.238Z",
+      "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "data": {
+        "context": {
+          "l0": 786,
+          "l1": 0,
+          "l2": 0,
+          "l3": 0,
+          "l4": 0,
+          "total": 786
+        },
+        "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "prompt_ref": null,
+        "request_id": "01a1208f-3ef5-73c0-a205-fe0bb74ae247:llm:0",
+        "tools": [
+          "ls",
+          "grep",
+          "bash",
+          "bash_job",
+          "browser_open",
+          "browser_get",
+          "browser_tabs",
+          "session_search",
+          "project_find",
+          "subagent",
+          "chat_history",
+          "memory",
+          "question",
+          "browser_eval",
+          "find",
+          "edit",
+          "browser_wait",
+          "skill",
+          "read",
+          "write",
+          "browser_snapshot",
+          "browser_act",
+          "browser_screenshot",
+          "memory_search",
+          "browser_nav",
+          "request_takeover",
+          "send_msg"
+        ]
+      },
+      "run_id": "01a1208f-3ef5-73c0-a205-fe0bb74ae247",
+      "type": "llm.request"
+    },
+    {
+      "aseq": 3,
+      "assignment_id": "01a1208f-3ef5-73c0-a205-fe0af51f2d09",
+      "at": "2026-10-09T12:07:04.325Z",
+      "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "data": {
+        "latency_ms": 3015,
+        "request_id": "01a1208f-3ef5-73c0-a205-fe0bb74ae247:llm:0",
+        "stop_reason": "tool_use",
+        "text": "macbot-e2e-s4-schedule-1e3f7a48b22d\n",
+        "thinking": "The user wants me to:\n1. Reply with exactly \"macbot-e2e-s4-schedule-1e3f7a48b22d\"\n2. Then call send_msg exactly once with intent=done and text containing \"macbot-e2e-s4-schedule-1e3f7a48b22d\"\n\nI should not call any other tools. Let me do this step by step.\n\nFirst, I'll reply with the exact marker text, then make the send_msg call.",
+        "tool_calls": [
+          {
+            "args": {
+              "intent": "done",
+              "text": "macbot-e2e-s4-schedule-1e3f7a48b22d"
+            },
+            "call_id": "call_function_hrbxjhsogeqa_1",
+            "name": "send_msg"
+          }
+        ],
+        "ttft_ms": 838,
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 3548,
+          "output_tokens": 180,
+          "requests": 1
+        }
+      },
+      "run_id": "01a1208f-3ef5-73c0-a205-fe0bb74ae247",
+      "type": "llm.response"
+    },
+    {
+      "aseq": 4,
+      "assignment_id": "01a1208f-3ef5-73c0-a205-fe0af51f2d09",
+      "at": "2026-10-09T12:07:04.336Z",
+      "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "data": {
+        "args": {
+          "intent": "done",
+          "text": "macbot-e2e-s4-schedule-1e3f7a48b22d"
+        },
+        "call_id": "call_function_hrbxjhsogeqa_1",
+        "name": "send_msg"
+      },
+      "run_id": "01a1208f-3ef5-73c0-a205-fe0bb74ae247",
+      "type": "tool.start"
+    },
+    {
+      "aseq": 5,
+      "assignment_id": "01a1208f-3ef5-73c0-a205-fe0af51f2d09",
+      "at": "2026-10-09T12:07:04.385Z",
+      "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "data": {
+        "call_id": "call_function_hrbxjhsogeqa_1",
+        "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+        "intent": "done",
+        "message_id": "msg_call_function_hrbxjhsogeqa_1"
+      },
+      "run_id": "01a1208f-3ef5-73c0-a205-fe0bb74ae247",
+      "type": "send_msg"
+    },
+    {
+      "aseq": 6,
+      "assignment_id": "01a1208f-3ef5-73c0-a205-fe0af51f2d09",
+      "at": "2026-10-09T12:07:04.419Z",
+      "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "data": {
+        "error": null,
+        "status": "done"
+      },
+      "run_id": "01a1208f-3ef5-73c0-a205-fe0bb74ae247",
+      "type": "run.end"
+    }
+  ],
+  "messages": [
+    {
+      "artifacts": [],
+      "assignment_id": "01a1208f-3ef5-73c0-a205-fe0af51f2d09",
+      "blocks": [
+        {
+          "artifacts": [],
+          "next": [],
+          "notify_main": true,
+          "summary": "macbot-e2e-s4-schedule-1e3f7a48b22d",
+          "type": "completion"
+        }
+      ],
+      "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "created_at": "2026-10-09T12:07:04.368490+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "macbot-e2e-s4-schedule-1e3f7a48b22d",
+      "id": "01a1208f-4bb0-7515-b336-ba63f53ed1f1",
+      "intent": "done",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "bot"
+      },
+      "seq": 3,
+      "streaming": false,
+      "thread_count": 0
+    }
+  ],
+  "routine_cleaned": true
+}

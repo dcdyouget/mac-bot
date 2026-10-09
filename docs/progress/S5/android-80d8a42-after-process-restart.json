@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-09T12:15:12.466843+00:00",
+  "apk_source": "80d8a42",
+  "device": "emulator-5554",
+  "process_pid": "8364",
+  "route": "10.0.2.0/24 dev wlan0 proto kernel scope link src 10.0.2.16",
+  "operation": "Network recovered, then force-stop and am start only client process; AVD/APK/data preserved.",
+  "visual_observation": "Mock session list visible; connecting banner disappeared after process restart.",
+  "screenshot": "android-80d8a42-after-process-restart.png",
+  "scope": "Current mock UI connection recovered; formal 7788 Host UI not verified; CUA cannot bind unbundled qemu."
+}

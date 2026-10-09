@@ -1,0 +1,65 @@
+{
+  "bot_id": "01a12097-1f9c-7006-b1a9-8933689b3699",
+  "frames": [
+    {
+      "bytes": 28606,
+      "header": {
+        "h": 720,
+        "seq": 1,
+        "tab_id": "t2",
+        "ts": 1791548196592,
+        "url": "about:blank",
+        "w": 1280
+      },
+      "path": "docs/progress/S4/screen-22b3b10-animated-final/frame-01-seq-1.jpg",
+      "seq": 1
+    },
+    {
+      "bytes": 28657,
+      "header": {
+        "h": 720,
+        "seq": 2,
+        "tab_id": "t2",
+        "ts": 1791548196685,
+        "url": "about:blank",
+        "w": 1280
+      },
+      "path": "docs/progress/S4/screen-22b3b10-animated-final/frame-02-seq-2.jpg",
+      "seq": 2
+    }
+  ],
+  "health_version": "0.1.0",
+  "initial_state": {
+    "bot_id": "01a12097-1f9c-7006-b1a9-8933689b3699",
+    "driver": "bot",
+    "height": 720,
+    "tabs": [
+      {
+        "active": true,
+        "assignment_id": "dm_dm_01a12097-1f9c-7006-b1a9-8933689b3699",
+        "tab_id": "t2",
+        "title": "",
+        "url": "http://127.0.0.1:52199/"
+      }
+    ],
+    "width": 1280
+  },
+  "note": "Transport only; no input, browser login, frame painting, notification, or mobile UI evidence.",
+  "output": "docs/progress/S4/screen-22b3b10-animated-final",
+  "quality": "low",
+  "scenario": "S4 screen transport API checks",
+  "status": "PARTIAL_PASS",
+  "takeover": {
+    "enabled": false,
+    "release_state": null,
+    "user_state": null
+  },
+  "url": "http://127.0.0.1:7788",
+  "source_commit": "22b3b106450092e3ac7e37e7930b5c2df2a0a757",
+  "test_page": "Local animated page only; no external account/login.",
+  "passed_checks": "WebSocket state + two real JPEG frames + seq increment + ACK. Not full screen contract.",
+  "known_wire_issues": [
+    "quality low requested but JPEG/header width1280 exceeds documented max640",
+    "state URL is localhost page while frame header URL is about:blank"
+  ]
+}

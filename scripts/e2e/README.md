@@ -42,6 +42,10 @@ python3 scripts/e2e/s4/routines_browser.py --url http://127.0.0.1:7788 --bot-id 
 # S4 scheduler: creates a near-future cron, waits for trigger=schedule and done;
 # it never calls routine.test_run and deletes only its own routine.
 python3 scripts/e2e/s4/scheduled_routine.py --url http://127.0.0.1:7788 --bot-id <bot_id>
+# S4 screen transport: saves two validated low-quality JPEG frames and ACKs
+# each one; add --takeover only to verify start/release without sending input.
+python3 scripts/e2e/s4/screen_transport.py --url http://127.0.0.1:7788 --bot-id <bot_id> \
+  --output docs/progress/S4/screen-transport-run
 ```
 
 S1 可显式添加 `--approve-test-tools-once`，仅按本次 marker/run/Bot/chat 和完整参数核验后，对该次 write/bash 使用 `allow_once`；recovery 只批准自己的精确 Bash 命令。未知参数、风险不一致或其他任务一律不批准，不修改全局审批规则。旧 `--approve-test-bash-once` 保留为 alias。

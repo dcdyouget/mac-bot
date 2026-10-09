@@ -1,0 +1,10 @@
+{
+  "source_commit": "22b3b106450092e3ac7e37e7930b5c2df2a0a757",
+  "bot_id": "01a1208f-240d-73a4-bac4-39f8eba551dd",
+  "takeover_start": "FAIL: No such file or directory (os error 2)",
+  "takeover_data_dir_exists": false,
+  "initial_static_screen": "First real JPEG saved and ACK sent; second-frame timeout on static page not classified as server failure.",
+  "frame": "screen-22b3b10-local/frame-01-seq-1.jpg",
+  "animated_success": "production-22b3b10-screen-transport.json",
+  "scope": "No input/Chrome login/mobile takeover verified."
+}
