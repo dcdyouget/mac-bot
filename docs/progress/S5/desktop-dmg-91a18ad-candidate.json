@@ -1,0 +1,64 @@
+{
+  "candidate": {
+    "directory": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/91a18ada",
+    "source_commit_expected": "91a18ada6115909fbf35b96c6993e8724a9b8243",
+    "source_commit_actual": "91a18ada6115909fbf35b96c6993e8724a9b8243",
+    "source_commit_match": true,
+    "source_dirty": false,
+    "configuration": "release",
+    "version": "0.1.0"
+  },
+  "app": {
+    "path": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/91a18ada/MacBot.app",
+    "bundle_id": "bot.mac.desktop",
+    "bundle_name": "Mac Bot",
+    "binary_path": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/91a18ada/MacBot.app/Contents/MacOS/macbot-desktop",
+    "binary_sha256_expected": "6db3ade78ca7c232f8da7fa9d333d6292ee47e8191b9b2c51c56ae09acfffe79",
+    "binary_sha256_actual": "6db3ade78ca7c232f8da7fa9d333d6292ee47e8191b9b2c51c56ae09acfffe79",
+    "binary_sha256_match": true,
+    "source_commit_file_sha256_expected": "86ba965235a606ac80e6c68c392770b894530049b580e8d4f6cbb1648b335d13",
+    "source_commit_file_sha256_actual": "86ba965235a606ac80e6c68c392770b894530049b580e8d4f6cbb1648b335d13",
+    "source_commit_file_sha256_match": true,
+    "code_signature_resource_present": true
+  },
+  "codesign": {
+    "identity": "ad hoc",
+    "strict_verify_rc": 0,
+    "strict_verify": true,
+    "metadata_app_strict_verify": true,
+    "metadata_staging_strict_verify": true,
+    "metadata_mounted_app_strict_verify": true
+  },
+  "dmg": {
+    "path": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/91a18ada/MacBot.dmg",
+    "sha256_expected": "9aec3ae3129d3746b68ea07a09af56e7a0a488489a6b301d4eeb5e895fe779d6",
+    "sha256_actual": "9aec3ae3129d3746b68ea07a09af56e7a0a488489a6b301d4eeb5e895fe779d6",
+    "sha256_match": true,
+    "size_bytes": 12858336,
+    "hdiutil_verify": "VALID"
+  },
+  "metadata": {
+    "app_path_matches": true,
+    "dmg_path_matches": true,
+    "rust_tests_source_commit": "50f4c08dd72479b077688637014d658887415199",
+    "tests": {
+      "core": 33,
+      "desktop": 48
+    }
+  },
+  "deployment": {
+    "installed": false,
+    "gui_operated": false,
+    "s5_fresh_install_passed": false,
+    "status": "candidate_verified_only",
+    "previous_50f_signature_failure_is_historical": true
+  },
+  "validation_scope": [
+    "metadata read",
+    "App source/binary SHA256",
+    "strict codesign verify",
+    "DMG SHA256",
+    "hdiutil verify",
+    "no credentials read"
+  ]
+}

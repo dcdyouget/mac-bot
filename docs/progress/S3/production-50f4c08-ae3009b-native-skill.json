@@ -1,0 +1,44 @@
+{
+  "scenario": "Native Skill save/preview and metadata draft retention",
+  "status": "PARTIAL_PASS",
+  "observed_at": "2026-10-09T15:15:46.320234+00:00",
+  "desktop_source": "50f4c08dd72479b077688637014d658887415199",
+  "desktop_pid": 41643,
+  "window_id": 58217,
+  "server_source": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "server_pid": 63443,
+  "sample": "integrator-native-ae3009b",
+  "before": {
+    "enabled": false,
+    "saved_marker": "macbot-native-skill-ae3009b-v1"
+  },
+  "native_save": {
+    "visible_save_clicked": true,
+    "saved_marker": "macbot-native-skill-50f4c08-v2",
+    "api_has_v2": true,
+    "preview_v2_visually_verified": true,
+    "unexpected_enabled_after_save": true
+  },
+  "native_set_enabled": {
+    "action": "disable",
+    "enabled_after": false,
+    "draft_marker": "macbot-native-skill-50f4c08-v3-draft",
+    "draft_retained_in_editor_visually_verified": true,
+    "api_has_unsaved_draft": false,
+    "saved_content_sha256": "6e7c08e8aabbc354cf210beac379545dcfb9f473f561659dfcd2220e0bac68c4"
+  },
+  "pending": [
+    "Strict save response in-flight draft edit timing not demonstrated",
+    "Body update changed disabled sample to enabled; server investigation pending"
+  ],
+  "ui_tool_notes": [
+    "Raise action on installed window followed by outer-page coordinate scrolling succeeded",
+    "Earlier offscreen Save attempts remain historical incomplete evidence"
+  ],
+  "joint_s3_passed": false,
+  "screenshots": {
+    "saved_preview": "20261009-231429-desktop.png",
+    "metadata_draft": "20261009-231544-desktop.png"
+  },
+  "screenshots_visually_verified": true
+}

@@ -1,0 +1,57 @@
+{
+  "candidate": {
+    "directory": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/50f4c08d",
+    "source_commit_expected": "50f4c08dd72479b077688637014d658887415199",
+    "source_commit_actual": "50f4c08dd72479b077688637014d658887415199",
+    "source_commit_match": true,
+    "source_dirty": false,
+    "configuration": "release",
+    "version": "0.1.0"
+  },
+  "app": {
+    "path": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/50f4c08d/MacBot.app",
+    "bundle_id": "bot.mac.desktop",
+    "bundle_name": "Mac Bot",
+    "binary": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/50f4c08d/MacBot.app/Contents/MacOS/macbot-desktop",
+    "binary_sha256_expected": "8e183d3daf0af822ce8c96078c7903cf0b8719fc91a5a5105aa50440ce08b0b4",
+    "binary_sha256_actual": "8e183d3daf0af822ce8c96078c7903cf0b8719fc91a5a5105aa50440ce08b0b4",
+    "binary_sha256_match": true,
+    "source_commit_file_sha256_expected": "7cb81b6c63e287491e4c2453fa2d4fe7ae6f4cdc490b3cca57f9d593ad206a09",
+    "source_commit_file_sha256_actual": "7cb81b6c63e287491e4c2453fa2d4fe7ae6f4cdc490b3cca57f9d593ad206a09",
+    "source_commit_file_sha256_match": true,
+    "fixtures_present": true
+  },
+  "dmg": {
+    "path": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/50f4c08d/MacBot.dmg",
+    "sha256_expected": "31fe1e7d575662808a8e702aadabb8f724a3ebf96d93ec56831f30de758e2361",
+    "sha256_actual": "31fe1e7d575662808a8e702aadabb8f724a3ebf96d93ec56831f30de758e2361",
+    "sha256_match": true,
+    "size_bytes": 13017773,
+    "hdiutil_verify": "VALID"
+  },
+  "metadata": {
+    "tests": {
+      "core": 33,
+      "desktop": 48
+    },
+    "metadata_app_path_matches": true,
+    "metadata_dmg_path_matches": true
+  },
+  "codesign": {
+    "verified": false,
+    "note": "codesign --verify --deep --strict reported app resources/signature inconsistency; candidate hash/DMG verification remains separate."
+  },
+  "deployment": {
+    "installed": false,
+    "gui_operated": false,
+    "s5_fresh_install_passed": false,
+    "status": "candidate_verified_only"
+  },
+  "validation_scope": [
+    "metadata read",
+    "App source/binary SHA256",
+    "DMG SHA256",
+    "hdiutil verify",
+    "no credentials read"
+  ]
+}

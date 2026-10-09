@@ -4,14 +4,14 @@
 
 ## 现在的状态
 
-正式服务 `ae3009b` 已从固定干净 archive 部署到 `7788`（PID `63443`），MiniMax-M2.5 沿用本机 file backend。桌面 `af14e69`（当前 PID `83525`；主动退出重开，先前截图 PID `49240`）已实际显示修复后的旧消息和新只读回复；Computer 本地页面绘制、接管/交还和低画质尺寸已复验。Android 签名 Release `80d8a42` 与共享 mock `11bc831` 保持；Android 正式 UI 仍受 CUA Qt 绑定限制，替代操作等待用户回应。持续部署保留 UI 验证 hold，避免中断现场。
+正式服务 `ae3009b` 已从固定干净 archive 部署到 `7788`（PID `63443`），MiniMax-M2.5 沿用本机 file backend。桌面 `50f4c08`（PID `41643`，窗口 `58217`）已部署并完成热图和技能保存专项；此前 af14e69 的文字/Computer 证据保留。Android 签名 Release `80d8a42` 与共享 mock `11bc831` 保持；Android 正式 UI 仍受 CUA Qt 绑定限制，替代操作等待用户回应。持续部署保留 UI 验证 hold，避免中断现场。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
 | S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 通过：两端连接 mock 并看到会话列表 | `docs/progress/S0/` |
 | S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未通过：ae3009b 工具/实际 Markdown/旧历史身份校验和桌面可读专项通过；Android、完整流式/回放联合待验 | `docs/progress/S1/` |
 | S2 | 主 Bot、群协作、插话和待验收 | 不通过：ae3009b 已自动建群和派发，但主会话缺 project_card，项目 flow 为空 | `docs/progress/S2/` |
-| S3 | 技能、仪表盘、搜索和记忆 | 未通过：9e70 API CRUD、用量、搜索、跨 DM 偏好通过，双端联合待验 | `docs/progress/S3/` |
+| S3 | 技能、仪表盘、搜索和记忆 | 未通过：API、桌面热图、技能保存/预览与启停保留草稿专项通过；正文更新意外启用问题及双端一致性待验 | `docs/progress/S3/` |
 | S4 | 浏览器画面、接管、定时任务和通知 | 未通过：ae3009b 同连接接管/交还、low 640×316、URL 与桌面绘制通过；真实登录、输入、手机接管/通知待验 | `docs/progress/S4/` |
 | S5 | pkg 全新安装、两端连接和完整场景 | 未验收 | `docs/progress/S5/` |
 
@@ -33,6 +33,10 @@ Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/
 桌面归属线的 mock 专项证据仍在：[历史截图](S1/main-222fda9-desktop-history.png)、[技能修改](S3/main-222fda9-skill-edited.png)、[接管](S4/main-222fda9-computer-takeover.png)、[窗口重开](S5/main-222fda9-window-reopened.png)及[清单](S5/desktop-222fda9-owner-manifest.json)。正式桌面已更新 af14e69；前版现场为 [3f7c046 Computer 画面](S4/20261009-210338-desktop.png) 与[窗口元数据](S4/20261009-210338-desktop.txt)及[搜索与绘制断言](S4/production-3f7c046-native-search-computer.json)；[最新 af14e69 Release DMG](S5/desktop-dmg-af14e69-candidate.json)已独立核对源码、哈希与 hdiutil，仍只计候选；S5 [9e70 pkg 来源与载荷校验](S5/server-pkg-9e70d88-verified.json)已通过，尚未全新安装。
 
 共享 mock `11bc831` 的[契约预检](S2/mock-11bc831-contract-precheck.json)通过：Workbench 扁平返回、登录群4成员、2个 pending 引用和PRD搜索。历史失败截图保留，最新结论以 `COORDINATION.md` 为准。
+
+本轮桌面 `50f4c08` 已从 main 干净 archive 构建并部署，正式服务/共享 mock PID 未变化。[热图复验](S3/production-50f4c08-ae3009b-heatmap-data.json)：仅 Oct9 非零 203858 tokens/60 requests，三个阈值相同，原生显示绿色首档、零态仍灰；[截图](S3/20261009-231302-desktop.png)。[技能复验](S3/production-50f4c08-ae3009b-native-skill.json)：实际可见 Save 后 v2 已落盘且预览更新，停用操作保留 v3 未保存草稿、服务器仍为 v2；保存响应在飞时继续输入的严格时序尚未取证。窗口 Raise 后外层滚动已成功，旧 offscreen 尝试保留为历史未完成。正文更新将原停用样例变为启用，已交 server-mac 隔离核查；样例已原生恢复停用。
+
+[50f4c08 候选包](S5/desktop-dmg-50f4c08-candidate.json)哈希与 hdiutil 通过，但缺完整 bundle 签名；[91a18ad 打包修复候选](S5/desktop-dmg-91a18ad-candidate.json)默认完整 ad hoc 签名且 strict verify 通过。91a 只改打包/README，功能源码与50f相同；候选校验不等于 S5 全新安装。
 
 ## 快速查看效果
 

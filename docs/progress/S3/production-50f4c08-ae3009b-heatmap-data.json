@@ -1,0 +1,78 @@
+{
+  "scenario": "S3 heatmap data and native skill read-only check",
+  "status": "PASS",
+  "service": {
+    "url": "http://127.0.0.1:7788",
+    "health_version": "0.1.0",
+    "timezone": "Asia/Shanghai",
+    "mock": false
+  },
+  "heatmap_request": {
+    "mode": "calendar",
+    "metric": "tokens",
+    "from": "2025-10-04T15:09:40Z",
+    "to": "2026-10-09T15:09:40Z",
+    "range_days": 370
+  },
+  "usage_summary_current": {
+    "cache_read_tokens": 46945,
+    "cache_write_tokens": 0,
+    "cost": null,
+    "input_tokens": 192077,
+    "output_tokens": 11781,
+    "requests": 60,
+    "tasks_done": 0
+  },
+  "usage_summary_previous": {
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "cost": null,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "requests": 0,
+    "tasks_done": 0
+  },
+  "heatmap": {
+    "days_count": 371,
+    "first_date": "2025-10-04",
+    "last_date": "2026-10-09",
+    "nonzero_days": 1,
+    "nonzero": [
+      {
+        "date": "2026-10-09",
+        "value": 203858.0,
+        "tokens": 203858,
+        "requests": 60,
+        "top_bot_id": "main"
+      }
+    ],
+    "thresholds": [
+      203858.0,
+      203858.0,
+      203858.0
+    ]
+  },
+  "skill": {
+    "name": "integrator-native-ae3009b",
+    "source": "user",
+    "enabled": false,
+    "content_bytes": 187,
+    "content_sha256": "e933d68cc63bff31eef254c6d60f1ac3a7316e108a46743eeba323e1300e545d",
+    "has_v1_marker": true,
+    "has_v2_marker": false
+  },
+  "conclusion": "API data confirms the same single nonzero calendar day and collapsed thresholds as the prior AE check; native skill is present with its active/source baseline recorded by metadata and hash only. No UI color PASS is claimed.",
+  "native_ui": {
+    "desktop_source": "50f4c08dd72479b077688637014d658887415199",
+    "desktop_pid": 41643,
+    "window_id": 58217,
+    "positive_single_day_green": true,
+    "zero_days_grey": true,
+    "summary_tokens": 203858,
+    "summary_requests": 60,
+    "cache_percent": 20,
+    "screenshot": "20261009-231302-desktop.png",
+    "screenshot_visually_verified": true,
+    "status": "PASS for tied quantile green/zero contrast only; not full S3 joint acceptance"
+  }
+}

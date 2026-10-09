@@ -1,0 +1,33 @@
+{
+  "before": {
+    "phase": "before",
+    "desktop_source": "af14e6952aa8acdaf0ea943bc13e72340368da40",
+    "server_source": "ae3009b412be7d1f643c12733a4a15f332afec72",
+    "server_listener_pids": [
+      "63443"
+    ],
+    "mock_listener_pids": [
+      "66750"
+    ],
+    "requested_desktop_source": "50f4c08dd72479b077688637014d658887415199",
+    "scope": "Mac-only; server, mock and Android preserved",
+    "observed_at": "2026-10-09T15:10:42.131166+00:00"
+  },
+  "native_ui_passed": "heatmap only; skills pending",
+  "after": {
+    "observed_at": "2026-10-09T15:13:03.286178+00:00",
+    "desktop_source": "50f4c08dd72479b077688637014d658887415199",
+    "desktop_pids": [
+      "41643"
+    ],
+    "server_source": "ae3009b412be7d1f643c12733a4a15f332afec72",
+    "server_listener_pids": [
+      "63443"
+    ],
+    "mock_listener_pids": [
+      "66750"
+    ],
+    "configuration": "debug; clean git archive; deploy.sh exit 0",
+    "log": "~/Library/Caches/MacBot/integrator/watch/desktop-deploy-50f4c08.log"
+  }
+}
