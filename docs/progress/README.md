@@ -29,7 +29,7 @@ cd /Users/gongshaojie/Project/mac-bot
 
 `deploy.sh` 会按当前代码可用性编译并部署 `macbotd`、桌面 `.app` 和 Android APK；缺少某条开发线产物时会跳过并打印提示。正式服务使用端口 `7788`，数据目录为 `~/MacBot`，访问密码只从本机文件 `~/.macbot-dev-password` 读取或由部署流程设置，密码内容不写入仓库。
 
-当前两端的 Mock Host 均可查看会话。mock 最新 [0ed0a07 API 预检](S0/mock-0ed0a07-precheck.json) 通过；接管实时 driver/tab 修复由两端继续验证，不计作 S4 通过。最新 [S0 验证记录](S0/main-s0-current.json)、[桌面会话截图](S0/main-eb088fa-desktop-sessions.png) 和 [Android 会话截图](S0/main-08462a4-android.png) 已归档。历史 [首次不通过记录](S0/main-s0-integration.json) 保留；桌面 Keychain 阻塞和刷新问题已修复。窗口截图命令写出完整 PNG 后超时，已人工检查并恢复归档，未将命令退出码记为通过。
+当前两端的 Mock Host 均可查看会话。mock 最新 [0ed0a07 API 预检](S0/mock-0ed0a07-precheck.json) 通过；接管实时 driver/tab 修复由两端继续验证，不计作 S4 通过。更新后的 [桌面画面](S0/mock-0ed0a07-installed-eb088fa-desktop.png) 与 [Android 当前画面](S0/mock-0ed0a07-android-release-current.png) 已归档。mock 重启后桌面当前聊天暂为空，但 RPC 历史有4条；client-mac 已确认 bootstrap 重置后缺少历史重拉，正在修复，S1历史恢复未通过。最新 [S0 验证记录](S0/main-s0-current.json)、[桌面会话截图](S0/main-eb088fa-desktop-sessions.png) 和 [Android 会话截图](S0/main-08462a4-android.png) 已归档。历史 [首次不通过记录](S0/main-s0-integration.json) 保留；桌面 Keychain 阻塞和刷新问题已修复。窗口截图命令写出完整 PNG 后超时，已人工检查并恢复归档，未将命令退出码记为通过。
 
 桌面端：双击打开 `~/Applications/MacBot.app`；当前 mock 地址为 `127.0.0.1:7789`，密码 `dev`，开发部署已启用文件凭据后端。正式服务 ready 后填写 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`。
 

@@ -38,5 +38,25 @@
     "installed_production_marker": false,
     "resolved_observation": "PID no longer exists, 7788 no listener; ownership not established; not counted as ready"
   },
-  "stage_note": "Historical S0 acceptance preserved; S1-S5 unaccepted"
+  "stage_note": "Historical S0 acceptance preserved; S1-S5 unaccepted",
+  "snapshots": {
+    "desktop": {
+      "file": "mock-0ed0a07-installed-eb088fa-desktop.png",
+      "installed_source_commit": "eb088fa09c8c841235abe5979220edaa5971bd32",
+      "pid": 86980,
+      "window_id": 56209,
+      "capture": "screencapture produced hidden complete PNG; timeout15s/exit1; manually inspected and renamed",
+      "observed": "session list visible, selected main chat shows empty placeholder after restart despite chat.history returning4 messages"
+    },
+    "android": {
+      "file": "mock-0ed0a07-android-release-current.png",
+      "capture": "adb exec-out screencap -p; read-only",
+      "observed": "Bot management page visible during owner Release validation; not a session-list or S4 acceptance screenshot"
+    }
+  },
+  "followup": {
+    "owner": "client-mac",
+    "issue": "After mock restart selected main chat is empty while RPC has4 messages; confirm reload after reconnect/bootstrap",
+    "scope": "S1 history/render followup; historical S0 remains passed"
+  }
 }
