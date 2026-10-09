@@ -257,3 +257,11 @@
 - 验证：server workspace 287 tests、all-targets clippy -D warnings、fmt check 和 debug build 通过。真实官方 0.38.2 sidecar 两次重启回归通过：保留 sidecar、关闭隔离 sidecar 后均直接恢复旧 Bot 画面；provider 请求数与 run_requests 文件集合不变。低画质≤640、实际 URL、JPEG/ACK、同 WS bot→user→bot、缩放点击/键盘及交还后拒绝输入同时通过。
 - 证据：`/tmp/macbot-screen-restart-20261010a.evidence.log`、隔离 home `/tmp/macbot-screen-restart-20261010a`；全量日志 `/tmp/macbot-screen-restart-final-workspace-tests-20261010.log` 与同前缀 clippy 日志。rebase 后 server/protocol 内容与验证版本一致。
 - 不触共享正式 7788、mock 7789、GUI、客户端或 AVD；本线 headless 隔离通过不代替真实双端验收，交集成从固定 SHA 复验旧 Bot 无新 run 的启动恢复。
+
+## integrator：累计正式部署、S2 等待阻断与 S4 重启恢复（2026-10-10）
+- 正式 7788 已固定 archive 升级到 f9109a3b7948645e37fd4b9205a505f396b3105c，监听/LaunchAgent PID91581、安装 source/health/auth 检查通过；桌面7c5e480f/PID66995、Android2ccfc88e签名Release、共享mock11bc831均未重启。S1/server-{1f771c7,f9109a3}-deployed.json；f910 pkg独立source/dirty=false/载荷hash核对通过，S5/server-pkg-f9109a3-verified.json，不计installer/fresh。
+- S2 联调：不通过。1f新场景两张项目卡、真实三角色成员、顺序描述flow已验证；Product/Main/parallel三条decision后等待，无coding/handoff，主Bot真实@Product开场缺失。请求/项目/run现场保留，不重复chat.send。S2/production-1f771c7-{login-scene-partial,collaboration-waits,decision-messages}.json。server-mac确认：options生成Question但adapter只落text，丢question block/引用和question.asked；create_question覆盖wait.message_id且回复查错关联ID。Main无目标decision需返回错误，开场须真实send_msg。归server-mac，等待下一独立ready再resume。旧AE缺卡片/assignment过滤迁移已PASS，但原flow=[]不改、不假计完整链。
+- S3 技能正文更新保留全局disabled及perBot scope API回归通过，S3/production-1f771c7-skill-update-scope.json；不计双端CRUD/全部记忆场景通过。Android安装APK由集成pull独立hash一致，正式侧栏出现本轮新marker项目，S5/android-2ccfc88-installed-identity.json、S2/production-1f771c7-android-live-project.json；只计新项目实时更新证据。
+- S4 1f重启旧Bot失败已确认独立配置缺口：握手同TCP包首WS封套先被测试客户端丢弃，修buffer后收到unavailable/browser screencast is unavailable。保留两轮证据；该问题与锁屏无关。f910无需新模型/browser_open/run，原b5 Bot直接恢复原t2/实际URL，两帧low640x316/JPEG/ACK和同WS bot→user→bot通过，raw JPEG已核图：S4/production-f9109a3-screen-restored.json、screen-f9109a3-takeover/。仅transport专项PASS，native连续呈现、canvas输入、手机接管/通知及整阶段仍未通过。
+- screen_locked=1实际阻断所有Mac CUA/capture；已请求用户解锁，旧235101连接截图不代表当前UI，未据工具失败判客户端冻结。S5全新卸载→pkg安装→管理页设密码→Release DMG→双端完整场景尚未演练。只有S0整阶段通过保持。
+- 集成脚本修复：HTTP101与首WS frame合包保留buffer，local TCP正/负回归通过；S2按PROTOCOL flow显示字符串核对角色顺序，场景内审批严格限制marker/project Home/project ID，拒绝symlink逃逸、shell/glob扩展，10测试通过；resume先核对已发request，不重发。脚本问题与业务缺陷分别留证。
