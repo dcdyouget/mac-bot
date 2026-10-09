@@ -3,16 +3,18 @@
 //! Host metadata is kept in `~/Library/Application Support/MacBot/hosts.json`.
 //! Passwords are deliberately kept out of that file and stored in the macOS
 //! login keychain as generic passwords. A keychain failure is returned to the
-//! caller; there is no plaintext fallback.
+//! caller; there is no implicit plaintext fallback. Developers may explicitly
+//! opt into the private, 0600 file backend with `MACBOT_SECRET_BACKEND=file`.
 
 use std::{
+    collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::{self, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use core_foundation::{
     base::{CFGetTypeID, CFRelease, CFType, CFTypeRef, TCFType},
     data::CFData,
@@ -37,6 +39,8 @@ unsafe extern "C" {
 }
 
 const KEYCHAIN_SERVICE: &str = "bot.mac.desktop.host-password";
+const SECRET_BACKEND_ENV: &str = "MACBOT_SECRET_BACKEND";
+const DEVELOPMENT_SECRET_FILE: &str = "development-secrets.json";
 const STORE_DIR: &str = "Library/Application Support/MacBot";
 const STORE_FILE: &str = "hosts.json";
 
@@ -193,8 +197,8 @@ impl HostStore {
             .unwrap_or_else(|| Uuid::new_v4().to_string());
 
         // The password never enters HostRecord or the serialized buffer.
-        set_keychain_password(&id, password.as_bytes())
-            .with_context(|| format!("store password for host {id} in macOS Keychain"))?;
+        store_password(&id, password.as_bytes())
+            .with_context(|| format!("store password for host {id}"))?;
 
         let record = HostRecord {
             id: id.clone(),
@@ -223,8 +227,8 @@ impl HostStore {
 
     /// Read the password for a record from the macOS login keychain.
     pub fn password(&self, record: &HostRecord) -> Result<String> {
-        let password = keychain_password(&record.id)
-            .with_context(|| format!("read password for host {} from macOS Keychain", record.id))?;
+        let password = read_password(&record.id)
+            .with_context(|| format!("read password for host {}", record.id))?;
         String::from_utf8(password).context("host password is not valid UTF-8")
     }
 
@@ -233,7 +237,7 @@ impl HostStore {
         let Some(index) = self.hosts.iter().position(|host| host.id == id) else {
             return Ok(());
         };
-        delete_keychain_password(id)?;
+        delete_password(id)?;
         let removed = self.hosts.remove(index);
         if let Err(error) = self.save() {
             self.hosts.insert(index, removed);
@@ -246,6 +250,124 @@ impl HostStore {
 fn default_store_path() -> Result<PathBuf> {
     let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
     Ok(PathBuf::from(home).join(STORE_DIR).join(STORE_FILE))
+}
+
+fn default_secret_path() -> Result<PathBuf> {
+    Ok(default_store_path()?
+        .parent()
+        .ok_or_else(|| anyhow!("host store has no parent directory"))?
+        .join(DEVELOPMENT_SECRET_FILE))
+}
+
+fn file_backend_enabled() -> bool {
+    file_backend_requested(std::env::var(SECRET_BACKEND_ENV).ok().as_deref())
+}
+
+fn file_backend_requested(value: Option<&str>) -> bool {
+    value == Some("file")
+}
+
+#[derive(Default, Deserialize, Serialize)]
+struct DevelopmentSecrets {
+    passwords: BTreeMap<String, String>,
+}
+
+fn load_development_secrets(path: &Path) -> Result<DevelopmentSecrets> {
+    match fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .with_context(|| format!("decode development secrets {}", path.display())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(DevelopmentSecrets::default()),
+        Err(error) => {
+            Err(error).with_context(|| format!("read development secrets {}", path.display()))
+        }
+    }
+}
+
+fn save_development_secrets(path: &Path, secrets: &DevelopmentSecrets) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("development secrets has no parent directory"))?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create development secrets directory {}", parent.display()))?;
+    set_mode(parent, 0o700)?;
+
+    let temp_path = temporary_path(path);
+    let bytes = serde_json::to_vec_pretty(secrets).context("encode development secrets")?;
+    let write_result = (|| -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temp_path)
+            .with_context(|| {
+                format!(
+                    "create temporary development secrets {}",
+                    temp_path.display()
+                )
+            })?;
+        file.write_all(&bytes)
+            .context("write development secrets")?;
+        file.sync_all().context("sync development secrets")?;
+        set_mode(&temp_path, 0o600)?;
+        fs::rename(&temp_path, path)
+            .with_context(|| format!("replace development secrets {}", path.display()))?;
+        set_mode(path, 0o600)?;
+        sync_directory(parent)
+    })();
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    write_result
+}
+
+fn set_file_password_at(path: &Path, account: &str, password: &[u8]) -> Result<()> {
+    let mut secrets = load_development_secrets(path)?;
+    let password =
+        String::from_utf8(password.to_vec()).context("development password is not valid UTF-8")?;
+    secrets.passwords.insert(account.to_owned(), password);
+    save_development_secrets(path, &secrets)
+}
+
+fn file_password_at(path: &Path, account: &str) -> Result<Vec<u8>> {
+    let secrets = load_development_secrets(path)?;
+    secrets
+        .passwords
+        .get(account)
+        .cloned()
+        .ok_or_else(|| anyhow!("development password not found for host {account}"))
+        .map(String::into_bytes)
+}
+
+fn delete_file_password_at(path: &Path, account: &str) -> Result<()> {
+    let mut secrets = load_development_secrets(path)?;
+    if secrets.passwords.remove(account).is_some() {
+        save_development_secrets(path, &secrets)?;
+    }
+    Ok(())
+}
+
+fn store_password(account: &str, password: &[u8]) -> Result<()> {
+    if file_backend_enabled() {
+        set_file_password_at(&default_secret_path()?, account, password)
+    } else {
+        set_keychain_password(account, password)
+    }
+}
+
+fn read_password(account: &str) -> Result<Vec<u8>> {
+    if file_backend_enabled() {
+        file_password_at(&default_secret_path()?, account)
+    } else {
+        keychain_password(account)
+    }
+}
+
+fn delete_password(account: &str) -> Result<()> {
+    if file_backend_enabled() {
+        delete_file_password_at(&default_secret_path()?, account)
+    } else {
+        delete_keychain_password(account)
+    }
 }
 
 fn temporary_path(path: &Path) -> PathBuf {
@@ -349,7 +471,11 @@ fn keychain_attributes(
     }
     // Bind Apple's exported constant, which is absent from security-framework-sys 2.17.
     unsafe {
-        add_static_string(&mut query, kSecUseAuthenticationUI, kSecUseAuthenticationUIFail);
+        add_static_string(
+            &mut query,
+            kSecUseAuthenticationUI,
+            kSecUseAuthenticationUIFail,
+        );
     }
     query.to_immutable()
 }
@@ -392,7 +518,8 @@ mod tests {
     fn keychain_queries_disable_authentication_ui() {
         let query = keychain_attributes("host-test", None, false);
         let key = unsafe { CFString::wrap_under_get_rule(kSecUseAuthenticationUI) }.into_CFType();
-        let expected = unsafe { CFString::wrap_under_get_rule(kSecUseAuthenticationUIFail) }.into_CFType();
+        let expected =
+            unsafe { CFString::wrap_under_get_rule(kSecUseAuthenticationUIFail) }.into_CFType();
         assert_eq!(*query.find(&key).unwrap(), expected);
         let return_key = unsafe { CFString::wrap_under_get_rule(kSecReturnData) }.into_CFType();
         assert!(query.find(&return_key).is_none());
@@ -439,5 +566,41 @@ mod tests {
         assert_eq!(loaded.hosts(), &[record]);
         let _ = fs::remove_file(&path);
         let _ = fs::remove_dir(&root);
+    }
+
+    #[test]
+    fn development_file_backend_round_trips_with_private_permissions() {
+        let root = std::env::temp_dir().join(format!("macbot-dev-secrets-{}", Uuid::new_v4()));
+        let path = root.join("development-secrets.json");
+
+        set_file_password_at(&path, "host-id", b"dev-password").unwrap();
+        assert_eq!(
+            fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(file_password_at(&path, "host-id").unwrap(), b"dev-password");
+
+        set_file_password_at(&path, "host-id", b"updated-password").unwrap();
+        assert_eq!(
+            file_password_at(&path, "host-id").unwrap(),
+            b"updated-password"
+        );
+        delete_file_password_at(&path, "host-id").unwrap();
+        assert!(file_password_at(&path, "host-id").is_err());
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(&root);
+    }
+
+    #[test]
+    fn file_backend_requires_explicit_development_switch() {
+        assert!(file_backend_requested(Some("file")));
+        assert!(!file_backend_requested(None));
+        assert!(!file_backend_requested(Some("keychain")));
+        assert!(!file_backend_requested(Some("FILE")));
     }
 }

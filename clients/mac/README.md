@@ -85,3 +85,9 @@ MACBOT_UPDATE_URL=http://127.0.0.1:7789/update.json packaging/check-update.sh
 `UpdateClient::download_and_stage` 会先下载并校验 digest，再生成缓存目录中的可复核 `install-<version>.sh`。只有设置页在用户点击安装后才应执行该脚本；脚本会重新校验 SHA-256，以只读方式挂载 DMG，校验 `bot.mac.desktop` 和版本，使用 `ditto` 写入目标父目录，等待旧进程退出后原子替换，并在替换失败时恢复应用备份。备份只保留应用 bundle，不删除其他用户文件。若程序是直接运行的 Rust binary 而不是 `.app`，不会生成替换脚本；应打开已校验的 DMG 手动安装。
 
 当前状态：`.app`/`.dmg` 打包、DMG 安装脚本、manifest 校验、截图入口已集成；更新地址尚未发布时保持 `MACBOT_UPDATE_URL` 未配置，检查结果为 `disabled`。设置页的“检查更新/下载并安装”事件由主应用接通后才会触发上述 Rust helper，README 中的命令可先独立验证打包和本机测试清单。
+
+## 开发期凭据后端
+
+用户授权的本机开发模式可设置 `MACBOT_SECRET_BACKEND=file`，Host 密码保存到仓库外 `~/Library/Application Support/MacBot/development-secrets.json`（0600，父目录0700，原子写入），该模式完全不访问钥匙串。不设置时使用默认 Keychain。请勿将文件、凭据或含凭据的输出纳入 Git、日志或截图。
+
+连接诊断可设置 `MACBOT_DIAGNOSTICS=1`，只输出连接事件、对象数量和页面渲染状态，不输出凭据或消息内容。

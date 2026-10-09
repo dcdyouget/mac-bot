@@ -103,7 +103,8 @@ impl MacBot {
         let mut events=handle.events;
         self.event_task=Some(cx.spawn(async move |this,cx| {
             while let Some(event)=events.recv().await {
-                if this.update(cx,|view,cx|view.on_event(event,cx)).is_err(){break;}
+                if std::env::var_os("MACBOT_DIAGNOSTICS").is_some(){eprintln!("client: event bridge received");}
+                if this.update(cx,|view,cx|view.on_event(event,cx)).is_err(){if std::env::var_os("MACBOT_DIAGNOSTICS").is_some(){eprintln!("client: event bridge entity released");}break;}
             }
         }));
         cx.notify();
@@ -122,6 +123,16 @@ impl MacBot {
         }).detach();
     }
     fn on_event(&mut self,event:ClientEvent,cx:&mut Context<Self>) {
+        if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
+            match &event {
+                ClientEvent::Connected{resumed,..}=>eprintln!("client: connected resumed={resumed}"),
+                ClientEvent::Bootstrap(value)=>eprintln!("client: bootstrap bots={} chats={} seq={}",arr(value,"bots").len(),arr(value,"chats").len(),value["seq"]),
+                ClientEvent::Disconnected{..}=>eprintln!("client: disconnected"),
+                ClientEvent::TransportError(_)=>eprintln!("client: transport error"),
+                _=>{},
+            }
+        }
+        let connection_changed=matches!(&event,ClientEvent::Connected{..}|ClientEvent::Bootstrap(_)|ClientEvent::Disconnected{..});
         match event {
             ClientEvent::Connected{hello,..}=>{self.state.hello=Some(hello);self.connected=true;self.connecting=false;self.page="chat".into();self.notice.clear();self.remember_host(cx);self.rpc("bot.templates",json!({}),cx);self.refresh(cx);},
             ClientEvent::Bootstrap(value)=>{self.state.apply_bootstrap(value);if self.selected_chat.is_empty(){self.select_main(cx);}},
@@ -137,6 +148,7 @@ impl MacBot {
             ClientEvent::Disconnected{error}=>{self.connected=false;self.connecting=false;self.trace_stream=None;if let Some(e)=error{self.notice=e;}},
             ClientEvent::TransportError(error)=>{self.notice=error;self.connecting=false;}
         }
+        if connection_changed{cx.refresh_windows();}
         cx.notify();
     }
     fn rpc_result(&mut self,method:&str,params:&Value,value:Value,cx:&mut Context<Self>) {
@@ -322,6 +334,7 @@ impl MacBot {
 }
 impl Render for MacBot {
     fn render(&mut self,window:&mut Window,cx:&mut Context<Self>)->impl IntoElement {
+        if std::env::var_os("MACBOT_DIAGNOSTICS").is_some(){eprintln!("client: render page={} connected={} chats={}",self.page,self.connected,self.state.chats.len());}
         let t=Tokens::get(cx);
         let center=if self.page=="computer"{self.computer.clone().into_any_element()}else if self.page=="connect"{self.connection_page(cx)}else if self.page=="chat"{self.chat_page(window,cx)}else{div().flex().flex_col().p_6().gap_4().child(tr(&format!("nav.{}",self.page))).child(Button::new("back-page").ghost().label(tr("action.back")).on_click(cx.listener(|this,_,window,cx|this.back(window,cx)))).into_any_element()};
         div().size_full().flex().flex_col().bg(t.window).text_color(t.primary).text_size(px(14.)).track_focus(&self.focus)
