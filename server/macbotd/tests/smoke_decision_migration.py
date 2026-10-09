@@ -21,6 +21,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 import uuid
+from datetime import datetime, timezone
 
 from smoke_collaboration import Daemon, rpc, wait_until
 
@@ -135,14 +136,15 @@ class DecisionProvider(BaseHTTPRequestHandler):
             (item.get("content", "") for item in reversed(messages) if item.get("role") == "user"),
             "",
         )
-        marker = "MIGRATION_PRIVATE" if "MIGRATION_PRIVATE" in latest_user else "MIGRATION_ASSIGNMENT"
+        markers = ("MIGRATION_ASSIGNMENT", "MIGRATION_PRIVATE", "MIGRATION_ANSWERED")
+        marker = next((candidate for candidate in markers if candidate in latest_user), "MIGRATION_PRIVATE")
         if latest_user.strip() == OPTIONS[0]:
             for item in reversed(messages):
                 calls = item.get("tool_calls", [])
                 decisions = [call for call in calls if call.get("function", {}).get("name") == "send_msg"]
                 if decisions:
                     arguments = json.loads(decisions[-1]["function"]["arguments"])
-                    marker = "MIGRATION_PRIVATE" if "MIGRATION_PRIVATE" in arguments.get("text", "") else "MIGRATION_ASSIGNMENT"
+                    marker = next(candidate for candidate in markers if candidate in arguments.get("text", ""))
                     break
         has_admitted_send = any(
             item.get("role") == "tool" and "message admitted" in str(item.get("content", ""))
@@ -225,7 +227,7 @@ def assignment_for_marker(base: str, password: str, marker: str) -> dict[str, An
     return matches[-1] if matches else None
 
 
-def mutate_old_snapshot(home: Path, assignment_id: str | None, message_id: str) -> None:
+def mutate_old_snapshot(home: Path, assignment_id: str | None, message_id: str, answered: bool = False) -> None:
     operations_path = home / "data/orchestrator/operations.jsonl"
     lines = operations_path.read_text(encoding="utf-8").splitlines()
     target_index = -1
@@ -242,8 +244,13 @@ def mutate_old_snapshot(home: Path, assignment_id: str | None, message_id: str) 
     assert message.get("options") == OPTIONS, message
     lost_question_id = message.pop("question_id", None)
     assert lost_question_id is not None
-    for field in ("questions", "question_created_at", "question_scopes"):
-        snapshot.setdefault(field, {}).pop(lost_question_id, None)
+    if answered:
+        question = snapshot["questions"][lost_question_id]
+        question["state"] = "answered"
+        question["answer"] = {"option_index": 0, "text": None, "at": datetime.now(timezone.utc).isoformat()}
+    else:
+        for field in ("questions", "question_created_at", "question_scopes"):
+            snapshot.setdefault(field, {}).pop(lost_question_id, None)
     wire_path = home / "data/chats" / message["chat_id"] / "messages.jsonl"
     wire_rows = [json.loads(line) for line in wire_path.read_text().splitlines() if line]
     wire = next(row for row in reversed(wire_rows) if row["id"] == message_id)
@@ -353,6 +360,48 @@ def run_case(args: argparse.Namespace, base: str, daemon: RestartDaemon, marker:
     return {"marker": marker, "run_id": run_id, "message_id": message_id, "question_id": question_id, "assignment_id": trace_assignment, "provider_calls": provider.count(), "sent_id": sent["message"]["id"]}
 
 
+def answered_case(args: argparse.Namespace, base: str, daemon: RestartDaemon, bot_id: str, provider: ProviderState) -> dict[str, Any]:
+    marker = "MIGRATION_ANSWERED"
+    rpc(base, args.password, "chat.send", {"chat_id":"chat_main", "text":marker, "mentions":[{"kind":"bot","bot_id":bot_id,"instruction":None}]})
+    assignment = None
+    def assigned() -> bool:
+        nonlocal assignment
+        assignment = assignment_for_marker(base, args.password, marker)
+        return assignment is not None
+    wait_until(assigned, "answered assignment", 30)
+    assert assignment is not None
+    wait = decision_wait(base, args.password, assignment["id"], "chat_main", marker)
+    original_qid = wait["question"]["id"]
+    calls_at_wait = provider.count()
+    daemon.kill9_stop()
+    mutate_old_snapshot(args.home, assignment["id"], wait["message_id"], answered=True)
+    before = json.loads((args.home / "data/orchestrator/state.json").read_text())["questions"][original_qid]
+    daemon.start()
+    def done() -> bool:
+        return any(item.get("run_id") == wait["run_id"] and item.get("type") == "run.end" and item.get("data", {}).get("status") == "done" for item in traces(base,args.password,assignment["id"],"chat_main"))
+    wait_until(done, "automatic delivery of saved answer to same run", 45)
+    assert provider.count() == calls_at_wait + 1
+    state = json.loads((args.home / "data/orchestrator/state.json").read_text())
+    assert state["questions"][original_qid] == before
+    assert state["messages"][wait["message_id"]]["question_id"] == original_qid
+    history = rpc(base,args.password,"chat.history",{"chat_id":"chat_main","limit":500})["messages"]
+    message = next(m for m in history if m["id"] == wait["message_id"])
+    for field in ("id","seq","created_at"):
+        assert message[field] == wait["message"][field]
+    assert message["blocks"] == [{"type":"question","question_id":original_qid}]
+    assert any(f"{marker}-answer-complete" in m.get("fallback_text", "") for m in history)
+    events = [json.loads(line) for line in (args.home / "data/events/events.jsonl").read_text().splitlines()]
+    assert sum(e.get("event") == "question.asked" and e.get("data",{}).get("question",{}).get("id") == original_qid for e in events) == 1
+    run_items = [i for i in traces(base,args.password,assignment["id"],"chat_main") if i.get("run_id") == wait["run_id"]]
+    assert sum(i.get("type") == "run.start" for i in run_items) == 1
+    assert sum(i.get("type") == "run.resume" for i in run_items) == 1
+    calls_after = provider.count()
+    daemon.kill9_restart()
+    time.sleep(0.2)
+    assert provider.count() == calls_after
+    return {"run_id":wait["run_id"],"question_id":original_qid,"message_id":wait["message_id"],"saved_answer_delivered":True,"original_question_unchanged":True}
+
+
 def acceptance(args: argparse.Namespace, provider_url: str, provider: ProviderState, daemon: RestartDaemon) -> dict[str, Any]:
     base = args.url.rstrip("/")
     boot = rpc(base, args.password, "bootstrap")
@@ -366,6 +415,7 @@ def acceptance(args: argparse.Namespace, provider_url: str, provider: ProviderSt
 
     assignment_case = run_case(args, base, daemon, "MIGRATION_ASSIGNMENT", worker["id"], "chat_main", provider)
     private_case = run_case(args, base, daemon, "MIGRATION_PRIVATE", None, worker["dm_chat_id"], provider)
+    answered = answered_case(args, base, daemon, worker["id"], provider)
     rpc(base, args.password, "bot.update", {"bot_id": main["id"], "patch": {"model": model}})
     no_options = rpc(base, args.password, "chat.send", {"chat_id": "chat_main", "text": "MIGRATION_MAIN_NO_OPTIONS", "mentions": [{"kind": "main"}], "client_request_id": f"migration-main-{suffix}"})
     main_assignment = assignment_for_marker(base, args.password, "MIGRATION_MAIN_NO_OPTIONS")
@@ -382,7 +432,7 @@ def acceptance(args: argparse.Namespace, provider_url: str, provider: ProviderSt
     main_message = next(item for item in main_history if item.get("fallback_text") == "MIGRATION_MAIN_NO_OPTIONS-done")
     assert not any(block.get("type") == "question" for block in main_message.get("blocks", [])), main_message
     assert not any("MIGRATION_MAIN_NO_OPTIONS" in item.get("text", "") for item in rpc(base, args.password, "bootstrap").get("pending", {}).get("questions", []))
-    return {"checks": {"assignment_wait_recovered": True, "private_wait_recovered": True, "same_run_resumed": True, "restart_idempotent": True, "no_provider_call_during_restore": True, "no_question_for_no_options_history": True}, "cases": [assignment_case, private_case], "provider_calls": provider.count(), "main_bot": main["id"], "worker": worker["id"], "no_options_message_id": no_options["message"]["id"]}
+    return {"checks": {"assignment_wait_recovered": True, "private_wait_recovered": True, "same_run_resumed": True, "restart_idempotent": True, "no_provider_call_during_restore": True, "no_question_for_no_options_history": True,"saved_answer_delivered_same_run":True}, "cases": [assignment_case, private_case], "answered_case":answered, "provider_calls": provider.count(), "main_bot": main["id"], "worker": worker["id"], "no_options_message_id": no_options["message"]["id"]}
 
 
 def main() -> None:

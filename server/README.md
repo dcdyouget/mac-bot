@@ -136,4 +136,6 @@ python3 server/macbotd/tests/smoke_screen.py \
 
 旧版 decision 等待的启动迁移只接受 durable Waiting/Suspended checkpoint 与 canonical Message、run request 的一致映射。消息已保存非空 options 时可以重建丢失的 Question，保留原消息 ID/seq/时间；不从正文推断选项、不调用模型或重复派发。已有 Question 用 `question.answer {question_id, option_index}` 或 `{question_id, text}` 回答；旧无 options 的等待用 `chat.send {chat_id, text, mentions:[], reply_to:<原 decision 消息 ID>}` 明确回复。
 
-`smoke_decision_migration.py` 验证隔离进程 kill9 后丢失 Question/wait 的修复、工作台与事件、恢复期间无模型请求、回答后同 run 完成及重复重启幂等。参数与其他 runtime smoke 相同。
+Question 已为 `answered` 而 durable job 仍安全等待时，启动会补齐原消息与原 qid 的关联，并自动把已保存的 `answer.text` 或 `options[answer.option_index]` 送达原 run。原 Question、答案时间和消息 ID/seq/时间均保留，不重开问题、不创建新 run，也不批准工具；后续工具仍走正常审批。没有可用答案、映射冲突或存在未决工具的 job 不自动恢复。
+
+`smoke_decision_migration.py` 验证隔离进程 kill9 后丢失 Question/wait 的修复、工作台与事件、未回答时恢复期间无模型请求、回答后同 run 完成；还覆盖已回答但未送达的旧版边界，断言启动自动送达原答案、原 qid/答案时间不变、重复重启不重复调用模型。参数与其他 runtime smoke 相同。
