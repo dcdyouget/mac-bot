@@ -43,6 +43,7 @@ class FakeProviderState:
         self.project_id = ""
         self.skill_name = ""
         self.compact_failure_seen = False
+        self.compact_failure_enabled = False
         self.compact_failure_armed = False
         self.memory_failure_seen = False
         self.request_meta: list[dict[str, Any]] = []
@@ -92,7 +93,7 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
         # can remain in the prompt after the next run starts.  Drive the fake
         # from the latest marker occurrence, matching the current task.
         marker = max((x for x in markers if x in prompt), key=prompt.rfind, default="")
-        if "COMPACT_FAILURE" in prompt:
+        if "COMPACT_FAILURE" in prompt and self.state.compact_failure_enabled:
             with self.state.lock:
                 self.state.compact_failure_armed = True
         # Failure is deterministic: the first turn stages a memory write and
@@ -568,9 +569,10 @@ def acceptance(args: argparse.Namespace):
             timeout=90,
         )
 
-        # A provider failure during compaction must not leave a summary in
-        # durable Bot memory. The main model request still completes so the
-        # daemon can report the failed maintenance call independently.
+        # A provider failure during compaction must fail the corresponding
+        # assignment and release the worker slot without leaving a summary in
+        # durable Bot memory. Enable this case only for the current marker;
+        # otherwise old group history could re-arm the fake on the next run.
         before_compact_failure = memory_entries(home)
         before_non_worklog = [
             row for row in before_compact_failure if row.get("kind") != "bot_worklog"
@@ -578,13 +580,59 @@ def acceptance(args: argparse.Namespace):
         before_worklog_ids = {
             row["id"] for row in before_compact_failure if row.get("kind") == "bot_worklog"
         }
+        with fake_state.lock:
+            fake_state.compact_failure_enabled = True
+            fake_state.compact_failure_armed = False
+            fake_state.compact_failure_seen = False
+        compact_failure_assignment = None
         send_run(base, args.password, worker, (" x" * 210000) + " COMPACT_FAILURE", chat_id, "s3-compact-failure")
+        compact_failure_assignment = wait_assignment(
+            base, args.password, (" x" * 210000) + " COMPACT_FAILURE", timeout=120
+        )
         wait_until(
             lambda: (pump_approvals(base, args.password) or True)
             and fake_state.compact_failure_seen,
             "failed compact provider call",
             timeout=120,
         )
+        wait_until(
+            lambda: rpc(
+                base,
+                args.password,
+                "assignment.get",
+                {"assignment_id": compact_failure_assignment["id"]},
+            )["assignment"]["status"] == "failed",
+            "failed compact assignment terminal state",
+            timeout=120,
+        )
+        _, compact_failure_run_id = wait_for_run_evidence(
+            base, args.password, home, (" x" * 210000) + " COMPACT_FAILURE", timeout=120
+        )
+        compact_trace = rpc(
+            base,
+            args.password,
+            "trace.history",
+            {"assignment_id": compact_failure_assignment["id"], "tail": True, "limit": 500},
+        )["items"]
+        compact_end = next(
+            item
+            for item in compact_trace
+            if item.get("run_id") == compact_failure_run_id and item.get("type") == "run.end"
+        )
+        assert compact_end["data"]["status"] == "failed"
+        assert compact_end["data"].get("error"), compact_end
+        compact_job = next(
+            json.loads(path.read_text())
+            for path in (home / "data" / "jobs").glob("*.json")
+            if json.loads(path.read_text()).get("checkpoint", {}).get("run_id")
+            == compact_failure_run_id
+        )
+        assert compact_job["status"] == "failed", compact_job
+        worker_assignments = rpc(base, args.password, "assignment.list", {"limit": 200})["items"]
+        assert not any(
+            row.get("bot_id") == worker["id"] and row.get("status") == "working"
+            for row in worker_assignments
+        ), worker_assignments
         time.sleep(1)
         after_compact_failure = memory_entries(home)
         assert [
@@ -598,6 +646,10 @@ def acceptance(args: argparse.Namespace):
             "failed compaction left a summary in durable worklog: "
             + json.dumps({"entries": new_worklogs, "requests": fake_state.request_meta}, ensure_ascii=False)
         )
+
+        with fake_state.lock:
+            fake_state.compact_failure_enabled = False
+            fake_state.compact_failure_armed = False
 
         # Keep the provider failure as the final model turn.  A durable job
         # may remain retryable after an upstream 500; stopping our own

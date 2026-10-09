@@ -210,6 +210,15 @@ pub trait ExecutionSink: Send + Sync {
     async fn memory_context(&self, _request: &ExecutionRequest) -> Option<Value> {
         None
     }
+    /// Prepare the context for a fresh model turn. Implementations that need
+    /// to compact memory can override this and return an error before the
+    /// model is called; the legacy hook remains the default for simple sinks.
+    async fn prepare_model_context(
+        &self,
+        request: &ExecutionRequest,
+    ) -> Result<Option<Value>, String> {
+        Ok(self.memory_context(request).await)
+    }
     async fn commit_succeeded(&self, _request: &ExecutionRequest, _data: Value) {}
 }
 
@@ -901,11 +910,11 @@ impl ExecutionEngine {
                 (job, initial_messages, 0, false, None, Vec::new())
             }
         };
-        if !resumed {
-            if let Some(context) = self.sink.memory_context(&request).await {
-                messages.insert(0, json!({"role":"system","content":context}));
-            }
-        }
+        let streaming_message_id = if request.private {
+            Some(self.create_streaming_message(&request).await?)
+        } else {
+            None
+        };
         let mut usage = TokenUsage::default();
         let mut final_text = String::new();
         let mut turns_used = 0;
@@ -923,6 +932,20 @@ impl ExecutionEngine {
                 json!({"phase":trace_phase(&request),"model":request.model,"parent_run_id":request.parent_run_id,"subagent_task":request.subagent_task}),
             )
             .await?;
+        }
+        if !resumed {
+            match self.sink.prepare_model_context(&request).await {
+                Ok(Some(context)) => {
+                    messages.insert(0, json!({"role":"system","content":context}));
+                }
+                Ok(None) => {}
+                Err(message) => {
+                    let error = ExecutionError::Sink(message);
+                    self.fail_run(&request, &job, &error, streaming_message_id.as_deref())
+                        .await?;
+                    return Err(error);
+                }
+            }
         }
         if let Some(message) = request.resume_message.as_deref() {
             if let Some(calls) = job.checkpoint["pending_tools"].as_array() {
@@ -946,12 +969,6 @@ impl ExecutionEngine {
                 false,
             )?;
         }
-        let streaming_message_id = if request.private {
-            Some(self.create_streaming_message(&request).await?)
-        } else {
-            None
-        };
-
         let model_start_turn = if let Some(call) = approved_call {
             if matches!(call.name.as_str(), "ask_user" | "question") {
                 self.trace(
@@ -2983,6 +3000,7 @@ mod tests {
         groups: StdMutex<Vec<Value>>,
         approvals: StdMutex<Vec<Value>>,
         return_canonical_id: bool,
+        context_error: Option<String>,
     }
 
     impl RecordingSink {
@@ -3021,6 +3039,15 @@ mod tests {
         }
         async fn approval_required(&self, data: Value) {
             self.approvals.lock().unwrap().push(data);
+        }
+        async fn prepare_model_context(
+            &self,
+            _request: &ExecutionRequest,
+        ) -> Result<Option<Value>, String> {
+            match &self.context_error {
+                Some(error) => Err(error.clone()),
+                None => Ok(None),
+            }
         }
     }
 
@@ -3117,6 +3144,83 @@ mod tests {
             );
             assert_eq!(engine.run(req).await.unwrap().status, "failed");
         }
+    }
+
+    #[tokio::test]
+    async fn context_compaction_failure_fails_run_before_model_and_next_run_can_continue() {
+        let dir = tempdir().unwrap();
+        let sink = Arc::new(RecordingSink {
+            context_error: Some("context compaction failed: fake provider 500".into()),
+            ..Default::default()
+        });
+        let failed_request = request(true);
+        let engine = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            Arc::new(MockProvider::new(Vec::new())),
+            Vec::<Arc<dyn Tool>>::new(),
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+
+        let error = engine.run(failed_request.clone()).await.unwrap_err();
+        assert!(error.to_string().contains("context compaction failed"));
+        let durable = engine.state.durable.lock().await;
+        let job = durable
+            .jobs()
+            .find(|job| job.checkpoint["run_id"] == failed_request.run_id)
+            .unwrap();
+        assert_eq!(job.status, JobStatus::Failed);
+        drop(durable);
+        let events = sink.events.lock().unwrap();
+        assert!(events.iter().any(|event| {
+            event.data.pointer("/item/type").and_then(Value::as_str) == Some("run.start")
+        }));
+        assert!(events.iter().any(|event| {
+            event.data.pointer("/item/type").and_then(Value::as_str) == Some("run.end")
+                && event
+                    .data
+                    .pointer("/item/data/status")
+                    .and_then(Value::as_str)
+                    == Some("failed")
+        }));
+        assert!(!events.iter().any(|event| {
+            event.data.pointer("/item/type").and_then(Value::as_str) == Some("llm.request")
+        }));
+        drop(events);
+        let messages = engine
+            .store
+            .read_jsonl::<Value>("data/chats/chat_mock/messages.jsonl")
+            .unwrap();
+        assert!(messages
+            .last()
+            .and_then(|message| message["fallback_text"].as_str())
+            .is_some_and(|text| text.contains("context compaction failed")));
+        drop(engine);
+
+        let mut recovered_request = request(true);
+        recovered_request.run_id = "run_recovered".into();
+        let recovered_sink = Arc::new(RecordingSink::default());
+        let recovered_engine = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            Arc::new(MockProvider::new(vec![Completion {
+                text: "recovered".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            }])),
+            Vec::<Arc<dyn Tool>>::new(),
+            recovered_sink,
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            recovered_engine
+                .run(recovered_request)
+                .await
+                .unwrap()
+                .status,
+            "done"
+        );
     }
 
     #[tokio::test]

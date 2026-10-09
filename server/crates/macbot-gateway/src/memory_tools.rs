@@ -341,40 +341,53 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
         self.delegate.assignment_usage(assignment_id, usage).await;
     }
 
-    async fn memory_context(&self, request: &crate::execution::ExecutionRequest) -> Option<Value> {
+    async fn prepare_model_context(
+        &self,
+        request: &crate::execution::ExecutionRequest,
+    ) -> Result<Option<Value>, String> {
         let mut context_request = self.context_request(request);
-        let mut package = self.runtime.context(&context_request).ok()?;
+        let mut package = self
+            .runtime
+            .context(&context_request)
+            .map_err(|error| error.to_string())?;
         // The first assembly intentionally creates a fresh snapshot. Reuse
         // that snapshot for the same request so a large task can then be
         // classified by the 80% boundary instead of being hidden behind the
         // one-time `memory_snapshot_stale` segment marker.
         if package.segment_reason.as_deref() == Some("memory_snapshot_stale") {
             context_request.previous_snapshot = Some(package.snapshot.clone());
-            package = self.runtime.context(&context_request).ok()?;
+            package = self
+                .runtime
+                .context(&context_request)
+                .map_err(|error| error.to_string())?;
         }
         if package.segment_reason.as_deref() == Some("context_80_percent") {
-            if let Ok(Some(summary)) = self.runtime.compact_context(&context_request).await {
-                // Replace the oversized L3 segment before sending it to the
-                // model. Stage the summary with the current run so a failed
-                // run cannot leave an orphaned Bot worklog entry.
-                if let Some(layer) = package.layers.iter_mut().find(|layer| layer.level == 3) {
-                    layer.content = format!("Compacted segment:\n{summary}");
-                }
-                let source = MemorySource {
-                    bot_id: Some(request.bot_id.clone()),
-                    run_id: Some(request.run_id.clone()),
-                    session_id: Some(request.chat_id.clone()),
-                };
-                if let Err(error) = self.runtime.service.stage_context_summary(
-                    &self.runtime.run.actor,
-                    &self.runtime.run.access,
-                    &request.run_id,
-                    MemoryTarget::bot(request.bot_id.clone()),
-                    &summary,
-                    source,
-                ) {
-                    tracing::warn!(run_id = %request.run_id, %error, "failed to stage compacted context");
-                }
+            let summary = self
+                .runtime
+                .compact_context(&context_request)
+                .await
+                .map_err(|error| format!("context compaction failed: {error}"))?
+                .ok_or_else(|| "context compaction produced no summary".to_owned())?;
+            // Replace the oversized L3 segment before sending it to the
+            // model. Stage the summary with the current run so a failed
+            // run cannot leave an orphaned Bot worklog entry.
+            if let Some(layer) = package.layers.iter_mut().find(|layer| layer.level == 3) {
+                layer.content = format!("Compacted segment:\n{summary}");
+            }
+            let source = MemorySource {
+                bot_id: Some(request.bot_id.clone()),
+                run_id: Some(request.run_id.clone()),
+                session_id: Some(request.chat_id.clone()),
+            };
+            if let Err(error) = self.runtime.service.stage_context_summary(
+                &self.runtime.run.actor,
+                &self.runtime.run.access,
+                &request.run_id,
+                MemoryTarget::bot(request.bot_id.clone()),
+                &summary,
+                source,
+            ) {
+                tracing::warn!(run_id = %request.run_id, %error, "failed to stage compacted context");
             }
         }
         let text = package
@@ -383,7 +396,7 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
             .map(|layer| format!("L{}:\n{}", layer.level, layer.content))
             .collect::<Vec<_>>()
             .join("\n\n");
-        Some(Value::String(text))
+        Ok(Some(Value::String(text)))
     }
 
     async fn commit_succeeded(&self, request: &crate::execution::ExecutionRequest, data: Value) {
