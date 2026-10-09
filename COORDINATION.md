@@ -131,3 +131,12 @@
 - S1 联调：不通过。bd6e7c2已部署并真实MiniMax配置通过，主连接断线补发mode=replay/15→16实测通过；私聊create/bootstrap契约和null默认模型阻断，未完成两端工具/轨迹与kill9恢复。证据docs/progress/S1/production-bd6e7c2-connection-replay.json及同目录failure/config。
 - S4 联调：不通过。routine.test_run180s未执行/无trace；测试任务已停止、routine已删除。服务端累计补丁未发布，新负向测试定位落盘failed但运行中RPC仍running，归属线正修一致性。S2/S3/S5完整联合仍未验收。
 - 默认桌面继续mock7789预览；正式7788 Host凭据已在本机file backend预存，未泄露到仓库。等待server-mac给累计DM/model/routine修复固定SHA，集成随后重部署和复跑；等待client-android恢复持续网络。watch保持UI/验收hold，避免中间代码重复改现场。
+
+
+### server-mac S1 联调阻断修复（2026-10-09）
+
+- DM P0：主会话统一 chat_main/main，worker 用户私聊为 direct，bot.dm_chat_id 与 create/list/get/bootstrap 一致；restore 迁移旧 dm_main 引用。
+- 模型解析唯一入口 + 空模型显式失败：模型派发时只读取 Store data/settings.json；普通 Bot、主 Bot、子代理和 maintenance 共用 resolve_model。默认值更新后无需重启；缺模型任务 blocked，真实会话显示“未配置默认模型”，不产生空 model 的 run.start。
+- routine 投递目标：project 群，否则 Bot 私聊（规划线决定）；归档/缺失项目回退私聊，用量维度仍保留原 project 关联，无项目仍计 routine。restore 迁移旧 routine:* assignment/message。终态由 orchestrator 同锁更新 routine_runs/last_run，adapter 落盘并发单次 routine.run {run}。
+- 验证：publisher workspace 176 tests、严格 all-targets clippy；完整 runtime/trace smoke 与 routine i4 正负默认模型、test/schedule、项目群、RPC/落盘逐项一致均通过。证据 /tmp/macbot-final-routines-20261009i4.evidence.log、/tmp/macbot-final-s1-route-runtime-20261009、/tmp/macbot-final-s1-route-trace-20261009。真实 MiniMax 和两端验收仍由 integrator 复跑；共享 7788/7789 未操作。
+- 后续：orchestrator 持久化唯一入口（S1 后跟进）。dev 按 cancellation hook → 共享 FeatureService 的 bot.duplicate → persist_orchestrator 顺序小步交付，不把 P1 半成品计入本次 S1 累计 SHA。
