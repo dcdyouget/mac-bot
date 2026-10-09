@@ -4,6 +4,30 @@ use crate::settings_view::SettingsAction;
 use crate::trace_view::TraceAction;
 use chrono::{Duration, Utc};
 
+/// Merge a skill RPC result into the selected editor without rebuilding its
+/// inputs unless the response contains the full skill detail.  List mutations
+/// return the summary `Skill`, so rebuilding the editor from those responses
+/// would replace a draft with the last server snapshot.
+fn merge_skill_result(
+    selected: &Value,
+    item: &Value,
+    method: &str,
+    params: &Value,
+) -> (Value, bool) {
+    let mut merged = selected.clone();
+    if let (Some(target), Some(source)) = (merged.as_object_mut(), item.as_object()) {
+        for (field, value) in source {
+            target.insert(field.clone(), value.clone());
+        }
+    }
+    if method == "skill.update"
+        && let Some(content) = params.get("content").and_then(Value::as_str)
+    {
+        merged["content"] = json!(content);
+    }
+    (merged, method == "skill.get")
+}
+
 impl MacBot {
     fn open_search_bot(
         &mut self,
@@ -292,12 +316,19 @@ impl MacBot {
                         if self.page == "skill"
                             && s(&self.feature_data["selected"], "name") == s(item, "name")
                         {
-                            let mut selected = self.feature_data["selected"].clone();
-                            for (field, value) in item.as_object().into_iter().flatten() {
-                                selected[field] = value.clone();
-                            }
+                            let (selected, reload) = merge_skill_result(
+                                &self.feature_data["selected"],
+                                item,
+                                method,
+                                params,
+                            );
                             self.feature_data["selected"] = selected;
-                            self.editor_reload = true;
+                            if method == "skill.update"
+                                && let Some(content) = params.get("content").and_then(Value::as_str)
+                            {
+                                self.feature_data["content"] = json!(content);
+                            }
+                            self.editor_reload |= reload;
                         }
                     }
                     "routine" => {
@@ -852,5 +883,50 @@ impl MacBot {
             self.resync_requested = false;
         }
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod skill_result_tests {
+    use super::merge_skill_result;
+    use serde_json::json;
+
+    #[test]
+    fn update_summary_uses_saved_content_without_reloading_inputs() {
+        let selected = json!({"name":"demo","content":"v1","enabled":true});
+        let summary = json!({"name":"demo","enabled":false});
+        let (merged, reload) = merge_skill_result(
+            &selected,
+            &summary,
+            "skill.update",
+            &json!({"content":"v2"}),
+        );
+
+        assert_eq!(merged["content"], "v2");
+        assert_eq!(merged["enabled"], false);
+        assert!(!reload);
+    }
+
+    #[test]
+    fn metadata_summary_preserves_content_and_current_draft() {
+        let selected = json!({"name":"demo","content":"draft-v3","enabled":true});
+        let summary = json!({"name":"demo","enabled":false});
+
+        for method in ["skill.set_enabled", "skill.publish"] {
+            let (merged, reload) = merge_skill_result(&selected, &summary, method, &json!({}));
+            assert_eq!(merged["content"], "draft-v3");
+            assert_eq!(merged["enabled"], false);
+            assert!(!reload);
+        }
+    }
+
+    #[test]
+    fn full_get_response_reloads_editor_detail() {
+        let selected = json!({"name":"demo","content":"v1","enabled":true});
+        let detail = json!({"name":"demo","content":"v2","enabled":true});
+        let (merged, reload) = merge_skill_result(&selected, &detail, "skill.get", &json!({}));
+
+        assert_eq!(merged["content"], "v2");
+        assert!(reload);
     }
 }
