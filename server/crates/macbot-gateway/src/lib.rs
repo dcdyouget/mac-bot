@@ -2731,10 +2731,40 @@ async fn upload_handler(
             );
         }
     }
+    if file.sync_all().await.is_err() {
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "cannot persist upload",
+        );
+    }
     let mime = mime_guess::from_path(&name)
         .first_or_octet_stream()
         .to_string();
-    Json(json!({"upload_id":upload_id,"file":{"root":"upload","root_id":upload_id,"path":"","name":name,"size":size,"mime":mime}})).into_response()
+    let reference =
+        json!({"root":"upload","root_id":upload_id,"path":"","name":name,"size":size,"mime":mime});
+    let metadata_dir = gw.state.home.join("data/uploads");
+    let metadata_path = metadata_dir.join(format!("{upload_id}.json"));
+    let temporary_path = metadata_dir.join(format!("{upload_id}.json.tmp"));
+    let persist_metadata = async {
+        fs::create_dir_all(&metadata_dir).await?;
+        let mut metadata = fs::File::create(&temporary_path).await?;
+        metadata.write_all(&serde_json::to_vec(&reference)?).await?;
+        metadata.sync_all().await?;
+        fs::rename(&temporary_path, &metadata_path).await?;
+        fs::File::open(&metadata_dir).await?.sync_all().await?;
+        Ok::<_, std::io::Error>(())
+    };
+    if persist_metadata.await.is_err() {
+        let _ = fs::remove_file(&target).await;
+        let _ = fs::remove_file(&temporary_path).await;
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "cannot persist upload metadata",
+        );
+    }
+    Json(json!({"upload_id":upload_id,"file":reference})).into_response()
 }
 async fn trace_output_handler(
     State(gw): State<Gateway>,
@@ -3955,6 +3985,18 @@ mod tests {
             .unwrap();
         let result: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(result["file"]["size"], payload.len());
+        let metadata: Value = serde_json::from_slice(
+            &std::fs::read(
+                dir.path()
+                    .join("data/uploads")
+                    .join(format!("{}.json", result["upload_id"].as_str().unwrap())),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(metadata, result["file"]);
+        assert_eq!(metadata["name"], "large.bin");
+        assert_eq!(metadata["mime"], "application/octet-stream");
         assert_eq!(
             std::fs::read(
                 dir.path()
