@@ -65,6 +65,12 @@ const MAX_UPLOAD: usize = 100 * 1024 * 1024;
 pub trait RpcBackend: Send + Sync + 'static {
     async fn call(&self, method: &str, params: Value, state: &GatewayState) -> RpcResult;
 
+    /// Apply persisted browser configuration before a screen session is
+    /// created. Backends that do not own a production browser are no-ops.
+    async fn configure_browser_for_screen(&self, _bot_id: &str) -> Result<(), RpcError> {
+        Ok(())
+    }
+
     /// Export usage through the ledger owned by this backend.  HTTP handlers
     /// must use this hook instead of opening the Store a second time: the
     /// production Store is protected by a process-wide single-writer lock.
@@ -1907,7 +1913,16 @@ async fn real_sidecar_screen_session(
     quality: ScreenQuality,
 ) {
     let (mut sink, mut client) = socket.split();
-    let bot_id = query.bot_id.unwrap_or_else(|| "bot_main".into());
+    let bot_id = query.bot_id.clone().unwrap_or_else(|| "bot_main".into());
+    if let Some(backend) = &gw.backend {
+        if let Err(error) = backend.configure_browser_for_screen(&bot_id).await {
+            tracing::warn!(%error, %bot_id, "failed to apply browser configuration for screen");
+            let _ = sink
+                .send(screen_error("unavailable", error.to_string()))
+                .await;
+            return;
+        }
+    }
     let access_scope = query.assignment_id;
     let mut tab_id = query.tab_id.unwrap_or_default();
     let setup = {

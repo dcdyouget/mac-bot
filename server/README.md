@@ -31,6 +31,8 @@ cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 7788
 - `/api/v1/files`、`/api/v1/uploads`、`/api/v1/usage/export.csv`：鉴权后的文件与用量接口。
 - `/admin`：首次设置密码和管理入口；已设置密码后使用 HTTP Basic Auth。
 
+正式画面连接会读取 Bot 和设置中的浏览器配置，服务重启后可直接恢复旧 Computer，无需先发送模型请求。无头模式会核对保存的任务标签页与真实 sidecar 页面，缺失时恢复保存的 URL；attach 模式不会自动重建用户已关闭的标签页。
+
 管理页可修改主机名称和监听端口；端口变更写入 `data/settings.json`，重启 LaunchAgent 后生效。
 
 正式模式的 provider 配置通过 `provider.create` 写入，API key 默认进入 macOS Keychain。开发期可显式设置 `MACBOT_SECRET_BACKEND=file`，密钥以明文保存到仓库外的 `~/MacBot-dev-secrets`，也可用 `MACBOT_SECRET_DIR` 覆盖。目录权限为 0700、文件为 0600，写入采用原子替换；后端拒绝 Git checkout 内的目录。provider 响应、事件、运行日志和配置快照均不包含密钥值。

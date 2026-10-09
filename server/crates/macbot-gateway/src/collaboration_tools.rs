@@ -160,6 +160,34 @@ impl ProductionBrowserBridge {
         Self { state }
     }
 
+    /// Configure a Bot from the live orchestrator and settings snapshots.
+    /// Both execution and screen connections use this entry point so a Bot
+    /// that has not run since a restart still gets the same persisted session
+    /// path and browser mode as a newly dispatched request.
+    pub async fn configure_bot_from_snapshots(
+        &self,
+        bot_id: &str,
+        orchestrator: &Value,
+        settings: &Value,
+    ) -> Result<(), String> {
+        let mode = match orchestrator
+            .get("bots")
+            .and_then(Value::as_object)
+            .and_then(|bots| bots.get(bot_id))
+            .and_then(|bot| bot.get("browser_mode"))
+            .and_then(Value::as_str)
+            .unwrap_or("headless")
+        {
+            "attach" => macbot_protocol::BrowserMode::Attach,
+            "headless_profile" => macbot_protocol::BrowserMode::HeadlessProfile,
+            _ => macbot_protocol::BrowserMode::Headless,
+        };
+        let chrome_profile = settings
+            .pointer("/browser/chrome_profile")
+            .and_then(Value::as_str);
+        self.configure_bot(bot_id, mode, chrome_profile).await
+    }
+
     /// Apply the persisted Bot browser settings without ever handing the
     /// user's live Chrome profile to agent-browser.  The BrowserManager makes
     /// an app-owned copy on first use and keeps assignment state under the

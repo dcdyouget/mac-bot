@@ -101,6 +101,17 @@ pub struct BrowserTab {
     pub active: bool,
 }
 
+/// Metadata returned by `agent-browser tab list`.  This is deliberately kept
+/// private: the assignment ownership in [`BrowserTab`] must never come from
+/// the sidecar, only from our durable state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SidecarTab {
+    tab_id: String,
+    title: String,
+    url: String,
+    active: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BrowserSessionState {
     pub bot_id: BotId,
@@ -677,21 +688,28 @@ impl<R: CliRunner> BrowserManager<R> {
         if self.sessions.contains_key(bot_id) {
             return Ok(());
         }
-        self.session(bot_id);
-        let config = self
-            .sessions
-            .get(bot_id)
-            .ok_or_else(|| BrowserError::SessionNotFound(bot_id.into()))?
-            .config
-            .clone();
-        let config = self.prepare_config(bot_id, config)?;
-        if let Some(session) = self.sessions.get_mut(bot_id) {
-            session.config = config.clone();
+        let result = (|| {
+            self.session(bot_id);
+            let config = self
+                .sessions
+                .get(bot_id)
+                .ok_or_else(|| BrowserError::SessionNotFound(bot_id.into()))?
+                .config
+                .clone();
+            let config = self.prepare_config(bot_id, config)?;
+            if let Some(session) = self.sessions.get_mut(bot_id) {
+                session.config = config.clone();
+            }
+            let args = self.global_args(&config, bot_id, "session", &["info".into()]);
+            let _ = self.runner.run(&config.executable, &args);
+            self.restore_session(bot_id)
+        })();
+        if result.is_err() {
+            // Do not leave a half-restored session that would make a later
+            // retry return early from the `contains_key` fast path.
+            self.sessions.remove(bot_id);
         }
-        let args = self.global_args(&config, bot_id, "session", &["info".into()]);
-        let _ = self.runner.run(&config.executable, &args);
-        self.restore_session(bot_id)?;
-        Ok(())
+        result
     }
 
     fn stream_command(
@@ -800,12 +818,110 @@ impl<R: CliRunner> BrowserManager<R> {
         let Ok(restored) = serde_json::from_slice::<BrowserSessionState>(&bytes) else {
             return Ok(());
         };
-        if let Some(session) = self.sessions.get_mut(bot_id) {
-            session.state.tabs = restored.tabs;
-            session.state.takeover = false;
-            session.state.last_activity_ms = epoch_ms();
+        let config = self
+            .sessions
+            .get(bot_id)
+            .ok_or_else(|| BrowserError::SessionNotFound(bot_id.into()))?
+            .config
+            .clone();
+        let real_tabs = self.list_sidecar_tabs(bot_id, &config)?;
+        let mut created_tab_ids = Vec::new();
+        let result = (|| {
+            let mut tabs = Vec::with_capacity(restored.tabs.len());
+            for saved in restored.tabs {
+                if let Some(real) = real_tabs
+                    .iter()
+                    .find(|tab| tab.tab_id == saved.tab_id && tab.url == saved.url)
+                {
+                    // A tab id alone is not an ownership proof: agent-browser can
+                    // reuse the short t<N> id after a daemon restart.  Require
+                    // the URL to match before retaining the assignment binding.
+                    let mut tab = saved;
+                    tab.title = if real.title.is_empty() {
+                        tab.title
+                    } else {
+                        real.title.clone()
+                    };
+                    tab.url = real.url.clone();
+                    tab.active = real.active;
+                    tabs.push(tab);
+                    continue;
+                }
+
+                // Attach mode is a user's existing browser.  A closed user tab is
+                // intentionally not recreated or navigated by the service.  The
+                // assignment can explicitly call browser.open again if needed.
+                if config.mode == BrowserMode::Attach {
+                    continue;
+                }
+                if saved.url.is_empty() {
+                    return Err(BrowserError::Invalid(format!(
+                        "cannot restore assignment {} without a tab URL",
+                        saved.assignment_id
+                    )));
+                }
+                let args =
+                    self.global_args(&config, bot_id, "tab", &["new".into(), saved.url.clone()]);
+                let output = self.runner.run(&config.executable, &args)?;
+                let real = parse_tab_new_response(&output, &saved.url)?;
+                created_tab_ids.push(real.tab_id.clone());
+                tabs.push(BrowserTab {
+                    tab_id: real.tab_id,
+                    assignment_id: saved.assignment_id,
+                    title: if real.title.is_empty() {
+                        saved.title
+                    } else {
+                        real.title
+                    },
+                    url: real.url,
+                    active: real.active || tabs.is_empty(),
+                });
+            }
+            if let Some(session) = self.sessions.get_mut(bot_id) {
+                session.state.tabs = tabs;
+                session.state.takeover = false;
+                session.state.last_activity_ms = epoch_ms();
+            }
+            self.persist_session(bot_id)
+        })();
+        if let Err(error) = result {
+            return Err(self.rollback_created_tabs(bot_id, &config, &created_tab_ids, error));
         }
         Ok(())
+    }
+
+    fn rollback_created_tabs(
+        &self,
+        bot_id: &str,
+        config: &SessionConfig,
+        created_tab_ids: &[String],
+        original: BrowserError,
+    ) -> BrowserError {
+        let mut cleanup_errors = Vec::new();
+        for tab_id in created_tab_ids.iter().rev() {
+            let args = self.global_args(config, bot_id, "tab", &["close".into(), tab_id.clone()]);
+            if let Err(error) = self.runner.run(&config.executable, &args) {
+                cleanup_errors.push(format!("{tab_id}: {error}"));
+            }
+        }
+        if cleanup_errors.is_empty() {
+            original
+        } else {
+            BrowserError::Runner(format!(
+                "{original}; failed to clean up restored tabs: {}",
+                cleanup_errors.join(", ")
+            ))
+        }
+    }
+
+    fn list_sidecar_tabs(
+        &self,
+        bot_id: &str,
+        config: &SessionConfig,
+    ) -> Result<Vec<SidecarTab>, BrowserError> {
+        let args = self.global_args(config, bot_id, "tab", &["list".into()]);
+        let output = self.runner.run(&config.executable, &args)?;
+        parse_tab_list_response(&output)
     }
 
     fn persist_session(&self, bot_id: &str) -> Result<(), BrowserError> {
@@ -837,6 +953,75 @@ fn default_chrome_profile(profile: Option<&str>) -> Option<PathBuf> {
     dirs_home().map(|home| {
         home.join("Library/Application Support/Google/Chrome")
             .join(profile)
+    })
+}
+
+fn parse_tab_list_response(output: &str) -> Result<Vec<SidecarTab>, BrowserError> {
+    let value: Value = serde_json::from_str(output)
+        .map_err(|error| BrowserError::Runner(format!("invalid tab list JSON: {error}")))?;
+    let tabs = value
+        .pointer("/data/tabs")
+        .or_else(|| value.get("tabs"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| BrowserError::Runner("tab list response missing data.tabs".into()))?;
+    tabs.iter().map(parse_sidecar_tab).collect()
+}
+
+fn parse_sidecar_tab(value: &Value) -> Result<SidecarTab, BrowserError> {
+    let tab_id = value
+        .get("tabId")
+        .or_else(|| value.get("tab_id"))
+        .or_else(|| value.get("targetId"))
+        .or_else(|| value.get("target_id"))
+        .or_else(|| value.get("id"))
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| BrowserError::Runner("tab list item missing tab id".into()))?;
+    let url = value
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| BrowserError::Runner("tab list item missing URL".into()))?;
+    Ok(SidecarTab {
+        tab_id: tab_id.into(),
+        title: value
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .into(),
+        url: url.into(),
+        active: value
+            .get("active")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+fn parse_tab_new_response(output: &str, requested_url: &str) -> Result<SidecarTab, BrowserError> {
+    let value: Value = serde_json::from_str(output)
+        .map_err(|error| BrowserError::Runner(format!("invalid tab new JSON: {error}")))?;
+    let data = value.get("data").unwrap_or(&value);
+    let tab_id = data
+        .get("tabId")
+        .or_else(|| data.get("tab_id"))
+        .or_else(|| data.get("targetId"))
+        .or_else(|| data.get("target_id"))
+        .or_else(|| data.get("id"))
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| BrowserError::Runner("tab new response missing tab id".into()))?;
+    Ok(SidecarTab {
+        tab_id: tab_id.into(),
+        title: data
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .into(),
+        url: data
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or(requested_url)
+            .into(),
+        active: data.get("active").and_then(Value::as_bool).unwrap_or(false),
     })
 }
 
@@ -1017,6 +1202,16 @@ mod tests {
     impl CliRunner for Fake {
         fn run(&self, _: &std::path::Path, args: &[String]) -> Result<String, BrowserError> {
             self.calls.lock().unwrap().push(args.to_vec());
+            if args.windows(2).any(|window| window == ["tab", "list"]) {
+                return Ok(r#"{"success":true,"data":{"tabs":[]}}"#.into());
+            }
+            if args.windows(2).any(|window| window == ["tab", "new"]) {
+                let calls = self.calls.lock().unwrap().len();
+                let url = args.last().cloned().unwrap_or_default();
+                return Ok(format!(
+                    r#"{{"success":true,"data":{{"tabId":"fake-{calls}","url":"{url}"}}}}"#
+                ));
+            }
             Ok("{}".into())
         }
     }
@@ -1029,6 +1224,326 @@ mod tests {
             Ok("{}".into())
         }
     }
+    struct ReconcileFake {
+        calls: Mutex<Vec<Vec<String>>>,
+        tabs: String,
+        new_tab: String,
+    }
+    impl CliRunner for ReconcileFake {
+        fn run(&self, _: &std::path::Path, args: &[String]) -> Result<String, BrowserError> {
+            self.calls.lock().unwrap().push(args.to_vec());
+            if args.windows(2).any(|window| window == ["tab", "list"]) {
+                return Ok(self.tabs.clone());
+            }
+            if args.windows(2).any(|window| window == ["tab", "new"]) {
+                return Ok(self.new_tab.clone());
+            }
+            Ok("{}".into())
+        }
+    }
+    struct RetryFake {
+        calls: Mutex<Vec<Vec<String>>>,
+        first_list: Mutex<bool>,
+    }
+    impl CliRunner for RetryFake {
+        fn run(&self, _: &std::path::Path, args: &[String]) -> Result<String, BrowserError> {
+            self.calls.lock().unwrap().push(args.to_vec());
+            if args.windows(2).any(|window| window == ["tab", "list"]) {
+                if *self.first_list.lock().unwrap() {
+                    *self.first_list.lock().unwrap() = false;
+                    return Ok("{}".into());
+                }
+                return Ok(r#"{"success":true,"data":{"tabs":[]}}"#.into());
+            }
+            if args.windows(2).any(|window| window == ["tab", "new"]) {
+                return Ok(
+                    r#"{"success":true,"data":{"tabId":"retry-t1","url":"https://retry.example"}}"#
+                        .into(),
+                );
+            }
+            Ok("{}".into())
+        }
+    }
+    struct PartialRestoreFake {
+        calls: Mutex<Vec<Vec<String>>>,
+        new_count: Mutex<usize>,
+        fail_second_new: Mutex<bool>,
+        fail_close: bool,
+    }
+    impl CliRunner for PartialRestoreFake {
+        fn run(&self, _: &std::path::Path, args: &[String]) -> Result<String, BrowserError> {
+            self.calls.lock().unwrap().push(args.to_vec());
+            if args.windows(2).any(|window| window == ["tab", "list"]) {
+                return Ok(r#"{"success":true,"data":{"tabs":[]}}"#.into());
+            }
+            if args.windows(2).any(|window| window == ["tab", "new"]) {
+                let mut count = self.new_count.lock().unwrap();
+                *count += 1;
+                if *count == 2 && *self.fail_second_new.lock().unwrap() {
+                    *self.fail_second_new.lock().unwrap() = false;
+                    return Err(BrowserError::Runner("new failed".into()));
+                }
+                return Ok(format!(
+                    r#"{{"success":true,"data":{{"tabId":"partial-t{count}","url":"{}"}}}}"#,
+                    args.last().cloned().unwrap_or_default()
+                ));
+            }
+            if args.windows(2).any(|window| window == ["tab", "close"]) {
+                if self.fail_close {
+                    return Err(BrowserError::Runner("close failed".into()));
+                }
+                return Ok(r#"{"success":true}"#.into());
+            }
+            Ok("{}".into())
+        }
+    }
+
+    fn seed_state(path: &std::path::Path, tab_id: &str, url: &str) {
+        let state = BrowserSessionState {
+            bot_id: "bot".into(),
+            session: "macbot-bot".into(),
+            tabs: vec![BrowserTab {
+                tab_id: tab_id.into(),
+                assignment_id: "assignment".into(),
+                title: "Saved".into(),
+                url: url.into(),
+                active: true,
+            }],
+            takeover: true,
+            last_activity_ms: 1,
+        };
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, serde_json::to_vec(&state).unwrap()).unwrap();
+    }
+
+    fn reconcile_config(path: PathBuf, mode: BrowserMode) -> SessionConfig {
+        SessionConfig {
+            mode,
+            state_path: Some(path),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn restore_keeps_current_tab_without_reopening() {
+        let root =
+            std::env::temp_dir().join(format!("macbot-browser-reconcile-{}", Uuid::now_v7()));
+        let path = root.join("state.json");
+        seed_state(&path, "t1", "https://keep.example");
+        let fake = Arc::new(ReconcileFake {
+            calls: Mutex::new(Vec::new()),
+            tabs: r#"{"success":true,"data":{"tabs":[{"tabId":"t1","title":"Live","url":"https://keep.example","active":true}]}}"#.into(),
+            new_tab: r#"{"success":true,"data":{"tabId":"t9","url":"https://keep.example"}}"#.into(),
+        });
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake.clone());
+        browser
+            .set_bot_config("bot", reconcile_config(path.clone(), BrowserMode::Headless))
+            .unwrap();
+        browser.ensure_session_for_screen("bot").unwrap();
+        let tab = browser.state("bot").unwrap().tabs.remove(0);
+        assert_eq!(tab.tab_id, "t1");
+        assert_eq!(tab.title, "Live");
+        assert!(!fake
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|call| { call.windows(2).any(|window| window == ["tab", "new"]) }));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn restore_reopens_missing_assignment_tab() {
+        let root =
+            std::env::temp_dir().join(format!("macbot-browser-reconcile-{}", Uuid::now_v7()));
+        let path = root.join("state.json");
+        seed_state(&path, "t1", "https://missing.example");
+        let fake = Arc::new(ReconcileFake {
+            calls: Mutex::new(Vec::new()),
+            tabs: r#"{"success":true,"data":{"tabs":[]}}"#.into(),
+            new_tab: r#"{"success":true,"data":{"tabId":"t9","url":"https://missing.example"}}"#
+                .into(),
+        });
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake.clone());
+        browser
+            .set_bot_config("bot", reconcile_config(path.clone(), BrowserMode::Headless))
+            .unwrap();
+        browser.ensure_session_for_screen("bot").unwrap();
+        let tab = browser.state("bot").unwrap().tabs.remove(0);
+        assert_eq!(tab.tab_id, "t9");
+        assert_eq!(tab.assignment_id, "assignment");
+        assert_eq!(tab.url, "https://missing.example");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn restore_reopens_reused_tab_id_when_url_changed() {
+        let root =
+            std::env::temp_dir().join(format!("macbot-browser-reconcile-{}", Uuid::now_v7()));
+        let path = root.join("state.json");
+        seed_state(&path, "t1", "https://expected.example");
+        let fake = Arc::new(ReconcileFake {
+            calls: Mutex::new(Vec::new()),
+            tabs: r#"{"success":true,"data":{"tabs":[{"tabId":"t1","title":"Other","url":"https://other.example","active":true}]}}"#.into(),
+            new_tab: r#"{"success":true,"data":{"tabId":"t9","url":"https://expected.example"}}"#.into(),
+        });
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake);
+        browser
+            .set_bot_config("bot", reconcile_config(path.clone(), BrowserMode::Headless))
+            .unwrap();
+        browser.ensure_session_for_screen("bot").unwrap();
+        let tab = browser.state("bot").unwrap().tabs.remove(0);
+        assert_eq!(tab.tab_id, "t9");
+        assert_eq!(tab.url, "https://expected.example");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn attach_restore_does_not_reopen_missing_user_tab() {
+        let root = std::env::temp_dir().join(format!("macbot-browser-attach-{}", Uuid::now_v7()));
+        let path = root.join("state.json");
+        seed_state(&path, "t1", "https://user.example");
+        let fake = Arc::new(ReconcileFake {
+            calls: Mutex::new(Vec::new()),
+            tabs: r#"{"success":true,"data":{"tabs":[]}}"#.into(),
+            new_tab: r#"{"success":true,"data":{"tabId":"t9","url":"https://user.example"}}"#
+                .into(),
+        });
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake.clone());
+        browser
+            .set_bot_config("bot", reconcile_config(path.clone(), BrowserMode::Attach))
+            .unwrap();
+        browser.ensure_session_for_screen("bot").unwrap();
+        assert!(browser.state("bot").unwrap().tabs.is_empty());
+        assert!(!fake
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|call| { call.windows(2).any(|window| window == ["tab", "new"]) }));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn failed_restore_removes_half_created_session_for_retry() {
+        let root = std::env::temp_dir().join(format!("macbot-browser-retry-{}", Uuid::now_v7()));
+        let path = root.join("state.json");
+        seed_state(&path, "t1", "https://retry.example");
+        let fake = Arc::new(RetryFake {
+            calls: Mutex::new(Vec::new()),
+            first_list: Mutex::new(true),
+        });
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake);
+        browser
+            .set_bot_config("bot", reconcile_config(path.clone(), BrowserMode::Headless))
+            .unwrap();
+        assert!(browser.ensure_session_for_screen("bot").is_err());
+        assert!(browser.state("bot").is_err());
+        browser.ensure_session_for_screen("bot").unwrap();
+        assert_eq!(browser.state("bot").unwrap().tabs[0].tab_id, "retry-t1");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn partial_restore_closes_created_tabs_and_preserves_state_for_retry() {
+        let root = std::env::temp_dir().join(format!("macbot-browser-partial-{}", Uuid::now_v7()));
+        let path = root.join("state.json");
+        let original = BrowserSessionState {
+            bot_id: "bot".into(),
+            session: "macbot-bot".into(),
+            tabs: vec![
+                BrowserTab {
+                    tab_id: "old-1".into(),
+                    assignment_id: "assignment-1".into(),
+                    title: "Old 1".into(),
+                    url: "https://one.example".into(),
+                    active: true,
+                },
+                BrowserTab {
+                    tab_id: "old-2".into(),
+                    assignment_id: "assignment-2".into(),
+                    title: "Old 2".into(),
+                    url: "https://two.example".into(),
+                    active: false,
+                },
+            ],
+            takeover: false,
+            last_activity_ms: 1,
+        };
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
+        let fake = Arc::new(PartialRestoreFake {
+            calls: Mutex::new(Vec::new()),
+            new_count: Mutex::new(0),
+            fail_second_new: Mutex::new(true),
+            fail_close: false,
+        });
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake.clone());
+        browser
+            .set_bot_config("bot", reconcile_config(path.clone(), BrowserMode::Headless))
+            .unwrap();
+        assert!(browser.ensure_session_for_screen("bot").is_err());
+        let saved: BrowserSessionState =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved, original);
+        assert!(fake.calls.lock().unwrap().iter().any(|call| {
+            call.windows(2).any(|window| window == ["tab", "close"])
+                && call.last().is_some_and(|id| id == "partial-t1")
+        }));
+
+        browser.ensure_session_for_screen("bot").unwrap();
+        let restored = browser.state("bot").unwrap();
+        assert_eq!(restored.tabs.len(), 2);
+        assert_eq!(restored.tabs[0].assignment_id, "assignment-1");
+        assert_eq!(restored.tabs[1].assignment_id, "assignment-2");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn partial_restore_reports_cleanup_failure_with_original_error() {
+        let root = std::env::temp_dir().join(format!("macbot-browser-cleanup-{}", Uuid::now_v7()));
+        let path = root.join("state.json");
+        let original = BrowserSessionState {
+            bot_id: "bot".into(),
+            session: "macbot-bot".into(),
+            tabs: vec![
+                BrowserTab {
+                    tab_id: "old-1".into(),
+                    assignment_id: "assignment-1".into(),
+                    title: "Old 1".into(),
+                    url: "https://one.example".into(),
+                    active: true,
+                },
+                BrowserTab {
+                    tab_id: "old-2".into(),
+                    assignment_id: "assignment-2".into(),
+                    title: "Old 2".into(),
+                    url: "https://two.example".into(),
+                    active: false,
+                },
+            ],
+            takeover: false,
+            last_activity_ms: 1,
+        };
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
+        let fake = Arc::new(PartialRestoreFake {
+            calls: Mutex::new(Vec::new()),
+            new_count: Mutex::new(0),
+            fail_second_new: Mutex::new(true),
+            fail_close: true,
+        });
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake);
+        browser
+            .set_bot_config("bot", reconcile_config(path.clone(), BrowserMode::Headless))
+            .unwrap();
+        let error = browser.ensure_session_for_screen("bot").unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("new failed"));
+        assert!(message.contains("failed to clean up restored tabs"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn cli_uses_bot_session_and_json() {
         let fake = Arc::new(Fake::default());
@@ -1173,7 +1688,11 @@ mod tests {
         assert!(browser.state("bot").is_err());
 
         browser.ensure_session_for_screen("bot").unwrap();
-        assert_eq!(browser.state("bot").unwrap().tabs[0].tab_id, tab.tab_id);
+        assert_ne!(browser.state("bot").unwrap().tabs[0].tab_id, tab.tab_id);
+        assert_eq!(
+            browser.state("bot").unwrap().tabs[0].assignment_id,
+            "assignment"
+        );
         assert_eq!(
             browser.state("bot").unwrap().tabs[0].url,
             "https://example.com"

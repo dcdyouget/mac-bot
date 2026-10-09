@@ -511,7 +511,7 @@ def browser_tabs(binary: str, bot_id: str) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
-async def acceptance(args: argparse.Namespace, fake_url: str, fake: FakeProviderState) -> None:
+async def acceptance(args: argparse.Namespace, fake_url: str, fake: FakeProviderState, daemon: Daemon) -> None:
     import websockets
 
     base = args.url.rstrip("/")
@@ -743,6 +743,43 @@ async def acceptance(args: argparse.Namespace, fake_url: str, fake: FakeProvider
     finally:
         await asyncio.sleep(0.5)
 
+    restart_checks = []
+    if args.daemon_command:
+        with fake.lock:
+            provider_requests_before = len(fake.requests)
+        requests_before = {path.name for path in (args.home / "data/run_requests").glob("*.json")}
+
+        async def check_restored_screen() -> None:
+            async with websockets.connect(screen_url, additional_headers=headers, proxy=None) as ws:
+                state = await recv_state(ws)
+                assert state["driver"] == "bot", state
+                assert state["tabs"] and all(marker in tab["url"] for tab in state["tabs"]), state
+                frame, image = await recv_frame(ws)
+                assert marker in frame["url"], frame
+                assert frame["w"] <= 640, frame
+                assert jpeg_dimensions(image) == (frame["w"], frame["h"]), frame
+                assert frame["tab_id"] in {tab["tab_id"] for tab in state["tabs"]}, (state, frame)
+                await ws.send(json.dumps({"type": "ack", "seq": frame["seq"]}))
+            with fake.lock:
+                assert len(fake.requests) == provider_requests_before, "screen recovery invoked the model"
+            assert {path.name for path in (args.home / "data/run_requests").glob("*.json")} == requests_before
+
+        daemon.close()
+        daemon.start()
+        await check_restored_screen()
+        restart_checks.append("restart_without_provider_run")
+
+        # Close only this test's disposable headless sidecar. This also
+        # exercises recovery when durable tab metadata outlives real CDP tabs.
+        daemon.close()
+        subprocess.run(
+            [args.browser_bin, "--session", f"macbot-{worker['id']}", "--json", "close"],
+            check=True, capture_output=True, timeout=30,
+        )
+        daemon.start()
+        await check_restored_screen()
+        restart_checks.append("restart_with_closed_sidecar_without_provider_run")
+
     print(
         json.dumps(
             {
@@ -758,7 +795,7 @@ async def acceptance(args: argparse.Namespace, fake_url: str, fake: FakeProvider
                     "scaled_click",
                     "paired_keypress",
                     "release_denied",
-                ],
+                ] + restart_checks,
                 "fake_provider_browser_calls": fake.browser_calls,
             },
             ensure_ascii=False,
@@ -813,7 +850,7 @@ def main() -> None:
     daemon = Daemon(args)
     try:
         daemon.start()
-        asyncio.run(acceptance(args, fake_url, fake_state))
+        asyncio.run(acceptance(args, fake_url, fake_state, daemon))
     finally:
         daemon.close()
         fake_server.shutdown()

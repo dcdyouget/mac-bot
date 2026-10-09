@@ -1694,6 +1694,17 @@ fn approval_assignment_id(
 
 #[async_trait]
 impl crate::RpcBackend for ComposedBackend {
+    async fn configure_browser_for_screen(&self, bot_id: &str) -> Result<(), crate::RpcError> {
+        self.runtime
+            .configure_browser_for_screen(bot_id)
+            .await
+            .map_err(|error| crate::RpcError {
+                code: "internal".into(),
+                message: error.to_string(),
+                details: None,
+            })
+    }
+
     async fn export_usage_csv(
         &self,
         params: &Value,
@@ -3165,34 +3176,39 @@ impl RuntimeExecution {
         &self,
         request: &ExecutionRequest,
     ) -> Result<(), String> {
+        self.configure_browser_for_bot(&request.bot_id).await
+    }
+
+    async fn configure_browser_for_bot(&self, bot_id: &str) -> Result<(), String> {
         let snapshot = self
             .backend
             .orchestrator
             .snapshot()
             .map_err(|error| error.to_string())?;
-        let bot = snapshot
+        let bot_exists = snapshot
             .get("bots")
             .and_then(Value::as_object)
-            .and_then(|bots| bots.get(&request.bot_id));
-        let mode = match bot
-            .and_then(|bot| bot.get("browser_mode"))
-            .and_then(Value::as_str)
-            .unwrap_or("headless")
-        {
-            "attach" => macbot_protocol::BrowserMode::Attach,
-            "headless_profile" => macbot_protocol::BrowserMode::HeadlessProfile,
-            _ => macbot_protocol::BrowserMode::Headless,
-        };
-        let chrome_profile = self
+            .is_some_and(|bots| bots.contains_key(bot_id));
+        if !bot_exists {
+            return Err(format!("browser Bot {bot_id} not found"));
+        }
+        let settings = self
             .store
             .read_snapshot::<Value>("data/settings.json")
-            .ok()
-            .flatten()
-            .and_then(|settings| settings.pointer("/browser/chrome_profile").cloned())
-            .and_then(|value| value.as_str().map(str::to_owned));
+            .map_err(|error| error.to_string())?
+            .unwrap_or_else(|| json!({}));
         ProductionBrowserBridge::new(self.gateway_state.clone())
-            .configure_bot(&request.bot_id, mode, chrome_profile.as_deref())
+            .configure_bot_from_snapshots(bot_id, &snapshot, &settings)
             .await
+    }
+
+    /// Apply the same live Bot browser configuration used by execution before
+    /// a screen connection creates or restores its session. This is needed
+    /// after a restart when no new run has invoked the execution path yet.
+    pub async fn configure_browser_for_screen(&self, bot_id: &str) -> Result<(), RuntimeError> {
+        self.configure_browser_for_bot(bot_id)
+            .await
+            .map_err(RuntimeError::Provider)
     }
 
     pub async fn recover(&self) -> Result<Vec<macbot_durable::Job>, RuntimeError> {
@@ -4753,7 +4769,7 @@ mod model_resolution_tests {
 
 #[cfg(test)]
 mod persistence_tests {
-    use super::{ExecutionRequest, ProductionBackend, RuntimeExecution};
+    use super::{ComposedBackend, ExecutionRequest, ProductionBackend, RuntimeExecution};
     use crate::features::FeatureService;
     use crate::{Gateway, GatewayConfig, RpcBackend};
     use serde_json::{json, Value};
@@ -4951,6 +4967,39 @@ mod persistence_tests {
             reopened.orchestrator.snapshot().expect("replayed snapshot")["assignments"]
                 [&assignments[0]]["status"],
             "done"
+        );
+    }
+
+    #[tokio::test]
+    async fn screen_browser_configuration_restores_persisted_bot_without_run() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"screen-restore-worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+
+        // No execution request is created. A fresh screen connection must
+        // still receive the same per-Bot state path used by execution.
+        let composed = ComposedBackend::open(backend, gateway.state.clone(), path.clone()).unwrap();
+        RpcBackend::configure_browser_for_screen(&composed, &bot_id)
+            .await
+            .unwrap();
+
+        let config = gateway.state.browser.lock().await.bot_config(&bot_id);
+        assert_eq!(
+            config.state_path,
+            Some(path.join("browser/sessions").join(format!("{bot_id}.json")))
         );
     }
 
