@@ -1,0 +1,24 @@
+{
+  "scenario": "S4 low-quality screen contract",
+  "status": "FAIL",
+  "observed_at": "2026-10-09T12:29:48.527935+00:00",
+  "source_commit": "22b3b106450092e3ac7e37e7930b5c2df2a0a757",
+  "endpoint": "127.0.0.1:7788",
+  "bot_id": "01a12097-1f9c-7006-b1a9-8933689b3699",
+  "requested_quality": "low",
+  "protocol_max_width": 640,
+  "header": {
+    "h": 720,
+    "seq": 1,
+    "tab_id": "t2",
+    "ts": 1791548408958,
+    "url": "about:blank",
+    "w": 1280
+  },
+  "error": "screen low-quality frame width 1280 exceeds 640px",
+  "raw_frame": "docs/progress/S4/screen-22b3b10-low-contract/invalid-frame-frame-01-1791548408966260000.bin",
+  "header_path": "docs/progress/S4/screen-22b3b10-low-contract/invalid-frame-frame-01-1791548408966260000.header.json",
+  "error_path": "docs/progress/S4/screen-22b3b10-low-contract/invalid-frame-frame-01-1791548408966260000.error.txt",
+  "visual_inspection": "JPEG shows only owned localhost animated MacBot Screen Integration page and marker, no credentials; frame URL about:blank differs from actual page",
+  "note": "Previous two-frame JPEG/ACK success is transport-only partial evidence. Strict low-quality contract fails; no desktop/mobile Computer stage acceptance."
+}

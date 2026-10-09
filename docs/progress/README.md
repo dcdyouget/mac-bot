@@ -12,7 +12,7 @@
 | S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未通过：真实工具已完成；恢复/审批/工作台/已读及双端待验 | `docs/progress/S1/` |
 | S2 | 主 Bot、群协作、插话和待验收 | 未验收 | `docs/progress/S2/` |
 | S3 | 技能、仪表盘、搜索和记忆 | 未通过：第二轮偏好请求触发旧任务，待修上下文 | `docs/progress/S3/` |
-| S4 | 浏览器画面、接管、定时任务和通知 | 未通过：真实例程试运行 done；到点结果ID/接管阻断，通知待验 | `docs/progress/S4/` |
+| S4 | 浏览器画面、接管、定时任务和通知 | 未通过：真实例程试运行 done；到点结果ID/接管/低画质尺寸阻断，通知待验 | `docs/progress/S4/` |
 | S5 | pkg 全新安装、两端连接和完整场景 | 未验收 | `docs/progress/S5/` |
 
 每个阶段只有在三条开发线都在 `COORDINATION.md` 打卡，并且集成线完成真实联调、保存两端截图后，才会标记为“通过”。
@@ -21,7 +21,7 @@ Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/
 
 当前阻断归 server-mac：安全 DM kill-9 自动恢复遗漏（修复未发布）；批准 write 后 read/bash 被错误标为 write 风险；私聊 pending 审批未进入 Workbench；`chat.mark_read` 路由缺失；第二轮不同请求触发上一轮工具任务，需核查上下文排序/重复；user/Bot消息序号重复导致 after_seq 轮询漏回复。证据：[待审批与工作台](S1/production-22b3b10-pending-workbench.json)、[桌面错误现场](S1/20261009-195202-desktop.png)、[连续对话轨迹](S3/production-22b3b10-memory-unrelated-tools.json)。Android恢复网络后需重启App进程才重连mock，[当前截图](S5/android-80d8a42-after-process-restart.png)、[记录](S5/android-80d8a42-after-process-restart.json)。
 
-`22b3b10` 已独立完成真实 MiniMax [同 run write/read/bash 与最终回复](S1/production-22b3b10-tools.json)；原脚本超时（审批等待及消息seq重复）；之后精确 allow_once 完成原 run，再从全历史与同run轨迹验证工具，原脚本仍记FAIL，未另起测试。另一 model=null Bot 的 [routine.test_run](S4/production-22b3b10-routine.json) 约4.9s完成，运行中 RPC 返回 done/finished_at；自建 routine 已删除。这些只计 API 局部证据。原 DM/default-model/routine 失败记录保留为历史。正式服务主连接 [断线补发](S1/production-bd6e7c2-connection-replay.json) 曾通过，不替代双端 UI。真实到点例程第二轮虽done，但[trace/结果消息ID不一致](S4/production-22b3b10-scheduled-routine-r2-failed.json)。浏览器[两帧JPEG与ACK局部通过](S4/production-22b3b10-screen-transport.json)，URL/low画质字段仍有分歧，[主动接管OS2](S4/production-22b3b10-screen-takeover-failed.json)阻断。S5 [22b3 pkg载荷/来源校验](S5/server-pkg-22b3b10-verified.json)通过，尚未执行全新安装。
+`22b3b10` 已独立完成真实 MiniMax [同 run write/read/bash 与最终回复](S1/production-22b3b10-tools.json)；原脚本超时（审批等待及消息seq重复）；之后精确 allow_once 完成原 run，再从全历史与同run轨迹验证工具，原脚本仍记FAIL，未另起测试。另一 model=null Bot 的 [routine.test_run](S4/production-22b3b10-routine.json) 约4.9s完成，运行中 RPC 返回 done/finished_at；自建 routine 已删除。这些只计 API 局部证据。原 DM/default-model/routine 失败记录保留为历史。正式服务主连接 [断线补发](S1/production-bd6e7c2-connection-replay.json) 曾通过，不替代双端 UI。真实到点例程第二轮虽done，但[trace/结果消息ID不一致](S4/production-22b3b10-scheduled-routine-r2-failed.json)。浏览器[两帧JPEG与ACK局部通过](S4/production-22b3b10-screen-transport.json)，[low请求返回1280宽度，超过640上限](S4/production-22b3b10-screen-low-contract-failed.json)；frame URL与state仍有分歧，[主动接管OS2](S4/production-22b3b10-screen-takeover-failed.json)阻断。桌面新Bot搜索可见、侧栏未更新且打开未导航，[现场](S4/20261009-202836-desktop.png)及[bootstrap对照](S4/production-22b3b10-desktop-new-bot-navigation.json)已交归属线；尚未显示该真实Computer画面。S5 [22b3 pkg载荷/来源校验](S5/server-pkg-22b3b10-verified.json)通过，尚未执行全新安装。
 
 
 桌面最终安装版证据：[历史](S1/main-222fda9-desktop-history.png)、[技能修改](S3/main-222fda9-skill-edited.png)、[接管](S4/main-222fda9-computer-takeover.png)、[窗口重开](S5/main-222fda9-window-reopened.png)及[重开记录](S5/main-222fda9-reopen.json)。技能内容由 RPC 独立读回验证，测试技能已删除；接管后已交还。以上使用共享 mock，不计真实阶段通过。14份桌面归属线截图的来源见[清单](S5/desktop-222fda9-owner-manifest.json)，同样不替代联合验收。Release DMG 已独立校验并只读挂载确认源码标记222；[DMG记录](S5/desktop-dmg-222fda9-candidate.json)。旧服务端 pkg689仅作载荷候选记录，正式 S5 将使用完整 composition 包。

@@ -106,6 +106,9 @@ class ScreenWebSocket(MiniWebSocket):
         return "text", value
 
 
+SCREEN_LOW_MAX_WIDTH = 640
+
+
 def args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     add_connection_args(parser)
@@ -148,7 +151,7 @@ def validate_state(value: Any, bot_id: str) -> dict[str, Any]:
     return state
 
 
-def validate_screen_frame(raw: bytes) -> tuple[dict[str, Any], bytes]:
+def validate_screen_frame(raw: bytes, *, max_width: int = SCREEN_LOW_MAX_WIDTH) -> tuple[dict[str, Any], bytes]:
     if len(raw) < 4:
         raise WsError("screen binary frame has no header length")
     header_length = struct.unpack("!I", raw[:4])[0]
@@ -169,6 +172,8 @@ def validate_screen_frame(raw: bytes) -> tuple[dict[str, Any], bytes]:
     for key in ("w", "h"):
         if not isinstance(header.get(key), int) or isinstance(header.get(key), bool) or header[key] <= 0:
             raise WsError(f"screen frame {key} is invalid")
+    if header["w"] > max_width:
+        raise WsError(f"screen low-quality frame width {header['w']} exceeds {max_width}px")
     if not isinstance(header.get("ts"), (int, float)) or isinstance(header.get("ts"), bool):
         raise WsError("screen frame ts is invalid")
     if not isinstance(header.get("url"), str):
@@ -178,7 +183,39 @@ def validate_screen_frame(raw: bytes) -> tuple[dict[str, Any], bytes]:
     return header, jpeg
 
 
-def wait_for_state(ws: ScreenWebSocket, *, timeout: float, allowed: set[str], bot_id: str) -> dict[str, Any]:
+def save_frame_failure(output: Path, phase: str, raw: bytes, error: BaseException) -> str:
+    stamp = f"{time.time_ns()}"
+    prefix = output / f"invalid-frame-{phase}-{stamp}"
+    raw_path = prefix.with_suffix(".bin")
+    error_path = prefix.with_suffix(".error.txt")
+    try:
+        raw_path.write_bytes(raw)
+        error_path.write_text(str(error), encoding="utf-8")
+        if len(raw) >= 4:
+            header_length = struct.unpack("!I", raw[:4])[0]
+            if 0 < header_length <= 64 * 1024 and len(raw) >= 4 + header_length:
+                try:
+                    header = json.loads(raw[4 : 4 + header_length].decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    header = None
+                if isinstance(header, dict):
+                    prefix.with_suffix(".header.json").write_text(
+                        json.dumps(header, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+                    )
+    except OSError as exc:
+        raise WsError(f"{error}; failed to save frame failure evidence: {exc}") from error
+    return str(raw_path)
+
+
+def wait_for_state(
+    ws: ScreenWebSocket,
+    *,
+    timeout: float,
+    allowed: set[str],
+    bot_id: str,
+    output: Path,
+    phase: str,
+) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     while True:
         remaining = deadline - time.monotonic()
@@ -189,7 +226,11 @@ def wait_for_state(ws: ScreenWebSocket, *, timeout: float, allowed: set[str], bo
         ws._sock.settimeout(min(ws._timeout, max(0.01, remaining)))
         kind, value = ws.recv_message()
         if kind == "binary" and isinstance(value, bytes):
-            header, _jpeg = validate_screen_frame(value)
+            try:
+                header, _jpeg = validate_screen_frame(value)
+            except WsError as exc:
+                evidence = save_frame_failure(output, phase, value, exc)
+                raise WsError(f"{exc}; evidence={evidence}") from exc
             ws.send_json({"type": "ack", "seq": header["seq"]})
             continue
         if kind != "text" or not isinstance(value, dict) or value.get("type") != "state":
@@ -220,14 +261,36 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
         screen_base = http.base_url.replace("http://", "ws://", 1).replace("https://", "wss://", 1).rstrip("/")
         query = urlencode({"bot_id": args.bot_id, "quality": "low"})
         ws = ScreenWebSocket(f"{screen_base}/ws/screen?{query}", http.password, timeout=args.timeout)
-        initial = wait_for_state(ws, timeout=args.timeout, allowed={"bot", "user", "idle"}, bot_id=args.bot_id)
+        initial = wait_for_state(
+            ws,
+            timeout=args.timeout,
+            allowed={"bot", "user", "idle"},
+            bot_id=args.bot_id,
+            output=output,
+            phase="initial-state",
+        )
+        initial_active_urls = [
+            {"tab_id": tab["tab_id"], "url": tab["url"]}
+            for tab in initial["tabs"]
+            if tab.get("active") is True
+        ]
         if args.takeover:
             require_dict(http.call("takeover.start", {"bot_id": args.bot_id}), "takeover.start result")
             takeover_started = True
-            user_state = wait_for_state(ws, timeout=args.timeout, allowed={"user"}, bot_id=args.bot_id)
+            user_state = wait_for_state(
+                ws,
+                timeout=args.timeout,
+                allowed={"user"},
+                bot_id=args.bot_id,
+                output=output,
+                phase="takeover-user-state",
+            )
         else:
             user_state = None
         frames: list[dict[str, Any]] = []
+        latest_state = initial
+        url_checks: list[dict[str, Any]] = []
+        url_warnings: list[str] = []
         for index in range(2):
             deadline = time.monotonic() + args.timeout
             while True:
@@ -240,11 +303,31 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
                 kind, value = ws.recv_message()
                 if kind != "binary" or not isinstance(value, bytes):
                     if kind == "text" and isinstance(value, dict) and value.get("type") == "state":
-                        validate_state(value.get("state"), args.bot_id)
+                        latest_state = validate_state(value.get("state"), args.bot_id)
                     continue
-                header, jpeg = validate_screen_frame(value)
+                try:
+                    header, jpeg = validate_screen_frame(value)
+                except WsError as exc:
+                    evidence = save_frame_failure(output, f"frame-{index + 1:02d}", value, exc)
+                    raise WsError(f"{exc}; evidence={evidence}") from exc
                 if frames and header["seq"] <= frames[-1]["seq"]:
                     raise WsError("screen frame seq is not increasing")
+                state_tab = next(
+                    (tab for tab in latest_state["tabs"] if tab.get("tab_id") == header["tab_id"]),
+                    None,
+                )
+                state_url = state_tab.get("url") if isinstance(state_tab, dict) else None
+                url_check = {
+                    "tab_id": header["tab_id"],
+                    "frame_url": header["url"],
+                    "state_url": state_url,
+                    "matches_state_url": isinstance(state_url, str) and header["url"] == state_url,
+                }
+                url_checks.append(url_check)
+                if isinstance(state_url, str) and state_url != "about:blank" and header["url"] != state_url:
+                    url_warnings.append(
+                        f"frame seq {header['seq']} URL differs from state tab {header['tab_id']} (possible state/frame race)"
+                    )
                 path = output / f"frame-{index + 1:02d}-seq-{header['seq']}.jpg"
                 path.write_bytes(jpeg)
                 frames.append({"header": header, "path": str(path), "bytes": len(jpeg), "seq": header["seq"]})
@@ -257,7 +340,14 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
                 "takeover.release result",
             )
             released = True
-            release_state = wait_for_state(ws, timeout=args.timeout, allowed={"bot", "idle"}, bot_id=args.bot_id)
+            release_state = wait_for_state(
+                ws,
+                timeout=args.timeout,
+                allowed={"bot", "idle"},
+                bot_id=args.bot_id,
+                output=output,
+                phase="release-state",
+            )
         return {
             "scenario": "S4 screen transport API checks",
             "status": "PASS",
@@ -268,8 +358,14 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             "initial_state": initial,
             "takeover": {"enabled": args.takeover, "user_state": user_state, "release_state": release_state},
             "frames": frames,
+            "url_checks": {
+                "initial_active_tabs": initial_active_urls,
+                "items": url_checks,
+                "warnings": url_warnings,
+                "hard_asserted": False,
+            },
             "output": str(output),
-            "note": "Transport only; no input, browser login, frame painting, notification, or mobile UI evidence.",
+            "note": "Transport only; frame/state URL differences are reported as a possible timing race, not hard-asserted. No input, browser login, frame painting, notification, or mobile UI evidence.",
         }
     finally:
         active_exception = sys.exc_info()[1]

@@ -1,0 +1,20 @@
+{
+  "source_commit": "22b3b106450092e3ac7e37e7930b5c2df2a0a757",
+  "desktop_source_commit": "222fda9808e1c624ba12a4b356cfe509cd56b8a4",
+  "observed_at": "2026-10-09T12:28:37.747698+00:00",
+  "bootstrap_bot_count": 5,
+  "target_bot": [
+    {
+      "id": "01a12097-1f9c-7006-b1a9-8933689b3699",
+      "name": "画面联调-22b3",
+      "dm_chat_id": "dm_01a12097-1f9c-7006-b1a9-8933689b3699"
+    }
+  ],
+  "target_chat": [
+    {
+      "id": "dm_01a12097-1f9c-7006-b1a9-8933689b3699",
+      "kind": "direct"
+    }
+  ],
+  "desktop_observation": "sidebar retains two earlier bots after saved-host activate and app restart; Bot-filtered search lists target repeatedly; Open action did not navigate; not claiming Computer UI pass"
+}

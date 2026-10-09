@@ -48,6 +48,8 @@ python3 scripts/e2e/s4/screen_transport.py --url http://127.0.0.1:7788 --bot-id 
   --output docs/progress/S4/screen-transport-run
 ```
 
+画面传输脚本要求 low 画质帧宽度不超过 640，并保存帧契约失败的原始证据。静态页面可能只产生一帧，若要验收 ACK 后的续帧，应让 Bot 使用会产生动画或页面变化的浏览器会话；脚本不会把单帧静态画面当作两帧通过。
+
 S1 可显式添加 `--approve-test-tools-once`，仅按本次 marker/run/Bot/chat 和完整参数核验后，对该次 write/bash 使用 `allow_once`；recovery 只批准自己的精确 Bash 命令。未知参数、风险不一致或其他任务一律不批准，不修改全局审批规则。旧 `--approve-test-bash-once` 保留为 alias。
 
 S1 要求 Bot 的私聊回复包含测试 marker，并从 `trace.history` 看到成功的 `write`、`read`、`bash` 调用及 `run.end=done`，同时确认 read/bash 的返回内容包含 marker。`s1/recovery.py` 默认不连接、不创建任务、不杀进程；显式 `--restart-service` 后才会核对 `com.macbot.server` 与 7788 的同一 PID，确认 `$MACBOT_HOME/data/jobs/*.json` 中本次 run 的安全 checkpoint，再 kill -9，并等待 KeepAlive 新 PID、同一 `run_id` 的 `run.resume`、文件 marker 和 `run.end=done`。S2 创建两个带唯一 marker 的项目，等待两个项目的任务时间区间实际重叠，再等编码任务处于 `working` 后发送 steer；只有送达状态为 `read`、assignment 的 `steers[].applied_at` 非空且 trace 有 `steer`，才继续等待三个 Bot 的完成交接和项目 `review` 状态。脚本不会调用 `project.confirm_done` 伪造验收。S3 完整验证用户 skill 的 create/get/update/disable/enable/delete、usage 三种查询、带 marker 的 search，以及从非主 Bot 私聊写入偏好后在主 Bot 私聊读取偏好的跨会话行为。S4 API 脚本只创建并删除自己的 routine，验证 `routine.test_run` 产生的实际 assignment、运行完成和 `trace.history`；`/ws/screen` 画面、接管输入、Chrome 登录状态和 Android 通知仍需手动证据。

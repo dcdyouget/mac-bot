@@ -1,0 +1,1 @@
+screencapture finalize failed; complete hidden PNG recovered; visual verification required
