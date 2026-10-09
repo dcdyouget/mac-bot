@@ -46,6 +46,7 @@ class FakeProviderState:
         self.compact_failure_enabled = False
         self.compact_failure_armed = False
         self.memory_failure_seen = False
+        self.memory_failure_staged = False
         self.request_meta: list[dict[str, Any]] = []
 
     def record(self, request: dict[str, Any]):
@@ -123,7 +124,13 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                 self.state.compact_failure_seen = True
             self._json(500, {"error": {"message": "intentional compact failure"}})
             return
-        if marker == "MEMORY_FAILURE" and has_tool_result:
+        # Maintenance requests are a separate model role.  Resolve them
+        # before looking at historical task markers so an old memory/skill
+        # tool call cannot make the fake emit another tool request.
+        if compact_request:
+            self._stream_text("COMPACT_SUMMARY_SUCCESS", 13, 3)
+            return
+        if marker == "MEMORY_FAILURE" and has_tool_result and not compact_request:
             with self.state.lock:
                 self.state.memory_failure_seen = True
             self._json(500, {"error": {"message": "intentional fake provider failure"}})
@@ -131,6 +138,8 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
         if marker == "MEMORY_SUCCESS" and not has_tool_result:
             self._stream_tool("memory", {"scope": "bot", "bot_id": self.state.bot_id, "action": "add", "kind": "bot_experience", "content": "cross-run memory sentinel"})
         elif marker == "MEMORY_FAILURE" and not has_tool_result:
+            with self.state.lock:
+                self.state.memory_failure_staged = True
             self._stream_tool("memory", {"scope": "bot", "bot_id": self.state.bot_id, "action": "add", "kind": "bot_experience", "content": "must rollback sentinel"})
         elif marker == "PROJECT_MEMORY" and not has_tool_result:
             self._stream_tool("memory", {"scope": "project", "project_id": self.state.project_id, "action": "add", "kind": "project", "content": "ordinary bot project sentinel"})
@@ -674,6 +683,29 @@ def acceptance(args: argparse.Namespace):
         _, failure_run_id = wait_for_run_evidence(
             base, args.password, home, "MEMORY_FAILURE", timeout=120
         )
+        assert fake_state.memory_failure_staged, "MEMORY_FAILURE did not stage a memory tool call"
+        failure_trace = rpc(
+            base,
+            args.password,
+            "trace.history",
+            {"assignment_id": failure_assignment["id"], "tail": True, "limit": 500},
+        )["items"]
+        staged_memory_start = next(
+            item
+            for item in failure_trace
+            if item.get("run_id") == failure_run_id
+            and item.get("type") == "tool.start"
+            and item.get("data", {}).get("name") == "memory"
+            and item.get("data", {}).get("args", {}).get("content") == "must rollback sentinel"
+        )
+        staged_call_id = staged_memory_start["data"]["call_id"]
+        assert any(
+            item.get("run_id") == failure_run_id
+            and item.get("type") == "tool.end"
+            and item.get("data", {}).get("call_id") == staged_call_id
+            and item.get("data", {}).get("details", {}).get("staged") is True
+            for item in failure_trace
+        ), failure_trace
         rpc(base, args.password, "assignment.stop", {
             "assignment_id": failure_assignment["id"],
             "client_request_id": "s3-stop-failed-memory",
