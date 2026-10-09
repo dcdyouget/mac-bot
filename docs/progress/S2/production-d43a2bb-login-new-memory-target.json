@@ -1,0 +1,28 @@
+{
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "captured_at": "2026-10-09T19:55:59.397405+00:00",
+  "read_only": true,
+  "status": "WITHHELD_WRONG_PROJECT_TARGET",
+  "rows": [
+    {
+      "approval_id": "01a1223a-c5ad-767d-99db-94c6778f1a37",
+      "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "project_id_context": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "project_id_args": "macbot-e2e-s2-login-522c6b619b92",
+      "scope": "project",
+      "operation": null,
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "job_id": "job_01a12236-9aba-708c-a922-f974cf37dc5b",
+      "job_status": "waiting",
+      "call_id": "call_function_x1zegdtsdz09_1",
+      "tool": "memory",
+      "args_sha256": "55c0e53c5e1d827049626dbb962e1448e2210428f9c862bf4d905d64a0ba0201",
+      "pending_head_matches": true,
+      "detail_matches_args": true,
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+    }
+  ],
+  "decision_called": false,
+  "full_s2_pass": false
+}

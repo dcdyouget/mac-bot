@@ -46,12 +46,20 @@ python3 scripts/e2e/s4/scheduled_routine.py --url http://127.0.0.1:7788 --bot-id
 # each one; add --takeover only to verify start/release without sending input.
 python3 scripts/e2e/s4/screen_transport.py --url http://127.0.0.1:7788 --bot-id <bot_id> \
   --output docs/progress/S4/screen-transport-run
+# S3 usage dashboard read-only consistency check; --from/--to must be a closed
+# historical RFC 3339 range with an explicit timezone.
+python3 scripts/e2e/s3/usage_readonly.py --url http://127.0.0.1:7788 \
+  --from 2026-10-09T00:00:00Z --to 2026-10-09T18:00:00Z --json
 ```
 
 画面传输脚本要求 low 画质帧宽度不超过 640，并保存帧契约失败的原始证据。静态页面可能只产生一帧，若要验收 ACK 后的续帧，应让 Bot 使用会产生动画或页面变化的浏览器会话；脚本不会把单帧静态画面当作两帧通过。
 
 S1 可显式添加 `--approve-test-tools-once`，仅按本次 marker/run/Bot/chat 和完整参数核验后，对该次 write/bash 使用 `allow_once`；recovery 只批准自己的精确 Bash 命令。未知参数、风险不一致或其他任务一律不批准，不修改全局审批规则。旧 `--approve-test-bash-once` 保留为 alias。
 
-S1 要求 Bot 的私聊回复包含测试 marker，并从 `trace.history` 看到成功的 `write`、`read`、`bash` 调用及 `run.end=done`，同时确认 read/bash 的返回内容包含 marker。`s1/recovery.py` 默认不连接、不创建任务、不杀进程；显式 `--restart-service` 后才会核对 `com.macbot.server` 与 7788 的同一 PID，确认 `$MACBOT_HOME/data/jobs/*.json` 中本次 run 的安全 checkpoint，再 kill -9，并等待 KeepAlive 新 PID、同一 `run_id` 的 `run.resume`、文件 marker 和 `run.end=done`。S2 创建两个带唯一 marker 的项目，等待两个项目的任务时间区间实际重叠，再等编码任务处于 `working` 后发送 steer；只有送达状态为 `read`、assignment 的 `steers[].applied_at` 非空且 trace 有 `steer`，才继续等待三个 Bot 的完成交接和项目 `review` 状态。脚本不会调用 `project.confirm_done` 伪造验收。S3 完整验证用户 skill 的 create/get/update/disable/enable/delete、usage 三种查询、带 marker 的 search，以及从非主 Bot 私聊写入偏好后在主 Bot 私聊读取偏好的跨会话行为。S4 API 脚本只创建并删除自己的 routine，验证 `routine.test_run` 产生的实际 assignment、运行完成和 `trace.history`；`/ws/screen` 画面、接管输入、Chrome 登录状态和 Android 通知仍需手动证据。
+S1 要求 Bot 的私聊回复包含测试 marker，并从 `trace.history` 看到成功的 `write`、`read`、`bash` 调用及 `run.end=done`，同时确认 read/bash 的返回内容包含 marker。`s1/recovery.py` 默认不连接、不创建任务、不杀进程；显式 `--restart-service` 后才会核对 `com.macbot.server` 与 7788 的同一 PID，确认 `$MACBOT_HOME/data/jobs/*.json` 中本次 run 的安全 checkpoint，再 kill -9，并等待 KeepAlive 新 PID、同一 `run_id` 的 `run.resume`、文件 marker 和 `run.end=done`。S2 创建两个带唯一 marker 的项目，等待两个项目的任务时间区间实际重叠，再等编码任务处于 `working` 后发送 steer；只有送达状态为 `read`、assignment 的 `steers[].applied_at` 非空且 trace 有 `steer`，才继续等待三个 Bot 的完成交接和项目 `review` 状态。默认只到 review；只有显式传入 `--confirm-projects` 才调用 `project.confirm_done`，应在真实产物验收后启用。S3 完整验证用户 skill 的 create/get/update/disable/enable/delete、usage 三种查询、带 marker 的 search，以及从非主 Bot 私聊写入偏好后在主 Bot 私聊读取偏好的跨会话行为。S4 API 脚本只创建并删除自己的 routine，验证 `routine.test_run` 产生的实际 assignment、运行完成和 `trace.history`；`/ws/screen` 画面、接管输入、Chrome 登录状态和 Android 通知仍需手动证据。
 
 这些命令会在 Host 上创建带 `macbot-e2e-*` 前缀的测试项目和消息；S0 主连接场景和 S3 都只删除各自创建的 skill。脚本的 PASS 只表示 API/WebSocket checks 通过，不能替代桌面/Android UI、流式显示、截图、通知、浏览器接管或全新安装演练。
+
+`s3/usage_readonly.py` 只调用 `usage.summary`、`usage.heatmap`、`usage.timeseries` 和 `usage.breakdown`，不会创建任务或技能。它要求范围已结束且 `summary.current.requests > 0`；无请求时输出 `EMPTY`，不算通过。结果中的 `status=PASS` 只代表 API 局部检查，`full_s3_pass` 始终为 `false`；`cost` 遵循 `Money` 的未知值语义，允许明细中已知和未知成本混合，并使用容差比较已知汇总。`timeseries top=100` 达到上限时输出 `PARTIAL`、`api_local_pass=false`，不强判完整汇总。
+
+后台回归 `s1/background.py` 默认写唯一文件，`--evidence` 可指定新路径；存在时拒绝覆盖。S2 新测用 `--partial-output <新文件>`，续接用 `--resume-partial <原文件>`；主请求 UUID 在 RPC 前保存，未知结果不重发。审批前核唯一 map/run/checkpoint 与已验证项目 Home；`--confirm-projects` 默认关闭，待真实产物验收后再启用。

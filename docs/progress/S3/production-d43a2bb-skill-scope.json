@@ -1,0 +1,19 @@
+{
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "captured_at": "2026-10-09T19:52:13.231104+00:00",
+  "scenario": "S3 skill update scope",
+  "bot_id": "01a12227-e6b9-7276-96cb-98ab5185e1a5",
+  "cleanup": "deleted_own_skill",
+  "conclusion": "API PASS: skill.update changed content while preserving global disabled and per-Bot disabled scope.",
+  "marker": "macbot-e2e-s3-skill-scope-46d1f76e748c",
+  "skill_name": "macbot-e2e-s3-skill-scope-46d1f76e748c",
+  "status": "PASS_API_LOCAL",
+  "steps": [
+    "created_enabled",
+    "globally_disabled",
+    "per_bot_disabled",
+    "updated_content_scope_preserved"
+  ],
+  "full_s3_pass": false,
+  "command": "python3 scripts/e2e/s3/skill_update_scope.py --url http://127.0.0.1:7788 --bot-id 01a12227-e6b9-7276-96cb-98ab5185e1a5 --json"
+}

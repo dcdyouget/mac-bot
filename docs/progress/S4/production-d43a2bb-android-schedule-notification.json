@@ -1,0 +1,12 @@
+{
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "android_source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "at": "2026-10-09T19:55:58.830806+00:00",
+  "marker": "macbot-e2e-s4-schedule-1a87a851a647",
+  "status": "NOT_OBSERVED",
+  "new_app_notification_keys": [],
+  "exact_marker_notifications": [],
+  "full_s4_pass": false,
+  "read_only": true,
+  "note": "system notification only; no notification action or approval click"
+}

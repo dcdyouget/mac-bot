@@ -1,0 +1,234 @@
+{
+  "partial_id": "macbot-e2e-s2-partial-457c27883581",
+  "markers": [
+    "macbot-e2e-s2-login-522c6b619b92",
+    "macbot-e2e-s2-parallel-fc45ecd3b62c"
+  ],
+  "requests": [
+    {
+      "marker": "macbot-e2e-s2-login-522c6b619b92",
+      "name": "macbot-e2e-s2-login-522c6b619b92-登录功能",
+      "client_request_id": "c7daa863-8b08-4aad-94ab-62dfe1397153",
+      "message_id": "01a12236-43ab-73d9-855d-a0de51bed95f",
+      "seq": 24
+    },
+    {
+      "marker": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+      "name": "macbot-e2e-s2-parallel-fc45ecd3b62c-并行官网改版",
+      "client_request_id": "67f38ead-344b-43e7-8ebe-e04985f0c96c",
+      "message_id": "01a12236-814f-7672-81e2-e80c1c1b10eb",
+      "seq": 27
+    }
+  ],
+  "projects": [
+    {
+      "marker": "macbot-e2e-s2-login-522c6b619b92",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "card_message_id": "msg_project_card_01a12236-76c4-746c-a0e8-42ff0b8e79f5"
+    },
+    {
+      "marker": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+      "card_message_id": "msg_project_card_01a12236-b308-7080-9877-6fc078239999"
+    }
+  ],
+  "pending_requests": [
+    {
+      "marker": "macbot-e2e-s2-login-522c6b619b92",
+      "method": "chat.send",
+      "client_request_id": "c7daa863-8b08-4aad-94ab-62dfe1397153",
+      "status": "sent",
+      "message_id": "01a12236-43ab-73d9-855d-a0de51bed95f",
+      "seq": 24
+    },
+    {
+      "marker": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+      "method": "chat.send",
+      "client_request_id": "67f38ead-344b-43e7-8ebe-e04985f0c96c",
+      "status": "sent",
+      "message_id": "01a12236-814f-7672-81e2-e80c1c1b10eb",
+      "seq": 27
+    }
+  ],
+  "first_dispatch": {
+    "opening_message_id": "01a12236-9689-7737-b4fe-3abe938123af",
+    "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60"
+  },
+  "second_dispatch": {
+    "opening_message_id": "01a12236-d7c0-74a2-be96-206ba5b26f81",
+    "assignment_id": "01a12236-d7c0-74a2-be96-206ca2f855a3"
+  },
+  "approval_observations": [
+    {
+      "marker": "macbot-e2e-s2-login-522c6b619b92",
+      "id": "01a12236-e58e-761d-8616-558d8cc1296c",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "tool": "write",
+      "risk": "write",
+      "state": "pending",
+      "scope": {
+        "authorized": true,
+        "operation": "project_home_file_mutation",
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write"
+      },
+      "checkpoint": {
+        "approval_id": "01a12236-e58e-761d-8616-558d8cc1296c",
+        "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+        "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": null,
+        "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+        "job_id": "job_01a12236-9aba-708c-a922-f974cf37dc5b",
+        "call_id": "call_function_46nmh5xb5zgm_1",
+        "job_status": "waiting",
+        "checkpoint_head_match": true,
+        "run_request_match": true,
+        "detail_args_match": true,
+        "args_keys": [
+          "content",
+          "path"
+        ]
+      }
+    },
+    {
+      "marker": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+      "id": "01a12237-088b-76b0-a897-d66d6813a350",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+      "assignment_id": "01a12236-d7c0-74a2-be96-206ca2f855a3",
+      "tool": "bash",
+      "risk": "exec",
+      "state": "pending",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "bash",
+        "operation": "project_home_mkdir"
+      },
+      "checkpoint": {
+        "approval_id": "01a12237-088b-76b0-a897-d66d6813a350",
+        "assignment_id": "01a12236-d7c0-74a2-be96-206ca2f855a3",
+        "project_id": "01a12236-b308-7080-9877-6fc078239999",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": null,
+        "run_id": "run_01a12236-d7c0-74a2-be96-206ca2f855a3",
+        "job_id": "job_01a12236-e1e2-722c-9cdc-acad6fdcbc42",
+        "call_id": "call_function_85rsdktbfuuc_1",
+        "job_status": "waiting",
+        "checkpoint_head_match": true,
+        "run_request_match": true,
+        "detail_args_match": true,
+        "args_keys": []
+      }
+    },
+    {
+      "marker": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+      "id": "01a1223a-b0a5-70a0-b22b-afd52955286c",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+      "assignment_id": "01a12236-d7c0-74a2-be96-206ca2f855a3",
+      "tool": "write",
+      "risk": "write",
+      "state": "pending",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "checkpoint": {
+        "approval_id": "01a1223a-b0a5-70a0-b22b-afd52955286c",
+        "assignment_id": "01a12236-d7c0-74a2-be96-206ca2f855a3",
+        "project_id": "01a12236-b308-7080-9877-6fc078239999",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+        "run_id": "run_01a12236-d7c0-74a2-be96-206ca2f855a3",
+        "job_id": "job_01a12236-e1e2-722c-9cdc-acad6fdcbc42",
+        "call_id": "call_function_ffeavei6tpjo_1",
+        "job_status": "waiting",
+        "checkpoint_head_match": true,
+        "run_request_match": true,
+        "detail_args_match": true,
+        "detail_metadata_keys": [
+          "path_resolution",
+          "resolved_path"
+        ],
+        "args_keys": [
+          "content",
+          "path"
+        ]
+      }
+    },
+    {
+      "marker": "macbot-e2e-s2-login-522c6b619b92",
+      "id": "01a1223a-c5ad-767d-99db-94c6778f1a37",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "tool": "memory",
+      "risk": "write",
+      "state": "pending",
+      "scope": {
+        "authorized": false,
+        "reason": "memory project ID does not match the verified project",
+        "tool": "memory"
+      },
+      "checkpoint": {
+        "approval_id": "01a1223a-c5ad-767d-99db-94c6778f1a37",
+        "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+        "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+        "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+        "job_id": "job_01a12236-9aba-708c-a922-f974cf37dc5b",
+        "call_id": "call_function_x1zegdtsdz09_1",
+        "job_status": "waiting",
+        "checkpoint_head_match": true,
+        "run_request_match": true,
+        "detail_args_match": true,
+        "detail_metadata_keys": [],
+        "args_keys": [
+          "action",
+          "content",
+          "project_id",
+          "scope"
+        ]
+      }
+    }
+  ],
+  "assessment": {
+    "api_status": "STOPPED_AT_UNAUTHORIZED_MEMORY_SCOPE",
+    "approval_decision_called": true,
+    "project_confirm_done_called": false,
+    "full_s2_pass": false,
+    "main_requests_resent": false,
+    "note": "Three exact new project-scoped calls were allowed once; the next memory approval used a marker string instead of the verified project UUID and remained pending."
+  },
+  "status": "FAIL",
+  "error": "macbot-e2e-s2-login-522c6b619b92 pending approval is outside this test project scope: memory project ID does not match the verified project",
+  "resume_diagnosis": {
+    "prior_failure": "detail_args_mismatch",
+    "prior_failure_approval_id": "01a12236-e58e-761d-8616-558d8cc1296c",
+    "prior_failure_core_args_match": true,
+    "prior_failure_extra_detail_keys": [
+      "path_resolution",
+      "resolved_path"
+    ],
+    "resolution": "known home-v1 metadata is validated by approval_scope then removed for execution-args comparison",
+    "current_failure": "memory_project_id_mismatch",
+    "current_failure_approval_id": "01a1223a-c5ad-767d-99db-94c6778f1a37",
+    "current_memory_detail_project_id": "macbot-e2e-s2-login-522c6b619b92",
+    "current_verified_project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "approval_decision_called_for_current_failure": false
+  },
+  "allow_once_decisions": [
+    "01a12236-e58e-761d-8616-558d8cc1296c",
+    "01a12237-088b-76b0-a897-d66d6813a350",
+    "01a1223a-b0a5-70a0-b22b-afd52955286c"
+  ]
+}

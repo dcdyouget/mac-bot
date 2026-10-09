@@ -1,0 +1,78 @@
+{
+  "api_local_pass": true,
+  "checks": {
+    "breakdown": {
+      "cost_status": "unknown_all_detail_null",
+      "detail_numeric_cost_count": 0,
+      "detail_unknown_cost_count": 13,
+      "known_cost_sum": null,
+      "matches_summary": true,
+      "rows": 11,
+      "totals": {
+        "cache_read_tokens": 118973,
+        "cache_write_tokens": 0,
+        "input_tokens": 373172,
+        "output_tokens": 25898,
+        "requests": 99
+      }
+    },
+    "heatmap": {
+      "days": 2,
+      "matches_summary": true,
+      "requests": 99,
+      "thresholds": [
+        141499.0,
+        141499.0,
+        141499.0
+      ],
+      "tokens": 399070
+    },
+    "summary_io_tokens": 399070,
+    "timeseries": {
+      "buckets": 18,
+      "comparison": "exact",
+      "granularity": "hour",
+      "input_total": 373172,
+      "output_total": 25898,
+      "series": 11,
+      "series_total": 399070.0,
+      "top": 100,
+      "top_truncation_possible": false,
+      "values_total": 399070.0
+    }
+  },
+  "full_s3_pass": false,
+  "health_version": "0.1.0",
+  "note": "API checks only; dashboard parity across desktop/Android and the remaining S3 skill/memory checks remain manual.",
+  "range": {
+    "closed_in_past": true,
+    "from": "2026-10-09T00:00:00Z",
+    "from_utc": "2026-10-09T00:00:00+00:00",
+    "to": "2026-10-09T18:00:00Z",
+    "to_utc": "2026-10-09T18:00:00+00:00"
+  },
+  "scenario": "S3 usage read-only consistency",
+  "status": "PASS",
+  "summary": {
+    "current": {
+      "cache_read_tokens": 118973,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 373172,
+      "output_tokens": 25898,
+      "requests": 99,
+      "tasks_done": 0
+    },
+    "previous": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "requests": 0,
+      "tasks_done": 0
+    }
+  },
+  "url": "http://127.0.0.1:7788",
+  "source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20"
+}

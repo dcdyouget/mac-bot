@@ -1,0 +1,54 @@
+{
+  "source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "android_source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "prepared_at": "2026-10-09T19:20:57.977652+00:00",
+  "name": "integrator-android-d97-598e158b",
+  "body_v1": "Native skill CRUD version one.",
+  "body_v2": "Native skill CRUD version two.",
+  "actions": [
+    {
+      "action": "native skill.create save",
+      "state": "verified",
+      "at": "2026-10-09T19:22:25.698133+00:00",
+      "description": "Android native validation",
+      "body": "Native skill CRUD version one.",
+      "name": "integrator-android-d97-598e158b",
+      "source": "user",
+      "enabled": true,
+      "content_sha256": "59356af622b24a1fac4a2c3e1841f8168d8e1908d89f442499639c84f0204b6d",
+      "body_v1_present": true,
+      "native_detail_text_present": false,
+      "at_verified": "2026-10-09T19:22:37.779170+00:00",
+      "native_v1_editor_observed": true
+    },
+    {
+      "action": "native skill.update save",
+      "state": "verified",
+      "at": "2026-10-09T19:23:07.030033+00:00",
+      "body": "Native skill CRUD version two.",
+      "enabled": true,
+      "content_sha256": "9043fe3752fa59bc7cca28ea2e66021ae3b73af0297cd24392260190d8ba69e8",
+      "body_v2_present": true,
+      "body_v1_absent": true,
+      "at_verified": "2026-10-09T19:23:24.855827+00:00",
+      "native_v2_reopened_editor_observed": true
+    },
+    {
+      "action": "native skill.delete",
+      "state": "verified",
+      "at": "2026-10-09T19:23:49.629069+00:00",
+      "rpc_code": "not_found",
+      "list_absent": true,
+      "at_verified": "2026-10-09T19:24:04.852951+00:00"
+    }
+  ],
+  "full_s3_pass": false,
+  "native_crud_local_pass": true,
+  "status": "PARTIAL_S3_NATIVE_CRUD_PASS",
+  "cleanup": "unique native-created sample deleted using native button; existing skills preserved",
+  "limitations": [
+    "no same-stage desktop test while locked",
+    "no native import/publish/perBot toggle tested",
+    "does not replace cross-session memory or full S3 acceptance"
+  ]
+}

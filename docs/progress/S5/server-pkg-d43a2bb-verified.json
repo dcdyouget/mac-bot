@@ -1,0 +1,87 @@
+{
+  "scenario": "S5 server pkg independent read-only audit",
+  "observed_at": "2026-10-09T19:30:11.889632+00:00",
+  "scope": "pkgutil expansion and filesystem/hash metadata only; no installer, launch, process, App, AVD, or credentials",
+  "package": {
+    "path": "/tmp/MacBot-Server-background-d43a2bb-20261010.pkg",
+    "exists": true,
+    "sha256": "497c2af125920bd819a71a66cf0e05d34c050c86323156d2c0653c42d2a6420f",
+    "expected_sha256": "497c2af125920bd819a71a66cf0e05d34c050c86323156d2c0653c42d2a6420f",
+    "sha256_matches_expected": true,
+    "signature": "unsigned per pkgutil --check-signature"
+  },
+  "expansion": {
+    "tool": "pkgutil --expand-full",
+    "directory": "/tmp/macbot-pkg-audit-d43a2bb-parent-neE5y4/expanded",
+    "destination_was_new": true,
+    "payload_app": "/tmp/macbot-pkg-audit-d43a2bb-parent-neE5y4/expanded/Payload/Applications/MacBot Server.app",
+    "package_info_present": true,
+    "bom_present": true
+  },
+  "payload": {
+    "source_commit_file": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+    "source_commit_expected": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+    "source_commit_matches": true,
+    "build_info": {
+      "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+      "source_dirty": false,
+      "version": "0.1.0",
+      "macbotd_sha256": "96f5240576d436090c94ab7648b341f8c5a6128380ef9529d79f2c31d895761b",
+      "agent_browser_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9"
+    },
+    "info_plist": {
+      "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+      "short_version": "0.1.0",
+      "bundle_version": "0.1.0"
+    },
+    "macbotd": {
+      "path": "/tmp/macbot-pkg-audit-d43a2bb-parent-neE5y4/expanded/Payload/Applications/MacBot Server.app/Contents/MacOS/macbotd",
+      "bytes": 23651392,
+      "sha256": "96f5240576d436090c94ab7648b341f8c5a6128380ef9529d79f2c31d895761b",
+      "mode": "-rwxr-xr-x"
+    },
+    "agent_browser": {
+      "path": "/tmp/macbot-pkg-audit-d43a2bb-parent-neE5y4/expanded/Payload/Applications/MacBot Server.app/Contents/MacOS/agent-browser",
+      "bytes": 15570496,
+      "sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "mode": "-rwxr-xr-x"
+    },
+    "source_dirty_false": true,
+    "daemon_hash_matches_build_info": true,
+    "sidecar_hash_matches_build_info": true,
+    "daemon_hash_matches_expected": true,
+    "sidecar_hash_matches_expected": true,
+    "build_info_commit_matches_expected": true,
+    "plist_commit_matches_expected": true,
+    "build_info_dirty_false": true
+  },
+  "owner_report": {
+    "path": "/tmp/macbot-background-package-check-20261010.json",
+    "owner_reported_ok": true,
+    "owner_reported_source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+    "owner_reported_dirty": false,
+    "owner_reported_workspace_tests": 324,
+    "owner_reported_upgrade_evidence": "/tmp/macbot-background-upgrade-20261010g.evidence.log",
+    "owner_reported_payload_smoke_evidence": "/tmp/macbot-background-pkg-upgrade-20261010a.evidence.log",
+    "owner_reported_scope": "isolated upgrade and package checks; no formal restart or fresh installation",
+    "owner_reported_isolated_release_payload_smoke": true,
+    "owner_reported_not_root_runtime_execution": true,
+    "owner_reported_not_fresh_install": true,
+    "root_independent_pkg_audit": true
+  },
+  "assessment": {
+    "pkg_sha256_verified": true,
+    "sourceful_commit_verified": true,
+    "dirty_false_verified": true,
+    "daemon_and_sidecar_hashes_verified": true,
+    "owner_payload_smoke_kept_as_owner_evidence_only": true,
+    "fresh_install_verified": false,
+    "release_restart_verified": false,
+    "full_s5_pass": false
+  },
+  "limitations": [
+    "Package signature is absent; this audit did not establish signing/notarization.",
+    "Owner payload smoke and upgrade evidence are reported separately and were not re-run by root or this audit.",
+    "No installer, LaunchAgent activation, process start, or fresh-install workflow was executed."
+  ]
+}

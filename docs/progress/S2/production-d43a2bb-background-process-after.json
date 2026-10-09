@@ -1,0 +1,27 @@
+{
+  "captured_at": "2026-10-09T19:32:04.145823+00:00",
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "read_only": true,
+  "processes": [
+    {
+      "pid": 76279,
+      "comm": "Python",
+      "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5",
+      "listeners": [
+        "127.0.0.1:54065"
+      ],
+      "same_pid_cwd_listener": true
+    },
+    {
+      "pid": 76297,
+      "comm": "node",
+      "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89/server",
+      "listeners": [
+        "*:3001"
+      ],
+      "same_pid_cwd_listener": true
+    }
+  ],
+  "observation": "same observed project process PIDs; this is not a recovered durable Bash job receipt",
+  "no_process_killed_or_replayed_by_integrator": true
+}

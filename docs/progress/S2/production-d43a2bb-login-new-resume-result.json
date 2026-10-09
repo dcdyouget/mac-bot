@@ -1,0 +1,31 @@
+{
+  "scenario": "S2 login feature resume",
+  "status": "FAIL",
+  "phase": "gate_resolution",
+  "failure_code": "memory_project_id_mismatch",
+  "marker": "macbot-e2e-s2-login-522c6b619b92",
+  "approval_id": "01a1223a-c5ad-767d-99db-94c6778f1a37",
+  "tool": "memory",
+  "risk": "write",
+  "state": "pending",
+  "verified_project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+  "detail_project_id": "macbot-e2e-s2-login-522c6b619b92",
+  "allow_once_decisions": [
+    "01a12236-e58e-761d-8616-558d8cc1296c",
+    "01a12237-088b-76b0-a897-d66d6813a350",
+    "01a1223a-b0a5-70a0-b22b-afd52955286c"
+  ],
+  "main_requests_resent": false,
+  "project_confirm_done_called": false,
+  "full_s2_pass": false,
+  "prior_metadata_comparison": {
+    "approval_id": "01a12236-e58e-761d-8616-558d8cc1296c",
+    "core_args_match": true,
+    "extra_detail_keys": [
+      "path_resolution",
+      "resolved_path"
+    ],
+    "resolved_by": "home-v1 metadata validation plus execution-args comparison"
+  },
+  "note": "API checks only; stopped without approving mismatched project memory. No tool arguments/content persisted."
+}

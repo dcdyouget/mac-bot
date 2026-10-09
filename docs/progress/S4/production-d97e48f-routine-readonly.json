@@ -1,0 +1,127 @@
+{
+  "scenario": "S4 existing scheduled routine read-only recheck",
+  "observed_at": "2026-10-09T19:17:25.511755+00:00",
+  "source_evidence": {
+    "path": "/Users/gongshaojie/Project/mac-bot-integrator/docs/progress/S4/production-9e70d88-scheduled-routine.json",
+    "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+    "original_status": "PASS",
+    "original_scenario": "S4 scheduled routine API checks",
+    "routine_id": "01a120b1-cac4-74e8-9203-6b6f279efcfe",
+    "run_id": "01a120b3-1126-76c9-947b-85b054880b4f",
+    "assignment_id": "01a120b3-1126-76c9-947b-85af8ca62cdf",
+    "bot_id": "01a120ae-6f58-7085-b919-c5f6705d062c",
+    "chat_id": "dm_01a120ae-6f58-7085-b919-c5f6705d062c",
+    "delivered_message_id": "01a120b3-20da-73e0-8cd9-ed871ddbe2f7",
+    "marker_hash": "5df4d3462dc6ed36b2f03c2c76bc100f2559d8a150ffc2a260ea98c4de3ce974"
+  },
+  "current_target": {
+    "url": "http://127.0.0.1:7788",
+    "expected_source": "d97 read-only host",
+    "health_ok": true,
+    "health_version": "0.1.0"
+  },
+  "scope": "read-only RPC methods routine.runs, assignment.get, trace.history, chat.history; no routine run/test/update/delete, no approval, no chat send, no GUI/process action",
+  "routine_runs": {
+    "ok": false,
+    "error_type": "RpcError",
+    "error_code": "not_found"
+  },
+  "assignment": {
+    "ok": true,
+    "id": "01a120b3-1126-76c9-947b-85af8ca62cdf",
+    "bot_id": "01a120ae-6f58-7085-b919-c5f6705d062c",
+    "project_id": null,
+    "origin_chat_id": "dm_01a120ae-6f58-7085-b919-c5f6705d062c",
+    "status": "done",
+    "created_at": "2026-10-09T12:46:08.678796+00:00",
+    "started_at": "2026-10-09T12:46:08.678796+00:00",
+    "finished_at": "2026-10-09T12:46:12.781503+00:00",
+    "result_message_id": "01a120b3-20da-73e0-8cd9-ed871ddbe2f7",
+    "parent_assignment_id": null,
+    "root_message_id": null,
+    "trigger_message_id": null,
+    "steers_count": 0,
+    "wait_present": false
+  },
+  "trace": {
+    "item_count": 6,
+    "first_aseq": 1,
+    "last_aseq": 6,
+    "live": false,
+    "event_type_counts": {
+      "llm.request": 1,
+      "llm.response": 1,
+      "run.end": 1,
+      "run.start": 1,
+      "send_msg": 1,
+      "tool.start": 1
+    },
+    "terminal_and_tool_events": [
+      {
+        "aseq": 5,
+        "type": "send_msg",
+        "at": "2026-10-09T12:46:12.721Z",
+        "data_keys": [
+          "call_id",
+          "chat_id",
+          "intent",
+          "message_id"
+        ],
+        "call_id": "call_function_bk7kb4udgc07_1",
+        "message_id": "01a120b3-20da-73e0-8cd9-ed871ddbe2f7",
+        "chat_id": "dm_01a120ae-6f58-7085-b919-c5f6705d062c",
+        "intent": "done"
+      },
+      {
+        "aseq": 6,
+        "type": "run.end",
+        "at": "2026-10-09T12:46:12.757Z",
+        "data_keys": [
+          "error",
+          "status"
+        ],
+        "status": "done"
+      }
+    ],
+    "send_msg_metadata": [
+      {
+        "message_id": "01a120b3-20da-73e0-8cd9-ed871ddbe2f7",
+        "chat_id": "dm_01a120ae-6f58-7085-b919-c5f6705d062c",
+        "intent": "done",
+        "is_expected_message_id": true
+      }
+    ],
+    "marker_seen_in_trace_data": false
+  },
+  "chat_history": {
+    "ok": true,
+    "has_more": false,
+    "message_count": 3,
+    "expected_delivery": [
+      {
+        "id": "01a120b3-20da-73e0-8cd9-ed871ddbe2f7",
+        "seq": 3,
+        "created_at": "2026-10-09T12:46:12.698529+00:00",
+        "sender_kind": "bot",
+        "sender_bot_id": "01a120ae-6f58-7085-b919-c5f6705d062c",
+        "intent": "done",
+        "assignment_id": "01a120b3-1126-76c9-947b-85af8ca62cdf",
+        "blocks_count": 1,
+        "is_expected_delivered_id": true,
+        "marker_present": true
+      }
+    ]
+  },
+  "assessment": {
+    "original_9e70_scheduled_api_check_passed": true,
+    "current_routine_record_found": false,
+    "current_assignment_record_found": true,
+    "current_trace_record_found": true,
+    "current_message_record_found": true,
+    "migration_readonly_evidence_only": true,
+    "new_schedule_triggered": false,
+    "notification_proven": false,
+    "desktop_android_ui_proven": false,
+    "full_s4_pass": false
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "scenario": "S4 scheduled routine API checks",
+  "status": "PASS",
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "url": "http://127.0.0.1:7788",
+  "bot_id": "01a12227-e6b9-7276-96cb-98ab5185e1a5",
+  "marker": "macbot-e2e-s4-schedule-1a87a851a647",
+  "routine": {
+    "id": "01a12239-db1b-71ab-b4b7-aa5df488ebb3",
+    "cron": "54 3 10 10 *",
+    "timezone": "Asia/Shanghai",
+    "target_local": "2026-10-10T03:54:00+08:00",
+    "next_run_at": "2026-10-09T19:54:00+00:00",
+    "deleted_after_run": true,
+    "remaining_after_cleanup": 0
+  },
+  "run": {
+    "id": "01a1223a-cfe6-776f-b964-b7d9852f3cc0",
+    "routine_id": "01a12239-db1b-71ab-b4b7-aa5df488ebb3",
+    "assignment_id": "01a1223a-cfe6-776f-b964-b7d80d23b0dc",
+    "trigger": "schedule",
+    "status": "done",
+    "started_at": "2026-10-09T19:54:01.024297+00:00",
+    "finished_at": "2026-10-09T19:54:18.471877+00:00",
+    "error": null
+  },
+  "assignment": {
+    "id": "01a1223a-cfe6-776f-b964-b7d80d23b0dc",
+    "status": "done"
+  },
+  "trace": {
+    "trace_items": 6,
+    "run_ids": [
+      "01a1223a-cfe6-776f-b964-b7d9852f3cc0"
+    ],
+    "marker_in_response": true,
+    "send_msg": {
+      "chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+      "intent": "done",
+      "message_id": "01a1223a-fa74-72c8-b138-6082b7c0fdde"
+    },
+    "delivered_message_id": "01a1223a-fa74-72c8-b138-6082b7c0fdde"
+  },
+  "assertions": {
+    "no_test_run_trigger": true,
+    "only_send_msg_tool": true,
+    "single_done_report": true,
+    "no_mentions_or_artifacts": true,
+    "full_s4_pass": false
+  },
+  "note": "API-only scheduled routine check. The routine instruction permitted only one terminal send_msg(intent=done); no tools were approved, no test_run was used, and the self-created routine was deleted in finally. Scheduled notification, desktop/Android UI, browser login, screen takeover, and native input remain outside this check."
+}

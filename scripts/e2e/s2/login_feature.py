@@ -12,6 +12,7 @@ import argparse
 import datetime as dt
 import json
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
@@ -46,6 +47,206 @@ _PARTIAL_EVIDENCE: dict[str, Any] = {"partial_id": unique_marker("macbot-e2e-s2-
 _PARTIAL_PATH: Path | None = None
 
 
+def persist_partial_snapshot() -> None:
+    """Persist only content-blind request/gate evidence before risky RPCs."""
+
+    if _PARTIAL_PATH is None:
+        return
+    try:
+        _PARTIAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _PARTIAL_PATH.write_text(json.dumps(_PARTIAL_EVIDENCE, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        # A request UUID must be durable before chat.send. Abort instead of
+        # sending an untracked request that could be retried after a timeout.
+        raise RuntimeError(f"cannot persist S2 partial evidence before RPC: {exc}") from exc
+
+
+def begin_chat_send(*, marker: str, method: str = "chat.send") -> str:
+    """Reserve and persist an id before a potentially timeout-prone RPC."""
+
+    request_id = str(uuid.uuid4())
+    pending = _PARTIAL_EVIDENCE.setdefault("pending_requests", [])
+    pending.append({"marker": marker, "method": method, "client_request_id": request_id, "status": "pending_send"})
+    persist_partial_snapshot()
+    return request_id
+
+
+def finish_chat_send(request_id: str, *, status: str, message: dict[str, Any] | None = None) -> None:
+    for item in reversed(_PARTIAL_EVIDENCE.get("pending_requests", [])):
+        if isinstance(item, dict) and item.get("client_request_id") == request_id:
+            item["status"] = status
+            if message is not None:
+                item["message_id"] = message.get("id")
+                item["seq"] = message.get("seq")
+            break
+    persist_partial_snapshot()
+
+
+def record_approval_observation(
+    marker: str,
+    candidate: dict[str, Any],
+    scope: dict[str, Any],
+    checkpoint: dict[str, Any] | None = None,
+) -> None:
+    """Save approval identity/scope without persisting tool arguments or content."""
+
+    observation = {
+        "marker": marker,
+        "id": candidate.get("id"),
+        "bot_id": candidate.get("bot_id"),
+        "chat_id": candidate.get("chat_id"),
+        "assignment_id": candidate.get("assignment_id"),
+        "tool": candidate.get("tool"),
+        "risk": candidate.get("risk"),
+        "state": candidate.get("state"),
+        "scope": scope,
+    }
+    if checkpoint is not None:
+        observation["checkpoint"] = checkpoint
+    observations = _PARTIAL_EVIDENCE.setdefault("approval_observations", [])
+    for index, item in enumerate(observations):
+        if isinstance(item, dict) and item.get("id") == observation["id"]:
+            observations[index] = observation
+            persist_partial_snapshot()
+            return
+    observations.append(observation)
+    persist_partial_snapshot()
+
+
+def validate_approval_checkpoint(
+    client: Any,
+    candidate: dict[str, Any],
+    *,
+    project_id: str,
+    project_chat_id: str,
+    assignment_ids: set[str],
+) -> dict[str, Any]:
+    """Require one exact approval→map→run request→durable checkpoint route.
+
+    The approval wire object intentionally has no run/call identifiers. The
+    local approval-map, run request, trace and job checkpoint must therefore
+    agree before an allow_once decision is even considered.
+    """
+
+    approval_id = candidate.get("id")
+    assignment_id = candidate.get("assignment_id")
+    if not isinstance(approval_id, str) or not isinstance(assignment_id, str) or assignment_id not in assignment_ids:
+        raise ValueError("approval is not linked to one current project assignment")
+    assignment_result = require_dict(client.call("assignment.get", {"assignment_id": assignment_id}), "approval assignment.get result")
+    assignment = require_dict(assignment_result.get("assignment"), "approval assignment")
+    if assignment.get("id") != assignment_id or assignment.get("project_id") != project_id:
+        raise ValueError("approval assignment project mapping mismatch")
+    if assignment.get("origin_chat_id") != project_chat_id:
+        raise ValueError("approval assignment chat mapping mismatch")
+    if candidate.get("bot_id") != assignment.get("bot_id") or candidate.get("chat_id") != project_chat_id:
+        raise ValueError("approval bot/chat mapping mismatch")
+
+    map_path = Path.home() / "MacBot" / "data" / "approval-map" / f"{approval_id}.json"
+    try:
+        approval_map = json.loads(map_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("approval map is missing or invalid") from exc
+    call_id = approval_map.get("call_id") if isinstance(approval_map, dict) else None
+    if not isinstance(call_id, str) or not call_id:
+        raise ValueError("approval map has no call_id")
+
+    trace = trace_items(client, assignment_id)
+    starts = [
+        item
+        for item in trace
+        if item.get("type") == "tool.start"
+        and isinstance(item.get("run_id"), str)
+        and isinstance(item.get("data"), dict)
+        and item["data"].get("call_id") == call_id
+    ]
+    if len(starts) != 1:
+        raise ValueError("approval call_id does not map to exactly one trace tool.start")
+    start_data = require_dict(starts[0].get("data"), "approval tool.start data")
+    trace_args = start_data.get("args")
+    if not isinstance(trace_args, dict) or start_data.get("name") != candidate.get("tool"):
+        raise ValueError("approval tool/name/args does not match trace tool.start")
+    run_id = starts[0].get("run_id")
+    if not isinstance(run_id, str):
+        raise ValueError("approval trace has no run_id")
+
+    request_path = Path.home() / "MacBot" / "data" / "run_requests" / f"{run_id}.json"
+    try:
+        run_request = json.loads(request_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("approval run request is missing or invalid") from exc
+    for key, expected in (
+        ("run_id", run_id),
+        ("assignment_id", assignment_id),
+        ("project_id", project_id),
+        ("bot_id", candidate.get("bot_id")),
+        ("chat_id", project_chat_id),
+    ):
+        if not isinstance(run_request, dict) or run_request.get(key) != expected:
+            raise ValueError(f"approval run request {key} mapping mismatch")
+
+    jobs_dir = Path.home() / "MacBot" / "data" / "jobs"
+    matches: list[tuple[Path, dict[str, Any], dict[str, Any]]] = []
+    for job_path in jobs_dir.glob("*.json"):
+        try:
+            job = json.loads(job_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        checkpoint = job.get("checkpoint") if isinstance(job, dict) else None
+        pending = checkpoint.get("pending_tool") if isinstance(checkpoint, dict) else None
+        if (
+            isinstance(job, dict)
+            and isinstance(checkpoint, dict)
+            and checkpoint.get("run_id") == run_id
+            and job.get("status") == "waiting"
+            and job.get("unsafe_replay") is True
+            and isinstance(pending, dict)
+            and pending.get("call_id") == call_id
+        ):
+            matches.append((job_path, job, checkpoint))
+    if len(matches) != 1:
+        raise ValueError("approval does not map to exactly one waiting durable checkpoint")
+    job_path, job, checkpoint = matches[0]
+    pending = require_dict(checkpoint.get("pending_tool"), "approval checkpoint pending_tool")
+    pending_tools = checkpoint.get("pending_tools")
+    if not isinstance(pending_tools, list) or not pending_tools or pending_tools[0] != pending:
+        raise ValueError("approval checkpoint pending_tools head mismatch")
+    if pending.get("name") != candidate.get("tool") or pending.get("args") != trace_args:
+        raise ValueError("approval checkpoint args do not match trace")
+    detail = candidate.get("detail")
+    try:
+        detail_args = json.loads(detail) if isinstance(detail, str) else None
+    except json.JSONDecodeError as exc:
+        raise ValueError("approval detail is not valid JSON") from exc
+    if not isinstance(detail_args, dict):
+        raise ValueError("approval detail args are not an object")
+    # The server adds home-v1 resolution metadata to write/edit approval cards;
+    # trace/checkpoint retain the original tool args. approval_scope has already
+    # validated this exact metadata pair and its canonical target.
+    execution_args = dict(detail_args)
+    metadata_keys = {"resolved_path", "path_resolution"}
+    if candidate.get("tool") in {"write", "edit"}:
+        execution_args = {key: value for key, value in execution_args.items() if key not in metadata_keys}
+    if execution_args != trace_args:
+        raise ValueError("approval detail args do not match trace/checkpoint")
+    return {
+        "approval_id": approval_id,
+        "assignment_id": assignment_id,
+        "project_id": project_id,
+        "bot_id": candidate.get("bot_id"),
+        "chat_id": project_chat_id,
+        "run_id": run_id,
+        "job_id": job.get("id"),
+        "call_id": call_id,
+        "job_status": job.get("status"),
+        "checkpoint_head_match": True,
+        "pending_tools_count": len(pending_tools),
+        "run_request_match": True,
+        "detail_args_match": True,
+        "detail_metadata_keys": sorted(set(detail_args) - set(execution_args)),
+        "args_keys": sorted(str(key) for key in trace_args),
+    }
+
+
 def args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     add_connection_args(parser)
@@ -66,6 +267,15 @@ def args_parser() -> argparse.ArgumentParser:
         "--resume-partial",
         type=Path,
         help="Resume from a prior partial JSON; existing user requests are verified by chat.history and never resent",
+    )
+    parser.add_argument(
+        "--partial-output", type=Path,
+        help="New partial file; default uses a unique filename and refuses to overwrite existing evidence",
+    )
+    parser.add_argument(
+        "--confirm-projects",
+        action="store_true",
+        help="Opt in to project.confirm_done after review; default stops at review evidence",
     )
     return parser
 
@@ -139,16 +349,25 @@ def validate_role_setup(state: dict[str, Any], role_ids: dict[str, str]) -> tupl
     return main_id, selected
 
 
-def send_main_request(client: Any, main_chat_id: str, text: str) -> dict[str, Any]:
-    result = require_dict(
-        client.call("chat.send", {"chat_id": main_chat_id, "text": text, "mentions": []}),
-        "main chat.send result",
-    )
+def send_main_request(client: Any, main_chat_id: str, text: str, *, marker: str) -> dict[str, Any]:
+    request_id = begin_chat_send(marker=marker)
+    try:
+        result = require_dict(
+            client.call(
+                "chat.send",
+                {"chat_id": main_chat_id, "text": text, "mentions": [], "client_request_id": request_id},
+            ),
+            "main chat.send result",
+        )
+    except Exception:
+        finish_chat_send(request_id, status="unknown_result")
+        raise
     message = require_dict(result.get("message"), "main request message")
     if not isinstance(message.get("id"), str) or not message["id"]:
         raise ValueError("main request has no message id")
     if not isinstance(message.get("seq"), int) or isinstance(message.get("seq"), bool):
         raise ValueError("main request has no numeric seq")
+    finish_chat_send(request_id, status="sent", message=message)
     return message
 
 
@@ -377,22 +596,29 @@ def steer_evidence(
 ) -> dict[str, Any]:
     chat_id = project["chat_id"]
     assignment_id = assignment["id"]
-    result = require_dict(
-        client.call(
-            "chat.send",
-            {
-                "chat_id": chat_id,
-                "text": f"{marker}: 只实现邮箱登录，不实现手机号登录。",
-                "mentions": [{"kind": "bot", "bot_id": coding_id, "instruction": None}],
-            },
-        ),
-        "S2 steer chat.send result",
-    )
+    request_id = begin_chat_send(marker=marker)
+    try:
+        result = require_dict(
+            client.call(
+                "chat.send",
+                {
+                    "chat_id": chat_id,
+                    "text": f"{marker}: 只实现邮箱登录，不实现手机号登录。",
+                    "mentions": [{"kind": "bot", "bot_id": coding_id, "instruction": None}],
+                    "client_request_id": request_id,
+                },
+            ),
+            "S2 steer chat.send result",
+        )
+    except Exception:
+        finish_chat_send(request_id, status="unknown_result")
+        raise
     message = require_dict(result.get("message"), "S2 steer message")
     message_id = message.get("id")
     message_seq = message.get("seq")
     if not isinstance(message_id, str) or not isinstance(message_seq, int) or isinstance(message_seq, bool):
         raise ValueError("S2 steer message has no canonical id/seq")
+    finish_chat_send(request_id, status="sent", message=message)
 
     def check() -> dict[str, Any] | None:
         if gate_poll is not None:
@@ -516,6 +742,7 @@ def resolve_gates(
     marker: str,
     project_home: str,
     project_id: str,
+    project_chat_id: str,
     args: argparse.Namespace,
     evidence: dict[str, Any],
 ) -> dict[str, Any] | None:
@@ -563,7 +790,15 @@ def resolve_gates(
         matching: list[dict[str, Any]] = []
         for candidate in approvals:
             candidate_id = candidate.get("id")
+            checkpoint = validate_approval_checkpoint(
+                client,
+                candidate,
+                project_id=project_id,
+                project_chat_id=project_chat_id,
+                assignment_ids=assignment_ids,
+            )
             scope = check_approval_scope(candidate, project_home, marker, project_id=project_id)
+            record_approval_observation(marker, candidate, scope, checkpoint)
             if isinstance(candidate_id, str) and not any(item.get("id") == candidate_id for item in evidence.setdefault("approvals", [])):
                 evidence["approvals"].append(
                     {"id": candidate_id, "tool": candidate.get("tool"), "risk": candidate.get("risk"), "scope": scope}
@@ -631,6 +866,7 @@ def make_gate_poll(
                 marker=marker,
                 project_home=detail["project"].get("home_path"),
                 project_id=detail["project"]["id"],
+                project_chat_id=detail["project"].get("chat_id"),
                 args=args,
                 evidence=states[marker],
             )
@@ -738,6 +974,11 @@ def load_partial(path: Path) -> dict[str, Any]:
         raise ValueError(f"cannot load --resume-partial {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise ValueError("--resume-partial must contain a JSON object")
+    pending_requests = value.get("pending_requests", [])
+    if not isinstance(pending_requests, list):
+        raise ValueError("--resume-partial pending_requests must be an array")
+    if any(not isinstance(item, dict) or item.get("status") != "sent" for item in pending_requests):
+        raise ValueError("unresolved request result: reconcile canonical messages read-only before resuming; refusing to resend")
     markers = value.get("markers")
     if not isinstance(markers, list) or len(markers) != 2 or any(not isinstance(item, str) or not item for item in markers):
         raise ValueError("--resume-partial requires exactly two non-empty markers")
@@ -871,7 +1112,12 @@ def record_project_evidence(detail: dict[str, Any], marker: str) -> None:
 def scenario(args: argparse.Namespace) -> dict[str, Any]:
     global _PARTIAL_EVIDENCE, _PARTIAL_PATH
     partial = load_partial(args.resume_partial) if args.resume_partial is not None else None
-    _PARTIAL_PATH = args.resume_partial
+    if args.resume_partial is not None and args.partial_output is not None:
+        raise ValueError("--partial-output cannot be combined with --resume-partial")
+    new_partial_path = args.resume_partial or args.partial_output or Path("docs/progress/S2") / (_PARTIAL_EVIDENCE["partial_id"] + ".json")
+    if partial is None and new_partial_path.exists():
+        raise ValueError("partial file already exists; use --resume-partial or a new path")
+    _PARTIAL_PATH = new_partial_path
     client = client_from_args(args)
     health = ready_health(client, args)
     require_production_host(client, health)
@@ -886,6 +1132,7 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
         markers = [unique_marker("macbot-e2e-s2-login"), unique_marker("macbot-e2e-s2-parallel")]
         existing_requests: dict[str, dict[str, Any]] = {}
         _PARTIAL_EVIDENCE = {"partial_id": _PARTIAL_EVIDENCE["partial_id"], "markers": markers, "requests": [], "projects": []}
+        persist_partial_snapshot()
     else:
         markers = [str(item) for item in partial["markers"]]
         existing_requests = verify_resume_requests(
@@ -911,9 +1158,23 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             requests.append({"marker": marker, "name": name, "sent": sent})
         else:
             text = request_prompt(marker=marker, name=name, role_ids=role_ids, selected=selected)
-            sent = send_main_request(client, main_chat_id, text)
+            sent = send_main_request(client, main_chat_id, text, marker=marker)
             requests.append({"marker": marker, "name": name, "sent": sent})
-            _PARTIAL_EVIDENCE["requests"].append({"marker": marker, "name": name, "message_id": sent["id"], "seq": sent["seq"]})
+            request_record = next(
+                item
+                for item in reversed(_PARTIAL_EVIDENCE.get("pending_requests", []))
+                if isinstance(item, dict) and item.get("marker") == marker and item.get("status") == "sent"
+            )
+            _PARTIAL_EVIDENCE["requests"].append(
+                {
+                    "marker": marker,
+                    "name": name,
+                    "client_request_id": request_record["client_request_id"],
+                    "message_id": sent["id"],
+                    "seq": sent["seq"],
+                }
+            )
+            persist_partial_snapshot()
         detail = wait_project_card(
             client,
             main_chat_id=main_chat_id,
@@ -1014,6 +1275,34 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             card = review_card(client, main_chat_id, project["id"], main_id, request["sent"]["seq"])
             return {"project": project, "review_card": card} if card else None
         reviews.append(wait_until(gated_check(gate_poll, review_ready), timeout=args.timeout, interval=args.interval, description="S2 review card"))
+    if not args.confirm_projects:
+        review_evidence = [
+            {
+                "project_id": item.get("project", {}).get("id"),
+                "status": item.get("project", {}).get("status"),
+                "review_card_message_id": item.get("review_card", {}).get("message_id"),
+            }
+            for item in reviews
+        ]
+        _PARTIAL_EVIDENCE["review_only"] = review_evidence
+        _PARTIAL_EVIDENCE["assessment"] = {
+            "api_status": "REVIEW_READY",
+            "approval_decision_called": True,
+            "project_confirm_done_called": False,
+            "full_s2_pass": False,
+            "note": "Stopped after review cards because --confirm-projects was not supplied.",
+        }
+        persist_partial_snapshot()
+        return {
+            "scenario": "S2 login feature",
+            "status": "REVIEW_READY",
+            "url": client.base_url,
+            "health_version": health.get("version"),
+            "main_chat_id": main_chat_id,
+            "project_ids": [detail["project"]["id"] for detail in projects],
+            "review_only": review_evidence,
+            "note": "API checks only; project.confirm_done is opt-in and was not called.",
+        }
     confirmed: list[dict[str, Any]] = []
     for detail, marker in zip(projects, markers):
         result = require_dict(client.call("project.confirm_done", {"project_id": detail["project"]["id"]}), "project.confirm_done result")

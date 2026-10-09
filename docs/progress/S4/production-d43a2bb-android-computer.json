@@ -1,0 +1,196 @@
+{
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "android_source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "browser_mode": "headless",
+  "entry": "existing foreground MainActivity official macbot://computer/<bot_id> deep link; no activity restart, model call or browser_open",
+  "initial_at": "2026-10-09T19:32:18.833929+00:00",
+  "initial_native_text": [
+    {
+      "text": "‹",
+      "bounds": "[196,148][215,232]"
+    },
+    {
+      "text": "Agent Computer",
+      "bounds": "[247,166][2255,213]"
+    },
+    {
+      "text": "Bot 操作中",
+      "bounds": "[2255,167][2403,212]"
+    },
+    {
+      "text": "标签页",
+      "bounds": "[163,275][256,320]"
+    },
+    {
+      "text": "127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+      "bounds": "[314,272][1375,325]"
+    },
+    {
+      "text": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+      "bounds": "[163,371][2403,870]"
+    },
+    {
+      "text": "画质",
+      "bounds": "[163,932][225,977]"
+    },
+    {
+      "text": "自动",
+      "bounds": "[278,928][352,981]"
+    },
+    {
+      "text": "低",
+      "bounds": "[439,928][476,981]"
+    },
+    {
+      "text": "高",
+      "bounds": "[565,928][602,981]"
+    },
+    {
+      "text": "×1.0",
+      "bounds": "[657,936][716,973]"
+    },
+    {
+      "text": "帧率 14 · 帧年龄 0 ms",
+      "bounds": "[727,932][1024,977]"
+    },
+    {
+      "text": "Bot 操作中",
+      "bounds": "[1035,932][2094,977]"
+    },
+    {
+      "text": "接管并处理",
+      "bounds": "[2157,929][2340,982]"
+    }
+  ],
+  "actions": [
+    {
+      "action": "native takeover button",
+      "at": "2026-10-09T19:32:50.357643+00:00",
+      "state": "observed",
+      "native_text_after": [
+        {
+          "text": "‹",
+          "bounds": "[196,148][215,232]"
+        },
+        {
+          "text": "Agent Computer",
+          "bounds": "[247,166][2038,213]"
+        },
+        {
+          "text": "你正在操作（Bot 已暂停）",
+          "bounds": "[2038,167][2403,212]"
+        },
+        {
+          "text": "标签页",
+          "bounds": "[163,275][256,320]"
+        },
+        {
+          "text": "127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+          "bounds": "[314,272][1375,325]"
+        },
+        {
+          "text": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+          "bounds": "[163,371][2403,723]"
+        },
+        {
+          "text": "输入文字或按键…",
+          "bounds": "[205,790][481,846]"
+        },
+        {
+          "text": "画质",
+          "bounds": "[163,932][225,977]"
+        },
+        {
+          "text": "自动",
+          "bounds": "[278,928][352,981]"
+        },
+        {
+          "text": "低",
+          "bounds": "[439,928][476,981]"
+        },
+        {
+          "text": "高",
+          "bounds": "[565,928][602,981]"
+        },
+        {
+          "text": "×1.0",
+          "bounds": "[657,936][716,973]"
+        },
+        {
+          "text": "帧率 11 · 帧年龄 0 ms",
+          "bounds": "[727,932][1024,977]"
+        },
+        {
+          "text": "你正在操作（Bot 已暂停）",
+          "bounds": "[1035,932][2102,977]"
+        },
+        {
+          "text": "交还给 Bot",
+          "bounds": "[2165,929][2340,982]"
+        }
+      ]
+    },
+    {
+      "action": "native canvas touch",
+      "target": "local fixture input only",
+      "xy": [
+        1250,
+        587
+      ],
+      "at": "2026-10-09T19:33:21.902473+00:00"
+    },
+    {
+      "action": "native keyboard toolbar text",
+      "text": "android-d43-input",
+      "at": "2026-10-09T19:33:41.402875+00:00"
+    },
+    {
+      "action": "temporary disable stylus demo, native toolbar Tab then input text",
+      "text": "native-d43",
+      "observed_remote": "native-d43"
+    },
+    {
+      "action": "native canvas touch submit",
+      "xy": [
+        1400,
+        595
+      ],
+      "observed_remote": "等待输入; submit not verified"
+    },
+    {
+      "action": "close Computer then reopen; automatic release observed",
+      "driver": "bot"
+    },
+    {
+      "action": "native takeover followed by release and actual confirmation dialog",
+      "final_driver": "bot",
+      "note": "immediate XML after confirmation briefly showed previous state; later fresh XML and image confirm bot"
+    },
+    {
+      "action": "restore stylus setting",
+      "value": "null"
+    }
+  ],
+  "full_s4_pass": false,
+  "completed_at": "2026-10-09T19:49:32.895852+00:00",
+  "status": "PARTIAL_NATIVE_PASS",
+  "native_continuous_frames_pass": true,
+  "native_takeover_and_release_pass": true,
+  "native_keyboard_text_visible_in_remote_browser": true,
+  "native_remote_text": "native-d43",
+  "native_touch_submit_verified": false,
+  "browser_result_after_submit_attempt": "等待输入; no received marker observed",
+  "system_input_interference": {
+    "observed": "Gboard Try out your stylus demo intercepted typing",
+    "test_only_setting": "secure stylus_handwriting_enabled",
+    "original": "null",
+    "temporary": "0",
+    "restored": "null"
+  },
+  "keyboard_proof": "production-d43a2bb-android-computer-keyboard-result.png",
+  "release_proof": "production-d43a2bb-android-computer-released.png",
+  "final_native_state": "Bot 操作中",
+  "test_mutations": "existing owned localhost fixture only; no provider call/browser_open/login/credentials",
+  "touch_diagnosis": "installed Android queueTouch and d43 official0.38.2 sidecar mappings have no confirmed mismatch; precise native touch/submit still unverified"
+}

@@ -1,0 +1,25 @@
+{
+  "captured_at": "2026-10-09T19:29:38.848024+00:00",
+  "source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "read_only": true,
+  "observation": "process cwd within two project Homes; no inferred durable job ownership from cwd alone",
+  "processes": [
+    {
+      "pid": 76279,
+      "comm": "Python",
+      "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5",
+      "listeners": [
+        "127.0.0.1:54065"
+      ]
+    },
+    {
+      "pid": 76297,
+      "comm": "node",
+      "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89/server",
+      "listeners": [
+        "*:3001"
+      ]
+    }
+  ],
+  "command_or_environment_recorded": false
+}

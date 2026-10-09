@@ -1,0 +1,52 @@
+{
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "at": "2026-10-09T19:51:21.099216+00:00",
+  "read_only": true,
+  "checks": [
+    {
+      "approval_id": "01a12236-e58e-761d-8616-558d8cc1296c",
+      "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "job_id": "job_01a12236-9aba-708c-a922-f974cf37dc5b",
+      "job_status": "waiting",
+      "call_id": "call_function_46nmh5xb5zgm_1",
+      "head_match": true,
+      "detail_matches_actual_args": true,
+      "home": "~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/",
+      "path": "~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/PRD.md",
+      "resolved_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/PRD.md",
+      "content_sha256": "b4bcf15559dc21021998ce9c2cb4729641de421796097196cc329e6052391455",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      }
+    },
+    {
+      "approval_id": "01a12237-088b-76b0-a897-d66d6813a350",
+      "assignment_id": "01a12236-d7c0-74a2-be96-206ca2f855a3",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "run_id": "run_01a12236-d7c0-74a2-be96-206ca2f855a3",
+      "job_id": "job_01a12236-e1e2-722c-9cdc-acad6fdcbc42",
+      "job_status": "waiting",
+      "call_id": "call_function_85rsdktbfuuc_1",
+      "head_match": true,
+      "detail_matches_actual_args": true,
+      "home": "~/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/",
+      "path": null,
+      "resolved_path": null,
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "bash",
+        "operation": "project_home_mkdir"
+      }
+    }
+  ],
+  "full_s2_pass": false
+}

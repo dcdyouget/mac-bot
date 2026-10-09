@@ -1,0 +1,9 @@
+{
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "phase": "first attempt; intentionally stopped before any approval decision",
+  "status": "STOPPED_AT_FIRST_NEW_PENDING_APPROVAL",
+  "console": "API checks: FAIL: macbot-e2e-s2-login-522c6b619b92 partial: pending approval 01a12236-e58e-761d-8616-558d8cc1296c; rerun with --approve-test-tools-once; partial evidence: docs/progress/S2/production-d43a2bb-login-new-partial.json",
+  "approval_decision_called": false,
+  "project_confirm_done_called": false,
+  "full_s2_pass": false
+}

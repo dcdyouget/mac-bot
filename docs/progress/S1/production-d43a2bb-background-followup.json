@@ -1,0 +1,159 @@
+{
+  "approval": {
+    "action": "output",
+    "id": "01a12228-297e-75c1-b771-13b80ad6cc3d",
+    "job_id": "bash_01a12228-15f1-77e6-a381-7fb904b6f4d0",
+    "state": "allowed_once",
+    "tool": "bash_job"
+  },
+  "approval_id": "01a12228-297e-75c1-b771-13b80ad6cc3d",
+  "approval_precheck": {
+    "action": "output",
+    "args_keys": [
+      "action",
+      "job_id"
+    ],
+    "assignment_id": null,
+    "bot_id": "01a12227-e6b9-7276-96cb-98ab5185e1a5",
+    "chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+    "id": "01a12228-297e-75c1-b771-13b80ad6cc3d",
+    "job_id": "bash_01a12228-15f1-77e6-a381-7fb904b6f4d0",
+    "risk": "exec",
+    "state": "pending",
+    "tool": "bash_job",
+    "unique_pending_match": true
+  },
+  "background_natural_completion": {
+    "process_control": "no_kill_or_restart",
+    "run_end_status": "done",
+    "sleep_seconds": 12,
+    "stdout_start_end_markers_verified": true,
+    "tool_end_is_error": false
+  },
+  "background_tool_end": {
+    "aseq": 8,
+    "call_id": "call_function_erpxlsuiux0d_1",
+    "duration_ms": 6,
+    "is_error": false,
+    "job_id": "bash_01a12228-15f1-77e6-a381-7fb904b6f4d0"
+  },
+  "bot_id": "01a12227-e6b9-7276-96cb-98ab5185e1a5",
+  "chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+  "checkpoint": {
+    "file": "job_01a12227-f12c-7398-85b2-bfea28f69536.json",
+    "pending_tool_names": [
+      "bash_job"
+    ],
+    "pending_tools": true,
+    "status": "waiting"
+  },
+  "command_sha256": "8491b85c7c5827e379d590a5ab16c75eb723968badbf34610a10bbed8a030e14",
+  "final_message": {
+    "blocks": 1,
+    "id": "msg_run_chat_01a12227_ee0c_71fc_b202_f208b576a614",
+    "markdown_nonempty": true,
+    "marker_seen": true,
+    "seq": 2,
+    "streaming": false,
+    "text_sha256": "4b865b18472cd23c61c940e582ac4f717031cf437e0503f9bf57212129179d6e"
+  },
+  "final_reply_blocked_by_unapproved_tool": false,
+  "full_s1_pass": false,
+  "job_id": "bash_01a12228-15f1-77e6-a381-7fb904b6f4d0",
+  "note": "Supplemental API-local PASS only. Exact bash_job output approval was scoped to the same Bot/DM/run/job; stdout marker pair, run.end=done, and final canonical Markdown reply were verified. Original strict single-call evidence remains FAIL because the model first requested bash_job.",
+  "output": {
+    "expected_sha256": "5fbba063a1e6879ef013cde2c45ae84d70683f1ae38e11fb533d8c92ce302e14",
+    "no_files_network_env_or_other_command_effects": true,
+    "preview_len": 78,
+    "source": "trace.item tool.end.preview",
+    "stdout_len": 78,
+    "stdout_matches_expected": true,
+    "stdout_sha256": "5fbba063a1e6879ef013cde2c45ae84d70683f1ae38e11fb533d8c92ce302e14",
+    "trace_tool_output_chunks": 0,
+    "trace_tool_output_frames_observed": 0
+  },
+  "output_tool_end": {
+    "call_id": "call_function_v0n0vvp4msgh_1",
+    "details_keys": [
+      "full_output_path",
+      "truncated"
+    ],
+    "duration_ms": 0,
+    "is_error": false,
+    "preview_len": 78,
+    "preview_sha256": "5fbba063a1e6879ef013cde2c45ae84d70683f1ae38e11fb533d8c92ce302e14",
+    "stdout_matches_expected": true
+  },
+  "pending_after_target": [],
+  "request_identity": {
+    "canonical_match": true,
+    "message_id": "01a12227-ee0c-71fc-b202-f208b576a614",
+    "seq": 1
+  },
+  "run_end": {
+    "status": "done"
+  },
+  "run_id": "run_chat_01a12227_ee0c_71fc_b202_f208b576a614",
+  "run_identity": {
+    "bot_id": "01a12227-e6b9-7276-96cb-98ab5185e1a5",
+    "chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+    "exact_background_call_id": "call_function_erpxlsuiux0d_1",
+    "exact_background_start_count_by_call_id": 1,
+    "known_tool_call_ids": [
+      "call_function_erpxlsuiux0d_1",
+      "call_function_v0n0vvp4msgh_1"
+    ],
+    "run_id": "run_chat_01a12227_ee0c_71fc_b202_f208b576a614"
+  },
+  "scenario": "S1 background follow-up after exact approval",
+  "sleep_seconds": 12,
+  "status": "PASS_API_LOCAL",
+  "trace_subscribe": {
+    "chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+    "in_flight_count": 0,
+    "resume_mode": "replay",
+    "since_aseq": 12,
+    "stream": "stream_01a1222e-c178-72b5-bfe5-9a05822d4096",
+    "sync_seq": 2286
+  },
+  "unexpected_tools": [],
+  "ws_coverage": {
+    "final_message_via_http_chat_history": true,
+    "final_message_via_ws": false,
+    "main_session_resume": true,
+    "qualification": "订阅在 allow_once 前建立；stdout 由 trace.item 的 tool.end.preview 校验，canonical final message 由 chat.history 校验。未收到 trace.tool_output/message.updated 不单独判定路由故障。",
+    "since_aseq": 12,
+    "trace_item_events_observed": true,
+    "trace_stream": "stream_01a1222e-c178-72b5-bfe5-9a05822d4096",
+    "trace_subscribe": true,
+    "trace_tool_output_frames_observed": false
+  },
+  "ws_events": [
+    {
+      "event": "approval.resolved",
+      "seq": 2287
+    },
+    {
+      "event": "trace.item",
+      "item_run_id_match": true,
+      "item_type": "run.resume",
+      "seq": null
+    },
+    {
+      "event": "host.status",
+      "seq": null
+    },
+    {
+      "event": "bot.status",
+      "seq": null
+    },
+    {
+      "event": "bot.status",
+      "seq": null
+    },
+    {
+      "event": "bot.status",
+      "seq": null
+    }
+  ]
+}
