@@ -147,3 +147,11 @@
 - S3 联调：不通过。第二条偏好请求在UI可见，新run却重复上轮S1工具并请求旧marker write；未批准无关写入，留现场。只读源码request_for_chat未排序snapshot messages并重复追加当前请求，归server-mac；需真实第二轮不同prompt回归。轨迹S3/production-22b3b10-memory-unrelated-tools.json，结果S3/production-22b3b10-result.json。
 - S4 联调：仍未通过；原routine默认模型/终态阻断已消除，另一null-model Bot真实routine.test_run约4.9s完成，RPC run done/finished_at与assignment done/trace一致，测试routine已删除。S4/production-22b3b10-routine.json仅API试运行，实际到点、Chrome登录、手机接管/通知未验。
 - Android80d签名Release保持，19:52截图仍在连接（S1/20261009-195202-android.png），已发归属线诊断/窗口交回请求，未重启或重装。S5 pkg22b3源码/dirty=false/哈希与完整载荷已只读核验，S5/server-pkg-22b3b10-verified.json；尚未全新安装。S0历史通过保持，S2/S5完整联合未验收。
+
+## integrator：22b3 实际调度与画面补验（2026-10-09）
+- S4 联调：不通过。真实到点（非test_run）第二轮 trigger=schedule、assignment done/run.end均到达，但 trace.send_msg.message_id=msg_call_function_hrbxjhsogeqa_1 与实际 DM/assignment.result_message_id=01a1208f-4bb0-7515-b336-ba63f53ed1f1 不同。第一轮仅因脚本过严拒绝正常done汇报，已纠正测试并保留区分记录；第二轮真实ID缺陷不放宽。复现 scripts/e2e/s4/scheduled_routine.py，证据 docs/progress/S4/production-22b3b10-scheduled-routine-r2-failed.json；归server-mac，自建routine均已清理。
+- 真实 MiniMax browser_open 访问自建localhost动画页，官方sidecar返回实际页面/JPEG；两帧+ACK只计传输局部证据。严格low请求应宽<=640，实际1280x720，失败原始帧/头/错误见 docs/progress/S4/screen-22b3b10-low-contract/，结构化结论 production-22b3b10-screen-low-contract-failed.json。frame.url=about:blank与state实际URL不同暂记可能竞态，不据此硬判。归server-mac。
+- 主动takeover.start仅bot_id时两次OS2 No such file，当前home无data/takeovers目录；不手工建目录绕过缺陷。证据 docs/progress/S4/production-22b3b10-screen-takeover-failed.json，归server-mac。
+- 桌面222安装版新PID90171/window57570：bootstrap包含5Bot/新画面Bot与direct DM，但savedHost activate/进程重启后侧栏仍旧2worker；Bot搜索目标重复7条，Open动作未导航，Computer原生验收未完成。截图 docs/progress/S4/20261009-202836-desktop.png 与 bootstrap对照 production-22b3b10-desktop-new-bot-navigation.json；已请求client-mac只读判定server create事件/客户端resume与搜索入口归属。53887是集成主动Cmd+Q退出，不作为崩溃证据。
+- Android签名80d APK/AVD未替换，20:00恢复网络、20:13仅force-stop/start客户端进程后mock列表恢复，当前截图 docs/progress/S4/20261009-202836-android.png；S5/android-80d8a42-after-process-restart.json。正式Host手机UI仍待验，不把健康probe或mock列表算正式通过。
+- 7788保持正式22b3b10、7789保持mock11bc831，等待server累计seq/上下文/恢复/审批/workbench/已读ready固定SHA后一次重部署复验；S0历史通过，S1–S5完整真实联合仍未通过。
