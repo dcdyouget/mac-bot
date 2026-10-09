@@ -16,8 +16,10 @@ python3 protocol/kotlin/generate.py
 ```
 
 The command also bundles every JSON/JSONL fixture into the Android host-test
-resources and writes `schema-inventory.json`. Use `--check` in CI: missing
-schemas or fixtures fail explicitly, so an empty fixture directory cannot be
-reported as a passing contract test. Unknown message-block tags are decoded by
+resources and writes `schema-inventory.json`. Use `--check` in CI to compare
+all generated files without writing them: missing schemas/fixtures and stale
+models/corpus/inventory fail explicitly. An empty fixture directory cannot be
+reported as a passing contract test. Run `python3 -m unittest discover -s
+protocol/kotlin/tests` for generator regression checks. Unknown message-block tags are decoded by
 the existing `Block.decode` into `Block.Unknown` and rendered through
 `fallback_text` by the UI.

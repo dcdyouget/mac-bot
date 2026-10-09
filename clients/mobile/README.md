@@ -24,6 +24,9 @@ Protocol fixtures must be generated after server-mac publishes the authoritative
 python3 protocol/kotlin/generate.py --check
 ```
 
+`--check` is read-only and fails on stale output. Regenerate with
+`python3 protocol/kotlin/generate.py`, then rerun the fixture contract tests.
+
 The fixture contract test fails if the corpus is missing; no-fixture builds are not phase completion evidence.
 
 ## Emulator deploy

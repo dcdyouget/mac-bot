@@ -683,6 +683,13 @@ data class ApprovalListParams(override val raw: JsonObject) : RawProtocolModel {
 }
 object ApprovalListParamsSerializer : RawModelSerializer<ApprovalListParams>(::ApprovalListParams)
 
+@Serializable(with = ApprovalSettingsPatchSerializer::class)
+data class ApprovalSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
+    val mode: String? get() = raw.stringOrNull("mode")
+    val rules: List<ApprovalRule>? get() = if (raw["rules"] == null) null else raw.arr("rules").mapNotNull { (it as? JsonObject)?.let(::ApprovalRule) }
+}
+object ApprovalSettingsPatchSerializer : RawModelSerializer<ApprovalSettingsPatch>(::ApprovalSettingsPatch)
+
 @Serializable(with = AssignmentIdParamsSerializer::class)
 data class AssignmentIdParams(override val raw: JsonObject) : RawProtocolModel {
     val assignmentId: String get() = raw.str("assignment_id")
@@ -759,6 +766,14 @@ data class BotUpdateParams(override val raw: JsonObject) : RawProtocolModel {
 }
 object BotUpdateParamsSerializer : RawModelSerializer<BotUpdateParams>(::BotUpdateParams)
 
+@Serializable(with = BrowserSettingsPatchSerializer::class)
+data class BrowserSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
+    val chromeProfile: String? get() = raw.stringOrNull("chrome_profile")
+    val defaultMode: String? get() = raw.stringOrNull("default_mode")
+    val stream: StreamSettingsPatch? get() = raw["stream"]?.jsonObject?.let(::StreamSettingsPatch)
+}
+object BrowserSettingsPatchSerializer : RawModelSerializer<BrowserSettingsPatch>(::BrowserSettingsPatch)
+
 @Serializable(with = ChatHistoryParamsSerializer::class)
 data class ChatHistoryParams(override val raw: JsonObject) : RawProtocolModel {
     val afterSeq: Long? get() = raw.longOrNull("after_seq")
@@ -834,6 +849,16 @@ data class ClientInfo(override val raw: JsonObject) : RawProtocolModel {
 }
 object ClientInfoSerializer : RawModelSerializer<ClientInfo>(::ClientInfo)
 
+@Serializable(with = ConcurrencyPatchSerializer::class)
+data class ConcurrencyPatch(override val raw: JsonObject) : RawProtocolModel {
+    val botDefault: Long? get() = raw.longOrNull("bot_default")
+    val global: Long? get() = raw.longOrNull("global")
+    val loopHops: Long? get() = raw.longOrNull("loop_hops")
+    val subagentGlobal: Long? get() = raw.longOrNull("subagent_global")
+    val subagentPerRun: Long? get() = raw.longOrNull("subagent_per_run")
+}
+object ConcurrencyPatchSerializer : RawModelSerializer<ConcurrencyPatch>(::ConcurrencyPatch)
+
 @Serializable(with = CreateFromTemplateParamsSerializer::class)
 data class CreateFromTemplateParams(override val raw: JsonObject) : RawProtocolModel {
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
@@ -870,6 +895,21 @@ data class LoopResolveParams(override val raw: JsonObject) : RawProtocolModel {
     val rootMessageId: String get() = raw.str("root_message_id")
 }
 object LoopResolveParamsSerializer : RawModelSerializer<LoopResolveParams>(::LoopResolveParams)
+
+@Serializable(with = MainBotSettingsPatchSerializer::class)
+data class MainBotSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
+    val autoCreateProject: Boolean? get() = raw.boolOrNull("auto_create_project")
+}
+object MainBotSettingsPatchSerializer : RawModelSerializer<MainBotSettingsPatch>(::MainBotSettingsPatch)
+
+@Serializable(with = ModelDefaultsPatchSerializer::class)
+data class ModelDefaultsPatch(override val raw: JsonObject) : RawProtocolModel {
+    val botDefault: String? get() = raw.stringOrNull("bot_default")
+    val main: String? get() = raw.stringOrNull("main")
+    val maintenance: String? get() = raw.stringOrNull("maintenance")
+    val subagent: String? get() = raw.stringOrNull("subagent")
+}
+object ModelDefaultsPatchSerializer : RawModelSerializer<ModelDefaultsPatch>(::ModelDefaultsPatch)
 
 @Serializable(with = ModelDeleteParamsSerializer::class)
 data class ModelDeleteParams(override val raw: JsonObject) : RawProtocolModel {
@@ -1078,17 +1118,17 @@ object SessionResumeParamsSerializer : RawModelSerializer<SessionResumeParams>(:
 
 @Serializable(with = SettingsPatchSerializer::class)
 data class SettingsPatch(override val raw: JsonObject) : RawProtocolModel {
-    val approvals: ApprovalSettings? get() = raw["approvals"]?.jsonObject?.let(::ApprovalSettings)
-    val browser: BrowserSettings? get() = raw["browser"]?.jsonObject?.let(::BrowserSettings)
-    val concurrency: Concurrency? get() = raw["concurrency"]?.jsonObject?.let(::Concurrency)
+    val approvals: ApprovalSettingsPatch? get() = raw["approvals"]?.jsonObject?.let(::ApprovalSettingsPatch)
+    val browser: BrowserSettingsPatch? get() = raw["browser"]?.jsonObject?.let(::BrowserSettingsPatch)
+    val concurrency: ConcurrencyPatch? get() = raw["concurrency"]?.jsonObject?.let(::ConcurrencyPatch)
     val currency: String? get() = raw.stringOrNull("currency")
     val hostName: String? get() = raw.stringOrNull("host_name")
-    val mainBot: MainBotSettings? get() = raw["main_bot"]?.jsonObject?.let(::MainBotSettings)
-    val models: ModelDefaults? get() = raw["models"]?.jsonObject?.let(::ModelDefaults)
-    val skills: SkillSettings? get() = raw["skills"]?.jsonObject?.let(::SkillSettings)
+    val mainBot: MainBotSettingsPatch? get() = raw["main_bot"]?.jsonObject?.let(::MainBotSettingsPatch)
+    val models: ModelDefaultsPatch? get() = raw["models"]?.jsonObject?.let(::ModelDefaultsPatch)
+    val skills: SkillSettingsPatch? get() = raw["skills"]?.jsonObject?.let(::SkillSettingsPatch)
     val timezone: String? get() = raw.stringOrNull("timezone")
-    val trace: TraceSettings? get() = raw["trace"]?.jsonObject?.let(::TraceSettings)
-    val webSearch: WebSearchSettings? get() = raw["web_search"]?.jsonObject?.let(::WebSearchSettings)
+    val trace: TraceSettingsPatch? get() = raw["trace"]?.jsonObject?.let(::TraceSettingsPatch)
+    val webSearch: WebSearchSettingsPatch? get() = raw["web_search"]?.jsonObject?.let(::WebSearchSettingsPatch)
 }
 object SettingsPatchSerializer : RawModelSerializer<SettingsPatch>(::SettingsPatch)
 
@@ -1096,6 +1136,7 @@ object SettingsPatchSerializer : RawModelSerializer<SettingsPatch>(::SettingsPat
 data class SettingsUpdateParams(override val raw: JsonObject) : RawProtocolModel {
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
     val patch: SettingsPatch get() = SettingsPatch(raw.obj("patch"))
+    val webSearchKey: String? get() = raw.stringOrNull("web_search_key")
 }
 object SettingsUpdateParamsSerializer : RawModelSerializer<SettingsUpdateParams>(::SettingsUpdateParams)
 
@@ -1135,6 +1176,27 @@ data class SkillSetEnabledParams(override val raw: JsonObject) : RawProtocolMode
 }
 object SkillSetEnabledParamsSerializer : RawModelSerializer<SkillSetEnabledParams>(::SkillSetEnabledParams)
 
+@Serializable(with = SkillSettingsPatchSerializer::class)
+data class SkillSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
+    val extraDirs: List<String>? get() = if (raw["extra_dirs"] == null) null else raw.arr("extra_dirs").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+}
+object SkillSettingsPatchSerializer : RawModelSerializer<SkillSettingsPatch>(::SkillSettingsPatch)
+
+@Serializable(with = StreamQualityPatchSerializer::class)
+data class StreamQualityPatch(override val raw: JsonObject) : RawProtocolModel {
+    val maxFps: Long? get() = raw.longOrNull("max_fps")
+    val maxWidth: Long? get() = raw.longOrNull("max_width")
+    val quality: Long? get() = raw.longOrNull("quality")
+}
+object StreamQualityPatchSerializer : RawModelSerializer<StreamQualityPatch>(::StreamQualityPatch)
+
+@Serializable(with = StreamSettingsPatchSerializer::class)
+data class StreamSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
+    val desktop: StreamQualityPatch? get() = raw["desktop"]?.jsonObject?.let(::StreamQualityPatch)
+    val mobile: StreamQualityPatch? get() = raw["mobile"]?.jsonObject?.let(::StreamQualityPatch)
+}
+object StreamSettingsPatchSerializer : RawModelSerializer<StreamSettingsPatch>(::StreamSettingsPatch)
+
 @Serializable(with = TakeoverReleaseParamsSerializer::class)
 data class TakeoverReleaseParams(override val raw: JsonObject) : RawProtocolModel {
     val botId: String get() = raw.str("bot_id")
@@ -1160,6 +1222,12 @@ data class TraceHistoryParams(override val raw: JsonObject) : RawProtocolModel {
     val tail: Boolean? get() = raw.boolOrNull("tail")
 }
 object TraceHistoryParamsSerializer : RawModelSerializer<TraceHistoryParams>(::TraceHistoryParams)
+
+@Serializable(with = TraceSettingsPatchSerializer::class)
+data class TraceSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
+    val saveFullRequests: Boolean? get() = raw.boolOrNull("save_full_requests")
+}
+object TraceSettingsPatchSerializer : RawModelSerializer<TraceSettingsPatch>(::TraceSettingsPatch)
 
 @Serializable(with = TraceSubscribeParamsSerializer::class)
 data class TraceSubscribeParams(override val raw: JsonObject) : RawProtocolModel {
@@ -1218,6 +1286,13 @@ data class UsageTimeseriesParams(override val raw: JsonObject) : RawProtocolMode
     val top: Long? get() = raw.longOrNull("top")
 }
 object UsageTimeseriesParamsSerializer : RawModelSerializer<UsageTimeseriesParams>(::UsageTimeseriesParams)
+
+@Serializable(with = WebSearchSettingsPatchSerializer::class)
+data class WebSearchSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
+    val endpoint: String? get() = raw.stringOrNull("endpoint")
+    val provider: String? get() = raw.stringOrNull("provider")
+}
+object WebSearchSettingsPatchSerializer : RawModelSerializer<WebSearchSettingsPatch>(::WebSearchSettingsPatch)
 
 @Serializable(with = MethodParamsSerializer::class)
 data class MethodParams(override val raw: JsonObject) : RawProtocolModel {

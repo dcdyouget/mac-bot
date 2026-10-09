@@ -43,6 +43,12 @@ class FixtureContractTest {
         val screen = decode(ScreenStateSerializer, fixture("frames/screen-state.json"))
         assertEquals("bot_main", screen.botId)
         assertEquals("tab_1", screen.tabs.single().tabId)
+
+        val settingsRequest = decode(SettingsUpdateParamsSerializer, fixture("requests/settings_update_partial.json"))
+        assertEquals(2L, settingsRequest.patch.concurrency?.global)
+        assertEquals("inherit", settingsRequest.patch.models?.subagent)
+        val searchSettings = decode(SettingsUpdateParamsSerializer, fixture("requests/settings_update_web_search.json"))
+        assertNotNull(searchSettings.patch.webSearch)
     }
 
     @Test
@@ -79,6 +85,7 @@ class FixtureContractTest {
         return when {
         path.startsWith("objects/") -> objectSerializers[path.substringAfter("objects/").substringBeforeLast('.')]
         path.startsWith("events/") || path.startsWith("scenarios/") -> EventFrameSerializer
+        path == "requests/settings_update_partial.json" || path == "requests/settings_update_web_search.json" -> SettingsUpdateParamsSerializer
         path.startsWith("trace/") -> TraceItemSerializer
         path == "frames/screen-header.json" -> ScreenFrameHeaderSerializer
         path == "frames/screen-state.json" -> ScreenStateSerializer

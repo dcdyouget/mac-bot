@@ -1662,6 +1662,45 @@
     }
   },
   {
+    "source": "protocol/fixtures/requests/settings_update_partial.json",
+    "line": 1,
+    "value": {
+      "patch": {
+        "concurrency": {
+          "global": 2
+        },
+        "models": {
+          "main": null,
+          "subagent": "inherit"
+        },
+        "browser": {
+          "stream": {
+            "mobile": {
+              "quality": 60
+            }
+          }
+        },
+        "web_search": {
+          "endpoint": null
+        }
+      }
+    }
+  },
+  {
+    "source": "protocol/fixtures/requests/settings_update_web_search.json",
+    "line": 1,
+    "value": {
+      "patch": {
+        "web_search": {
+          "provider": "brave",
+          "endpoint": "https://api.search.brave.com/res/v1/web/search"
+        }
+      },
+      "web_search_key": "",
+      "client_request_id": "fixture-clear-web-search-key"
+    }
+  },
+  {
     "source": "protocol/fixtures/results/usage_heatmap_calendar.json",
     "line": 1,
     "value": {

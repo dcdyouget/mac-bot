@@ -328,7 +328,7 @@ def load_fixtures(fixtures: list[pathlib.Path]) -> list[dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true", help="fail when schemas or fixtures are unavailable")
+    parser.add_argument("--check", action="store_true", help="verify generated files without writing; fail on missing inputs or stale output")
     parser.add_argument("--no-generate", action="store_true", help="only build the fixture inventory")
     args = parser.parse_args()
 
@@ -339,6 +339,9 @@ def main() -> int:
         missing.append("authoritative schema")
     if not fixtures:
         missing.append("protocol fixtures")
+    if missing and args.check:
+        print("Waiting for server-mac: missing " + " and ".join(missing) + ".", file=sys.stderr)
+        return 1
 
     loaded = []
     for path in schemas:
@@ -350,25 +353,41 @@ def main() -> int:
 
     objects = collect_objects(loaded)
     registry = schema_registry(loaded)
-    if loaded and not args.no_generate:
-        OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-        OUTPUT.write_text(generate_models(objects, registry))
-
-    corpus = load_fixtures(fixtures) if fixtures else []
+    try:
+        corpus = load_fixtures(fixtures) if fixtures else []
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"Unable to read protocol fixtures: {error}", file=sys.stderr)
+        return 1
     output = ROOT / "clients/mobile/shared/src/androidUnitTest/resources"
-    output.mkdir(parents=True, exist_ok=True)
-    (output / "protocol-fixtures.json").write_text(json.dumps(corpus, ensure_ascii=False, indent=2) + "\n")
     inventory = {
         "schemas": [str(path.relative_to(ROOT)) for path in schemas],
         "fixtures": len(corpus),
         "generated_models": str(OUTPUT.relative_to(ROOT)) if loaded and not args.no_generate else None,
     }
-    (ROOT / "protocol/kotlin/schema-inventory.json").write_text(json.dumps(inventory, ensure_ascii=False, indent=2) + "\n")
+    outputs = {
+        output / "protocol-fixtures.json": json.dumps(corpus, ensure_ascii=False, indent=2) + "\n",
+        ROOT / "protocol/kotlin/schema-inventory.json": json.dumps(inventory, ensure_ascii=False, indent=2) + "\n",
+    }
+    if loaded and not args.no_generate:
+        outputs[OUTPUT] = generate_models(objects, registry)
+
+    if args.check:
+        stale = [path for path, content in outputs.items() if not path.is_file() or path.read_text() != content]
+        if stale:
+            for path in stale:
+                print(f"Stale generated file: {path.relative_to(ROOT)}", file=sys.stderr)
+            print("Run python3 protocol/kotlin/generate.py and commit the generated files.", file=sys.stderr)
+            return 1
+    else:
+        for path, content in outputs.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
 
     if missing:
         print("Waiting for server-mac: missing " + " and ".join(missing) + ".", file=sys.stderr)
         return 1 if args.check else 0
-    print(f"Bundled {len(corpus)} fixture values from {len(fixtures)} files; generated {len(objects)} schema objects.")
+    action = "Verified" if args.check else "Bundled"
+    print(f"{action} {len(corpus)} fixture values from {len(fixtures)} files; {len(objects)} schema objects.")
     return 0
 
 
