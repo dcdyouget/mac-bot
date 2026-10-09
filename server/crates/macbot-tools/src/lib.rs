@@ -2,7 +2,9 @@
 //! the model can fix an argument without losing its durable run.
 
 use async_trait::async_trait;
+use base64::Engine;
 use globset::{Glob, GlobSetBuilder};
+use ignore::WalkBuilder;
 use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -20,7 +22,6 @@ use tokio::{
     sync::Mutex,
     time::{timeout, Duration},
 };
-use walkdir::WalkDir;
 
 pub const MAX_OUTPUT_LINES: usize = 2_000;
 pub const MAX_OUTPUT_BYTES: usize = 50 * 1024;
@@ -86,23 +87,20 @@ impl ToolContext {
     }
     fn resolve(&self, path: &str) -> Result<PathBuf, ToolError> {
         let raw = Path::new(path);
-        let path = if raw.is_absolute() {
+        let candidate = if raw.is_absolute() {
             raw.to_path_buf()
         } else {
             self.cwd.join(raw)
         };
-        let parent = path.parent().unwrap_or(&path);
-        let lexical_inside = path.starts_with(&self.cwd);
-        let canonical_inside = parent.exists()
-            && parent
-                .canonicalize()
-                .ok()
-                .zip(self.cwd.canonicalize().ok())
-                .is_some_and(|(parent, cwd)| parent.starts_with(cwd));
-        if !lexical_inside && !canonical_inside {
-            return Err(ToolError::PathEscape(path));
+        let cwd = self
+            .cwd
+            .canonicalize()
+            .map_err(|_| ToolError::PathEscape(candidate.clone()))?;
+        let resolved = canonicalize_with_missing(&candidate)?;
+        if !resolved.starts_with(&cwd) {
+            return Err(ToolError::PathEscape(candidate));
         }
-        Ok(path)
+        Ok(candidate)
     }
 }
 
@@ -132,6 +130,11 @@ pub struct FileMutationQueue {
     locks: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>>,
 }
 impl FileMutationQueue {
+    /// Create a queue that can be shared by all mutation tools in one run.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     async fn lock_for(&self, path: &Path) -> Arc<Mutex<()>> {
         let mut locks = self.locks.lock().await;
         locks
@@ -172,6 +175,17 @@ impl Tool for ReadTool {
                 .get("limit")
                 .and_then(Value::as_u64)
                 .map(|x| x as usize);
+            if let Some(mime) = image_mime(&path) {
+                let data = base64::engine::general_purpose::STANDARD.encode(fs::read(&path).await?);
+                return Ok(ToolResult {
+                    content: vec![Part::Image {
+                        data,
+                        mime: mime.into(),
+                    }],
+                    details: json!({"path":path,"mime":mime,"truncated":false}),
+                    is_error: false,
+                });
+            }
             let bytes = fs::read(&path).await?;
             let text = String::from_utf8_lossy(&bytes);
             let lines: Vec<&str> = text.split('\n').collect();
@@ -184,19 +198,17 @@ impl Tool for ReadTool {
             let end = limit
                 .map(|n| (offset - 1 + n).min(lines.len()))
                 .unwrap_or(lines.len());
-            let cut = truncate_head(&lines[(offset - 1)..end].join("\n"));
-            let mut output = String::from_utf8_lossy(&cut.bytes).to_string();
-            if cut.truncated {
-                output.push_str(&format!(
-                    "\n\n[truncated; use offset={} to continue]",
-                    offset + cut.lines
-                ));
+            let mut result = bounded_text(ctx, &lines[(offset - 1)..end].join("\n"), false).await?;
+            result.details["path"] = json!(path);
+            if result.details["truncated"] == true {
+                if let Some(Part::Text { text }) = result.content.first_mut() {
+                    text.push_str(&format!(
+                        "\n\n[use offset={} to continue]",
+                        offset + end - offset
+                    ));
+                }
             }
-            Ok(ToolResult {
-                content: vec![Part::Text { text: output }],
-                details: json!({"truncated":cut.truncated,"path":path}),
-                is_error: false,
-            })
+            Ok(result)
         }
         .await;
         result.unwrap_or_else(ToolResult::error)
@@ -206,6 +218,16 @@ impl Tool for ReadTool {
 #[derive(Clone, Default)]
 pub struct WriteTool {
     queue: FileMutationQueue,
+}
+impl WriteTool {
+    pub fn new(queue: FileMutationQueue) -> Self {
+        Self { queue }
+    }
+
+    /// Use the supplied queue to serialize writes with other mutation tools.
+    pub fn with_queue(queue: FileMutationQueue) -> Self {
+        Self::new(queue)
+    }
 }
 #[async_trait]
 impl Tool for WriteTool {
@@ -252,6 +274,16 @@ impl Tool for WriteTool {
 #[derive(Clone, Default)]
 pub struct EditTool {
     queue: FileMutationQueue,
+}
+impl EditTool {
+    pub fn new(queue: FileMutationQueue) -> Self {
+        Self { queue }
+    }
+
+    /// Use the supplied queue to serialize edits with other mutation tools.
+    pub fn with_queue(queue: FileMutationQueue) -> Self {
+        Self::new(queue)
+    }
 }
 #[derive(Deserialize)]
 struct Edit {
@@ -364,7 +396,7 @@ impl Tool for LsTool {
                 }
             }
             entries.sort();
-            Ok(ToolResult::text(entries.join("\n")))
+            bounded_text(ctx, &entries.join("\n"), false).await
         }
         .await;
         result.unwrap_or_else(ToolResult::error)
@@ -388,7 +420,7 @@ impl Tool for FindTool {
         Risk::Read
     }
     async fn call(&self, ctx: &ToolContext, args: Value) -> ToolResult {
-        let result = (|| -> Result<_, ToolError> {
+        let result: Result<ToolResult, ToolError> = async {
             let pattern = args
                 .get("pattern")
                 .and_then(Value::as_str)
@@ -401,11 +433,10 @@ impl Tool for FindTool {
                 .build()
                 .map_err(|e| ToolError::Args(e.to_string()))?;
             let mut out = Vec::new();
-            for entry in WalkDir::new(&path)
-                .follow_links(false)
-                .into_iter()
-                .filter_map(Result::ok)
-            {
+            for entry in ignored_walk(&path).filter_map(Result::ok) {
+                if !entry.path().is_file() {
+                    continue;
+                }
                 let rel = entry.path().strip_prefix(&path).unwrap_or(entry.path());
                 if set.is_match(rel) || set.is_match(Path::new(entry.file_name())) {
                     out.push(entry.path().display().to_string());
@@ -414,8 +445,9 @@ impl Tool for FindTool {
                     }
                 }
             }
-            Ok(ToolResult::text(out.join("\n")))
-        })();
+            bounded_text(ctx, &out.join("\n"), false).await
+        }
+        .await;
         result.unwrap_or_else(ToolResult::error)
     }
 }
@@ -469,11 +501,10 @@ impl Tool for GrepTool {
             let context = args.get("context").and_then(Value::as_u64).unwrap_or(0) as usize;
             let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
             let mut out = Vec::new();
-            for entry in WalkDir::new(path)
-                .into_iter()
-                .filter_map(Result::ok)
-                .filter(|e| e.file_type().is_file())
-            {
+            for entry in ignored_walk(&path).filter_map(Result::ok) {
+                if !entry.path().is_file() {
+                    continue;
+                }
                 let p = entry.path();
                 if let Some(g) = &glob {
                     if !g.is_match(Path::new(p.file_name().unwrap_or_default())) {
@@ -503,7 +534,7 @@ impl Tool for GrepTool {
                     break;
                 }
             }
-            Ok(ToolResult::text(out.join("\n")))
+            bounded_text(ctx, &out.join("\n"), false).await
         }
         .await;
         result.unwrap_or_else(ToolResult::error)
@@ -541,6 +572,12 @@ impl BashJobManager {
         let pid = child
             .id()
             .ok_or_else(|| ToolError::Command("background process has no pid".into()))?;
+        #[cfg(unix)]
+        unsafe {
+            // Establish the group from the parent as well as in pre_exec;
+            // this closes the race before the shell creates descendants.
+            libc::setpgid(pid as libc::pid_t, pid as libc::pid_t);
+        }
         let id = format!("bash_{}", uuid::Uuid::now_v7());
         let output = Arc::new(Mutex::new(Vec::new()));
         let status = Arc::new(Mutex::new(None));
@@ -581,8 +618,27 @@ impl BashJobManager {
         #[cfg(unix)]
         unsafe {
             libc::kill(-(job.pid as i32), libc::SIGTERM);
+            // Escalate in the same process group so a shell waiting on a
+            // descendant cannot leave an orphaned background task.
+            libc::kill(-(job.pid as i32), libc::SIGKILL);
+            libc::kill(job.pid as i32, libc::SIGKILL);
         }
+        *job.status.lock().await = Some(-libc::SIGKILL);
         Ok(true)
+    }
+
+    /// Stop every background process owned by this run manager. The gateway
+    /// should call this when a durable run ends; callers that deliberately
+    /// register a long-lived service can retain the manager without calling it.
+    pub async fn cleanup(&self) -> Result<usize, ToolError> {
+        let ids = self.jobs.lock().await.keys().cloned().collect::<Vec<_>>();
+        let mut killed = 0;
+        for id in ids {
+            if self.kill(&id).await? {
+                killed += 1;
+            }
+        }
+        Ok(killed)
     }
 }
 
@@ -642,10 +698,9 @@ impl Tool for BashTool {
             combined.extend_from_slice(&output.stderr);
             let cut = truncate_tail(&combined);
             let full_path = if cut.truncated {
-                fs::create_dir_all(&ctx.output_dir).await?;
-                let path =
-                    ctx.output_dir
-                        .join(format!("{}-{}.log", ctx.run_id, uuid::Uuid::now_v7()));
+                let dir = output_dir(ctx);
+                fs::create_dir_all(&dir).await?;
+                let path = dir.join(format!("bash-{}.log", uuid::Uuid::now_v7()));
                 fs::write(&path, &combined).await?;
                 Some(path.display().to_string())
             } else {
@@ -723,6 +778,7 @@ async fn run_child(child: Child, duration: Duration) -> Result<ChildOutput, Tool
             if let Some(pid) = pid {
                 unsafe {
                     libc::kill(-(pid as i32), libc::SIGTERM);
+                    libc::kill(-(pid as i32), libc::SIGKILL);
                 }
             }
             let _ = wait.await;
@@ -754,7 +810,7 @@ impl Tool for BashJobTool {
     fn risk(&self, _: &Value) -> Risk {
         Risk::Exec
     }
-    async fn call(&self, _: &ToolContext, args: Value) -> ToolResult {
+    async fn call(&self, ctx: &ToolContext, args: Value) -> ToolResult {
         let Some(id) = args.get("job_id").and_then(Value::as_str) else {
             return ToolResult::error("job_id is required");
         };
@@ -764,12 +820,12 @@ impl Tool for BashJobTool {
                 Ok(false) => ToolResult::error("job not found"),
                 Err(e) => ToolResult::error(e),
             },
-            Some("output") => self
-                .jobs
-                .output(id)
-                .await
-                .map(|bytes| ToolResult::text(String::from_utf8_lossy(&bytes)))
-                .unwrap_or_else(|| ToolResult::error("job not found")),
+            Some("output") => match self.jobs.output(id).await {
+                Some(bytes) => bounded_text(ctx, &String::from_utf8_lossy(&bytes), true)
+                    .await
+                    .unwrap_or_else(ToolResult::error),
+                None => ToolResult::error("job not found"),
+            },
             Some("status") => self
                 .jobs
                 .status(id)
@@ -793,7 +849,6 @@ impl Tool for BashJobTool {
 struct Cut {
     bytes: Vec<u8>,
     truncated: bool,
-    lines: usize,
 }
 fn truncate_head(text: &str) -> Cut {
     let bytes = text.as_bytes();
@@ -801,22 +856,18 @@ fn truncate_head(text: &str) -> Cut {
         return Cut {
             bytes: bytes.to_vec(),
             truncated: false,
-            lines: text.lines().count(),
         };
     }
     let mut end = 0;
-    let mut lines = 0;
-    for line in text.split_inclusive('\n') {
+    for (lines, line) in text.split_inclusive('\n').enumerate() {
         if lines >= MAX_OUTPUT_LINES || end + line.len() > MAX_OUTPUT_BYTES {
             break;
         }
         end += line.len();
-        lines += 1;
     }
     Cut {
         bytes: bytes[..end].to_vec(),
         truncated: true,
-        lines,
     }
 }
 fn truncate_tail(bytes: &[u8]) -> Cut {
@@ -825,16 +876,20 @@ fn truncate_tail(bytes: &[u8]) -> Cut {
         return Cut {
             bytes: bytes.to_vec(),
             truncated: false,
-            lines: text.lines().count(),
         };
     }
-    let mut start = bytes.len().saturating_sub(MAX_OUTPUT_BYTES);
+    let original_start = bytes.len().saturating_sub(MAX_OUTPUT_BYTES);
+    let mut start = original_start;
     while start < bytes.len() && bytes[start] != b'\n' {
         start += 1;
     }
+    if start == bytes.len() {
+        // A single line can exceed the byte limit; keep its tail rather than
+        // returning an empty result.
+        start = original_start;
+    }
     let mut out = bytes[start.min(bytes.len())..].to_vec();
-    let mut lines = String::from_utf8_lossy(&out).lines().count();
-    if lines > MAX_OUTPUT_LINES {
+    if String::from_utf8_lossy(&out).lines().count() > MAX_OUTPUT_LINES {
         let output_text = String::from_utf8_lossy(&out);
         let keep: Vec<_> = output_text.lines().rev().take(MAX_OUTPUT_LINES).collect();
         out = keep
@@ -843,21 +898,107 @@ fn truncate_tail(bytes: &[u8]) -> Cut {
             .collect::<Vec<_>>()
             .join("\n")
             .into_bytes();
-        lines = MAX_OUTPUT_LINES;
     }
     Cut {
         bytes: out,
         truncated: true,
-        lines,
     }
+}
+
+fn canonicalize_with_missing(path: &Path) -> Result<PathBuf, ToolError> {
+    if path.exists() {
+        return path.canonicalize().map_err(ToolError::Io);
+    }
+    let mut suffix = Vec::new();
+    let mut ancestor = path.to_path_buf();
+    while !ancestor.exists() {
+        let Some(name) = ancestor.file_name() else {
+            return Err(ToolError::PathEscape(path.to_path_buf()));
+        };
+        suffix.push(name.to_os_string());
+        ancestor.pop();
+    }
+    let mut resolved = ancestor.canonicalize().map_err(ToolError::Io)?;
+    for name in suffix.iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved)
+}
+
+fn image_mime(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "png" => Some("image/png"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        _ => None,
+    }
+}
+
+fn output_dir(ctx: &ToolContext) -> PathBuf {
+    let safe = ctx
+        .run_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    ctx.output_dir.join(safe)
+}
+
+async fn bounded_text(ctx: &ToolContext, text: &str, tail: bool) -> Result<ToolResult, ToolError> {
+    let cut = if tail {
+        truncate_tail(text.as_bytes())
+    } else {
+        truncate_head(text)
+    };
+    let full_path = if cut.truncated {
+        let dir = output_dir(ctx);
+        fs::create_dir_all(&dir).await?;
+        let path = dir.join(format!("output-{}.log", uuid::Uuid::now_v7()));
+        fs::write(&path, text).await?;
+        Some(path)
+    } else {
+        None
+    };
+    let mut visible = String::from_utf8_lossy(&cut.bytes).into_owned();
+    if let Some(path) = &full_path {
+        visible.push_str(&format!(
+            "\n\n[output truncated; full output: {}]",
+            path.display()
+        ));
+    }
+    Ok(ToolResult {
+        content: vec![Part::Text { text: visible }],
+        details: json!({
+            "truncated": cut.truncated,
+            "full_output_path": full_path.as_ref().map(|path| path.display().to_string()),
+        }),
+        is_error: false,
+    })
+}
+
+fn ignored_walk(path: &Path) -> ignore::Walk {
+    WalkBuilder::new(path)
+        .hidden(false)
+        .add_custom_ignore_filename(".gitignore")
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .build()
 }
 
 pub fn default_tools() -> Vec<Arc<dyn Tool>> {
     let jobs = BashJobManager::default();
+    let mutations = FileMutationQueue::new();
     vec![
         Arc::new(ReadTool),
-        Arc::new(WriteTool::default()),
-        Arc::new(EditTool::default()),
+        Arc::new(WriteTool::new(mutations.clone())),
+        Arc::new(EditTool::new(mutations)),
         Arc::new(LsTool),
         Arc::new(FindTool),
         Arc::new(GrepTool),
@@ -903,13 +1044,118 @@ mod tests {
     async fn write_and_read_work() {
         let dir = tempdir().unwrap();
         let ctx = ToolContext::new(dir.path(), "run", dir.path().join("runs"));
+        let mutations = FileMutationQueue::new();
         assert!(
-            !WriteTool::default()
+            !WriteTool::new(mutations)
                 .call(&ctx, json!({"path":"nested/a","content":"hello"}))
                 .await
                 .is_error
         );
         let result = ReadTool.call(&ctx, json!({"path":"nested/a"})).await;
         assert!(!result.is_error);
+    }
+
+    #[tokio::test]
+    async fn read_returns_supported_images_as_base64_parts() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("pixel.PNG");
+        fs::write(&path, b"fake-png").await.unwrap();
+        let result = ReadTool
+            .call(
+                &ToolContext::new(dir.path(), "run", dir.path().join("runs")),
+                json!({"path":"pixel.PNG"}),
+            )
+            .await;
+        assert!(!result.is_error);
+        assert!(
+            matches!(&result.content[0], Part::Image { mime, data } if mime == "image/png" && base64::engine::general_purpose::STANDARD.decode(data).unwrap() == b"fake-png")
+        );
+    }
+
+    #[tokio::test]
+    async fn find_and_grep_respect_gitignore() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(".gitignore"), "ignored/\nsecret.txt\n")
+            .await
+            .unwrap();
+        fs::create_dir_all(dir.path().join("ignored"))
+            .await
+            .unwrap();
+        fs::write(dir.path().join("visible.txt"), "needle")
+            .await
+            .unwrap();
+        fs::write(dir.path().join("secret.txt"), "needle")
+            .await
+            .unwrap();
+        fs::write(dir.path().join("ignored/hidden.txt"), "needle")
+            .await
+            .unwrap();
+        let ctx = ToolContext::new(dir.path(), "run", dir.path().join("runs"));
+        let found = FindTool.call(&ctx, json!({"pattern":"**/*.txt"})).await;
+        let found_text = match &found.content[0] {
+            Part::Text { text } => text,
+            _ => panic!("find must return text"),
+        };
+        assert!(found_text.contains("visible.txt"));
+        assert!(!found_text.contains("hidden.txt"));
+        assert!(!found_text.contains("secret.txt"));
+        let grep = GrepTool.call(&ctx, json!({"pattern":"needle"})).await;
+        let grep_text = match &grep.content[0] {
+            Part::Text { text } => text,
+            _ => panic!("grep must return text"),
+        };
+        assert!(grep_text.contains("visible.txt"));
+        assert!(!grep_text.contains("hidden.txt"));
+        assert!(!grep_text.contains("secret.txt"));
+    }
+
+    #[tokio::test]
+    async fn truncated_read_and_bash_save_complete_output_under_run() {
+        let dir = tempdir().unwrap();
+        let content = (0..2_100)
+            .map(|index| format!("line-{index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(dir.path().join("large.txt"), &content)
+            .await
+            .unwrap();
+        let ctx = ToolContext::new(dir.path(), "run-output", dir.path().join("runs"));
+        let read = ReadTool.call(&ctx, json!({"path":"large.txt"})).await;
+        assert_eq!(read.details["truncated"], true);
+        let read_path = read.details["full_output_path"].as_str().unwrap();
+        assert!(read_path.contains("runs/run-output"));
+        assert_eq!(fs::read_to_string(read_path).await.unwrap(), content);
+
+        let bash = BashTool::default()
+            .call(
+                &ctx,
+                json!({"command":"for i in $(seq 1 2100); do echo line-$i; done"}),
+            )
+            .await;
+        assert_eq!(bash.details["truncated"], true);
+        let bash_path = bash.details["full_output_path"].as_str().unwrap();
+        assert!(bash_path.contains("runs/run-output"));
+        assert!(fs::read_to_string(bash_path)
+            .await
+            .unwrap()
+            .contains("line-2100"));
+    }
+
+    #[tokio::test]
+    async fn bash_job_kill_ends_the_process_group() {
+        let manager = BashJobManager::default();
+        let dir = tempdir().unwrap();
+        let job_id = manager
+            .start("sleep 30 & wait", dir.path(), &HashMap::new())
+            .await
+            .unwrap();
+        assert!(manager.kill(&job_id).await.unwrap());
+        for _ in 0..40 {
+            if manager.status(&job_id).await.unwrap().0.is_some() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("process group did not terminate after kill");
     }
 }
