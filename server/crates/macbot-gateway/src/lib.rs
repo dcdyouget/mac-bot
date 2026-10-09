@@ -1497,8 +1497,7 @@ enum SidecarEvent {
         jpeg: Vec<u8>,
         width: u32,
         height: u32,
-        viewport_width: u32,
-        viewport_height: u32,
+        geometry: ScreenInputGeometry,
         timestamp: u64,
     },
     Url(String),
@@ -1510,6 +1509,66 @@ enum SidecarEvent {
         seq: u64,
     },
     Closed,
+}
+
+/// Maps gateway frame pixels to the CSS/DIP coordinate space expected by CDP
+/// input commands. The gateway wire frame is the page content itself, so CDP
+/// screen offsets and device height are not applied a second time. The
+/// visible page height comes from the frame's actual content aspect ratio.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ScreenInputGeometry {
+    frame_width: f64,
+    frame_height: f64,
+    viewport_width: f64,
+    viewport_height: f64,
+}
+
+impl ScreenInputGeometry {
+    fn from_frame_metadata(width: u32, height: u32, metadata: Option<&Value>) -> Self {
+        let frame_width = f64::from(width.max(1));
+        let frame_height = f64::from(height.max(1));
+        let device_width = metadata
+            .and_then(|value| value.get("deviceWidth"))
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite() && *value > 0.0);
+        let viewport_width = device_width
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .unwrap_or(frame_width);
+        // The frame is the visible page content. Deriving its CSS height from
+        // the actual JPEG preserves the page viewport when deviceHeight also
+        // covers browser chrome or a larger emulated device surface.
+        let viewport_height = viewport_width * frame_height / frame_width;
+        Self {
+            frame_width,
+            frame_height,
+            viewport_width,
+            viewport_height,
+        }
+    }
+
+    fn with_frame(self, width: u32, height: u32) -> Self {
+        Self {
+            frame_width: f64::from(width.max(1)),
+            frame_height: f64::from(height.max(1)),
+            ..self
+        }
+    }
+
+    fn x(&self, value: f64) -> f64 {
+        scale_screen_coordinate(value, self.frame_width, self.viewport_width)
+    }
+
+    fn y(&self, value: f64) -> f64 {
+        scale_screen_coordinate(value, self.frame_height, self.viewport_height)
+    }
+
+    fn delta_x(&self, value: f64) -> f64 {
+        scale_screen_coordinate(value, self.frame_width, self.viewport_width)
+    }
+
+    fn delta_y(&self, value: f64) -> f64 {
+        scale_screen_coordinate(value, self.frame_height, self.viewport_height)
+    }
 }
 
 async fn sidecar_connect(
@@ -1656,7 +1715,7 @@ async fn sidecar_reader(
                         else {
                             continue;
                         };
-                        let metadata = value.get("metadata").cloned().unwrap_or_default();
+                        let metadata = value.get("metadata");
                         let Some((width, height)) = jpeg_dimensions(&jpeg) else {
                             // A bad JPEG must not become a fake frame. The
                             // sidecar stream is ack-paced, so the session loop
@@ -1670,27 +1729,16 @@ async fn sidecar_reader(
                         };
                         // The JPEG may be downscaled for the client. Keep the
                         // browser's CDP viewport separately for input mapping.
-                        let viewport_width = metadata
-                            .get("deviceWidth")
-                            .and_then(Value::as_u64)
-                            .and_then(|value| u32::try_from(value).ok())
-                            .filter(|value| *value > 0)
-                            .unwrap_or(width.max(1));
-                        let viewport_height = metadata
-                            .get("deviceHeight")
-                            .and_then(Value::as_u64)
-                            .and_then(|value| u32::try_from(value).ok())
-                            .filter(|value| *value > 0)
-                            .unwrap_or(height.max(1));
+                        let geometry =
+                            ScreenInputGeometry::from_frame_metadata(width, height, metadata);
                         let frame = SidecarEvent::Frame {
                             seq: value.get("seq").and_then(Value::as_u64).unwrap_or(0),
                             jpeg,
                             width,
                             height,
-                            viewport_width,
-                            viewport_height,
+                            geometry,
                             timestamp: metadata
-                                .get("timestamp")
+                                .and_then(|metadata| metadata.get("timestamp"))
                                 .and_then(Value::as_u64)
                                 .unwrap_or_else(unix_ms),
                         };
@@ -1781,46 +1829,30 @@ fn sidecar_gateway_frame(
     Some((bytes, actual_width, actual_height))
 }
 
-fn scale_screen_coordinate(value: f64, frame: u32, viewport: u32) -> f64 {
-    if frame == 0 || viewport == 0 {
+fn scale_screen_coordinate(value: f64, frame: f64, viewport: f64) -> f64 {
+    if frame <= 0.0 || viewport <= 0.0 {
         value
     } else {
-        value * f64::from(viewport) / f64::from(frame)
+        value * viewport / frame
     }
 }
 
-fn sidecar_input_point(point: &Value, dimensions: (u32, u32, u32, u32)) -> Value {
-    let (frame_width, frame_height, viewport_width, viewport_height) = dimensions;
+fn sidecar_input_point(point: &Value, geometry: ScreenInputGeometry) -> Value {
     let mut point = point.clone();
     if let Some(object) = point.as_object_mut() {
         let x = object.get("x").and_then(Value::as_f64).unwrap_or(0.0);
         let y = object.get("y").and_then(Value::as_f64).unwrap_or(0.0);
-        object.insert(
-            "x".into(),
-            json!(scale_screen_coordinate(x, frame_width, viewport_width)),
-        );
-        object.insert(
-            "y".into(),
-            json!(scale_screen_coordinate(y, frame_height, viewport_height)),
-        );
+        object.insert("x".into(), json!(geometry.x(x)));
+        object.insert("y".into(), json!(geometry.y(y)));
     }
     point
 }
 
-fn sidecar_input(event: &Value, frame: Option<(u32, u32, u32, u32)>) -> Option<Vec<Value>> {
+fn sidecar_input(event: &Value, frame: Option<ScreenInputGeometry>) -> Option<Vec<Value>> {
     let kind = event.get("type").and_then(Value::as_str)?;
-    let (frame_width, frame_height, viewport_width, viewport_height) =
-        frame.unwrap_or((0, 0, 0, 0));
-    let x = scale_screen_coordinate(
-        event.get("x").and_then(Value::as_f64).unwrap_or(0.0),
-        frame_width,
-        viewport_width,
-    );
-    let y = scale_screen_coordinate(
-        event.get("y").and_then(Value::as_f64).unwrap_or(0.0),
-        frame_height,
-        viewport_height,
-    );
+    let geometry = frame.unwrap_or_else(|| ScreenInputGeometry::from_frame_metadata(0, 0, None));
+    let x = geometry.x(event.get("x").and_then(Value::as_f64).unwrap_or(0.0));
+    let y = geometry.y(event.get("y").and_then(Value::as_f64).unwrap_or(0.0));
     match kind {
         "mouse" => {
             let button = event
@@ -1850,15 +1882,11 @@ fn sidecar_input(event: &Value, frame: Option<(u32, u32, u32, u32)>) -> Option<V
         }
         "wheel" => Some(vec![json!({
             "type":"input_mouse", "eventType":"mouseWheel", "x":x, "y":y,
-            "deltaX":scale_screen_coordinate(
+            "deltaX":geometry.delta_x(
                 event.get("dx").and_then(Value::as_f64).unwrap_or(0.0),
-                frame_width,
-                viewport_width,
             ),
-            "deltaY":scale_screen_coordinate(
+            "deltaY":geometry.delta_y(
                 event.get("dy").and_then(Value::as_f64).unwrap_or(0.0),
-                frame_height,
-                viewport_height,
             )
         })]),
         "key" => {
@@ -1884,7 +1912,7 @@ fn sidecar_input(event: &Value, frame: Option<(u32, u32, u32, u32)>) -> Option<V
                 "start" => "touchStart", "end" => "touchEnd", _ => "touchMove"
             },
             "touchPoints":event.get("points").and_then(Value::as_array)
-                .map(|points| points.iter().map(|point| sidecar_input_point(point, (frame_width, frame_height, viewport_width, viewport_height))).collect::<Vec<_>>())
+                .map(|points| points.iter().map(|point| sidecar_input_point(point, geometry)).collect::<Vec<_>>())
                 .unwrap_or_default()
         })]),
         _ => None,
@@ -2053,7 +2081,7 @@ async fn real_sidecar_screen_session(
     let mut current_url = initial_url;
     // (actual JPEG width/height, CDP viewport width/height) for translating
     // client frame-pixel input into browser coordinates.
-    let mut last_frame_dimensions: Option<(u32, u32, u32, u32)> = None;
+    let mut last_frame_dimensions: Option<ScreenInputGeometry> = None;
     let mut sidecar_tab_id: Option<String> = None;
     let mut awaiting_tab_confirmation = false;
     let mut state_interval = tokio::time::interval(std::time::Duration::from_millis(100));
@@ -2084,7 +2112,7 @@ async fn real_sidecar_screen_session(
             incoming = events_rx.recv() => {
                 let Some(incoming) = incoming else { break; };
                 match incoming {
-                    SidecarEvent::Frame { seq, jpeg, width, height, viewport_width, viewport_height, timestamp } => {
+                    SidecarEvent::Frame { seq, jpeg, width, height, geometry, timestamp } => {
                         // A tab switch can leave one old frame in the sidecar
                         // queue. ACK and discard it until the active-tab event
                         // confirms that the pixels belong to the selected tab.
@@ -2102,11 +2130,11 @@ async fn real_sidecar_screen_session(
                                 .await;
                             continue;
                         }
-                        let frame = SidecarEvent::Frame { seq, jpeg, width, height, viewport_width, viewport_height, timestamp };
+                        let frame = SidecarEvent::Frame { seq, jpeg, width, height, geometry, timestamp };
                         if in_flight.is_some() { latest = Some(frame); continue; }
                         gateway_seq += 1;
                         if let Some((frame, actual_width, actual_height)) = sidecar_gateway_frame(gateway_seq, &frame, &tab_id, &current_url, quality) {
-                            last_frame_dimensions = Some((actual_width, actual_height, viewport_width, viewport_height));
+                            last_frame_dimensions = Some(geometry.with_frame(actual_width, actual_height));
                             if sink.send(axum::extract::ws::Message::Binary(frame.into())).await.is_err() { break 'session; }
                             in_flight = Some((gateway_seq, seq));
                         }
@@ -2204,8 +2232,8 @@ async fn real_sidecar_screen_session(
                                         if let Some(frame) = latest.take() {
                                             gateway_seq += 1;
                                             if let Some((bytes, actual_width, actual_height)) = sidecar_gateway_frame(gateway_seq, &frame, &tab_id, &current_url, quality) {
-                                                if let SidecarEvent::Frame { viewport_width, viewport_height, .. } = &frame {
-                                                    last_frame_dimensions = Some((actual_width, actual_height, *viewport_width, *viewport_height));
+                                                if let SidecarEvent::Frame { geometry, .. } = &frame {
+                                                    last_frame_dimensions = Some(geometry.with_frame(actual_width, actual_height));
                                                 }
                                                 if sink.send(axum::extract::ws::Message::Binary(bytes.into())).await.is_err() { break 'session; }
                                                 if let SidecarEvent::Frame { seq, .. } = frame { in_flight = Some((gateway_seq, seq)); }
@@ -3846,8 +3874,11 @@ mod tests {
             jpeg,
             width: 1,
             height: 1,
-            viewport_width: 1280,
-            viewport_height: 720,
+            geometry: ScreenInputGeometry::from_frame_metadata(
+                1,
+                1,
+                Some(&json!({"deviceWidth":1280,"deviceHeight":720})),
+            ),
             timestamp: 99,
         };
         let (bytes, actual_width, actual_height) = sidecar_gateway_frame(
@@ -3874,7 +3905,11 @@ mod tests {
 
     #[test]
     fn sidecar_input_scales_frame_pixels_to_viewport_coordinates() {
-        let dimensions = Some((640, 360, 1280, 720));
+        let dimensions = Some(ScreenInputGeometry::from_frame_metadata(
+            640,
+            360,
+            Some(&json!({"deviceWidth":1280,"deviceHeight":720})),
+        ));
         let mouse = sidecar_input(
             &json!({"type":"mouse","action":"move","x":320.0,"y":180.0,"button":"left","click_count":1}),
             dimensions,
@@ -3897,9 +3932,14 @@ mod tests {
 
     #[test]
     fn sidecar_click_and_key_press_emit_physical_pairs() {
+        let geometry = Some(ScreenInputGeometry::from_frame_metadata(
+            640,
+            360,
+            Some(&json!({"deviceWidth":1280,"deviceHeight":720})),
+        ));
         let click = sidecar_input(
             &json!({"type":"mouse","action":"click","x":320.0,"y":180.0,"button":"left","click_count":1}),
-            Some((640, 360, 1280, 720)),
+            geometry,
         )
         .unwrap();
         assert_eq!(click.len(), 2);
@@ -3920,15 +3960,77 @@ mod tests {
 
     #[test]
     fn sidecar_input_scales_touch_points() {
+        let geometry = Some(ScreenInputGeometry::from_frame_metadata(
+            640,
+            360,
+            Some(&json!({"deviceWidth":1280,"deviceHeight":720})),
+        ));
         let touch = sidecar_input(
             &json!({"type":"touch","action":"move","points":[{"x":0.0,"y":90.0},{"x":640.0,"y":360.0}]}),
-            Some((640, 360, 1280, 720)),
+            geometry,
         )
         .unwrap();
         assert_eq!(touch[0]["touchPoints"][0]["x"], 0.0);
         assert_eq!(touch[0]["touchPoints"][0]["y"], 180.0);
         assert_eq!(touch[0]["touchPoints"][1]["x"], 1280.0);
         assert_eq!(touch[0]["touchPoints"][1]["y"], 720.0);
+    }
+
+    #[test]
+    fn screen_input_geometry_uses_frame_content_height_for_low_quality() {
+        let geometry = ScreenInputGeometry::from_frame_metadata(
+            640,
+            316,
+            Some(&json!({
+                "deviceWidth": 1280,
+                "deviceHeight": 720,
+                "pageScaleFactor": 1.0,
+                "offsetTop": 0.0
+            })),
+        );
+        assert!((geometry.viewport_width - 1280.0).abs() < f64::EPSILON);
+        assert!((geometry.viewport_height - 632.0).abs() < f64::EPSILON);
+        assert!((geometry.y(158.0) - 316.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn screen_input_geometry_ignores_device_height_offset_and_page_scale_for_content() {
+        let geometry = ScreenInputGeometry::from_frame_metadata(
+            640,
+            316,
+            Some(&json!({
+                "deviceWidth": 1280,
+                "deviceHeight": 720,
+                "pageScaleFactor": 2.0,
+                "offsetTop": 40.0
+            })),
+        );
+        assert!((geometry.viewport_width - 1280.0).abs() < f64::EPSILON);
+        assert!((geometry.viewport_height - 632.0).abs() < f64::EPSILON);
+        assert!((geometry.y(158.0) - 316.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn screen_input_geometry_without_metadata_is_identity() {
+        let geometry = ScreenInputGeometry::from_frame_metadata(640, 316, None);
+        assert!((geometry.x(123.0) - 123.0).abs() < f64::EPSILON);
+        assert!((geometry.y(157.0) - 157.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn screen_input_geometry_preserves_native_content_after_low_frame_rounding() {
+        // Captured regression: CDP surface 1280x720, content JPEG 1280x633,
+        // and the gateway's bounded low-quality frame 640x316.
+        let native = ScreenInputGeometry::from_frame_metadata(
+            1280,
+            633,
+            Some(&json!({"deviceWidth":1280,"deviceHeight":720})),
+        );
+        let low = native.with_frame(640, 316);
+        assert!((low.x(320.0) - 640.0).abs() < f64::EPSILON);
+        assert!((low.y(158.0) - 316.5).abs() < f64::EPSILON);
+        let full = native.with_frame(1280, 633);
+        assert!((full.y(316.5) - low.y(158.0)).abs() < f64::EPSILON);
     }
 
     #[test]

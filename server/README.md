@@ -128,6 +128,16 @@ python3 server/macbotd/tests/smoke_screen.py \
 
 `smoke_screen.py` 启动本机标记页面并驱动真实 Chrome；断言实际 JPEG/URL、low 宽度上限、同连接接管/交还状态，以及按帧缩放的点击和键盘回显。它不使用外部网站或真实账号。
 
+画面输入按实际 JPEG 内容范围映射，低画质缩放保留原始内容宽高；不把 sidecar 的设备高度作为页面可见高度。独立鼠标/触摸提交回归用 DOM 按钮位置计算输入点，并记录原始 sidecar 元数据、JPEG 和实际 DOM 事件：
+
+```sh
+python3 server/macbotd/tests/smoke_screen_input.py \
+  --daemon-command '/path/to/macbotd --port 7863 --password dev' \
+  --home /tmp/macbot-screen-input-low --browser-bin /path/to/agent-browser --quality low
+```
+
+再用新的 home 和 `--quality high` 验证原始画质。默认严格要求 `touchStart`＋空点集 `touchEnd` 及鼠标点击都触发实际 submit；`--diagnose` 仅保存失败证据，不用于验收通过。脚本只启动并清理自己的 headless 浏览器、本机页面和 fake provider。
+
 主 Bot 协调与私聊的模型调用按每个 Bot、每种模式每分钟 60 次限速，不占任务并发名额。滑动窗口保存于 `data/limits/model-calls.json`；达到上限时等待，已有 durable checkpoint 和 run ID 保留，停止请求可取消等待。
 
 生产协作路径会生成项目、任务、委派和待验收卡片。项目任务投递到该项目群；不建群的委派在主 Bot 私聊报告结果。Bot 间私信写入独立的只读 `bot_dm` 会话，在源群显示引用。worker 完成后通知主 Bot，由主 Bot 汇总产物请求验收；用户提出修改意见后重新唤醒主 Bot。确认完成会保存群总结及项目记忆。
