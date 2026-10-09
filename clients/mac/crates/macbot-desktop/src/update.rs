@@ -23,6 +23,12 @@ use tokio::{
 
 const UPDATE_URL_ENV: &str = "MACBOT_UPDATE_URL";
 const BUNDLE_ID: &str = "bot.mac.desktop";
+const UPDATE_CONFIG_FILE: &str = "update.json";
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct UpdateConfig {
+    manifest_url: String,
+}
 
 /// A release entry returned by the update manifest.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -53,10 +59,13 @@ pub struct UpdateClient {
 impl UpdateClient {
     /// Read `MACBOT_UPDATE_URL`; no URL means update checks are disabled.
     pub fn from_env(current_version: &str) -> Result<Option<Self>> {
-        let Some(raw_url) = env::var_os(UPDATE_URL_ENV) else {
+        let raw_url = if let Some(raw_url) = env::var_os(UPDATE_URL_ENV) {
+            raw_url.to_string_lossy().into_owned()
+        } else if let Some(raw_url) = load_update_url()? {
+            raw_url
+        } else {
             return Ok(None);
         };
-        let raw_url = raw_url.to_string_lossy();
         let manifest_url = parse_allowed_url(&raw_url).context("invalid MACBOT_UPDATE_URL")?;
         Ok(Some(Self::new(current_version, manifest_url)?))
     }
@@ -64,6 +73,7 @@ impl UpdateClient {
     pub fn new(current_version: &str, manifest_url: Url) -> Result<Self> {
         let manifest_url = parse_allowed_url(manifest_url.as_str())?;
         let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(45))
             .user_agent(concat!("MacBot/", env!("CARGO_PKG_VERSION")))
             .redirect(reqwest::redirect::Policy::limited(5))
             .build()
@@ -250,7 +260,11 @@ impl UpdateClient {
     }
 }
 
-/// Convenience entry point for settings/about UI code.
+pub fn validate_update_url(raw: &str) -> Result<Url> {
+    parse_allowed_url(raw)
+}
+
+/// Convenience entry point for callers that only need a one-shot check.
 pub async fn check_for_update(current_version: &str) -> Result<Option<Release>> {
     let Some(client) = UpdateClient::from_env(current_version)? else {
         return Ok(None);
@@ -258,8 +272,65 @@ pub async fn check_for_update(current_version: &str) -> Result<Option<Release>> 
     client.check().await
 }
 
-pub fn validate_update_url(raw: &str) -> Result<Url> {
-    parse_allowed_url(raw)
+/// Load the user-selected update manifest URL from the local app preferences.
+/// Environment configuration takes precedence when `UpdateClient::from_env`
+/// is used, which keeps deployment and test overrides straightforward.
+pub fn load_update_url() -> Result<Option<String>> {
+    let path = update_config_path()?;
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let config: UpdateConfig = serde_json::from_slice(
+        &std::fs::read(&path).with_context(|| format!("read update config {}", path.display()))?,
+    )
+    .with_context(|| format!("decode update config {}", path.display()))?;
+    let value = config.manifest_url.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    validate_update_url(value)?;
+    Ok(Some(value.to_owned()))
+}
+
+/// Persist a user-selected update manifest URL atomically with mode 0600.
+/// Passing an empty string clears the local preference.
+pub fn save_update_url(raw: &str) -> Result<()> {
+    let value = raw.trim();
+    let path = update_config_path()?;
+    if value.is_empty() {
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("remove update config {}", path.display()))?;
+        }
+        return Ok(());
+    }
+    validate_update_url(value)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("update config has no parent directory"))?;
+    std::fs::create_dir_all(parent)
+        .with_context(|| format!("create update config directory {}", parent.display()))?;
+    let temporary = parent.join(format!(".{}.{}.tmp", UPDATE_CONFIG_FILE, unique_suffix()));
+    let bytes = serde_json::to_vec_pretty(&UpdateConfig {
+        manifest_url: value.to_owned(),
+    })?;
+    std::fs::write(&temporary, bytes)
+        .with_context(|| format!("write update config {}", temporary.display()))?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("set update config permissions {}", temporary.display()))?;
+    if let Err(error) = std::fs::rename(&temporary, &path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error).with_context(|| format!("commit update config {}", path.display()));
+    }
+    Ok(())
+}
+
+fn update_config_path() -> Result<PathBuf> {
+    let home = env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
+    Ok(PathBuf::from(home)
+        .join("Library/Application Support/MacBot")
+        .join(UPDATE_CONFIG_FILE))
 }
 
 /// Resolve the currently running bundle. `None` means the app was launched as
@@ -270,6 +341,53 @@ pub fn current_app_path() -> Option<PathBuf> {
         .ancestors()
         .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("app"))
         .map(Path::to_path_buf)
+}
+
+/// Read the version embedded in the running `.app` bundle.  Packagers may
+/// stamp a version that differs from `CARGO_PKG_VERSION`, so update checks
+/// should use this value whenever the client is running from a bundle.
+pub fn current_app_version() -> Result<Option<String>> {
+    let Some(app) = current_app_path() else {
+        return Ok(None);
+    };
+    Ok(Some(bundle_plist_value(
+        &app,
+        "CFBundleShortVersionString",
+    )?))
+}
+
+/// Return the running app version, falling back to the Cargo package version
+/// for development binaries launched outside an `.app` bundle.
+pub fn current_version() -> String {
+    current_app_version()
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned())
+}
+
+fn bundle_plist_value(app: &Path, key: &str) -> Result<String> {
+    let plist = app.join("Contents/Info.plist");
+    let command = format!("Print :{key}");
+    let plist_text = plist.to_string_lossy();
+    let output = std::process::Command::new("/usr/libexec/PlistBuddy")
+        .args(["-c", command.as_str(), plist_text.as_ref()])
+        .output()
+        .with_context(|| format!("read {} from {}", key, plist.display()))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "PlistBuddy could not read {} from {}",
+            key,
+            plist.display()
+        ));
+    }
+    let value = String::from_utf8(output.stdout)
+        .context("bundle plist value is not valid UTF-8")?
+        .trim()
+        .to_owned();
+    if value.is_empty() {
+        return Err(anyhow!("bundle plist value {} is empty", key));
+    }
+    Ok(value)
 }
 
 fn is_app_bundle(path: &Path) -> bool {
@@ -355,10 +473,10 @@ rollback() {{
   fi
 }}
 on_exit() {{
-  status=$?
-  if (( status != 0 )); then rollback || true; fi
+  install_exit_code=$?
+  if (( install_exit_code != 0 )); then rollback || true; fi
   cleanup
-  exit $status
+  exit $install_exit_code
 }}
 trap on_exit EXIT
 
@@ -395,7 +513,11 @@ fi
 if ! mv "$STAGING_APP" "$TARGET_APP"; then rollback; exit 1; fi
 trap - EXIT
 cleanup
-open "$TARGET_APP"
+if [[ "${{MACBOT_TEST_UPDATE_NO_OPEN:-0}}" == "1" ]]; then
+  print "Test mode: installed MacBot $EXPECTED_VERSION without opening the app"
+else
+  open "$TARGET_APP"
+fi
 print "Installed MacBot $EXPECTED_VERSION; backup retained at $BACKUP_APP"
 "#,
         bundle_id = shell_quote_str(BUNDLE_ID),
@@ -596,6 +718,7 @@ fn compare_pre(left: &[Identifier], right: &[Identifier]) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn allows_https_and_local_http_only() {
@@ -633,5 +756,135 @@ mod tests {
         assert!(script.contains("mv \"$TARGET_APP\" \"$BACKUP_APP\""));
         assert!(script.contains("BACKUP_CREATED=0"));
         assert!(script.contains("rollback"));
+        assert!(script.contains("install_exit_code=$?"));
+        assert!(!script.contains("status=$?"));
+        assert!(script.contains("MACBOT_TEST_UPDATE_NO_OPEN"));
+    }
+
+    #[test]
+    fn isolated_dmg_install_when_requested() {
+        let Some(raw_dmg) = std::env::var_os("MACBOT_TEST_UPDATE_DMG") else {
+            return;
+        };
+        let dmg = PathBuf::from(raw_dmg);
+        assert!(
+            dmg.is_file(),
+            "MACBOT_TEST_UPDATE_DMG is not a file: {}",
+            dmg.display()
+        );
+
+        let root = std::env::temp_dir().join(format!("macbot-update-test-{}", unique_suffix()));
+        let mount = root.join("mounted");
+        std::fs::create_dir_all(&mount).unwrap();
+        let attach = std::process::Command::new("hdiutil")
+            .args(["attach", "-readonly", "-nobrowse", "-mountpoint"])
+            .arg(&mount)
+            .arg(&dmg)
+            .output()
+            .expect("run hdiutil attach for isolated update test");
+        assert!(
+            attach.status.success(),
+            "hdiutil attach failed: {}",
+            String::from_utf8_lossy(&attach.stderr)
+        );
+
+        let source_app = mount.join("MacBot.app");
+        let source_metadata = if source_app.is_dir() {
+            bundle_plist_value(&source_app, "CFBundleIdentifier").and_then(|bundle_id| {
+                bundle_plist_value(&source_app, "CFBundleShortVersionString")
+                    .map(|version| (bundle_id, version))
+            })
+        } else {
+            Err(anyhow!("DMG does not contain MacBot.app"))
+        };
+        let detach = std::process::Command::new("hdiutil")
+            .args(["detach", "-force"])
+            .arg(&mount)
+            .output()
+            .expect("run hdiutil detach for isolated update test");
+        assert!(
+            detach.status.success(),
+            "hdiutil detach failed: {}",
+            String::from_utf8_lossy(&detach.stderr)
+        );
+        let (bundle_id, version) = source_metadata.unwrap();
+        assert_eq!(bundle_id, BUNDLE_ID);
+
+        let target = root.join("target/MacBot.app");
+        write_test_bundle(&target, "0.0.1", "old-binary");
+        let digest = digest_string(&std::fs::read(&dmg).unwrap());
+        let script = root.join("install.sh");
+        std::fs::write(
+            &script,
+            installer_script(&dmg, &digest, &version, &target, 0),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let output = std::process::Command::new("/bin/zsh")
+            .arg(&script)
+            .env("MACBOT_TEST_UPDATE_NO_OPEN", "1")
+            .output()
+            .expect("run isolated update installer");
+        assert!(
+            output.status.success(),
+            "installer failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            bundle_plist_value(&target, "CFBundleIdentifier").unwrap(),
+            BUNDLE_ID
+        );
+        assert_eq!(
+            bundle_plist_value(&target, "CFBundleShortVersionString").unwrap(),
+            version
+        );
+
+        let target_parent = target.parent().unwrap();
+        let backups = std::fs::read_dir(target_parent)
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(".MacBot.app.backup-"))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(backups.len(), 1, "expected one retained backup");
+        assert_eq!(
+            std::fs::read_to_string(backups[0].join("Contents/MacOS/macbot-desktop")).unwrap(),
+            "old-binary"
+        );
+        let staging_left = std::fs::read_dir(target_parent)
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .any(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(".MacBot.app.install."))
+            });
+        assert!(!staging_left, "installer staging app was not cleaned up");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn write_test_bundle(app: &Path, version: &str, marker: &str) {
+        let contents = app.join("Contents");
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        std::fs::write(
+            contents.join("Info.plist"),
+            format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>{BUNDLE_ID}</string><key>CFBundleShortVersionString</key><string>{version}</string></dict></plist>"
+            ),
+        )
+        .unwrap();
+        std::fs::write(contents.join("MacOS/macbot-desktop"), marker).unwrap();
+    }
+
+    fn digest_string(bytes: &[u8]) -> String {
+        sha256(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
     }
 }

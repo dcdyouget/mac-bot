@@ -4,7 +4,7 @@
 
 界面和交互遵循 [DESIGN.md](../../docs/DESIGN.md) 第 4 章，协议遵循 [PROTOCOL.md](../../docs/PROTOCOL.md)。编译需要 Xcode 的 Metal 工具链（本机已安装）。
 
-当前发布范围：打包、截图、连接配置、Host persistence 和 update helper 已具备可调用实现；主应用的页面/RPC 接线仍由 client-mac 集成线推进，S0 需要先用 server-mac 的 mock 联调验收。README 中的 update 安装流程描述 helper 契约，不代表设置页按钮已经完成端到端接通。
+当前发布范围：打包、截图、连接配置、Host persistence、设置页 RPC 和 update helper 已接入主应用；S0 仍需用 server-mac mock 做联调验收。自动更新依赖用户配置 manifest URL，未配置时状态为 disabled；完整下载、DMG 挂载和替换流程仍需在发布版 `.app` 与测试 manifest 上验收。
 
 ## 编译、测试和检查
 
@@ -16,6 +16,8 @@ cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
+
+上述命令是集成线的验证入口；本 README 不宣称它们在每次改动后都已运行通过。
 
 只运行桌面程序时（不设置环境变量会显示连接页，由用户填写 Host 和密码）：
 
@@ -29,6 +31,8 @@ MACBOT_HOST=127.0.0.1:7789 MACBOT_PASSWORD=dev cargo run -p macbot-desktop
 ```sh
 macbotd --mock --port 7789 --password dev
 ```
+
+开发期凭据后端：默认使用 macOS Keychain。若本机开发环境无法使用 Keychain，可显式设置 `MACBOT_SECRET_BACKEND=file`；此时密码写入仓库外的 `~/Library/Application Support/MacBot/development-secrets.json`，文件权限 0600、父目录权限 0700，并通过原子替换更新。该开关只用于开发联调，日志、截图和 Git 产物都不得包含密码；未设置开关时不会写入该文件。
 
 ## 打包和运行
 
@@ -60,13 +64,18 @@ packaging/run.sh debug
 ```sh
 packaging/screenshot-window.sh
 packaging/screenshot-window.sh progress/S5/connect.png "Mac Bot"
+# 第三个参数按 PID 过滤，适合同时运行 dev/dist 和已安装实例：
+packaging/screenshot-window.sh progress/S5/connect.png "Mac Bot" 12345
+# 或：MACBOT_WINDOW_PID=12345 packaging/screenshot-window.sh progress/S5/connect.png
 ```
 
-截图默认最多等待 15 秒；可用 `MACBOT_SCREENSHOT_TIMEOUT=30` 调整，系统未授予 Screen Recording 权限时会返回错误而不是一直挂起。
+截图默认最多等待 15 秒；可用 `MACBOT_SCREENSHOT_TIMEOUT=30` 调整。脚本通过 CoreGraphics 的 `CGPreflightScreenCaptureAccess` 只读检查 Screen Recording 权限并报告结果，不会自动修改系统权限；未授权时 macOS 的 `screencapture` 可能超时，需在“系统设置 → 隐私与安全性 → 屏幕录制”中手动授权后重试。截图先写入同目录隐藏的 `.development-mock.png` 中间文件，成功后原子替换目标；失败只清理本次中间文件，不删除历史截图。
 
 截图脚本输出的 `clients/mac/progress/` 可直接纳入阶段打卡提交；`dist/` 仍是本地产物目录，不提交。
 
 更新清单使用下面的 JSON 结构，`sha256` 必须是下载文件的完整 SHA-256。更新地址和 artifact 地址默认只允许 HTTPS；本机联调允许 `http://localhost`、`http://127.0.0.1` 或 `http://[::1]`。没有设置 `MACBOT_UPDATE_URL` 时检查状态为 `disabled`，这是预期的未配置状态。
+
+设置页保存的更新源写入 `~/Library/Application Support/MacBot/update.json`（权限 0600）；`MACBOT_UPDATE_URL` 存在时优先使用环境变量，适合集成线临时覆盖。远程 HTTP、无效 JSON、非 64 位十六进制摘要都会被拒绝。
 
 ```json
 {
@@ -82,12 +91,15 @@ packaging/screenshot-window.sh progress/S5/connect.png "Mac Bot"
 MACBOT_UPDATE_URL=http://127.0.0.1:7789/update.json packaging/check-update.sh
 ```
 
-`UpdateClient::download_and_stage` 会先下载并校验 digest，再生成缓存目录中的可复核 `install-<version>.sh`。只有设置页在用户点击安装后才应执行该脚本；脚本会重新校验 SHA-256，以只读方式挂载 DMG，校验 `bot.mac.desktop` 和版本，使用 `ditto` 写入目标父目录，等待旧进程退出后原子替换，并在替换失败时恢复应用备份。备份只保留应用 bundle，不删除其他用户文件。若程序是直接运行的 Rust binary 而不是 `.app`，不会生成替换脚本；应打开已校验的 DMG 手动安装。
+`UpdateClient::download_and_stage` 会先下载并校验 digest，再生成缓存目录中的可复核 `install-<version>.sh`。设置页的检查、下载和安装事件已由主应用接线；只有用户点击安装后才执行脚本。脚本会重新校验 SHA-256，以只读方式挂载 DMG，校验 `bot.mac.desktop` 和版本，使用 `ditto` 写入目标父目录，等待旧进程退出后原子替换，并在替换失败时恢复应用备份。备份只保留应用 bundle，不删除其他用户文件。若程序是直接运行的 Rust binary 而不是 `.app`，不会生成替换脚本；应打开已校验的 DMG 手动安装。当前尚未配置公开发布 URL，也未在真实发布 DMG 上执行替换验收。
 
-当前状态：`.app`/`.dmg` 打包、DMG 安装脚本、manifest 校验、截图入口已集成；更新地址尚未发布时保持 `MACBOT_UPDATE_URL` 未配置，检查结果为 `disabled`。设置页的“检查更新/下载并安装”事件由主应用接通后才会触发上述 Rust helper，README 中的命令可先独立验证打包和本机测试清单。
+更新比较使用运行中 `.app/Contents/Info.plist` 的 `CFBundleShortVersionString`；直接运行 target binary 时回退到 `CARGO_PKG_VERSION`。可对现有 DMG 做隔离替换验收（测试会在系统临时目录创建 `.app`、设置 `MACBOT_TEST_UPDATE_NO_OPEN=1`，不打开应用）：
 
-## 开发期凭据后端
+```sh
+MACBOT_TEST_UPDATE_DMG="$PWD/dist/MacBot.dmg" \
+  cargo test -p macbot-desktop isolated_dmg_install_when_requested -- --nocapture
+```
 
-用户授权的本机开发模式可设置 `MACBOT_SECRET_BACKEND=file`，Host 密码保存到仓库外 `~/Library/Application Support/MacBot/development-secrets.json`（0600，父目录0700，原子写入），该模式完全不访问钥匙串。不设置时使用默认 Keychain。请勿将文件、凭据或含凭据的输出纳入 Git、日志或截图。
+该测试只在显式设置 `MACBOT_TEST_UPDATE_DMG` 时执行，验证 SHA-256、Bundle ID、版本、原子替换和旧 bundle 备份；不会触碰 `~/Applications` 或工作树应用。当前未将真实发布 DMG 替换和 UI 重启验收标记为已通过。
 
-连接诊断可设置 `MACBOT_DIAGNOSTICS=1`，只输出连接事件、对象数量和页面渲染状态，不输出凭据或消息内容。
+当前状态：`.app`/`.dmg` 打包、DMG 安装脚本、manifest 校验、截图入口和设置页更新入口已集成；更新地址尚未发布时保持 `MACBOT_UPDATE_URL` 未配置，检查结果为 `disabled`。README 中的命令用于独立验证配置和脚本，真实发布验收由集成线执行。

@@ -5,18 +5,19 @@
 //! acknowledgements and user input.  Keeping that seam small also makes the
 //! view usable with fixtures before the websocket is connected.
 
-use std::sync::Arc;
+use std::{cell::RefCell, rc::Rc, sync::Arc, time::Instant};
 
 use gpui_kit::component::{
     Disableable, Selectable, Sizable,
     button::{Button, ButtonVariants},
 };
 use gpui_kit::gpui::{
-    AnyElement, App, Context, EventEmitter, FocusHandle, Focusable, Image, ImageFormat,
+    AnyElement, App, Bounds, Context, EventEmitter, FocusHandle, Focusable, Image, ImageFormat,
     InteractiveElement, IntoElement, KeyDownEvent, KeyUpEvent, Modifiers, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage,
     ScrollWheelEvent, SharedString, Styled, StyledImage, Window, div, img, px,
 };
+use gpui_kit::prelude::FluentBuilder;
 use serde_json::{Value, json};
 
 use crate::tokens::Tokens;
@@ -54,6 +55,8 @@ pub enum ComputerAction {
     Takeover,
     /// Ask the main websocket to release control back to the bot.
     Release,
+    /// Leave the full computer surface and return to the conversation.
+    Close,
     /// The frame with this sequence number has been painted and may be acked.
     Rendered(u64),
 }
@@ -81,7 +84,15 @@ pub struct Computer {
     focus_handle: FocusHandle,
     viewport_width: f32,
     viewport_height: f32,
+    canvas_bounds: Rc<RefCell<Option<Bounds<gpui_kit::gpui::Pixels>>>>,
     quality: String,
+    request_reason: Option<String>,
+    frame_window_started: Instant,
+    frame_count: u32,
+    frames_per_second: f32,
+    last_frame_received: Option<Instant>,
+    frame_received_at: Option<(u64, Instant)>,
+    paint_latency_ms: Option<f32>,
 }
 
 impl Computer {
@@ -99,16 +110,16 @@ impl Computer {
             focus_handle: cx.focus_handle(),
             viewport_width: 1.0,
             viewport_height: 1.0,
+            canvas_bounds: Rc::new(RefCell::new(None)),
             quality: "auto".to_string(),
+            request_reason: None,
+            frame_window_started: Instant::now(),
+            frame_count: 0,
+            frames_per_second: 0.0,
+            last_frame_received: None,
+            frame_received_at: None,
+            paint_latency_ms: None,
         }
-    }
-
-    pub fn state(&self) -> &Value {
-        &self.state
-    }
-
-    pub fn frame(&self) -> Option<&Frame> {
-        self.frame.as_ref()
     }
 
     pub fn quality(&self) -> &str {
@@ -137,12 +148,14 @@ impl Computer {
         cx.notify();
     }
 
-    /// Set the visible viewport in logical pixels.  GPUI events are reported
-    /// in window coordinates, so this is used to map them to frame pixels.
-    pub fn set_viewport(&mut self, width: f32, height: f32, cx: &mut Context<Self>) {
-        self.viewport_width = width.max(1.0);
-        self.viewport_height = height.max(1.0);
-        cx.notify();
+    /// Set the current takeover request independently from `ScreenState`.
+    /// The main websocket owns this message-level prompt, while the screen
+    /// websocket only owns the browser driver state.
+    pub fn set_request_reason(&mut self, reason: Option<String>, cx: &mut Context<Self>) {
+        if self.request_reason != reason {
+            self.request_reason = reason;
+            cx.notify();
+        }
     }
 
     /// Replace the latest frame.  Image decoding is delegated to GPUI's
@@ -156,6 +169,16 @@ impl Computer {
         jpeg: impl Into<Arc<[u8]>>,
         cx: &mut Context<Self>,
     ) {
+        let received_at = Instant::now();
+        let elapsed = received_at.duration_since(self.frame_window_started);
+        if elapsed.as_secs_f32() >= 1.0 {
+            self.frames_per_second = self.frame_count as f32 / elapsed.as_secs_f32();
+            self.frame_window_started = received_at;
+            self.frame_count = 0;
+        }
+        self.frame_count = self.frame_count.saturating_add(1);
+        self.last_frame_received = Some(received_at);
+        self.frame_received_at = Some((seq, received_at));
         let frame = Frame::new(seq, width, height, jpeg);
         self.frame = Some(frame.clone());
         self.image = Some(Arc::new(Image::from_bytes(
@@ -190,6 +213,25 @@ impl Computer {
 
     pub fn release(&mut self, cx: &mut Context<Self>) {
         self.emit(ComputerAction::Release, cx);
+    }
+
+    pub fn close(&mut self, cx: &mut Context<Self>) {
+        self.emit(ComputerAction::Close, cx);
+    }
+
+    fn current_fps(&self) -> f32 {
+        let Some(last_received) = self.last_frame_received else {
+            return 0.0;
+        };
+        if last_received.elapsed().as_secs_f32() > 1.5 {
+            return 0.0;
+        }
+        let elapsed = self.frame_window_started.elapsed().as_secs_f32();
+        if elapsed > 0.0 {
+            self.frame_count as f32 / elapsed
+        } else {
+            self.frames_per_second
+        }
     }
 
     fn emit(&mut self, action: ComputerAction, cx: &mut Context<Self>) {
@@ -346,11 +388,24 @@ impl Computer {
 
     fn map_window_point(&self, x: f32, y: f32) -> Option<(f32, f32)> {
         let frame = self.frame.as_ref()?;
+        let (x, y, viewport_width, viewport_height) = self
+            .canvas_bounds
+            .borrow()
+            .as_ref()
+            .map(|bounds| {
+                (
+                    x - bounds.origin.x.as_f32(),
+                    y - bounds.origin.y.as_f32(),
+                    bounds.size.width.as_f32(),
+                    bounds.size.height.as_f32(),
+                )
+            })
+            .unwrap_or((x, y, self.viewport_width, self.viewport_height));
         let (x, y) = map_contain_point(
             x,
             y,
-            self.viewport_width,
-            self.viewport_height,
+            viewport_width,
+            viewport_height,
             frame.width as f32,
             frame.height as f32,
         );
@@ -370,20 +425,16 @@ impl Computer {
         };
         let seq = frame.seq;
 
-        let mut ready = false;
-        if self.render_image.is_none() {
-            if let Some(image) = self.image.clone() {
-                match image.get_render_image(window, cx) {
-                    Some(render_image) => {
-                        self.render_image = Some(render_image);
-                        ready = true;
-                    }
-                    None => {}
-                }
-            }
+        let ready = if self.render_image.is_some() {
+            true
+        } else if let Some(image) = self.image.clone()
+            && let Some(render_image) = image.get_render_image(window, cx)
+        {
+            self.render_image = Some(render_image);
+            true
         } else {
-            ready = true;
-        }
+            false
+        };
 
         if ready {
             self.schedule_render_ack(seq, window, cx);
@@ -420,7 +471,13 @@ impl Computer {
                 .into_any_element()
         };
 
+        let canvas_bounds = self.canvas_bounds.clone();
         div()
+            .on_children_prepainted(move |bounds, _, _| {
+                if let Some(bounds) = bounds.first() {
+                    *canvas_bounds.borrow_mut() = Some(*bounds);
+                }
+            })
             .id("computer-frame")
             .flex()
             .items_center()
@@ -511,6 +568,11 @@ impl Computer {
                 && this.acked_render_seq != Some(seq)
             {
                 this.acked_render_seq = Some(seq);
+                if let Some((received_seq, received_at)) = this.frame_received_at
+                    && received_seq == seq
+                {
+                    this.paint_latency_ms = Some(received_at.elapsed().as_secs_f32() * 1_000.0);
+                }
                 this.emit(ComputerAction::Rendered(seq), cx);
             }
         });
@@ -526,15 +588,24 @@ impl Focusable for Computer {
 impl Render for Computer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let driver = self.driver().to_string();
+        let tabs = self.tabs();
         let title = self
             .state
             .get("title")
             .and_then(Value::as_str)
+            .or_else(|| {
+                tabs.iter().find(|tab| tab.active).and_then(|tab| {
+                    (!tab.title.is_empty())
+                        .then_some(tab.title.as_str())
+                        .or_else(|| (!tab.url.is_empty()).then_some(tab.url.as_str()))
+                })
+            })
             .unwrap_or(tr("computer.title"))
             .to_string();
-        let tabs = self.tabs();
         let quality = self.quality.clone();
         let frame = self.render_frame(window, cx);
+        let fps = self.current_fps();
+        let paint_latency = self.paint_latency_ms;
         let status = match driver.as_str() {
             "bot" => tr("computer.bot_working"),
             "user" => tr("computer.user_control"),
@@ -549,6 +620,35 @@ impl Render for Computer {
         let width = self.frame.as_ref().map(|f| f.width).unwrap_or(0);
         let height = self.frame.as_ref().map(|f| f.height).unwrap_or(0);
         let t = Tokens::get(cx);
+        let request_banner = self.request_reason.clone().map(|reason| {
+            let request_is_user = is_user;
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .px_4()
+                .py_2()
+                .bg(t.attention)
+                .text_color(t.window)
+                .child(div().flex_1().child(format!("⚑ {reason}")))
+                .child(
+                    Button::new("computer-request-control")
+                        .primary()
+                        .small()
+                        .label(if request_is_user {
+                            tr("computer.return")
+                        } else {
+                            tr("computer.takeover")
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if request_is_user {
+                                this.release(cx);
+                            } else {
+                                this.takeover(cx);
+                            }
+                        })),
+                )
+        });
 
         div()
             .id("computer")
@@ -575,17 +675,30 @@ impl Render for Computer {
                             .child(div().text_sm().text_color(t.secondary).child(status)),
                     )
                     .child(
-                        Button::new("computer-control")
-                            .primary()
-                            .small()
-                            .label(action_label)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if is_user {
-                                    this.release(cx);
-                                } else {
-                                    this.takeover(cx);
-                                }
-                            })),
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                Button::new("computer-control")
+                                    .primary()
+                                    .small()
+                                    .label(action_label)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if is_user {
+                                            this.release(cx);
+                                        } else {
+                                            this.takeover(cx);
+                                        }
+                                    })),
+                            )
+                            .child(
+                                Button::new("computer-close")
+                                    .ghost()
+                                    .small()
+                                    .label(tr("computer.close"))
+                                    .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
+                            ),
                     ),
             )
             .child(
@@ -616,6 +729,7 @@ impl Render for Computer {
                     })),
             )
             .child(div().flex_1().child(frame))
+            .when_some(request_banner, |this, banner| this.child(banner))
             .child(
                 div()
                     .flex()
@@ -626,14 +740,20 @@ impl Render for Computer {
                     .border_t_1()
                     .border_color(t.border)
                     .child(div().text_sm().text_color(t.secondary).child(format!(
-                        "{} · {} × {}",
+                        "{} · {} × {} · {} {:.1}/s · {} {}",
                         tr("computer.quality"),
                         quality,
                         if width == 0 {
                             "—".to_string()
                         } else {
                             format!("{} × {}", width, height)
-                        }
+                        },
+                        tr("computer.frames"),
+                        fps,
+                        tr("computer.paint_latency"),
+                        paint_latency
+                            .map(|latency| format!("{latency:.0}ms"))
+                            .unwrap_or_else(|| "—".to_string())
                     )))
                     .child(
                         div()
@@ -718,6 +838,9 @@ fn tr(key: &str) -> &'static str {
         "computer.decode_error" => "画面解码失败",
         "computer.idle" => "空闲",
         "computer.quality" => "画质",
+        "computer.close" => "收起",
+        "computer.frames" => "帧率",
+        "computer.paint_latency" => "绘制延迟",
         _ => "—",
     }
 }

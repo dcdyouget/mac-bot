@@ -1,7 +1,15 @@
 import CoreGraphics
 import Foundation
 
-let target = CommandLine.arguments.dropFirst().first ?? "Mac Bot"
+let arguments = Array(CommandLine.arguments.dropFirst())
+if arguments.first == "--permission" {
+    let allowed = CGPreflightScreenCaptureAccess()
+    print(allowed ? "authorized" : "denied")
+    exit(allowed ? 0 : 2)
+}
+
+let target = arguments.first ?? "Mac Bot"
+let targetPID = arguments.dropFirst().first.flatMap { Int($0) }
 let normalizedTarget = target.lowercased().replacingOccurrences(of: " ", with: "")
 let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 guard let rawWindows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
@@ -14,6 +22,10 @@ for window in rawWindows {
           (owner.localizedCaseInsensitiveContains(target)
             || (normalizedTarget == "macbot" && ["macbot", "macbot-desktop"].contains(owner.lowercased()))),
           let windowNumber = window[kCGWindowNumber as String] as? UInt32 else {
+        continue
+    }
+    if let targetPID,
+       (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue != targetPID {
         continue
     }
     print(windowNumber)

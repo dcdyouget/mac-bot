@@ -11,6 +11,8 @@ APP_NAME="MacBot.app"
 APP_DIR="$DIST_DIR/$APP_NAME"
 BUNDLE_ID="bot.mac.desktop"
 BINARY_NAME="macbot-desktop"
+DMG_ROOT=""
+DMG_TEMP=""
 
 usage() {
   print "Usage: $0 [debug|release] [app|dmg|all]"
@@ -82,15 +84,27 @@ make_dmg() {
     exit 1
   }
   local dmg="$DIST_DIR/MacBot.dmg"
-  local dmg_root
-  dmg_root="$(mktemp -d "$DIST_DIR/.MacBot.dmg-root.XXXXXX")"
-  trap 'rm -rf "$dmg_root"' RETURN
-  cp -R "$APP_DIR" "$dmg_root/MacBot.app"
-  ln -s /Applications "$dmg_root/Applications"
-  rm -f "$dmg"
-  hdiutil create -volname "Mac Bot" -srcfolder "$dmg_root" -ov -format UDZO "$dmg" >/dev/null
-  rm -rf "$dmg_root"
-  trap - RETURN
+  DMG_ROOT="$(mktemp -d "$DIST_DIR/.MacBot.dmg-root.XXXXXX")"
+  cleanup_dmg_root() {
+    if [[ -n "$DMG_ROOT" ]]; then
+      rm -rf "$DMG_ROOT"
+      DMG_ROOT=""
+    fi
+    if [[ -n "$DMG_TEMP" ]]; then
+      rm -f "$DMG_TEMP"
+      DMG_TEMP=""
+    fi
+  }
+  trap cleanup_dmg_root EXIT
+  cp -R "$APP_DIR" "$DMG_ROOT/MacBot.app"
+  ln -s /Applications "$DMG_ROOT/Applications"
+  DMG_TEMP="$DIST_DIR/.MacBot.$$.tmp.dmg"
+  rm -f "$DMG_TEMP"
+  hdiutil create -volname "Mac Bot" -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_TEMP" >/dev/null
+  mv -f "$DMG_TEMP" "$dmg"
+  DMG_TEMP=""
+  cleanup_dmg_root
+  trap - EXIT
   print "Created $dmg"
 }
 
