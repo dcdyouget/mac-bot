@@ -1,0 +1,61 @@
+{
+  "checked_at": "2026-10-09T16:42:20.222744+08:00",
+  "stage": "S0",
+  "result": "passed_observed_pending_client_mac_coordination",
+  "scope": "PLAN 6: both clients connect mock and display session lists",
+  "mock": {
+    "source_commit": "b5bc51cf4ed18320223c3875300a7a0c26a09296",
+    "bootstrap": {
+      "seq": 51,
+      "protocol": 1,
+      "server_version": "0.1.0",
+      "node_id": "node_1",
+      "bots": 4,
+      "main_bot_id": "bot_main",
+      "main_dm_chat_id": "chat_main",
+      "sessions": 6,
+      "projects": 2
+    },
+    "data_home": "~/MacBot-mock"
+  },
+  "desktop": {
+    "source_commit": "eb088fa09c8c841235abe5979220edaa5971bd32",
+    "app": "~/Applications/MacBot.app",
+    "pid": 86980,
+    "window_id": 56128,
+    "connected": "127.0.0.1:7789",
+    "session_list_visible": true,
+    "observed_by": "CUA fullpath AX and screenshot; manually inspected screencapture PNG",
+    "screenshot": "main-eb088fa-desktop-sessions.png",
+    "secret_backend": "file",
+    "file_permissions": "0600",
+    "directory_permissions": "0700",
+    "keychain_prompt_observed": false
+  },
+  "android": {
+    "installed_source_commit": "08462a41947e7a3c117621527088769153ea7434",
+    "avd": "macbot_api36",
+    "serial": "emulator-5554",
+    "connected": "10.0.2.2:7789",
+    "session_list_visible": true,
+    "screenshot": "main-08462a4-android.png",
+    "evidence_note": "Existing installed APK/session preserved during Android owner UI validation; previously inspected session screenshot remains valid; current page was routines and was not relabeled as S0."
+  },
+  "historical_followup": {
+    "desktop_commit": "5e693c8c9e32d656c4690d0bbeed0a71ef1f769c",
+    "result": "keychain main-thread block resolved, connection page still did not redraw",
+    "screenshots": [
+      "main-5e693c8-desktop-pending.png",
+      "main-5e693c8-desktop-relaunch-pending.png"
+    ],
+    "pids": [
+      56747,
+      62600
+    ]
+  },
+  "limitations": [
+    "screencapture wrote complete hidden PNG but timed out after15 seconds; capture.sh exit1 retained as failure; manually inspected and renamed PNG for evidence",
+    "S1-S5 remain unaccepted; production7788 and MiniMax provider deployment await server execution ready"
+  ],
+  "credentials": "Only local file paths/modes recorded; no key values."
+}

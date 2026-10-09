@@ -90,7 +90,7 @@ def run_once() -> int:
                     result["provider_exit"] = provider.returncode
                     if provider.returncode == 0:
                         provider_marker.write_text(provider.stdout)
-                        log.write("MiniMax provider configured from local Keychain.\n")
+                        log.write("MiniMax provider configured from local credentials.\n")
                     else:
                         result["integration_exit"] = 1
         temporary = previous_file.with_suffix(".tmp")

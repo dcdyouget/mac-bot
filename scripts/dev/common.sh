@@ -485,6 +485,10 @@ macbot_install_launch_agent() {
   out_xml=$(macbot_plist_escape "$out_log")
   err_xml=$(macbot_plist_escape "$err_log")
   home_xml=$(macbot_plist_escape "$HOME")
+  secret_backend_xml=
+  if [ -f "$MACBOT_CACHE_ROOT/watch/file-secrets" ]; then
+    secret_backend_xml='<key>MACBOT_SECRET_BACKEND</key><string>file</string>'
+  fi
   printf '%s\n' \
     '<?xml version="1.0" encoding="UTF-8"?>' \
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
@@ -493,6 +497,7 @@ macbot_install_launch_agent() {
     '<key>ProgramArguments</key><array>' "$args_xml" '</array>' \
     '<key>EnvironmentVariables</key><dict>' \
     "<key>MACBOT_HOME</key><string>$data_xml</string>" \
+    "$secret_backend_xml" \
     "<key>HOME</key><string>$home_xml</string>" '</dict>' \
     '<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>' \
     "<key>StandardOutPath</key><string>$out_xml</string>" \

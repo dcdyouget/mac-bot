@@ -4,11 +4,11 @@
 
 ## 现在的状态
 
-main `08462a4` 的独立 mock、桌面 App、Android APK 已部署。mock bootstrap 检查通过，Android 已显示主 Bot/群/Bot 会话列表；桌面收到 Connected 后同步调用钥匙串，阻塞界面并停在“正在连接…”，因此 S0 联调不通过，问题已交 client-mac。正式 `7788` 和真实模型执行尚未 ready，当前只运行 `7789/dev` mock。
+桌面安装版 `eb088fa`、mock `b5bc51c` 与 Android 安装版 `08462a4` 已在 Mac mini 运行。两端已连接 mock 并实际看到主 Bot/群/Bot 会话列表；桌面开发期使用本机文件保存 Host 密码，本次无钥匙串提示。S0 操作验证通过，等待 client-mac 最终协调打卡归档；正式 `7788` 和真实模型执行尚未 ready，当前只运行 `7789/dev` mock。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
-| S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 不通过：mock API/Android 列表通过；桌面 Keychain 阻塞界面 | `docs/progress/S0/` |
+| S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 操作验证通过：两端列表可见，待 client-mac 最终打卡 | `docs/progress/S0/` |
 | S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未验收 | `docs/progress/S1/` |
 | S2 | 主 Bot、群协作、插话和待验收 | 未验收 | `docs/progress/S2/` |
 | S3 | 技能、仪表盘、搜索和记忆 | 未验收 | `docs/progress/S3/` |
@@ -29,9 +29,9 @@ cd /Users/gongshaojie/Project/mac-bot
 
 `deploy.sh` 会按当前代码可用性编译并部署 `macbotd`、桌面 `.app` 和 Android APK；缺少某条开发线产物时会跳过并打印提示。正式服务使用端口 `7788`，数据目录为 `~/MacBot`，访问密码只从本机文件 `~/.macbot-dev-password` 读取或由部署流程设置，密码内容不写入仓库。
 
-当前 Android App 的 Mock Host 可查看会话；桌面连接 mock 尚有界面阻塞，修复前可点击“查看协议示例”预览。正式 `7788` 尚未 ready。最新 [S0 联调记录](S0/main-s0-integration.json) 和 [Android 会话截图](S0/main-08462a4-android.png)、[桌面阻塞截图](S0/main-08462a4-desktop-connecting.png) 已归档。窗口截图命令写出完整 PNG 后超时，本次截图人工检查并恢复归档，未将退出码记为通过。
+当前两端的 Mock Host 均可查看会话。最新 [S0 验证记录](S0/main-s0-current.json)、[桌面会话截图](S0/main-eb088fa-desktop-sessions.png) 和 [Android 会话截图](S0/main-08462a4-android.png) 已归档。历史 [首次不通过记录](S0/main-s0-integration.json) 保留；桌面 Keychain 阻塞和刷新问题已修复。窗口截图命令写出完整 PNG 后超时，已人工检查并恢复归档，未将命令退出码记为通过。
 
-桌面端：打开 `~/Applications/MacBot.app`；当前 mock 地址为 `127.0.0.1:7789`，密码 `dev`，已知连接后界面阻塞待修。正式服务 ready 后填写 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`。
+桌面端：双击打开 `~/Applications/MacBot.app`；当前 mock 地址为 `127.0.0.1:7789`，密码 `dev`，开发部署已启用文件凭据后端。正式服务 ready 后填写 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`。
 
 Android 模拟器：需要时先执行：
 
@@ -87,7 +87,7 @@ LaunchAgent、独立 MACBOT_HOME、APK 安装与 Activity 命令见 `server/READ
 
 ## 真实模型
 
-真实服务端接入模型时，通过 `/api/v1/rpc` 的 `provider.create` 配置 provider。真实 provider 当前暂不配置，API Key 只能存放在本机环境变量或钥匙串中，不要写入 README、脚本、日志、截图或 Git；在真实 provider 配置完成前，端到端场景统一使用 mock。
+真实服务端接入模型时，通过 `/api/v1/rpc` 的 `provider.create` 配置 provider。按用户最新授权，开发期使用本机明文凭据文件，放在仓库外、权限 `0600`；不写入 README、脚本、日志、截图或 Git。MiniMax Key 位于 `~/MacBot-dev-secrets/minimax-cn.key`，配置脚本只读取环境变量或此文件，不再访问钥匙串。真实 provider 当前暂不配置，端到端场景继续使用 mock。
 
 ## 持续部署与模型配置
 
@@ -103,7 +103,9 @@ python3 scripts/dev/watch.py --install
 
 编译 target 使用独立共享缓存：`~/Library/Caches/MacBot/integrator/target/server` 和 `~/Library/Caches/MacBot/integrator/target/desktop`。每个 main 快照下的 `server/target`、`clients/mac/target` 会链接到对应缓存，减少重复编译；缓存属于本机开发数据，不提交 Git。部署锁会串行化使用同一缓存的构建。
 
-MiniMax CN 国内官方 [Anthropic 接口](https://platform.minimax.cn/docs/api-reference/text-anthropic-api) 的 base URL 为 `https://api.minimax.cn/anthropic`。本机已实测 `MiniMax-M2.5` 文本请求成功，密钥存于登录钥匙串（service `bot.mac.integrator.minimax-cn`，account `macbot-integrator`）；部署服务尚未配置真实 provider，等待执行链路 ready。
+MiniMax CN 国内官方 [Anthropic 接口](https://platform.minimax.cn/docs/api-reference/text-anthropic-api) 的 base URL 为 `https://api.minimax.cn/anthropic`。本机已实测 `MiniMax-M2.5` 文本请求成功，开发凭据现存于 `~/MacBot-dev-secrets/minimax-cn.key`。可用 `MINIMAX_API_KEY_FILE` 指向新的本机文件，或设置 `MINIMAX_API_KEY`；部署服务尚未配置真实 provider，等待执行链路 ready。
+
+本机 `watch/file-secrets` 标记让部署使用 `MACBOT_SECRET_BACKEND=file`。桌面 Host 密码保存于 `~/Library/Application Support/MacBot/development-secrets.json`（文件0600、目录0700），此模式不访问钥匙串。服务端文件后端仍等待 adapter 完整发布；用户后续可替换本机 MiniMax Key 文件，再重新运行 provider 配置命令。
 
 真实服务端 ready 后，运行：
 

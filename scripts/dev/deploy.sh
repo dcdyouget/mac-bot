@@ -79,7 +79,11 @@ case "$desktop_rc" in
       printf '%s\n' "$MACBOT_MAIN_SHA" > "$desktop_destination/Contents/Resources/source-commit" || failures=1
       macbot_log "桌面客户端已安装：$desktop_destination"
       for desktop_pid in $desktop_previous_pids; do kill -TERM "$desktop_pid" 2>/dev/null || true; done
-      if ! open -g "$desktop_destination"; then
+      desktop_open_args=(-g)
+      if [ -f "$MACBOT_CACHE_ROOT/watch/file-secrets" ]; then
+        desktop_open_args+=(--env MACBOT_SECRET_BACKEND=file)
+      fi
+      if ! open "${desktop_open_args[@]}" "$desktop_destination"; then
         macbot_error "桌面客户端已安装但无法打开"
         failures=1
       fi

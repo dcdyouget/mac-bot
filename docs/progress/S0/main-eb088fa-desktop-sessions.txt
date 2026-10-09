@@ -1,0 +1,6 @@
+app=~/Applications/MacBot.app
+source_commit=eb088fa09c8c841235abe5979220edaa5971bd32
+pid=86980
+window_id=56128
+capture=screencapture -x -l 56128; wrote hidden PNG, timeout15s, exit1
+recovery=manually inspected complete PNG, renamed; CUA screenshot independently confirms session list

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Configure MiniMax CN through local RPC without persisting credentials in files."""
+"""Configure MiniMax CN using an environment variable or a local development key file."""
 from __future__ import annotations
 
 import argparse
 import json
 import os
 from pathlib import Path
-import subprocess
+import stat
 import sys
 import urllib.error
 import urllib.parse
@@ -16,8 +16,6 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "e2e"))
 from rpc import RpcClient
 
-KEYCHAIN_SERVICE = "bot.mac.integrator.minimax-cn"
-KEYCHAIN_ACCOUNT = "macbot-integrator"
 BASE_URL = "https://api.minimax.cn/anthropic"
 
 
@@ -25,13 +23,15 @@ def credential() -> str:
     value = os.environ.get("MINIMAX_API_KEY", "").strip()
     if value:
         return value
-    result = subprocess.run(
-        ["/usr/bin/security", "find-generic-password", "-a", KEYCHAIN_ACCOUNT,
-         "-s", KEYCHAIN_SERVICE, "-w"], capture_output=True, text=True,
-    )
-    if result.returncode or not result.stdout.strip():
-        raise RuntimeError("MiniMax credential missing from environment or login Keychain")
-    return result.stdout.strip()
+    path = Path(os.environ.get("MINIMAX_API_KEY_FILE", "~/MacBot-dev-secrets/minimax-cn.key")).expanduser()
+    if not path.is_file():
+        raise RuntimeError("MiniMax credential missing from environment or local development key file")
+    if stat.S_IMODE(path.stat().st_mode) & 0o077:
+        raise RuntimeError("Local development key file must be readable only by its owner (chmod 600)")
+    value = path.read_text().strip()
+    if not value:
+        raise RuntimeError("Local development key file is empty")
+    return value
 
 
 def upstream(key: str, model: str) -> dict:
