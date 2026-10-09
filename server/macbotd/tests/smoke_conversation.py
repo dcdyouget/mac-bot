@@ -404,6 +404,17 @@ def assert_persisted_message_event_sequences(
         ), grouped[message_id]
 
 
+def assert_visible_text_blocks(messages: list[dict[str, Any]]) -> None:
+    for message in messages:
+        fallback = message.get("fallback_text", "")
+        blocks = message.get("blocks", [])
+        text_blocks = [block for block in blocks if block.get("type") == "text"]
+        if fallback and text_blocks:
+            assert all(block.get("markdown", "") for block in text_blocks), message
+            if len(text_blocks) == len(blocks):
+                assert "".join(block["markdown"] for block in text_blocks) == fallback, message
+
+
 def rpc_chat_history(home: Path, chat_id: str) -> list[dict[str, Any]]:
     # Filled by acceptance through the module-level RPC closure.
     return []
@@ -518,6 +529,8 @@ def acceptance(args: argparse.Namespace) -> None:
         third = wait_assignment(base, args.password, chat_id, "POST_RESTART")
         wait_until(lambda: execution_done(base, args.password, third, chat_id), "post-restart conversation", 40)
         final_history = rpc(base, args.password, "chat.history", {"chat_id": chat_id, "limit": 100})["messages"]
+        assert_visible_text_blocks(final_history)
+        assert_visible_text_blocks([message for _event, message in event_messages(args.home, chat_id)])
         seqs = [item["seq"] for item in final_history]
         assert seqs == sorted(set(seqs)), final_history
         assert third_sent["message"]["seq"] > final_seq_before_restart

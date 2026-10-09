@@ -1593,6 +1593,13 @@ impl ProductionBackend {
                 messages.push(message);
             }
         }
+        // Normalize legacy rows on read as well as on write. Older writers
+        // could leave a non-empty text block with an empty markdown value;
+        // folding it here repairs history and persists the canonical row via
+        // sequence_chat_messages without changing message ids or seqs.
+        for message in &mut messages {
+            normalize_message(message);
+        }
         messages.sort_by(|left, right| {
             left.get("created_at")
                 .and_then(Value::as_str)
@@ -2558,6 +2565,7 @@ fn normalize_message(value: &mut Value) {
     let text = o
         .get("text")
         .and_then(Value::as_str)
+        .or_else(|| o.get("fallback_text").and_then(Value::as_str))
         .unwrap_or("")
         .to_owned();
     let block = match intent {
@@ -2572,9 +2580,24 @@ fn normalize_message(value: &mut Value) {
         }
         _ => json!({"type":"text","markdown":text}),
     };
-    if o.get("blocks")
-        .and_then(Value::as_array)
-        .is_none_or(|blocks| blocks.is_empty())
+    let mut repaired_empty_text = false;
+    if let Some(blocks) = o.get_mut("blocks").and_then(Value::as_array_mut) {
+        if !text.is_empty() {
+            for existing in blocks.iter_mut() {
+                if existing.get("type").and_then(Value::as_str) == Some("text")
+                    && existing.get("markdown").and_then(Value::as_str) == Some("")
+                {
+                    existing["markdown"] = json!(text);
+                    repaired_empty_text = true;
+                    break;
+                }
+            }
+        }
+    }
+    if !repaired_empty_text
+        && o.get("blocks")
+            .and_then(Value::as_array)
+            .is_none_or(|blocks| blocks.is_empty())
     {
         o.insert("blocks".into(), json!([block]));
     }
@@ -2863,7 +2886,9 @@ mod tests {
             .append_jsonl("data/chats/chat_main/messages.jsonl", &placeholder)
             .unwrap();
         let mut final_update = bot_one.clone();
-        final_update["blocks"] = json!([{"type":"text","markdown":"final"}]);
+        // Legacy stream writers sometimes saved an empty text block while the
+        // fallback already contained the completed answer.
+        final_update["blocks"] = json!([{"type":"text","markdown":""}]);
         final_update["fallback_text"] = json!("final");
         backend
             .store
@@ -2904,6 +2929,11 @@ mod tests {
         );
         assert_eq!(first_items[1]["id"], bot_one["id"]);
         assert_eq!(first_items[1]["fallback_text"], "final");
+        assert_eq!(first_items[1]["blocks"][0]["type"], "text");
+        assert_eq!(first_items[1]["blocks"][0]["markdown"], "final");
+        for item in first_items {
+            serde_json::from_value::<Message>(item.clone()).unwrap();
+        }
         let after_two = backend
             .call(
                 "chat.history",
@@ -2947,6 +2977,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![3, 4]
         );
+        let all_after_restart = restarted
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":20}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let restarted_bot = all_after_restart["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == bot_one["id"])
+            .unwrap();
+        assert_eq!(restarted_bot["blocks"][0]["markdown"], "final");
+        for item in all_after_restart["messages"].as_array().unwrap() {
+            serde_json::from_value::<Message>(item.clone()).unwrap();
+        }
         assert_eq!(restarted.store.last_chat_sequence("chat_main").unwrap(), 4);
     }
 
