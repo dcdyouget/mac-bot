@@ -16,19 +16,30 @@ guard let rawWindows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? 
     exit(1)
 }
 
+var mainWindow: (number: UInt32, area: Double)?
 for window in rawWindows {
     guard let layer = window[kCGWindowLayer as String] as? Int, layer == 0,
           let owner = window[kCGWindowOwnerName as String] as? String,
           (owner.localizedCaseInsensitiveContains(target)
             || (normalizedTarget == "macbot" && ["macbot", "macbot-desktop"].contains(owner.lowercased()))),
-          let windowNumber = window[kCGWindowNumber as String] as? UInt32 else {
+          let windowNumber = window[kCGWindowNumber as String] as? UInt32,
+          let bounds = window[kCGWindowBounds as String] as? [String: Any],
+          let width = (bounds["Width"] as? NSNumber)?.doubleValue,
+          let height = (bounds["Height"] as? NSNumber)?.doubleValue,
+          width >= 200, height >= 120 else {
         continue
     }
     if let targetPID,
        (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue != targetPID {
         continue
     }
-    print(windowNumber)
+    let area = width * height
+    if mainWindow == nil || area > mainWindow!.area {
+        mainWindow = (windowNumber, area)
+    }
+}
+if let mainWindow {
+    print(mainWindow.number)
     exit(0)
 }
 exit(1)
