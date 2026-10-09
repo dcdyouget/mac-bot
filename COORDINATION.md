@@ -179,3 +179,9 @@
 - E2E强化：S1现要求实际known text.markdown包含用户marker/path、最终回复非空并含marker/path，placeholder等待不提前失败、未知block仍兼容fallback。S2改串行main请求+显式角色IDs，预建群approval立即诊断并保留partial，避免等待120s误判模型无产物；未放宽断言或自动批准错误成员。
 - S2 联调：不通过。首次main-driven请求两run均停create_project/write approval，未project_card；DESIGN4.5A建群整个过程不需确认，已请求server核查coord工具门禁，保留明确auto_create_project=false设置例外，不动文件/Bash审批。证据 docs/progress/S2/production-9e70d88-login-scene-partial.json。模型member_bot_ids曾用名称是旧测试prompt未显式IDs，已修脚本，不归为server ID缺陷；第二并发main调用重复首project目标目前无provider-body证据，不推断上下文回退。审批39c0/43c2未准，三角色和无项目现场保留，后续从固定累计修复SHA复跑。
 - S3桌面真实摘要125065 Token/42请求/0完成任务/费用未知与同from/to RPC一致，S3/production-3f7c046-dashboard-summary.json与210958-desktop.png已核对；Android正式parity仍待验。S4真实绘制局部通过，driver/low/URL仍待server累计修复，S5fresh install未执行。
+
+## integrator：af 桌面与 Android 探测归因（2026-10-09 21:30）
+- 固定af14e695 Mac-only archive部署完成/PID49240；保留9e正式/PID5282、11bc mock/PID66750、80d Android签名Release。af修复乐观pending Markdown和画面notice限页，实际文字/接管组合验收等待server累计ready；不覆盖3f既有专项证据。归档S1/desktop-af14e69-deployed.json。
+- 最新af Release DMG由client提供，集成独立hash/source/hdiutil VALID、readonly/noautoopen实际挂载载荷/Applications链接核对一致并detach；S5/desktop-dmg-af14e69-candidate.json。尚未release实装或fresh install；9e pkg只读载荷证据同样不计S5通过。
+- 21:20 AVD WiFi未关联/无route是真实，cmd wifi重连已恢复，未重启/安装/清空App。随后临时printf|nc立即EOF的无响应是假失败，flush保留250ms两port各6/6 HTTP200；S5/android-network-20261009-2120.json区分真实失联和临时probe race。原status已有250ms延迟，本次仅加强no-route/TCP/HTTP分层和超时进程组清理，不误称新加延迟修了既有status。Android正式UI仍等用户替代操作回应，未用端口probe代替两端连接验收。
+- 新scripts/e2e/s4/browser_fixture.py仅127.0.0.1:52200、stdlib、本地动画+普通文本提交回显，无外部请求/账号/持久化，供随后CUA真实Computer点击/键盘核验；不证明外部网页登录/通知。旧52199动画现场保留，当前二者都为集成自有服务。
