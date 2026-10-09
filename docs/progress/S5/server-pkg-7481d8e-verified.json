@@ -1,0 +1,68 @@
+{
+  "artifact": "server package read-only audit",
+  "checked_at": "2026-10-10",
+  "package_path": "/tmp/MacBot-Server-cancel-approvals-7481d8e-20261010.pkg",
+  "package_sha256": {
+    "expected": "f3cf7bae9010a7f0c0fce092eee2272c4d5c4725d383d21783fef70d3fec8de3",
+    "actual": "f3cf7bae9010a7f0c0fce092eee2272c4d5c4725d383d21783fef70d3fec8de3",
+    "match": true
+  },
+  "expanded_path": "/tmp/macbot-integrator-7481d8e-audit.RmQMT5/expanded",
+  "package_info": {
+    "identifier": "com.macbot.server",
+    "version": "0.1.0",
+    "install_location": "/",
+    "payload_files": 29,
+    "postinstall_present": true,
+    "postinstall_executed": false
+  },
+  "source": {
+    "expected_commit": "7481d8e4b988e866bb3feade18db7e603b6aba5e",
+    "source_commit_txt": "7481d8e4b988e866bb3feade18db7e603b6aba5e",
+    "build_info_commit": "7481d8e4b988e866bb3feade18db7e603b6aba5e",
+    "info_plist_commit": "7481d8e4b988e866bb3feade18db7e603b6aba5e",
+    "dirty": false,
+    "commit_match": true
+  },
+  "binaries": {
+    "macbotd": {
+      "expected_sha256": "f132501b77c183578139878d01994a7d8ce941f632b3527f2c36aad6bd553798",
+      "actual_sha256": "f132501b77c183578139878d01994a7d8ce941f632b3527f2c36aad6bd553798",
+      "match": true
+    },
+    "agent_browser": {
+      "expected_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "actual_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "match": true
+    }
+  },
+  "info_plist": {
+    "bundle_identifier": "com.macbot.server",
+    "bundle_executable": "macbotd",
+    "bundle_version": "0.1.0",
+    "source_commit": "7481d8e4b988e866bb3feade18db7e603b6aba5e"
+  },
+  "launchagent_template": {
+    "label": "com.macbot.server",
+    "macbot_home_placeholder": true,
+    "program_placeholder": true,
+    "secret_values_read": false
+  },
+  "verification_scope": {
+    "read_only_package_audit": true,
+    "installed": false,
+    "payload_executed": false,
+    "fresh_install_passed": false,
+    "full_s5_pass": false,
+    "credentials_read": false
+  },
+  "root_independent_sha256": {
+    "pkg": "f3cf7bae9010a7f0c0fce092eee2272c4d5c4725d383d21783fef70d3fec8de3",
+    "macbotd": "f132501b77c183578139878d01994a7d8ce941f632b3527f2c36aad6bd553798",
+    "agent-browser": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9"
+  },
+  "initial_audit_invalid": {
+    "reason": "initial pkg actual and expected were incorrectly truncated to 63 characters; independent root actual hash rejected it",
+    "corrected_after_independent_rehash": true
+  }
+}

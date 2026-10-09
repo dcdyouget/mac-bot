@@ -2,11 +2,11 @@
 
 状态：**未执行，不能计 S5 通过**。这是可逆操作计划，不是验收记录。
 
-当前停止条件：正式服务为 `d799dda`（PID `66203`），Android 通知修复 `cac5b12` 保持同签名安装；S2 新插话同 run 和无效 memory 纠错已局部通过，但 first 缺 demo、两群完整 Tester/验收仍未闭环。原旧 siblings/未知审批保持。Mac 锁屏仍阻断桌面原生验收；先保留 S2 现场并完成场景，再开始本演练。
+当前停止条件：正式服务为 `7481d8e`（PID `86386`），Android 通知修复 `cac5b12` 保持同签名安装；S2 新插话同 run 和无效 memory 纠错已局部通过，两个 demo 的独立实浏览器检查已通过，但原 login.html 失败保留，实际 Tester/两群完整验收仍未闭环。原旧 siblings/未知审批保持。Mac 锁屏仍阻断桌面原生验收；先保留 S2 现场并完成场景，再开始本演练。
 
 ## 前置条件与路径
 
-- server 必须交付最新 ready 完整 SHA、`.pkg`、source/build-info/dirty=false 和 daemon/sidecar SHA。当前 `d799ddaa676471394d667dd31faf474052552432` pkg 已完成候选审计，SHA-256 为 `7273a9980fa037b51d66d9fec008d5bc3cbe95dc066003b36680a3d015012885`，见 [server-pkg-d799dda-verified.json](server-pkg-d799dda-verified.json)；并未安装或计 fresh。
+- server 必须交付最新 ready 完整 SHA、`.pkg`、source/build-info/dirty=false 和 daemon/sidecar SHA。当前 `7481d8e4b988e866bb3feade18db7e603b6aba5e` pkg 已完成候选审计，SHA-256 为 `f3cf7bae9010a7f0c0fce092eee2272c4d5c4725d383d21783fef70d3fec8de3`，见 [server-pkg-7481d8e-verified.json](server-pkg-7481d8e-verified.json)；并未安装或计 fresh。
 - client-mac 必须交付正式 `.dmg`，通过 source/binary SHA、DMG SHA、`codesign --verify --deep --strict` 和 `hdiutil` 校验。
 - client-android 必须交付签名 Release APK；只允许同签名 `adb install -r`，不卸载、不清空现有数据。
 - PLAN 第 6 章 S5 权威顺序是 `pkg → 设置密码 → 两端连接 → 完整场景`（`docs/PLAN.md:524-531`）；服务端安装见 `server/README.md:60-97`，桌面 DMG 见 `clients/mac/README.md:37-52`。
@@ -91,4 +91,4 @@ adb -s emulator-5554 shell pm path bot.mac.mobile
 2. 每阶段保存桌面 `screencapture`、Android `adb exec-out screencap -p`、RPC/e2e JSON、source/PID 和实际断言；健康、API、mock 或单张 owner 图不能替代双端联合验收。
 3. S5 通过条件是 pkg 安装、管理页设密码、两端连接、完整场景和截图全部完成。失败时保留新现场和证据；停止新 LaunchAgent 后，从仓库外备份恢复 `~/MacBot`、plist、对应 App 路径和 CLI links，恢复原外部 file secret 目录，Keychain 不变，再核对 source/PID/health。不要清空 Android 数据或密钥，也不要混用新旧数据。
 
-当前状态：S5 fresh install 未执行，d799ddaa676471394d667dd31faf474052552432 server 只是当前运行部署；本计划文件本身不构成安装或验收通过。
+当前状态：S5 fresh install 未执行，7481d8e4b988e866bb3feade18db7e603b6aba5e server 只是当前运行部署；本计划文件本身不构成安装或验收通过。

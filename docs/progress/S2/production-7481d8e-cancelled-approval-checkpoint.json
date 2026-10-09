@@ -1,0 +1,266 @@
+{
+  "schema_version": 1,
+  "scenario": "cancelled assignment approval checkpoint baseline",
+  "captured_at": "2026-10-09T22:37:28.023283Z",
+  "read_only": true,
+  "full_s2_pass": false,
+  "assignment": {
+    "id": "01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+    "status": "cancelled",
+    "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "from": "main",
+    "parent_assignment_id": "01a122b9-5604-7035-82b1-7451ba2970bc",
+    "trigger_message_id": "01a122b9-cfd9-711b-ae58-fa1b8c71dfcf",
+    "root_message_id": "01a122b9-5604-7035-82b1-7450b4e0dc3b",
+    "created_at": "2026-10-09T22:12:45.145583+00:00",
+    "started_at": "2026-10-09T22:12:45.145583+00:00",
+    "finished_at": "2026-10-09T22:17:16.650912+00:00",
+    "result_message_id": null
+  },
+  "run_request": {
+    "run_id": "run_01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+    "assignment_id": "01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+    "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92",
+    "phase": "work",
+    "parent_run_id": null,
+    "subagent": false,
+    "routine": false,
+    "private": false,
+    "allow_unsafe": false
+  },
+  "durable_run": {
+    "run_id": "run_01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+    "path": "/Users/gongshaojie/MacBot/data/runs/run_01a122b9-cfd9-711b-ae58-fa1c3b330c67/entries.jsonl",
+    "sha256": "bd50c0e005c7dd965ea4faabe932a8781b3da1e83c65092f6a4c429e2382f769",
+    "event_counts": {
+      "run.start": 1,
+      "llm.request": 1,
+      "llm.response": 1,
+      "tool.start": 1,
+      "run.wait": 1,
+      "run.end": 1
+    },
+    "aseq_min": 1,
+    "aseq_max": 6,
+    "call_ids": [
+      "call_function_uafvpydckgwa_1"
+    ],
+    "tool_names": [
+      "subagent"
+    ],
+    "run_wait": {
+      "reason": "approval",
+      "message_id": null
+    },
+    "run_end": {
+      "status": "cancelled"
+    }
+  },
+  "job_checkpoint": {
+    "job_id": "job_01a122b9-dbb7-70a2-8561-a86a8833c795",
+    "path": "/Users/gongshaojie/MacBot/data/jobs/job_01a122b9-dbb7-70a2-8561-a86a8833c795.json",
+    "sha256": "7ab3e33806cedfe650fe594d935f37e29caeab2f6d179fc2fdda6d235794827e",
+    "status": "cancelled",
+    "checkpoint_run_id": "run_01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+    "checkpoint_round": 0,
+    "checkpoint_cancelled_at": "2026-10-09T22:17:13.456Z",
+    "pending_tool_count": 1,
+    "pending_tools": [
+      {
+        "name": "subagent",
+        "call_id": "call_function_uafvpydckgwa_1",
+        "args_keys": [
+          "action",
+          "subagent_id",
+          "task"
+        ],
+        "action": "start",
+        "subagent_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "args_sha256": "ca6ef9b3630863c94003313481be78f45fdf90cb98a9abf4a0dd29ab72283d12"
+      }
+    ],
+    "pending_tool_present": true,
+    "message_count": 62
+  },
+  "job_commits": [
+    {
+      "commit_seq": 970,
+      "status": "queued",
+      "updated_at": 1791583968183,
+      "unsafe_replay": false,
+      "checkpoint_keys": [
+        "messages",
+        "round",
+        "run_id"
+      ],
+      "checkpoint_sha256": "e43f46c0edcc3eea4a1c3d8f9371c6dce4292bb25e3808769514bf4fae8c05d2"
+    },
+    {
+      "commit_seq": 971,
+      "status": "running",
+      "updated_at": 1791583972659,
+      "unsafe_replay": false,
+      "checkpoint_keys": [
+        "messages",
+        "round",
+        "run_id"
+      ],
+      "checkpoint_sha256": "3fe60ae42df9b51f0125776b3b46899f2ee4c7db9da2289cd7d01e2754b7a8e8"
+    },
+    {
+      "commit_seq": 973,
+      "status": "waiting",
+      "updated_at": 1791583986080,
+      "unsafe_replay": true,
+      "checkpoint_keys": [
+        "approval_detail",
+        "messages",
+        "pending_tool",
+        "pending_tools",
+        "round",
+        "run_id"
+      ],
+      "checkpoint_sha256": "d78137e63715576f1e0fc5089d77e3f86355a50e8399979a00b707e7e8f3c894"
+    },
+    {
+      "commit_seq": 977,
+      "status": "cancelled",
+      "updated_at": 1791584233509,
+      "unsafe_replay": false,
+      "checkpoint_keys": [
+        "approval_detail",
+        "cancelled_at",
+        "messages",
+        "pending_tool",
+        "pending_tools",
+        "round",
+        "run_id"
+      ],
+      "checkpoint_sha256": "093e02840243d435c2bdfd6f3e48beb3b4df8390696f61ef7b3726f3f0d06876"
+    }
+  ],
+  "approval": {
+    "id": "01a122ba-359b-7756-8588-a3effa401837",
+    "state": "pending",
+    "assignment_id": "01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+    "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "tool": "subagent",
+    "risk": "write",
+    "created_at": "2026-10-09T22:13:11.195066+00:00",
+    "decided_at": null,
+    "detail_metadata": {
+      "sha256": "ca6ef9b3630863c94003313481be78f45fdf90cb98a9abf4a0dd29ab72283d12",
+      "length": 765,
+      "keys": [
+        "action",
+        "subagent_id",
+        "task"
+      ],
+      "task_sha256": "4aafa7aa883db2063c8ed24a09d8e0e749479c19442dc764839115c115480bf4",
+      "task_length": 662
+    }
+  },
+  "identity_checks": {
+    "assignment_run_request_match": true,
+    "approval_assignment_match": true,
+    "approval_pending_after_cancel": true,
+    "tool_start_count": 1,
+    "tool_end_count": 0,
+    "run_end_count": 1
+  },
+  "assessment": {
+    "status": "CANCELLED_APPROVAL_EXPIRED_NO_REPLAY",
+    "approval_decision": "expired",
+    "tool_execution_evidence": "tool.start present; tool.end absent before and after deployment",
+    "next_step": "preserve identity; no approval/restore/replay from this record",
+    "full_s2_pass": false
+  },
+  "integrator_source_commit": "b44059d24ca4794f3e0eb85df84638905d19f871",
+  "baseline_server_source_commit": "d799ddaa676471394d667dd31faf474052552432",
+  "post_server_source_commit": "7481d8e4b988e866bb3feade18db7e603b6aba5e",
+  "post": {
+    "captured_at": "2026-10-09T22:38:40.024459Z",
+    "server_source_commit": "748",
+    "read_only": true,
+    "assignment": {
+      "id": "01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+      "status": "cancelled",
+      "started_at": "2026-10-09T22:12:45.145583+00:00",
+      "finished_at": "2026-10-09T22:17:16.650912+00:00",
+      "result_message_id": null
+    },
+    "run_request": {
+      "run_id": "run_01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+      "assignment_id": "01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "phase": "work",
+      "parent_run_id": null,
+      "subagent": false
+    },
+    "approval": {
+      "id": "01a122ba-359b-7756-8588-a3effa401837",
+      "state": "expired",
+      "assignment_id": "01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+      "tool": "subagent",
+      "risk": "write",
+      "created_at": "2026-10-09T22:13:11.195066+00:00",
+      "decided_at": "2026-10-09T22:17:16.650912+00:00"
+    },
+    "durable_run": {
+      "run_id": "run_01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+      "sha256": "bd50c0e005c7dd965ea4faabe932a8781b3da1e83c65092f6a4c429e2382f769",
+      "event_counts": {
+        "run.start": 1,
+        "llm.request": 1,
+        "llm.response": 1,
+        "tool.start": 1,
+        "run.wait": 1,
+        "run.end": 1
+      },
+      "call_ids": [
+        "call_function_uafvpydckgwa_1"
+      ],
+      "run_wait": {
+        "reason": "approval",
+        "message_id": null
+      },
+      "run_end": {
+        "status": "cancelled"
+      }
+    },
+    "job_checkpoint": {
+      "job_id": "job_01a122b9-dbb7-70a2-8561-a86a8833c795",
+      "sha256": "7ab3e33806cedfe650fe594d935f37e29caeab2f6d179fc2fdda6d235794827e",
+      "status": "cancelled",
+      "checkpoint_run_id": "run_01a122b9-cfd9-711b-ae58-fa1c3b330c67",
+      "checkpoint_cancelled_at": "2026-10-09T22:17:13.456Z",
+      "pending_tool_count": 1,
+      "pending_tool_present": true
+    },
+    "identity": {
+      "assignment_run_request_match": true,
+      "approval_assignment_match": true
+    }
+  },
+  "post_diff": {
+    "assignment_id_same": true,
+    "run_id_same": true,
+    "job_id_same": true,
+    "trace_hash_same": true,
+    "job_hash_same": true,
+    "run_event_counts_same": true,
+    "call_ids_same": true,
+    "finished_at_same": true,
+    "tool_end_count_post": 0,
+    "approval_expired": true,
+    "model_or_tool_replayed": false
+  }
+}

@@ -4,11 +4,11 @@
 
 ## 现在的状态
 
-最新进展：正式服务已固定部署 `d799dda`。旧无效 memory 审批已过期，原参数/run 保持，经同 run 参数错误后生成合法新调用；仅该新 project/add 审批经精确范围和 checkpoint 核对后单次批准。新 @Tester 用户消息真实走 `chat.send`，在原 assignment/run 内完成 queued→delivered→read、applied/trace，未另建任务且未自动放行审批（[证据](S2/production-d799dda-busy-tester-steer.json)）。parallel 的 `login.html` 已在隔离真实浏览器验证正确/错误密码、刷新保持、退出和390px布局（[证据与截图](S2/production-d799dda-parallel-demo.json)）；first 续办已真实生成 login.html；浏览器检查发现登录成功后表单仍同时可见，已反馈原项目 Coder 修复，失败证据保留；完整双群/Tester/验收闭环未完成。Android 私聊工具回放、仪表盘、技能、通知打开及本地页触摸均是局部通过；桌面原生验收仍被 Mac 锁屏阻断。S0 是唯一整阶段通过，S5 全新安装尚未开始。
+最新进展：正式服务已固定部署 `7481d8e`；取消任务遗留审批自动过期，原 checkpoint/工具参数/轨迹不变、没有重放，14个有效待审批项保持（[证据](S2/production-7481d8e-cancelled-approval-after.json)）。此前 `d799dda` 的真实专项保持：旧无效 memory 审批已过期，原参数/run 保持，经同 run 参数错误后生成合法新调用；仅该新 project/add 审批经精确范围和 checkpoint 核对后单次批准。新 @Tester 用户消息真实走 `chat.send`，在原 assignment/run 内完成 queued→delivered→read、applied/trace，未另建任务且未自动放行审批（[证据](S2/production-d799dda-busy-tester-steer.json)）。parallel 的 `login.html` 已在隔离真实浏览器验证正确/错误密码、刷新保持、退出和390px布局（[证据与截图](S2/production-d799dda-parallel-demo.json)）；first 续办已真实生成 login.html；浏览器检查发现登录成功后表单仍同时可见，已反馈原项目 Coder 修复，失败证据保留；完整双群/Tester/验收闭环未完成。Android 私聊工具回放、仪表盘、技能、通知打开及本地页触摸均是局部通过；桌面原生验收仍被 Mac 锁屏阻断。S0 是唯一整阶段通过，S5 全新安装尚未开始。
 
-正式服务 `d799ddaa676471394d667dd31faf474052552432` 已从固定干净 archive 部署到 `7788`（当前 PID `66203`，可执行文件为 `~/Applications/MacBotServer.app/Contents/MacOS/macbotd`），[部署证据](S1/server-d799dda-deployed.json)确认 LaunchAgent/监听 PID 一致、安装 source、公开健康检查和部署认证探测；固定 SHA 部署退出 0。MiniMax-M2.5 沿用本机 file backend。桌面当前仍是 `deploy.sh` 的 debug 开发安装 `7c5e480f`（PID `66995`，窗口 `58491`），Release DMG 仅完成候选校验；[历史现场截图](S4/20261009-235101-desktop.png)只记录 23:51 的“正在连接”页，不能代表当前 094 状态或 formal 已连接证据。`lsof` 的 7788 ESTABLISHED 只证明 TCP；CUA fullpath、Finder、Activity Monitor 均 `cgWindowNotFound`，native 连续帧和输入仍未验收。[3 秒样本](S5/desktop-dmg-7c5e480-deployment.json)不能据 AppKit idle/connect timer 判定冻结。Android 当前通知修复 Release 来源为 `cac5b12d68fbe409b41e763231c28f2e7baaff37`（发布记录 `6e1d7f8`），APK `2,111,890` bytes、SHA-256 `c1b2e2fb…2872f2a`，[保留数据覆盖安装记录](S4/android-notification-cac5b12-installed.json)核对与旧版本同签名、安装base.apk哈希一致，新PID `20943`，连接目标为正式 `10.0.2.2:7788`；owner 证据是局部 Production 检查，不等于集成线全场景 PASS。持续部署保留 UI 验证 hold，避免中断现场。
+正式服务 `7481d8e4b988e866bb3feade18db7e603b6aba5e` 已从固定干净 archive 部署到 `7788`（当前 PID `86386`，可执行文件为 `~/Applications/MacBotServer.app/Contents/MacOS/macbotd`），[部署证据](S1/server-7481d8e-deployed.json)确认 LaunchAgent/监听 PID 一致、安装 source、公开健康检查和部署认证探测；固定 SHA 部署退出 0。MiniMax-M2.5 沿用本机 file backend。桌面当前仍是 `deploy.sh` 的 debug 开发安装 `7c5e480f`（PID `66995`，窗口 `58491`），Release DMG 仅完成候选校验；[历史现场截图](S4/20261009-235101-desktop.png)只记录 23:51 的“正在连接”页，不能代表当前 094 状态或 formal 已连接证据。`lsof` 的 7788 ESTABLISHED 只证明 TCP；CUA fullpath、Finder、Activity Monitor 均 `cgWindowNotFound`，native 连续帧和输入仍未验收。[3 秒样本](S5/desktop-dmg-7c5e480-deployment.json)不能据 AppKit idle/connect timer 判定冻结。Android 当前通知修复 Release 来源为 `cac5b12d68fbe409b41e763231c28f2e7baaff37`（发布记录 `6e1d7f8`），APK `2,111,890` bytes、SHA-256 `c1b2e2fb…2872f2a`，[保留数据覆盖安装记录](S4/android-notification-cac5b12-installed.json)核对与旧版本同签名、安装base.apk哈希一致，新PID `20943`，连接目标为正式 `10.0.2.2:7788`；owner 证据是局部 Production 检查，不等于集成线全场景 PASS。持续部署保留 UI 验证 hold，避免中断现场。
 
-本轮新增：原忙碌 Coder 接收修复插话并在同 run 内完成项目 `index.html` 编辑；[独立实浏览器复验](S2/production-d799dda-first-index-demo.json)确认错误输入提示、登录后仅成功区、刷新保持、退出及375px布局通过。原 `login.html` 未被修改，其表单同时显示的失败记录保留；这是新 `index.html` 的产物专项，不替代 Tester 实测、原文件修复或完整 S2。已取消任务仍残留 pending 审批的 P1 已交 server-mac，未点击该审批。Mac 锁屏仍为 true，桌面 UI 和 S5 fresh 尚未恢复验收。
+本轮新增：原忙碌 Coder 接收修复插话并在同 run 内完成项目 `index.html` 编辑；[独立实浏览器复验](S2/production-d799dda-first-index-demo.json)确认错误输入提示、登录后仅成功区、刷新保持、退出及375px布局通过。原 `login.html` 未被修改，其表单同时显示的失败记录保留；这是新 `index.html` 的产物专项，不替代 Tester 实测、原文件修复或完整 S2。已取消任务残留 pending 审批的 P1 已在正式 `7481d8e` 升级复验通过，未点击该审批。Mac 锁屏仍为 true，桌面 UI 和 S5 fresh 尚未恢复验收。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
@@ -17,7 +17,7 @@
 | S2 | 主 Bot、群协作、插话和待验收 | 未通过：d799 旧无效 memory 同 run 纠错、新 @Tester queued→delivered→read 且无新任务已局部通过；parallel demo 实浏览器检查通过，Tester 原 run done，TEST.md 4220 bytes 含插话 marker/明确未实测，Android 原群[文字与 marker 可见](S2/production-d799dda-cac5b12-android-tester-report.json)；错误日期保留，不计实际 Tester 测试通过；first 续办 canonical→Main assignment/run→assign精确绑定并生成 demo，但登录后表单未隐藏，待原项目 Coder 修复，双群完整协作/验收未闭环。旧插话 siblings 与未知审批保持，不重发或套旧授权。 | `docs/progress/S2/` |
 | S3 | 技能、仪表盘、搜索和记忆 | 未通过：094 Android 原生仪表盘与同范围 RPC 摘要/明细通过，桌面同窗口待解锁；Android [技能 CRUD](S3/production-d97e48f-android-skill-crud.json) 已局部验收 PASS；d43 [正文更新保持全局/per-Bot停用范围](S3/production-d43a2bb-skill-scope.json) API PASS；[只读用量聚合](S3/production-d97e48f-usage-readonly.json) PASS，为 `399,070` tokens、`99` requests，费用尚未定价；仍不等于双端 S3 全通过 | `docs/progress/S3/` |
 | S4 | 浏览器画面、接管、定时任务和通知 | 未通过（局部通过）：718 的 [Android 原生本地页触摸提交/交还](S4/production-7189395-android-native-input.json)通过；907 的定时任务 API 按时完成，旧 [50 条容量阻断](S4/production-907a05c-android-notification-quota-metadata.json)已修并覆盖更新，新 [schedule通知](S4/production-7189395-cac5b12-android-notification-receipt.json)在系统与原生画面出现；[通知打开记录](S4/production-7189395-cac5b12-notification-opened.json)确认点击进入正确私聊，手动滚动看到 marker，但未测试审批动作。更新后实际数量未满50，仍不计满额 native 验收。桌面输入、X 登录及完整双端操作待验，Mac 锁屏仍阻断桌面 UI。 | `docs/progress/S4/` |
-| S5 | pkg 全新安装、两端连接和完整场景 | 未验收：d799 pkg 已完成[来源/载荷审计](S5/server-pkg-d799dda-verified.json)，未实际 installer/fresh；桌面 Release DMG 仍仅包核验通过。 | `docs/progress/S5/` |
+| S5 | pkg 全新安装、两端连接和完整场景 | 未验收：7481d8e pkg 已完成[来源/载荷审计](S5/server-pkg-7481d8e-verified.json)，未实际 installer/fresh；桌面 Release DMG 仍仅包核验通过。 | `docs/progress/S5/` |
 
 每个阶段只有在三条开发线都在 `COORDINATION.md` 打卡，并且集成线完成真实联调、保存两端截图后，才会标记为“通过”。
 
@@ -62,7 +62,7 @@ cd /Users/gongshaojie/Project/mac-bot
 
 `deploy.sh` 会按当前代码可用性编译并部署 `macbotd`、桌面 `.app` 和 Android APK；缺少某条开发线产物时会跳过并打印提示。正式服务使用端口 `7788`，数据目录为 `~/MacBot`，访问密码只从本机文件 `~/.macbot-dev-password` 读取或由部署流程设置，密码内容不写入仓库。
 
-S0 两端会话列表验收已归档：[记录](S0/main-s0-current.json)、[桌面](S0/main-eb088fa-desktop-sessions.png)、[Android](S0/main-08462a4-android.png)。当前 formal `d799dda` 服务和桌面 `7c5e480f` 均已部署；该 S0 记录属于历史 mock 验收，不替代当前 formal Android UI。
+S0 两端会话列表验收已归档：[记录](S0/main-s0-current.json)、[桌面](S0/main-eb088fa-desktop-sessions.png)、[Android](S0/main-08462a4-android.png)。当前 formal `7481d8e` 服务和桌面 `7c5e480f` 均已部署；该 S0 记录属于历史 mock 验收，不替代当前 formal Android UI。
 桌面端：双击打开 `~/Applications/MacBot.app`，Host 填 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`；当前可查看真实消息和工具轨迹，旧消息文字修复已复验。需要 mock 时填 `127.0.0.1:7789`，密码 `dev`。
 
 Android 模拟器：需要时先执行：
