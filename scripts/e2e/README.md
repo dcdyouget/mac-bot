@@ -39,6 +39,14 @@ python3 scripts/e2e/s1/private_chat.py --url http://127.0.0.1:7788 --create-work
 # S1 重启恢复是破坏性检查，默认拒绝；确认要 kill -9 时才加显式开关：
 python3 scripts/e2e/s1/recovery.py --url http://127.0.0.1:7788 --bot-id <bot_id> --restart-service
 python3 scripts/e2e/s2/login_feature.py --product-bot-id <id> --coding-bot-id <id> --test-bot-id <id>
+# 在两个已有项目群继续执行（不会 project.create、回答旧问题或 confirm_done）；先只做静态检查，真实运行需单独授权
+python3 scripts/e2e/s2/project_followup.py --project-id <project1> --project-id <project2> \
+  --product-bot-id <product_id> --coding-bot-id <coding_id> --test-bot-id <test_id> \
+  --journal docs/progress/S2/<unique-followup>.json --json
+# 未完成的 follow-up 只能用同一 journal 恢复；未知 chat.send 结果会停止且绝不重发
+python3 scripts/e2e/s2/project_followup.py --project-id <project1> --project-id <project2> \
+  --product-bot-id <product_id> --coding-bot-id <coding_id> --test-bot-id <test_id> \
+  --resume-journal docs/progress/S2/<unique-followup>.json --json
 python3 scripts/e2e/s3/skills_usage_search.py --bot-id <non_main_bot_id>
 python3 scripts/e2e/s4/routines_browser.py --url http://127.0.0.1:7788 --bot-id <bot_id>
 # S4 scheduler: creates a near-future cron, waits for trigger=schedule and done;
@@ -48,6 +56,9 @@ python3 scripts/e2e/s4/scheduled_routine.py --url http://127.0.0.1:7788 --bot-id
 # each one; add --takeover only to verify start/release without sending input.
 python3 scripts/e2e/s4/screen_transport.py --url http://127.0.0.1:7788 --bot-id <bot_id> \
   --output docs/progress/S4/screen-transport-run
+# Android 系统通知只读探针；OBSERVED 仅证明系统展示，不计 full S4，默认不清通知/重启 App
+python3 scripts/e2e/s4/android_notification_probe.py --marker <新macbot-e2e-marker> \
+  --timeout 90 --output docs/progress/S4/<unique-notification-probe>.json
 # S3 usage dashboard read-only consistency check; --from/--to must be a closed
 # historical RFC 3339 range with an explicit timezone.
 python3 scripts/e2e/s3/usage_readonly.py --url http://127.0.0.1:7788 \
