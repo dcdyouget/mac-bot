@@ -98,7 +98,7 @@ LaunchAgent、独立 MACBOT_HOME、APK 安装与 Activity 命令见 `server/READ
 
 ## 真实模型
 
-真实服务端接入模型时，通过 `/api/v1/rpc` 的 `provider.create` 配置 provider。按用户最新授权，开发期使用本机明文凭据文件，放在仓库外、权限 `0600`；不写入 README、脚本、日志、截图或 Git。MiniMax Key 位于 `~/MacBot-dev-secrets/minimax-cn.key`，配置脚本只读取环境变量或此文件，不再访问钥匙串。正式服务已 ready，正在通过 RPC 配置真实 provider；MiniMax 配置已通过，实际 Bot 执行等待上述生产私聊补丁。
+真实服务端接入模型时，通过 `/api/v1/rpc` 的 `provider.create` 配置 provider。按用户最新授权，开发期使用本机明文凭据文件，放在仓库外、权限 `0600`；不写入 README、脚本、日志、截图或 Git。MiniMax Key 位于 `~/MacBot-dev-secrets/minimax-cn.key`，配置脚本只读取环境变量或此文件，不再访问钥匙串。正式服务已部署，MiniMax 配置已通过，实际 Bot 执行等待上述生产私聊补丁。
 
 ## 持续部署与模型配置
 
@@ -110,7 +110,7 @@ python3 scripts/dev/watch.py --install
 
 Android 当前是已交回的签名 Release，允许同签名更新；Debug 签名不同，不卸载或清空数据。当前本机 `watch/mock-only` 标记暂缓正式服务部署；`7788` 执行 ready 后由集成负责人移除此标记。本机 `watch/ui-validation-hold` 当前仅为桌面 QA 窗口暂缓周期部署，本轮正式服务与原生回归结束后移除恢复；保留桌面可用 `MACBOT_SKIP_DESKTOP=1`；只部署桌面可显式指定 `MACBOT_SKIP_PRODUCTION=1 MACBOT_SKIP_ANDROID=1`。
 
-Android 部署用 `MACBOT_ANDROID_VARIANT=debug|release` 选择构建，未指定时沿用本机 `android-installed-variant` 记录，否则默认 Debug；本机当前记录为 Release。Release 从 `~/.local/share/macbot/android-signing/release.env` 加载签名环境，可用 `MACBOT_ANDROID_SIGNING_ENV` 指定其他仓库外文件。仅安装 `androidApp-release.apk`；缺少签名或安装签名不匹配时失败并保留已有 App/数据，不卸载、不安装 unsigned APK。变体逻辑已用临时假 Gradle/假签名验证，实际 Release 构建与更新待 Android 交回后执行。
+Android 部署用 `MACBOT_ANDROID_VARIANT=debug|release` 选择构建，未指定时沿用本机 `android-installed-variant` 记录，否则默认 Debug；本机当前记录为 Release。Release 从 `~/.local/share/macbot/android-signing/release.env` 加载签名环境，可用 `MACBOT_ANDROID_SIGNING_ENV` 指定其他仓库外文件。仅安装 `androidApp-release.apk`；缺少签名或安装签名不匹配时失败并保留已有 App/数据，不卸载、不安装 unsigned APK。变体逻辑已用临时假 Gradle/假签名验证，归属线已验证并交回实际 Release，集成线已核对安装哈希，同签名更新尚未重跑。
 
 源码从 `main` 分支的固定提交导出到 `~/Library/Caches/MacBot/integrator/source/`，不会切换其他开发线的 worktree。远端 `origin/main` 若领先则部署其固定 SHA；本地 main 若领先则部署本地 SHA。二者分叉时停止部署并报告，避免自动选错版本；网络失败时使用已获取的 main 引用。部署与初步 S0 API 检查日志保存在 `~/Library/Caches/MacBot/integrator/watch/`，API 成功不代表两端界面已验收。停止持续检查：`python3 scripts/dev/watch.py --uninstall`。
 

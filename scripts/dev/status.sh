@@ -13,7 +13,7 @@ if [ -f "$MACBOT_CACHE_ROOT/watch/ui-validation-hold" ]; then
   printf 'deployment hold: active (shared emulator/mock UI validation)\n'
 fi
 if [ -f "$MACBOT_CACHE_ROOT/watch/mock-only" ]; then
-  printf 'production service: deferred (mock-only release)\n'
+  printf 'automatic production deployment: held (mock-only flag; see service status below)\n'
 fi
 watch_pid=$(macbot_launchctl_pid bot.mac.integrator.watch)
 if [ -n "$watch_pid" ]; then printf 'process: running (pid %s)\n' "$watch_pid"; else printf 'process: scheduled, currently idle\n'; fi
@@ -89,6 +89,21 @@ if macbot_find_android_sdk; then
     if [ -n "$package_line" ]; then printf 'package: %s\n' "$package_line"; else printf 'package: not installed\n'; fi
     android_pid=$("$MACBOT_ANDROID_ADB" -s "$MACBOT_ANDROID_SERIAL" shell pidof bot.mac.mobile 2>/dev/null | tr -d '\r' || true)
     printf 'process: %s\n' "${android_pid:-stopped}"
+    python3 - "$MACBOT_ANDROID_ADB" "$MACBOT_ANDROID_SERIAL" <<'PY'
+import subprocess
+import sys
+adb, serial = sys.argv[1:]
+try:
+    route = subprocess.run([adb, "-s", serial, "shell", "ip", "route"],
+                           capture_output=True, text=True, timeout=5)
+    print("network route:", "present" if route.returncode == 0 and route.stdout.strip() else "missing")
+    probe = subprocess.run([adb, "-s", serial, "shell", "toybox", "nc", "-w", "3", "10.0.2.2", "7789"],
+                           input="GET /api/v1/health HTTP/1.1\r\nHost: 10.0.2.2\r\nConnection: close\r\n\r\n",
+                           capture_output=True, text=True, timeout=5)
+    print("mock from emulator:", "reachable" if probe.returncode == 0 and "200 OK" in probe.stdout.split("\r\n\r\n", 1)[0] else "unreachable")
+except (subprocess.SubprocessError, OSError):
+    print("emulator network probe: unavailable")
+PY
   else
     printf 'avd: %s (stopped)\n' "$MACBOT_AVD_NAME"
   fi

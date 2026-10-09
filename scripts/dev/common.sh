@@ -410,6 +410,16 @@ macbot_wait_for_android() {
   timeout_seconds=${1:-180}; elapsed=0
   while [ "$elapsed" -lt "$timeout_seconds" ]; do
     if macbot_find_android_serial; then
+      python3 - "$MACBOT_ANDROID_ADB" "$MACBOT_ANDROID_SERIAL" <<'PY'
+import subprocess
+import sys
+try:
+    subprocess.run([sys.argv[1], "-s", sys.argv[2], "wait-for-device"],
+                   timeout=5, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except (subprocess.SubprocessError, OSError):
+    sys.exit(1)
+PY
+      if [ "$?" -ne 0 ]; then sleep 2; elapsed=$((elapsed + 2)); continue; fi
       boot_state=$("$MACBOT_ANDROID_ADB" -s "$MACBOT_ANDROID_SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | tail -n 1)
       [ "$boot_state" = "1" ] && return 0
     fi
