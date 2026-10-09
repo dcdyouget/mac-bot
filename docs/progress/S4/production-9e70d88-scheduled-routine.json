@@ -1,0 +1,49 @@
+{
+  "assignment": {
+    "id": "01a120b3-1126-76c9-947b-85af8ca62cdf",
+    "status": "done"
+  },
+  "bot_id": "01a120ae-6f58-7085-b919-c5f6705d062c",
+  "health_version": "0.1.0",
+  "marker": "macbot-e2e-s4-schedule-f1cbb18b3835",
+  "note": "API checks only; scheduled notification, desktop/Android UI, browser login, and screen takeover remain manual.",
+  "routine": {
+    "cron": "46 20 9 10 *",
+    "id": "01a120b1-cac4-74e8-9203-6b6f279efcfe",
+    "next_run_at": "2026-10-09T12:46:00+00:00",
+    "target_local": "2026-10-09T20:46:44.959172+08:00",
+    "timezone": "Asia/Shanghai"
+  },
+  "run": {
+    "assignment_id": "01a120b3-1126-76c9-947b-85af8ca62cdf",
+    "error": null,
+    "finished_at": "2026-10-09T12:46:12.796944+00:00",
+    "id": "01a120b3-1126-76c9-947b-85b054880b4f",
+    "routine_id": "01a120b1-cac4-74e8-9203-6b6f279efcfe",
+    "started_at": "2026-10-09T12:46:08.678756+00:00",
+    "status": "done",
+    "trigger": "schedule"
+  },
+  "scenario": "S4 scheduled routine API checks",
+  "status": "PASS",
+  "trace": {
+    "delivered_message_id": "01a120b3-20da-73e0-8cd9-ed871ddbe2f7",
+    "marker_in_response": true,
+    "run_ids": [
+      "01a120b3-1126-76c9-947b-85b054880b4f"
+    ],
+    "send_msg": {
+      "chat_id": "dm_01a120ae-6f58-7085-b919-c5f6705d062c",
+      "intent": "done",
+      "message_id": "01a120b3-20da-73e0-8cd9-ed871ddbe2f7"
+    },
+    "trace_items": 6
+  },
+  "url": "http://127.0.0.1:7788",
+  "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "schedule_timing": {
+    "scheduled_for": "2026-10-09T12:46:00+00:00",
+    "started_after_due_seconds": 8.678756,
+    "note": "Cron is minute-resolution; original target_local retained the caller seconds, helper subsequently normalized it to minute boundary."
+  }
+}

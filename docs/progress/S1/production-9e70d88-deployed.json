@@ -1,0 +1,19 @@
+{
+  "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "observed_at": "2026-10-09T12:40:12.237957+00:00",
+  "url": "http://127.0.0.1:7788",
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "listener_pid": "2178",
+  "mock_listener_pid": "66750",
+  "authenticated_bootstrap": true,
+  "node_id": "01a11fa3-345e-77a7-8e00-b6585c090f37",
+  "bot_count": 6,
+  "daemon_sha256": "4c056e38148c10e071140426b00efb9824c49fda3a43e74c89baee1a04c3f2f1",
+  "file_secret_backend": true,
+  "desktop_and_android_deployment": "skipped"
+}

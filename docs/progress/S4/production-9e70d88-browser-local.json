@@ -1,0 +1,281 @@
+{
+  "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "url": "http://127.0.0.1:52199/?run=macbot-e2e-screen-9e70d88",
+  "sent_id": "01a120b5-4a8e-74ab-82da-429deff99e8c",
+  "sent_seq": 1,
+  "marker": "macbot-e2e-screen-9e70d88",
+  "approvals": [
+    {
+      "approval_id": "01a120b5-576f-77bb-bb2b-6d27f107ff39",
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "call_id": "call_function_t5whuxouctjq_1",
+      "tool": "browser_open"
+    }
+  ],
+  "status": "PASS",
+  "reply_id": "msg_run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+  "trace": [
+    {
+      "aseq": 1,
+      "assignment_id": null,
+      "at": "2026-10-09T12:48:34.701Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "parent_run_id": null,
+        "phase": "chat",
+        "subagent_task": null
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "run.start"
+    },
+    {
+      "aseq": 2,
+      "assignment_id": null,
+      "at": "2026-10-09T12:48:34.792Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "context": {
+          "l0": 569,
+          "l1": 0,
+          "l2": 0,
+          "l3": 0,
+          "l4": 0,
+          "total": 569
+        },
+        "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "prompt_ref": null,
+        "request_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c:llm:0",
+        "tools": [
+          "ls",
+          "bash",
+          "memory",
+          "browser_snapshot",
+          "browser_eval",
+          "browser_nav",
+          "chat_history",
+          "write",
+          "edit",
+          "skill",
+          "session_search",
+          "browser_open",
+          "browser_screenshot",
+          "grep",
+          "bash_job",
+          "browser_act",
+          "project_find",
+          "subagent",
+          "read",
+          "question",
+          "request_takeover",
+          "browser_tabs",
+          "memory_search",
+          "browser_get",
+          "browser_wait",
+          "find",
+          "send_msg"
+        ]
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "llm.request"
+    },
+    {
+      "aseq": 3,
+      "assignment_id": null,
+      "at": "2026-10-09T12:48:37.673Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "latency_ms": 2115,
+        "request_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c:llm:0",
+        "stop_reason": "tool_use",
+        "text": "",
+        "thinking": "The user wants me to open a specific localhost test page using browser_open. They've provided the exact URL and instructed me to only use browser_open and then reply with exactly \"macbot-e2e-screen-9e70d88\" after it succeeds.\n\nLet me use browser_open with the provided URL.",
+        "tool_calls": [
+          {
+            "args": {
+              "url": "http://127.0.0.1:52199/?run=macbot-e2e-screen-9e70d88"
+            },
+            "call_id": "call_function_t5whuxouctjq_1",
+            "name": "browser_open"
+          }
+        ],
+        "ttft_ms": 857,
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 3301,
+          "output_tokens": 114,
+          "requests": 1
+        }
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "llm.response"
+    },
+    {
+      "aseq": 4,
+      "assignment_id": null,
+      "at": "2026-10-09T12:48:37.697Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "args": {
+          "url": "http://127.0.0.1:52199/?run=macbot-e2e-screen-9e70d88"
+        },
+        "call_id": "call_function_t5whuxouctjq_1",
+        "name": "browser_open"
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "tool.start"
+    },
+    {
+      "aseq": 5,
+      "assignment_id": null,
+      "at": "2026-10-09T12:48:37.729Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "message_id": null,
+        "reason": "approval"
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "run.wait"
+    },
+    {
+      "aseq": 6,
+      "assignment_id": null,
+      "at": "2026-10-09T12:48:38.093Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "by_message_id": null
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "run.resume"
+    },
+    {
+      "aseq": 7,
+      "assignment_id": null,
+      "at": "2026-10-09T12:48:38.105Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "args": {
+          "url": "http://127.0.0.1:52199/?run=macbot-e2e-screen-9e70d88"
+        },
+        "call_id": "call_function_t5whuxouctjq_1",
+        "name": "browser_open"
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "tool.start"
+    },
+    {
+      "aseq": 8,
+      "assignment_id": null,
+      "at": "2026-10-09T12:49:16.600Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "call_id": "call_function_t5whuxouctjq_1",
+        "details": {
+          "active": true,
+          "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "tab_id": "t3",
+          "title": "",
+          "url": "http://127.0.0.1:52199/?run=macbot-e2e-screen-9e70d88"
+        },
+        "duration_ms": 38478,
+        "full_output": null,
+        "is_error": false,
+        "preview": "{\"active\":true,\"assignment_id\":\"dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce\",\"tab_id\":\"t3\",\"title\":\"\",\"url\":\"http://127.0.0.1:52199/?run=macbot-e2e-screen-9e70d88\"}",
+        "truncated": false
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "tool.end"
+    },
+    {
+      "aseq": 9,
+      "assignment_id": null,
+      "at": "2026-10-09T12:49:16.818Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "context": {
+          "l0": 844,
+          "l1": 0,
+          "l2": 0,
+          "l3": 0,
+          "l4": 0,
+          "total": 844
+        },
+        "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "prompt_ref": null,
+        "request_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c:llm:1",
+        "tools": [
+          "browser_act",
+          "browser_open",
+          "bash",
+          "find",
+          "project_find",
+          "browser_nav",
+          "chat_history",
+          "bash_job",
+          "request_takeover",
+          "browser_wait",
+          "skill",
+          "browser_eval",
+          "question",
+          "edit",
+          "ls",
+          "memory_search",
+          "read",
+          "browser_get",
+          "browser_snapshot",
+          "subagent",
+          "session_search",
+          "browser_screenshot",
+          "browser_tabs",
+          "memory",
+          "write",
+          "grep",
+          "send_msg"
+        ]
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "llm.request"
+    },
+    {
+      "aseq": 10,
+      "assignment_id": null,
+      "at": "2026-10-09T12:49:18.710Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "latency_ms": 1699,
+        "request_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c:llm:1",
+        "stop_reason": "end_turn",
+        "text": "macbot-e2e-screen-9e70d88",
+        "thinking": "The browser_open succeeded. The page has been opened at the requested URL. Now I need to reply exactly \"macbot-e2e-screen-9e70d88\" as instructed.",
+        "tool_calls": [],
+        "ttft_ms": 814,
+        "usage": {
+          "cache_read_tokens": 443,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 3508,
+          "output_tokens": 54,
+          "requests": 1
+        }
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "llm.response"
+    },
+    {
+      "aseq": 11,
+      "assignment_id": null,
+      "at": "2026-10-09T12:49:19.992Z",
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "data": {
+        "error": null,
+        "status": "done"
+      },
+      "run_id": "run_chat_01a120b5_4a8e_74ab_82da_429deff99e8c",
+      "type": "run.end"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "cross_chat_memory": {
+    "message_id": "msg_run_chat_01a120b1_5f5c_7675_9a1a_e406f6ab7d51",
+    "text": "Based on my memory, you asked me to remember this preference:\n\n**macbot-e2e-s3-c0d66894a313-PREFERENCE-email-only**\n\nThis indicates you prefer **email-only** communication. I've noted this in your user preferences.\n\nIs there anything else you'd like me to help you with?\n"
+  },
+  "health_version": "0.1.0",
+  "marker": "macbot-e2e-s3-c0d66894a313",
+  "note": "API checks only; dashboard parity, skills UI, and mobile/desktop screenshots remain manual.",
+  "scenario": "S3 skills usage search memory",
+  "search": {
+    "at": "2026-10-09T12:42:10.443527+00:00",
+    "chat_id": "chat_main",
+    "id": "01a120af-6e8b-729e-a4cf-f3d1d21adad3",
+    "kind": "message",
+    "snippet": "{\"artifacts\":[],\"assignment_id\":null,\"blocks\":[{\"markdown\":\"\",\"type\":\"text\"}],\"chat_id\":\"chat_main\",\"created_at\":\"2026-10-09T12:42:10.443527+00:00\",\"deleted\":false,\"delivery\":[],\"edited_at\":null,\"fallback_text\":\"S3 search marker macbot-e2e-",
+    "title": "S3 search marker macbot-e2e-s3-c0d66894a313"
+  },
+  "skill": {
+    "deleted": true,
+    "name": "macbot-e2e-s3-c0d66894a313"
+  },
+  "status": "PASS",
+  "url": "http://127.0.0.1:7788",
+  "usage": {
+    "breakdown_rows": 7,
+    "heatmap_days": 2,
+    "summary": true,
+    "timeseries_series": 7
+  },
+  "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "manual_approval_evidence": "docs/progress/S3/production-9e70d88-memory-approval.json"
+}

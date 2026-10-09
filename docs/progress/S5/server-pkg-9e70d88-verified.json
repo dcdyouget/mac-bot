@@ -1,0 +1,19 @@
+{
+  "source": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "pkg_sha256": "ce4662b5a5eb226c0e65fe8083237bf7b575317e053720612692fe0b00e40696",
+  "bytes": 14846702,
+  "artifact": "/tmp/MacBot-Server-s1-p0-final-20261009.pkg",
+  "daemon_sha256": "accc7c5285942d1ed9e8caab4a8e96a96ab2209bcd20775e5bcf24c5e3df194c",
+  "sidecar_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+  "build_info": {
+    "source_dirty": false,
+    "macbotd_sha256": "accc7c5285942d1ed9e8caab4a8e96a96ab2209bcd20775e5bcf24c5e3df194c",
+    "version": "0.1.0",
+    "agent_browser_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+    "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b"
+  },
+  "plist_source": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "pkg_signature": "unsigned development package",
+  "verification": "independent pkg hash, extracted payload, source metadata and official sidecar hash passed",
+  "installation": "not performed; clean S5 pending"
+}

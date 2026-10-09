@@ -1,0 +1,367 @@
+{
+  "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "workbench": {
+    "bots": [
+      {
+        "active": 0,
+        "assignments": [
+          {
+            "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+            "created_at": "2026-10-09T11:00:58.559934+00:00",
+            "finished_at": "2026-10-09T11:04:18.448851+00:00",
+            "from": {
+              "bot_id": "routine",
+              "kind": "bot"
+            },
+            "id": "01a12052-c83f-748e-bf39-58d04dc4abe7",
+            "instruction": "S4 integration API check macbot-e2e-s4-640e355e4ca2. Reply with the exact marker macbot-e2e-s4-640e355e4ca2. Do not open a browser, modify files, or perform external actions.",
+            "loop_hops": 0,
+            "model": "",
+            "origin_chat_id": "routine:01a12052-c7e1-75c8-af2f-3761aa2dd943",
+            "parent_assignment_id": null,
+            "priority": 0,
+            "project_id": null,
+            "queue_reason": null,
+            "result_message_id": null,
+            "root_message_id": null,
+            "started_at": "2026-10-09T11:00:58.559934+00:00",
+            "status": "cancelled",
+            "steers": [],
+            "subagents_active": 0,
+            "title": "macbot-e2e-s4-640e355e4ca2-routine",
+            "trigger_message_id": null,
+            "usage": {
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "cost": null,
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "requests": 0
+            },
+            "wait": null
+          }
+        ],
+        "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+        "max_parallel": 3
+      },
+      {
+        "active": 0,
+        "assignments": [
+          {
+            "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+            "created_at": "2026-10-09T11:53:19.533076+00:00",
+            "finished_at": "2026-10-09T11:53:24.411469+00:00",
+            "from": {
+              "bot_id": "routine",
+              "kind": "bot"
+            },
+            "id": "01a12082-b5ad-7349-bd47-5c95970954a1",
+            "instruction": "S4 integration API check macbot-e2e-s4-c009ddd14eea. Reply with the exact marker macbot-e2e-s4-c009ddd14eea. Do not open a browser, modify files, or perform external actions.",
+            "loop_hops": 0,
+            "model": "",
+            "origin_chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+            "parent_assignment_id": null,
+            "priority": 0,
+            "project_id": null,
+            "queue_reason": null,
+            "result_message_id": "01a12082-c871-75f3-ae07-954ed03af319",
+            "root_message_id": null,
+            "started_at": "2026-10-09T11:53:19.533076+00:00",
+            "status": "done",
+            "steers": [],
+            "subagents_active": 0,
+            "title": "macbot-e2e-s4-c009ddd14eea-routine",
+            "trigger_message_id": null,
+            "usage": {
+              "cache_read_tokens": 3131,
+              "cache_write_tokens": 0,
+              "cost": null,
+              "input_tokens": 6511,
+              "output_tokens": 251,
+              "requests": 0
+            },
+            "wait": null
+          },
+          {
+            "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+            "created_at": "2026-10-09T12:03:01.110387+00:00",
+            "finished_at": "2026-10-09T12:03:08.982020+00:00",
+            "from": {
+              "bot_id": "routine",
+              "kind": "bot"
+            },
+            "id": "01a1208b-9576-72fd-a771-436190a8acee",
+            "instruction": "S4 scheduled API marker macbot-e2e-s4-schedule-750a2edfc43a. Reply with exactly macbot-e2e-s4-schedule-750a2edfc43a. Do not call any tools, open a browser, modify files, or perform external actions.",
+            "loop_hops": 0,
+            "model": "",
+            "origin_chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+            "parent_assignment_id": null,
+            "priority": 0,
+            "project_id": null,
+            "queue_reason": null,
+            "result_message_id": "01a1208b-b3f6-771e-b3a1-907bae432e62",
+            "root_message_id": null,
+            "started_at": "2026-10-09T12:03:01.110387+00:00",
+            "status": "done",
+            "steers": [],
+            "subagents_active": 0,
+            "title": "macbot-e2e-s4-schedule-750a2edfc43a-routine",
+            "trigger_message_id": null,
+            "usage": {
+              "cache_read_tokens": 3131,
+              "cache_write_tokens": 0,
+              "cost": null,
+              "input_tokens": 6635,
+              "output_tokens": 223,
+              "requests": 0
+            },
+            "wait": null
+          },
+          {
+            "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+            "created_at": "2026-10-09T12:07:01.109439+00:00",
+            "finished_at": "2026-10-09T12:07:04.434829+00:00",
+            "from": {
+              "bot_id": "routine",
+              "kind": "bot"
+            },
+            "id": "01a1208f-3ef5-73c0-a205-fe0af51f2d09",
+            "instruction": "S4 scheduled API marker macbot-e2e-s4-schedule-1e3f7a48b22d. Reply with exactly macbot-e2e-s4-schedule-1e3f7a48b22d, then call send_msg exactly once with intent=done and text containing macbot-e2e-s4-schedule-1e3f7a48b22d to report this routine result. Do not call any other tool, open a browser, modify files, or perform external actions. The send_msg report must contain no mentions or artifacts.",
+            "loop_hops": 0,
+            "model": "",
+            "origin_chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+            "parent_assignment_id": null,
+            "priority": 0,
+            "project_id": null,
+            "queue_reason": null,
+            "result_message_id": "01a1208f-4bb0-7515-b336-ba63f53ed1f1",
+            "root_message_id": null,
+            "started_at": "2026-10-09T12:07:01.109439+00:00",
+            "status": "done",
+            "steers": [],
+            "subagents_active": 0,
+            "title": "macbot-e2e-s4-schedule-1e3f7a48b22d-routine",
+            "trigger_message_id": null,
+            "usage": {
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "cost": null,
+              "input_tokens": 3548,
+              "output_tokens": 180,
+              "requests": 0
+            },
+            "wait": null
+          }
+        ],
+        "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "max_parallel": 3
+      },
+      {
+        "active": 0,
+        "assignments": [],
+        "bot_id": "01a1208f-240d-73a4-bac4-39f8eba551dd",
+        "max_parallel": 3
+      },
+      {
+        "active": 0,
+        "assignments": [],
+        "bot_id": "01a12097-1f9c-7006-b1a9-8933689b3699",
+        "max_parallel": 3
+      },
+      {
+        "active": 0,
+        "assignments": [],
+        "bot_id": "01a120ad-9b0b-7778-a47c-994249264e05",
+        "max_parallel": 3
+      },
+      {
+        "active": 0,
+        "assignments": [],
+        "bot_id": "01a120ae-6f58-7085-b919-c5f6705d062c",
+        "max_parallel": 3
+      }
+    ],
+    "done_today": [
+      {
+        "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "created_at": "2026-10-09T11:53:19.533076+00:00",
+        "finished_at": "2026-10-09T11:53:24.411469+00:00",
+        "from": {
+          "bot_id": "routine",
+          "kind": "bot"
+        },
+        "id": "01a12082-b5ad-7349-bd47-5c95970954a1",
+        "instruction": "S4 integration API check macbot-e2e-s4-c009ddd14eea. Reply with the exact marker macbot-e2e-s4-c009ddd14eea. Do not open a browser, modify files, or perform external actions.",
+        "loop_hops": 0,
+        "model": "",
+        "origin_chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+        "parent_assignment_id": null,
+        "priority": 0,
+        "project_id": null,
+        "queue_reason": null,
+        "result_message_id": "01a12082-c871-75f3-ae07-954ed03af319",
+        "root_message_id": null,
+        "started_at": "2026-10-09T11:53:19.533076+00:00",
+        "status": "done",
+        "steers": [],
+        "subagents_active": 0,
+        "title": "macbot-e2e-s4-c009ddd14eea-routine",
+        "trigger_message_id": null,
+        "usage": {
+          "cache_read_tokens": 3131,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 6511,
+          "output_tokens": 251,
+          "requests": 0
+        },
+        "wait": null
+      },
+      {
+        "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "created_at": "2026-10-09T12:03:01.110387+00:00",
+        "finished_at": "2026-10-09T12:03:08.982020+00:00",
+        "from": {
+          "bot_id": "routine",
+          "kind": "bot"
+        },
+        "id": "01a1208b-9576-72fd-a771-436190a8acee",
+        "instruction": "S4 scheduled API marker macbot-e2e-s4-schedule-750a2edfc43a. Reply with exactly macbot-e2e-s4-schedule-750a2edfc43a. Do not call any tools, open a browser, modify files, or perform external actions.",
+        "loop_hops": 0,
+        "model": "",
+        "origin_chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+        "parent_assignment_id": null,
+        "priority": 0,
+        "project_id": null,
+        "queue_reason": null,
+        "result_message_id": "01a1208b-b3f6-771e-b3a1-907bae432e62",
+        "root_message_id": null,
+        "started_at": "2026-10-09T12:03:01.110387+00:00",
+        "status": "done",
+        "steers": [],
+        "subagents_active": 0,
+        "title": "macbot-e2e-s4-schedule-750a2edfc43a-routine",
+        "trigger_message_id": null,
+        "usage": {
+          "cache_read_tokens": 3131,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 6635,
+          "output_tokens": 223,
+          "requests": 0
+        },
+        "wait": null
+      },
+      {
+        "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "created_at": "2026-10-09T12:07:01.109439+00:00",
+        "finished_at": "2026-10-09T12:07:04.434829+00:00",
+        "from": {
+          "bot_id": "routine",
+          "kind": "bot"
+        },
+        "id": "01a1208f-3ef5-73c0-a205-fe0af51f2d09",
+        "instruction": "S4 scheduled API marker macbot-e2e-s4-schedule-1e3f7a48b22d. Reply with exactly macbot-e2e-s4-schedule-1e3f7a48b22d, then call send_msg exactly once with intent=done and text containing macbot-e2e-s4-schedule-1e3f7a48b22d to report this routine result. Do not call any other tool, open a browser, modify files, or perform external actions. The send_msg report must contain no mentions or artifacts.",
+        "loop_hops": 0,
+        "model": "",
+        "origin_chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+        "parent_assignment_id": null,
+        "priority": 0,
+        "project_id": null,
+        "queue_reason": null,
+        "result_message_id": "01a1208f-4bb0-7515-b336-ba63f53ed1f1",
+        "root_message_id": null,
+        "started_at": "2026-10-09T12:07:01.109439+00:00",
+        "status": "done",
+        "steers": [],
+        "subagents_active": 0,
+        "title": "macbot-e2e-s4-schedule-1e3f7a48b22d-routine",
+        "trigger_message_id": null,
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 3548,
+          "output_tokens": 180,
+          "requests": 0
+        },
+        "wait": null
+      }
+    ],
+    "global_limit": 8,
+    "running": 0,
+    "subagents_running": 0,
+    "waiting": [
+      {
+        "approval": {
+          "assignment_id": null,
+          "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+          "chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+          "created_at": "2026-10-09T11:54:25.581002+00:00",
+          "decided_at": null,
+          "detail": "{\"content\":\"macbot-e2e-s1-669c2d8f6eda\",\"path\":\"e2e/macbot-e2e-s1-669c2d8f6eda.txt\"}",
+          "id": "01a12083-b7ac-74e9-8708-0ec146198ccc",
+          "risk": "write",
+          "state": "pending",
+          "summary": "Approval required for write",
+          "tool": "write"
+        },
+        "kind": "approval"
+      },
+      {
+        "approval": {
+          "assignment_id": null,
+          "bot_id": "01a1208f-240d-73a4-bac4-39f8eba551dd",
+          "chat_id": "dm_01a1208f-240d-73a4-bac4-39f8eba551dd",
+          "created_at": "2026-10-09T12:15:14.166178+00:00",
+          "decided_at": null,
+          "detail": "{\"tab_id\":\"t2\"}",
+          "id": "01a12096-c4f6-74b0-b92d-486195063997",
+          "risk": "external",
+          "state": "pending",
+          "summary": "Approval required for browser_snapshot",
+          "tool": "browser_snapshot"
+        },
+        "kind": "approval"
+      }
+    ]
+  },
+  "bootstrap_pending": {
+    "approvals": [
+      {
+        "assignment_id": null,
+        "bot_id": "01a1208f-240d-73a4-bac4-39f8eba551dd",
+        "chat_id": "dm_01a1208f-240d-73a4-bac4-39f8eba551dd",
+        "created_at": "2026-10-09T12:15:14.166178+00:00",
+        "decided_at": null,
+        "detail": "{\"tab_id\":\"t2\"}",
+        "id": "01a12096-c4f6-74b0-b92d-486195063997",
+        "risk": "external",
+        "state": "pending",
+        "summary": "Approval required for browser_snapshot",
+        "tool": "browser_snapshot"
+      },
+      {
+        "assignment_id": null,
+        "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+        "chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+        "created_at": "2026-10-09T11:54:25.581002+00:00",
+        "decided_at": null,
+        "detail": "{\"content\":\"macbot-e2e-s1-669c2d8f6eda\",\"path\":\"e2e/macbot-e2e-s1-669c2d8f6eda.txt\"}",
+        "id": "01a12083-b7ac-74e9-8708-0ec146198ccc",
+        "risk": "write",
+        "state": "pending",
+        "summary": "Approval required for write",
+        "tool": "write"
+      }
+    ],
+    "questions": [],
+    "reviews": []
+  },
+  "approval_list_count": 14,
+  "pending_consistency": {
+    "bootstrap_pending_approvals": 2,
+    "workbench_pending_approvals": 2,
+    "same_ids": true
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "marker": "macbot-e2e-s2-20261009-9e70",
+  "formal_source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "setup_only": true,
+  "projects_not_created": true,
+  "roles": [
+    {
+      "role": "产品",
+      "bot": {
+        "avatar": {
+          "color": 0,
+          "kind": "bean"
+        },
+        "browser_mode": "headless",
+        "created_at": "2026-10-09T13:07:01.525786+00:00",
+        "description": "梳理需求、编写PRD和验收标准；通过send_msg(done)把PRD交接给编码。",
+        "dm_chat_id": "dm_01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "hidden": false,
+        "id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "is_main": false,
+        "label": "产品经理",
+        "max_parallel": 3,
+        "model": null,
+        "name": "macbot-e2e-s2-20261009-9e70-产品",
+        "notifications": true,
+        "pinned": false,
+        "status": {
+          "active": 0,
+          "queued": 0,
+          "summary": "idle",
+          "waiting": 0
+        },
+        "tools": {
+          "bash": true,
+          "browser": false,
+          "files": true,
+          "mcp": false,
+          "subagent": true,
+          "web": false
+        },
+        "updated_at": "2026-10-09T13:07:01.525786+00:00"
+      },
+      "dm_chat": {
+        "attention": "none",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "id": "dm_01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "kind": "direct",
+        "last_message": null,
+        "last_read_seq": 0,
+        "last_seq": 0,
+        "member_bot_ids": [],
+        "muted": false,
+        "pinned": false,
+        "project_id": null,
+        "title": "macbot-e2e-s2-20261009-9e70-产品",
+        "unread": 0,
+        "updated_at": "2026-10-09T13:07:01.525786+00:00"
+      }
+    },
+    {
+      "role": "编码",
+      "bot": {
+        "avatar": {
+          "color": 0,
+          "kind": "bean"
+        },
+        "browser_mode": "headless",
+        "created_at": "2026-10-09T13:07:01.583984+00:00",
+        "description": "按PRD实现邮箱登录、调用subagent复核安全边界，编写测试；通过send_msg(done)交接给测试。",
+        "dm_chat_id": "dm_01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "hidden": false,
+        "id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "is_main": false,
+        "label": "工程师",
+        "max_parallel": 3,
+        "model": null,
+        "name": "macbot-e2e-s2-20261009-9e70-编码",
+        "notifications": true,
+        "pinned": false,
+        "status": {
+          "active": 0,
+          "queued": 0,
+          "summary": "idle",
+          "waiting": 0
+        },
+        "tools": {
+          "bash": true,
+          "browser": false,
+          "files": true,
+          "mcp": false,
+          "subagent": true,
+          "web": false
+        },
+        "updated_at": "2026-10-09T13:07:01.583984+00:00"
+      },
+      "dm_chat": {
+        "attention": "none",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "id": "dm_01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "kind": "direct",
+        "last_message": null,
+        "last_read_seq": 0,
+        "last_seq": 0,
+        "member_bot_ids": [],
+        "muted": false,
+        "pinned": false,
+        "project_id": null,
+        "title": "macbot-e2e-s2-20261009-9e70-编码",
+        "unread": 0,
+        "updated_at": "2026-10-09T13:07:01.583984+00:00"
+      }
+    },
+    {
+      "role": "测试",
+      "bot": {
+        "avatar": {
+          "color": 0,
+          "kind": "bean"
+        },
+        "browser_mode": "headless",
+        "created_at": "2026-10-09T13:07:01.643821+00:00",
+        "description": "验证邮箱登录功能并报告问题，通过send_msg(done)向总管提交验收结果。",
+        "dm_chat_id": "dm_01a120c6-2f8b-7045-aeb6-621e949e22ac",
+        "hidden": false,
+        "id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+        "is_main": false,
+        "label": "测试工程师",
+        "max_parallel": 3,
+        "model": null,
+        "name": "macbot-e2e-s2-20261009-9e70-测试",
+        "notifications": true,
+        "pinned": false,
+        "status": {
+          "active": 0,
+          "queued": 0,
+          "summary": "idle",
+          "waiting": 0
+        },
+        "tools": {
+          "bash": true,
+          "browser": false,
+          "files": true,
+          "mcp": false,
+          "subagent": true,
+          "web": false
+        },
+        "updated_at": "2026-10-09T13:07:01.643821+00:00"
+      },
+      "dm_chat": {
+        "attention": "none",
+        "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+        "id": "dm_01a120c6-2f8b-7045-aeb6-621e949e22ac",
+        "kind": "direct",
+        "last_message": null,
+        "last_read_seq": 0,
+        "last_seq": 0,
+        "member_bot_ids": [],
+        "muted": false,
+        "pinned": false,
+        "project_id": null,
+        "title": "macbot-e2e-s2-20261009-9e70-测试",
+        "unread": 0,
+        "updated_at": "2026-10-09T13:07:01.643821+00:00"
+      }
+    }
+  ]
+}

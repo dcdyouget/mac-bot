@@ -1,0 +1,12 @@
+{
+  "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "approvals": [
+    {
+      "approval_id": "01a120af-8191-70c4-853a-59b97a143421",
+      "run_id": "run_chat_01a120af_7118_760e_a4af_1db0f0244572",
+      "call_id": "call_function_iaxxd7f6u8ra_1",
+      "tool": "memory"
+    }
+  ],
+  "note": "Manual exact allow_once for only the active S3 test preference, preserving all other approval rules"
+}

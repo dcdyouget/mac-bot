@@ -1,0 +1,9 @@
+{
+  "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "bot_id": "01a12097-1f9c-7006-b1a9-8933689b3699",
+  "scenario": "active takeover route and state transition only",
+  "quality": "high",
+  "note": "Does not validate low quality, visible page, input, desktop or mobile UI",
+  "status": "FAIL",
+  "error": "WebSocket closed while receiving a frame"
+}

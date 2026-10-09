@@ -1,0 +1,60 @@
+{
+  "approvals": [
+    {
+      "approval_id": "01a120ad-ae36-7314-851d-f2c58d058b95",
+      "call_id": "call_function_ibihh59n788j_1",
+      "run_id": "run_chat_01a120ad_9c22_73fc_a451_9017bd24a8f5",
+      "tool": "write"
+    },
+    {
+      "approval_id": "01a120ad-c2ef-706b-b8d9-d04febfac09f",
+      "call_id": "call_function_8mjpm6m9grp7_1",
+      "run_id": "run_chat_01a120ad_9c22_73fc_a451_9017bd24a8f5",
+      "tool": "bash"
+    }
+  ],
+  "bot_id": "01a120ad-9b0b-7778-a47c-994249264e05",
+  "chat_id": "dm_01a120ad-9b0b-7778-a47c-994249264e05",
+  "created_worker": true,
+  "health_version": "0.1.0",
+  "marker": "macbot-e2e-s1-bef12623a0c7",
+  "note": "API checks only; desktop/Android streaming, replay UI, and restart recovery remain manual.",
+  "reply": {
+    "history_messages": 2,
+    "history_order": {
+      "first_seq": 1,
+      "ids_unique": true,
+      "last_seq": 2,
+      "messages": 2,
+      "seq_strictly_increasing": true
+    },
+    "reply_id": "msg_run_chat_01a120ad_9c22_73fc_a451_9017bd24a8f5",
+    "reply_seq": 2,
+    "sent_id": "01a120ad-9c22-73fc-a451-9017bd24a8f5",
+    "sent_seq": 1
+  },
+  "scenario": "S1 private chat",
+  "status": "PASS",
+  "trace": {
+    "items": 22,
+    "live": false,
+    "run_id": "run_chat_01a120ad_9c22_73fc_a451_9017bd24a8f5",
+    "successful_tools": [
+      "bash",
+      "read",
+      "write"
+    ],
+    "types": [
+      "llm.request",
+      "llm.response",
+      "run.end",
+      "run.resume",
+      "run.start",
+      "run.wait",
+      "tool.end",
+      "tool.start"
+    ]
+  },
+  "url": "http://127.0.0.1:7788",
+  "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b"
+}

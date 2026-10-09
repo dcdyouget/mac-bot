@@ -1,0 +1,50 @@
+{
+  "approvals": [
+    {
+      "approval_id": "01a120ae-8b5c-738c-ab29-baf44dfb32c2",
+      "call_id": "call_function_gy32itu77min_1",
+      "run_id": "run_chat_01a120ae_7661_73da_b295_3d7bf03a855e",
+      "tool": "bash"
+    }
+  ],
+  "bot_id": "01a120ae-6f58-7085-b919-c5f6705d062c",
+  "chat_id": "dm_01a120ae-6f58-7085-b919-c5f6705d062c",
+  "checkpoint": {
+    "commit_seq": 81,
+    "job_id": "job_01a120ae-77f9-71ac-8154-9adffc66287f",
+    "mtime": 1791549694.0374076,
+    "path": "/Users/gongshaojie/MacBot/data/jobs/job_01a120ae-77f9-71ac-8154-9adffc66287f.json"
+  },
+  "created_worker": true,
+  "health_version": "0.1.0",
+  "marker": "macbot-e2e-recovery-517ff6b6436d",
+  "new_service": {
+    "executable": "macbotd",
+    "label": "com.macbot.server",
+    "listener_pids": [
+      5282
+    ],
+    "pid": 5282,
+    "port": 7788
+  },
+  "note": "API and local durable/PID checks only; desktop/Android replay UI remains manual.",
+  "old_service": {
+    "executable": "macbotd",
+    "label": "com.macbot.server",
+    "listener_pids": [
+      2178
+    ],
+    "pid": 2178,
+    "port": 7788
+  },
+  "recovered": {
+    "marker_path": "/Users/gongshaojie/MacBot/bots/01a120ae-6f58-7085-b919-c5f6705d062c/e2e/macbot-e2e-recovery-517ff6b6436d.txt",
+    "reply_id": "msg_run_chat_01a120ae_7661_73da_b295_3d7bf03a855e",
+    "trace_items": 17
+  },
+  "run_id": "run_chat_01a120ae_7661_73da_b295_3d7bf03a855e",
+  "scenario": "S1 durable recovery",
+  "status": "PASS",
+  "url": "http://127.0.0.1:7788",
+  "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b"
+}

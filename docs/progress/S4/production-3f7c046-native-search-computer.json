@@ -1,0 +1,33 @@
+{
+  "desktop_source_commit": "3f7c0463deccf8a4a3d4ac93c957d476007e4df9",
+  "server_source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "desktop_pid": 24332,
+  "window_id": 57694,
+  "formal_port": 7788,
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "search_query": "画面联调-9e70",
+  "steps": [
+    "Search query, then Bot filter",
+    "Visible Open on truncated long JSON result",
+    "Open fetches missing Bot/Chat and selects direct DM",
+    "Screen shows real localhost animated page"
+  ],
+  "screenshot": "20261009-210338-desktop.png",
+  "screenshot_visually_checked": true,
+  "initial_cua_image": "initial blank loading; later screencapture visibly painted",
+  "raw_frame": "production-9e70d88-native-blank-wire/frame.jpg",
+  "api_frame_header_url": "about:blank",
+  "native_tab_url": "http://127.0.0.1:52199/?run=macbot-e2e-screen-9e70d88",
+  "page_content_marker": "macbot-e2e-screen-20261009-22b3 (same local fixture retained)",
+  "assertions": {
+    "open_visible": true,
+    "correct_dm_selected": true,
+    "real_jpeg_painted": true
+  },
+  "scope": "desktop native search/navigation/paint only; takeover, low quality and Android formal UI not passed",
+  "android_screenshot": "20261009-210338-android.png (mock, not formal)",
+  "search_screenshot": "20261009-210557-desktop.png",
+  "search_screenshot_visually_checked": true,
+  "screen_exit_notice": "global English connection reset notice appeared after leaving Computer; isolated ownership audit requested, no confirmed crash"
+}

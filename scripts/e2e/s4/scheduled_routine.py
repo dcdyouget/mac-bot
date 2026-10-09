@@ -80,7 +80,7 @@ def near_future_schedule(now: datetime) -> tuple[str, str]:
         zone = ZoneInfo(TIMEZONE)
     except ZoneInfoNotFoundError as exc:
         raise ValueError(f"Python tzdata has no {TIMEZONE}") from exc
-    target = (now + timedelta(minutes=2)).astimezone(zone)
+    target = (now + timedelta(minutes=2)).astimezone(zone).replace(second=0, microsecond=0)
     # Day-of-week '*' makes the restricted day-of-month the sole date filter.
     cron = f"{target.minute} {target.hour} {target.day} {target.month} *"
     return cron, target.isoformat()
