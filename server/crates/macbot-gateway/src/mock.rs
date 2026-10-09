@@ -1071,13 +1071,13 @@ fn usage_timeseries(params: &Value) -> RpcResult {
     let requested = params
         .get("granularity")
         .and_then(Value::as_str)
-        .unwrap_or("day");
-    let granularity = if requested == "hour" && (to - from) <= Duration::days(14) {
-        "hour"
-    } else if requested == "week" {
-        "week"
-    } else {
-        "day"
+        .unwrap_or("auto");
+    let granularity = match requested {
+        "auto" if to - from <= Duration::days(7) => "hour",
+        "auto" if to - from <= Duration::days(90) => "day",
+        "auto" => "week",
+        "hour" | "day" | "week" => requested,
+        _ => return Err(rpc_error("invalid_params", "invalid granularity", None)),
     };
     let step = match granularity {
         "hour" => Duration::hours(1),
@@ -2719,6 +2719,18 @@ mod contract_tests {
         let chat_members = created["chat"]["member_bot_ids"].as_array().unwrap();
         assert!(chat_members.iter().any(|member| member == "bot_main"));
         assert!(chat_members.iter().any(|member| member == "bot_code"));
+    }
+
+    #[test]
+    fn usage_auto_granularity_matches_production_ranges() {
+        let from = Utc::now();
+        for (days, expected) in [(1, "hour"), (7, "hour"), (8, "day"), (90, "day"), (91, "week")] {
+            let result = super::usage_timeseries(&json!({"from":from.to_rfc3339(),"to":(from+Duration::days(days)).to_rfc3339(),"granularity":"auto"})).unwrap();
+            assert_eq!(result["granularity"], expected);
+            if days == 1 {
+                assert_eq!(result["buckets"].as_array().unwrap().len(), 25);
+            }
+        }
     }
 
     #[tokio::test]
