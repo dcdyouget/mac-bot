@@ -144,6 +144,13 @@ macbot_acquire_lock() {
         rmdir "$MACBOT_LOCK_DIR" 2>/dev/null || true
         continue
       fi
+    else
+      # An interrupted owner can remove pid before leaving an empty lock directory.
+      # Keep a grace period for a new owner between mkdir and writing its pid.
+      lock_mtime=$(stat -f %m "$MACBOT_LOCK_DIR" 2>/dev/null || true)
+      if [[ "$lock_mtime" =~ ^[0-9]+$ ]] && [ "$(( $(date +%s) - lock_mtime ))" -ge 30 ]; then
+        if rmdir "$MACBOT_LOCK_DIR" 2>/dev/null; then continue; fi
+      fi
     fi
     if [ "$elapsed" -ge 180 ]; then
       macbot_error "已有另一个集成部署运行超过 180 秒"; return 1
