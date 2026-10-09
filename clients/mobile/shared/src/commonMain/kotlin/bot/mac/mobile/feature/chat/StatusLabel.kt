@@ -12,14 +12,15 @@ import org.jetbrains.compose.resources.stringResource
 fun StatusLabel(status: String, modifier: Modifier = Modifier) {
     val resource = when (status.lowercase()) {
         "none", "idle" -> Res.string.feature_status_idle
-        "working", "active" -> Res.string.feature_status_working
+        "working", "active", "running", "continued" -> Res.string.feature_status_working
         "waiting_user" -> Res.string.feature_status_waiting_user
         "waiting_bot" -> Res.string.feature_status_waiting_bot
         "queued" -> Res.string.feature_status_queued
-        "done", "completed" -> Res.string.feature_status_done
-        "stopped", "cancelled", "canceled", "paused" -> Res.string.feature_status_stopped
-        "blocked" -> Res.string.feature_status_blocked
-        "review" -> Res.string.feature_status_review
+        "done", "completed", "confirmed", "approved" -> Res.string.feature_status_done
+        "stopped", "cancelled", "canceled", "paused", "ended", "skipped" -> Res.string.feature_status_stopped
+        "blocked", "failed", "denied" -> Res.string.feature_status_blocked
+        "review", "pending" -> Res.string.feature_status_review
+        "changes_requested" -> Res.string.feature_status_changes_requested
         "archived" -> Res.string.feature_status_archived
         "unread" -> Res.string.feature_status_unread
         else -> Res.string.feature_status_unknown

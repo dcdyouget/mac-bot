@@ -19,9 +19,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.state.MobileRepository
+import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
@@ -80,11 +82,21 @@ fun WorkbenchScreen(
                     if (grouping == WorkbenchGrouping.STATUS) {
                         StatusLabel(group)
                     } else {
-                        Text(group.ifBlank { "—" }, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleSmall)
+                        val heading = when (grouping) {
+                            WorkbenchGrouping.BOT -> state.bots.firstOrNull { it.str("id") == group }?.str("name")
+                            WorkbenchGrouping.PROJECT -> state.projects.firstOrNull { it.str("id") == group }?.str("name")
+                            WorkbenchGrouping.STATUS -> null
+                        }.orEmpty().ifBlank { group.ifBlank { "—" } }
+                        Text(heading, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleSmall)
                     }
                 }
                 items(grouped, key = { it.str("id").ifBlank { "assignment:${it.hashCode()}" } }) { assignment ->
-                    AssignmentCard(assignment, onOpenAssignment) { id -> scope.launch { runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", id) }) } } }
+                    AssignmentCard(assignment, state, onOpenAssignment) { id ->
+                        scope.launch {
+                            runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", id) }) }
+                                .onFailure { error = it.message }
+                        }
+                    }
                 }
             }
             if (assignments.isEmpty()) item { Text(stringResource(Res.string.feature_no_tasks), Modifier.padding(24.dp)) }
@@ -149,7 +161,7 @@ private enum class WorkbenchFilter {
 }
 
 @Composable
-private fun AssignmentCard(assignment: JsonObject, onOpen: (String) -> Unit, onStop: (String) -> Unit) {
+private fun AssignmentCard(assignment: JsonObject, state: MobileState, onOpen: (String) -> Unit, onStop: (String) -> Unit) {
     val id = assignment.str("id")
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp)) {
         Row(Modifier.fillMaxWidth()) {
@@ -157,10 +169,24 @@ private fun AssignmentCard(assignment: JsonObject, onOpen: (String) -> Unit, onS
             StatusLabel(assignment.str("status"))
         }
         Text(assignment.str("instruction"), maxLines = 2, style = MaterialTheme.typography.bodySmall)
+        val usage = assignment.obj("usage")
+        val tokens = usage.long("input_tokens") + usage.long("output_tokens")
+        Text(
+            stringResource(
+                Res.string.feature_assignment_meta,
+                assignment.str("model").ifBlank { "—" },
+                assignment.str("subagents_active").ifBlank { "0" },
+                tokens.toString(),
+            ),
+            style = MaterialTheme.typography.labelSmall,
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { onOpen(id) }) { Text(stringResource(Res.string.feature_detail)) }
             if (assignment.str("status") in listOf("working", "queued", "waiting_user", "waiting_bot")) Button(onClick = { onStop(id) }) { Text(stringResource(Res.string.feature_stop)) }
-            assignment.str("project_id").takeIf { it.isNotBlank() }?.let { Text(stringResource(Res.string.feature_group_value, it), modifier = Modifier.padding(top = 12.dp), style = MaterialTheme.typography.labelSmall) }
+            assignment.str("project_id").takeIf { it.isNotBlank() }?.let { projectId ->
+                val projectName = state.projects.firstOrNull { it.str("id") == projectId }?.str("name").orEmpty().ifBlank { projectId }
+                Text(stringResource(Res.string.feature_group_value, projectName), modifier = Modifier.padding(top = 12.dp), style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
 }

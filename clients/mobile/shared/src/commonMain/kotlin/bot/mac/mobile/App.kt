@@ -9,6 +9,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.design.*
 import bot.mac.mobile.core.ui.FilePreview
@@ -51,6 +53,7 @@ import org.jetbrains.compose.resources.stringResource
     var changesText by remember { mutableStateOf("") }
     var actionError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     fun open(next: String, id: String = "", second: String = "") {
         if (next == page && id == target && second == secondTarget) return
         routeHistory = routeHistory + JsonArray(listOf(JsonPrimitive(page),JsonPrimitive(target),JsonPrimitive(secondTarget))).toString()
@@ -76,7 +79,7 @@ import org.jetbrains.compose.resources.stringResource
             var found=false
             for(project in repository.call("project.list").objects("projects")) {
                 val pid=project.str("id")
-                val artifact=repository.call("project.get",jsonParams("project_id" to pid)).obj("announcement").objects("artifacts").firstOrNull{it.str("id")==id}
+                val artifact=repository.call("project.get",jsonParams("project_id" to pid)).obj("announcement").objects("artifacts").firstOrNull{it.str("artifact_id")==id}
                 if(artifact!=null) { open("file",pid,artifact.str("path_or_url"));found=true;break }
             }
             if(!found) actionError=artifactMissing
@@ -85,8 +88,12 @@ import org.jetbrains.compose.resources.stringResource
     LaunchedEffect(Unit) { repository.initialize() }
     LaunchedEffect(deepLink) {
         val link = deepLink ?: return@LaunchedEffect
+        repository.initialize()
         val hostId=link.substringAfter("host_id=","").substringBefore('&')
-        if(hostId.isNotBlank()) repository.selectHost(hostId)
+        if(hostId.isNotBlank()) {
+            if(repository.hosts.value.none { it.id == hostId }) { open("connect");repository.deepLink.value=null;return@LaunchedEffect }
+            repository.selectHost(hostId)
+        }
         val kind = link.substringAfter("://").substringBefore('/')
         val id = link.substringAfterLast('/').substringBefore('?')
         open(when(kind) { "approval" -> "approvals"; "review" -> "group"; "computer" -> "computer"; else -> "chat" }, id)
@@ -120,10 +127,17 @@ import org.jetbrains.compose.resources.stringResource
                     when {
                         page == "connect" || hosts.isEmpty() -> ConnectScreen(repository, back)
                         page == "chat" -> MainBotScreen(repository = repository, chatId = target, onOpenTrace = { assignment, chat -> open("trace", assignment.orEmpty(), chat.orEmpty()) }, onOpenProject = { open("group", it) }, onBack = back, onProjectAction = { projectId, action -> if (action == "confirm_done") scope.launch { runCatching { repository.call("project.confirm_done",jsonParams("project_id" to projectId)) }.onFailure { actionError=it.message } } else { changesProject=projectId;changesText="" } }, onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)})
-                        page == "group" -> GroupScreen(repository = repository, projectId = target, onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)})
+                        page == "group" -> GroupScreen(repository = repository, projectId = target, onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenHome={open("file",target,"")},onCopyHome={clipboard.setText(AnnotatedString(it))})
                         page == "create_group" -> GroupCreateScreen(repository, onCreated = { open("group", it) }, onBack = back)
                         page == "history" -> HistoryAssignmentScreen(repository,chatId=target.ifBlank{null},onOpenTrace={open("trace",it)},onBack=back)
-                        page == "trace" -> TraceScreen(repository, target.ifBlank { null }, secondTarget.ifBlank { null }, { bot, tabId -> open("computer", bot, tabId.orEmpty()) }, back)
+                        page == "trace" -> TraceScreen(repository, target.ifBlank { null }, secondTarget.ifBlank { null }, { bot, tabId -> open("computer", bot, tabId.orEmpty()) }, onBack=back, onSteer={assignmentId,text ->
+                            val assignment=repository.state.value.assignments.firstOrNull{it.str("id")==assignmentId}
+                            val hostId=repository.activeHost.value?.id
+                            if(assignment!=null && hostId!=null) scope.launch { runCatching { repository.callOnHost(hostId,"chat.send",buildJsonObject {
+                                put("chat_id",assignment.str("chat_id"));put("text",text)
+                                put("mentions",JsonArray(listOf(buildJsonObject{put("kind","bot");put("bot_id",assignment.str("bot_id"));put("instruction",JsonNull)})))
+                            }) }.onFailure{actionError=it.message} }
+                        })
                         page == "bots" -> BotsScreen(repository, { open("bot_editor", it) }, { open("bot_editor") }, back)
                         page == "bot_editor" -> BotEditorScreen(repository, target.ifBlank { null }, { open("bots") }, back)
                         page == "settings" -> SettingsScreen(repository, back)
@@ -142,7 +156,7 @@ import org.jetbrains.compose.resources.stringResource
                                         var found=false
                                         for(project in projects) {
                                             val projectId=project.str("id")
-                                            val artifact=repository.call("project.get",jsonParams("project_id" to projectId)).obj("announcement").objects("artifacts").firstOrNull{it.str("id")==result.str("id")}
+                                            val artifact=repository.call("project.get",jsonParams("project_id" to projectId)).obj("announcement").objects("artifacts").firstOrNull{it.str("artifact_id")==result.str("id")}
                                             if(artifact!=null) { open("file",artifact.str("root_id").ifBlank{projectId},artifact.str("path_or_url"));found=true;break }
                                         }
                                         if(!found) result.str("chat_id").takeIf{it.isNotBlank()}?.let{openChat(it)}

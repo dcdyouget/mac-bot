@@ -5,6 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -21,7 +24,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.Modifier
@@ -30,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
+import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.platform.PickedFile
 import bot.mac.mobile.core.platform.exportFile
@@ -79,6 +85,15 @@ fun ChatScreen(
     var filePreviews by remember(chatId) { mutableStateOf(emptyMap<String, String>()) }
     var imagePreviews by remember(chatId) { mutableStateOf(emptyMap<String, ImageBitmap>()) }
     var draftLoaded by remember(chatId) { mutableStateOf(false) }
+    var historyHasMore by remember(chatId) { mutableStateOf(false) }
+    var historyBeforeSeq by remember(chatId) { mutableStateOf<Long?>(null) }
+    var loadingOlder by remember(chatId) { mutableStateOf(false) }
+    var pendingAnchor by remember(chatId) { mutableStateOf<ScrollAnchor?>(null) }
+    var threadRoot by remember(chatId) { mutableStateOf<JsonObject?>(null) }
+    var threadReplies by remember(chatId) { mutableStateOf(emptyList<JsonObject>()) }
+    var threadLoading by remember(chatId) { mutableStateOf(false) }
+    var stickToBottom by remember(chatId) { mutableStateOf(true) }
+    val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val hostId = repository.activeHost.collectAsState().value?.id ?: "active"
     val readOnly = chat?.str("kind") == "bot_dm"
@@ -100,7 +115,38 @@ fun ChatScreen(
         runCatching {
             repository.call("chat.history", buildJsonObject { put("chat_id", chatId); put("limit", 100) })
 
+        }.onSuccess { result ->
+            historyHasMore = result.boolean("has_more")
+            historyBeforeSeq = result.objects("messages").minOfOrNull { it.longValue("seq") ?: Long.MAX_VALUE }
+                ?.takeIf { it != Long.MAX_VALUE }
         }.onFailure { error = it.message ?: loadingError }
+    }
+
+    LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), pendingAnchor) {
+        pendingAnchor?.let { anchor ->
+            if (messages.firstOrNull()?.str("id") != anchor.id) {
+                val index = messages.indexOfFirst { it.str("id") == anchor.id }
+                if (index >= 0) {
+                    withFrameNanos { }
+                    listState.scrollToItem(index + if (historyHasMore) 1 else 0, anchor.offset)
+                }
+                pendingAnchor = null
+            }
+        }
+    }
+
+    LaunchedEffect(chatId, historyHasMore) {
+        snapshotFlow {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+            val lastIndex = listState.layoutInfo.totalItemsCount - 1
+            lastVisible == null || lastIndex < 0 || lastVisible >= lastIndex - 1
+        }.collect { stickToBottom = it }
+    }
+
+    LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), historyHasMore) {
+        if (messages.isEmpty() || !stickToBottom) return@LaunchedEffect
+        val lastIndex = messages.lastIndex + if (historyHasMore) 1 else 0
+        listState.scrollToItem(lastIndex)
     }
 
     LaunchedEffect(chatId, chat?.longValue("last_seq")) {
@@ -127,13 +173,60 @@ fun ChatScreen(
             HorizontalDivider()
         }
         LazyColumn(
-            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+            state = listState,
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (historyHasMore) {
+                item(key = "load-older") {
+                    Button(
+                        enabled = !loadingOlder,
+                        onClick = {
+                            val beforeSeq = historyBeforeSeq ?: messages.minOfOrNull { it.longValue("seq") ?: Long.MAX_VALUE }
+                                ?.takeIf { it != Long.MAX_VALUE }
+                            if (beforeSeq != null) {
+                                val anchor = messages.firstOrNull()?.str("id")?.takeIf { it.isNotBlank() }?.let {
+                                    ScrollAnchor(it, listState.firstVisibleItemScrollOffset)
+                                }
+                                loadingOlder = true
+                                scope.launch {
+                                    runCatching {
+                                        repository.call("chat.history", buildJsonObject {
+                                            put("chat_id", chatId)
+                                            put("before_seq", beforeSeq)
+                                            put("limit", 100)
+                                        })
+                                    }.onSuccess { result ->
+                                        historyHasMore = result.boolean("has_more")
+                                        historyBeforeSeq = result.objects("messages").minOfOrNull { it.longValue("seq") ?: Long.MAX_VALUE }
+                                            ?.takeIf { it != Long.MAX_VALUE }
+                                        val existingIds = messages.asSequence().map { it.str("id") }.toSet()
+                                        pendingAnchor = if (result.objects("messages").any { it.str("id") !in existingIds }) anchor else null
+                                    }.onFailure { error = it.message ?: loadingError }
+                                    loadingOlder = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(if (loadingOlder) stringResource(Res.string.feature_loading) else stringResource(Res.string.feature_load_older)) }
+                }
+            }
             items(messages, key = { it.str("id").ifBlank { "message:${it.hashCode()}" } }) { message ->
                 ChatMessageRow(
                     message = message,
                     onReply = { replyTo = it },
+                    onOpenThread = { rootId ->
+                        threadLoading = true
+                        scope.launch {
+                            runCatching {
+                                repository.call("chat.thread", buildJsonObject { put("chat_id", chatId); put("root_message_id", rootId) })
+                            }.onSuccess { result ->
+                                threadRoot = result.obj("root").takeIf { it.str("id").isNotBlank() }
+                                threadReplies = result.objects("replies")
+                            }.onFailure { error = it.message ?: loadingError }
+                            threadLoading = false
+                        }
+                    },
                     onReact = { id, emoji -> scope.launch { runCatching { repository.call("chat.react", buildJsonObject { put("message_id", id); put("emoji", emoji); put("on", true) }) }.onFailure { error = it.message ?: sendError } } },
                     onOpenTrace = onOpenTrace,
                     onApproval = { id, decision -> scope.launch { runCatching { repository.call("approval.decide", buildJsonObject { put("approval_id", id); put("decision", decision) }) }.onFailure { error = it.message ?: sendError } } },
@@ -175,20 +268,32 @@ fun ChatScreen(
                     onTakeover = onTakeover,
                     onOpenArtifact = onOpenArtifact,
                     artifactProjectId = artifactProjectId ?: chat?.str("project_id")?.takeIf { it.isNotBlank() },
-                    state = state,
+                state = state,
                 )
             }
+        }
+        if (threadLoading) {
+            Text(stringResource(Res.string.feature_thread_loading), Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.labelSmall)
+        }
+        threadRoot?.let { root ->
+            ThreadPanel(
+                root = root,
+                replies = threadReplies,
+                state = state,
+                onReply = { messageId -> replyTo = messageId; threadRoot = null },
+                onClose = { threadRoot = null; threadReplies = emptyList() },
+            )
         }
         replyTo?.let { id ->
             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondaryContainer) {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(Res.string.feature_reply_message, id), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
-                    Text("×", Modifier.padding(4.dp))
+                    IconButton(onClick = { replyTo = null }) { Text("×") }
                 }
             }
         }
         if (mentionCandidates.isNotEmpty() || groupChat) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (groupChat) {
                     FilterChip(
                         selected = mentionBots.contains("__everyone__"),
@@ -196,7 +301,7 @@ fun ChatScreen(
                         label = { Text(stringResource(Res.string.feature_mention_everyone)) },
                     )
                 }
-                mentionCandidates.take(6).forEach { bot ->
+                mentionCandidates.forEach { bot ->
                     val id = bot.str("id")
                     FilterChip(
                         selected = mentionBots.contains(id),
@@ -262,11 +367,54 @@ fun ChatScreen(
     }
 }
 
+private data class ScrollAnchor(val id: String, val offset: Int)
+
+@Composable
+private fun ThreadPanel(
+    root: JsonObject,
+    replies: List<JsonObject>,
+    state: MobileState,
+    onReply: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    Surface(Modifier.fillMaxWidth().padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(Res.string.feature_thread_title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                IconButton(onClick = onClose) { Text("×") }
+            }
+            Text(stringResource(Res.string.feature_thread_root), style = MaterialTheme.typography.labelMedium)
+            ThreadMessageCard(root, state, onReply)
+            Text(stringResource(Res.string.feature_thread_replies), style = MaterialTheme.typography.labelMedium)
+            if (replies.isEmpty()) Text(stringResource(Res.string.feature_thread_empty), style = MaterialTheme.typography.bodySmall)
+            replies.forEach { reply -> ThreadMessageCard(reply, state, onReply) }
+        }
+    }
+}
+
+@Composable
+private fun ThreadMessageCard(message: JsonObject, state: MobileState, onReply: (String) -> Unit) {
+    val body = message.str("fallback_text").ifBlank {
+        message.arr("blocks").mapNotNull { (it as? JsonObject)?.str("markdown")?.takeIf { text -> text.isNotBlank() } }
+            .joinToString("\n")
+    }
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(8.dp)) {
+        val senderId = message.obj("sender").str("bot_id")
+        val sender = state.bots.firstOrNull { it.str("id") == senderId }?.str("name").orEmpty()
+            .ifBlank { if (senderId.isBlank()) stringResource(Res.string.feature_bot) else senderId }
+        if (sender.isNotBlank()) Text(sender, style = MaterialTheme.typography.labelSmall)
+        if (body.isNotBlank()) MarkdownText(body, Modifier.fillMaxWidth())
+        val id = message.str("id")
+        if (id.isNotBlank()) Button(onClick = { onReply(id) }) { Text(stringResource(Res.string.feature_reply)) }
+    }
+}
+
 @Composable
 internal fun ChatMessageRow(
     message: JsonObject,
     state: MobileState,
     onReply: (String) -> Unit,
+    onOpenThread: (String) -> Unit,
     onReact: (String, String) -> Unit,
     onOpenTrace: (String?, String?) -> Unit,
     onApproval: (String, String) -> Unit,
@@ -321,6 +469,12 @@ internal fun ChatMessageRow(
                     if (id.isNotBlank()) {
                         IconButton(onClick = { onReply(id) }) { Text(stringResource(Res.string.feature_reply)) }
                         IconButton(onClick = { onReact(id, "👍") }) { Text("👍") }
+                    }
+                    val threadCount = message.longValue("thread_count") ?: 0L
+                    if (threadCount > 0 && id.isNotBlank()) {
+                        Button(onClick = { onOpenThread(id) }) {
+                            Text(stringResource(Res.string.feature_thread_open, threadCount.toInt()))
+                        }
                     }
                 }
                 DeliveryView(message.arr("delivery"), state)
@@ -389,6 +543,13 @@ private fun BlockView(
         }
         "completion" -> {
             MarkdownText("✓ ${block.str("summary")}", Modifier.fillMaxWidth())
+            block.arr("next").forEach { element ->
+                val handoff = element as? JsonObject ?: return@forEach
+                val botId = handoff.str("bot_id")
+                val botName = state.bots.firstOrNull { it.str("id") == botId }?.str("name").orEmpty().ifBlank { botId }
+                Text(stringResource(Res.string.feature_completion_next, botName), style = MaterialTheme.typography.titleSmall)
+                MarkdownText(handoff.str("instruction"), Modifier.fillMaxWidth())
+            }
             block.arr("artifacts").forEach { element ->
                 val artifact = element as? JsonObject ?: return@forEach
                 val url = artifact.str("path_or_url")
@@ -403,12 +564,14 @@ private fun BlockView(
             val questionText = question?.str("text").orEmpty().ifBlank { questionId }
             var freeText by remember(questionId) { mutableStateOf("") }
             Text("？$questionText", style = MaterialTheme.typography.titleSmall)
-            question?.arr("options")?.forEachIndexed { index, option ->
-                FilterChip(selected = false, onClick = { onQuestion(questionId, index, null) }, label = { Text(option.toString().trim('"')) })
-            }
-            if (question?.boolean("allow_free_text") == true) {
-                OutlinedTextField(freeText, { freeText = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_answer)) })
-                Button(onClick = { onQuestion(questionId, null, freeText) }, enabled = freeText.isNotBlank()) { Text(stringResource(Res.string.feature_submit)) }
+            if (question != null && question.str("state") == "pending") {
+                question.arr("options").forEachIndexed { index, option ->
+                    FilterChip(selected = false, onClick = { onQuestion(questionId, index, null) }, label = { Text(option.toString().trim('"')) })
+                }
+                if (question.boolean("allow_free_text")) {
+                    OutlinedTextField(freeText, { freeText = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_answer)) })
+                    Button(onClick = { onQuestion(questionId, null, freeText) }, enabled = freeText.isNotBlank()) { Text(stringResource(Res.string.feature_submit)) }
+                }
             }
         }
         "project_card" -> {
@@ -421,7 +584,7 @@ private fun BlockView(
                 Text(stringResource(Res.string.feature_review_state, ""), style = MaterialTheme.typography.bodyMedium)
                 StatusLabel(block.str("state"))
             }
-            if (projectId.isNotBlank()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (projectId.isNotBlank() && block.str("state") == "pending") Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { onProjectAction(projectId, "confirm_done") }) { Text(stringResource(Res.string.feature_confirm_done)) }
                 Button(onClick = { onProjectAction(projectId, "request_changes") }) { Text(stringResource(Res.string.feature_request_changes)) }
             }
@@ -447,8 +610,8 @@ private fun BlockView(
             val approval = state.approvals.firstOrNull { it.str("id") == approvalId }
             Text(stringResource(Res.string.feature_approval_needed), style = MaterialTheme.typography.titleSmall)
             Text(approval?.str("summary").orEmpty().ifBlank { approvalId })
-            Text(approval?.str("detail").orEmpty(), style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            MarkdownText(approval?.str("detail").orEmpty(), Modifier.fillMaxWidth())
+            if (approval?.str("state") == "pending") Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { onApproval(approvalId, "allow_once") }) { Text(stringResource(Res.string.feature_allow_once)) }
                 Button(onClick = { onApproval(approvalId, "always_allow") }) { Text(stringResource(Res.string.feature_always_allow)) }
                 Button(onClick = { onApproval(approvalId, "deny") }) { Text(stringResource(Res.string.feature_deny)) }

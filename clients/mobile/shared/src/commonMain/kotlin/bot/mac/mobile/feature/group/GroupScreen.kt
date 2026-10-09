@@ -43,6 +43,8 @@ fun GroupScreen(
     onBack: () -> Unit = {},
     onOpenProject: (String) -> Unit = {},
     onOpenArtifact: (artifactId: String, pathOrUrl: String, projectId: String?) -> Unit = { _, _, _ -> },
+    onOpenHome: (String) -> Unit = {},
+    onCopyHome: (String) -> Unit = {},
     onOpenHistory: (String) -> Unit = {},
     onOpenScreen: (String, String?) -> Unit = { _, _ -> },
     onOpenChat: (String) -> Unit = {},
@@ -114,12 +116,22 @@ fun GroupScreen(
                     val botName = state.bots.firstOrNull { it.str("id") == botId }?.str("name").orEmpty().ifBlank { botId }
                     Column {
                         Text("● $botName", style = MaterialTheme.typography.labelMedium)
-                        m?.let { member -> member.str("state").takeIf { it.isNotBlank() }?.let { StatusLabel(it) } }
+                        m?.let { member ->
+                            member.str("role_note").takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            member.str("state").takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+                            val assignmentId = member.str("current_assignment_id")
+                            val assignment = state.assignments.firstOrNull { it.str("id") == assignmentId }
+                            if (assignmentId.isNotBlank()) {
+                                Button(onClick = { onOpenTrace(assignmentId) }) {
+                                    Text(assignment?.str("title").orEmpty().ifBlank { stringResource(Res.string.feature_detail) })
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-        if (showAnnouncement) AnnouncementPanel(announcement, project, onOpenArtifact)
+        if (showAnnouncement) AnnouncementPanel(announcement, project, onOpenArtifact, onOpenHome, onCopyHome)
         HorizontalDivider(Modifier.padding(top = 8.dp))
         Box(Modifier.weight(1f).fillMaxWidth()) {
             chatId?.let { id ->
@@ -158,22 +170,24 @@ fun GroupScreen(
             if (project?.str("status") == "review" || project?.str("status") == "active") {
                 Button(onClick = { scope.launch { runCatching { repository.call("project.confirm_done", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_confirm_done)) }
             }
-            Button(onClick = {
-                if (!showChangeInput) {
-                    changeProjectId = projectId
-                    showChangeInput = true
-                }
-                else {
-                    val text = changeText.trim()
-                    if (text.isNotEmpty()) {
-                        val targetProject = changeProjectId ?: projectId
-                        scope.launch { runCatching { repository.call("project.request_changes", buildJsonObject { put("project_id", targetProject); put("text", text) }) }.onFailure { error = it.message } }
+            if (project?.str("status") == "review" || project?.str("status") == "active") {
+                Button(onClick = {
+                    if (!showChangeInput) {
+                        changeProjectId = projectId
+                        showChangeInput = true
                     }
-                    changeText = ""
-                    changeProjectId = null
-                    showChangeInput = false
-                }
-            }) { Text(if (showChangeInput) stringResource(Res.string.feature_submit_changes) else stringResource(Res.string.feature_request_changes)) }
+                    else {
+                        val text = changeText.trim()
+                        if (text.isNotEmpty()) {
+                            val targetProject = changeProjectId ?: projectId
+                            scope.launch { runCatching { repository.call("project.request_changes", buildJsonObject { put("project_id", targetProject); put("text", text) }) }.onFailure { error = it.message } }
+                        }
+                        changeText = ""
+                        changeProjectId = null
+                        showChangeInput = false
+                    }
+                }) { Text(if (showChangeInput) stringResource(Res.string.feature_submit_changes) else stringResource(Res.string.feature_request_changes)) }
+            }
             if (project?.str("status") == "done") {
                 Button(onClick = { scope.launch { runCatching { repository.call("project.archive", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_archive)) }
             }
@@ -230,6 +244,8 @@ private fun AnnouncementPanel(
     announcement: JsonObject?,
     project: JsonObject?,
     onOpenArtifact: (artifactId: String, pathOrUrl: String, projectId: String?) -> Unit,
+    onOpenHome: (String) -> Unit,
+    onCopyHome: (String) -> Unit,
 ) {
     Surface(Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -239,7 +255,16 @@ private fun AnnouncementPanel(
                 project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
             }
             Text(stringResource(Res.string.feature_goal_value, project?.str("goal") ?: ""))
-            Text(stringResource(Res.string.feature_home_value, project?.str("home_path") ?: ""))
+            val home = project?.str("home_path").orEmpty()
+            Text(stringResource(Res.string.feature_home_value, home))
+            if (home.isNotBlank()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = { onOpenHome(home) }) { Text(stringResource(Res.string.feature_home_open)) }
+                    Button(onClick = { onCopyHome(home) }) { Text(stringResource(Res.string.feature_home_copy)) }
+                }
+            }
+            val flow = project?.arr("flow").orEmpty()
+            if (flow.isNotEmpty()) Text(stringResource(Res.string.feature_flow_value, flow.joinToString(" → ") { it.toString().trim('"') }))
             announcement?.arr("highlights")?.forEach { item -> Text("· ${(item as? JsonObject)?.str("text") ?: item}") }
             announcement?.arr("artifacts")?.forEach { item ->
                 val artifact = item as? JsonObject ?: return@forEach

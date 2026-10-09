@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.objects
@@ -46,6 +47,7 @@ fun TraceScreen(
     assignmentId: String? = null,
     chatId: String? = null,
     onOpenScreen: (botId: String, tabId: String?) -> Unit = { _, _ -> },
+    onSteer: (assignmentId: String, text: String) -> Unit = { _, _ -> },
     onBack: () -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
@@ -62,10 +64,17 @@ fun TraceScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var fullOutputs by remember { mutableStateOf(emptyMap<String, String>()) }
     var collapsedRuns by remember { mutableStateOf(emptySet<String>()) }
+    var steerText by remember { mutableStateOf("") }
     val fragments = state.traceFragments.filterKeys { it.startsWith("${stream ?: streamKey}:") }
     val scope = rememberCoroutineScope()
     val activeFilter = filter
     val traceError = stringResource(Res.string.feature_trace_error)
+    val currentAssignment = assignmentId?.let { id -> state.assignments.firstOrNull { it.str("id") == id } }
+    val currentBotId = currentAssignment?.str("bot_id").orEmpty()
+    val currentBot = state.bots.firstOrNull { it.str("id") == currentBotId }
+    val currentBotName = state.bots.firstOrNull { it.str("id") == currentBotId }?.str("name").orEmpty().ifBlank { currentBotId }
+    val currentBotLabel = currentBotName.ifBlank { stringResource(Res.string.feature_bot) }
+    val currentTitle = currentAssignment?.str("title").orEmpty().ifBlank { stringResource(Res.string.feature_task) }
 
     LaunchedEffect(streamKey, state.connected) {
         if (streamKey.isBlank() || !state.connected) return@LaunchedEffect
@@ -110,11 +119,26 @@ fun TraceScreen(
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
             Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
-            Text(stringResource(Res.string.feature_trace), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
-            assignmentId?.let { id ->
-                state.assignments.firstOrNull { it.str("id") == id }?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(stringResource(Res.string.feature_trace), style = MaterialTheme.typography.titleLarge)
+                if (assignmentId != null) {
+                    Text(
+                        stringResource(Res.string.feature_trace_assignment_context, currentTitle, currentBotLabel),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        currentAssignment?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+                        if (live) Text(stringResource(Res.string.feature_realtime), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                    }
+                    if (currentBotId.isNotBlank() && (currentBot?.obj("tools")?.boolean("browser") == true || currentBot?.str("browser_mode").orEmpty().isNotBlank())) {
+                        Button(onClick = { onOpenScreen(currentBotId, null) }) { Text(stringResource(Res.string.feature_open_screen)) }
+                    }
+                } else if (live) {
+                    Text(stringResource(Res.string.feature_realtime), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                }
             }
-            if (live) Text(stringResource(Res.string.feature_realtime), color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(8.dp))
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TraceFilter.entries.forEach { candidate ->
@@ -149,13 +173,34 @@ fun TraceScreen(
             }.filter { (activeFilter == null || activeFilter.accept(it)) && (search.isBlank() || it.toString().contains(search, ignoreCase = true)) }, key = { "${it.str("run_id")}:${it.longValue("aseq")}:${it.hashCode()}" }) { item ->
                 TraceItemCard(item, fragments, onOpenScreen, showThinking, showOutput, fullOutputs,
                     onToggleRun = { runId -> collapsedRuns = if (runId in collapsedRuns) collapsedRuns - runId else collapsedRuns + runId },
-                    onFetchFull = { path -> scope.launch { runCatching { repository.fetchText(path, emptyMap()) }.onSuccess { fullOutputs = fullOutputs + (path to it) }.onFailure { error = it.message } } })
+                    onFetchFull = { runId, callId ->
+                        scope.launch {
+                            val key = "$runId:$callId"
+                            runCatching { repository.fetchText("/api/v1/trace/output", mapOf("run_id" to runId, "call_id" to callId)) }
+                                .onSuccess { fullOutputs = fullOutputs + (key to it) }
+                                .onFailure { error = it.message }
+                        }
+                    })
             }
             if (items.isEmpty() && fragments.isEmpty()) item { Text(stringResource(Res.string.feature_no_trace), Modifier.padding(24.dp)) }
         }
         if (assignmentId != null) {
-            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.End) {
-                Button(onClick = { scope.launch { runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", assignmentId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_stop)) }
+            val assignmentStatus = state.assignments.firstOrNull { it.str("id") == assignmentId }?.str("status")
+            val canStop = assignmentStatus in setOf("queued", "working", "waiting_user", "waiting_bot", "blocked")
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = steerText,
+                    onValueChange = { steerText = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    enabled = state.connected && canStop,
+                    label = { Text(stringResource(Res.string.feature_trace_steer_hint)) },
+                )
+                Button(
+                    enabled = state.connected && canStop && steerText.isNotBlank(),
+                    onClick = { onSteer(assignmentId, steerText.trim()); steerText = "" },
+                ) { Text(stringResource(Res.string.feature_trace_steer_action)) }
+                Button(enabled = canStop, onClick = { scope.launch { runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", assignmentId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_stop)) }
             }
         }
     }
@@ -188,7 +233,7 @@ private fun TraceItemCard(
     showOutput: Boolean,
     fullOutputs: Map<String, String>,
     onToggleRun: (String) -> Unit,
-    onFetchFull: (String) -> Unit,
+    onFetchFull: (runId: String, callId: String) -> Unit,
 ) {
     val type = item.str("type").ifBlank { "event" }
     val data = item.obj("data")
@@ -208,8 +253,10 @@ private fun TraceItemCard(
     val parentRunId = data.str("parent_run_id")
     Column(Modifier.fillMaxWidth().padding(start = if (parentRunId.isBlank()) 0.dp else 20.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp)) {
         Row(Modifier.fillMaxWidth()) {
-            Text(summary, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-            if (type == "run.end") data.str("status").takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+            Column(Modifier.weight(1f)) {
+                Text(summary, style = MaterialTheme.typography.titleSmall)
+                if (type == "run.end") data.str("status").takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+            }
             Text(item.str("at"), style = MaterialTheme.typography.labelSmall)
             if (type == "run.start" && item.str("run_id").isNotBlank()) Button(onClick = { onToggleRun(item.str("run_id")) }) { Text("▾") }
         }
@@ -222,16 +269,25 @@ private fun TraceItemCard(
                 }
             }
         }
-        if (type == "tool.end" && showOutput) data.str("details").takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        if (type == "tool.end" && showOutput) (data["details"] as? JsonObject)?.takeIf { it.isNotEmpty() }?.let { details ->
+            Text(details.toString(), style = MaterialTheme.typography.bodySmall)
+        }
         if (type == "tool.end") {
-            val outputPath = data.obj("full_output").str("path").ifBlank { data.obj("full_output").str("url") }
-            if (outputPath.isNotBlank()) {
-                Button(onClick = { onFetchFull(outputPath) }) { Text(stringResource(Res.string.feature_trace_full_output)) }
-                fullOutputs[outputPath]?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            val output = data["full_output"] as? JsonObject
+            val runId = item.str("run_id")
+            val callId = data.str("call_id")
+            if (output != null && runId.isNotBlank() && callId.isNotBlank()) {
+                val outputKey = "$runId:$callId"
+                Button(onClick = { onFetchFull(runId, callId) }) { Text(stringResource(Res.string.feature_trace_full_output)) }
+                fullOutputs[outputKey]?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
         }
-        val runId = item.str("run_id")
-        if (runId.isNotBlank()) fragments.filterKeys { it.contains(runId) }.values.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        val requestId = data.str("request_id")
+        val callId = data.str("call_id")
+        fragments.filterKeys { key ->
+            (requestId.isNotBlank() && key.contains(":$requestId:")) ||
+                (callId.isNotBlank() && key.contains(":$callId:"))
+        }.values.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         if (type == "takeover") {
             val botId = data.str("bot_id")
             Button(onClick = { onOpenScreen(botId, data.str("tab_id").takeIf { it.isNotBlank() }) }) { Text(stringResource(Res.string.feature_open_screen)) }

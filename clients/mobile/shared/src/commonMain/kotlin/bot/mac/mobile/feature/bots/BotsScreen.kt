@@ -1,9 +1,11 @@
 package bot.mac.mobile.feature.bots
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -27,6 +29,7 @@ import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
+import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -95,7 +98,9 @@ fun BotsScreen(
                                 repository.call("bot.create_from_template", buildJsonObject { put("template_id", template.str("id")) })
                             }.onSuccess { result ->
                                 selectedTemplate = null
-                                val id = result.str("id").takeIf { it.isNotBlank() } ?: result.obj("bot").str("id").takeIf { it.isNotBlank() }
+                                val id = result.objects("bots").firstOrNull()?.str("id")?.takeIf { it.isNotBlank() }
+                                    ?: result.str("id").takeIf { it.isNotBlank() }
+                                    ?: result.obj("bot").str("id").takeIf { it.isNotBlank() }
                                 if (id.isNullOrBlank()) listError = templateCreateFailed else onOpenBot(id)
                             }.onFailure {
                                 listError = it.message ?: templateCreateFailed
@@ -123,9 +128,11 @@ private fun BotRow(bot: JsonObject, onOpen: (String) -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(bot.str("label"))
             val summary = status?.str("summary").orEmpty()
-            val summaryLabel = if (summary.isBlank()) stringResource(Res.string.feature_idle) else summary
             val active = status?.str("active").orEmpty().ifBlank { "0" }
-            Text(stringResource(Res.string.feature_assignment_count, summaryLabel, active), style = MaterialTheme.typography.labelSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (summary.isNotBlank()) StatusLabel(summary) else Text(stringResource(Res.string.feature_idle), style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(Res.string.feature_active_count, active), style = MaterialTheme.typography.labelSmall)
+            }
         }
         if (bot.boolean("is_main")) Text(stringResource(Res.string.feature_bot_main), style = MaterialTheme.typography.labelSmall)
         Button(onClick = { onOpen(id) }) { Text(stringResource(Res.string.feature_edit)) }
@@ -154,6 +161,7 @@ fun BotEditorScreen(
     var emoji by remember(botId) { mutableStateOf(existing?.obj("avatar")?.str("emoji") ?: "") }
     var tools by remember(botId) { mutableStateOf(mapOf("files" to true, "bash" to true, "browser" to true, "subagent" to false, "web" to true, "mcp" to false).mapValues { (key, fallback) -> existing?.obj("tools")?.boolean(key) ?: fallback }) }
     var error by remember { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val saveFailed = stringResource(Res.string.feature_save_failed)
     val duplicateName = stringResource(Res.string.feature_copy_suffix, name.trim())
@@ -170,6 +178,21 @@ fun BotEditorScreen(
         OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_label)) })
         OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text(stringResource(Res.string.feature_description)) })
         OutlinedTextField(model, { model = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_model_optional)) })
+        if (state.models.isNotEmpty()) {
+            Text(stringResource(Res.string.feature_model_choices), style = MaterialTheme.typography.labelSmall)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                state.models.forEach { candidate ->
+                    val ref = candidate.str("ref")
+                    if (ref.isNotBlank()) {
+                        FilterChip(
+                            selected = model == ref,
+                            onClick = { model = if (model == ref) "" else ref },
+                            label = { Text(candidate.str("display_name").ifBlank { ref }) },
+                        )
+                    }
+                }
+            }
+        }
         if (!isMainBot) {
             OutlinedTextField(maxParallel, { maxParallel = it.filter(Char::isDigit) }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_parallel_limit)) })
             OutlinedTextField(browser, { browser = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_browser_mode)) })
@@ -215,8 +238,22 @@ fun BotEditorScreen(
         }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_save)) }
         if (botId != null && !isMainBot) {
             Button(onClick = { scope.launch { runCatching { repository.call("bot.duplicate", buildJsonObject { put("bot_id", botId); put("name", duplicateName) }) }.onSuccess { onSaved() }.onFailure { error = it.message ?: saveFailed } } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_duplicate)) }
-            Button(onClick = { scope.launch { runCatching { repository.call("bot.delete", buildJsonObject { put("bot_id", botId) }) }.onSuccess { onBack() }.onFailure { error = it.message ?: saveFailed } } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_delete_bot)) }
+            Button(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_delete_bot)) }
         }
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(Res.string.feature_delete_bot)) },
+            text = { Text(stringResource(Res.string.feature_delete_confirm, name.trim())) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    scope.launch { runCatching { repository.call("bot.delete", buildJsonObject { put("bot_id", botId) }) }.onSuccess { onBack() }.onFailure { error = it.message ?: saveFailed } }
+                }) { Text(stringResource(Res.string.feature_delete_confirm_action)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(Res.string.common_cancel)) } },
+        )
     }
 }
 

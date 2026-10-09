@@ -1,6 +1,7 @@
 package bot.mac.mobile.feature.trace
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -47,6 +49,12 @@ fun HistoryAssignmentScreen(
     onBack: () -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
+    val contextChat = chatId?.let { id -> state.chats.firstOrNull { it.str("id") == id } }
+    val contextProjectId = contextChat?.takeIf { it.str("kind") == "project" }?.str("project_id")?.takeIf { it.isNotBlank() }
+    val queryProjectId = contextProjectId?.takeIf { botId == null }
+    val contextBotId = botId ?: contextChat?.takeIf { it.str("kind") == "main" || it.str("kind") == "direct" }
+        ?.str("bot_id")?.takeIf { it.isNotBlank() }
+    val contextReady = botId != null || chatId == null || contextChat != null
     var status by remember { mutableStateOf<String?>(null) }
     var assignments by remember { mutableStateOf(emptyList<kotlinx.serialization.json.JsonObject>()) }
     var nextCursor by remember { mutableStateOf<String?>(null) }
@@ -60,6 +68,8 @@ fun HistoryAssignmentScreen(
         "waiting_user" to stringResource(Res.string.feature_history_waiting_user),
         "waiting_bot" to stringResource(Res.string.feature_history_waiting_bot),
         "blocked" to stringResource(Res.string.feature_history_blocked),
+        "done" to stringResource(Res.string.feature_history_done),
+        "stopped" to stringResource(Res.string.feature_history_stopped),
     )
 
     suspend fun load(reset: Boolean) {
@@ -68,8 +78,8 @@ fun HistoryAssignmentScreen(
         error = null
         runCatching {
             repository.call("assignment.list", buildJsonObject {
-                chatId?.let { put("chat_id", it) }
-                botId?.let { put("bot_id", it) }
+                queryProjectId?.let { put("project_id", it) }
+                if (queryProjectId == null) contextBotId?.let { put("bot_id", it) }
                 status?.let { selected ->
                     put("status", buildJsonArray { add(JsonPrimitive(selected)) })
                 }
@@ -84,8 +94,8 @@ fun HistoryAssignmentScreen(
         loading = false
     }
 
-    LaunchedEffect(chatId, botId, status, state.connected) {
-        if (state.connected) {
+    LaunchedEffect(chatId, botId, queryProjectId, contextBotId, status, state.connected) {
+        if (state.connected && contextReady) {
             nextCursor = null
             assignments = emptyList()
             load(reset = true)
@@ -97,7 +107,7 @@ fun HistoryAssignmentScreen(
             Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
             Text(stringResource(Res.string.feature_history_title), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             statusOptions.forEach { (value, label) ->
                 FilterChip(selected = status == value, onClick = { status = value }, label = { Text(label) })
             }
