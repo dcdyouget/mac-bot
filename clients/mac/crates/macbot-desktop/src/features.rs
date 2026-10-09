@@ -2535,18 +2535,27 @@ fn heatmap(
 }
 
 fn heatmap_color(value: f64, thresholds: &[Value], tokens: &Tokens) -> gpui_kit::Hsla {
-    if value == 0. {
-        tokens.bot
-    } else if thresholds.len() >= 3 {
-        match value {
-            value if value <= thresholds[0].as_f64().unwrap_or(value) => tokens.sidebar,
-            value if value <= thresholds[1].as_f64().unwrap_or(value) => tokens.success,
-            value if value <= thresholds[2].as_f64().unwrap_or(value) => tokens.accent,
-            _ => tokens.primary,
-        }
-    } else {
-        tokens.accent
+    heatmap_palette_color(value, thresholds, tokens.bot, &tokens.heatmap_activity)
+}
+
+fn heatmap_palette_color(
+    value: f64,
+    thresholds: &[Value],
+    zero: gpui_kit::Hsla,
+    activity: &[gpui_kit::Hsla; 4],
+) -> gpui_kit::Hsla {
+    if value <= 0. || !value.is_finite() {
+        return zero;
     }
+    let level = if thresholds.len() >= 3 {
+        thresholds[..3]
+            .iter()
+            .position(|threshold| value <= threshold.as_f64().unwrap_or(value))
+            .unwrap_or(3)
+    } else {
+        0
+    };
+    activity[level]
 }
 
 fn usage_day_timeseries_params(data: &Value, day: &str) -> Value {
@@ -4538,6 +4547,38 @@ fn string(data: &Value, key: &str, fallback: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sparse_heatmap_keeps_nonzero_days_distinct_from_empty_days() {
+        let zero: Hsla = gpui_kit::rgb(0xefeff1).into();
+        let activity = Tokens::activity_colors();
+        let tied = vec![json!(203858), json!(203858), json!(203858)];
+        assert_eq!(heatmap_palette_color(0., &tied, zero, &activity), zero);
+        let active = heatmap_palette_color(203858., &tied, zero, &activity);
+        assert_eq!(active, activity[0]);
+        assert_ne!(active, zero);
+        assert_eq!(heatmap_palette_color(1., &[], zero, &activity), active);
+    }
+
+    #[test]
+    fn heatmap_quantiles_use_four_increasing_intensities_of_one_activity_color() {
+        let zero: Hsla = gpui_kit::rgb(0x2c2c2e).into();
+        let activity = Tokens::activity_colors();
+        let thresholds = vec![json!(10), json!(20), json!(30)];
+        for (value, expected) in [10., 20., 30., 31.].into_iter().zip(activity) {
+            let color = heatmap_palette_color(value, &thresholds, zero, &activity);
+            assert_eq!(color, expected);
+            assert_ne!(color, zero);
+            assert_eq!(color.h, activity[0].h);
+            assert_eq!(color.s, activity[0].s);
+        }
+        assert!(activity.windows(2).all(|pair| pair[0].a < pair[1].a));
+        assert_eq!(activity[3].a, 1.);
+        assert_eq!(
+            heatmap_palette_color(0., &thresholds, zero, &activity),
+            zero
+        );
+    }
 
     #[test]
     fn feature_actions_keep_rpc_payload() {

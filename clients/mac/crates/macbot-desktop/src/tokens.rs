@@ -13,6 +13,7 @@ pub struct Tokens {
     pub secondary: Hsla,
     pub accent: Hsla,
     pub success: Hsla,
+    pub heatmap_activity: [Hsla; 4],
     pub attention: Hsla,
     pub danger: Hsla,
     pub code: Hsla,
@@ -32,11 +33,16 @@ impl Tokens {
             secondary: color(0x86868b, 0x98989d),
             accent: color(0x2f7bf6, 0x4c8dff),
             success: rgb(0x34c759).into(),
+            heatmap_activity: Self::activity_colors(),
             attention: rgb(0xff9f0a).into(),
             danger: rgb(0xff3b30).into(),
             code: color(0xd63a5b, 0xff6b8a),
             border: cx.theme().border,
         }
+    }
+    pub fn activity_colors() -> [Hsla; 4] {
+        let activity: Hsla = rgb(0x34c759).into();
+        [0.35, 0.55, 0.75, 1.0].map(|opacity| activity.opacity(opacity))
     }
     pub fn bean(color: u64) -> Hsla {
         const COLORS: [u32; 10] = [
