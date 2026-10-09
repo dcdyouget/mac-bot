@@ -168,6 +168,9 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
             ("takeover", scenario.get("takeover_marker", "")),
             ("question", scenario.get("question_marker", "")),
             ("notify", scenario.get("notify_marker", "")),
+            ("decision", scenario.get("decision_marker", "")),
+            ("bot_decision", scenario.get("bot_decision_marker", "")),
+            ("blocked", scenario.get("blocked_marker", "")),
         )
 
         def latest_scenario_marker() -> str | None:
@@ -189,6 +192,19 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
             message.get("role") == "system" and "\n总管\n" in message.get("content", "")
             for message in messages
         )
+        # A coordinator following a blocked worker has a different task from
+        # the worker itself. Do not replay that worker's earlier marker from
+        # group history and manufacture another blocked coordinator.
+        main_attention = is_main_bot and any(
+            "跟进阻塞任务" in message.get("content", "")
+            or "主 Bot 请跟进" in message.get("content", "")
+            or "主 Bot 跟进任务：" in message.get("content", "")
+            for message in [m for m in messages if m.get("role") == "user"][-3:]
+        )
+        if main_attention:
+            if "send_msg" not in called:
+                return "send_msg", {"intent":"done", "text":"主 Bot 已记录阻塞并跟进", "mentions":[]}
+            return None
         project_id = self._tool_project_id(messages) or scenario.get("project_id")
         if project_id:
             scenario["project_id"] = project_id
@@ -196,11 +212,52 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
         if project_chat_id:
             scenario["project_chat_id"] = project_chat_id
         decision_marker = scenario.get("decision_marker", "")
+        bot_decision_marker = scenario.get("bot_decision_marker", "")
         blocked_marker = scenario.get("blocked_marker", "")
-        decision_active = decision_marker in latest_user or (
-            "用户确认继续" in latest_user and decision_marker in prompt
+        active_marker = latest_scenario_marker()
+        decision_child_instruction = scenario.get("decision_child_instruction", "")
+        decision_child_active = bool(decision_child_instruction) and decision_child_instruction in latest_user
+        if decision_child_active and "send_msg" not in called:
+            return "send_msg", {
+                "intent": "done",
+                "text": "决策子任务已快速完成",
+                "mentions": [],
+                "artifacts": [{
+                    "title": "决策子任务回执",
+                    "path_or_url": scenario.get("decision_child_artifact_path", ""),
+                }],
+            }
+        bot_decision_active = (active_marker == "bot_decision" and (
+            latest_user.strip() == bot_decision_marker or "等待子任务自动恢复" in latest_user
+        )) or (
+            latest_user.strip() == "决策子任务已快速完成" and bot_decision_marker in prompt
         )
-        blocked_active = blocked_marker in latest_user or (
+        if bot_decision_active:
+            if "send_msg" not in called:
+                return "send_msg", {
+                    "intent": "decision",
+                    "text": "等待决策子任务完成",
+                    "mentions": [{
+                        "kind": "bot",
+                        "bot_id": scenario["decision_child_bot_id"],
+                        "instruction": decision_child_instruction,
+                    }],
+                }
+            if "决策子任务已快速完成" in prompt:
+                return "send_msg", {
+                    "intent": "done",
+                    "text": "子任务完成，父任务自动恢复",
+                    "mentions": [],
+                }
+            return None
+        decision_active = (active_marker == "decision" and (
+            latest_user.strip() == decision_marker or "等待用户确认部署" in latest_user
+        )) or (
+            latest_user.strip() == "继续" and decision_marker in prompt
+        )
+        blocked_active = (active_marker == "blocked" and (
+            latest_user.strip() == blocked_marker or "等待生产凭据" in latest_user
+        )) or (
             "用户已处理阻塞" in latest_user and blocked_marker in prompt
         )
         # Project chat history contains both waiting scenarios.  Use the
@@ -212,8 +269,9 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                     "intent": "decision",
                     "text": "需要用户确认是否继续部署",
                     "options": ["继续", "停止"],
+                    "mentions": ["user"],
                 }
-            if "用户确认继续" in prompt:
+            if latest_user.strip() == "继续":
                 return "send_msg", {
                     "intent": "done",
                     "text": "用户已确认，决策任务完成",
@@ -234,7 +292,6 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                     "mentions": [],
                 }
             return None
-        active_marker = latest_scenario_marker()
         takeover_active = active_marker == "takeover"
         if takeover_active and "request_takeover" in called:
             return None
@@ -367,12 +424,16 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                     "member_bot_ids": [scenario["product_id"], scenario["coder_id"], scenario["tester_id"]],
                     "flow": ["产品", "编码", "测试"],
                 }
-            if "assign" not in called:
-                return "assign", {
-                    "bot_id": scenario["product_id"],
-                    "project_id": project_id,
-                    "title": "模型派发产品分析",
-                    "instruction": scenario["product_instruction"],
+            if "send_msg" not in called:
+                return "send_msg", {
+                    "intent": "progress",
+                    "text": "目标：模型驱动协作 smoke；流程：产品 → 编码 → 测试。请产品 Bot 开始分析。",
+                    "chat_id": scenario["project_chat_id"],
+                    "mentions": [{
+                        "kind": "bot",
+                        "bot_id": scenario["product_id"],
+                        "instruction": scenario["product_instruction"],
+                    }],
                 }
             if "delegate" not in called:
                 return "delegate", {
@@ -631,7 +692,10 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         "takeover_marker": f"model-takeover-{suffix}",
         "question_marker": f"model-question-{suffix}",
         "decision_marker": f"model-decision-{suffix}",
+        "bot_decision_marker": f"model-bot-decision-{suffix}",
         "blocked_marker": f"model-blocked-{suffix}",
+        "decision_child_instruction": f"决策子任务-{suffix}",
+        "decision_child_artifact_path": f"/tmp/macbot-decision-child-{suffix}.md",
         "project_name": f"模型协作-{suffix}",
         "product_id": product["id"],
         "coder_id": coder["id"],
@@ -639,6 +703,7 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         "product_instruction": "产品阶段模型驱动协作 smoke",
         "coder_instruction": "编码阶段模型驱动协作 smoke",
         "tester_instruction": "测试阶段模型驱动协作 smoke",
+        "decision_child_bot_id": tester["id"],
         "suffix": suffix,
     }
 
@@ -784,6 +849,13 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
 
     wait_until(model_review_ready, "model-driven project review", 45)
     model_project_chat = FakeProviderHandler.scenario["project_chat_id"]
+    opening_history = rpc(base, password, "chat.history", {"chat_id":model_project_chat, "after_seq":0, "limit":500})["messages"]
+    openings = [message for message in opening_history if message.get("sender", {}).get("bot_id") == "main"
+                and any(mention.get("bot_id") == product["id"] for mention in message.get("mentions", []))
+                and "模型驱动协作 smoke" in message.get("fallback_text", "")
+                and "产品 → 编码 → 测试" in message.get("fallback_text", "")]
+    assert len(openings) == 1, openings
+    assert all(block.get("type") != "task_card" for block in openings[0]["blocks"]), openings[0]
 
     def main_review_cards() -> list[dict[str, Any]]:
         history = rpc(
@@ -1191,6 +1263,55 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         )
         assert_ack(start, project_chat)
 
+        decision_question: dict[str, Any] | None = None
+
+        def find_decision_question(target: dict[str, Any]) -> dict[str, Any] | None:
+            """Require a decision to be visible in the durable/UI surfaces."""
+            if reason != "decision":
+                return None
+            bootstrap = rpc(base, password, "bootstrap")
+            pending_questions = bootstrap.get("pending", {}).get("questions", [])
+            pending = next(
+                (
+                    item
+                    for item in pending_questions
+                    if item.get("state") == "pending"
+                    and item.get("assignment_id") == target["id"]
+                    and item.get("options") == ["继续", "停止"]
+                ),
+                None,
+            )
+            if pending is None or not isinstance(pending.get("id"), str):
+                return None
+            question_id = pending["id"]
+            history = rpc(
+                base,
+                password,
+                "chat.history",
+                {"chat_id": project_chat, "after_seq": 0, "limit": 500},
+            )
+            question_blocks = [
+                block
+                for message in history.get("messages", [])
+                if message.get("assignment_id") == target["id"]
+                for block in message.get("blocks", [])
+                if block.get("type") == "question" and block.get("question_id") == question_id
+            ]
+            if len(question_blocks) != 1:
+                return None
+            workbench = rpc(base, password, "workbench.get", {})
+            workbench = workbench.get("workbench", workbench)
+            waiting = [
+                item
+                for item in workbench.get("waiting", [])
+                if item.get("kind") == "question"
+                and item.get("question", {}).get("id") == question_id
+                and item.get("question", {}).get("assignment_id") == target["id"]
+            ]
+            if len(waiting) != 1:
+                return None
+            return pending
+
         def waiting_target() -> tuple[dict[str, Any], dict[str, Any]] | None:
             assignments = rpc(base, password, "assignment.list", {"limit": 100})["items"]
             target = next(
@@ -1215,6 +1336,12 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
             )
             if wait is None:
                 return None
+            if reason == "decision":
+                question = find_decision_question(target)
+                if question is None:
+                    return None
+                nonlocal decision_question
+                decision_question = question
             return target, wait
 
         holder: list[tuple[dict[str, Any], dict[str, Any]]] = []
@@ -1245,28 +1372,48 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
             llm_requests_while_waiting,
         )
 
-        reply_result = rpc(
-            base,
-            password,
-            "chat.send",
-            {
-                "chat_id": project_chat,
-                "assignment_id": target["id"],
-                "text": reply,
-                "mentions": [],
-                "client_request_id": f"reply-{reason}-{suffix}",
-            },
-        )
-        assert_ack(reply_result, project_chat)
+        if reason == "decision":
+            assert decision_question is not None
+            answered = rpc(
+                base,
+                password,
+                "question.answer",
+                {
+                    "question_id": decision_question["id"],
+                    "option_index": 0,
+                    "client_request_id": f"answer-decision-{suffix}",
+                },
+            )
+            answered_question = answered.get("question", answered)
+            assert answered_question.get("id") == decision_question["id"], answered
+            assert answered_question.get("state") == "answered", answered
+        else:
+            reply_result = rpc(
+                base,
+                password,
+                "chat.send",
+                {
+                    "chat_id": project_chat,
+                    "assignment_id": target["id"],
+                    "text": reply,
+                    "mentions": [],
+                    "client_request_id": f"reply-{reason}-{suffix}",
+                },
+            )
+            assert_ack(reply_result, project_chat)
 
         def resumed_done() -> bool:
             traces = rpc(base, password, "trace.history", {"assignment_id": target["id"], "limit": 500})["items"]
-            return any(item.get("type") == "run.resume" and item.get("run_id") == run_id for item in traces) and any(
+            resumed = any(item.get("type") == "run.resume" and item.get("run_id") == run_id for item in traces)
+            ended = any(
                 item.get("type") == "run.end"
                 and item.get("run_id") == run_id
                 and item.get("data", {}).get("status") == "done"
                 for item in traces
             )
+            assignments = rpc(base, password, "assignment.list", {"limit": 500})["items"]
+            assignment = next((item for item in assignments if item.get("id") == target["id"]), None)
+            return resumed and ended and assignment is not None and assignment.get("status") == "done"
 
         wait_until(resumed_done, f"model {reason} waiting message resume", 45)
         traces = rpc(base, password, "trace.history", {"assignment_id": target["id"], "limit": 500})["items"]
@@ -1279,8 +1426,133 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         return {
             "run_id": run_id,
             "assignment_id": target["id"],
+            "question_id": decision_question["id"] if decision_question is not None else None,
+            "answer_method": "question.answer" if reason == "decision" else "chat.send",
             "provider_calls_at_wait": FakeProviderHandler.calls,
             "llm_requests_at_wait": llm_requests_at_wait,
+        }
+
+    def exercise_bot_decision(marker: str, instruction: str) -> dict[str, Any]:
+        """Verify a no-options Bot decision wakes its parent automatically."""
+        start = rpc(
+            base,
+            password,
+            "chat.send",
+            {
+                "chat_id": project_chat,
+                "text": marker,
+                "mentions": [{"kind": "bot", "bot_id": coder["id"], "instruction": instruction}],
+                "client_request_id": f"bot-decision-{suffix}",
+            },
+        )
+        assert_ack(start, project_chat)
+        parent_holder: list[tuple[dict[str, Any], dict[str, Any]]] = []
+
+        def parent_waiting() -> bool:
+            assignments = rpc(base, password, "assignment.list", {"limit": 500})["items"]
+            parent = next(
+                (
+                    item
+                    for item in assignments
+                    if item.get("bot_id") == coder["id"] and item.get("instruction") == instruction
+                ),
+                None,
+            )
+            if parent is None:
+                return False
+            traces = rpc(base, password, "trace.history", {"assignment_id": parent["id"], "limit": 500})["items"]
+            wait = next(
+                (
+                    item
+                    for item in traces
+                    if item.get("type") == "run.wait"
+                    and item.get("data", {}).get("reason") == "decision"
+                ),
+                None,
+            )
+            if wait is None:
+                return False
+            pending = rpc(base, password, "bootstrap").get("pending", {}).get("questions", [])
+            if any(item.get("assignment_id") == parent["id"] for item in pending):
+                return False
+            parent_holder[:] = [(parent, wait)]
+            return True
+
+        wait_until(parent_waiting, "Bot decision parent waiting without Question", 45)
+        parent, wait = parent_holder[-1]
+        run_id = wait["run_id"]
+        child_holder: list[dict[str, Any]] = []
+
+        def child_done() -> bool:
+            assignments = rpc(base, password, "assignment.list", {"limit": 500})["items"]
+            children = [
+                item
+                for item in assignments
+                if item.get("parent_assignment_id") == parent["id"]
+                and item.get("bot_id") == FakeProviderHandler.scenario["decision_child_bot_id"]
+                and item.get("instruction") == FakeProviderHandler.scenario["decision_child_instruction"]
+            ]
+            if len(children) != 1 or children[0].get("status") != "done":
+                return False
+            child = children[0]
+            traces = rpc(base, password, "trace.history", {"assignment_id": child["id"], "limit": 500})["items"]
+            if not any(
+                item.get("type") == "tool.start"
+                and item.get("data", {}).get("name") == "send_msg"
+                for item in traces
+            ) or not any(
+                item.get("type") == "run.end"
+                and item.get("data", {}).get("status") == "done"
+                for item in traces
+            ):
+                return False
+            history = rpc(
+                base,
+                password,
+                "chat.history",
+                {"chat_id": project_chat, "after_seq": 0, "limit": 500},
+            )
+            if not any(
+                message.get("assignment_id") == child["id"]
+                and message.get("intent") == "done"
+                for message in history.get("messages", [])
+            ):
+                return False
+            child_holder[:] = [child]
+            return True
+
+        wait_until(child_done, "Bot decision child completion", 45)
+        child = child_holder[-1]
+
+        def parent_resumed_done() -> bool:
+            traces = rpc(base, password, "trace.history", {"assignment_id": parent["id"], "limit": 500})["items"]
+            resumed = any(item.get("type") == "run.resume" and item.get("run_id") == run_id for item in traces)
+            ended = any(
+                item.get("type") == "run.end"
+                and item.get("run_id") == run_id
+                and item.get("data", {}).get("status") == "done"
+                for item in traces
+            )
+            assignments = rpc(base, password, "assignment.list", {"limit": 500})["items"]
+            current_parent = next((item for item in assignments if item.get("id") == parent["id"]), None)
+            return resumed and ended and current_parent is not None and current_parent.get("status") == "done"
+
+        wait_until(parent_resumed_done, "Bot decision parent automatic resume", 45)
+        traces = rpc(base, password, "trace.history", {"assignment_id": parent["id"], "limit": 500})["items"]
+        pending = rpc(base, password, "bootstrap").get("pending", {}).get("questions", [])
+        assert not any(item.get("assignment_id") == parent["id"] for item in pending), pending
+        parent_send_calls = sum(
+            1
+            for item in traces
+            if item.get("type") == "tool.start" and item.get("data", {}).get("name") == "send_msg"
+        )
+        assert parent_send_calls == 2, traces
+        return {
+            "run_id": run_id,
+            "assignment_id": parent["id"],
+            "child_assignment_id": child["id"],
+            "answer_method": "automatic_child_resume",
+            "parent_send_calls": parent_send_calls,
         }
 
     decision_wait = exercise_waiting_message(
@@ -1288,6 +1560,10 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         "等待用户确认部署",
         "decision",
         "用户确认继续",
+    )
+    bot_decision_wait = exercise_bot_decision(
+        FakeProviderHandler.scenario["bot_decision_marker"],
+        "等待子任务自动恢复",
     )
     blocked_wait = exercise_waiting_message(
         FakeProviderHandler.scenario["blocked_marker"],
@@ -1603,6 +1879,7 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         "project_id": FakeProviderHandler.scenario["project_id"],
         "checks": {
             "three_phase_product_coder_tester": True,
+            "main_opening_and_product_dispatch": True,
             "project_cards_and_canonical_completion": True,
             "artifact_summary_memory": True,
             "assignment_project_filter": True,
@@ -1610,12 +1887,18 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
             "main_delegate_and_bot_dm": True,
             "steer_waiting": True,
             "question_takeover_decision_blocked": True,
+            "decision_question_wire": decision_wait["answer_method"] == "question.answer"
+            and bool(decision_wait["question_id"]),
+            "decision_question_parent_resume": decision_wait["answer_method"] == "question.answer",
+            "decision_bot_parent_child_resume": bot_decision_wait["answer_method"] == "automatic_child_resume"
+            and bool(bot_decision_wait["child_assignment_id"]),
             "subagent_trace": True,
         },
         "assignment_status_counts": counts(final_assignments),
         "job_status_counts": counts(final_jobs),
         "parallel_assignments": parallel_assignments,
         "decision_wait": decision_wait,
+        "bot_decision_wait": bot_decision_wait,
         "blocked_wait": blocked_wait,
         "usage_requests": usage["current"]["requests"],
         "provider_calls": FakeProviderHandler.calls,
