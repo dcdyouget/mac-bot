@@ -14,12 +14,14 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import bot.mac.mobile.core.state.AppRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
 
 private const val NOTIFICATION_LEDGER_PREFS = "macbot_notification_ledger"
 
@@ -27,7 +29,14 @@ object MacBotNotifications {
     const val CHANNEL_NEEDS_YOU = "needs-you"
     const val CHANNEL_COMPLETED = "completed"
     const val CHANNEL_MESSAGES = "messages"
+    internal const val DELIVERY_KEY = "macbot.delivery.key"
+    internal const val DELIVERY_MARKER = "macbot.delivery.marker"
     private const val ACTION_APPROVAL = "bot.mac.mobile.APPROVAL_ACTION"
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val wake = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    private val workerLock = Any()
+    private var coordinator: NotificationDeliveryCoordinator? = null
+    private var worker: kotlinx.coroutines.Job? = null
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -42,122 +51,127 @@ object MacBotNotifications {
         )
     }
 
-    fun postNeedsYou(
-        context: Context,
-        hostId: String,
-        approvalId: String,
-        title: String,
-        text: String,
-        eventSeq: Long? = null,
+    suspend fun postNeedsYou(context: Context, hostId: String, approvalId: String, title: String, text: String, eventSeq: Long? = null) =
+        enqueue(context, PendingNotification(NotificationKind.APPROVAL, hostId, approvalId, title, text, eventSeq))
+
+    suspend fun postCompleted(
+        context: Context, hostId: String, id: String, title: String, text: String,
+        eventSeq: Long? = null, projectId: String? = null, chatId: String? = null,
     ) {
-        if (!canNotify(context) || !NotificationLedger.accept(context, "$hostId:approval:$approvalId", eventSeq)) return
-        ensureChannels(context)
-        val builder = NotificationCompat.Builder(context, CHANNEL_NEEDS_YOU)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(activityIntent(context, "approval", approvalId, hostId))
-            .addAction(action(context, hostId, approvalId, "allow_once", R.string.approval_allow_once))
-            .addAction(action(context, hostId, approvalId, "always_allow", R.string.approval_always_allow))
-            .addAction(action(context, hostId, approvalId, "deny", R.string.approval_reject))
-        notify(context, (hostId + approvalId).hashCode(), builder)
+        if (projectId.isNullOrBlank() && chatId.isNullOrBlank()) return
+        enqueue(context, PendingNotification(NotificationKind.COMPLETED, hostId, id, title, text, eventSeq, projectId, chatId))
     }
 
-    fun postCompleted(
-        context: Context,
-        hostId: String,
-        id: String,
-        title: String,
-        text: String,
-        eventSeq: Long? = null,
-        projectId: String? = null,
-        chatId: String? = null,
+    suspend fun postMessage(
+        context: Context, hostId: String, id: String, title: String, text: String,
+        chatId: String? = null, muted: Boolean = false, botNotifications: Boolean = true, eventSeq: Long? = null,
     ) {
-        val reviewId = projectId?.takeIf { it.isNotBlank() }
-        val chatTarget = chatId?.takeIf { it.isNotBlank() }
-        val targetId = reviewId ?: chatTarget ?: return
-        if (!canNotify(context) || !NotificationLedger.accept(context, "$hostId:completed:$id", eventSeq)) return
-        ensureChannels(context)
-        val builder = NotificationCompat.Builder(context, CHANNEL_COMPLETED)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setAutoCancel(true)
-            .setContentIntent(activityIntent(context, if (reviewId != null) "review" else "chat", targetId, hostId))
-        reviewId?.let { builder.addAction(reviewAction(context, hostId, it)) }
-        notify(context, (hostId + id).hashCode(), builder)
+        if (muted || !botNotifications) return
+        enqueue(context, PendingNotification(NotificationKind.MESSAGE, hostId, id, title, text, eventSeq, chatId = chatId))
     }
 
-    fun postMessage(
-        context: Context,
-        hostId: String,
-        id: String,
-        title: String,
-        text: String,
-        chatId: String? = null,
-        muted: Boolean = false,
-        botNotifications: Boolean = true,
-        eventSeq: Long? = null,
-    ) {
-        if (muted || !botNotifications || !canNotify(context) ||
-            !NotificationLedger.accept(context, "$hostId:message:$id", eventSeq)
-        ) return
-        ensureChannels(context)
-        val builder = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
-            .setSmallIcon(android.R.drawable.sym_action_chat)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setAutoCancel(true)
-        chatId?.let { builder.setContentIntent(activityIntent(context, "chat", it, hostId)) }
-        notify(context, (hostId + id).hashCode(), builder)
+    suspend fun postNeedsYouEvent(
+        context: Context, hostId: String, id: String, title: String, text: String,
+        deepLinkKind: String, deepLinkId: String, eventSeq: Long? = null,
+    ) = enqueue(context, PendingNotification(
+        NotificationKind.NEEDS_YOU, hostId, id, title, text, eventSeq,
+        deepLinkKind = deepLinkKind, deepLinkId = deepLinkId,
+    ))
+
+    private suspend fun enqueue(context: Context, request: PendingNotification) {
+        if (!AppRuntime.repository.notifications.value) return
+        delivery(context).enqueue(request)
+        resumePending(context)
     }
 
-    /** Called by the event collector for needs-you events other than approvals. */
-    fun postNeedsYouEvent(
-        context: Context,
-        hostId: String,
-        id: String,
-        title: String,
-        text: String,
-        deepLinkKind: String,
-        deepLinkId: String,
-        eventSeq: Long? = null,
-    ) {
-        if (!canNotify(context) || !NotificationLedger.accept(context, "$hostId:needs:$id", eventSeq)) return
-        ensureChannels(context)
-        val builder = NotificationCompat.Builder(context, CHANNEL_NEEDS_YOU)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(activityIntent(context, deepLinkKind, deepLinkId, hostId))
-        notify(context, (hostId + id).hashCode(), builder)
+    private fun delivery(context: Context): NotificationDeliveryCoordinator = synchronized(workerLock) {
+        coordinator ?: NotificationDeliveryCoordinator(
+            AndroidNotificationDeliveryStore(context.applicationContext),
+            AndroidNotificationDeliveryBackend(context.applicationContext),
+        ).also { coordinator = it }
     }
 
-    private fun canNotify(context: Context): Boolean =
-        Build.VERSION.SDK_INT < 33 || NotificationManagerCompat.from(context).areNotificationsEnabled()
-
-    private fun notify(context: Context, id: Int, builder: NotificationCompat.Builder) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
-        try {
-            NotificationManagerCompat.from(context).notify(id, builder.build())
-        } catch (_: SecurityException) {
-            // Notification permission may be revoked after the explicit check.
+    /** Called after repository settings initialize; never runs against a stale toggle. */
+    fun resumePending(context: Context) {
+        val delivery = delivery(context)
+        synchronized(workerLock) {
+            if (worker?.isActive != true) worker = scope.launch {
+                while (kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.isActive == true) {
+                    wake.receive()
+                    var retryMillis = 1_000L
+                    do {
+                        val remaining = try {
+                            delivery.deliverPending()
+                        } catch (failure: Throwable) {
+                            if (failure is kotlinx.coroutines.CancellationException) throw failure
+                            // Log metadata only. The durable queue retains rejected deliveries.
+                            android.util.Log.w("MacBotNotifications", "Notification delivery deferred: ${failure.javaClass.simpleName}")
+                            true
+                        }
+                        if (remaining) {
+                            kotlinx.coroutines.delay(retryMillis)
+                            retryMillis = (retryMillis * 2).coerceAtMost(30_000L)
+                        }
+                    } while (remaining)
+                }
+            }
         }
+        wake.trySend(Unit)
     }
+
+    internal fun notification(context: Context, request: PendingNotification): android.app.Notification {
+        val channel = when (request.kind) {
+            NotificationKind.APPROVAL, NotificationKind.NEEDS_YOU -> CHANNEL_NEEDS_YOU
+            NotificationKind.COMPLETED -> CHANNEL_COMPLETED
+            NotificationKind.MESSAGE -> CHANNEL_MESSAGES
+        }
+        val icon = when (request.kind) {
+            NotificationKind.APPROVAL, NotificationKind.NEEDS_YOU -> android.R.drawable.ic_dialog_alert
+            NotificationKind.COMPLETED -> android.R.drawable.stat_sys_download_done
+            NotificationKind.MESSAGE -> android.R.drawable.sym_action_chat
+        }
+        val extras = android.os.Bundle().apply {
+            putString(DELIVERY_KEY, request.ledgerKey)
+            putString(DELIVERY_MARKER, request.marker)
+        }
+        val builder = NotificationCompat.Builder(context, channel)
+            .setSmallIcon(icon)
+            .setContentTitle(request.title)
+            .setContentText(request.text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(request.text))
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(request.kind != NotificationKind.MESSAGE)
+            .addExtras(extras)
+        when (request.kind) {
+            NotificationKind.APPROVAL -> {
+                builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setContentIntent(activityIntent(context, "approval", request.id, request.hostId))
+                    .addAction(action(context, request.hostId, request.id, "allow_once", R.string.approval_allow_once))
+                    .addAction(action(context, request.hostId, request.id, "always_allow", R.string.approval_always_allow))
+                    .addAction(action(context, request.hostId, request.id, "deny", R.string.approval_reject))
+            }
+            NotificationKind.NEEDS_YOU -> builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(activityIntent(context, requireNotNull(request.deepLinkKind), requireNotNull(request.deepLinkId), request.hostId))
+            NotificationKind.COMPLETED -> {
+                val project = request.projectId?.takeIf { it.isNotBlank() }
+                val target = project ?: requireNotNull(request.chatId)
+                builder.setContentIntent(activityIntent(context, if (project != null) "review" else "chat", target, request.hostId))
+                project?.let { builder.addAction(reviewAction(context, request.hostId, it)) }
+            }
+            NotificationKind.MESSAGE -> request.chatId?.let {
+                builder.setContentIntent(activityIntent(context, "chat", it, request.hostId))
+            }
+        }
+        return builder.build()
+    }
+
+    internal fun canNotify(context: Context): Boolean = NotificationManagerCompat.from(context).areNotificationsEnabled() &&
+        (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
 
     private fun action(context: Context, hostId: String, approvalId: String, action: String, label: Int): NotificationCompat.Action {
         val intent = Intent(context, ApprovalActionReceiver::class.java).apply {
             this.action = ACTION_APPROVAL
+            data = actionUri(hostId, approvalId, action)
             putExtra("approval_id", approvalId)
             putExtra("host_id", hostId)
             putExtra("approval_action", action)
@@ -170,6 +184,7 @@ object MacBotNotifications {
     private fun reviewAction(context: Context, hostId: String, id: String): NotificationCompat.Action {
         val intent = Intent(context, ApprovalActionReceiver::class.java).apply {
             action = ACTION_APPROVAL
+            data = actionUri(hostId, id, "confirm_done")
             putExtra("approval_id", id)
             putExtra("host_id", hostId)
             putExtra("approval_action", "confirm_done")
@@ -178,6 +193,9 @@ object MacBotNotifications {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Action.Builder(android.R.drawable.ic_menu_view, context.getString(R.string.review_completion), pending).build()
     }
+
+    private fun actionUri(hostId: String, id: String, action: String): Uri = Uri.Builder()
+        .scheme("macbot").authority("notification-action").appendPath(hostId).appendPath(id).appendPath(action).build()
 
     private fun activityIntent(context: Context, kind: String, id: String, hostId: String): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -192,7 +210,68 @@ object MacBotNotifications {
         return PendingIntent.getActivity(context, (kind + hostId + id).hashCode(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
+}
 
+internal fun buildNotification(context: Context, request: PendingNotification): android.app.Notification =
+    MacBotNotifications.notification(context, request)
+
+internal class AndroidNotificationDeliveryStore(context: Context) : NotificationDeliveryStore {
+    private val prefs = context.getSharedPreferences(NOTIFICATION_LEDGER_PREFS, Context.MODE_PRIVATE)
+    private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+    override fun pending(): List<PendingNotification> = prefs.getString("_pending_deliveries", null)?.let {
+        json.decodeFromString<List<PendingNotification>>(it)
+    }.orEmpty()
+    override fun savePending(value: List<PendingNotification>) {
+        check(prefs.edit().putString("_pending_deliveries", json.encodeToString(value)).commit()) { "Unable to persist pending notifications" }
+    }
+    override fun marker(key: String): String? = prefs.getString(key, null)
+    override fun markShown(key: String, marker: String) {
+        check(prefs.edit().putString(key, marker).commit()) { "Unable to persist notification delivery" }
+    }
+}
+
+internal class AndroidNotificationDeliveryBackend(
+    private val context: Context,
+    private val notificationsEnabled: () -> Boolean = { AppRuntime.repository.notifications.value },
+) : NotificationDeliveryBackend {
+    private val manager = context.getSystemService(NotificationManager::class.java)
+    private var prepared: Pair<PendingNotification, android.app.Notification>? = null
+    override fun allowed(): Boolean = MacBotNotifications.canNotify(context) && notificationsEnabled()
+    override fun allowed(request: PendingNotification): Boolean {
+        val channel = when (request.kind) {
+            NotificationKind.APPROVAL, NotificationKind.NEEDS_YOU -> MacBotNotifications.CHANNEL_NEEDS_YOU
+            NotificationKind.COMPLETED -> MacBotNotifications.CHANNEL_COMPLETED
+            NotificationKind.MESSAGE -> MacBotNotifications.CHANNEL_MESSAGES
+        }
+        return allowed() && manager.getNotificationChannel(channel)?.importance != NotificationManager.IMPORTANCE_NONE
+    }
+    override fun active(): List<RetainedNotification> = manager.activeNotifications.map { record ->
+        val notification = record.notification
+        val priority = when (notification.channelId) {
+            MacBotNotifications.CHANNEL_NEEDS_YOU -> 2
+            MacBotNotifications.CHANNEL_COMPLETED -> if (notification.actions.isNullOrEmpty()) 1 else 2
+            else -> 0
+        }
+        RetainedNotification(
+            NotificationIdentity(record.tag, record.id), record.postTime, priority,
+            `protected` = record.id == 100 || notification.flags and (android.app.Notification.FLAG_FOREGROUND_SERVICE or android.app.Notification.FLAG_GROUP_SUMMARY) != 0,
+        )
+    }
+    override fun cancel(identity: NotificationIdentity) { manager.cancel(identity.tag, identity.id) }
+    override fun prepare(request: PendingNotification) {
+        MacBotNotifications.ensureChannels(context)
+        prepared = request to buildNotification(context, request)
+    }
+    override fun post(request: PendingNotification) {
+        if (prepared?.first != request) prepare(request)
+        manager.notify(request.identity.tag, request.identity.id, requireNotNull(prepared).second)
+        prepared = null
+    }
+    override fun shown(request: PendingNotification): Boolean = manager.activeNotifications.any { record ->
+        record.id == request.identity.id && record.tag == request.identity.tag &&
+            record.notification.extras.getString(MacBotNotifications.DELIVERY_KEY) == request.ledgerKey &&
+            record.notification.extras.getString(MacBotNotifications.DELIVERY_MARKER) == request.marker
+    }
 }
 
 object ApprovalActionBridge {
@@ -260,6 +339,10 @@ internal object NotificationLedger {
         if (seq <= existing) return false
         return prefs.edit().putLong(key, seq).commit()
     }
+
+    fun isFreshSeq(context: Context, hostId: String, seq: Long): Boolean =
+        seq > context.getSharedPreferences(NOTIFICATION_LEDGER_PREFS, Context.MODE_PRIVATE)
+            .getLong(LAST_SEQ_PREFIX + hostId, 0L)
 
     fun accept(context: Context, key: String, seq: Long?): Boolean {
         val prefs = context.getSharedPreferences(NOTIFICATION_LEDGER_PREFS, Context.MODE_PRIVATE)

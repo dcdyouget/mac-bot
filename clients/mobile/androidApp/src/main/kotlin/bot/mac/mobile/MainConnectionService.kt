@@ -81,6 +81,7 @@ class MainConnectionService : Service() {
                             })
                         }
                         AppRuntime.repository.initialize()
+                        MacBotNotifications.resumePending(this@MainConnectionService)
                         AppRuntime.repository.background()
                     } finally {
                         notifications.cancel()
@@ -134,7 +135,7 @@ private object NotificationEventRouter {
             is MainEvent.Hello -> return
         }
         val seq = (event as? MainEvent.Persistent)?.seq
-        if (seq != null && !NotificationLedger.acceptSeq(context, hostId, seq)) return
+        if (seq != null && !NotificationLedger.isFreshSeq(context, hostId, seq)) return
         when {
             eventName == "approval.requested" -> {
                 val approval = data.obj("approval").takeUnless { it.isEmpty() } ?: data
@@ -241,6 +242,8 @@ private object NotificationEventRouter {
                 }
             }
         }
+        // Delivery payloads are durable before advancing the notification cursor.
+        if (seq != null) NotificationLedger.acceptSeq(context, hostId, seq)
     }
 
     private fun mentionsUser(value: JsonObject): Boolean =

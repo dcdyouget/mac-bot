@@ -12,6 +12,7 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
 ./gradlew :androidApp:assembleDebug
 ./gradlew :shared:commonTest :shared:androidUnitTest
+./gradlew :androidApp:testDebugUnitTest
 ./gradlew :androidApp:connectedDebugAndroidTest
 ```
 
@@ -71,6 +72,29 @@ Check the instrumentation output reports the expected test count (currently 4),
 not merely a successful build with zero discovered tests.
 
 Android notifications use channels `needs-you`, `completed`, `messages`. Grant notification permission when requested. The foreground service owns the long-lived main connection; screen streams open only while the Computer page is visible. Notification actions use the same idempotent protocol writes as in-app actions.
+
+The notification tray keeps at most 40 active entries, including the foreground
+service, with room below Android's 50-entry package quota. Before posting a new
+entry, it reclaims old messages first, then ordinary completions, then attention
+or review entries. FGS `id=100`, foreground-service entries and group summaries
+are protected. Messages share one tray entry per Host/chat; approval and review
+actions retain their Host-specific targets. Reclaimed notifications remain
+accessible through the app's chats, approvals and workbench.
+
+Notification payloads are persisted before the event cursor advances. A business
+deduplication marker is committed only after Android's active list contains the
+matching Host, tag, business ID and payload marker. Silent quota rejection or
+temporary permission/channel denial leaves pending deliveries for retries with
+backoff and process-restart recovery. The app's notification switch explicitly
+suppresses new events. Existing legacy `seen` markers remain honored: the update
+does not replay historical notifications that an older build marked delivered.
+
+Capacity, replay, multi-Host isolation, restart recovery and notification actions
+are covered by host-side JUnit/Robolectric API 36 tests. These tests use an
+isolated simulated NotificationManager and do not touch the shared AVD. During
+an integrator-owned acceptance window, build and verify a same-signature release
+candidate with the commands above, then let the integrator perform `adb install
+-r`; do not clear notifications or reinstall the app to hide quota failures.
 
 ## Verification
 
