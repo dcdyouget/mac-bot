@@ -105,7 +105,7 @@ impl Orchestrator {
             max_parallel: 0,
             tools: ToolToggles::default(),
             browser_mode: "headless".into(),
-            dm_chat_id: "dm_main".into(),
+            dm_chat_id: "chat_main".into(),
             pinned: true,
             hidden: false,
             notifications: true,
@@ -219,6 +219,9 @@ impl Orchestrator {
                 .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
         }
         restore_map(&mut i.bots, value.get("bots"))?;
+        for bot in i.bots.values_mut() {
+            normalize_bot_dm_chat_id(bot);
+        }
         restore_map(&mut i.projects, value.get("projects"))?;
         restore_map(&mut i.assignments, value.get("assignments"))?;
         restore_map(&mut i.messages, value.get("messages"))?;
@@ -230,6 +233,7 @@ impl Orchestrator {
         restore_map(&mut i.idempotent_messages, value.get("idempotent_messages"))?;
         restore_map(&mut i.loop_states, value.get("loop_states"))?;
         restore_map(&mut i.highlights, value.get("highlights"))?;
+        migrate_legacy_main_chat_ids(&mut i);
         Ok(())
     }
 
@@ -352,6 +356,46 @@ fn default_sender() -> String {
 }
 fn default_priority() -> u8 {
     1
+}
+
+fn normalize_bot_dm_chat_id(bot: &mut Bot) {
+    if bot.is_main || bot.id == "main" {
+        bot.dm_chat_id = "chat_main".into();
+    } else if bot.dm_chat_id.trim().is_empty() {
+        bot.dm_chat_id = format!("dm_{}", bot.id);
+    }
+}
+
+fn migrate_legacy_main_chat_ids(inner: &mut Inner) {
+    for assignment in inner.assignments.values_mut() {
+        if assignment.origin_chat_id == "dm_main" {
+            assignment.origin_chat_id = "chat_main".into();
+        }
+    }
+    for message in inner.messages.values_mut() {
+        if message.chat_id == "dm_main" {
+            message.chat_id = "chat_main".into();
+        }
+    }
+    for approval in inner.approvals.values_mut() {
+        if approval.chat_id == "dm_main" {
+            approval.chat_id = "chat_main".into();
+        }
+    }
+    for question in inner.questions.values_mut() {
+        if question.chat_id == "dm_main" {
+            question.chat_id = "chat_main".into();
+        }
+    }
+}
+
+fn dm_chat_for_bot(bot: &Bot) -> Value {
+    json!({
+        "id": bot.dm_chat_id,
+        "kind": if bot.is_main { "main" } else { "direct" },
+        "title": bot.name,
+        "bot_id": bot.id,
+    })
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -723,6 +767,7 @@ impl Inner {
         }
         let ts = now();
         let id = new_id();
+        let dm_chat_id = format!("dm_{id}");
         let bot = Bot {
             id: id.clone(),
             name,
@@ -753,7 +798,7 @@ impl Inner {
                 .and_then(Value::as_str)
                 .unwrap_or("headless")
                 .into(),
-            dm_chat_id: format!("dm_{id}"),
+            dm_chat_id,
             pinned: false,
             hidden: false,
             notifications: true,
@@ -762,7 +807,7 @@ impl Inner {
             updated_at: ts,
         };
         self.bots.insert(id.clone(), bot.clone());
-        Ok(json!({ "bot": bot, "dm_chat": { "id": new_id(), "kind": "direct", "bot_id": id } }))
+        Ok(json!({ "bot": bot, "dm_chat": dm_chat_for_bot(&bot) }))
     }
 
     fn update_bot(&mut self, id: &str, patch: Value) -> Result<Bot> {
@@ -842,6 +887,7 @@ impl Inner {
         let mut chats = Vec::new();
         for b in t.bots {
             if let Some(existing) = self.bots.values().find(|x| x.name == b.name).cloned() {
+                chats.push(dm_chat_for_bot(&existing));
                 bots.push(existing);
                 continue;
             }
@@ -2047,6 +2093,146 @@ mod tests {
         let v = o.rpc("bot.create", json!({"name":name}));
         let v = tokio::runtime::Runtime::new().unwrap().block_on(v).unwrap();
         v["bot"]["id"].as_str().unwrap().into()
+    }
+
+    #[test]
+    fn bot_create_and_template_keep_dm_chat_id_in_sync() {
+        let o = Orchestrator::default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let created = rt
+            .block_on(o.rpc("bot.create", json!({"name":"单独 Bot"})))
+            .unwrap();
+        assert_eq!(
+            created["bot"]["dm_chat_id"], created["dm_chat"]["id"],
+            "bot.create must return the same direct-chat id in both objects"
+        );
+        assert_eq!(created["dm_chat"]["kind"], "direct");
+
+        let templated = rt
+            .block_on(o.rpc(
+                "bot.create_from_template",
+                json!({"template_id":"product-code-test"}),
+            ))
+            .unwrap();
+        let bots = templated["bots"].as_array().unwrap();
+        let chats = templated["dm_chats"].as_array().unwrap();
+        assert_eq!(bots.len(), chats.len());
+        for (bot, chat) in bots.iter().zip(chats) {
+            assert_eq!(bot["dm_chat_id"], chat["id"]);
+            assert_eq!(chat["kind"], "direct");
+        }
+
+        let listed = rt.block_on(o.rpc("bot.list", json!({}))).unwrap();
+        let main = listed["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|bot| bot["id"] == "main")
+            .unwrap();
+        assert_eq!(main["dm_chat_id"], "chat_main");
+    }
+
+    #[test]
+    fn restore_normalizes_legacy_dm_ids() {
+        let o = Orchestrator::default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let created = rt
+            .block_on(o.rpc("bot.create", json!({"name":"旧数据 Bot"})))
+            .unwrap();
+        let worker_id = created["bot"]["id"].as_str().unwrap();
+        let mut snapshot = o.snapshot().unwrap();
+        snapshot["bots"]["main"]["dm_chat_id"] = json!("dm_main");
+        snapshot["bots"][worker_id]["dm_chat_id"] = json!("");
+        o.restore(snapshot).unwrap();
+
+        let listed = rt.block_on(o.rpc("bot.list", json!({}))).unwrap();
+        let bots = listed["bots"].as_array().unwrap();
+        let main = bots.iter().find(|bot| bot["id"] == "main").unwrap();
+        let worker = bots.iter().find(|bot| bot["id"] == worker_id).unwrap();
+        assert_eq!(main["dm_chat_id"], "chat_main");
+        assert_eq!(worker["dm_chat_id"], format!("dm_{worker_id}"));
+    }
+
+    #[test]
+    fn restore_migrates_legacy_main_dm_history_without_changing_refs() {
+        let o = Orchestrator::default();
+        let worker_id = bot(&o, "历史测试");
+        let assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "dm_main".into(),
+                bot_id: worker_id.clone(),
+                title: "旧私聊任务".into(),
+                instruction: "继续处理".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let message = o
+            .send_msg(SendMessageRequest {
+                bot_id: "main".into(),
+                chat_id: "dm_main".into(),
+                assignment_id: None,
+                run_id: None,
+                call_id: None,
+                text: "旧历史".into(),
+                intent: "ack".into(),
+                mentions: vec![],
+                artifacts: vec![],
+                options: vec![],
+            })
+            .unwrap();
+        let approval = o
+            .create_approval(ApprovalRequest {
+                bot_id: worker_id.clone(),
+                assignment_id: Some(assignment.id.clone()),
+                chat_id: "dm_main".into(),
+                tool: "bash".into(),
+                risk: "high".into(),
+                summary: "旧审批".into(),
+                detail: "继续".into(),
+            })
+            .unwrap();
+        let question = o
+            .create_question(QuestionRequest {
+                bot_id: worker_id,
+                assignment_id: assignment.id.clone(),
+                chat_id: "dm_main".into(),
+                text: "旧问题".into(),
+                options: vec!["继续".into()],
+                allow_free_text: false,
+            })
+            .unwrap();
+        let mut snapshot = o.snapshot().unwrap();
+        snapshot["bots"]["main"]["dm_chat_id"] = json!("dm_main");
+
+        let restored = Orchestrator::default();
+        restored.restore(snapshot).unwrap();
+        let restored_snapshot = restored.snapshot().unwrap();
+        assert_eq!(
+            restored_snapshot["messages"][&message.id]["chat_id"],
+            "chat_main"
+        );
+        assert_eq!(
+            restored_snapshot["assignments"][&assignment.id]["origin_chat_id"],
+            "chat_main"
+        );
+        assert_eq!(
+            restored_snapshot["approvals"][&approval.id]["chat_id"],
+            "chat_main"
+        );
+        assert_eq!(
+            restored_snapshot["questions"][&question.id]["chat_id"],
+            "chat_main"
+        );
+        assert!(restored_snapshot["messages"].get(&message.id).is_some());
+        assert!(restored_snapshot["assignments"]
+            .get(&assignment.id)
+            .is_some());
     }
 
     #[test]

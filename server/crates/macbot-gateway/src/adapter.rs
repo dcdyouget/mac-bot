@@ -1117,11 +1117,11 @@ impl ProductionBackend {
         let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
         let mut chats = vec![main_chat()];
         if let Some(bots) = snapshot.get("bots").and_then(Value::as_object) {
-            for bot in bots
-                .values()
-                .filter(|bot| bot.get("hidden").and_then(Value::as_bool) != Some(true))
-            {
-                chats.push(json!({"id":bot["dm_chat_id"],"kind":"bot_dm","title":bot["name"],"bot_id":bot["id"],"project_id":null,"member_bot_ids":[bot["id"]],"last_message":null,"last_seq":0,"last_read_seq":0,"unread":0,"attention":"none","pinned":bot["pinned"],"muted":false,"updated_at":bot["updated_at"]}));
+            for bot in bots.values().filter(|bot| {
+                bot.get("hidden").and_then(Value::as_bool) != Some(true) && !bot_is_main(bot)
+            }) {
+                let id = canonical_bot_dm_id(bot);
+                chats.push(json!({"id":id,"kind":"direct","title":bot["name"],"bot_id":bot["id"],"project_id":null,"member_bot_ids":[bot["id"]],"last_message":null,"last_seq":0,"last_read_seq":0,"unread":0,"attention":"none","pinned":bot["pinned"],"muted":false,"updated_at":bot["updated_at"]}));
             }
         }
         if let Some(projects) = snapshot.get("projects").and_then(Value::as_object) {
@@ -1447,6 +1447,9 @@ fn normalize_result(method: &str, mut result: Value) -> Result<Value, String> {
             if let Some(item) = result.get_mut("bot") {
                 normalize_bot(item);
             }
+            if method == "bot.create" {
+                normalize_created_bot_chat(&mut result);
+            }
         }
         "bot.create_from_template" => {
             if let Some(items) = result.get_mut("bots").and_then(Value::as_array_mut) {
@@ -1454,6 +1457,7 @@ fn normalize_result(method: &str, mut result: Value) -> Result<Value, String> {
                     normalize_bot(item);
                 }
             }
+            normalize_template_bot_chats(&mut result);
         }
         "project.get" => {
             if let Some(item) = result.get_mut("project") {
@@ -1602,14 +1606,91 @@ fn normalize_bot(value: &mut Value) {
     {
         o.insert("browser_mode".into(), json!("headless"));
     }
-    if o.get("dm_chat_id")
-        .and_then(Value::as_str)
-        .is_none_or(str::is_empty)
-    {
-        o.insert("dm_chat_id".into(), json!(format!("dm_{id}")));
-    }
+    let dm_chat_id = if id == "main" {
+        "chat_main".to_owned()
+    } else {
+        o.get("dm_chat_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("dm_{id}"))
+    };
+    o.insert("dm_chat_id".into(), json!(dm_chat_id));
     o.entry("status")
         .or_insert_with(|| json!({"summary":"idle","active":0,"queued":0,"waiting":0}));
+}
+
+fn bot_is_main(bot: &Value) -> bool {
+    bot.get("id").and_then(Value::as_str) == Some("main")
+        || bot.get("is_main").and_then(Value::as_bool) == Some(true)
+}
+
+fn canonical_bot_dm_id(bot: &Value) -> String {
+    if bot_is_main(bot) {
+        return "chat_main".into();
+    }
+    bot.get("dm_chat_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            bot.get("id")
+                .and_then(Value::as_str)
+                .map(|id| format!("dm_{id}"))
+        })
+        .unwrap_or_else(|| "dm_unknown".into())
+}
+
+fn normalize_created_bot_chat(result: &mut Value) {
+    let Some(bot) = result.get("bot").cloned() else {
+        return;
+    };
+    let id = canonical_bot_dm_id(&bot);
+    let kind = if bot_is_main(&bot) { "main" } else { "direct" };
+    if let Some(chat) = result.get_mut("dm_chat").and_then(Value::as_object_mut) {
+        complete_bot_chat(chat, &bot, &id, kind);
+    }
+}
+
+fn normalize_template_bot_chats(result: &mut Value) {
+    let Some(bots) = result.get("bots").and_then(Value::as_array).cloned() else {
+        return;
+    };
+    let Some(chats) = result.get_mut("dm_chats").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (bot, chat) in bots.iter().zip(chats.iter_mut()) {
+        let id = canonical_bot_dm_id(bot);
+        let kind = if bot_is_main(bot) { "main" } else { "direct" };
+        if let Some(object) = chat.as_object_mut() {
+            complete_bot_chat(object, bot, &id, kind);
+        }
+    }
+}
+
+fn complete_bot_chat(chat: &mut Map<String, Value>, bot: &Value, id: &str, kind: &str) {
+    chat.insert("id".into(), json!(id));
+    chat.insert("kind".into(), json!(kind));
+    chat.insert("title".into(), bot.get("name").cloned().unwrap_or_default());
+    chat.insert(
+        "bot_id".into(),
+        bot.get("id").cloned().unwrap_or(Value::Null),
+    );
+    chat.entry("project_id").or_insert(Value::Null);
+    chat.entry("member_bot_ids").or_insert_with(|| json!([]));
+    chat.entry("last_message").or_insert(Value::Null);
+    chat.entry("last_seq").or_insert(json!(0));
+    chat.entry("last_read_seq").or_insert(json!(0));
+    chat.entry("unread").or_insert(json!(0));
+    chat.entry("attention").or_insert(json!("none"));
+    chat.entry("pinned")
+        .or_insert_with(|| bot.get("pinned").cloned().unwrap_or(json!(false)));
+    chat.entry("muted").or_insert(json!(false));
+    chat.entry("updated_at").or_insert_with(|| {
+        bot.get("updated_at")
+            .cloned()
+            .unwrap_or_else(|| json!(now()))
+    });
 }
 fn normalize_sender(value: &mut Value) {
     if let Some(s) = value.as_str().map(str::to_owned) {
@@ -1833,9 +1914,10 @@ mod tests {
     use crate::{Gateway, GatewayConfig};
     use chrono::Duration;
     use macbot_protocol::{
-        Assignment as WireAssignment, Bot as WireBot, HeatmapResult, Message as WireMessage,
-        Project as WireProject, Provider as WireProvider, ProviderResult as WireProviderResult,
-        UsageBreakdownResult, UsageSummaryResult, UsageTimeseriesResult,
+        Assignment as WireAssignment, Bot as WireBot, Chat as WireChat, HeatmapResult,
+        Message as WireMessage, Project as WireProject, Provider as WireProvider,
+        ProviderResult as WireProviderResult, UsageBreakdownResult, UsageSummaryResult,
+        UsageTimeseriesResult,
     };
     use macbot_usage::{Totals, UsageRecord};
     use tempfile::tempdir;
@@ -1937,6 +2019,122 @@ mod tests {
             bootstrap["hello"]["node_id"],
             gateway.state.node_id.read().await.as_str()
         );
+    }
+
+    #[tokio::test]
+    async fn production_bot_dm_ids_and_chat_kinds_are_consistent_across_reads() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let created = backend
+            .call(
+                "bot.create",
+                json!({"name":"只读回归外的 Bot","client_request_id":"dm-consistency"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot: WireBot = serde_json::from_value(created["bot"].clone()).unwrap();
+        let created_chat: WireChat = serde_json::from_value(created["dm_chat"].clone()).unwrap();
+        assert_eq!(bot.dm_chat_id, created_chat.id);
+        assert_eq!(created_chat.kind, macbot_protocol::ChatKind::Direct);
+
+        let template = backend
+            .call(
+                "bot.create_from_template",
+                json!({"template_id":"product-code-test"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let template_bots = template["bots"].as_array().unwrap();
+        let template_chats = template["dm_chats"].as_array().unwrap();
+        assert_eq!(template_bots.len(), template_chats.len());
+        for (bot, chat) in template_bots.iter().zip(template_chats) {
+            assert_eq!(bot["dm_chat_id"], chat["id"]);
+            assert_eq!(chat["kind"], "direct");
+        }
+
+        let list = backend
+            .call("chat.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        let chats = list["chats"].as_array().unwrap();
+        let worker_chat = chats
+            .iter()
+            .find(|chat| chat["id"] == bot.dm_chat_id)
+            .expect("worker direct chat in chat.list");
+        assert_eq!(worker_chat["kind"], "direct");
+        assert_eq!(worker_chat["bot_id"], bot.id);
+        assert_eq!(
+            chats
+                .iter()
+                .filter(|chat| chat["id"] == "chat_main")
+                .count(),
+            1,
+            "main chat must not be duplicated as a worker direct chat"
+        );
+        let main_bot = backend
+            .call("bot.get", json!({"bot_id":"main"}), &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(main_bot["bot"]["dm_chat_id"], "chat_main");
+        assert_eq!(
+            chats.iter().filter(|chat| chat["bot_id"] == "main").count(),
+            0
+        );
+
+        let fetched = backend
+            .call(
+                "chat.get",
+                json!({"chat_id":bot.dm_chat_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(fetched["chat"]["id"], bot.dm_chat_id);
+        assert_eq!(fetched["chat"]["kind"], "direct");
+        let sent = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":bot.dm_chat_id,"text":"私聊回归","mentions":[],"client_request_id":"dm-message"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(sent["message"]["chat_id"], bot.dm_chat_id);
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":bot.dm_chat_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(history["messages"].as_array().unwrap().len(), 1);
+
+        let bootstrap = backend
+            .call("bootstrap", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        let bootstrap_bot = bootstrap["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == bot.id)
+            .unwrap();
+        assert_eq!(bootstrap_bot["dm_chat_id"], bot.dm_chat_id);
+        let bootstrap_chat = bootstrap["chats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == bot.dm_chat_id)
+            .unwrap();
+        assert_eq!(bootstrap_chat["kind"], "direct");
+        assert_eq!(bootstrap["hello"]["timezone"], "Asia/Shanghai");
     }
 
     #[tokio::test]

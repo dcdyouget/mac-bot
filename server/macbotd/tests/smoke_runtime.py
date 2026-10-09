@@ -408,6 +408,9 @@ async def acceptance(args: argparse.Namespace, fake_url: str, fake: FakeProvider
     assert health(base_url).get("protocol") == 1
     bootstrap = rpc(base_url, password, "bootstrap")
     main = next(bot for bot in bootstrap["bots"] if bot["is_main"])
+    main_chats = [chat for chat in bootstrap["chats"] if chat["kind"] == "main"]
+    assert len(main_chats) == 1 and main_chats[0]["id"] == main["dm_chat_id"]
+    assert main["dm_chat_id"] == "chat_main"
 
     created = rpc(
         base_url,
@@ -464,7 +467,7 @@ async def acceptance(args: argparse.Namespace, fake_url: str, fake: FakeProvider
     model_ref = model["model"]["ref"]
     assert model_ref == f"{provider_id}/fake-runtime"
 
-    worker = rpc(
+    worker_result = rpc(
         base_url,
         password,
         "bot.create",
@@ -474,7 +477,17 @@ async def acceptance(args: argparse.Namespace, fake_url: str, fake: FakeProvider
             "tools": {"files": True, "bash": True, "browser": False, "subagent": False, "web": False, "mcp": False},
             "client_request_id": "runtime-worker-create",
         },
-    )["bot"]
+    )
+    worker = worker_result["bot"]
+    assert worker_result["dm_chat"]["id"] == worker["dm_chat_id"]
+    assert worker_result["dm_chat"]["kind"] == "direct"
+    dm_chat = rpc(base_url, password, "chat.get", {"chat_id": worker["dm_chat_id"]})["chat"]
+    assert dm_chat["kind"] == "direct" and dm_chat["bot_id"] == worker["id"]
+    refreshed_bootstrap = rpc(base_url, password, "bootstrap")
+    for bot in refreshed_bootstrap["bots"]:
+        matching = [chat for chat in refreshed_bootstrap["chats"] if chat["id"] == bot["dm_chat_id"]]
+        assert len(matching) == 1, (bot, matching)
+        assert matching[0]["kind"] == ("main" if bot["is_main"] else "direct")
     project = rpc(
         base_url,
         password,
@@ -628,7 +641,7 @@ async def acceptance(args: argparse.Namespace, fake_url: str, fake: FakeProvider
     # provider/usage path as a group assignment.  The response marker keeps
     # the fake provider deterministic without a real model.
     bot_chats = rpc(base_url, password, "chat.list", {})["chats"]
-    private_chat = next(item for item in bot_chats if item.get("kind") == "bot_dm" and item.get("bot_id") == worker["id"])
+    private_chat = next(item for item in bot_chats if item.get("kind") == "direct" and item.get("bot_id") == worker["id"])
     private_sent = rpc(
         base_url,
         password,

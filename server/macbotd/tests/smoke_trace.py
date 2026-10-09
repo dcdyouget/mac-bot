@@ -291,7 +291,7 @@ async def acceptance(args: argparse.Namespace, fake_url: str, fake_state: FakePr
             },
         )["bot"]
         chats = rpc(base, password, "chat.list")["chats"]
-        chat = next(item for item in chats if item.get("kind") == "bot_dm" and item.get("bot_id") == worker["id"])
+        chat = next(item for item in chats if item.get("kind") == "direct" and item.get("bot_id") == worker["id"])
         chat_id = chat["id"]
         ws_url = base.replace("http://", "ws://").replace("https://", "wss://")
         async with await connect_ws(ws_url, password) as subscribed, await connect_ws(ws_url, password) as plain:
