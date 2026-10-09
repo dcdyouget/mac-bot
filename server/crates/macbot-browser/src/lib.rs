@@ -122,6 +122,7 @@ struct Session {
     config: SessionConfig,
     queue: VecDeque<BrowserAction>,
     active: bool,
+    screen_active: bool,
     last_activity: SystemTime,
 }
 
@@ -185,6 +186,7 @@ impl<R: CliRunner> BrowserManager<R> {
                     .unwrap_or_else(|| self.config.clone()),
                 queue: VecDeque::new(),
                 active: false,
+                screen_active: false,
                 last_activity: SystemTime::now(),
             });
         &session.state
@@ -337,6 +339,7 @@ impl<R: CliRunner> BrowserManager<R> {
             .iter()
             .filter(|(_, s)| {
                 !s.active
+                    && !s.screen_active
                     && now.duration_since(s.last_activity).unwrap_or_default()
                         >= Duration::from_secs(s.config.idle_timeout_secs)
             })
@@ -549,6 +552,32 @@ impl<R: CliRunner> BrowserManager<R> {
             .get(bot_id)
             .map(|s| s.state.clone())
             .ok_or_else(|| BrowserError::SessionNotFound(bot_id.into()))
+    }
+
+    /// Restore a persisted browser session for a screen connection. A screen
+    /// client may reconnect after the idle reaper removed the in-memory
+    /// session, so it must use the same restore path as browser actions.
+    pub fn ensure_session_for_screen(&mut self, bot_id: &str) -> Result<(), BrowserError> {
+        self.ensure_session(bot_id)
+    }
+
+    /// Keep the browser session alive while at least one gateway screen
+    /// connection is attached. This is separate from `active`, which tracks a
+    /// single CLI action and may return to false while the screen remains open.
+    pub fn set_screen_active(&mut self, bot_id: &str, active: bool) -> Result<(), BrowserError> {
+        if active {
+            self.ensure_session(bot_id)?;
+        }
+        let session = self
+            .sessions
+            .get_mut(bot_id)
+            .ok_or_else(|| BrowserError::SessionNotFound(bot_id.into()))?;
+        session.screen_active = active;
+        if active {
+            session.last_activity = SystemTime::now();
+            session.state.last_activity_ms = epoch_ms();
+        }
+        self.persist_session(bot_id)
     }
 
     /// Return only tabs owned by one assignment.  Callers should use this
@@ -1121,6 +1150,61 @@ mod tests {
         let tabs = restored.state("bot").unwrap().tabs;
         assert!(tabs.iter().any(|tab| tab.assignment_id == "assignment-1"));
         assert!(tabs.iter().any(|tab| tab.assignment_id == "assignment-2"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn screen_reconnect_restores_idle_evicted_session() {
+        let root = std::env::temp_dir().join(format!("macbot-browser-screen-{}", Uuid::now_v7()));
+        let state = root.join("state/bot.json");
+        let config = SessionConfig {
+            state_path: Some(state.clone()),
+            ..Default::default()
+        };
+        let fake = Arc::new(Fake::default());
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake.clone());
+        browser.set_bot_config("bot", config.clone()).unwrap();
+        let tab = browser
+            .open_tab("bot", "assignment", "https://example.com")
+            .unwrap();
+        browser
+            .close_idle(SystemTime::now() + Duration::from_secs(901))
+            .unwrap();
+        assert!(browser.state("bot").is_err());
+
+        browser.ensure_session_for_screen("bot").unwrap();
+        assert_eq!(browser.state("bot").unwrap().tabs[0].tab_id, tab.tab_id);
+        assert_eq!(
+            browser.state("bot").unwrap().tabs[0].url,
+            "https://example.com"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn screen_active_session_is_not_idle_evicted_until_last_screen_closes() {
+        let root = std::env::temp_dir().join(format!("macbot-browser-screen-{}", Uuid::now_v7()));
+        let config = SessionConfig {
+            state_path: Some(root.join("state/bot.json")),
+            ..Default::default()
+        };
+        let fake = Arc::new(Fake::default());
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake);
+        browser.set_bot_config("bot", config).unwrap();
+        browser
+            .open_tab("bot", "assignment", "https://example.com")
+            .unwrap();
+        browser.set_screen_active("bot", true).unwrap();
+        browser
+            .close_idle(SystemTime::now() + Duration::from_secs(3600))
+            .unwrap();
+        assert!(browser.state("bot").is_ok());
+
+        browser.set_screen_active("bot", false).unwrap();
+        browser
+            .close_idle(SystemTime::now() + Duration::from_secs(3600))
+            .unwrap();
+        assert!(browser.state("bot").is_err());
         let _ = std::fs::remove_dir_all(root);
     }
 

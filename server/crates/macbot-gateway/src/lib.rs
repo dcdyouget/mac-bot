@@ -1881,22 +1881,21 @@ fn sidecar_input(event: &Value, frame: Option<(u32, u32, u32, u32)>) -> Option<V
 }
 
 async fn release_screen_stream(gw: &Gateway, bot_id: &str, assignment_id: &str) {
-    let should_disable = {
-        let mut streams = gw.state.screen_streams.lock().await;
-        match streams.get_mut(bot_id) {
-            Some(count) if *count > 1 => {
-                *count -= 1;
-                false
-            }
-            Some(_) => {
-                streams.remove(bot_id);
-                true
-            }
-            None => false,
+    let mut streams = gw.state.screen_streams.lock().await;
+    let should_disable = match streams.get_mut(bot_id) {
+        Some(count) if *count > 1 => {
+            *count -= 1;
+            false
         }
+        Some(_) => {
+            streams.remove(bot_id);
+            true
+        }
+        None => false,
     };
     if should_disable {
         let mut browser = gw.state.browser.lock().await;
+        let _ = browser.set_screen_active(bot_id, false);
         let _ = browser.stream_disable_for_assignment(bot_id, assignment_id);
     }
 }
@@ -1913,6 +1912,13 @@ async fn real_sidecar_screen_session(
     let mut tab_id = query.tab_id.unwrap_or_default();
     let setup = {
         let mut browser = gw.state.browser.lock().await;
+        if let Err(error) = browser.ensure_session_for_screen(&bot_id) {
+            drop(browser);
+            let _ = sink
+                .send(screen_error("unavailable", error.to_string()))
+                .await;
+            return;
+        }
         let state = screen_state(
             &mut browser,
             &bot_id,
@@ -1974,10 +1980,26 @@ async fn real_sidecar_screen_session(
             .await;
         return;
     };
-    {
-        let mut streams = gw.state.screen_streams.lock().await;
-        *streams.entry(bot_id.clone()).or_insert(0) += 1;
+    // Serialize stream count and BrowserManager keepalive. Release takes the
+    // same streams -> browser lock order, so an old connection cannot clear a
+    // newly attached screen's keepalive state.
+    let mut streams = gw.state.screen_streams.lock().await;
+    let screen_active = {
+        let mut browser = gw.state.browser.lock().await;
+        browser.set_screen_active(&bot_id, true)
+    };
+    if let Err(error) = screen_active {
+        let mut browser = gw.state.browser.lock().await;
+        let _ = browser.stream_disable_for_assignment(&bot_id, &stream_scope);
+        drop(browser);
+        drop(streams);
+        let _ = sink
+            .send(screen_error("unavailable", error.to_string()))
+            .await;
+        return;
     }
+    *streams.entry(bot_id.clone()).or_insert(0) += 1;
+    drop(streams);
     if sink.send(text_frame(&state)).await.is_err() {
         release_screen_stream(&gw, &bot_id, &stream_scope).await;
         return;
