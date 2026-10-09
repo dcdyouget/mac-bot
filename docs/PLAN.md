@@ -1,4 +1,4 @@
-# Mac Bot 技术方案 v1.1
+# Mac Bot 技术方案 v1.2
 
 > 状态：方案已定稿，进入开发。历史修订见 git log。
 
@@ -30,7 +30,7 @@
 | **Server** | macOS（Apple Silicon） | ✅ | | Rust，无界面守护进程（LaunchAgent），JSON 文件存储 |
 | **Client** | macOS | ✅ | | Rust + GPUI（gpui-kit） |
 | | Android | ✅ | | Kotlin + Compose Multiplatform |
-| | iOS | ✅ | | Kotlin + Compose Multiplatform（与 Android 共用代码） |
+| | iOS | | ✅ | Kotlin + Compose Multiplatform（与 Android 共用 `commonMain`，以后只需加 iOS target 和 iosApp 外壳） |
 | | Windows | | ✅ | Rust + GPUI（与 macOS 共用代码，只能在 Windows 上编译） |
 
 服务端只支持 macOS，不做 Linux。
@@ -53,7 +53,7 @@
 | 浏览器 | agent-browser sidecar；**每个 Bot 一个浏览器会话**，同一个 Bot 并行的任务各用一个标签页（5.8） |
 | 连接 | 一个 TCP 端口：主连接 `/ws`（消息、事件、心跳、运行轨迹）+ 按需的画面连接 `/ws/screen` + HTTP（文件）。QUIC 以后作为画面的可选加速（5.7） |
 | 模型 | 用户自定义服务商和模型；每个 Bot 一个模型；默认认为模型支持看图 |
-| 通知 | Android：前台服务保持长连接，弹本地通知。iOS：前台走长连接，后台走 APNs（需要用户的推送密钥） |
+| 通知 | Android：前台服务保持长连接，弹本地通知。iOS（以后）：后台走 APNs |
 | 许可证、签名 | MIT；签名和公证由用户负责 |
 
 ## 3. 参考
@@ -108,7 +108,7 @@
 └──────────────────────────────────▲───────────────────────────────────┘
         macbotd ⇄ agent-browser    │ ws(s)://任意 IP 或域名:端口
                      ┌─────────────┴──────────────┐
-            Desktop（GPUI，macOS）      Mobile（Compose MP：Android + iOS）
+            Desktop（GPUI，macOS）      Mobile（Compose MP：v1 只有 Android）
 ```
 
 ### 5.1 仓库结构
@@ -137,16 +137,15 @@ mac-bot/
 │   └── macbotd/                 # 二进制：守护进程 + CLI + --mock；packaging/（LaunchAgent、pkg 脚本）
 ├── clients/
 │   ├── mac/                 # 【client-mac】独立的 Cargo workspace：macbot-client-core + macbot-desktop
-│   └── mobile/              # 【client-android + client-ios】Kotlin Multiplatform
+│   └── mobile/              # 【client-android】Kotlin Multiplatform（v1 只有 Android target）
 │       ├── shared/          #   commonMain：core/ + feature/*（归属见 AGENTS.md）
-│       ├── androidApp/
-│       └── iosApp/
+│       └── androidApp/          #   （iOS 以后再加 iosApp/）
 └── scripts/                 # 跨模块脚本：协议代码生成、端到端场景测试、打包
 ```
 
 `server/` 和 `clients/mac/` 是两个独立的 Cargo workspace，都用 path 依赖引用 `protocol/rust`。
 
-**分发产物**：`MacBot-Server.pkg`（服务端）、`MacBot.dmg`（桌面客户端）、`MacBot.apk`、iOS 安装包（由用户签名），另外提供 `install.sh`。
+**分发产物**：`MacBot-Server.pkg`（服务端）、`MacBot.dmg`（桌面客户端）、`MacBot.apk`，另外提供 `install.sh`。
 
 ### 5.2 数据存储：JSON 文件
 
@@ -397,7 +396,7 @@ send_msg(
   3. Kotlin Multiplatform 里没有成熟的 QUIC 客户端。
   4. 两个通道之间的鉴权和消息顺序需要额外协调。
 - 客户端为每台 Host 保存 `{node_id, name, addresses[], password, last_seq}`，按顺序尝试各个地址。
-- **移动端后台**：Android 用前台服务保持主连接；iOS 进入后台后断开，回到前台时用 `last_seq` 补齐，后台期间的提醒走 APNs（macbotd 用 `a2` crate 调用 APNs，需要用户在管理页配置 .p8 密钥）。
+- **移动端后台**：Android 用前台服务保持主连接，收到事件后弹本地通知。（iOS 以后再做：进入后台时断开，后台期间的提醒走 APNs。）
 
 ### 5.8 浏览器：vercel-labs/agent-browser
 
@@ -518,27 +517,27 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 
 ## 6. 开发计划（唯一的计划）
 
-**目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。**四条开发线加一条集成线**同时推进，归属见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
+**目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。**三条开发线加一条集成线**同时推进，归属见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
 
-**开发机就是目标机**：这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。**每个阶段的成果都要能在这台机器上直接运行和查看**：服务端以 LaunchAgent 方式常驻，桌面客户端打包成 .app 打开使用，手机连接 `192.168.31.162:7788`。
+**开发机就是目标机**：这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。**每个阶段的成果都要能在这台机器上直接运行和查看**：服务端以 LaunchAgent 方式常驻，桌面客户端打包成 .app 打开使用，小米 17 连接 `192.168.31.162:7788`。
 
-| 阶段 | server-mac | client-mac | client-android | client-ios | 联调验收 |
-|------|-----------|-----------|----------------|-----------|---------|
-| **S0 契约与骨架** | protocol crate（PROTOCOL 全部类型）+ schema + fixtures + 场景；server workspace；`--mock` 实现全部方法 | 工程、client-core（连接、补发、状态）、设计 token、三栏布局、连接页 | KMP 工程；**core 接口（最先合入）**、core 实现、设计系统、导航；androidApp 外壳；feature/connect | iosApp；iosMain（Keychain、生命周期、通知权限、APNs 注册）；feature/workbench、feature/dashboard（用 fixtures） | 三个客户端都连上 mock，看到会话列表 |
-| **S1 单 Bot 闭环** | 存储、durable、模型接入、工具（文件、bash）、技能加载、私聊对话、基础压缩、运行轨迹、用量记账、鉴权、/admin、CLI、LaunchAgent | 私聊（流式）、消息块、运行轨迹（实时 + 回放）、模型与服务商设置 | feature/chat（私聊、消息块、送达状态） | feature/trace（运行轨迹、历史任务）、feature/settings | 真实服务端：三端和一个 Bot 私聊，Bot 能读写文件、跑命令；轨迹实时可看、可回放；kill -9 重启后能恢复 |
-| **S2 主 Bot 与群协作** | 主 Bot、群和公告、任务派发与交接、`send_msg`、插话、子代理、并发调度、审批、提问、防循环、工作台、Bot 增删改 | 群（状态条、公告、任务卡片、送达状态、待验收）、新建群和 Bot、Bot 设置、工作台、审批 | feature/group、feature/mainbot、feature/approval | feature/workbench（真实数据）、feature/bots（Bot 列表和资料编辑） | 「登录功能」完整场景三端可操作；两个群并行；运行中插话生效 |
-| **S3 技能、仪表盘、记忆** | 三种记忆、记忆提取与整理、`project_find`、技能管理接口和导入、仪表盘接口、搜索 | 仪表盘、技能页、搜索 | feature/search | feature/dashboard（真实数据）、feature/skills | 仪表盘三端一致；技能增删改；Bot 跨会话记住用户偏好 |
-| **S4 浏览器、定时任务、推送** | agent-browser（每个 Bot 一个会话、按任务分标签页）、画面流、接管、定时任务、APNs 推送 | Agent Computer、定时任务编辑 | feature/routines（查看、暂停/恢复）、通知完善 | feature/computer（触摸接管）、推送 | 用 Chrome 的登录状态刷 X 并总结；手机上接管登录；定时任务按时运行并推送 |
-| **S5 打磨与分发** | .pkg、install.sh、`macbot update`、管理页的 APNs 配置 | .dmg、自动更新、快捷键、性能 | 发布版 APK、性能 | 发布构建配置、性能 | 全新安装：pkg → 设置密码 → 三端连接 → 完整场景 |
+| 阶段 | server-mac | client-mac | client-android（Android 全部功能） | 联调验收 |
+|------|-----------|-----------|----------------|---------|
+| **S0 契约与骨架** | protocol crate（PROTOCOL 全部类型）+ schema + fixtures + 场景；server workspace；`--mock` 实现全部方法 | 工程、client-core（连接、补发、状态）、设计 token、三栏布局、连接页；可以双击打开的 .app | KMP 工程（只有 Android target）、core（连接、补发、状态、画面连接）、设计系统、导航、androidApp 外壳、feature/connect | 桌面和小米 17 都连上 mock，看到会话列表 |
+| **S1 单 Bot 闭环** | 存储、durable、模型接入、工具（文件、bash）、技能加载、私聊对话、基础压缩、运行轨迹、用量记账、鉴权、/admin、CLI、LaunchAgent | 私聊（流式）、消息块、运行轨迹（实时 + 回放）、模型与服务商设置 | feature/chat（私聊、消息块、送达状态）、feature/trace（运行轨迹、历史任务）、feature/settings | 真实服务端：桌面和手机都能和一个 Bot 私聊，Bot 能读写文件、跑命令；轨迹实时可看、可回放；kill -9 重启后能恢复 |
+| **S2 主 Bot 与群协作** | 主 Bot、群和公告、任务派发与交接、`send_msg`、插话、子代理、并发调度、审批、提问、防循环、工作台、Bot 增删改、团队模板 | 群（状态条、公告、任务卡片、送达状态、待验收）、新建群和 Bot、Bot 设置、工作台、审批 | feature/group、feature/mainbot、feature/approval、feature/workbench、feature/bots | 「登录功能」完整场景两端都能操作；两个群并行；运行中插话生效 |
+| **S3 技能、仪表盘、记忆** | 三种记忆、记忆提取与整理、`project_find`、技能管理接口（含草稿发布）和导入、仪表盘接口、搜索 | 仪表盘、技能页、搜索 | feature/dashboard、feature/skills、feature/search | 仪表盘两端数据一致；技能增删改；Bot 跨会话记住用户偏好 |
+| **S4 浏览器、定时任务** | agent-browser（每个 Bot 一个会话、按任务分标签页）、`/ws/screen`、接管、定时任务和 `routine` 工具 | Agent Computer、定时任务编辑 | feature/computer（触摸接管）、feature/routines、通知完善 | 用 Chrome 的登录状态刷 X 并总结；手机上接管登录；定时任务按时运行并通知 |
+| **S5 打磨与分发** | .pkg、install.sh、`macbot update` | .dmg、自动更新、快捷键、性能 | 发布版 APK、性能 | 全新安装：pkg → 设置密码 → 两端连接 → 完整场景 |
 
 **执行规则**
 - 每条线完成一个阶段后，在 `COORDINATION.md` 里打卡「Sx 完成」，然后**直接进入下一阶段**，不停下来等待。
 - **集成线（integrator）** 负责：
-  - 在这台 Mac mini 上持续部署 main 分支的最新版本：`scripts/dev/deploy.sh` 编译并安装 macbotd 的 LaunchAgent、编译桌面客户端 `.app`、给小米 17 安装 APK、在 iOS 模拟器上安装 App。
+  - 在这台 Mac mini 上持续部署 main 分支的最新版本：`scripts/dev/deploy.sh` 编译并安装 macbotd 的 LaunchAgent、编译桌面客户端 `.app`、给小米 17 安装 APK。
   - 编写并运行每个阶段的端到端场景（`scripts/e2e/<阶段>/`）。
   - 截图存档到 `docs/progress/<阶段>/`。
   - 把问题记录到 COORDINATION.md，交给对应的开发线。
-- 四条开发线都打卡某个阶段后，集成线在 Mac mini 上跑完该阶段的「联调验收」，并把结果写进 COORDINATION.md。
+- 三条开发线都打卡某个阶段后，集成线在 Mac mini 上跑完该阶段的「联调验收」，并把结果写进 COORDINATION.md。
 - 只有被其他开发线阻塞时才停下来，并在 COORDINATION.md 里写明原因。
 
 ## 7. 开发环境（这台 Mac 上已经装好）
@@ -548,12 +547,11 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 | Rust | stable（rustfmt、clippy），crates.io 走清华 tuna 镜像，`cargo search` 需要加 `--registry crates-io` |
 | GPUI | 只依赖 `gpui-kit` 0.7；需要 Xcode 26 和 Metal 工具链（已经安装） |
 | Android | JDK 21、Gradle 9.8（项目内使用 wrapper）、Android SDK 36、build-tools 36.1、adb；真机是小米 17 |
-| iOS | Xcode 26.6、iOS 26.5 模拟器；真机需要用户签名 |
 | 浏览器 | Chrome（S4 使用） |
 | 机器 | 这台 Mac mini（M4，16 GB，192.168.31.162）就是开发机和目标 Host；数据目录开发时可以用 `MACBOT_HOME` 指到别处，部署时用 `~/MacBot` |
 
 ## 8. 不在 v1 范围内
 
-- **以后做**：Windows 客户端；Computer Node；多 Host 联邦；原生桌面控制（cua-driver）；TLS、审计、设备管理；示范一次生成技能；语音输入和语音对话；小米厂商推送。
+- **以后做**：iOS 客户端（含 APNs 推送）；Windows 客户端；Computer Node；多 Host 联邦；原生桌面控制（cua-driver）；TLS、审计、设备管理；示范一次生成技能；语音输入和语音对话；小米厂商推送。
 - **不做**：Linux 服务端；虚拟机或沙箱；多用户。
 - 断电重启后的自动恢复需要关闭 FileVault 并开启自动登录，由用户自行决定。
