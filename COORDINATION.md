@@ -238,3 +238,14 @@
 - **累计验证**：server workspace 279 tests、protocol 13 tests、workspace all-targets clippy -D warnings、release build 通过。三轮会话/after_seq/重启和 safe DM 同 run kill9 恢复、unsafe 工具暂停通过；`/tmp/macbot-final-conversation-20261009z12.evidence.log`、`/tmp/macbot-final-recovery-20261009z12.evidence.log`。runtime/lifecycle/trace/question/loop/mock 隔离证据见 `/tmp/macbot-final-*-20261009z.evidence.log`。
 - **验收边界**：本线实现和隔离验证打卡不代替真实双端联合验收、外部账号登录或全新安装；未修改/重启共享 7788、7789、客户端或 AVD。集成从最终固定 main SHA 复跑 S2 partial 与 skill_update_scope，继续双端验收。包未公证；开发包未设置下载 URL 时 update 返回 update_unavailable。
 - **S4 会话寿命补充**：新 screen WS 恢复空闲回收后的持久 tabs，活跃 screen 不被 idle eviction；订阅计数与 keepalive/stream_disable 按同一锁顺序更新。新增恢复和回收保护测试通过，真实 Chrome 画面复验通过：`/tmp/macbot-final-screen-20261009z13.evidence.log`（low JPEG/ACK、同 WS bot→user→bot、实际 URL、缩放点击/键盘、交还后拒绝用户输入）。
+
+## integrator：7c5e480 帧修复部署与工具阻断（2026-10-09 23:51）
+- 固定7c5e480f3a2582068198df3bfca6b6d2db452ff1已独立ls-remote确认origin/main；Mac-only clean archive debug部署exit0、完整bundle strict签名通过，安装PID66995/window58491。Release App/DMG来源、哈希、包内签名/hdiutil独立核验通过，但没有实装Release DMG或fresh install。证据S5/desktop-dmg-7c5e480-{candidate,deployment}.json。正式AE63443/shared mock66750/Android未重启。
+- S4联调仍未通过。初始screen WS关闭；仅本次唯一marker新请求重新实际browser_open、精确allow_once后tab t2可用，终态known Markdown通过。独立screen WS两帧low640×316/URL/ACK通过，raw JPEG已核图；production-7c5e480-ae3009b-{screen-baseline,browser-open}.json、production-7c5e480-reopen-screen-check.json。独立WS不代表native连续呈现/输入。
+- capture脚本确认安装窗口on-screen且截图成功，但235101-desktop.png真实显示欢迎页“正在连接”。TCP→7788 ESTABLISHED只证明传输，3秒sample主线程AppKit idle/connect timer不证明冻结。CUA安装fullpath、Finder、ActivityMonitor均cgWindowNotFound，Mac Bot名称无效；已请client-mac只读核连接事件链，不据工具绑定失败宣布客户端崩溃。原生连续帧/输入尚未取证，用户可选替代UI操作授权仍待回应。
+- server-mac确认新screen寿命缺口：15分钟idle回收后新screen WS未ensure_session恢复持久tabs，active screen未保护回收；正在并入累计S2/S3/技能补丁。该线报告严格S2 25 assignments/28 jobs全done、S3压缩失败后队列推进与memory HTTP500回滚/重启通过，均是隔离证据；a73cf86/pkg内部候选不消费，等待固定ready SHA。S0整体通过保持，S1–S5完整双端未通过。
+
+## integrator：累计版与 Android 新交付来源补充
+- server-mac已发布固定ready 1f771c757b061a3145f1a3f021fc789c08b97911；集成开始server-only archive部署，旧AE尚未记作新版本。包整SHA230d96d3…53587、source/dirty=false/daemon/官方sidecar已独立核对，S5/server-pkg-1f771c7-verified.json；仍未installer/fresh。
+- 旧AE partial的flow=[]是历史配置，累计版仅恢复缺卡片/事件并修过滤，不自动改历史流程或重放已done模型run。随后分别验旧场景卡片/过滤迁移与新唯一marker完整DESIGN协作，不把缺历史Product/Tester补成全链PASS。
+- Android现有截图已是Production/formal相同S2唯一数据，不再强断“当前mock”；live freshness仅凭截图未知。归属线新Release source2ccfc88e、2111890bytes/hash8ecb6e7d…448664与正式聊天/trace/dashboard局部截图已归档S5/android-2ccfc88-continuation-release.json及android-owner-1f771c7-formal-screenshots.json，取代80d当前安装记录但不覆盖历史证据；未计root全场景通过。正式窗口Qt/CUA绑定限制仍保留，当前未新增ADB UI操作。
