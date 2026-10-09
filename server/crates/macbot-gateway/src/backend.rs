@@ -438,6 +438,14 @@ impl ComposedBackend {
             Ok(_) => {}
             Err(error) => tracing::warn!(%error, "failed to close idle browser sessions"),
         }
+        if let Err(error) = self
+            .inner
+            .refresh_project_attention(&self.state, Utc::now())
+            .await
+        {
+            tracing::warn!(%error, "project attention refresh failed during feature tick");
+        }
+        self.dispatch_ready_assignments().await;
         Ok(
             json!({"maintenance_commits":committed,"maintenance_error":maintenance_error,"usage_flushed":true}),
         )
@@ -817,11 +825,65 @@ impl ComposedBackend {
         })
     }
 
+    /// Queue pumping happens inside the orchestrator mutation that just
+    /// finished another assignment.  The promoted assignment therefore has
+    /// no adapter RPC of its own to publish `assignment.updated`.  Consult
+    /// the durable event tail before emitting that transition so repeated
+    /// scheduler ticks and a restart remain idempotent.
+    fn assignment_status_event_needed(events: &[macbot_store::Event], assignment: &Value) -> bool {
+        let Some(assignment_id) = assignment.get("id").and_then(Value::as_str) else {
+            return false;
+        };
+        let Some(status) = assignment.get("status").and_then(Value::as_str) else {
+            return false;
+        };
+        events
+            .iter()
+            .rev()
+            .find(|event| {
+                matches!(
+                    event.event.as_str(),
+                    "assignment.created" | "assignment.updated"
+                ) && event
+                    .data
+                    .get("assignment")
+                    .and_then(|value| value.get("id"))
+                    .and_then(Value::as_str)
+                    == Some(assignment_id)
+            })
+            .and_then(|event| {
+                event
+                    .data
+                    .get("assignment")
+                    .and_then(|value| value.get("status"))
+                    .and_then(Value::as_str)
+            })
+            != Some(status)
+    }
+
+    async fn publish_assignment_status(
+        inner: &ProductionBackend,
+        state: &GatewayState,
+        assignment: &Value,
+    ) {
+        let Ok(event) = inner
+            .store
+            .append_event("assignment.updated", json!({"assignment": assignment}))
+        else {
+            tracing::warn!("failed to persist queued assignment promotion event");
+            return;
+        };
+        state
+            .publish_event(event.seq, &event.event, event.data)
+            .await;
+    }
+
     /// Dispatch all currently admitted assignments.  The orchestrator remains
     /// the source of truth for concurrency and queue promotion; this method
     /// only starts `working` assignments and uses `active_runs` to prevent a
     /// duplicate spawn during overlapping RPC/event callbacks.
     async fn dispatch_ready_assignments(&self) {
+        let status_events = self.inner.store.events_since(0).unwrap_or_default();
         let assignments = match self.inner.orchestrator.snapshot() {
             Ok(snapshot) => snapshot
                 .get("assignments")
@@ -868,8 +930,20 @@ impl ComposedBackend {
             {
                 continue;
             }
-            self.spawn_request(request);
+            let Some(active_key) = self.reserve_run(&request) else {
+                continue;
+            };
+            if Self::assignment_status_event_needed(&status_events, &assignment) {
+                Self::publish_assignment_status(&self.inner, &self.state, &assignment).await;
+            }
+            self.spawn_reserved_request(request, active_key);
         }
+    }
+
+    async fn finalize_project_before_confirmation(&self, project_id: &str) -> crate::RpcResult {
+        self.runtime
+            .finalize_project_summary_before_confirmation(project_id)
+            .await
     }
 
     fn mark_waiting(&self, assignment_id: Option<&str>, run_id: &str, waiting: bool) {
@@ -948,21 +1022,32 @@ impl ComposedBackend {
         }))
     }
 
-    fn spawn_request(&self, request: ExecutionRequest) {
-        let run_id = request.run_id.clone();
+    fn reserve_run(&self, request: &ExecutionRequest) -> Option<String> {
         let active_key = request
             .assignment_id
             .clone()
-            .unwrap_or_else(|| run_id.clone());
+            .unwrap_or_else(|| request.run_id.clone());
         let active_runs = self.active_runs.clone();
         let Ok(mut active) = active_runs.lock() else {
-            tracing::warn!(%run_id, "execution scheduler lock poisoned");
-            return;
+            tracing::warn!(run_id = %request.run_id, "execution scheduler lock poisoned");
+            return None;
         };
         if !active.insert(active_key.clone()) {
-            return;
+            return None;
         }
-        drop(active);
+        Some(active_key)
+    }
+
+    fn spawn_request(&self, request: ExecutionRequest) {
+        let Some(active_key) = self.reserve_run(&request) else {
+            return;
+        };
+        self.spawn_reserved_request(request, active_key);
+    }
+
+    fn spawn_reserved_request(&self, request: ExecutionRequest, active_key: String) {
+        let run_id = request.run_id.clone();
+        let active_runs = self.active_runs.clone();
         let runtime = self.runtime.clone();
         let inner = self.inner.clone();
         let state = self.state.clone();
@@ -1268,7 +1353,16 @@ async fn finish_assignment_with_status(
                 .publish_event(event.seq, &event.event, event.data)
                 .await;
         }
+        if let Some(project_id) = assignment.project_id.as_deref() {
+            if let Err(error) = inner.refresh_project_events(&state, project_id).await {
+                tracing::warn!(%error, %project_id, "failed to refresh project announcement after assignment finish");
+            }
+        }
+        if let Err(error) = inner.refresh_project_attention(&state, Utc::now()).await {
+            tracing::warn!(%error, %assignment_id, "failed to refresh project attention after assignment finish");
+        }
         mark_routine_run_for_assignment(&inner, &state, &assignment_id, status).await;
+        publish_live_status(inner.clone(), &state).await;
     }
 }
 
@@ -1391,11 +1485,18 @@ async fn cancel_assignment_engine(
     assignment_id: &str,
     status: &str,
 ) -> crate::RpcResult {
+    cancel_assignment_engine_with_runtime(&backend.runtime, assignment_id, status).await
+}
+
+async fn cancel_assignment_engine_with_runtime(
+    runtime: &RuntimeExecution,
+    assignment_id: &str,
+    status: &str,
+) -> crate::RpcResult {
     if status == "queued" || matches!(status, "done" | "failed" | "cancelled") {
         return Ok(json!({}));
     }
-    let outcome = backend
-        .runtime
+    let outcome = runtime
         .cancel_assignment(assignment_id)
         .await
         .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
@@ -1702,6 +1803,16 @@ impl crate::RpcBackend for ComposedBackend {
                 }
             }
         }
+        if method == "project.confirm_done" {
+            let project_id = params
+                .get("project_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    crate::rpc_error("invalid_params", "project_id is required", None)
+                })?;
+            self.finalize_project_before_confirmation(project_id)
+                .await?;
+        }
         // Keep duplication on the process-wide FeatureService so copied skill
         // metadata and the Bot mutation share one atomic registry instance.
         if method == "bot.duplicate" {
@@ -1987,6 +2098,7 @@ impl crate::RpcBackend for ComposedBackend {
                 .and_then(Value::as_str)
                 .map(str::to_owned)
             {
+                let approval_assignment = approval_assignment_id(self, &approval_id).ok().flatten();
                 let runtime = self.runtime.clone();
                 let inner = self.inner.clone();
                 let state = self.state.clone();
@@ -1994,6 +2106,7 @@ impl crate::RpcBackend for ComposedBackend {
                 tokio::spawn(async move {
                     match runtime.resume_approved(&approval_id).await {
                         Ok(Some((assignment_id, outcome))) => {
+                            let assignment_id = assignment_id.or(approval_assignment.clone());
                             scheduler.mark_waiting(
                                 assignment_id.as_deref(),
                                 &outcome.run_id,
@@ -2006,10 +2119,20 @@ impl crate::RpcBackend for ComposedBackend {
                                 if let Some(assignment_id) = assignment_id {
                                     finish_assignment(inner, state, assignment_id).await;
                                 }
+                            } else if matches!(outcome.status.as_str(), "failed" | "cancelled") {
+                                if let Some(assignment_id) = assignment_id {
+                                    fail_assignment(inner, state, assignment_id, &outcome.status)
+                                        .await;
+                                }
                             }
                         }
                         Ok(None) => {}
-                        Err(error) => tracing::error!(%error, "approval continuation failed"),
+                        Err(error) => {
+                            tracing::error!(%error, "approval continuation failed");
+                            if let Some(assignment_id) = approval_assignment {
+                                fail_assignment(inner, state, assignment_id, "failed").await;
+                            }
+                        }
                     }
                     scheduler.dispatch_ready_assignments().await;
                 });
@@ -2034,6 +2157,10 @@ impl crate::RpcBackend for ComposedBackend {
                             .map(|index| format!("选项 {}", index + 1))
                     });
                 if let (Some(question_id), Some(answer)) = (question_id, answer) {
+                    let question_assignment = question
+                        .get("assignment_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
                     let runtime = self.runtime.clone();
                     let inner = self.inner.clone();
                     let state = self.state.clone();
@@ -2041,6 +2168,7 @@ impl crate::RpcBackend for ComposedBackend {
                     tokio::spawn(async move {
                         match runtime.resume_question(&question_id, answer).await {
                             Ok(Some((assignment_id, outcome))) => {
+                                let assignment_id = assignment_id.or(question_assignment.clone());
                                 scheduler.mark_waiting(
                                     assignment_id.as_deref(),
                                     &outcome.run_id,
@@ -2053,10 +2181,26 @@ impl crate::RpcBackend for ComposedBackend {
                                     if let Some(assignment_id) = assignment_id {
                                         finish_assignment(inner, state, assignment_id).await;
                                     }
+                                } else if matches!(outcome.status.as_str(), "failed" | "cancelled")
+                                {
+                                    if let Some(assignment_id) = assignment_id {
+                                        fail_assignment(
+                                            inner,
+                                            state,
+                                            assignment_id,
+                                            &outcome.status,
+                                        )
+                                        .await;
+                                    }
                                 }
                             }
                             Ok(_) => {}
-                            Err(error) => tracing::error!(%error, "question continuation failed"),
+                            Err(error) => {
+                                tracing::error!(%error, "question continuation failed");
+                                if let Some(assignment_id) = question_assignment {
+                                    fail_assignment(inner, state, assignment_id, "failed").await;
+                                }
+                            }
                         }
                         scheduler.dispatch_ready_assignments().await;
                     });
@@ -2081,6 +2225,8 @@ impl crate::RpcBackend for ComposedBackend {
                     tokio::spawn(async move {
                         match runtime.resume_takeover(&assignment_id, note).await {
                             Ok(Some((assignment_result, outcome))) => {
+                                let assignment_result =
+                                    assignment_result.or_else(|| Some(assignment_id.clone()));
                                 scheduler.mark_waiting(
                                     assignment_result
                                         .as_deref()
@@ -2095,10 +2241,24 @@ impl crate::RpcBackend for ComposedBackend {
                                     if let Some(assignment_id) = assignment_result {
                                         finish_assignment(inner, state, assignment_id).await;
                                     }
+                                } else if matches!(outcome.status.as_str(), "failed" | "cancelled")
+                                {
+                                    if let Some(assignment_id) = assignment_result {
+                                        fail_assignment(
+                                            inner,
+                                            state,
+                                            assignment_id,
+                                            &outcome.status,
+                                        )
+                                        .await;
+                                    }
                                 }
                             }
                             Ok(_) => {}
-                            Err(error) => tracing::error!(%error, "takeover continuation failed"),
+                            Err(error) => {
+                                tracing::error!(%error, "takeover continuation failed");
+                                fail_assignment(inner, state, assignment_id, "failed").await;
+                            }
                         }
                         scheduler.dispatch_ready_assignments().await;
                     });
@@ -2111,7 +2271,12 @@ impl crate::RpcBackend for ComposedBackend {
         // Assignment creation and queue promotion can happen inside the
         // ProductionBackend (including the internal send_msg bridge), so
         // dispatch after all synchronous continuation handling above.
-        if !resumed_waiting_message
+        if method == "loop.resolve" {
+            // loop.resolve creates the promoted assignment inside the
+            // orchestrator RPC; dispatch it through the same execution path
+            // before returning the empty protocol result.
+            self.dispatch_ready_assignments().await;
+        } else if !resumed_waiting_message
             && !matches!(
                 method,
                 "approval.decide" | "question.answer" | "takeover.release"
@@ -2142,6 +2307,55 @@ fn safe_component(value: &str) -> String {
         .collect()
 }
 
+fn project_summary(project: &Value, announcement: &Value) -> String {
+    let name = project
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("未命名项目");
+    let goal = project.get("goal").and_then(Value::as_str).unwrap_or("");
+    let mut summary = format!("项目：{name}");
+    if !goal.trim().is_empty() {
+        summary.push_str(&format!("\n目标：{goal}"));
+    }
+    if let Some(artifacts) = announcement.get("artifacts").and_then(Value::as_array) {
+        let mut items = artifacts
+            .iter()
+            .filter_map(|artifact| {
+                let title = artifact.get("title").and_then(Value::as_str).unwrap_or("");
+                let path = artifact
+                    .get("path_or_url")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                (!title.is_empty() || !path.is_empty()).then(|| {
+                    if path.is_empty() {
+                        title.to_owned()
+                    } else if title.is_empty() {
+                        path.to_owned()
+                    } else {
+                        format!("{title} ({path})")
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        items.sort();
+        items.dedup();
+        if !items.is_empty() {
+            summary.push_str(&format!("\n产物：{}", items.join("、")));
+        }
+    }
+    if let Some(highlights) = announcement.get("highlights").and_then(Value::as_array) {
+        let items = highlights
+            .iter()
+            .filter_map(|highlight| highlight.get("text").and_then(Value::as_str))
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>();
+        if !items.is_empty() {
+            summary.push_str(&format!("\n进展：{}", items.join("；")));
+        }
+    }
+    summary
+}
+
 fn normalize_call_id(value: &str) -> &str {
     value.strip_prefix("apr_").unwrap_or(value)
 }
@@ -2149,7 +2363,7 @@ fn normalize_call_id(value: &str) -> &str {
 fn bot_tool_allowlist(
     bot: Option<&Value>,
     is_main: bool,
-    private: bool,
+    _private: bool,
     web_search_configured: bool,
 ) -> Option<Vec<String>> {
     let config = bot.and_then(|value| value.get("tools").and_then(Value::as_object));
@@ -2185,10 +2399,11 @@ fn bot_tool_allowlist(
     {
         names.extend(["web_fetch", "web_search"]);
     }
-    if config
-        .and_then(|value| value.get("browser"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
+    if !is_main
+        && config
+            .and_then(|value| value.get("browser"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
     {
         names.extend([
             "browser_open",
@@ -2228,12 +2443,9 @@ fn bot_tool_allowlist(
             "routine",
         ]);
     }
-    // A non-main Bot still needs the collaboration bridge in a direct chat
-    // so it can report to the main Bot.  Subagents receive an explicit
-    // read-only allowlist and never pass through this helper.
-    if !private || !is_main {
-        names.push("send_msg");
-    }
+    // Coordination may begin in the main DM and report into the newly
+    // created project. Subagents use their own restricted tool list.
+    names.push("send_msg");
     Some(names.into_iter().map(str::to_owned).collect())
 }
 
@@ -2459,6 +2671,165 @@ impl RuntimeExecution {
             return Ok(None);
         };
         Ok(self.engine_for(&request)?.cancel(&request).await?)
+    }
+
+    pub(crate) async fn finalize_project_summary_before_confirmation(
+        &self,
+        project_id: &str,
+    ) -> crate::RpcResult {
+        let project_result = self
+            .backend
+            .orchestrator
+            .rpc("project.get", json!({"project_id": project_id}))
+            .await
+            .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+        let project = project_result
+            .get("project")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let announcement = project_result
+            .get("announcement")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let bot_id = project
+            .get("lead_bot_id")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                project
+                    .get("members")
+                    .and_then(Value::as_array)
+                    .and_then(|members| members.first())
+                    .and_then(|member| member.get("bot_id"))
+                    .and_then(Value::as_str)
+            })
+            .unwrap_or("main");
+        let summary = project_summary(&project, &announcement);
+        self.feature_service
+            .finalize_project_summary(project_id, bot_id, &summary)
+            .map(|_| json!({}))
+            .map_err(|error| {
+                tracing::error!(%error, %project_id, "failed to finalize project summary");
+                crate::rpc_error(
+                    "internal",
+                    &format!("项目确认前总结写入失败：{error}"),
+                    Some(json!({"project_id":project_id,"summary":summary})),
+                )
+            })
+    }
+
+    /// Complete a model-side finish_project through the same durable gateway
+    /// path as a client confirmation. The coordination assignment is marked
+    /// done first so the orchestrator's project transition cannot cancel the
+    /// run that is currently executing this tool; every other live assignment
+    /// is cancelled at the engine before its assignment is stopped.
+    pub(crate) async fn confirm_project_for_coordination(
+        &self,
+        params: &Value,
+        coordination_assignment_id: Option<&str>,
+    ) -> crate::RpcResult {
+        let project_id = params
+            .get("project_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| crate::rpc_error("invalid_params", "project_id is required", None))?;
+        let snapshot = self
+            .backend
+            .orchestrator
+            .snapshot()
+            .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+        let project = snapshot
+            .get("projects")
+            .and_then(Value::as_object)
+            .and_then(|projects| projects.get(project_id))
+            .cloned()
+            .ok_or_else(|| crate::rpc_error("not_found", "project not found", None))?;
+        if !matches!(
+            project.get("status").and_then(Value::as_str),
+            Some("active" | "review")
+        ) {
+            return Err(crate::rpc_error(
+                "conflict",
+                "only active or review projects can be finished",
+                Some(json!({"project_id":project_id})),
+            ));
+        }
+        for (assignment_id, _initial_status) in
+            project_assignment_targets(&snapshot, project_id, None)
+        {
+            if coordination_assignment_id == Some(assignment_id.as_str()) {
+                continue;
+            }
+            let current = self
+                .backend
+                .orchestrator
+                .snapshot()
+                .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+            let status = current
+                .get("assignments")
+                .and_then(Value::as_object)
+                .and_then(|assignments| assignments.get(&assignment_id))
+                .and_then(|assignment| assignment.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or("done");
+            if !matches!(
+                status,
+                "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
+            ) {
+                continue;
+            }
+            cancel_assignment_engine_with_runtime(self, &assignment_id, status).await?;
+            self.backend
+                .call(
+                    "assignment.stop",
+                    json!({
+                        "assignment_id": assignment_id,
+                        "client_request_id": format!("project-stop:{project_id}:{assignment_id}")
+                    }),
+                    &self.gateway_state,
+                )
+                .await?;
+        }
+
+        self.finalize_project_summary_before_confirmation(project_id)
+            .await?;
+
+        if let Some(assignment_id) = coordination_assignment_id {
+            let current = self
+                .backend
+                .orchestrator
+                .snapshot()
+                .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+            let belongs = current
+                .get("assignments")
+                .and_then(Value::as_object)
+                .and_then(|assignments| assignments.get(assignment_id))
+                .is_some_and(|assignment| {
+                    assignment.get("project_id").and_then(Value::as_str) == Some(project_id)
+                        && matches!(
+                            assignment.get("status").and_then(Value::as_str),
+                            Some("queued" | "working" | "waiting_user" | "waiting_bot" | "blocked")
+                        )
+                });
+            if belongs {
+                finish_assignment_with_status(
+                    self.backend.clone(),
+                    self.gateway_state.clone(),
+                    assignment_id.to_owned(),
+                    "done",
+                )
+                .await;
+            }
+        }
+        let result = self
+            .backend
+            .call("project.confirm_done", params.clone(), &self.gateway_state)
+            .await?;
+        self.backend
+            .refresh_project_events(&self.gateway_state, project_id)
+            .await?;
+        self.backend
+            .refresh_project_attention(&self.gateway_state, Utc::now())
+            .await?;
+        Ok(result)
     }
 
     /// Continue the durable job whose pending unsafe call owns `approval_id`.
@@ -3225,10 +3596,10 @@ impl RuntimeExecution {
             project_id: request.project_id.clone(),
             is_main,
         };
-        let rpc = Arc::new(ProductionCoordinationRpc::new(
-            self.backend.clone(),
-            self.gateway_state.clone(),
-        ));
+        let rpc = Arc::new(
+            ProductionCoordinationRpc::new(self.backend.clone(), self.gateway_state.clone())
+                .with_runtime(self.clone(), request.assignment_id.clone()),
+        );
         let browser = Arc::new(ProductionBrowserBridge::new(self.gateway_state.clone()));
         let web_settings = self
             .store
@@ -3664,6 +4035,63 @@ struct OrchestratorSink {
     state: GatewayState,
 }
 
+fn is_run_status_boundary(event: &ExecutionEvent) -> bool {
+    event.event == "trace.item"
+        && matches!(
+            event.data.pointer("/item/type").and_then(Value::as_str),
+            Some("run.start" | "run.resume" | "llm.request" | "run.wait" | "run.end")
+        )
+}
+
+async fn publish_live_status(inner: Arc<ProductionBackend>, state: &GatewayState) {
+    // `live_status` walks every durable job and deserializes its checkpoint
+    // to keep Workbench in sync.  A model context can make one checkpoint
+    // megabytes large; doing that synchronous work on a Tokio worker stalls
+    // the execution task that is trying to publish its next trace item.  Keep
+    // the durable read off the async scheduler and only await the cheap live
+    // fan-out here.
+    let snapshot = match tokio::task::spawn_blocking(move || inner.live_status()).await {
+        Ok(Ok(snapshot)) => snapshot,
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "failed to read live status after execution boundary");
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(%error, "live status worker failed");
+            return;
+        }
+    };
+    let host = snapshot.get("host").cloned().unwrap_or_else(|| {
+        json!({
+            "running": snapshot.get("running").cloned().unwrap_or(Value::Null),
+            "queued": snapshot.get("queued").cloned().unwrap_or(Value::Null),
+            "global_limit": snapshot.get("global_limit").cloned().unwrap_or(Value::Null),
+            "subagents_running": snapshot
+                .get("subagents_running")
+                .cloned()
+                .unwrap_or(Value::Null),
+        })
+    });
+    state.publish_temporary("host.status", host).await;
+    if let Some(bots) = snapshot.get("bots").and_then(Value::as_array) {
+        for bot in bots {
+            let Some(bot_id) = bot
+                .get("bot_id")
+                .or_else(|| bot.get("id"))
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            let Some(status) = bot.get("status") else {
+                continue;
+            };
+            state
+                .publish_temporary("bot.status", json!({"bot_id":bot_id,"status":status}))
+                .await;
+        }
+    }
+}
+
 impl OrchestratorSink {
     fn canonical_chat_message(&self, chat_id: &str, message: &Value) -> Result<Value, String> {
         self.store
@@ -3687,11 +4115,7 @@ impl OrchestratorSink {
             .get("chat_id")
             .and_then(Value::as_str)
             .unwrap_or("chat_main");
-        let assignment_id = message
-            .get("assignment_id")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("dm_{}", safe_component(chat_id)));
+        let assignment_id = message.get("assignment_id").cloned().unwrap_or(Value::Null);
         let result = self
             .backend
             .persist_execution_question(
@@ -3736,13 +4160,6 @@ impl OrchestratorSink {
                 "text": message.get("fallback_text").cloned().unwrap_or(Value::Null)
             }),
         );
-        self.inner
-            .emit(ExecutionEvent {
-                event: "question.asked".into(),
-                data: json!({"question": question}),
-                persistent: true,
-            })
-            .await;
         let mut updated_message = message.clone();
         if let Some(question_block) = updated_message
             .get_mut("blocks")
@@ -3820,13 +4237,6 @@ impl OrchestratorSink {
             tracing::error!(message_id, "takeover RPC returned no question");
             return;
         };
-        self.inner
-            .emit(ExecutionEvent {
-                event: "question.asked".into(),
-                data: json!({"question": question}),
-                persistent: true,
-            })
-            .await;
         let Some(request) = result.get("takeover_request") else {
             return;
         };
@@ -3913,6 +4323,7 @@ impl OrchestratorSink {
 #[async_trait]
 impl ExecutionSink for OrchestratorSink {
     async fn emit(&self, event: ExecutionEvent) {
+        let refresh_status = is_run_status_boundary(&event);
         if event.event == "message.created" {
             if let Some(message) = event.data.get("message") {
                 if let Some(block) =
@@ -3940,6 +4351,9 @@ impl ExecutionSink for OrchestratorSink {
             }
         }
         self.inner.emit(event).await;
+        if refresh_status {
+            publish_live_status(self.backend.clone(), &self.state).await;
+        }
     }
 
     async fn send_group_message(&self, message: Value) -> Result<Value, String> {
@@ -4065,10 +4479,24 @@ impl ModelProvider for UnavailableProvider {
 
 #[cfg(test)]
 mod model_resolution_tests {
+    #[test]
+    fn main_can_report_from_a_dm_but_never_acquires_worker_tools() {
+        let bot = serde_json::json!({"tools":{
+            "files":true,"bash":true,"browser":true,"subagent":true
+        }});
+        let names = super::bot_tool_allowlist(Some(&bot), true, true, false).unwrap();
+        assert!(names.iter().any(|name| name == "send_msg"));
+        assert!(names.iter().any(|name| name == "create_project"));
+        for name in ["read", "write", "edit", "bash", "browser_open", "subagent"] {
+            assert!(!names.iter().any(|allowed| allowed == name), "{name}");
+        }
+    }
     use super::{
-        missing_model_bot_from_snapshot, project_assignment_targets, resolve_model,
-        routable_missing_model_chat_from_snapshot, ModelRole,
+        is_run_status_boundary, missing_model_bot_from_snapshot, project_assignment_targets,
+        project_summary, resolve_model, routable_missing_model_chat_from_snapshot, ComposedBackend,
+        ExecutionEvent, ModelRole,
     };
+    use macbot_store::Event;
     use serde_json::json;
 
     #[test]
@@ -4208,11 +4636,105 @@ mod model_resolution_tests {
             "dm_worker"
         );
     }
+
+    #[test]
+    fn live_status_refreshes_only_at_run_boundaries() {
+        for kind in [
+            "run.start",
+            "run.resume",
+            "llm.request",
+            "run.wait",
+            "run.end",
+        ] {
+            assert!(is_run_status_boundary(&ExecutionEvent {
+                event: "trace.item".into(),
+                data: json!({"item":{"type":kind}}),
+                persistent: true,
+            }));
+        }
+        for event in [
+            ExecutionEvent {
+                event: "trace.item".into(),
+                data: json!({"item":{"type":"llm.response"}}),
+                persistent: true,
+            },
+            ExecutionEvent {
+                event: "trace.delta".into(),
+                data: json!({"type":"run.end"}),
+                persistent: false,
+            },
+        ] {
+            assert!(!is_run_status_boundary(&event));
+        }
+    }
+
+    #[test]
+    fn queued_promotion_emits_one_working_assignment_update() {
+        let assignment = json!({"id":"assignment-2","status":"working"});
+        let queued = Event {
+            seq: 1,
+            event: "assignment.created".into(),
+            data: json!({"assignment":{"id":"assignment-2","status":"queued"}}),
+        };
+        let working = Event {
+            seq: 2,
+            event: "assignment.updated".into(),
+            data: json!({"assignment":{"id":"assignment-2","status":"working"}}),
+        };
+        assert!(ComposedBackend::assignment_status_event_needed(
+            std::slice::from_ref(&queued),
+            &assignment
+        ));
+        assert!(!ComposedBackend::assignment_status_event_needed(
+            &[queued, working],
+            &assignment
+        ));
+    }
+
+    #[test]
+    fn project_summary_contains_goal_artifacts_and_highlights() {
+        let summary = project_summary(
+            &json!({"name":"登录项目","goal":"只做邮箱登录"}),
+            &json!({
+                "artifacts":[{"title":"PRD","path_or_url":"docs/prd.md"}],
+                "highlights":[{"text":"测试 20/20 通过"}]
+            }),
+        );
+        assert!(summary.contains("只做邮箱登录"));
+        assert!(summary.contains("PRD (docs/prd.md)"));
+        assert!(summary.contains("测试 20/20 通过"));
+    }
+
+    #[test]
+    fn project_summary_artifacts_are_order_independent_and_deduplicated() {
+        let project = json!({"name":"登录项目","goal":"只做邮箱登录"});
+        let first = project_summary(
+            &project,
+            &json!({
+                "artifacts":[
+                    {"title":"代码","path_or_url":"src/login.rs"},
+                    {"title":"PRD","path_or_url":"docs/prd.md"},
+                    {"title":"PRD","path_or_url":"docs/prd.md"}
+                ]
+            }),
+        );
+        let reversed = project_summary(
+            &project,
+            &json!({
+                "artifacts":[
+                    {"title":"PRD","path_or_url":"docs/prd.md"},
+                    {"title":"代码","path_or_url":"src/login.rs"}
+                ]
+            }),
+        );
+        assert_eq!(first, reversed);
+    }
 }
 
 #[cfg(test)]
 mod persistence_tests {
-    use super::ProductionBackend;
+    use super::{ExecutionRequest, ProductionBackend, RuntimeExecution};
+    use crate::features::FeatureService;
     use crate::{Gateway, GatewayConfig, RpcBackend};
     use serde_json::{json, Value};
     use std::sync::Arc;
@@ -4410,5 +4932,153 @@ mod persistence_tests {
                 [&assignments[0]]["status"],
             "done"
         );
+    }
+
+    #[tokio::test]
+    async fn model_finish_project_finalizes_summary_and_current_assignment() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let worker = backend
+            .call(
+                "bot.create",
+                json!({"name":"summary-worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let worker_id = worker["bot"]["id"].as_str().unwrap().to_owned();
+        let created = backend
+            .call(
+                "project.create",
+                json!({"name":"model finish","goal":"验收真实产物","member_bot_ids":[worker_id]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = created["project"]["id"].as_str().unwrap().to_owned();
+        let chat_id = created["chat"]["id"].as_str().unwrap().to_owned();
+        let working_worker = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":chat_id,
+                    "bot_id":worker_id,
+                    "title":"正在执行",
+                    "instruction":"等待取消",
+                    "from":"user"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let working_worker_id = working_worker["id"].as_str().unwrap().to_owned();
+        let queued_worker = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":chat_id,
+                    "bot_id":worker_id,
+                    "title":"排队中",
+                    "instruction":"等待取消",
+                    "from":"user"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let queued_worker_id = queued_worker["id"].as_str().unwrap().to_owned();
+        assert_eq!(working_worker["status"], "working");
+        assert_eq!(queued_worker["status"], "queued");
+        backend
+            .orchestrator
+            .mark_project_review(&project_id)
+            .unwrap();
+        let assignment = backend
+            .orchestrator
+            .rpc(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":chat_id,
+                    "bot_id":"main",
+                    "title":"模型确认",
+                    "instruction":"确认项目",
+                    "from":"main"
+                }),
+            )
+            .await
+            .unwrap();
+        let assignment_id = assignment["id"].as_str().unwrap().to_owned();
+        let feature_service = Arc::new(
+            FeatureService::with_store(
+                backend.store.clone(),
+                path.clone(),
+                Vec::<std::path::PathBuf>::new(),
+            )
+            .unwrap(),
+        );
+        let runtime = RuntimeExecution::open(
+            path,
+            backend.clone(),
+            backend.usage.clone(),
+            backend.providers.clone(),
+            gateway.state.clone(),
+            feature_service.clone(),
+        )
+        .unwrap();
+        let worker_run_id = format!("run_{working_worker_id}");
+        let worker_request: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":worker_run_id,
+            "assignment_id":working_worker_id,
+            "chat_id":chat_id,
+            "bot_id":worker_id,
+            "model":"mock/worker",
+            "instruction":"等待取消"
+        }))
+        .unwrap();
+        runtime.persist_request(&worker_request).unwrap();
+        runtime
+            .state
+            .durable
+            .lock()
+            .await
+            .create_job("worker", "dm", json!({"run_id":worker_request.run_id}))
+            .unwrap();
+        runtime
+            .confirm_project_for_coordination(
+                &json!({
+                    "project_id":project_id,
+                    "summary":"模型确认摘要",
+                    "client_request_id":"model-finish-test"
+                }),
+                Some(&assignment_id),
+            )
+            .await
+            .unwrap();
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        assert_eq!(snapshot["projects"][&project_id]["status"], "done");
+        assert_eq!(snapshot["assignments"][&assignment_id]["status"], "done");
+        assert_eq!(
+            snapshot["assignments"][&working_worker_id]["status"],
+            "cancelled"
+        );
+        assert_eq!(
+            snapshot["assignments"][&queued_worker_id]["status"],
+            "cancelled"
+        );
+        let entries = feature_service.shared_memory.entries().unwrap();
+        assert!(entries
+            .iter()
+            .any(|entry| entry.id == format!("project-summary:{project_id}")));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.id == format!("project-summary-worklog:{project_id}:main")));
     }
 }

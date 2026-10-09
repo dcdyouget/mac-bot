@@ -6,7 +6,7 @@
 //! tool registration testable without starting a listener and keeps the
 //! existing execution/send_msg bridge unchanged.
 
-use crate::{adapter::ProductionBackend, GatewayState, RpcBackend};
+use crate::{adapter::ProductionBackend, backend::RuntimeExecution, GatewayState, RpcBackend};
 use async_trait::async_trait;
 use base64::Engine;
 use macbot_browser::{BrowserAction, BrowserError, BrowserMode, SessionConfig};
@@ -97,18 +97,43 @@ pub trait SubagentDispatchBridge: Send + Sync {
 pub struct ProductionCoordinationRpc {
     backend: Arc<ProductionBackend>,
     state: GatewayState,
+    runtime: Option<RuntimeExecution>,
+    assignment_id: Option<String>,
 }
 
 impl ProductionCoordinationRpc {
     pub fn new(backend: Arc<ProductionBackend>, state: GatewayState) -> Self {
-        Self { backend, state }
+        Self {
+            backend,
+            state,
+            runtime: None,
+            assignment_id: None,
+        }
+    }
+
+    pub fn with_runtime(
+        mut self,
+        runtime: RuntimeExecution,
+        assignment_id: Option<String>,
+    ) -> Self {
+        self.runtime = Some(runtime);
+        self.assignment_id = assignment_id;
+        self
     }
 }
 
 #[async_trait]
 impl CoordinationRpc for ProductionCoordinationRpc {
     async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
-        let result = if method == "takeover.request" {
+        let result = if method == "project.confirm_done" {
+            if let Some(runtime) = &self.runtime {
+                runtime
+                    .confirm_project_for_coordination(&params, self.assignment_id.as_deref())
+                    .await
+            } else {
+                self.backend.call(method, params, &self.state).await
+            }
+        } else if method == "takeover.request" {
             // This model-only action is deliberately not a public protocol
             // method. Keep it on the typed execution bridge so a client
             // cannot manufacture a takeover request for an arbitrary Bot.
@@ -692,13 +717,13 @@ impl CollaborationTools {
         let result = match name {
             "list_bots" => self.rpc.call("bot.list", json!({})).await,
             "create_project" | "project_create" => {
-                let mut params = args;
-                if !params.contains_key("member_bot_ids") {
-                    if let Some(members) = params.remove("members") {
-                        params.insert("member_bot_ids".into(), members);
-                    }
+                if let Err(error) = require_nonempty_string_array(&args, "member_bot_ids") {
+                    return ToolResult::error(error);
                 }
-                self.rpc.call("project.create", Value::Object(params)).await
+                if let Err(error) = require_nonempty_string_array(&args, "flow") {
+                    return ToolResult::error(error);
+                }
+                self.rpc.call("project.create", Value::Object(args)).await
             }
             "assign" => {
                 self.rpc
@@ -916,6 +941,21 @@ fn object(value: Value) -> Result<Map<String, Value>, String> {
         .ok_or_else(|| "tool arguments must be a JSON object".into())
 }
 
+fn require_nonempty_string_array(args: &Map<String, Value>, key: &str) -> Result<(), String> {
+    let values = args
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{key} must be a non-empty array of strings"))?;
+    if values.is_empty()
+        || values
+            .iter()
+            .any(|value| value.as_str().is_none_or(|value| value.trim().is_empty()))
+    {
+        return Err(format!("{key} must be a non-empty array of strings"));
+    }
+    Ok(())
+}
+
 fn tool_value(value: Value) -> ToolResult {
     let text = serde_json::to_string(&value).unwrap_or_else(|_| "{}".into());
     ToolResult {
@@ -928,7 +968,7 @@ fn tool_value(value: Value) -> ToolResult {
 fn description(name: &str) -> &'static str {
     match name {
         "list_bots" => "List available worker Bots.",
-        "create_project" | "project_create" => "Create a project group and add worker Bots.",
+        "create_project" | "project_create" => "Create a project group. Use member_bot_ids with Bot IDs from list_bots and a non-empty ordered flow of plan steps.",
         "assign" => "Assign a project task to a worker Bot.",
         "delegate" => "Delegate a small task to a worker Bot without creating a project.",
         "project_status" | "get_status" => "Read project status and announcement.",
@@ -952,8 +992,8 @@ fn schema(name: &str) -> Value {
     match name {
         "list_bots" => object(json!({"include_hidden":{"type":"boolean"}}), &[]),
         "create_project" | "project_create" => object(
-            json!({"name":{"type":"string"},"goal":{"type":"string"},"member_bot_ids":{"type":"array","items":{"type":"string"}},"members":{"type":"array","items":{"type":"string"}},"flow":{"type":"array","items":{"type":"string"}},"deadline":{"type":"string"}}),
-            &["name", "goal"],
+            json!({"name":{"type":"string"},"goal":{"type":"string"},"member_bot_ids":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}},"members":{"type":"array","items":{"type":"string"}},"flow":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}},"deadline":{"type":"string"}}),
+            &["name", "goal", "member_bot_ids", "flow"],
         ),
         "assign" => object(
             json!({"bot_id":{"type":"string"},"instruction":{"type":"string"},"title":{"type":"string"},"project_id":{"type":"string"}}),
@@ -1121,6 +1161,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_project_requires_bot_ids_and_ordered_flow() {
+        let rpc = Arc::new(FakeRpc::default());
+        let factory = CollaborationTools::new(
+            rpc.clone(),
+            CollaborationIdentity {
+                bot_id: "main".into(),
+                chat_id: "chat_main".into(),
+                is_main: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        let context = ToolContext::new("/tmp", "run-1", "/tmp/runs");
+
+        let missing = factory
+            .invoke(
+                "create_project",
+                &context,
+                json!({"name":"x","goal":"y","flow":["编码"]}),
+            )
+            .await;
+        assert!(missing.is_error);
+
+        let empty_flow = factory
+            .invoke(
+                "create_project",
+                &context,
+                json!({"name":"x","goal":"y","member_bot_ids":["bot-1"],"flow":[]}),
+            )
+            .await;
+        assert!(empty_flow.is_error);
+
+        let valid = factory
+            .invoke(
+                "create_project",
+                &context,
+                json!({"name":"x","goal":"y","member_bot_ids":["bot-1"],"flow":["调研","实现"]}),
+            )
+            .await;
+        assert!(!valid.is_error);
+        let calls = rpc.0.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "project.create");
+        assert_eq!(calls[0].1["member_bot_ids"], json!(["bot-1"]));
+        assert_eq!(calls[0].1["flow"], json!(["调研", "实现"]));
+    }
+
+    #[tokio::test]
     async fn browser_stream_is_dispatched_through_the_assignment_bridge() {
         #[derive(Default)]
         struct FakeBrowser(Mutex<Vec<(String, Value)>>);
@@ -1203,11 +1292,27 @@ mod tests {
         assert_eq!(risk("list_bots", &json!({})), Risk::Read);
         assert_eq!(risk("browser_act", &json!({})), Risk::External);
         assert_eq!(risk("routine", &json!({"action":"list"})), Risk::Read);
-        assert!(schema("create_project")["required"]
+        let project_schema = schema("create_project");
+        assert!(project_schema["required"]
             .as_array()
             .unwrap()
             .iter()
             .any(|x| x == "name"));
+        assert!(project_schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x == "member_bot_ids"));
+        assert!(project_schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x == "flow"));
+        assert_eq!(
+            project_schema["properties"]["member_bot_ids"]["minItems"],
+            1
+        );
+        assert_eq!(project_schema["properties"]["flow"]["minItems"], 1);
     }
 
     #[test]
