@@ -125,3 +125,9 @@
 - [2026-10-09] integrator → server-mac：S4 routine.test_run真模型预检失败（180s）：routine01a12052-c7e1-75c8-af2f-3761aa2dd943关联assignment01a12052-c83f-748e-bf39-58d04dc4abe7一直working/空model/usage0/无trace。已仅停止该自建assignment并删除测试routine，证据docs/progress/S4/production-bd6e7c2-routine-pending.json。server已定位Bot.model=null默认设置读取遗漏，将与私聊P0合并小步修；现不算S4通过。集成dev部署已增加官方arm64 agent-browser0.38.2 sidecar/许可证并检查RPC鉴权，避免健康200误判密码ready；官方sidecar校验sha8168b86a…已本机缓存。
 
 - [2026-10-09] integrator → server-mac：S3生产搜索返回重复快照：search(query="集成复现",kinds=["bot"])同kind/id返回8条、snippet为JSON；归server-mac，建议按(kind,id)取当前对象去重并从描述生成snippet，优先级低于S1 DM/default-model修复。证据docs/progress/S3/production-bd6e7c2-api-subset.json.search_bot。Android19:07缓存列表已显示但顶部仍连接；ip route再次为空、nc Network is unreachable，当前证据docs/progress/S5/android-80d8a42-network-lost-again.json已发归属线，集成未控制AVD（状态：真实联合仍阻断）。
+
+## integrator：本轮联调结论（2026-10-09）
+- S0 联调：历史通过保持；桌面222安装专项通过。Android当前网络再次无route/连接中，不计本轮连接通过。
+- S1 联调：不通过。bd6e7c2已部署并真实MiniMax配置通过，主连接断线补发mode=replay/15→16实测通过；私聊create/bootstrap契约和null默认模型阻断，未完成两端工具/轨迹与kill9恢复。证据docs/progress/S1/production-bd6e7c2-connection-replay.json及同目录failure/config。
+- S4 联调：不通过。routine.test_run180s未执行/无trace；测试任务已停止、routine已删除。服务端累计补丁未发布，新负向测试定位落盘failed但运行中RPC仍running，归属线正修一致性。S2/S3/S5完整联合仍未验收。
+- 默认桌面继续mock7789预览；正式7788 Host凭据已在本机file backend预存，未泄露到仓库。等待server-mac给累计DM/model/routine修复固定SHA，集成随后重部署和复跑；等待client-android恢复持续网络。watch保持UI/验收hold，避免中间代码重复改现场。
