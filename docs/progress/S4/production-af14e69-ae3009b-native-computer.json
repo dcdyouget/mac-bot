@@ -1,0 +1,25 @@
+{
+  "scenario": "S4 desktop local Computer partial",
+  "status": "PARTIAL_PASS",
+  "server_source_commit": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "desktop_source_commit": "af14e6952aa8acdaf0ea943bc13e72340368da40",
+  "pid": 49240,
+  "window_id": 57869,
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "url": "http://127.0.0.1:52200/?run=macbot-e2e-screen-controls-20261009",
+  "native_assertions": {
+    "actual_page_painted": true,
+    "takeover_user_status_visible": true,
+    "release_bot_status_visible": true,
+    "low_640x316_visible": true
+  },
+  "screenshots": {
+    "takeover": "20261009-215218-desktop.png",
+    "released_low": "20261009-215335-desktop.png"
+  },
+  "input_validation": {
+    "status": "BLOCKED",
+    "reason": "CUA coordinate click/scroll windowNotFoundAtPosition in normal, zoomed and full-screen windows; AX actions work. No canvas input delivered or claimed."
+  },
+  "scope": "Local fixture only; external Chrome login, mobile takeover and notification not accepted."
+}

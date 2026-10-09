@@ -1,0 +1,70 @@
+{
+  "scenario": "S4 browser local final read-only reconciliation",
+  "status": "PASS",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "request": {
+    "id": "01a120eb-3185-7399-869d-bdecd559e3d0",
+    "seq": 3
+  },
+  "run": {
+    "id": "run_chat_01a120eb_3185_7399_869d_bdecd559e3d0",
+    "status": "done",
+    "tool_names": [
+      "browser_open",
+      "browser_open"
+    ],
+    "browser_open_call_id": "call_function_7fwahtjrjh2d_1",
+    "url": "http://127.0.0.1:52200/?run=macbot-e2e-screen-controls-20261009",
+    "tool_end_url": "http://127.0.0.1:52200/?run=macbot-e2e-screen-controls-20261009",
+    "tab_id": "t2"
+  },
+  "reply": {
+    "id": "msg_run_chat_01a120eb_3185_7399_869d_bdecd559e3d0",
+    "seq": 4,
+    "streaming": false,
+    "known_markdown": true,
+    "marker_in_markdown": true,
+    "text_bytes": 35,
+    "text_sha256": "bb59a1ec53a6d3a27e3a21fddbc68df3d9ae8452b91ca1ee259b7b8947fecb85"
+  },
+  "screen_transport": {
+    "artifact": "docs/progress/S4/production-ae3009b-screen-transport.json",
+    "status": "PASS",
+    "quality": "low",
+    "initial_driver": "bot",
+    "release_driver": "bot",
+    "frames": [
+      {
+        "seq": 1,
+        "w": 640,
+        "h": 316,
+        "tab_id": "t2",
+        "url": "http://127.0.0.1:52200/?run=macbot-e2e-screen-controls-20261009",
+        "same_url": true,
+        "path": "docs/progress/S4/screen-ae3009b/frame-01-seq-1.jpg"
+      },
+      {
+        "seq": 2,
+        "w": 640,
+        "h": 316,
+        "tab_id": "t2",
+        "url": "http://127.0.0.1:52200/?run=macbot-e2e-screen-controls-20261009",
+        "same_url": true,
+        "path": "docs/progress/S4/screen-ae3009b/frame-02-seq-2.jpg"
+      }
+    ],
+    "user_driver": "user",
+    "driver_sequence": [
+      "bot",
+      "user",
+      "bot"
+    ]
+  },
+  "early_snapshot": {
+    "artifact": "docs/progress/S4/production-ae3009b-browser-local.json",
+    "status": "FAIL",
+    "conclusion": "early snapshot incomplete while the final Bot message was still a streaming placeholder; final history is reconciled above"
+  },
+  "conclusion": "API PASS; browser_open and low-quality screen transport are verified. This does not constitute external login, gesture, notification, or UI screenshot acceptance."
+}

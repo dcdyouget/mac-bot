@@ -1,0 +1,18 @@
+{
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "url": "http://127.0.0.1:52200/?run=macbot-e2e-screen-controls-20261009",
+  "marker": "macbot-e2e-screen-controls-20261009",
+  "status": "FAIL",
+  "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "sent_id": "01a120eb-3185-7399-869d-bdecd559e3d0",
+  "sent_seq": 3,
+  "trace_after_aseq": 11,
+  "tool": {
+    "call_id": "call_function_7fwahtjrjh2d_1",
+    "name": "browser_open",
+    "url": "http://127.0.0.1:52200/?run=macbot-e2e-screen-controls-20261009",
+    "tab_id": "t2",
+    "active": true
+  },
+  "error": "Bot reply lacks known Markdown marker evidence"
+}

@@ -1,0 +1,46 @@
+{
+  "scenario": "S3 desktop summary reconciliation",
+  "server_source_commit": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "desktop_source_commit": "af14e6952aa8acdaf0ea943bc13e72340368da40",
+  "period": {
+    "from": "2026-09-09T13:57:43.917804+00:00",
+    "to": "2026-10-09T13:57:43.917804+00:00"
+  },
+  "rpc_summary": {
+    "current": {
+      "cache_read_tokens": 46945,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 192077,
+      "output_tokens": 11781,
+      "requests": 60,
+      "tasks_done": 0
+    },
+    "previous": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "requests": 0,
+      "tasks_done": 0
+    }
+  },
+  "native_visible": {
+    "tokens_total": 203858,
+    "requests": 60,
+    "completed_tasks": 0,
+    "cost": "未知",
+    "cache_hit_percent": 20
+  },
+  "scope": "Desktop displayed values only; Android parity and heatmap not accepted.",
+  "assertions": {
+    "tokens_total": true,
+    "requests": true,
+    "completed_tasks": true,
+    "cost_unknown": true,
+    "cache_hit_percent": true
+  },
+  "status": "PASS",
+  "screenshot": "docs/progress/S3/20261009-215802-desktop.png"
+}

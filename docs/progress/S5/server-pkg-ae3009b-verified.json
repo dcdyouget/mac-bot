@@ -1,0 +1,49 @@
+{
+  "candidate": {
+    "path": "/tmp/MacBot-Server-cumulative-ae3009b-20261009.pkg",
+    "expected_sha256": "38340cd3a6a006a9237d52f229e8b08039ce22f06ed25f902a68b84ac174df3b",
+    "actual_sha256": "38340cd3a6a006a9237d52f229e8b08039ce22f06ed25f902a68b84ac174df3b",
+    "sha256_match": true,
+    "expanded_to": "/tmp/macbot-pkg-ae3009b-1791553131-63103"
+  },
+  "payload": {
+    "source_commit": "ae3009b412be7d1f643c12733a4a15f332afec72",
+    "source_dirty": false,
+    "version": "0.1.0",
+    "macbotd_sha256": "a40c3b3528a08b5e3c430519a6630681a52488f0354f151f466024a44ac5e66a",
+    "agent_browser_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+    "agent_browser_expected_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+    "agent_browser_sha256_match": true,
+    "build_info_matches_payload": true,
+    "source_commit_txt_matches_build_info": true,
+    "info_plist_source_matches": true
+  },
+  "launchagent": {
+    "template": "Contents/Resources/com.macbot.server.plist",
+    "label": "com.macbot.server",
+    "run_at_load": true,
+    "keep_alive": true,
+    "environment_variables": [
+      "MACBOT_HOME"
+    ],
+    "secret_backend_env_present": false,
+    "effective_default_secret_backend": "macOS Keychain",
+    "default_basis": "server/README.md at source commit: formal provider keys default to macOS Keychain; file backend requires explicit MACBOT_SECRET_BACKEND=file",
+    "program_argument_is_placeholder_for_postinstall": true
+  },
+  "postinstall_observed": {
+    "copies_app_to_user_applications": true,
+    "bootstraps_user_launchagent": true,
+    "opens_local_admin_page": true
+  },
+  "s5_fresh_install": false,
+  "validation_scope": [
+    "pkgutil --expand-full only",
+    "payload metadata and SHA verification",
+    "daemon --help only",
+    "no install",
+    "no service stop or restart",
+    "no UI operation",
+    "no password or API key read or recorded"
+  ]
+}

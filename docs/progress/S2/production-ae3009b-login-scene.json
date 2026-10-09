@@ -1,0 +1,12 @@
+{
+  "scenario": "S2 login feature",
+  "status": "FAIL",
+  "server_source_commit": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "marker": "macbot-e2e-s2-login-9ab8ddf045fb",
+  "request_id": "01a120ea-5aa4-70c8-90df-00d09df9d9cc",
+  "project_id": "01a120ea-85ff-70a7-8240-416d22d7994a",
+  "reason": "Main project card timeout: completed create_project/assign run and existing project, no project_card in complete after_seq history.",
+  "evidence": "production-ae3009b-login-scene-partial.json",
+  "resume_evidence": "/tmp/macbot-e2e-s2-partial-25691d76145f.json",
+  "owner": "server-mac"
+}

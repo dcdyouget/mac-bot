@@ -1,0 +1,39 @@
+{
+  "observed_pid": 63443,
+  "process": {
+    "running": true,
+    "comm": "/Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+    "executable_from_lsof": "/Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+    "executable_matches_installed_app": true
+  },
+  "listen_7788": {
+    "pids": [
+      "63443"
+    ],
+    "pid_matches_observed": true
+  },
+  "installed_app": {
+    "path": "/Users/gongshaojie/Applications/MacBotServer.app",
+    "source_commit_marker": "ae3009b412be7d1f643c12733a4a15f332afec72",
+    "info_plist_bundle_identifier": "com.macbot.server",
+    "info_plist_source_commit_present": false,
+    "build_info_present": false
+  },
+  "launchagent": {
+    "plist_path": "/Users/gongshaojie/Library/LaunchAgents/com.macbot.server.plist",
+    "file_label": "com.macbot.server",
+    "loaded_labels_matching": [
+      "com.macbot.server"
+    ],
+    "launchctl_print_target_succeeded": true,
+    "loaded_target_pid": 63443,
+    "label_matches": true
+  },
+  "safety_scope": [
+    "no argv read",
+    "no full plist output",
+    "no credentials read",
+    "no UI",
+    "no restart"
+  ]
+}

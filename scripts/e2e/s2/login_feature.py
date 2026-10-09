@@ -12,6 +12,7 @@ import argparse
 import datetime as dt
 import json
 import sys
+from pathlib import Path
 from typing import Any, Callable
 
 HERE = __import__("pathlib").Path(__file__).resolve()
@@ -40,6 +41,7 @@ ROLE_FLOW = ["产品", "编码", "测试"]
 TERMINAL = {"done", "failed", "cancelled"}
 QUESTION_OPTIONS = ["只做邮箱登录", "改为手机登录"]
 _PARTIAL_EVIDENCE: dict[str, Any] = {"partial_id": unique_marker("macbot-e2e-s2-partial"), "requests": [], "projects": []}
+_PARTIAL_PATH: Path | None = None
 
 
 def args_parser() -> argparse.ArgumentParser:
@@ -58,6 +60,11 @@ def args_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow once only the exact marker bash approval; without it the check fails and leaves approval pending",
     )
+    parser.add_argument(
+        "--resume-partial",
+        type=Path,
+        help="Resume from a prior partial JSON; existing user requests are verified by chat.history and never resent",
+    )
     return parser
 
 
@@ -66,7 +73,11 @@ def assignment_list(client: Any, project_id: str) -> list[dict[str, Any]]:
         client.call("assignment.list", {"project_id": project_id, "limit": 100}),
         "assignment.list result",
     )
-    return [item for item in require_list(result.get("items"), "assignment.list.items") if isinstance(item, dict)]
+    items = [item for item in require_list(result.get("items"), "assignment.list.items") if isinstance(item, dict)]
+    mismatched = [item.get("id") for item in items if item.get("project_id") != project_id]
+    if mismatched:
+        raise ValueError(f"assignment.list project filter returned unrelated assignments: {mismatched}")
+    return items
 
 
 def project_detail(client: Any, project_id: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -159,12 +170,9 @@ def find_project_card(messages: list[dict[str, Any]], *, main_id: str) -> list[d
 def fail_on_pre_project_approval(client: Any, *, main_id: str, marker: str) -> None:
     """Stop before the card timeout when main's project creation is awaiting approval.
 
-    A project-creation approval is attached to the main Bot's private approval
-    chat, so it cannot be identified by ``chat_main``.  The Bot/tool pair is
-    the narrowest protocol-supported scope; the first request is serialized,
-    therefore any pending create_project approval for this main Bot is
-    actionable evidence rather than something the scenario may approve or
-    ignore.
+    Scope by this request's unique marker as well as the Bot/tool pair.
+    Older requests may retain pending approvals after a server upgrade;
+    they must neither fail this run nor be approved by it.
     """
 
     result = require_dict(
@@ -179,6 +187,7 @@ def fail_on_pre_project_approval(client: Any, *, main_id: str, marker: str) -> N
         and item.get("bot_id") == main_id
         and item.get("assignment_id") is None
         and item.get("tool") in {"create_project", "project.create"}
+        and marker in str(item.get("detail", ""))
     ]
     if not pending:
         return
@@ -702,8 +711,147 @@ def final_summary(client: Any, project: dict[str, Any], main_id: str, marker: st
     return None
 
 
+def load_partial(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot load --resume-partial {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError("--resume-partial must contain a JSON object")
+    markers = value.get("markers")
+    if not isinstance(markers, list) or len(markers) != 2 or any(not isinstance(item, str) or not item for item in markers):
+        raise ValueError("--resume-partial requires exactly two non-empty markers")
+    if len(set(markers)) != 2 or any(not item.startswith("macbot-e2e-s2-") for item in markers):
+        raise ValueError("--resume-partial markers must be two distinct S2 markers")
+    requests = value.get("requests")
+    if not isinstance(requests, list) or not requests or len(requests) > 2:
+        raise ValueError("--resume-partial requires one or two existing requests")
+    seen: set[str] = set()
+    seen_ids: set[str] = set()
+    seen_seqs: set[int] = set()
+    marker_set = set(markers)
+    for request in requests:
+        if not isinstance(request, dict):
+            raise ValueError("--resume-partial request must be an object")
+        marker = request.get("marker")
+        if marker not in marker_set or marker in seen:
+            raise ValueError("--resume-partial requests must reference unique known markers")
+        message_id = request.get("message_id")
+        if not isinstance(message_id, str) or not message_id or message_id in seen_ids:
+            raise ValueError("--resume-partial request has no message_id")
+        seq = request.get("seq")
+        if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0 or seq in seen_seqs:
+            raise ValueError("--resume-partial request has no valid numeric seq")
+        seen.add(marker)
+        seen_ids.add(message_id)
+        seen_seqs.add(seq)
+    projects = value.get("projects", [])
+    if not isinstance(projects, list):
+        raise ValueError("--resume-partial projects must be an array")
+    project_markers: set[str] = set()
+    for project in projects:
+        if not isinstance(project, dict):
+            raise ValueError("--resume-partial project must be an object")
+        marker = project.get("marker")
+        if marker not in marker_set or marker in project_markers:
+            raise ValueError("--resume-partial projects must reference unique known markers")
+        for key in ("project_id", "chat_id", "card_message_id"):
+            if not isinstance(project.get(key), str) or not project[key]:
+                raise ValueError(f"--resume-partial project has no {key}")
+        project_markers.add(marker)
+    return value
+
+
+def request_prompt(
+    *,
+    marker: str,
+    name: str,
+    role_ids: dict[str, str],
+    selected: dict[str, dict[str, Any]],
+) -> str:
+    return (
+        f"{marker}：请完成本地邮箱登录 demo‘{name}’，只在新项目 Home（服务端返回的 project.home_path）内操作，"
+        "不要访问外部网站、生产系统或网络服务，不要 git commit/push，不要部署服务。请由主 Bot 建一个群，严格使用流程 产品→编码→测试，成员必须是"
+        f"产品 Bot id={role_ids['产品']} name={selected['产品'].get('name')}、"
+        f"编码 Bot id={role_ids['编码']} name={selected['编码'].get('name')}、"
+        f"测试 Bot id={role_ids['测试']} name={selected['测试'].get('name')}。"
+        "调用 create_project 时 member_bot_ids 必须逐字使用这三个真实 ID（不要把 name 放入 member_bot_ids）。"
+        f"群名必须是‘{name}’，目标必须包含‘{marker}’和‘邮箱登录’。产品写本地 PRD，编码实现本地 demo，测试验证；"
+        "每个交接必须用 send_msg(done) @ 下一位，最后 @ 主 Bot。"
+        f"本次集成必须启动至少一个 subagent，并提出包含‘{marker}’的 decision question，选项必须严格为："
+        f"{QUESTION_OPTIONS!r}；只有选项 0（只做邮箱登录）可由脚本回答。"
+        f"审批测试只允许请求精确命令：mkdir -p e2e && printf '%s' '{marker}' > e2e/{marker}.txt。"
+    )
+
+
+def verify_resume_requests(
+    client: Any,
+    *,
+    main_chat_id: str,
+    partial: dict[str, Any],
+    markers: list[str],
+    role_ids: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    by_marker: dict[str, dict[str, Any]] = {}
+    expected_names = {
+        markers[0]: f"{markers[0]}-登录功能",
+        markers[1]: f"{markers[1]}-并行官网改版",
+    }
+    for request in partial["requests"]:
+        marker = request["marker"]
+        seq = request["seq"]
+        history = chat_history(client, main_chat_id, after_seq=max(0, seq - 1))
+        matches = [
+            item
+            for item in history["messages"]
+            if isinstance(item, dict)
+            and item.get("id") == request["message_id"]
+            and item.get("seq") == seq
+        ]
+        if len(matches) != 1:
+            raise ValueError(f"resume request {marker} must match exactly one chat.history id/seq")
+        message = matches[0]
+        if not sender_is(message, kind="user"):
+            raise ValueError(f"resume request {marker} is not a user message")
+        text = message_text(message)
+        if marker not in text:
+            raise ValueError(f"resume request {marker} text does not contain its marker")
+        if request.get("name") not in (None, expected_names[marker]):
+            raise ValueError(f"resume request {marker} has an unexpected name")
+        if expected_names[marker] not in text:
+            raise ValueError(f"resume request {marker} text has an unexpected project name")
+        for role, bot_id in role_ids.items():
+            if f"{role} Bot id={bot_id}" not in text:
+                raise ValueError(f"resume request {marker} does not contain the current {role} Bot ID")
+        if "member_bot_ids 必须逐字使用这三个真实 ID" not in text:
+            raise ValueError(f"resume request {marker} is an old names-only prompt")
+        by_marker[marker] = {
+            "marker": marker,
+            "name": request.get("name") or expected_names[marker],
+            "sent": {"id": message["id"], "seq": message["seq"]},
+            "message": message,
+        }
+    return by_marker
+
+
+def record_project_evidence(detail: dict[str, Any], marker: str) -> None:
+    record = {
+        "marker": marker,
+        "project_id": detail["project"].get("id"),
+        "chat_id": detail["project"].get("chat_id"),
+        "card_message_id": detail["card"].get("id"),
+    }
+    existing = next((item for item in _PARTIAL_EVIDENCE["projects"] if item.get("marker") == marker), None)
+    if existing is not None and any(existing.get(key) != record[key] for key in ("project_id", "chat_id", "card_message_id")):
+        raise ValueError(f"{marker} partial project/card does not match current project card")
+    if existing is None:
+        _PARTIAL_EVIDENCE["projects"].append(record)
+
+
 def scenario(args: argparse.Namespace) -> dict[str, Any]:
-    global _PARTIAL_EVIDENCE
+    global _PARTIAL_EVIDENCE, _PARTIAL_PATH
+    partial = load_partial(args.resume_partial) if args.resume_partial is not None else None
+    _PARTIAL_PATH = args.resume_partial
     client = client_from_args(args)
     health = ready_health(client, args)
     require_production_host(client, health)
@@ -714,28 +862,38 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
     if len(main_chats) != 1 or not isinstance(main_chats[0].get("id"), str):
         raise ValueError("S2 requires exactly one chat_main in bootstrap")
     main_chat_id = main_chats[0]["id"]
-    markers = [unique_marker("macbot-e2e-s2-login"), unique_marker("macbot-e2e-s2-parallel")]
+    if partial is None:
+        markers = [unique_marker("macbot-e2e-s2-login"), unique_marker("macbot-e2e-s2-parallel")]
+        existing_requests: dict[str, dict[str, Any]] = {}
+        _PARTIAL_EVIDENCE = {"partial_id": _PARTIAL_EVIDENCE["partial_id"], "markers": markers, "requests": [], "projects": []}
+    else:
+        markers = [str(item) for item in partial["markers"]]
+        existing_requests = verify_resume_requests(
+            client,
+            main_chat_id=main_chat_id,
+            partial=partial,
+            markers=markers,
+            role_ids=role_ids,
+        )
+        _PARTIAL_EVIDENCE = dict(partial)
+        _PARTIAL_EVIDENCE["markers"] = markers
+        _PARTIAL_EVIDENCE.setdefault("requests", [])
+        _PARTIAL_EVIDENCE.setdefault("projects", [])
+        _PARTIAL_EVIDENCE.pop("status", None)
+        _PARTIAL_EVIDENCE.pop("error", None)
     names = [f"{markers[0]}-登录功能", f"{markers[1]}-并行官网改版"]
-    _PARTIAL_EVIDENCE = {"partial_id": _PARTIAL_EVIDENCE["partial_id"], "markers": markers, "requests": [], "projects": []}
     requests: list[dict[str, Any]] = []
     projects: list[dict[str, Any]] = []
     for marker, name in zip(markers, names):
-        text = (
-            f"{marker}：请完成本地邮箱登录 demo‘{name}’，只在新项目 Home（服务端返回的 project.home_path）内操作，"
-            "不要访问外部网站、生产系统或网络服务，不要 git commit/push，不要部署服务。请由主 Bot 建一个群，严格使用流程 产品→编码→测试，成员必须是"
-            f"产品 Bot id={role_ids['产品']} name={selected['产品'].get('name')}、"
-            f"编码 Bot id={role_ids['编码']} name={selected['编码'].get('name')}、"
-            f"测试 Bot id={role_ids['测试']} name={selected['测试'].get('name')}。"
-            f"调用 create_project 时 member_bot_ids 必须逐字使用这三个真实 ID（不要把 name 放入 member_bot_ids）。"
-            f"群名必须是‘{name}’，目标必须包含‘{marker}’和‘邮箱登录’。产品写本地 PRD，编码实现本地 demo，测试验证；"
-            "每个交接必须用 send_msg(done) @ 下一位，最后 @ 主 Bot。"
-            f"本次集成必须启动至少一个 subagent，并提出包含‘{marker}’的 decision question，选项必须严格为："
-            f"{QUESTION_OPTIONS!r}；只有选项 0（只做邮箱登录）可由脚本回答。"
-            f"审批测试只允许请求精确命令：mkdir -p e2e && printf '%s' '{marker}' > e2e/{marker}.txt。"
-        )
-        sent = send_main_request(client, main_chat_id, text)
-        requests.append({"marker": marker, "name": name, "sent": sent})
-        _PARTIAL_EVIDENCE["requests"].append({"marker": marker, "name": name, "message_id": sent["id"], "seq": sent["seq"]})
+        prior = existing_requests.get(marker)
+        if prior is not None:
+            sent = prior["sent"]
+            requests.append({"marker": marker, "name": name, "sent": sent})
+        else:
+            text = request_prompt(marker=marker, name=name, role_ids=role_ids, selected=selected)
+            sent = send_main_request(client, main_chat_id, text)
+            requests.append({"marker": marker, "name": name, "sent": sent})
+            _PARTIAL_EVIDENCE["requests"].append({"marker": marker, "name": name, "message_id": sent["id"], "seq": sent["seq"]})
         detail = wait_project_card(
             client,
             main_chat_id=main_chat_id,
@@ -746,9 +904,7 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             timeout=args.timeout,
             interval=args.interval,
         )
-        _PARTIAL_EVIDENCE["projects"].append(
-            {"marker": marker, "project_id": detail["project"].get("id"), "chat_id": detail["project"].get("chat_id"), "card_message_id": detail["card"].get("id")}
-        )
+        record_project_evidence(detail, marker)
         validate_project(detail, marker=marker, main_id=main_id, role_ids=role_ids)
         projects.append(detail)
     gate_poll, gate_states = make_gate_poll(client, projects, markers, args)
@@ -876,14 +1032,14 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
 def scenario_with_partial(args: argparse.Namespace) -> dict[str, Any]:
     """Persist non-secret IDs on failure so a strict failure is still actionable."""
 
-    global _PARTIAL_EVIDENCE
+    global _PARTIAL_EVIDENCE, _PARTIAL_PATH
     try:
         return scenario(args)
     except Exception as exc:
         error = safe_error(args, exc)
         _PARTIAL_EVIDENCE["status"] = "FAIL"
         _PARTIAL_EVIDENCE["error"] = error
-        path = __import__("pathlib").Path("/tmp") / f"{_PARTIAL_EVIDENCE['partial_id']}.json"
+        path = _PARTIAL_PATH or Path("/tmp") / f"{_PARTIAL_EVIDENCE['partial_id']}.json"
         try:
             path.write_text(json.dumps(_PARTIAL_EVIDENCE, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         except OSError as write_error:

@@ -1,0 +1,53 @@
+{
+  "scenario": "S1 native read final API reconciliation",
+  "status": "PASS",
+  "chat_id": "dm_01a120ad-9b0b-7778-a47c-994249264e05",
+  "run": {
+    "id": "run_chat_01a120eb_41eb_75e4_85c0_cc9262cdb151",
+    "status": "done",
+    "tool_names": [
+      "read"
+    ],
+    "read_tool_starts": 1,
+    "successful_read_tool_ends": 1
+  },
+  "user": {
+    "id": "01a120eb-41eb-75e4-85c0-cc9262cdb151",
+    "seq": 7,
+    "known_markdown": true,
+    "text_bytes": 183,
+    "text_sha256": "bd31c3f8c421e1570884b1c9c5fcc22453e2b6b7032c36eea5bed7b3960567c7"
+  },
+  "reply": {
+    "id": "msg_run_chat_01a120eb_41eb_75e4_85c0_cc9262cdb151",
+    "seq": 8,
+    "streaming": false,
+    "known_markdown": true,
+    "native_marker": true,
+    "file_marker": true,
+    "text_bytes": 61,
+    "text_sha256": "d9aa08e57a744abbd7923d2f3e4476815334054d5b334246da69de0680ccfe8a",
+    "native_marker_value": "macbot-e2e-native-ae3009b-20261009"
+  },
+  "prior_screenshots": {
+    "docs/progress/S1/20261009-214606-desktop.png": "old six-message recovery only",
+    "docs/progress/S1/20261009-214735-desktop.png": "user-send evidence only",
+    "docs/progress/S1/20261009-214932-desktop.png": "current seq8 screenshot captured for manual visual review"
+  },
+  "conclusion": "API PASS for the specified read-only run; seq8 is streaming=false known Markdown with the actual native and file markers. Current desktop screenshot is recorded for manual visual review; no UI PASS is inferred from this API artifact.",
+  "correction": {
+    "previous_status": "FAIL",
+    "cause": "artifact checker expected macbot-e2e-native-read-20261009; actual native marker is macbot-e2e-native-ae3009b-20261009",
+    "product_fault": false
+  },
+  "native_ui": {
+    "desktop_source_commit": "af14e6952aa8acdaf0ea943bc13e72340368da40",
+    "server_source_commit": "ae3009b412be7d1f643c12733a4a15f332afec72",
+    "pid": 49240,
+    "window_id": 57869,
+    "history_screenshot": "docs/progress/S1/20261009-214606-desktop.png",
+    "final_screenshot": "docs/progress/S1/20261009-214932-desktop.png",
+    "visually_verified": true,
+    "scope": "Desktop old history and new read final text readable; no Android/streaming/whole-stage pass."
+  }
+}
