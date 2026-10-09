@@ -1,6 +1,7 @@
 package bot.mac.mobile.feature.group
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -17,6 +18,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
@@ -90,7 +93,7 @@ fun GroupScreen(
         if (showEdit) {
             OutlinedTextField(editName, { editName = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_group_name)) })
             OutlinedTextField(editGoal, { editGoal = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_goal)) })
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     scope.launch { runCatching { repository.call("project.update", buildJsonObject { put("project_id", projectId); put("patch", buildJsonObject { put("name", editName.trim()); put("goal", editGoal.trim()) }) }) }.onFailure { error = it.message } }
                     showEdit = false
@@ -248,7 +251,7 @@ private fun AnnouncementPanel(
     onCopyHome: (String) -> Unit,
 ) {
     Surface(Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(stringResource(Res.string.feature_announcement_title, project?.str("name") ?: ""), style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(Res.string.feature_status_value, ""))
@@ -268,7 +271,7 @@ private fun AnnouncementPanel(
             announcement?.arr("highlights")?.forEach { item -> Text("· ${(item as? JsonObject)?.str("text") ?: item}") }
             announcement?.arr("artifacts")?.forEach { item ->
                 val artifact = item as? JsonObject ?: return@forEach
-                val artifactId = artifact.str("artifact_id")
+                val artifactId = artifact.str("id")
                 val pathOrUrl = artifact.str("path_or_url")
                 if (artifactId.isNotBlank() && pathOrUrl.isNotBlank()) {
                     Button(onClick = { onOpenArtifact(artifactId, pathOrUrl, project?.str("id")) }) {

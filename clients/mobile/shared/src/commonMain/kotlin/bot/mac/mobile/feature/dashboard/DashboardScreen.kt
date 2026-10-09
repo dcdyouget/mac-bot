@@ -520,7 +520,7 @@ private fun formatCost(value: Double): String {
     else "$text.00"
 }
 
-private fun formatMetricValue(value: Double, metric: Metric): String = if (metric == Metric.COST) formatCost(value) else formatValue(value)
+private fun formatMetricValue(value: Double, metric: Metric): String = if (metric == Metric.COST) formatCost(value) else if (value == value.toLong().toDouble()) value.toLong().toString() else formatValue(value)
 private fun formatAxis(value: Double, metric: Metric): String = formatMetricValue(value, metric)
 
 private fun bucketLabel(value: JsonElement?, fallback: Int): String {
@@ -529,7 +529,9 @@ private fun bucketLabel(value: JsonElement?, fallback: Int): String {
         null -> null
         else -> value.toString().trim('"').takeIf { it.isNotBlank() }
     }
-    return label ?: (fallback + 1).toString()
+    return label?.let {
+        if (it.length >= 16 && it[10] == 'T') it.take(10) + " " + it.substring(11, 16) else it
+    } ?: (fallback + 1).toString()
 }
 
 private fun Dimension.label(): String = name.lowercase()

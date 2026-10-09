@@ -79,7 +79,7 @@ import org.jetbrains.compose.resources.stringResource
             var found=false
             for(project in repository.call("project.list").objects("projects")) {
                 val pid=project.str("id")
-                val artifact=repository.call("project.get",jsonParams("project_id" to pid)).obj("announcement").objects("artifacts").firstOrNull{it.str("artifact_id")==id}
+                val artifact=repository.call("project.get",jsonParams("project_id" to pid)).obj("announcement").objects("artifacts").firstOrNull{it.str("id")==id}
                 if(artifact!=null) { open("file",pid,artifact.str("path_or_url"));found=true;break }
             }
             if(!found) actionError=artifactMissing
@@ -156,7 +156,7 @@ import org.jetbrains.compose.resources.stringResource
                                         var found=false
                                         for(project in projects) {
                                             val projectId=project.str("id")
-                                            val artifact=repository.call("project.get",jsonParams("project_id" to projectId)).obj("announcement").objects("artifacts").firstOrNull{it.str("artifact_id")==result.str("id")}
+                                            val artifact=repository.call("project.get",jsonParams("project_id" to projectId)).obj("announcement").objects("artifacts").firstOrNull{it.str("id")==result.str("id")}
                                             if(artifact!=null) { open("file",artifact.str("root_id").ifBlank{projectId},artifact.str("path_or_url"));found=true;break }
                                         }
                                         if(!found) result.str("chat_id").takeIf{it.isNotBlank()}?.let{openChat(it)}
