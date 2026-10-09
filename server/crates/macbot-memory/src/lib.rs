@@ -1030,6 +1030,9 @@ pub trait MaintenanceProvider: Send + Sync {
 #[async_trait::async_trait]
 pub trait AsyncMaintenanceProvider: Send + Sync {
     async fn summarize(&self, text: &str) -> Result<String, MemoryError>;
+    async fn compact(&self, text: &str) -> Result<String, MemoryError> {
+        self.summarize(text).await
+    }
     async fn extract(&self, _text: &str) -> Result<Vec<MemoryDraft>, MemoryError> {
         Ok(Vec::new())
     }

@@ -211,6 +211,18 @@ impl SkillRegistry {
         Ok(Some(self.rescan()?))
     }
 
+    /// Replace settings.extra_dirs and immediately rebuild the frontmatter
+    /// index. Full skill bodies remain lazy and are not loaded during scan.
+    pub fn set_extra_dirs(
+        &mut self,
+        extra_dirs: impl IntoIterator<Item = PathBuf>,
+    ) -> Result<Vec<Skill>, SkillError> {
+        self.roots = std::iter::once(self.install_root.clone())
+            .chain(extra_dirs)
+            .collect();
+        self.rescan()
+    }
+
     fn refresh_fingerprints(&mut self) {
         self.root_fingerprints = self
             .roots
@@ -249,6 +261,15 @@ impl SkillRegistry {
         name: &str,
         bot_id: Option<&str>,
     ) -> Result<SkillDetail, SkillError> {
+        if self
+            .entries
+            .get(name)
+            .is_some_and(|entry| entry.skill.source == SkillSource::Draft)
+        {
+            return Err(SkillError::Invalid(
+                "draft skill must be published before invocation".into(),
+            ));
+        }
         if !self.is_enabled_for(name, bot_id)? {
             return Err(SkillError::Invalid("skill is disabled for this Bot".into()));
         }
@@ -967,5 +988,37 @@ mod tests {
         );
         let published = registry.publish("draft").unwrap();
         assert_eq!(published.source, SkillSource::User);
+    }
+
+    #[test]
+    fn draft_cannot_be_invoked_before_publish() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut registry = SkillRegistry::with_roots(temp.path().join("skills"), vec![]);
+        registry
+            .create_draft("draft", &skill_text("draft"))
+            .unwrap();
+        assert!(matches!(
+            registry.load_for_bot("draft", None),
+            Err(SkillError::Invalid(message)) if message.contains("published")
+        ));
+        registry.publish("draft").unwrap();
+        assert!(registry.load_for_bot("draft", None).is_ok());
+    }
+
+    #[test]
+    fn extra_dirs_reload_and_filesystem_changes_are_detected() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        fs::create_dir_all(first.join("one")).unwrap();
+        fs::write(first.join("one/SKILL.md"), skill_text("one")).unwrap();
+        let mut registry = SkillRegistry::with_roots(temp.path().join("install"), vec![]);
+        registry.set_extra_dirs(vec![first.clone()]).unwrap();
+        assert!(registry.get("one").is_ok());
+        fs::create_dir_all(second.join("two")).unwrap();
+        fs::write(second.join("two/SKILL.md"), skill_text("two")).unwrap();
+        registry.set_extra_dirs(vec![second]).unwrap();
+        assert!(registry.get("two").is_ok());
+        assert!(registry.get("one").is_err());
     }
 }
