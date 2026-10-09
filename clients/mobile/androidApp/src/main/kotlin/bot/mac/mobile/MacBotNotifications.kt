@@ -17,12 +17,13 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 
+private const val NOTIFICATION_LEDGER_PREFS = "macbot_notification_ledger"
+
 object MacBotNotifications {
     const val CHANNEL_NEEDS_YOU = "needs-you"
     const val CHANNEL_COMPLETED = "completed"
     const val CHANNEL_MESSAGES = "messages"
     private const val ACTION_APPROVAL = "bot.mac.mobile.APPROVAL_ACTION"
-    private const val LEDGER_PREFS = "macbot_notification_ledger"
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -229,14 +230,14 @@ internal object NotificationLedger {
     private const val LAST_SEQ_PREFIX = "_last_persistent_seq:"
 
     fun seed(context: Context, hostId: String, seq: Long) {
-        val prefs = context.getSharedPreferences(LEDGER_PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(NOTIFICATION_LEDGER_PREFS, Context.MODE_PRIVATE)
         val key = LAST_SEQ_PREFIX + hostId
         val existing = prefs.getLong(key, 0L)
         if (seq > existing) prefs.edit().putLong(key, seq).commit()
     }
 
     fun acceptSeq(context: Context, hostId: String, seq: Long): Boolean {
-        val prefs = context.getSharedPreferences(LEDGER_PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(NOTIFICATION_LEDGER_PREFS, Context.MODE_PRIVATE)
         val key = LAST_SEQ_PREFIX + hostId
         val existing = prefs.getLong(key, 0L)
         if (seq <= existing) return false
@@ -244,7 +245,7 @@ internal object NotificationLedger {
     }
 
     fun accept(context: Context, key: String, seq: Long?): Boolean {
-        val prefs = context.getSharedPreferences(LEDGER_PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(NOTIFICATION_LEDGER_PREFS, Context.MODE_PRIVATE)
         val marker = seq?.toString() ?: "seen"
         if (prefs.getString(key, null) == marker) return false
         return prefs.edit().putString(key, marker).commit()

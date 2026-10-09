@@ -37,7 +37,7 @@ kotlin {
         getByName("androidHostTest") {
             kotlin.srcDir("src/androidUnitTest/kotlin")
             resources.srcDir("src/androidUnitTest/resources")
-            dependencies { implementation("junit:junit:4.13.2"); implementation("com.squareup.okhttp3:mockwebserver:4.12.0"); implementation("org.robolectric:robolectric:4.16") }
+            dependencies { implementation("junit:junit:4.13.2"); implementation("com.squareup.okhttp3:mockwebserver3:5.5.0"); implementation("org.robolectric:robolectric:4.16") }
         }
     }
 }

@@ -40,6 +40,8 @@ object ScreenFrameCodec {
         fun requiredLong(name: String) = obj.long(name) ?: throw InvalidScreenFrame("missing $name")
         val width = obj.long("w")?.toInt() ?: throw InvalidScreenFrame("missing w")
         val height = obj.long("h")?.toInt() ?: throw InvalidScreenFrame("missing h")
+        if (width <= 0 || height <= 0) throw InvalidScreenFrame("invalid screen dimensions")
+        if (bytes.size == 4 + headerLength) throw InvalidScreenFrame("screen frame has no JPEG payload")
         return ScreenFrame(
             ScreenFrameHeader(requiredLong("seq"), requiredString("tab_id"), width, height,
                 requiredLong("ts"), requiredString("url")),

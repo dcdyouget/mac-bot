@@ -6,7 +6,12 @@ import org.junit.Test
 import org.robolectric.RuntimeEnvironment
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class AndroidPersistentStoreTest {
     @Before
     fun setUp() {
@@ -14,7 +19,7 @@ class AndroidPersistentStoreTest {
     }
 
     @Test
-    fun storesHostRecordsAndMonotonicSequence() = runBlocking {
+    fun storesHostRecordsAndMonotonicSequence(): Unit = runBlocking {
         val store = platformPersistentStore()
         store.delete("host_records")
         store.delete("last_seq:test-host")

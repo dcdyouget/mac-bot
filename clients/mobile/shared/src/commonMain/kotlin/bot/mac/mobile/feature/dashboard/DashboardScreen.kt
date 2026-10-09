@@ -25,6 +25,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,6 +41,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
@@ -62,7 +64,7 @@ import org.jetbrains.compose.resources.stringResource
 private enum class HeatMode { CALENDAR, WEEK_HOUR }
 private enum class Dimension { MODEL, BOT, PROJECT }
 private enum class Metric { TOKENS, COST, REQUESTS }
-private enum class Range { TODAY, DAYS_7, DAYS_30, DAYS_90 }
+private enum class Range { TODAY, DAYS_7, DAYS_30, DAYS_90, CUSTOM }
 
 private val Range.days: Long
     get() = when (this) {
@@ -70,10 +72,11 @@ private val Range.days: Long
         Range.DAYS_7 -> 7L
         Range.DAYS_30 -> 30L
         Range.DAYS_90 -> 90L
+        Range.CUSTOM -> 30L
     }
 
 @Composable
-fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit) {
+fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHost: () -> Unit = {}) {
     var summary by remember { mutableStateOf<JsonObject?>(null) }
     var heatmap by remember { mutableStateOf<JsonObject?>(null) }
     var timeseries by remember { mutableStateOf<JsonObject?>(null) }
@@ -82,18 +85,28 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit) {
     var dimension by remember { mutableStateOf(Dimension.MODEL) }
     var metric by remember { mutableStateOf(Metric.TOKENS) }
     var range by remember { mutableStateOf(Range.DAYS_30) }
+    var customFrom by remember { mutableStateOf("") }
+    var customTo by remember { mutableStateOf("") }
     var selectedDay by remember { mutableStateOf<String?>(null) }
     var splitIo by remember { mutableStateOf(false) }
     var visibleSeries by remember { mutableStateOf<Set<String>?>(null) }
     var csvPreview by remember { mutableStateOf<String?>(null) }
     var csvError by remember { mutableStateOf<String?>(null) }
+    var drillBotId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+    fun periodBounds(now: Instant): Pair<String, String> {
+        if (range == Range.CUSTOM && customFrom.isNotBlank() && customTo.isNotBlank()) {
+            return "${customFrom.trim()}T00:00:00Z" to "${customTo.trim()}T23:59:59Z"
+        }
+        val from = Instant.fromEpochMilliseconds(now.toEpochMilliseconds() - range.days * 86_400_000L).toString()
+        return from to now.toString()
+    }
 
     fun reload() {
         scope.launch {
             val now = Clock.System.now()
-            val rangeFrom = Instant.fromEpochMilliseconds(now.toEpochMilliseconds() - range.days * 86_400_000L).toString()
-            val rangeTo = now.toString()
+            val (rangeFrom, rangeTo) = periodBounds(now)
             val from = selectedDay?.let { "${it}T00:00:00Z" } ?: rangeFrom
             val to = selectedDay?.let { "${it}T23:59:59Z" } ?: rangeTo
             val period = buildJsonObject { put("from", from); put("to", to) }
@@ -111,17 +124,19 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit) {
             })
             breakdown = repository.call("usage.breakdown", buildJsonObject {
                 put("from", from); put("to", to); put("dimension", dimension.name.lowercase())
+                drillBotId?.let { put("drill", buildJsonObject { put("bot_id", it) }) }
             })
         }
     }
 
-    LaunchedEffect(heatMode, dimension, metric, range, selectedDay, splitIo) { reload() }
+    LaunchedEffect(heatMode, dimension, metric, range, customFrom, customTo, selectedDay, splitIo) { reload() }
     LaunchedEffect(timeseries, splitIo) { visibleSeries = null }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
             Text(stringResource(Res.string.dashboard_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            TextButton(onClick = onSelectHost) { Text(stringResource(Res.string.dashboard_host_select)) }
             IconButton(onClick = { reload() }) { Text("↻", color = MaterialTheme.colorScheme.primary) }
         }
         HorizontalDivider()
@@ -134,6 +149,12 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit) {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(stringResource(Res.string.dashboard_range), style = MaterialTheme.typography.labelMedium)
                     Range.entries.forEach { candidate -> FilterChip(range == candidate, { range = candidate; selectedDay = null }, label = { Text(candidate.label()) }) }
+                }
+                if (range == Range.CUSTOM) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(customFrom, { customFrom = it }, Modifier.weight(1f), label = { Text(stringResource(Res.string.dashboard_custom_from)) }, singleLine = true)
+                        OutlinedTextField(customTo, { customTo = it }, Modifier.weight(1f), label = { Text(stringResource(Res.string.dashboard_custom_to)) }, singleLine = true)
+                    }
                 }
             }
             item {
@@ -148,7 +169,7 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit) {
                 SectionHeader(stringResource(Res.string.dashboard_trend))
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Dimension.entries.forEach { candidate ->
-                        FilterChip(dimension == candidate, { dimension = candidate }, label = { Text(dimensionLabel(candidate)) })
+                        FilterChip(dimension == candidate, { dimension = candidate; drillBotId = null }, label = { Text(dimensionLabel(candidate)) })
                     }
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -185,7 +206,15 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit) {
                     }) { Text(stringResource(Res.string.dashboard_export_csv)) }
                 }
                 csvError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                BreakdownList(breakdown, metric, repository)
+                drillBotId?.let {
+                    TextButton(onClick = { drillBotId = null; dimension = Dimension.BOT }) { Text(stringResource(Res.string.dashboard_back_to_all)) }
+                }
+                BreakdownList(breakdown, dimension, onDrill = { id ->
+                    if (dimension == Dimension.BOT) {
+                        drillBotId = id
+                        dimension = Dimension.PROJECT
+                    }
+                })
             }
             item { Spacer(Modifier.height(12.dp)) }
         }
@@ -212,6 +241,7 @@ private fun SummaryCards(summary: JsonObject?) {
         SummaryCard(stringResource(Res.string.dashboard_tokens), current?.long("input_tokens", "output_tokens") ?: current?.long("tokens") ?: 0L, previous?.long("tokens") ?: 0L)
         SummaryCard(stringResource(Res.string.dashboard_cost), current?.number("cost") ?: 0.0, previous?.number("cost") ?: 0.0)
         SummaryCard(stringResource(Res.string.dashboard_requests), current?.long("requests") ?: 0L, previous?.long("requests") ?: 0L)
+        SummaryCard(stringResource(Res.string.dashboard_cache_hit), formatPercent(cacheHitRatio(current)), formatPercent(cacheHitRatio(previous)))
         SummaryCard(stringResource(Res.string.dashboard_tasks), current?.long("tasks_done") ?: 0L, previous?.long("tasks_done") ?: 0L)
     }
 }
@@ -282,7 +312,8 @@ private fun TimeseriesChart(
             row.numbersOrNull("output_values")?.let { ChartLine("$key:output", "${row.str("label") ?: key} · $outputLabel", it, 1) },
         )
     }
-    val effectiveVisible = visibleSeries ?: lines.map { it.key }.toSet()
+    val selectedSeries = visibleSeries
+    val effectiveVisible = selectedSeries ?: lines.map { it.key }.toSet()
     val shown = lines.filter { it.key in effectiveVisible }
     val all = shown.flatMap { it.values }
     if (lines.isEmpty() || all.isEmpty()) { Text(stringResource(Res.string.dashboard_no_data), modifier = Modifier.padding(16.dp)); return }
@@ -297,7 +328,14 @@ private fun TimeseriesChart(
                     val x = point * (size.width / (values.size - 1)); val y = size.height - (value / max * size.height)
                     if (point == 0) path.moveTo(x, y.toFloat()) else path.lineTo(x, y.toFloat())
                 }
-                drawPath(path, colors[index % colors.size], style = Stroke(width = 3.dp.toPx()))
+                drawPath(
+                    path,
+                    colors[index % colors.size],
+                    style = Stroke(
+                        width = 3.dp.toPx(),
+                        pathEffect = if (line.channel == 1) PathEffect.dashPathEffect(floatArrayOf(10f, 8f)) else null,
+                    ),
+                )
             }
         }
     }
@@ -306,7 +344,11 @@ private fun TimeseriesChart(
             FilterChip(
                 selected = line.key in effectiveVisible,
                 onClick = {
-                    val next = if (line.key in effectiveVisible) effectiveVisible - line.key else effectiveVisible + line.key
+                    val next = when {
+                        selectedSeries == null -> setOf(line.key)
+                        selectedSeries.size == 1 && line.key in effectiveVisible -> emptySet()
+                        else -> setOf(line.key)
+                    }
                     onVisibleSeriesChanged(next)
                 },
                 label = { Text(line.label, style = MaterialTheme.typography.labelSmall) },
@@ -318,17 +360,21 @@ private fun TimeseriesChart(
 private data class ChartLine(val key: String, val label: String, val values: List<Double>, val channel: Int)
 
 @Composable
-private fun BreakdownList(data: JsonObject?, metric: Metric, repository: MobileRepository) {
+private fun BreakdownList(data: JsonObject?, dimension: Dimension, onDrill: (String) -> Unit) {
     val rows = data?.arr("rows").orEmpty().mapNotNull { it as? JsonObject }
     if (rows.isEmpty()) { Text(stringResource(Res.string.dashboard_no_data), modifier = Modifier.padding(16.dp)); return }
     androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), userScrollEnabled = false) {
         items(rows.size) { index ->
             val row = rows[index]; val usage = row.obj("usage")
-            Card(Modifier.fillMaxWidth()) {
+            Card(onClick = { onDrill(row.str("key") ?: "") }, modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(row.str("label") ?: row.str("key") ?: "", style = MaterialTheme.typography.titleSmall)
-                        Text("${usage?.long("input_tokens") ?: 0} + ${usage?.long("output_tokens") ?: 0} · ${usage?.long("requests") ?: 0}", style = MaterialTheme.typography.bodySmall)
+                        Text("${stringResource(Res.string.dashboard_detail_input)} ${usage?.long("input_tokens") ?: 0} · ${stringResource(Res.string.dashboard_detail_output)} ${usage?.long("output_tokens") ?: 0} · ${stringResource(Res.string.dashboard_detail_cache_read)} ${usage?.long("cache_read_tokens") ?: 0} · ${usage?.long("requests") ?: 0}", style = MaterialTheme.typography.bodySmall)
+                        row.arr("sparkline")?.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" ") { value -> value.toString().trim('"') }, style = MaterialTheme.typography.labelSmall) }
+                        row.obj("phases")?.takeIf { it.isNotEmpty() }?.let { phases ->
+                            Text("${stringResource(Res.string.dashboard_detail_phases)}: ${phases.entries.joinToString(" · ") { "${it.key} ${it.value}" }}", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                     Text(formatValue(usage?.number("cost") ?: 0.0), style = MaterialTheme.typography.labelLarge)
                 }
@@ -352,6 +398,15 @@ private fun heatColor(value: Double, thresholds: List<Double>): Color = when (he
     else -> Color(0xFF292996)
 }
 
+private fun cacheHitRatio(value: JsonObject?): Double = value?.let {
+    val read = it.long("cache_read_tokens")?.toDouble() ?: 0.0
+    val input = it.long("input_tokens")?.toDouble() ?: 0.0
+    if (read + input <= 0.0) 0.0 else read / (read + input)
+} ?: 0.0
+
+private fun formatPercent(value: Double): String = "${(value * 100.0).toInt()}%"
+private fun formatPercent(value: String): String = value
+
 private fun Dimension.label(): String = name.lowercase()
 @Composable private fun dimensionLabel(value: Dimension): String = when (value) {
     Dimension.MODEL -> stringResource(Res.string.dashboard_model)
@@ -368,6 +423,7 @@ private fun Dimension.label(): String = name.lowercase()
     Range.DAYS_7 -> stringResource(Res.string.dashboard_seven_days)
     Range.DAYS_30 -> stringResource(Res.string.dashboard_thirty_days)
     Range.DAYS_90 -> stringResource(Res.string.dashboard_ninety_days)
+    Range.CUSTOM -> stringResource(Res.string.dashboard_custom)
 }
 private fun formatValue(value: Any): String = when (value) {
     is Double -> value.toString().let { if (it.length > 10) it.take(10) else it }

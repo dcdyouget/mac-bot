@@ -9,4 +9,5 @@
 <string name="chat_main">主 Bot</string><string name="chat_groups">群</string><string name="chat_bots">Bot</string><string name="chat_empty">对主 Bot 说“帮我做…”，它会拉群去做。</string><string name="chat_completed">已完成</string><string name="chat_unread">%1$d 条未读</string><string name="chat_status_idle">待命</string><string name="chat_status_working">工作中</string><string name="chat_status_waiting">需要你</string><string name="chat_status_blocked">卡住</string><string name="chat_status_review">待验收</string><string name="chat_pin">置顶</string><string name="chat_mute">静音</string><string name="new_group">新建群</string><string name="new_bot">新建 Bot</string>
 <string name="mine_subtitle">你的 Bot 团队，运行在你的 Mac 上</string><string name="about_version">Mac Bot · Android 0.1.0</string><string name="template_welcome">认识你的主 Bot</string><string name="template_hint">选一个团队模板，或者先只用主 Bot。</string><string name="template_skip">先只用主 Bot</string>
 <string name="file_save">保存文件</string><string name="review_changes_title">提修改意见</string><string name="review_changes_hint">告诉主 Bot 需要修改什么</string><string name="review_changes_submit">提交意见</string>
+<string name="artifact_not_found">成果已移除或暂不可访问</string>
 </resources>

@@ -12,6 +12,7 @@ import json
 import pathlib
 import re
 import sys
+from typing import Optional
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PACKAGE = "bot.mac.mobile.core.protocol.generated"
@@ -68,48 +69,150 @@ def non_null_schema(schema: dict) -> dict:
     return schema
 
 
-def kotlin_type(schema: dict, nullable: bool = True) -> str:
-    schema = non_null_schema(schema)
-    if "$ref" in schema:
-        result = ref_name(schema["$ref"])
-    elif schema.get("type") == "array":
-        result = f"List<{kotlin_type(schema.get('items', {}), nullable=False)}>"
-    elif schema.get("type") == "object" or "properties" in schema or "additionalProperties" in schema:
-        result = "JsonObject"
-    elif schema.get("type") == "boolean":
-        result = "Boolean"
-    elif schema.get("type") == "integer":
-        result = "Long"
-    elif schema.get("type") == "number":
-        result = "Double"
-    elif schema.get("type") == "string" or "enum" in schema:
-        result = "String"
+def schema_registry(schemas: list[tuple[pathlib.Path, dict]]) -> dict[str, dict]:
+    """Index local definitions. Origin schemas repeat identical definitions per file."""
+    registry: dict[str, dict] = {}
+    for _, document in schemas:
+        definitions = document.get("$defs") or document.get("definitions") or {}
+        for name, schema in definitions.items():
+            if isinstance(schema, dict):
+                registry.setdefault(name, schema)
+    return registry
+
+
+def resolve_ref(schema: dict, registry: dict[str, dict]) -> dict:
+    current = schema
+    seen: set[str] = set()
+    while isinstance(current, dict):
+        current = non_null_schema(current)
+        if "$ref" not in current:
+            return current
+        ref = current["$ref"]
+        if ref in seen:
+            return current
+        seen.add(ref)
+        target = registry.get(ref.rsplit("/", 1)[-1])
+        if not isinstance(target, dict):
+            return current
+        current = target
+    return current
+
+
+def resolved_ref_name(schema: dict, registry: dict[str, dict]) -> str:
+    """Return the concrete object name through nullable alias refs."""
+    current = schema
+    seen: set[str] = set()
+    last = None
+    while isinstance(current, dict):
+        current = non_null_schema(current)
+        ref = current.get("$ref")
+        if not ref or ref in seen:
+            break
+        seen.add(ref)
+        last = ref_name(ref)
+        target = registry.get(ref.rsplit("/", 1)[-1])
+        if not isinstance(target, dict):
+            break
+        current = target
+    return last or ref_name(schema.get("$ref", "SchemaObject"))
+
+
+def schema_kind(schema: dict, registry: dict[str, dict]) -> str:
+    base = non_null_schema(schema)
+    if "$ref" in base:
+        base = resolve_ref(base, registry)
+    if base.get("type") == "array":
+        return "array"
+    if base.get("type") == "object" or "properties" in base or "additionalProperties" in base:
+        return "object"
+    if is_object_union(base, registry):
+        return "object_union"
+    if base.get("type") in ("boolean", "integer", "number", "string") or "enum" in base:
+        return "scalar"
+    return "union"
+
+
+def is_object_union(schema: dict, registry: dict[str, dict], seen: Optional[set[str]] = None) -> bool:
+    base = non_null_schema(schema)
+    if "$ref" in base:
+        ref = base["$ref"]
+        seen = set() if seen is None else seen
+        if ref in seen:
+            return False
+        target = registry.get(ref.rsplit("/", 1)[-1])
+        return isinstance(target, dict) and is_object_union(target, registry, seen | {ref})
+    choices = base.get("oneOf") or base.get("anyOf")
+    if not isinstance(choices, list) or not choices:
+        return False
+    for choice in choices:
+        if not isinstance(choice, dict) or choice.get("type") == "null":
+            continue
+        if not is_object_like(choice, registry, seen):
+            return False
+    return True
+
+
+def is_object_like(schema: dict, registry: dict[str, dict], seen: Optional[set[str]] = None) -> bool:
+    base = non_null_schema(schema)
+    if base.get("type") == "object" or "properties" in base or "additionalProperties" in base:
+        return True
+    if "$ref" in base:
+        ref = base["$ref"]
+        seen = set() if seen is None else seen
+        if ref in seen:
+            return False
+        target = registry.get(ref.rsplit("/", 1)[-1])
+        return isinstance(target, dict) and is_object_like(target, registry, seen | {ref})
+    return is_object_union(base, registry, seen)
+
+
+def kotlin_type(schema: dict, registry: dict[str, dict], nullable: bool = True) -> str:
+    base = non_null_schema(schema)
+    kind = schema_kind(base, registry)
+    if kind in {"object", "object_union"}:
+        resolved = resolve_ref(base, registry)
+        result = resolved_ref_name(base, registry) if "$ref" in base else "JsonObject"
+        if kind == "object_union" and "$ref" not in base:
+            result = "JsonElement"
+        if "$ref" in base and not (kind in {"object", "object_union"}):
+            result = "JsonElement"
+    elif kind == "array":
+        result = f"List<{kotlin_type(base.get('items', {}), registry, nullable=False)}>"
+    elif kind == "scalar":
+        resolved = resolve_ref(base, registry)
+        scalar_type = resolved.get("type")
+        if scalar_type == "boolean":
+            result = "Boolean"
+        elif scalar_type == "integer":
+            result = "Long"
+        elif scalar_type == "number":
+            result = "Double"
+        else:
+            result = "String"
     else:
         result = "JsonElement"
     return result + ("?" if nullable and is_nullable(schema) else "")
 
 
-def scalar_expression(key: str, schema: dict, required: bool) -> str:
+def scalar_expression(key: str, schema: dict, required: bool, registry: dict[str, dict]) -> str:
     nullable = not required or is_nullable(schema)
     base = non_null_schema(schema)
     quoted = json.dumps(key)
     if "$ref" in base:
-        name = ref_name(base["$ref"])
-        return f"raw[{quoted}]?.jsonObject?.let(::{name})" if nullable else f"{name}(raw.obj({quoted}))"
+        target = resolve_ref(base, registry)
+        kind = schema_kind(target, registry)
+        if kind in {"object", "object_union"}:
+            name = resolved_ref_name(base, registry)
+            return f"raw[{quoted}]?.jsonObject?.let(::{name})" if nullable else f"{name}(raw.obj({quoted}))"
+        if kind == "scalar":
+            base = target
+        else:
+            return f"raw[{quoted}]" if nullable else f"raw[{quoted}] ?: JsonNull"
     if base.get("type") == "object" or "properties" in base or "additionalProperties" in base:
         return f"raw.objectOrNull({quoted})" if nullable else f"raw.obj({quoted})"
     if base.get("type") == "array":
         item = non_null_schema(base.get("items", {}))
-        if item.get("type") == "string" or "enum" in item:
-            expression = f"raw.arr({quoted}).mapNotNull {{ (it as? JsonPrimitive)?.contentOrNull }}"
-        elif item.get("type") == "integer":
-            expression = f"raw.arr({quoted}).mapNotNull {{ (it as? JsonPrimitive)?.longOrNull }}"
-        elif item.get("type") == "number":
-            expression = f"raw.arr({quoted}).mapNotNull {{ (it as? JsonPrimitive)?.doubleOrNull }}"
-        elif "$ref" in item:
-            expression = f"raw.objects({quoted}).map(::{ref_name(item['$ref'])})"
-        else:
-            expression = f"raw.arr({quoted}).toList()"
+        expression = array_expression(f"raw.arr({quoted})", item, registry)
         return expression if required else f"if (raw[{quoted}] == null) null else {expression}"
     if base.get("type") == "boolean":
         return f"raw.boolOrNull({quoted})" if nullable else f"raw.boolean({quoted})"
@@ -122,19 +225,47 @@ def scalar_expression(key: str, schema: dict, required: bool) -> str:
     return f"raw[{quoted}]" if nullable else f"raw[{quoted}] ?: JsonNull"
 
 
-def collect_objects(schemas: list[tuple[pathlib.Path, dict]]) -> dict[str, dict]:
+def array_expression(source: str, item: dict, registry: dict[str, dict]) -> str:
+    """Read an array while keeping nested arrays and raw union values typed correctly."""
+    item = non_null_schema(item)
+    kind = schema_kind(item, registry)
+    target = resolve_ref(item, registry) if "$ref" in item else item
+    if kind == "array":
+        nested = array_expression("((element as? JsonArray) ?: JsonArray(emptyList()))", target.get("items", {}), registry)
+        return f"{source}.map {{ element -> {nested} }}"
+    if kind == "scalar" and (target.get("type") == "string" or "enum" in target):
+        return f"{source}.mapNotNull {{ (it as? JsonPrimitive)?.contentOrNull }}"
+    if kind == "scalar" and target.get("type") == "integer":
+        return f"{source}.mapNotNull {{ (it as? JsonPrimitive)?.longOrNull }}"
+    if kind == "scalar" and target.get("type") == "number":
+        return f"{source}.mapNotNull {{ (it as? JsonPrimitive)?.doubleOrNull }}"
+    if kind == "scalar" and target.get("type") == "boolean":
+        return f"{source}.mapNotNull {{ (it as? JsonPrimitive)?.booleanOrNull }}"
+    if kind in {"object", "object_union"} and "$ref" in item:
+        return f"{source}.mapNotNull {{ (it as? JsonObject)?.let(::{resolved_ref_name(item, registry)}) }}"
+    return f"{source}.toList()"
+
+
+def collect_objects(schemas: list[tuple[pathlib.Path, dict]], registry: Optional[dict[str, dict]] = None) -> dict[str, dict]:
+    registry = registry or schema_registry(schemas)
     objects: dict[str, dict] = {}
     for _, document in schemas:
         definitions = document.get("$defs") or document.get("definitions") or {}
         for name, schema in definitions.items():
-            if isinstance(schema, dict) and schema.get("type") == "object":
+            if isinstance(schema, dict) and (
+                schema.get("type") == "object" or "properties" in schema or "additionalProperties" in schema
+                or is_object_union(schema, registry)
+            ):
                 objects.setdefault(kotlin_name(name), schema)
-        if document.get("type") == "object" and document.get("title"):
+        if document.get("title") and (
+            document.get("type") == "object" or "properties" in document or "additionalProperties" in document
+            or is_object_union(document, registry)
+        ):
             objects.setdefault(kotlin_name(document["title"]), document)
     return objects
 
 
-def generate_models(objects: dict[str, dict]) -> str:
+def generate_models(objects: dict[str, dict], registry: dict[str, dict]) -> str:
     lines = [
         "// Generated by protocol/kotlin/generate.py; do not edit.",
         f"package {PACKAGE}",
@@ -166,10 +297,10 @@ def generate_models(objects: dict[str, dict]) -> str:
         for key, property in properties.items():
             if not isinstance(property, dict):
                 continue
-            kotlin = kotlin_type(property, nullable=False)
+            kotlin = kotlin_type(property, registry, nullable=False)
             if key not in required or is_nullable(property):
                 kotlin += "?"
-            lines.append(f"    val {property_name(key)}: {kotlin} get() = {scalar_expression(key, property, key in required)}")
+            lines.append(f"    val {property_name(key)}: {kotlin} get() = {scalar_expression(key, property, key in required, registry)}")
         lines.extend([
             "}",
             f"object {name}Serializer : RawModelSerializer<{name}>(::{name})",
@@ -211,9 +342,10 @@ def main() -> int:
             return 1
 
     objects = collect_objects(loaded)
+    registry = schema_registry(loaded)
     if loaded and not args.no_generate:
         OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-        OUTPUT.write_text(generate_models(objects))
+        OUTPUT.write_text(generate_models(objects, registry))
 
     corpus = load_fixtures(fixtures) if fixtures else []
     output = ROOT / "clients/mobile/shared/src/androidUnitTest/resources"

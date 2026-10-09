@@ -27,10 +27,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
-import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.resources.Res
+import bot.mac.mobile.resources.search_error
 import bot.mac.mobile.resources.search_all
 import bot.mac.mobile.resources.search_artifact
 import bot.mac.mobile.resources.search_bot
@@ -46,9 +46,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.CancellationException
 import org.jetbrains.compose.resources.stringResource
 
 private enum class SearchKind { ALL, MESSAGE, CHAT, BOT, ARTIFACT, ROUTINE }
@@ -59,6 +59,7 @@ fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Uni
     var kind by remember { mutableStateOf(SearchKind.ALL) }
     var results by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     var pending by remember { mutableStateOf<Job?>(null) }
 
@@ -68,13 +69,22 @@ fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Uni
             delay(220)
             if (query.isBlank()) { results = emptyList(); searching = false; return@launch }
             searching = true
-            val response = repository.call("search", buildJsonObject {
-                put("query", query.trim())
-                if (kind != SearchKind.ALL) put("kinds", JsonArray(listOf(kindsJson(kind))))
-                put("limit", 40)
-            })
-            results = response.arr("results").orEmpty().mapNotNull { it as? JsonObject }
-            searching = false
+            searchError = null
+            try {
+                val response = repository.call("search", buildJsonObject {
+                    put("query", query.trim())
+                    if (kind != SearchKind.ALL) put("kinds", JsonArray(listOf(kindsJson(kind))))
+                    put("limit", 40)
+                })
+                results = response.arr("results").orEmpty().mapNotNull { it as? JsonObject }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                results = emptyList()
+                searchError = failure.message ?: ""
+            } finally {
+                searching = false
+            }
         }
     }
     LaunchedEffect(query, kind) { search() }
@@ -92,9 +102,10 @@ fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Uni
         when {
             query.isBlank() -> Text(stringResource(Res.string.search_empty), Modifier.padding(24.dp))
             searching -> Text("…", Modifier.padding(24.dp))
+            searchError != null -> Text(stringResource(Res.string.search_error, searchError!!), Modifier.padding(24.dp), color = MaterialTheme.colorScheme.error)
             results.isEmpty() -> Text(stringResource(Res.string.search_no_results), Modifier.padding(24.dp))
             else -> LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(results, key = { "${it.str("kind")}:${it.str("id")}" }) { result -> SearchResult(result, onClick = { onOpenResult(result.openTarget()) }) }
+                items(results, key = { "${it.str("kind")}:${it.str("id")}" }) { result -> SearchResult(result, onClick = { onOpenResult(result) }) }
             }
         }
     }
@@ -117,14 +128,6 @@ internal fun searchKindParameter(kind: String): String? = when (kind) {
     else -> null
 }
 private fun kindsJson(kind: SearchKind): kotlinx.serialization.json.JsonPrimitive = kotlinx.serialization.json.JsonPrimitive(kind.name.lowercase())
-private fun JsonObject.openTarget(): JsonObject {
-    if (str("kind") != "artifact" || str("chat_id").isNotBlank()) return this
-    val projectId = str("project_id").ifBlank { obj("project").str("id") }
-    return JsonObject(this + mapOf(
-        "open_target" to JsonPrimitive("artifact_preview"),
-        "root_project_id" to JsonPrimitive(projectId),
-    ))
-}
 @Composable private fun SearchKind.label(): String = when (this) {
     SearchKind.ALL -> stringResource(Res.string.search_all)
     SearchKind.MESSAGE -> stringResource(Res.string.search_message)

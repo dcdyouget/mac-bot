@@ -4,11 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,10 +45,15 @@ fun BotsScreen(
 ) {
     val state by repository.state.collectAsState()
     var templates by remember { mutableStateOf(emptyList<JsonObject>()) }
+    var selectedTemplate by remember { mutableStateOf<JsonObject?>(null) }
+    var showHidden by remember { mutableStateOf(false) }
     var listError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val templateCreateFailed = stringResource(Res.string.feature_template_create_failed)
+    LaunchedEffect(showHidden) {
+        runCatching { repository.call("bot.list", buildJsonObject { put("include_hidden", showHidden) }) }.onFailure { listError = it.message }
+    }
     LaunchedEffect(Unit) {
-        runCatching { repository.call("bot.list", buildJsonObject { put("include_hidden", false) }) }.onFailure { listError = it.message }
         runCatching { templates = repository.call("bot.templates", buildJsonObject {}).objects("templates") }.onFailure { listError = it.message }
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(14.dp)) {
@@ -56,18 +63,51 @@ fun BotsScreen(
             Button(onClick = onCreate) { Text("＋ ${stringResource(Res.string.feature_create)}") }
         }
         listError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = showHidden, onClick = { showHidden = !showHidden }, label = {
+                Text(stringResource(if (showHidden) Res.string.feature_hide_hidden else Res.string.feature_show_hidden))
+            })
+        }
         if (templates.isNotEmpty()) {
             Text(stringResource(Res.string.feature_templates), Modifier.padding(top = 10.dp), style = MaterialTheme.typography.titleSmall)
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 templates.forEach { template ->
-                    Button(onClick = { scope.launch { runCatching { repository.call("bot.create_from_template", buildJsonObject { put("template_id", template.str("id")) }) }.onFailure { listError = it.message } } }) {
+                    Button(onClick = { selectedTemplate = template }) {
                         Text(template.str("name").ifBlank { template.str("id") })
                     }
                 }
             }
         }
+        selectedTemplate?.let { template ->
+            AlertDialog(
+                onDismissRequest = { selectedTemplate = null },
+                title = { Text(template.str("name").ifBlank { template.str("id") }) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(template.str("description"))
+                        Text(stringResource(Res.string.feature_template_confirm))
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        scope.launch {
+                            runCatching {
+                                repository.call("bot.create_from_template", buildJsonObject { put("template_id", template.str("id")) })
+                            }.onSuccess { result ->
+                                selectedTemplate = null
+                                val id = result.str("id").takeIf { it.isNotBlank() } ?: result.obj("bot").str("id").takeIf { it.isNotBlank() }
+                                if (id.isNullOrBlank()) listError = templateCreateFailed else onOpenBot(id)
+                            }.onFailure {
+                                listError = it.message ?: templateCreateFailed
+                            }
+                        }
+                    }) { Text(stringResource(Res.string.feature_use_template)) }
+                },
+                dismissButton = { TextButton(onClick = { selectedTemplate = null }) { Text(stringResource(Res.string.common_cancel)) } },
+            )
+        }
         LazyColumn(Modifier.fillMaxSize().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.bots.filter { !it.boolean("hidden") }, key = { it.str("id").ifBlank { "bot:${it.hashCode()}" } }) { bot ->
+            items(state.bots.filter { showHidden || !it.boolean("hidden") }, key = { it.str("id").ifBlank { "bot:${it.hashCode()}" } }) { bot ->
                 BotRow(bot, onOpenBot)
             }
         }
@@ -117,6 +157,13 @@ fun BotEditorScreen(
     val scope = rememberCoroutineScope()
     val saveFailed = stringResource(Res.string.feature_save_failed)
     val duplicateName = stringResource(Res.string.feature_copy_suffix, name.trim())
+    if (botId != null && existing == null) {
+        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+            Text(stringResource(Res.string.feature_loading), style = MaterialTheme.typography.titleMedium)
+        }
+        return
+    }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(if (botId == null) stringResource(Res.string.feature_new_bot) else stringResource(Res.string.feature_edit), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) }
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_name)) })
@@ -138,7 +185,7 @@ fun BotEditorScreen(
         OutlinedTextField(emoji, { emoji = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_emoji)) })
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.feature_pin), Modifier.weight(1f)); Switch(checked = pinned, onCheckedChange = { pinned = it }) }
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.feature_bot_notifications), Modifier.weight(1f)); Switch(checked = notifications, onCheckedChange = { notifications = it }) }
-        if (botId != null && existing?.boolean("is_main") != true) {
+        if (botId != null && !isMainBot) {
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.feature_hidden), Modifier.weight(1f)); Switch(checked = hidden, onCheckedChange = { hidden = it }) }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -159,14 +206,14 @@ fun BotEditorScreen(
                         }
                         put("notifications", notifications)
                         put("pinned", pinned)
-                        put("hidden", hidden)
+                        if (!isMainBot) put("hidden", hidden)
                     }
                     if (botId == null) repository.call("bot.create", payload)
                     else repository.call("bot.update", buildJsonObject { put("bot_id", botId); put("patch", payload) })
                 }.onSuccess { onSaved() }.onFailure { error = it.message ?: saveFailed }
             }
         }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_save)) }
-        if (botId != null && existing?.boolean("is_main") != true) {
+        if (botId != null && !isMainBot) {
             Button(onClick = { scope.launch { runCatching { repository.call("bot.duplicate", buildJsonObject { put("bot_id", botId); put("name", duplicateName) }) }.onSuccess { onSaved() }.onFailure { error = it.message ?: saveFailed } } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_duplicate)) }
             Button(onClick = { scope.launch { runCatching { repository.call("bot.delete", buildJsonObject { put("bot_id", botId) }) }.onSuccess { onBack() }.onFailure { error = it.message ?: saveFailed } } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_delete_bot)) }
         }

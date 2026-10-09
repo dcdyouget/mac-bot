@@ -11,6 +11,7 @@
     <string name="dashboard_dimension">维度</string>
     <string name="dashboard_metric">指标</string>
     <string name="dashboard_detail">明细</string>
+    <string name="dashboard_back_to_all">返回全部</string>
     <string name="dashboard_model">模型</string>
     <string name="dashboard_bot">Bot</string>
     <string name="dashboard_project">项目</string>
@@ -25,6 +26,15 @@
     <string name="dashboard_seven_days">近 7 天</string>
     <string name="dashboard_thirty_days">近 30 天</string>
     <string name="dashboard_ninety_days">近 90 天</string>
+    <string name="dashboard_custom">自定义</string>
+    <string name="dashboard_custom_from">开始日期（YYYY-MM-DD）</string>
+    <string name="dashboard_custom_to">结束日期（YYYY-MM-DD）</string>
+    <string name="dashboard_host_select">切换 Host</string>
+    <string name="dashboard_cache_hit">缓存命中</string>
+    <string name="dashboard_detail_input">输入</string>
+    <string name="dashboard_detail_output">输出</string>
+    <string name="dashboard_detail_cache_read">缓存读</string>
+    <string name="dashboard_detail_phases">阶段</string>
     <string name="dashboard_split_io">拆分输入/输出</string>
     <string name="dashboard_input">输入</string>
     <string name="dashboard_output">输出</string>
@@ -53,6 +63,9 @@
     <string name="skills_description">描述</string>
     <string name="skills_files">附带文件</string>
     <string name="skills_bot_access">对个别 Bot 启用</string>
+    <string name="skills_invocations">近 7 天调用</string>
+    <string name="skills_no_files">没有附带文件</string>
+    <string name="skills_error">技能操作失败：%1$s</string>
     <string name="skills_empty">暂无技能</string>
     <string name="search_title">搜索</string>
     <string name="search_hint">搜索消息、Bot、群、产物、定时任务</string>
@@ -91,4 +104,16 @@
     <string name="computer_tabs">标签页</string>
     <string name="computer_quality_low">低</string>
     <string name="computer_quality_high">高</string>
+    <string name="computer_fps">帧率 %1$d · 延迟 %2$d ms</string>
+    <string name="computer_latency">延迟</string>
+    <string name="computer_latency_ms">%1$d ms</string>
+    <string name="computer_scroll_hint">双指移动可滚动页面</string>
+    <string name="computer_frame_clock_error">画面渲染时钟不可用</string>
+    <string name="computer_decode_error">画面帧解码失败</string>
+    <string name="computer_connection_error">画面连接失败</string>
+    <string name="computer_request_failed">请求失败</string>
+    <string name="search_error">搜索失败：%1$s</string>
+    <string name="routines_error">定时任务操作失败：%1$s</string>
+    <string name="routines_trigger">触发：%1$s</string>
+    <string name="routines_finished">结束：%1$s</string>
 </resources>

@@ -1,0 +1,2504 @@
+[
+  {
+    "source": "protocol/fixtures/blocks/approval.json",
+    "line": 1,
+    "value": {
+      "approval_id": "apr_1",
+      "type": "approval"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/approval_ref.json",
+    "line": 1,
+    "value": {
+      "approval_id": "apr_1",
+      "chat_id": "chat_main",
+      "type": "approval_ref"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/blocked.json",
+    "line": 1,
+    "value": {
+      "reason": "缺少 API Key",
+      "type": "blocked"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/bot_dm_ref.json",
+    "line": 1,
+    "value": {
+      "chat_id": "chat_main",
+      "count": 2,
+      "type": "bot_dm_ref"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/completion.json",
+    "line": 1,
+    "value": {
+      "artifacts": [
+        {
+          "artifact_id": "art_prd",
+          "path_or_url": "product/prd.md",
+          "title": "PRD"
+        }
+      ],
+      "next": [
+        {
+          "bot_id": "bot_main",
+          "instruction": "继续"
+        }
+      ],
+      "notify_main": true,
+      "summary": "完成",
+      "type": "completion"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/delegation.json",
+    "line": 1,
+    "value": {
+      "assignment_id": "asg_1",
+      "bot_id": "bot_main",
+      "type": "delegation"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/file.json",
+    "line": 1,
+    "value": {
+      "file": {
+        "mime": "text/markdown",
+        "name": "prd.md",
+        "path": "product/prd.md",
+        "root": "project",
+        "root_id": "prj_login",
+        "size": 42
+      },
+      "type": "file"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/image.json",
+    "line": 1,
+    "value": {
+      "file": {
+        "mime": "text/markdown",
+        "name": "prd.md",
+        "path": "product/prd.md",
+        "root": "project",
+        "root_id": "prj_login",
+        "size": 42
+      },
+      "height": 480,
+      "type": "image",
+      "width": 640
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/loop_paused.json",
+    "line": 1,
+    "value": {
+      "hops": 3,
+      "root_message_id": "msg_1",
+      "state": "paused",
+      "type": "loop_paused"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/progress.json",
+    "line": 1,
+    "value": {
+      "text": "进行中",
+      "type": "progress"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/project_card.json",
+    "line": 1,
+    "value": {
+      "project_id": "prj_login",
+      "type": "project_card"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/question.json",
+    "line": 1,
+    "value": {
+      "question_id": "que_1",
+      "type": "question"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/review_card.json",
+    "line": 1,
+    "value": {
+      "artifacts": [
+        {
+          "artifact_id": "art_prd",
+          "path_or_url": "product/prd.md",
+          "title": "PRD"
+        }
+      ],
+      "project_id": "prj_login",
+      "state": "pending",
+      "type": "review_card"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/system.json",
+    "line": 1,
+    "value": {
+      "code": "info",
+      "text": "系统事件",
+      "type": "system"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/takeover_request.json",
+    "line": 1,
+    "value": {
+      "bot_id": "bot_main",
+      "reason": "需要登录",
+      "state": "pending",
+      "type": "takeover_request"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/task_card.json",
+    "line": 1,
+    "value": {
+      "assignment_id": "asg_1",
+      "type": "task_card"
+    }
+  },
+  {
+    "source": "protocol/fixtures/blocks/text.json",
+    "line": 1,
+    "value": {
+      "markdown": "说明",
+      "type": "text"
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/announcement_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "announcement": {
+          "artifacts": [],
+          "highlights": [],
+          "members": [],
+          "project_id": "prj_login",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "announcement.updated",
+      "kind": "evt",
+      "seq": 13,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/approval_requested.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "approval": {
+          "assignment_id": null,
+          "bot_id": "bot_main",
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "decided_at": null,
+          "detail": "cargo test",
+          "id": "apr_1",
+          "risk": "exec",
+          "state": "pending",
+          "summary": "运行测试",
+          "tool": "bash"
+        }
+      },
+      "event": "approval.requested",
+      "kind": "evt",
+      "seq": 17,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/approval_resolved.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "approval": {
+          "assignment_id": null,
+          "bot_id": "bot_main",
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "decided_at": null,
+          "detail": "cargo test",
+          "id": "apr_1",
+          "risk": "exec",
+          "state": "pending",
+          "summary": "运行测试",
+          "tool": "bash"
+        }
+      },
+      "event": "approval.resolved",
+      "kind": "evt",
+      "seq": 18,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/artifact_registered.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "artifact": {
+          "assignment_id": "asg_1",
+          "bot_id": "bot_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "id": "art_prd",
+          "kind": "file",
+          "path_or_url": "product/prd.md",
+          "project_id": "prj_login",
+          "title": "PRD",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "artifact.registered",
+      "kind": "evt",
+      "seq": 16,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/assignment_created.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "kind": "user"
+          },
+          "id": "asg_1",
+          "instruction": "做事",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": null,
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "working",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "任务",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "requests": 1
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.created",
+      "kind": "evt",
+      "seq": 14,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/assignment_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "kind": "user"
+          },
+          "id": "asg_1",
+          "instruction": "做事",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": null,
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "working",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "任务",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "requests": 1
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.updated",
+      "kind": "evt",
+      "seq": 15,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/bot_created.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "bot": {
+          "avatar": {
+            "color": 0,
+            "kind": "bean"
+          },
+          "browser_mode": "headless",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "description": "协调团队",
+          "dm_chat_id": "chat_main",
+          "hidden": false,
+          "id": "bot_main",
+          "is_main": true,
+          "label": "主 Bot",
+          "max_parallel": 1,
+          "model": null,
+          "name": "总管",
+          "notifications": true,
+          "pinned": true,
+          "status": {
+            "active": 0,
+            "queued": 0,
+            "summary": "idle",
+            "waiting": 0
+          },
+          "tools": {
+            "bash": false,
+            "browser": false,
+            "files": false,
+            "mcp": false,
+            "subagent": false,
+            "web": false
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "bot.created",
+      "kind": "evt",
+      "seq": 8,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/bot_deleted.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "bot_id": "bot_main"
+      },
+      "event": "bot.deleted",
+      "kind": "evt",
+      "seq": 10,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/bot_status.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "bot_id": "bot_main",
+        "status": {
+          "active": 0,
+          "queued": 0,
+          "summary": "idle",
+          "waiting": 0
+        }
+      },
+      "event": "bot.status",
+      "kind": "evt",
+      "seq": 33,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/bot_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "bot": {
+          "avatar": {
+            "color": 0,
+            "kind": "bean"
+          },
+          "browser_mode": "headless",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "description": "协调团队",
+          "dm_chat_id": "chat_main",
+          "hidden": false,
+          "id": "bot_main",
+          "is_main": true,
+          "label": "主 Bot",
+          "max_parallel": 1,
+          "model": null,
+          "name": "总管",
+          "notifications": true,
+          "pinned": true,
+          "status": {
+            "active": 0,
+            "queued": 0,
+            "summary": "idle",
+            "waiting": 0
+          },
+          "tools": {
+            "bash": false,
+            "browser": false,
+            "files": false,
+            "mcp": false,
+            "subagent": false,
+            "web": false
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "bot.updated",
+      "kind": "evt",
+      "seq": 9,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/chat_created.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "chat": {
+          "attention": "none",
+          "bot_id": "bot_main",
+          "id": "chat_main",
+          "kind": "main",
+          "last_message": null,
+          "last_read_seq": 0,
+          "last_seq": 0,
+          "member_bot_ids": [],
+          "muted": false,
+          "pinned": true,
+          "project_id": null,
+          "title": "总管",
+          "unread": 0,
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "chat.created",
+      "kind": "evt",
+      "seq": 1,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/chat_deleted.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "chat_id": "chat_main"
+      },
+      "event": "chat.deleted",
+      "kind": "evt",
+      "seq": 3,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/chat_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "chat": {
+          "attention": "none",
+          "bot_id": "bot_main",
+          "id": "chat_main",
+          "kind": "main",
+          "last_message": null,
+          "last_read_seq": 0,
+          "last_seq": 0,
+          "member_bot_ids": [],
+          "muted": false,
+          "pinned": true,
+          "project_id": null,
+          "title": "总管",
+          "unread": 0,
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "chat.updated",
+      "kind": "evt",
+      "seq": 2,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/hello.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "currency": "CNY",
+        "features": [],
+        "host_name": "Mac mini",
+        "last_seq": 1,
+        "node_id": "node_1",
+        "protocol": 1,
+        "server_time": "2026-10-09T10:19:02.312Z",
+        "server_version": "0.1.0",
+        "timezone": "Asia/Shanghai"
+      },
+      "event": "hello",
+      "kind": "evt",
+      "seq": 29,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/host_status.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "global_limit": 4,
+        "queued": 0,
+        "running": 1,
+        "subagents_running": 0
+      },
+      "event": "host.status",
+      "kind": "evt",
+      "seq": 35,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/message_created.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "hi",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "hi",
+          "id": "msg_1",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 1,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 5,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/message_deleted.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "chat_id": "chat_main",
+        "message_id": "msg_1"
+      },
+      "event": "message.deleted",
+      "kind": "evt",
+      "seq": 7,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/message_delta.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "chat_id": "chat_main",
+        "message_id": "msg_1",
+        "text": "片段"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "seq": 31,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/message_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "hi",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "hi",
+          "id": "msg_1",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 1,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.updated",
+      "kind": "evt",
+      "seq": 6,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/project_created.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "project": {
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": "2026-10-12",
+          "done_at": null,
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "给 App 加邮箱登录",
+          "home_path": "~/MacBot/projects/login/",
+          "id": "prj_login",
+          "lead_bot_id": "bot_main",
+          "members": [],
+          "name": "登录功能",
+          "slug": "login",
+          "status": "active",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "project.created",
+      "kind": "evt",
+      "seq": 11,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/project_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "project": {
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": "2026-10-12",
+          "done_at": null,
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "给 App 加邮箱登录",
+          "home_path": "~/MacBot/projects/login/",
+          "id": "prj_login",
+          "lead_bot_id": "bot_main",
+          "members": [],
+          "name": "登录功能",
+          "slug": "login",
+          "status": "active",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "project.updated",
+      "kind": "evt",
+      "seq": 12,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/provider_deleted.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "provider_id": "prv_mock"
+      },
+      "event": "provider.deleted",
+      "kind": "evt",
+      "seq": 27,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/provider_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "models": [
+          {
+            "caps": {
+              "reasoning": false,
+              "tools": true,
+              "vision": true
+            },
+            "context_window": 128000,
+            "display_name": "Mock Model",
+            "enabled": true,
+            "max_output": 4096,
+            "model_id": "mock-model",
+            "price": null,
+            "provider_id": "prv_mock",
+            "ref": "prv_mock/mock-model"
+          }
+        ],
+        "provider": {
+          "api_kind": "openai-completions",
+          "base_url": "http://mock.invalid/v1",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "has_key": false,
+          "headers": {},
+          "id": "prv_mock",
+          "name": "Mock",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "provider.updated",
+      "kind": "evt",
+      "seq": 26,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/question_answered.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": null,
+          "assignment_id": "asg_1",
+          "bot_id": "bot_main",
+          "chat_id": "chat_main",
+          "id": "que_1",
+          "options": [
+            "是",
+            "否"
+          ],
+          "state": "pending",
+          "text": "继续？"
+        }
+      },
+      "event": "question.answered",
+      "kind": "evt",
+      "seq": 20,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/question_asked.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": null,
+          "assignment_id": "asg_1",
+          "bot_id": "bot_main",
+          "chat_id": "chat_main",
+          "id": "que_1",
+          "options": [
+            "是",
+            "否"
+          ],
+          "state": "pending",
+          "text": "继续？"
+        }
+      },
+      "event": "question.asked",
+      "kind": "evt",
+      "seq": 19,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/read_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "chat_id": "chat_main",
+        "last_read_seq": 1
+      },
+      "event": "read.updated",
+      "kind": "evt",
+      "seq": 4,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/routine_deleted.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "routine_id": "rtn_1"
+      },
+      "event": "routine.deleted",
+      "kind": "evt",
+      "seq": 24,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/routine_run.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "run": {
+          "assignment_id": null,
+          "error": null,
+          "finished_at": "2026-10-09T10:19:02.312Z",
+          "id": "rrn_1",
+          "routine_id": "rtn_1",
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "done",
+          "trigger": "test"
+        }
+      },
+      "event": "routine.run",
+      "kind": "evt",
+      "seq": 25,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/routine_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "routine": {
+          "bot_id": "bot_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "enabled": true,
+          "id": "rtn_1",
+          "instructions": "汇总消息",
+          "last_run": {
+            "assignment_id": null,
+            "error": null,
+            "finished_at": "2026-10-09T10:19:02.312Z",
+            "id": "rrn_1",
+            "routine_id": "rtn_1",
+            "started_at": "2026-10-09T10:19:02.312Z",
+            "status": "done",
+            "trigger": "test"
+          },
+          "name": "晨报",
+          "next_run_at": "2026-10-09T10:19:02.312Z",
+          "project_id": null,
+          "schedules": [
+            {
+              "cron": "0 9 * * 1-5",
+              "label": "工作日 09:00"
+            }
+          ],
+          "timezone": "Asia/Shanghai",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "routine.updated",
+      "kind": "evt",
+      "seq": 23,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/settings_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "settings": {
+          "approvals": {
+            "mode": "require",
+            "rules": []
+          },
+          "browser": {
+            "chrome_profile": "Default",
+            "default_mode": "headless",
+            "stream": {
+              "desktop": {
+                "max_fps": 15,
+                "max_width": 1280,
+                "quality": 70
+              },
+              "mobile": {
+                "max_fps": 10,
+                "max_width": 720,
+                "quality": 50
+              }
+            }
+          },
+          "concurrency": {
+            "bot_default": 2,
+            "global": 4,
+            "loop_hops": 3,
+            "subagent_global": 8,
+            "subagent_per_run": 3
+          },
+          "currency": "CNY",
+          "host_name": "Mac mini",
+          "main_bot": {
+            "auto_create_project": true
+          },
+          "models": {
+            "bot_default": "prv_mock/mock-model",
+            "main": null,
+            "maintenance": null,
+            "subagent": "inherit"
+          },
+          "push": {
+            "apns_configured": false
+          },
+          "skills": {
+            "extra_dirs": []
+          },
+          "timezone": "Asia/Shanghai",
+          "trace": {
+            "save_full_requests": false
+          },
+          "web_search": {
+            "endpoint": null,
+            "has_key": false,
+            "provider": null
+          }
+        }
+      },
+      "event": "settings.updated",
+      "kind": "evt",
+      "seq": 28,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/skill_deleted.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "name": "old"
+      },
+      "event": "skill.deleted",
+      "kind": "evt",
+      "seq": 22,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/skill_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "skill": {
+          "description": "PRD 模板",
+          "disabled_bot_ids": [],
+          "enabled": true,
+          "files": [
+            "template.md"
+          ],
+          "invocations_7d": {
+            "by_bot": [],
+            "total": 1
+          },
+          "name": "prd-template",
+          "path": "skills/prd-template",
+          "source": "builtin",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "skill.updated",
+      "kind": "evt",
+      "seq": 21,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/sync_done.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "seq": 1
+      },
+      "event": "sync.done",
+      "kind": "evt",
+      "seq": 30,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/typing.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "bot_id": "bot_main",
+        "chat_id": "chat_main",
+        "on": true
+      },
+      "event": "typing",
+      "kind": "evt",
+      "seq": 32,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/usage_tick.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "assignment_id": "asg_1",
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 10,
+          "output_tokens": 20,
+          "requests": 1
+        }
+      },
+      "event": "usage.tick",
+      "kind": "evt",
+      "seq": 34,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/frames/screen-ack.json",
+    "line": 1,
+    "value": {
+      "seq": 1,
+      "type": "ack"
+    }
+  },
+  {
+    "source": "protocol/fixtures/frames/screen-header.json",
+    "line": 1,
+    "value": {
+      "h": 720,
+      "seq": 1,
+      "tab_id": "tab_1",
+      "ts": 1791537542312,
+      "url": "http://localhost:3000",
+      "w": 1280
+    }
+  },
+  {
+    "source": "protocol/fixtures/frames/screen-input.json",
+    "line": 1,
+    "value": {
+      "event": {
+        "action": "click",
+        "button": "left",
+        "click_count": 1,
+        "type": "mouse",
+        "x": 10.0,
+        "y": 20.0
+      },
+      "type": "input"
+    }
+  },
+  {
+    "source": "protocol/fixtures/frames/screen-state.json",
+    "line": 1,
+    "value": {
+      "bot_id": "bot_main",
+      "driver": "bot",
+      "height": 720,
+      "tabs": [
+        {
+          "active": true,
+          "assignment_id": "asg_1",
+          "tab_id": "tab_1",
+          "title": "App",
+          "url": "http://localhost:3000"
+        }
+      ],
+      "width": 1280
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/announcement.json",
+    "line": 1,
+    "value": {
+      "artifacts": [
+        {
+          "assignment_id": "asg_1",
+          "bot_id": "bot_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "id": "art_prd",
+          "kind": "file",
+          "path_or_url": "product/prd.md",
+          "project_id": "prj_login",
+          "title": "PRD",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      ],
+      "highlights": [
+        {
+          "at": "2026-10-09T10:19:02.312Z",
+          "text": "只做邮箱登录"
+        }
+      ],
+      "members": [],
+      "project_id": "prj_login",
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/approval.json",
+    "line": 1,
+    "value": {
+      "assignment_id": null,
+      "bot_id": "bot_main",
+      "chat_id": "chat_main",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "decided_at": null,
+      "detail": "cargo test",
+      "id": "apr_1",
+      "risk": "exec",
+      "state": "pending",
+      "summary": "运行测试",
+      "tool": "bash"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/artifact.json",
+    "line": 1,
+    "value": {
+      "assignment_id": "asg_1",
+      "bot_id": "bot_main",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "id": "art_prd",
+      "kind": "file",
+      "path_or_url": "product/prd.md",
+      "project_id": "prj_login",
+      "title": "PRD",
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/assignment.json",
+    "line": 1,
+    "value": {
+      "bot_id": "bot_main",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "finished_at": null,
+      "from": {
+        "kind": "user"
+      },
+      "id": "asg_1",
+      "instruction": "做事",
+      "model": "prv_mock/mock-model",
+      "origin_chat_id": "chat_login",
+      "parent_assignment_id": null,
+      "project_id": "prj_login",
+      "queue_reason": null,
+      "result_message_id": null,
+      "started_at": "2026-10-09T10:19:02.312Z",
+      "status": "working",
+      "steers": [],
+      "subagents_active": 0,
+      "title": "任务",
+      "trigger_message_id": null,
+      "usage": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost": null,
+        "input_tokens": 10,
+        "output_tokens": 20,
+        "requests": 1
+      },
+      "wait": null
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/bot.json",
+    "line": 1,
+    "value": {
+      "avatar": {
+        "color": 0,
+        "kind": "bean"
+      },
+      "browser_mode": "headless",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "description": "协调团队",
+      "dm_chat_id": "chat_main",
+      "hidden": false,
+      "id": "bot_main",
+      "is_main": true,
+      "label": "主 Bot",
+      "max_parallel": 1,
+      "model": null,
+      "name": "总管",
+      "notifications": true,
+      "pinned": true,
+      "status": {
+        "active": 0,
+        "queued": 0,
+        "summary": "idle",
+        "waiting": 0
+      },
+      "tools": {
+        "bash": false,
+        "browser": false,
+        "files": false,
+        "mcp": false,
+        "subagent": false,
+        "web": false
+      },
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/chat.json",
+    "line": 1,
+    "value": {
+      "attention": "none",
+      "bot_id": "bot_main",
+      "id": "chat_main",
+      "kind": "main",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [],
+      "muted": false,
+      "pinned": true,
+      "project_id": null,
+      "title": "总管",
+      "unread": 0,
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/device.json",
+    "line": 1,
+    "value": {
+      "app_version": "0.1.0",
+      "device_name": "Mac mini",
+      "id": "dev_mac",
+      "last_seen_at": "2026-10-09T10:19:02.312Z",
+      "platform": "macos",
+      "push_token": null
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/hello.json",
+    "line": 1,
+    "value": {
+      "currency": "CNY",
+      "features": [
+        "browser"
+      ],
+      "host_name": "Mac mini",
+      "last_seq": 7,
+      "node_id": "node_1",
+      "protocol": 1,
+      "server_time": "2026-10-09T10:19:02.312Z",
+      "server_version": "0.1.0",
+      "timezone": "Asia/Shanghai"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/message.json",
+    "line": 1,
+    "value": {
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "hi",
+          "type": "text"
+        }
+      ],
+      "chat_id": "chat_main",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "hi",
+      "id": "msg_1",
+      "intent": null,
+      "mentions": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 1,
+      "streaming": false,
+      "thread_count": 0
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/model.json",
+    "line": 1,
+    "value": {
+      "caps": {
+        "reasoning": false,
+        "tools": true,
+        "vision": true
+      },
+      "context_window": 128000,
+      "display_name": "Mock Model",
+      "enabled": true,
+      "max_output": 4096,
+      "model_id": "mock-model",
+      "price": null,
+      "provider_id": "prv_mock",
+      "ref": "prv_mock/mock-model"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/project.json",
+    "line": 1,
+    "value": {
+      "chat_id": "chat_login",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "created_by": {
+        "kind": "user"
+      },
+      "deadline": "2026-10-12",
+      "done_at": null,
+      "flow": [
+        "产品",
+        "编码",
+        "测试"
+      ],
+      "goal": "给 App 加邮箱登录",
+      "home_path": "~/MacBot/projects/login/",
+      "id": "prj_login",
+      "lead_bot_id": "bot_main",
+      "members": [],
+      "name": "登录功能",
+      "slug": "login",
+      "status": "active",
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/provider.json",
+    "line": 1,
+    "value": {
+      "api_kind": "openai-completions",
+      "base_url": "http://mock.invalid/v1",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "has_key": false,
+      "headers": {},
+      "id": "prv_mock",
+      "name": "Mock",
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/question.json",
+    "line": 1,
+    "value": {
+      "allow_free_text": true,
+      "answer": null,
+      "assignment_id": "asg_1",
+      "bot_id": "bot_main",
+      "chat_id": "chat_main",
+      "id": "que_1",
+      "options": [
+        "是",
+        "否"
+      ],
+      "state": "pending",
+      "text": "继续？"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/routine.json",
+    "line": 1,
+    "value": {
+      "bot_id": "bot_main",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "enabled": true,
+      "id": "rtn_1",
+      "instructions": "汇总消息",
+      "last_run": {
+        "assignment_id": null,
+        "error": null,
+        "finished_at": "2026-10-09T10:19:02.312Z",
+        "id": "rrn_1",
+        "routine_id": "rtn_1",
+        "started_at": "2026-10-09T10:19:02.312Z",
+        "status": "done",
+        "trigger": "test"
+      },
+      "name": "晨报",
+      "next_run_at": "2026-10-09T10:19:02.312Z",
+      "project_id": null,
+      "schedules": [
+        {
+          "cron": "0 9 * * 1-5",
+          "label": "工作日 09:00"
+        }
+      ],
+      "timezone": "Asia/Shanghai",
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/routine_run.json",
+    "line": 1,
+    "value": {
+      "assignment_id": null,
+      "error": null,
+      "finished_at": "2026-10-09T10:19:02.312Z",
+      "id": "rrn_1",
+      "routine_id": "rtn_1",
+      "started_at": "2026-10-09T10:19:02.312Z",
+      "status": "done",
+      "trigger": "test"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/settings.json",
+    "line": 1,
+    "value": {
+      "approvals": {
+        "mode": "require",
+        "rules": []
+      },
+      "browser": {
+        "chrome_profile": "Default",
+        "default_mode": "headless",
+        "stream": {
+          "desktop": {
+            "max_fps": 15,
+            "max_width": 1280,
+            "quality": 70
+          },
+          "mobile": {
+            "max_fps": 10,
+            "max_width": 720,
+            "quality": 50
+          }
+        }
+      },
+      "concurrency": {
+        "bot_default": 2,
+        "global": 4,
+        "loop_hops": 3,
+        "subagent_global": 8,
+        "subagent_per_run": 3
+      },
+      "currency": "CNY",
+      "host_name": "Mac mini",
+      "main_bot": {
+        "auto_create_project": true
+      },
+      "models": {
+        "bot_default": "prv_mock/mock-model",
+        "main": null,
+        "maintenance": null,
+        "subagent": "inherit"
+      },
+      "push": {
+        "apns_configured": false
+      },
+      "skills": {
+        "extra_dirs": []
+      },
+      "timezone": "Asia/Shanghai",
+      "trace": {
+        "save_full_requests": false
+      },
+      "web_search": {
+        "endpoint": null,
+        "has_key": false,
+        "provider": null
+      }
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/skill.json",
+    "line": 1,
+    "value": {
+      "description": "PRD 模板",
+      "disabled_bot_ids": [],
+      "enabled": true,
+      "files": [
+        "template.md"
+      ],
+      "invocations_7d": {
+        "by_bot": [],
+        "total": 1
+      },
+      "name": "prd-template",
+      "path": "skills/prd-template",
+      "source": "builtin",
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/skill_detail.json",
+    "line": 1,
+    "value": {
+      "content": "# PRD",
+      "description": "PRD 模板",
+      "disabled_bot_ids": [],
+      "enabled": true,
+      "files": [],
+      "invocations_7d": {
+        "by_bot": [],
+        "total": 0
+      },
+      "name": "prd-template",
+      "path": "skills/prd-template",
+      "source": "builtin",
+      "updated_at": "2026-10-09T10:19:02.312Z"
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 1,
+    "value": {
+      "data": {
+        "currency": "CNY",
+        "features": [
+          "browser"
+        ],
+        "host_name": "Mac mini",
+        "last_seq": 0,
+        "node_id": "node_1",
+        "protocol": 1,
+        "server_time": "2026-10-09T10:19:02.312Z",
+        "server_version": "0.1.0",
+        "timezone": "Asia/Shanghai"
+      },
+      "event": "hello",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 2,
+    "value": {
+      "data": {
+        "project": {
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": "2026-10-12",
+          "done_at": null,
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "给 App 加邮箱登录",
+          "home_path": "~/MacBot/projects/login/",
+          "id": "prj_login",
+          "lead_bot_id": "bot_main",
+          "members": [],
+          "name": "登录功能",
+          "slug": "login",
+          "status": "active",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "project.created",
+      "kind": "evt",
+      "seq": 1,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 3,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "hi",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "hi",
+          "id": "msg_1",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 1,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 2,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 4,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "kind": "user"
+          },
+          "id": "asg_1",
+          "instruction": "做事",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": null,
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "working",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "任务",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "requests": 1
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.created",
+      "kind": "evt",
+      "seq": 3,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 5,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 1,
+          "assignment_id": "asg_1",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": null,
+            "phase": "work",
+            "subagent_task": null
+          },
+          "run_id": "run_1",
+          "type": "run.start"
+        },
+        "stream": "asg_1"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 6,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_1",
+          "blocks": [
+            {
+              "artifacts": [
+                {
+                  "artifact_id": "art_prd",
+                  "path_or_url": "product/prd.md",
+                  "title": "PRD"
+                }
+              ],
+              "next": [],
+              "notify_main": true,
+              "summary": "已完成 PRD 和原型",
+              "type": "completion"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "已完成 PRD 和原型",
+          "id": "msg_done",
+          "intent": "done",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "seq": 2,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 4,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 7,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "先只做邮箱登录，不要手机号",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [
+            {
+              "assignment_id": "asg_1",
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_main",
+              "state": "queued"
+            }
+          ],
+          "edited_at": null,
+          "fallback_text": "先只做邮箱登录，不要手机号",
+          "id": "msg_steer",
+          "intent": null,
+          "mentions": [
+            {
+              "bot_id": "bot_main",
+              "instruction": null,
+              "kind": "bot"
+            }
+          ],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 3,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 5,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 8,
+    "value": {
+      "data": {
+        "project": {
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": "2026-10-12",
+          "done_at": null,
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "给 App 加邮箱登录",
+          "home_path": "~/MacBot/projects/login/",
+          "id": "prj_login",
+          "lead_bot_id": "bot_main",
+          "members": [],
+          "name": "登录功能",
+          "slug": "login",
+          "status": "review",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "project.updated",
+      "kind": "evt",
+      "seq": 6,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 9,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "artifacts": [
+                {
+                  "artifact_id": "art_prd",
+                  "path_or_url": "product/prd.md",
+                  "title": "PRD"
+                }
+              ],
+              "project_id": "prj_login",
+              "state": "pending",
+              "type": "review_card"
+            }
+          ],
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "登录功能待验收",
+          "id": "msg_review",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "seq": 4,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 7,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 10,
+    "value": {
+      "data": {
+        "project": {
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": "2026-10-12",
+          "done_at": "2026-10-09T10:19:02.312Z",
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "给 App 加邮箱登录",
+          "home_path": "~/MacBot/projects/login/",
+          "id": "prj_login",
+          "lead_bot_id": "bot_main",
+          "members": [],
+          "name": "登录功能",
+          "slug": "login",
+          "status": "done",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "project.updated",
+      "kind": "evt",
+      "seq": 8,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 11,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_1",
+          "blocks": [
+            {
+              "markdown": "收到，正在继续处理。",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [
+            {
+              "assignment_id": "asg_1",
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_main",
+              "state": "delivered"
+            }
+          ],
+          "edited_at": null,
+          "fallback_text": "收到，正在继续处理。",
+          "id": "msg_steer",
+          "intent": "progress",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "seq": 3,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.updated",
+      "kind": "evt",
+      "seq": 9,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 12,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_1",
+          "blocks": [
+            {
+              "markdown": "收到，正在继续处理。",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [
+            {
+              "assignment_id": "asg_1",
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_main",
+              "state": "read"
+            }
+          ],
+          "edited_at": null,
+          "fallback_text": "收到，正在继续处理。",
+          "id": "msg_steer",
+          "intent": "progress",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "seq": 3,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.updated",
+      "kind": "evt",
+      "seq": 10,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 13,
+    "value": {
+      "data": {
+        "project": {
+          "chat_id": "chat_research",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": null,
+          "done_at": null,
+          "flow": [
+            "调研",
+            "写作"
+          ],
+          "goal": "竞品调研",
+          "home_path": "~/MacBot/projects/research/",
+          "id": "prj_research",
+          "lead_bot_id": "bot_main",
+          "members": [],
+          "name": "竞品调研",
+          "slug": "research",
+          "status": "active",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "project.created",
+      "kind": "evt",
+      "seq": 11,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 14,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "kind": "bot",
+            "bot_id": "bot_main"
+          },
+          "id": "asg_research",
+          "instruction": "调研前三个竞品",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_research",
+          "parent_assignment_id": null,
+          "project_id": "prj_research",
+          "queue_reason": "global_limit",
+          "result_message_id": null,
+          "started_at": null,
+          "status": "queued",
+          "steers": [],
+          "subagents_active": 3,
+          "title": "竞品调研",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "requests": 0
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.created",
+      "kind": "evt",
+      "seq": 12,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 15,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 2,
+          "assignment_id": "asg_research",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_research",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": "run_research",
+            "phase": "subagent",
+            "subagent_task": "subagent-1: competitor login flows"
+          },
+          "run_id": "run_subagent_1",
+          "type": "run.start"
+        },
+        "stream": "asg_research"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 16,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 3,
+          "assignment_id": "asg_research",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_research",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": "run_research",
+            "phase": "subagent",
+            "subagent_task": "subagent-2: password rules"
+          },
+          "run_id": "run_subagent_2",
+          "type": "run.start"
+        },
+        "stream": "asg_research"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 17,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 4,
+          "assignment_id": "asg_research",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_research",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": "run_research",
+            "phase": "subagent",
+            "subagent_task": "subagent-3: onboarding UX"
+          },
+          "run_id": "run_subagent_3",
+          "type": "run.start"
+        },
+        "stream": "asg_research"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 18,
+    "value": {
+      "data": {
+        "assignment_id": "asg_research",
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost": 0.01,
+          "input_tokens": 300,
+          "output_tokens": 120,
+          "requests": 3
+        }
+      },
+      "event": "usage.tick",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 19,
+    "value": {
+      "data": {
+        "project": {
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": "2026-10-12",
+          "done_at": "2026-10-09T10:19:02.312Z",
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "给 App 加邮箱登录",
+          "home_path": "~/MacBot/projects/login/",
+          "id": "prj_login",
+          "lead_bot_id": "bot_main",
+          "members": [],
+          "name": "登录功能",
+          "slug": "login",
+          "status": "done",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "project.updated",
+      "kind": "evt",
+      "seq": 13,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/compaction.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "after_tokens": 500,
+        "before_tokens": 1000,
+        "reason": "context_limit"
+      },
+      "run_id": "run_1",
+      "type": "compaction"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/llm_request.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "context": {
+          "l0": 10,
+          "l1": 20,
+          "l2": 30,
+          "l3": 0,
+          "l4": 0,
+          "total": 60
+        },
+        "model": "prv_mock/mock-model",
+        "prompt_ref": null,
+        "request_id": "req_1",
+        "tools": [
+          "send_msg"
+        ]
+      },
+      "run_id": "run_1",
+      "type": "llm.request"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/llm_response.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "latency_ms": 100,
+        "request_id": "req_1",
+        "stop_reason": "stop",
+        "text": "收到",
+        "thinking": null,
+        "tool_calls": [],
+        "ttft_ms": 20,
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 10,
+          "output_tokens": 20,
+          "requests": 1
+        }
+      },
+      "run_id": "run_1",
+      "type": "llm.response"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/run_end.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "error": null,
+        "status": "done"
+      },
+      "run_id": "run_1",
+      "type": "run.end"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/run_resume.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "by_message_id": "msg_4"
+      },
+      "run_id": "run_1",
+      "type": "run.resume"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/run_start.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "model": "prv_mock/mock-model",
+        "parent_run_id": null,
+        "phase": "work",
+        "subagent_task": null
+      },
+      "run_id": "run_1",
+      "type": "run.start"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/run_wait.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "message_id": "apr_1",
+        "reason": "approval"
+      },
+      "run_id": "run_1",
+      "type": "run.wait"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/send_msg.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "call_id": "call_1",
+        "chat_id": "chat_login",
+        "intent": "ack",
+        "message_id": "msg_2"
+      },
+      "run_id": "run_1",
+      "type": "send_msg"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/steer.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "from": {
+          "kind": "user"
+        },
+        "message_id": "msg_3",
+        "text": "只做邮箱登录"
+      },
+      "run_id": "run_1",
+      "type": "steer"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/tool_end.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "call_id": "call_1",
+        "details": {},
+        "duration_ms": 10,
+        "full_output": null,
+        "is_error": false,
+        "preview": "ok",
+        "truncated": false
+      },
+      "run_id": "run_1",
+      "type": "tool.end"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/tool_start.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "args": {
+          "text": "收到"
+        },
+        "call_id": "call_1",
+        "name": "send_msg"
+      },
+      "run_id": "run_1",
+      "type": "tool.start"
+    }
+  }
+]

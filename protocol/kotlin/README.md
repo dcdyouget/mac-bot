@@ -2,7 +2,8 @@
 
 `protocol/kotlin/generate.py` reads the server-owned JSON Schema and emits
 lossless kotlinx.serialization wrappers under
-`shared/core/protocol/generated/`. Each generated object retains its complete
+`clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/protocol/generated/`.
+Each generated object retains its complete
 `JsonObject` and exposes typed accessors, so fields added by a newer host are
 preserved when an object is decoded and re-encoded. The hand-written
 `shared/core/protocol/Models.kt` provides the main v1 objects while the schema

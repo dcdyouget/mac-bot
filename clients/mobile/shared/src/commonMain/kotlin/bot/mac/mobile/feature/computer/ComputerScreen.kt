@@ -71,6 +71,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
 import kotlin.coroutines.coroutineContext
+import kotlin.time.Clock
 import kotlin.math.sqrt
 
 private enum class Quality { AUTO, LOW, HIGH }
@@ -92,11 +93,18 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
     var releaseDialog by remember { mutableStateOf(false) }
     var releaseNote by remember { mutableStateOf("") }
     var textInput by remember { mutableStateOf("") }
+    var fps by remember { mutableStateOf(0f) }
+    var latencyMs by remember { mutableStateOf(0L) }
+    var lastFrameAt by remember { mutableStateOf<Long?>(null) }
     val scope = rememberCoroutineScope()
     val activeHost by repository.activeHost.collectAsState()
     val emptyState = remember { MutableStateFlow<ScreenState?>(null) }
     val screenState by (activeConnection?.state ?: emptyState).collectAsState()
     val decoder = remember { platformScreenImageDecoder() }
+    val frameClockError = stringResource(Res.string.computer_frame_clock_error)
+    val decodeError = stringResource(Res.string.computer_decode_error)
+    val connectionError = stringResource(Res.string.computer_connection_error)
+    val requestError = stringResource(Res.string.computer_request_failed)
     val canInput = takeover && screenState?.driver == "user"
     val inputQueue = remember { Channel<InputCommand>(Channel.UNLIMITED) }
 
@@ -113,28 +121,35 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
         takeoverError = null
         screenError = null; frameImage = null; frame = null
         zoom = 1f; pan = Offset.Zero
+        fps = 0f; latencyMs = 0L; lastFrameAt = null
         val frameClock = coroutineContext[MonotonicFrameClock]
         if (frameClock == null) {
-            screenError = "No Compose frame clock"
+            screenError = frameClockError
             return@LaunchedEffect
         }
         val connectionResult = runCatching {
             repository.createScreen(botId, quality.wireName, selectedTab) { incoming ->
                 val decoded = runCatching { decoder.decodeJpeg(incoming.jpeg) }.getOrNull()
                 if (decoded == null) {
-                    withContext(Dispatchers.Main.immediate) { screenError = "JPEG frame decode failed" }
-                    throw IllegalStateException("JPEG frame decode failed")
+                    withContext(Dispatchers.Main.immediate) { screenError = decodeError }
+                    throw IllegalStateException(decodeError)
                 }
                 withContext(Dispatchers.Main.immediate + frameClock) {
                     frame = incoming
                     frameImage = decoded
                     withFrameNanos { }
+                    val renderedAt = Clock.System.now().toEpochMilliseconds()
+                    lastFrameAt?.let { previous ->
+                        if (renderedAt > previous) fps = (1000f / (renderedAt - previous)).coerceIn(0f, 60f)
+                    }
+                    latencyMs = (renderedAt - incoming.header.timestampMillis).coerceAtLeast(0L)
+                    lastFrameAt = renderedAt
                 }
             }
         }
         val connection = connectionResult.getOrNull()
         if (connection == null) {
-            screenError = connectionResult.exceptionOrNull()?.message ?: "screen connection failed"
+            screenError = connectionResult.exceptionOrNull()?.message ?: connectionError
             return@LaunchedEffect
         }
         activeConnection = connection
@@ -188,13 +203,30 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                         val event = awaitPointerEvent(PointerEventPass.Main)
                         val pressed = event.changes.filter { it.pressed }
                         if (pressed.size >= 2) {
-                            multiTouch = true
+                            if (!multiTouch && touchStarted) {
+                                queueTouch(inputQueue, activeConnection, "end", null)
+                                touchStarted = false
+                            }
                             val centroid = pressed.map { it.position }.centroid()
                             val distance = pressed.take(2).let { distance(it[0].position, it[1].position) }
-                            if (previousDistance > 0f) zoom = (zoom * (distance / previousDistance)).coerceIn(1f, 4f)
-                            pan += centroid - previousCentroid
-                            previousDistance = distance
-                            previousCentroid = centroid
+                            if (!multiTouch) {
+                                multiTouch = true
+                                previousDistance = distance
+                                previousCentroid = centroid
+                            } else {
+                                val movement = centroid - previousCentroid
+                                if (previousDistance > 0f) {
+                                    val scaleDelta = distance / previousDistance
+                                    if (kotlin.math.abs(scaleDelta - 1f) > 0.01f) {
+                                        zoom = (zoom * scaleDelta).coerceIn(1f, 4f)
+                                        pan += movement
+                                    } else if (movement.getDistance() > 1f) {
+                                        queueWheel(inputQueue, activeConnection, mapToFrame(centroid, viewport, frame, zoom, pan), -movement.x, -movement.y)
+                                    }
+                                }
+                                previousDistance = distance
+                                previousCentroid = centroid
+                            }
                             event.changes.forEach { it.consume() }
                         } else if (!multiTouch) {
                             val change = pressed.firstOrNull()
@@ -231,6 +263,12 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
             Text(stringResource(Res.string.computer_quality), color = Color.LightGray, modifier = Modifier.padding(end = 6.dp))
             Quality.entries.forEach { candidate -> FilterChip(quality == candidate, { quality = candidate }, label = { Text(candidate.label()) }) }
             Text("×${zoom.toString().take(4)}", color = Color.LightGray, modifier = Modifier.padding(start = 8.dp))
+            Text(
+                stringResource(Res.string.computer_fps, fps.toInt(), latencyMs),
+                color = Color.LightGray,
+                modifier = Modifier.padding(start = 8.dp),
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
         if (canInput) OutlinedTextField(value = textInput, onValueChange = { next ->
             val previous = textInput; textInput = next; val added = next.removePrefix(previous)
@@ -240,9 +278,10 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
         }, placeholder = { Text(stringResource(Res.string.computer_keyboard_hint)) }, singleLine = true)
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(if (takeover) Res.string.computer_takeover_active else Res.string.computer_touch_hint), color = Color.Gray, modifier = Modifier.weight(1f))
+            if (takeover) Text(stringResource(Res.string.computer_scroll_hint), color = Color.Gray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 8.dp))
             Button(onClick = {
                 if (!takeover) scope.launch {
-                    takeoverError = captureError { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
+                    takeoverError = captureError(requestError) { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
                     if (takeoverError == null) takeover = true
                 }
                 else releaseDialog = true
@@ -252,7 +291,7 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
     }
     if (releaseDialog) AlertDialog(onDismissRequest = { releaseDialog = false }, title = { Text(stringResource(Res.string.computer_release)) }, text = { OutlinedTextField(releaseNote, { releaseNote = it }, label = { Text(stringResource(Res.string.computer_release_note)) }) }, confirmButton = { Button(onClick = {
         scope.launch {
-            takeoverError = captureError { repository.call("takeover.release", buildJsonObject { put("bot_id", botId); if (releaseNote.isNotBlank()) put("note", releaseNote) }) }
+            takeoverError = captureError(requestError) { repository.call("takeover.release", buildJsonObject { put("bot_id", botId); if (releaseNote.isNotBlank()) put("note", releaseNote) }) }
             if (takeoverError == null) { takeover = false; releaseDialog = false; releaseNote = "" }
         }
     }) { Text(stringResource(Res.string.computer_release)) } }, dismissButton = { TextButton(onClick = { releaseDialog = false }) { Text(stringResource(Res.string.common_close)) } })
@@ -266,6 +305,16 @@ private fun queueTouch(channel: Channel<InputCommand>, connection: ScreenConnect
         put("type", "touch")
         put("action", action)
         put("points", if (point == null) JsonArray(emptyList()) else JsonArray(listOf(buildJsonObject { put("x", point.x); put("y", point.y) })))
+    }))
+}
+private fun queueWheel(channel: Channel<InputCommand>, connection: ScreenConnection?, point: Offset?, dx: Float, dy: Float) {
+    connection ?: return
+    channel.trySend(InputCommand(connection, buildJsonObject {
+        put("type", "wheel")
+        put("x", point?.x ?: 0f)
+        put("y", point?.y ?: 0f)
+        put("dx", dx)
+        put("dy", dy)
     }))
 }
 private suspend fun enqueueKey(channel: Channel<InputCommand>, connection: ScreenConnection?, key: String) {
@@ -282,12 +331,12 @@ private suspend fun enqueueKey(channel: Channel<InputCommand>, connection: Scree
 private suspend fun enqueueText(channel: Channel<InputCommand>, connection: ScreenConnection?, text: String) {
     text.forEach { enqueueKey(channel, connection, it.toString()) }
 }
-private suspend fun captureError(block: suspend () -> Unit): String? = try {
+private suspend fun captureError(fallback: String, block: suspend () -> Unit): String? = try {
     block(); null
 } catch (error: CancellationException) {
     throw error
 } catch (error: Throwable) {
-    error.message ?: "request failed"
+    error.message ?: fallback
 }
 private fun List<Offset>.centroid(): Offset = if (isEmpty()) Offset.Zero else Offset(sumOf { it.x.toDouble() }.toFloat() / size, sumOf { it.y.toDouble() }.toFloat() / size)
 private fun distance(first: Offset, second: Offset): Float = sqrt((first.x - second.x) * (first.x - second.x) + (first.y - second.y) * (first.y - second.y))

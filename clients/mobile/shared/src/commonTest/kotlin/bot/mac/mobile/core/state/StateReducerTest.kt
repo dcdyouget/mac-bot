@@ -24,7 +24,7 @@ class StateReducerTest {
         val old = MobileState(bots = listOf(objectOf("""{"id":"old"}""")), messages = mapOf("c" to listOf(objectOf("""{"id":"m"}"""))))
         val reset = StateReducer.bootstrap(old, objectOf("""{"seq":70,"bots":[{"id":"new"}],"chats":[],"projects":[],"pending":{}}"""))
         assertEquals("new", reset.bots.single().str("id")); assertTrue(reset.messages.isEmpty())
-        assertEquals(71, StateReducer.event(reset, "future.event", buildJsonObject {}, 71).lastSeq)
+        assertEquals(71L, StateReducer.event(reset, "future.event", buildJsonObject {}, 71).lastSeq)
     }
     @Test fun groupDeltasAreIgnoredAndFinalResponseReplacesFragments() {
         val current = MobileState(chats = listOf(objectOf("""{"id":"c","kind":"project"}""")), messages=mapOf("c" to listOf(objectOf("""{"id":"m","fallback_text":"atomic"}"""))))
@@ -33,6 +33,14 @@ class StateReducerTest {
         val streaming=StateReducer.event(current,"trace.delta",objectOf("""{"stream":"s","request_id":"r","channel":"text","text":"partial"}"""))
         val final=StateReducer.event(streaming,"trace.item",objectOf("""{"stream":"s","item":{"assignment_id":"a","aseq":2,"type":"llm.response","data":{"request_id":"r","text":"full"}}}"""))
         assertTrue(final.traceFragments.isEmpty()); assertEquals("full",final.traces.getValue("a").single().obj("data").str("text"))
+    }
+    @Test fun privateDeltasUpdateVisibleBlocksAndFinalResponseReplacesPartialText() {
+        val initial = MobileState(chats=listOf(objectOf("""{"id":"c","kind":"direct"}""")),messages=mapOf("c" to listOf(objectOf("""{"id":"m","chat_id":"c","seq":1,"blocks":[{"type":"text","markdown":"Hi"}],"fallback_text":"Hi","streaming":true}"""))))
+        val partial=StateReducer.event(initial,"message.delta",objectOf("""{"chat_id":"c","message_id":"m","text":" there"}"""))
+        assertEquals("Hi there",partial.messages.getValue("c").single().objects("blocks").single().str("markdown"))
+        val final=StateReducer.event(partial,"message.updated",objectOf("""{"message":{"id":"m","chat_id":"c","seq":1,"blocks":[{"type":"text","markdown":"Hello"}],"fallback_text":"Hello","streaming":false}}"""),2)
+        assertEquals("Hello",final.messages.getValue("c").single().objects("blocks").single().str("markdown"))
+        assertFalse(final.messages.getValue("c").single().boolean("streaming"))
     }
     @Test fun traceCursorMergesOutOfOrderAndReplayedItems() {
         var current=MobileState()

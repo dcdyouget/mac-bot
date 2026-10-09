@@ -31,6 +31,16 @@ class ScreenProtocolTest {
     }
 
     @Test
+    fun rejectsEmptyPayloadAndInvalidDimensions() {
+        fun frame(width: Int, payload: ByteArray): ByteArray {
+            val header = """{"seq":1,"tab_id":"t","w":$width,"h":480,"ts":1,"url":""}""".encodeToByteArray()
+            return byteArrayOf(0, 0, (header.size ushr 8).toByte(), header.size.toByte()) + header + payload
+        }
+        assertFailsWith<InvalidScreenFrame> { ScreenFrameCodec.decode(frame(720, byteArrayOf())) }
+        assertFailsWith<InvalidScreenFrame> { ScreenFrameCodec.decode(frame(0, byteArrayOf(1))) }
+    }
+
+    @Test
     fun rejectsTruncatedFrame() {
         assertFailsWith<InvalidScreenFrame> { ScreenFrameCodec.decode(byteArrayOf(0, 0, 0, 20, 1)) }
     }

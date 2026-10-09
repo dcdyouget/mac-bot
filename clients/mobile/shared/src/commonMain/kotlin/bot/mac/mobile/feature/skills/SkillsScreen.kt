@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.boolean
+import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.platform.PickedFile
@@ -57,6 +58,7 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
     var filter by remember { mutableStateOf(SkillFilter.ALL) }
     var showEditor by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
+    var actionError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val skills = state.skills.filter { skill ->
         val source = skill.str("source") ?: "user"
@@ -70,9 +72,15 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
     }
     var detail by remember { mutableStateOf<JsonObject?>(null) }
 
-    LaunchedEffect(Unit) { repository.call("skill.list") }
+    LaunchedEffect(Unit) {
+        runCatching { repository.call("skill.list") }.onFailure { actionError = it.message ?: "" }
+    }
     LaunchedEffect(selectedName) {
-        selectedName?.let { detail = repository.call("skill.get", buildJsonObject { put("name", it) }).obj("skill") }
+        selectedName?.let { name ->
+            runCatching { repository.call("skill.get", buildJsonObject { put("name", name) }).obj("skill") }
+                .onSuccess { detail = it }
+                .onFailure { actionError = it.message ?: "" }
+        }
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -82,6 +90,7 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
             TextButton(onClick = { selectedName = null; detail = null; showEditor = true }) { Text("＋ ${stringResource(Res.string.skills_new)}") }
             TextButton(onClick = { showImport = true }) { Text(stringResource(Res.string.skills_import)) }
         }
+        actionError?.let { Text(stringResource(Res.string.skills_error, it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 12.dp)) }
         OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), placeholder = { Text(stringResource(Res.string.skills_search)) }, singleLine = true)
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SkillFilter.entries.forEach { candidate -> FilterChip(filter == candidate, { filter = candidate }, label = { Text(candidate.label()) }) }
@@ -91,7 +100,12 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
             LazyColumn(Modifier.weight(0.9f).fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(skills, key = { it.str("name") ?: it.hashCode() }) { skill ->
                     SkillRow(skill, selectedName == skill.str("name"), onClick = { selectedName = skill.str("name") }, onToggle = { enabled ->
-                        skill.str("name")?.let { name -> scope.launch { repository.call("skill.set_enabled", buildJsonObject { put("name", name); put("enabled", enabled) }) } }
+                        skill.str("name")?.let { name -> scope.launch {
+                            runCatching {
+                                repository.call("skill.set_enabled", buildJsonObject { put("name", name); put("enabled", enabled) })
+                                repository.call("skill.list")
+                            }.onFailure { actionError = it.message ?: "" }
+                        } }
                     })
                 }
                 if (skills.isEmpty()) item { Text(stringResource(Res.string.skills_empty), Modifier.padding(20.dp)) }
@@ -99,18 +113,33 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
             if (detail != null) {
                 SkillDetail(detail!!, bots = state.bots, modifier = Modifier.weight(1.1f), onEdit = { showEditor = true }, onDelete = {
                     detail?.str("name")?.let { name ->
-                        scope.launch { repository.call("skill.delete", buildJsonObject { put("name", name) }); selectedName = null; detail = null }
+                        scope.launch {
+                            runCatching {
+                                repository.call("skill.delete", buildJsonObject { put("name", name) })
+                                repository.call("skill.list")
+                            }.onSuccess { selectedName = null; detail = null }.onFailure { actionError = it.message ?: "" }
+                        }
                     }
                 }, onPublish = {
-                    detail?.str("name")?.let { name -> scope.launch { repository.call("skill.publish", buildJsonObject { put("name", name) }) } }
+                    detail?.str("name")?.let { name -> scope.launch {
+                        runCatching {
+                            repository.call("skill.publish", buildJsonObject { put("name", name) })
+                            repository.call("skill.list")
+                        }.onFailure { actionError = it.message ?: "" }
+                    } }
                 }, onToggleBot = { botId, enabled ->
-                    detail?.str("name")?.let { name -> scope.launch { repository.call("skill.set_enabled", buildJsonObject { put("name", name); put("enabled", enabled); put("bot_id", botId) }) } }
+                    detail?.str("name")?.let { name -> scope.launch {
+                        runCatching {
+                            repository.call("skill.set_enabled", buildJsonObject { put("name", name); put("enabled", enabled); put("bot_id", botId) })
+                            repository.call("skill.get", buildJsonObject { put("name", name) })
+                        }.onSuccess { detail = it.obj("skill") ?: detail }.onFailure { actionError = it.message ?: "" }
+                    } }
                 })
             }
         }
     }
-    if (showEditor) SkillEditor(detail, onDismiss = { showEditor = false }, onSaved = { showEditor = false; scope.launch { repository.call("skill.list") } }, repository = repository)
-    if (showImport) SkillImportDialog(onDismiss = { showImport = false }, repository = repository)
+    if (showEditor) SkillEditor(detail, onDismiss = { showEditor = false }, onSaved = { showEditor = false; scope.launch { runCatching { repository.call("skill.list") }.onFailure { actionError = it.message ?: "" } } }, onError = { actionError = it }, repository = repository)
+    if (showImport) SkillImportDialog(onDismiss = { showImport = false }, onError = { actionError = it }, repository = repository)
 }
 
 @Composable
@@ -130,10 +159,21 @@ private fun SkillRow(skill: JsonObject, selected: Boolean, onClick: () -> Unit, 
 @Composable
 private fun SkillDetail(skill: JsonObject, bots: List<JsonObject>, modifier: Modifier, onEdit: () -> Unit, onDelete: () -> Unit, onPublish: () -> Unit, onToggleBot: (String, Boolean) -> Unit) {
     val disabledBots = skill.arr("disabled_bot_ids").map { it.toString().trim('"') }.toSet()
+    val files = skill.arr("files")
+    val invocations = skill.obj("invocations_7d")
     Column(modifier.fillMaxSize().padding(12.dp)) {
         Text(skill.str("name") ?: "", style = MaterialTheme.typography.titleLarge)
         Text(skill.str("description") ?: "", style = MaterialTheme.typography.bodyMedium)
         Text("${stringResource(Res.string.skills_files)}: ${skill.str("path") ?: ""}", style = MaterialTheme.typography.labelSmall)
+        Text("${stringResource(Res.string.skills_invocations)}: ${invocations?.long("total") ?: 0}", style = MaterialTheme.typography.labelSmall)
+        if (files.isEmpty()) {
+            Text(stringResource(Res.string.skills_no_files), style = MaterialTheme.typography.labelSmall)
+        } else {
+            files.forEach { file -> Text("• ${file.toString().trim('"')}", style = MaterialTheme.typography.labelSmall) }
+        }
+        invocations?.obj("by_bot")?.forEach { (botId, count) ->
+            Text("$botId: ${count.toString().trim('"')}", style = MaterialTheme.typography.labelSmall)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = onEdit) { Text(stringResource(Res.string.skills_edit)) }
             TextButton(onClick = onDelete) { Text(stringResource(Res.string.skills_delete), color = MaterialTheme.colorScheme.error) }
@@ -157,7 +197,7 @@ private fun SkillDetail(skill: JsonObject, bots: List<JsonObject>, modifier: Mod
 internal fun skillCanPublish(source: String?): Boolean = source == "draft"
 
 @Composable
-private fun SkillEditor(skill: JsonObject?, onDismiss: () -> Unit, onSaved: () -> Unit, repository: MobileRepository) {
+private fun SkillEditor(skill: JsonObject?, onDismiss: () -> Unit, onSaved: () -> Unit, onError: (String) -> Unit, repository: MobileRepository) {
     var name by remember(skill) { mutableStateOf(skill?.str("name") ?: "") }
     var content by remember(skill) { mutableStateOf(skill?.str("content") ?: "") }
     var description by remember(skill) { mutableStateOf(skill?.str("description") ?: "") }
@@ -170,14 +210,15 @@ private fun SkillEditor(skill: JsonObject?, onDismiss: () -> Unit, onSaved: () -
         }
     }, confirmButton = { Button(enabled = name.isNotBlank() && content.isNotBlank(), onClick = {
         scope.launch {
-            repository.call(if (skill == null) "skill.create" else "skill.update", buildJsonObject { put("name", name.trim()); put("content", content) })
-            onSaved()
+            runCatching {
+                repository.call(if (skill == null) "skill.create" else "skill.update", buildJsonObject { put("name", name.trim()); put("content", content) })
+            }.onSuccess { onSaved() }.onFailure { onError(it.message ?: "") }
         }
     }) { Text(stringResource(Res.string.skills_save)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_close)) } })
 }
 
 @Composable
-private fun SkillImportDialog(onDismiss: () -> Unit, repository: MobileRepository) {
+private fun SkillImportDialog(onDismiss: () -> Unit, onError: (String) -> Unit, repository: MobileRepository) {
     var url by remember { mutableStateOf("") }
     var file by remember { mutableStateOf<PickedFile?>(null) }
     val scope = rememberCoroutineScope()
@@ -189,12 +230,14 @@ private fun SkillImportDialog(onDismiss: () -> Unit, repository: MobileRepositor
         }
     }, confirmButton = { Button(enabled = url.isNotBlank() || file != null, onClick = {
         scope.launch {
-            if (url.isNotBlank()) repository.call("skill.import", buildJsonObject { put("source", buildJsonObject { put("kind", "git"); put("url", url.trim()) }) })
-            else file?.let { picked ->
-                val upload = repository.uploadFile(picked)
-                upload.str("upload_id")?.let { id -> repository.call("skill.import", buildJsonObject { put("source", buildJsonObject { put("kind", "upload"); put("upload_id", id) }) }) }
-            }
-            onDismiss()
+            runCatching {
+                if (url.isNotBlank()) repository.call("skill.import", buildJsonObject { put("source", buildJsonObject { put("kind", "git"); put("url", url.trim()) }) })
+                else file?.let { picked ->
+                    val upload = repository.uploadFile(picked)
+                    val uploadId = upload.str("upload_id") ?: error("upload id missing")
+                    repository.call("skill.import", buildJsonObject { put("source", buildJsonObject { put("kind", "upload"); put("upload_id", uploadId) }) })
+                }
+            }.onSuccess { onDismiss() }.onFailure { onError(it.message ?: "") }
         }
     }) { Text(stringResource(Res.string.skills_import)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_close)) } })
 }

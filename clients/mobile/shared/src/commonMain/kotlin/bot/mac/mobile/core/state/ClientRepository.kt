@@ -178,9 +178,11 @@ class ClientRepository(
         val write = method in WRITE_METHODS
         val retryKey = hostId + ":" + method + ":" + params
         val stableId = if (write) writeMutex.withLock {
-            pendingWrites[retryKey] ?: storage.read("write_id:" + retryKey)
+            val id = pendingWrites[retryKey] ?: storage.read("write_id:" + retryKey)
                 ?: RandomIdGenerator.nextId().also { storage.write("write_id:" + retryKey, it) }
-        }.also { pendingWrites[retryKey] = it } else null
+            pendingWrites[retryKey] = id
+            id
+        } else null
         try {
             val result = session.connection.request(method, params, write = write, clientRequestId = stableId)
             if (write) writeMutex.withLock {

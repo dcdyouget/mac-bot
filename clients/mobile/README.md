@@ -38,7 +38,17 @@ The fixture contract test fails if the corpus is missing; no-fixture builds are 
 
 Add a Host using `10.0.2.2:7789`, password `dev`, for mock; real host uses `10.0.2.2:7788`. Physical devices can use any reachable IP/domain, including `192.168.31.162:7788`. Each Host accepts multiple ordered addresses, `ws`/`wss`/`http`/`https`, proxy prefixes and IPv6. Passwords are encrypted with Android Keystore; Host snapshots, drafts and replay cursors persist separately per Host.
 
-Debug APK: `androidApp/build/outputs/apk/debug/androidApp-debug.apk`. Release APK: `androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk`; signing uses user-provided credentials (never committed). Run `./gradlew :androidApp:assembleRelease` for an optimized unsigned release.
+Debug APK: `androidApp/build/outputs/apk/debug/androidApp-debug.apk`. Signed release APK: `androidApp/build/outputs/apk/release/androidApp-release.apk` (R8 + resource shrinking). Supply `MACBOT_ANDROID_KEYSTORE`, `MACBOT_ANDROID_STORE_PASSWORD`, `MACBOT_ANDROID_KEY_ALIAS`, `MACBOT_ANDROID_KEY_PASSWORD` before `./gradlew :androidApp:assembleRelease`. Without these variables, the output is `androidApp-release-unsigned.apk`.
+
+This Mac mini keeps its development distribution key outside the repository:
+
+```sh
+source "$HOME/.local/share/macbot/android-signing/release.env"
+./gradlew :androidApp:assembleRelease
+"$ANDROID_HOME/build-tools/36.1.0/apksigner" verify androidApp/build/outputs/apk/release/androidApp-release.apk
+```
+
+Keep this key for later updates. Debug and release use different signatures; uninstall the debug app before first release installation, then use `adb install -r` for subsequent release updates. Signing keys and passwords are never committed.
 
 Android notifications use channels `needs-you`, `completed`, `messages`. Grant notification permission when requested. The foreground service owns the long-lived main connection; screen streams open only while the Computer page is visible. Notification actions use the same idempotent protocol writes as in-app actions.
 

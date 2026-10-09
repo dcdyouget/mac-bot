@@ -3,7 +3,7 @@ package bot.mac.mobile.core.network
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.websocket.WebSockets
-import kotlinx.coroutines.Channel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -20,8 +20,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
-import okhttp3.mockwebserver.MockResponse
-import okhttp3.mockwebserver.MockWebServer
+import mockwebserver3.MockResponse
+import mockwebserver3.MockWebServer
 import okio.ByteString
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -38,7 +38,8 @@ class MainConnectionHostIntegrationTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test
-    fun bootstrapResponseRaceFlushesPersistentEventAndCursor() = runBlocking {
+    fun bootstrapResponseRaceFlushesPersistentEventAndCursor() {
+        runBlocking {
         val server = MockWebServer()
         server.enqueue(upgrade { socket, request ->
             when (request.string("method")) {
@@ -84,12 +85,14 @@ class MainConnectionHostIntegrationTest {
             connection.stop()
             scope.cancel()
             client.close()
-            server.shutdown()
+            server.close()
+        }
         }
     }
 
     @Test
-    fun reconnectReplaysWriteWithStableClientRequestId() = runBlocking {
+    fun reconnectReplaysWriteWithStableClientRequestId() {
+        runBlocking {
         val server = MockWebServer()
         val firstRequest = Channel<JsonObject>(Channel.UNLIMITED)
         val secondRequest = Channel<JsonObject>(Channel.UNLIMITED)
@@ -141,12 +144,14 @@ class MainConnectionHostIntegrationTest {
             connection.stop()
             scope.cancel()
             client.close()
-            server.shutdown()
+            server.close()
+        }
         }
     }
 
     @Test
-    fun concurrentResponsesAreMatchedByRequestId() = runBlocking {
+    fun concurrentResponsesAreMatchedByRequestId() {
+        runBlocking {
         val server = MockWebServer()
         val requests = mutableListOf<JsonObject>()
         val requestGate = Channel<Unit>(Channel.UNLIMITED)
@@ -187,12 +192,14 @@ class MainConnectionHostIntegrationTest {
             connection.stop()
             scope.cancel()
             client.close()
-            server.shutdown()
+            server.close()
+        }
         }
     }
 
     @Test
-    fun failingPersistentHandlerDoesNotAdvanceCursor() = runBlocking {
+    fun failingPersistentHandlerDoesNotAdvanceCursor() {
+        runBlocking {
         val server = MockWebServer()
         val persistentSeen = Channel<Unit>(Channel.UNLIMITED)
         server.enqueue(upgrade { socket, request ->
@@ -224,12 +231,13 @@ class MainConnectionHostIntegrationTest {
             connection.stop()
             scope.cancel()
             client.close()
-            server.shutdown()
+            server.close()
         }
+    }
     }
 
     private fun upgrade(handler: (WebSocket, JsonObject) -> Unit): MockResponse =
-        MockResponse().withWebSocketUpgrade(ScriptListener(json, handler))
+        MockResponse.Builder().webSocketUpgrade(ScriptListener(json, handler)).build()
 
     private fun host(server: MockWebServer) = HostProfile(
         id = "integration",
@@ -276,6 +284,10 @@ class MainConnectionHostIntegrationTest {
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) = Unit
+
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            webSocket.close(code, reason)
+        }
 
         private fun helloFrame(): String = buildJsonObject {
             put("v", 1)

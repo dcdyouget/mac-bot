@@ -145,6 +145,11 @@
     <string name="feature_hidden">隐藏</string>
     <string name="feature_duplicate">复制 Bot</string>
     <string name="feature_templates">团队模板</string>
+    <string name="feature_template_create_failed">模板创建失败</string>
+    <string name="feature_template_confirm">将使用此模板创建 Bot</string>
+    <string name="feature_hide_hidden">隐藏 Bot</string>
+    <string name="feature_show_hidden">显示隐藏 Bot</string>
+    <string name="feature_loading">加载中…</string>
     <string name="feature_use_template">使用模板</string>
     <string name="feature_edit_group">编辑群</string>
     <string name="feature_add_member">添加成员</string>
@@ -158,4 +163,15 @@
     <string name="feature_trace_thinking">显示思考</string>
     <string name="feature_trace_output">显示工具输出</string>
     <string name="feature_trace_full_output">查看完整输出</string>
+    <string name="feature_history_title">历史任务</string>
+    <string name="feature_history_all">全部</string>
+    <string name="feature_history_queued">排队中</string>
+    <string name="feature_history_working">进行中</string>
+    <string name="feature_history_waiting_user">等待你</string>
+    <string name="feature_history_waiting_bot">等待 Bot</string>
+    <string name="feature_history_blocked">已阻塞</string>
+    <string name="feature_history_empty">暂无历史任务</string>
+    <string name="feature_history_load_more">加载更多</string>
+    <string name="feature_history_loading">加载中…</string>
+    <string name="feature_history_no_more">没有更多</string>
 </resources>

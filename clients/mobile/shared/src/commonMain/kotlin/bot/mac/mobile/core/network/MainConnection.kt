@@ -12,6 +12,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -80,8 +82,19 @@ class MainConnection(
     }
 
     suspend fun stop() {
-        lock.withLock {
+        val current = lock.withLock {
             requests.cancelAll(NetworkError("connection_stopped", "connection was stopped"))
+            session.value
+        }
+        // Closing the socket first lets the webSocket{} block leave its receive loop
+        // before the runner is cancelled. Keep this cleanup alive if the caller is
+        // itself being cancelled (for example when a host is deleted).
+        withContext(NonCancellable) {
+            try {
+                current?.close()
+            } catch (_: Throwable) {
+                // The peer may already have closed the connection.
+            }
         }
         runner?.cancel()
         runner?.join()

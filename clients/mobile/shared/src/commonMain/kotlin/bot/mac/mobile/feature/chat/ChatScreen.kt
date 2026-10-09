@@ -33,12 +33,12 @@ import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.platform.PickedFile
 import bot.mac.mobile.core.platform.exportFile
-import bot.mac.mobile.core.platform.openExternalUrl
 import bot.mac.mobile.core.platform.platformFilePicker
 import bot.mac.mobile.core.platform.platformScreenImageDecoder
 import bot.mac.mobile.core.platform.platformPersistentStore
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.state.MobileState
+import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
@@ -62,6 +62,9 @@ fun ChatScreen(
     onOpenChat: (chatId: String) -> Unit = {},
     onLoopAction: (rootMessageId: String, action: String) -> Unit = { _, _ -> },
     onTakeover: (botId: String) -> Unit = {},
+    onOpenArtifact: (artifactId: String, pathOrUrl: String, projectId: String?) -> Unit = { _, _, _ -> },
+    onOpenHistory: (chatId: String) -> Unit = {},
+    artifactProjectId: String? = null,
     showHeader: Boolean = true,
 ) {
     val state by repository.state.collectAsState()
@@ -96,10 +99,14 @@ fun ChatScreen(
     LaunchedEffect(chatId) {
         runCatching {
             repository.call("chat.history", buildJsonObject { put("chat_id", chatId); put("limit", 100) })
-            repository.call("chat.mark_read", buildJsonObject { put("chat_id", chatId); put("seq", chat?.longValue("last_seq") ?: 0L) })
+
         }.onFailure { error = it.message ?: loadingError }
     }
 
+    LaunchedEffect(chatId, chat?.longValue("last_seq")) {
+        val seq=chat?.longValue("last_seq") ?: return@LaunchedEffect
+        runCatching { repository.call("chat.mark_read",buildJsonObject { put("chat_id",chatId);put("seq",seq) }) }
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (showHeader) {
             Row(
@@ -115,6 +122,7 @@ fun ChatScreen(
                     Text("ⓘ", Modifier.padding(8.dp))
                     IconButton(onClick = { onOpenProject(projectId) }) { Text("›") }
                 }
+                IconButton(onClick = { onOpenHistory(chatId) }) { Text("↺") }
             }
             HorizontalDivider()
         }
@@ -165,7 +173,8 @@ fun ChatScreen(
                     onOpenChat = onOpenChat,
                     onLoopAction = onLoopAction,
                     onTakeover = onTakeover,
-                    onOpenUrl = { url -> scope.launch { runCatching { openExternalUrl(url) }.onFailure { error = it.message ?: sendError } } },
+                    onOpenArtifact = onOpenArtifact,
+                    artifactProjectId = artifactProjectId ?: chat?.str("project_id")?.takeIf { it.isNotBlank() },
                     state = state,
                 )
             }
@@ -272,7 +281,8 @@ internal fun ChatMessageRow(
     onOpenChat: (String) -> Unit,
     onLoopAction: (String, String) -> Unit,
     onTakeover: (String) -> Unit,
-    onOpenUrl: (String) -> Unit = {},
+    onOpenArtifact: (String, String, String?) -> Unit,
+    artifactProjectId: String?,
 ) {
     val sender = message.obj("sender")
     val isUser = sender.str("kind") == "user"
@@ -280,7 +290,7 @@ internal fun ChatMessageRow(
     val blocks = message.arr("blocks")
     val assignmentId = message.str("assignment_id")
     val senderId = sender.str("bot_id")
-    val senderLabel = if (senderId.isBlank()) stringResource(Res.string.feature_bot) else senderId
+    val senderLabel = state.bots.firstOrNull { it.str("id")==senderId }?.str("name")?.takeIf { it.isNotBlank() } ?: if (senderId.isBlank()) stringResource(Res.string.feature_bot) else senderId
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
         Text(if (isUser) stringResource(Res.string.feature_you) else senderLabel, style = MaterialTheme.typography.labelSmall)
         Surface(
@@ -298,7 +308,7 @@ internal fun ChatMessageRow(
                 blocks.forEach { element ->
                     (element as? JsonObject)?.let { block ->
                         BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
-                            onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onOpenUrl)
+                            onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onOpenArtifact, artifactProjectId)
                     }
                 }
                 if (assignmentId.isNotBlank()) {
@@ -341,11 +351,12 @@ private fun BlockView(
     onOpenChat: (String) -> Unit,
     onLoopAction: (String, String) -> Unit,
     onTakeover: (String) -> Unit,
-    onOpenUrl: (String) -> Unit,
+    onOpenArtifact: (String, String, String?) -> Unit,
+    artifactProjectId: String?,
 ) {
     val kind = block.str("type")
     when (kind) {
-        "text" -> Text(block.str("markdown"), style = MaterialTheme.typography.bodyMedium)
+        "text" -> MarkdownText(block.str("markdown"), Modifier.fillMaxWidth())
         "image" -> {
             val file = fileRef(block)
             val key = fileKey(file)
@@ -376,11 +387,11 @@ private fun BlockView(
             if (assignmentId.isNotBlank()) Button(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
         }
         "completion" -> {
-            Text("✓ ${block.str("summary")}", style = MaterialTheme.typography.bodyMedium)
+            MarkdownText("✓ ${block.str("summary")}", Modifier.fillMaxWidth())
             block.arr("artifacts").forEach { element ->
                 val artifact = element as? JsonObject ?: return@forEach
                 val url = artifact.str("path_or_url")
-                Button(onClick = { if (url.startsWith("http")) onOpenUrl(url) }) { Text("▤ ${artifact.str("title").ifBlank { url }}") }
+                Button(onClick = { onOpenArtifact(artifact.str("artifact_id"), url, artifactProjectId) }) { Text("▤ ${artifact.str("title").ifBlank { url }}") }
             }
         }
         "progress" -> Text(stringResource(Res.string.feature_progress, block.str("text")), style = MaterialTheme.typography.bodyMedium)
@@ -409,6 +420,16 @@ private fun BlockView(
             if (projectId.isNotBlank()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { onProjectAction(projectId, "confirm_done") }) { Text(stringResource(Res.string.feature_confirm_done)) }
                 Button(onClick = { onProjectAction(projectId, "request_changes") }) { Text(stringResource(Res.string.feature_request_changes)) }
+            }
+            block.arr("artifacts").forEach { element ->
+                val artifact = element as? JsonObject ?: return@forEach
+                val artifactId = artifact.str("artifact_id")
+                val pathOrUrl = artifact.str("path_or_url")
+                if (artifactId.isNotBlank() && pathOrUrl.isNotBlank()) {
+                    Button(onClick = { onOpenArtifact(artifactId, pathOrUrl, projectId.takeIf { it.isNotBlank() }) }) {
+                        Text("▤ ${artifact.str("title").ifBlank { pathOrUrl }}")
+                    }
+                }
             }
         }
         "delegation" -> {

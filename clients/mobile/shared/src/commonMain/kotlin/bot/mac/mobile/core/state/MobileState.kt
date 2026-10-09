@@ -90,7 +90,14 @@ object StateReducer {
                 // Deltas are private-chat only. Group messages are atomic send_msg reports.
                 if (current.chats.firstOrNull { it.str("id") == chatId }?.str("kind") != "project") {
                     val messages = current.messages[chatId].orEmpty().map { message ->
-                        if (message.str("id") != data.str("message_id")) message else JsonObject(message + mapOf("fallback_text" to JsonPrimitive(message.str("fallback_text") + data.str("text")), "streaming" to JsonPrimitive(true)))
+                        if (message.str("id") != data.str("message_id")) message else {
+                            val text = data.str("text")
+                            val blocks = message.objects("blocks").toMutableList()
+                            val index = blocks.indexOfLast { it.str("type") == "text" }
+                            if (index >= 0) blocks[index] = JsonObject(blocks[index] + ("markdown" to JsonPrimitive(blocks[index].str("markdown") + text)))
+                            else blocks += buildJsonObject { put("type", "text"); put("markdown", text) }
+                            JsonObject(message + mapOf("fallback_text" to JsonPrimitive(message.str("fallback_text") + text), "blocks" to JsonArray(blocks), "streaming" to JsonPrimitive(true)))
+                        }
                     }
                     result = current.copy(messages = current.messages + (chatId to messages))
                 }

@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import io.ktor.http.URLBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -30,9 +31,10 @@ class NetworkPrimitivesTest {
     fun endpointHandlesIpv6AndUtf8QueryValues() {
         assertEquals("ws://[::1]:7789/ws", EndpointBuilder.main("[::1]:7789"))
         val endpoint = EndpointBuilder.screen("https://bot.example?已有=值", "机器人/一", "auto mode", "标签 1")
-        assertTrue(endpoint.contains("%E6%9C%89%E6%95%B0=%E5%80%BC"))
-        assertTrue(endpoint.contains("bot_id=%E6%9C%BA%E5%99%A8%2F%E4%B8%80"))
-        assertTrue(endpoint.contains("tab_id=%E6%A0%87%E7%AD%BE%201"))
+        val parsed = URLBuilder(endpoint).build()
+        assertEquals("值", parsed.parameters["已有"])
+        assertEquals("机器人/一", parsed.parameters["bot_id"])
+        assertEquals("标签 1", parsed.parameters["tab_id"])
     }
 
     @Test
@@ -42,10 +44,10 @@ class NetworkPrimitivesTest {
 
     @Test
     fun backoffIsExponentialAndCapped() {
-        val policy = BackoffPolicy(FixedRandom(0.0))
-        assertEquals(1_000, policy.delayMillis(0))
-        assertEquals(2_000, policy.delayMillis(1))
-        assertEquals(30_000, policy.delayMillis(99))
+        val policy = BackoffPolicy(FixedRandom(0.5))
+        assertEquals(1_000L, policy.delayMillis(0))
+        assertEquals(2_000L, policy.delayMillis(1))
+        assertEquals(30_000L, policy.delayMillis(99))
     }
 
     @Test

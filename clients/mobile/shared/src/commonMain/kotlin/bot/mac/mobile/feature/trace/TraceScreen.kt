@@ -26,6 +26,7 @@ import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
+import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -208,8 +209,13 @@ private fun TraceItemCard(
             if (type == "run.start" && item.str("run_id").isNotBlank()) Button(onClick = { onToggleRun(item.str("run_id")) }) { Text("▾") }
         }
         if (type == "llm.response") {
-            data.str("text").takeIf { it.isNotBlank() }?.let { Text(it, Modifier.padding(top = 6.dp)) }
-            if (showThinking) data.str("thinking").takeIf { it.isNotBlank() }?.let { Text(stringResource(Res.string.feature_thinking, it), Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodySmall) }
+            data.str("text").takeIf { it.isNotBlank() }?.let { MarkdownText(it, Modifier.fillMaxWidth().padding(top = 6.dp)) }
+            if (showThinking) data.str("thinking").takeIf { it.isNotBlank() }?.let {
+                Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                    Text(stringResource(Res.string.feature_thinking, ""), style = MaterialTheme.typography.labelSmall)
+                    MarkdownText(it, Modifier.fillMaxWidth())
+                }
+            }
         }
         if (type == "tool.end" && showOutput) data.str("details").takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         if (type == "tool.end") {

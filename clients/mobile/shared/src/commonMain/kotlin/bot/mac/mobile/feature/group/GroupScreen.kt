@@ -41,6 +41,8 @@ fun GroupScreen(
     onOpenTrace: (String) -> Unit = {},
     onBack: () -> Unit = {},
     onOpenProject: (String) -> Unit = {},
+    onOpenArtifact: (artifactId: String, pathOrUrl: String, projectId: String?) -> Unit = { _, _, _ -> },
+    onOpenHistory: (String) -> Unit = {},
     onOpenScreen: (String, String?) -> Unit = { _, _ -> },
     onOpenChat: (String) -> Unit = {},
     onLoopAction: (String, String) -> Unit = { _, _ -> },
@@ -53,6 +55,7 @@ fun GroupScreen(
     var showAnnouncement by remember { mutableStateOf(false) }
     var changeText by remember { mutableStateOf("") }
     var showChangeInput by remember { mutableStateOf(false) }
+    var changeProjectId by remember { mutableStateOf<String?>(null) }
     var showEdit by remember { mutableStateOf(false) }
     var editName by remember(projectId) { mutableStateOf(project?.str("name").orEmpty()) }
     var editGoal by remember(projectId) { mutableStateOf(project?.str("goal").orEmpty()) }
@@ -109,7 +112,7 @@ fun GroupScreen(
                 }
             }
         }
-        if (showAnnouncement) AnnouncementPanel(announcement, project)
+        if (showAnnouncement) AnnouncementPanel(announcement, project, onOpenArtifact)
         HorizontalDivider(Modifier.padding(top = 8.dp))
         Box(Modifier.weight(1f).fillMaxWidth()) {
             chatId?.let { id ->
@@ -118,9 +121,13 @@ fun GroupScreen(
                     chatId = id,
                     onOpenTrace = { assignment, _ -> assignment?.let(onOpenTrace) },
                     onOpenProject = onOpenProject,
+                    onOpenArtifact = onOpenArtifact,
+                    onOpenHistory = onOpenHistory,
+                    artifactProjectId = projectId,
                     onBack = {},
                     onProjectAction = { targetProjectId, action ->
                         if (action == "request_changes") {
+                            changeProjectId = targetProjectId
                             showChangeInput = true
                         } else {
                             scope.launch {
@@ -145,11 +152,18 @@ fun GroupScreen(
                 Button(onClick = { scope.launch { runCatching { repository.call("project.confirm_done", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_confirm_done)) }
             }
             Button(onClick = {
-                if (!showChangeInput) showChangeInput = true
+                if (!showChangeInput) {
+                    changeProjectId = projectId
+                    showChangeInput = true
+                }
                 else {
                     val text = changeText.trim()
-                    if (text.isNotEmpty()) scope.launch { runCatching { repository.call("project.request_changes", buildJsonObject { put("project_id", projectId); put("text", text) }) }.onFailure { error = it.message } }
+                    if (text.isNotEmpty()) {
+                        val targetProject = changeProjectId ?: projectId
+                        scope.launch { runCatching { repository.call("project.request_changes", buildJsonObject { put("project_id", targetProject); put("text", text) }) }.onFailure { error = it.message } }
+                    }
                     changeText = ""
+                    changeProjectId = null
                     showChangeInput = false
                 }
             }) { Text(if (showChangeInput) stringResource(Res.string.feature_submit_changes) else stringResource(Res.string.feature_request_changes)) }
@@ -205,7 +219,11 @@ fun GroupCreateScreen(
 }
 
 @Composable
-private fun AnnouncementPanel(announcement: JsonObject?, project: JsonObject?) {
+private fun AnnouncementPanel(
+    announcement: JsonObject?,
+    project: JsonObject?,
+    onOpenArtifact: (artifactId: String, pathOrUrl: String, projectId: String?) -> Unit,
+) {
     Surface(Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(stringResource(Res.string.feature_announcement_title, project?.str("name") ?: ""), style = MaterialTheme.typography.titleMedium)
@@ -213,7 +231,16 @@ private fun AnnouncementPanel(announcement: JsonObject?, project: JsonObject?) {
             Text(stringResource(Res.string.feature_goal_value, project?.str("goal") ?: ""))
             Text(stringResource(Res.string.feature_home_value, project?.str("home_path") ?: ""))
             announcement?.arr("highlights")?.forEach { item -> Text("· ${(item as? JsonObject)?.str("text") ?: item}") }
-            announcement?.arr("artifacts")?.forEach { item -> Text("▤ ${(item as? JsonObject)?.str("title") ?: item}") }
+            announcement?.arr("artifacts")?.forEach { item ->
+                val artifact = item as? JsonObject ?: return@forEach
+                val artifactId = artifact.str("artifact_id")
+                val pathOrUrl = artifact.str("path_or_url")
+                if (artifactId.isNotBlank() && pathOrUrl.isNotBlank()) {
+                    Button(onClick = { onOpenArtifact(artifactId, pathOrUrl, project?.str("id")) }) {
+                        Text("▤ ${artifact.str("title").ifBlank { pathOrUrl }}")
+                    }
+                }
+            }
         }
     }
 }
