@@ -7,7 +7,7 @@
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
     body::Body,
-    extract::{ConnectInfo, Multipart, Query, State, WebSocketUpgrade},
+    extract::{ConnectInfo, DefaultBodyLimit, Multipart, Query, State, WebSocketUpgrade},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -719,7 +719,10 @@ impl Gateway {
             .route("/api/v1/rpc", post(rpc_handler))
             .route("/api/v1/files", get(file_handler))
             .route("/api/v1/files/list", get(file_list_handler))
-            .route("/api/v1/uploads", post(upload_handler))
+            .route(
+                "/api/v1/uploads",
+                post(upload_handler).layer(DefaultBodyLimit::max(MAX_UPLOAD + 1024 * 1024)),
+            )
             .route("/api/v1/trace/output", get(trace_output_handler))
             .route("/api/v1/usage/export.csv", get(usage_csv_handler))
             .route("/admin", get(admin_handler))
@@ -2365,7 +2368,18 @@ async fn upload_handler(
             )
         }
     };
-    while let Ok(Some(field)) = multipart.next_field().await {
+    loop {
+        let field = match multipart.next_field().await {
+            Ok(Some(field)) => field,
+            Ok(None) => break,
+            Err(_) => {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_params",
+                    "invalid multipart body",
+                );
+            }
+        };
         if let Some(n) = field.file_name() {
             name = n.to_string();
         }
@@ -3325,6 +3339,49 @@ mod tests {
         for frame in MOCK_SCREEN_FRAMES {
             assert_eq!(jpeg_dimensions(frame), Some((320, 180)));
         }
+    }
+
+    #[tokio::test]
+    async fn uploads_accept_files_larger_than_the_framework_default_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            mock: true,
+            ..Default::default()
+        });
+        let payload = vec![b'x'; 3 * 1024 * 1024];
+        let mut body = b"--upload-test\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n".to_vec();
+        body.extend_from_slice(&payload);
+        body.extend_from_slice(b"\r\n--upload-test--\r\n");
+        let response = gw
+            .router()
+            .oneshot(
+                http::Request::builder()
+                    .uri("/api/v1/uploads")
+                    .method("POST")
+                    .header("authorization", "Bearer dev")
+                    .header("content-type", "multipart/form-data; boundary=upload-test")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 8192)
+            .await
+            .unwrap();
+        let result: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(result["file"]["size"], payload.len());
+        assert_eq!(
+            std::fs::read(
+                dir.path()
+                    .join("uploads")
+                    .join(result["upload_id"].as_str().unwrap())
+            )
+            .unwrap(),
+            payload
+        );
     }
 
     #[tokio::test]

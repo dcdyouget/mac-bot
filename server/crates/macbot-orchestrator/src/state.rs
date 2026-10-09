@@ -429,6 +429,13 @@ pub struct SubagentHandle {
 }
 
 impl Inner {
+    fn project_id_for_chat(&self, chat_id: &str) -> Option<Id> {
+        self.projects
+            .values()
+            .find(|project| project.chat_id == chat_id)
+            .map(|project| project.id.clone())
+    }
+
     fn rpc(&mut self, method: &str, p: Value) -> Result<Value> {
         match method {
             "bot.list" => Self::json(
@@ -1151,7 +1158,8 @@ impl Inner {
         let project_id = req
             .assignment_id
             .as_ref()
-            .and_then(|id| self.assignments.get(id).and_then(|a| a.project_id.clone()));
+            .and_then(|id| self.assignments.get(id).and_then(|a| a.project_id.clone()))
+            .or_else(|| self.project_id_for_chat(&req.chat_id));
         let mentions = req
             .mentions
             .iter()
@@ -1268,7 +1276,8 @@ impl Inner {
                     project_id: req
                         .assignment_id
                         .as_ref()
-                        .and_then(|id| self.assignments.get(id)?.project_id.clone()),
+                        .and_then(|id| self.assignments.get(id)?.project_id.clone())
+                        .or_else(|| project_id.clone()),
                     bot_id: req.bot_id.clone(),
                     assignment_id: req.assignment_id.clone().unwrap_or_default(),
                     title: art.title,
@@ -1311,10 +1320,7 @@ impl Inner {
                     continue;
                 }
                 let _ = self.create_assignment(AssignmentRequest {
-                    project_id: req
-                        .assignment_id
-                        .as_ref()
-                        .and_then(|id| self.assignments.get(id).and_then(|a| a.project_id.clone())),
+                    project_id: project_id.clone(),
                     origin_chat_id: req.chat_id.clone(),
                     bot_id,
                     title: format!("交接：{}", req.intent),
@@ -2183,6 +2189,55 @@ mod tests {
             .block_on(o.rpc("assignment.list", json!({})))
             .unwrap();
         assert_eq!(list["items"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn group_send_msg_without_assignment_infers_project_for_handoff_and_artifact() {
+        let o = Orchestrator::default();
+        let from = bot(&o, "产品");
+        let to = bot(&o, "编码");
+        let project = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"登录","goal":"邮箱","member_bot_ids":[from,to]}),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let chat_id = project["chat"]["id"].as_str().unwrap().to_owned();
+
+        o.send_msg(SendMessageRequest {
+            bot_id: from,
+            chat_id: chat_id.clone(),
+            assignment_id: None,
+            run_id: None,
+            call_id: None,
+            text: "请编码实现".into(),
+            intent: "ack".into(),
+            mentions: vec![MentionInput::Bot {
+                bot_id: to,
+                instruction: Some("实现登录功能".into()),
+            }],
+            artifacts: vec![ArtifactRef {
+                title: "需求".into(),
+                path_or_url: "/tmp/requirements.md".into(),
+            }],
+            options: vec![],
+        })
+        .unwrap();
+
+        let snapshot = o.snapshot().unwrap();
+        let assignments = snapshot["assignments"].as_object().unwrap();
+        let assignment = assignments.values().next().unwrap();
+        assert_eq!(assignment["project_id"], project_id);
+        assert_eq!(assignment["origin_chat_id"], chat_id);
+        let artifact = snapshot["artifacts"]
+            .as_object()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap();
+        assert_eq!(artifact["project_id"], project_id);
     }
 
     #[test]
