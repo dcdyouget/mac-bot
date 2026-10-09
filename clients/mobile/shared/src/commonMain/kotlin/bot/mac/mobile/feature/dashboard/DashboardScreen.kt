@@ -52,6 +52,8 @@ import bot.mac.mobile.core.platform.PickedFile
 import bot.mac.mobile.core.platform.exportFile
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.resources.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -93,6 +95,10 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
     var csvPreview by remember { mutableStateOf<String?>(null) }
     var csvError by remember { mutableStateOf<String?>(null) }
     var drillBotId by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var reloadJob by remember { mutableStateOf<Job?>(null) }
+    var reloadGeneration by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
 
     fun periodBounds(now: Instant): Pair<String, String> {
@@ -104,28 +110,41 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
     }
 
     fun reload() {
-        scope.launch {
-            val now = Clock.System.now()
-            val (rangeFrom, rangeTo) = periodBounds(now)
-            val from = selectedDay?.let { "${it}T00:00:00Z" } ?: rangeFrom
-            val to = selectedDay?.let { "${it}T23:59:59Z" } ?: rangeTo
-            val period = buildJsonObject { put("from", from); put("to", to) }
-            summary = repository.call("usage.summary", period)
-            heatmap = repository.call("usage.heatmap", buildJsonObject {
-                put("mode", if (heatMode == HeatMode.CALENDAR) "calendar" else "weekhour")
-                put("from", rangeFrom); put("to", rangeTo)
-                put("metric", metric.name.lowercase())
-            })
-            timeseries = repository.call("usage.timeseries", buildJsonObject {
-                put("from", from); put("to", to)
-                put("granularity", "auto"); put("dimension", dimension.name.lowercase()); put("metric", metric.name.lowercase())
-                put("split_io", splitIo)
-                put("top", 6)
-            })
-            breakdown = repository.call("usage.breakdown", buildJsonObject {
-                put("from", from); put("to", to); put("dimension", dimension.name.lowercase())
-                drillBotId?.let { put("drill", buildJsonObject { put("bot_id", it) }) }
-            })
+        reloadJob?.cancel()
+        val generation = reloadGeneration + 1
+        reloadGeneration = generation
+        reloadJob = scope.launch {
+            loading = true
+            loadError = null
+            try {
+                val now = Clock.System.now()
+                val (rangeFrom, rangeTo) = periodBounds(now)
+                val from = selectedDay?.let { "${it}T00:00:00Z" } ?: rangeFrom
+                val to = selectedDay?.let { "${it}T23:59:59Z" } ?: rangeTo
+                val period = buildJsonObject { put("from", from); put("to", to) }
+                summary = repository.call("usage.summary", period)
+                heatmap = repository.call("usage.heatmap", buildJsonObject {
+                    put("mode", if (heatMode == HeatMode.CALENDAR) "calendar" else "weekhour")
+                    put("from", rangeFrom); put("to", rangeTo)
+                    put("metric", metric.name.lowercase())
+                })
+                timeseries = repository.call("usage.timeseries", buildJsonObject {
+                    put("from", from); put("to", to)
+                    put("granularity", "auto"); put("dimension", dimension.name.lowercase()); put("metric", metric.name.lowercase())
+                    put("split_io", splitIo)
+                    put("top", 6)
+                })
+                breakdown = repository.call("usage.breakdown", buildJsonObject {
+                    put("from", from); put("to", to); put("dimension", dimension.name.lowercase())
+                    drillBotId?.let { put("drill", buildJsonObject { put("bot_id", it) }) }
+                })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                loadError = failure.message.orEmpty()
+            } finally {
+                if (reloadGeneration == generation) loading = false
+            }
         }
     }
 
@@ -140,6 +159,8 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
             IconButton(onClick = { reload() }) { Text("↻", color = MaterialTheme.colorScheme.primary) }
         }
         HorizontalDivider()
+        if (loading) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+        loadError?.let { Text(stringResource(Res.string.dashboard_error, it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) }
         androidx.compose.foundation.lazy.LazyColumn(
             Modifier.fillMaxSize().padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -189,19 +210,30 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
                     TextButton(onClick = {
                         scope.launch {
                             csvError = null
-                            runCatching {
+                            try {
                                 val now = Clock.System.now()
-                                val from = selectedDay?.let { "${it}T00:00:00Z" }
-                                    ?: Instant.fromEpochMilliseconds(now.toEpochMilliseconds() - range.days * 86_400_000L).toString()
-                                val to = selectedDay?.let { "${it}T23:59:59Z" } ?: now.toString()
+                                val (rangeFrom, rangeTo) = periodBounds(now)
+                                val from = selectedDay?.let { "${it}T00:00:00Z" } ?: rangeFrom
+                                val to = selectedDay?.let { "${it}T23:59:59Z" } ?: rangeTo
                                 val csv = repository.fetchText(
                                     "/api/v1/usage/export.csv",
                                     mapOf("from" to from, "to" to to, "dimension" to dimension.name.lowercase()),
                                 )
-                                if (!runCatching { exportFile(PickedFile("usage.csv", "text/csv", csv.encodeToByteArray())) }.getOrDefault(false)) {
+                                val exported = try {
+                                    exportFile(PickedFile("usage.csv", "text/csv", csv.encodeToByteArray()))
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Throwable) {
+                                    false
+                                }
+                                if (!exported) {
                                     csvPreview = csv
                                 }
-                            }.onFailure { csvError = it.message ?: "" }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Throwable) {
+                                csvError = failure.message.orEmpty()
+                            }
                         }
                     }) { Text(stringResource(Res.string.dashboard_export_csv)) }
                 }
@@ -209,7 +241,7 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
                 drillBotId?.let {
                     TextButton(onClick = { drillBotId = null; dimension = Dimension.BOT }) { Text(stringResource(Res.string.dashboard_back_to_all)) }
                 }
-                BreakdownList(breakdown, dimension, onDrill = { id ->
+                BreakdownList(breakdown, onDrill = { id ->
                     if (dimension == Dimension.BOT) {
                         drillBotId = id
                         dimension = Dimension.PROJECT
@@ -237,9 +269,11 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
 private fun SummaryCards(summary: JsonObject?) {
     val current = summary?.obj("current")
     val previous = summary?.obj("previous")
+    val currentCost = current?.number("cost")
+    val previousCost = previous?.number("cost")
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SummaryCard(stringResource(Res.string.dashboard_tokens), current?.long("input_tokens", "output_tokens") ?: current?.long("tokens") ?: 0L, previous?.long("tokens") ?: 0L)
-        SummaryCard(stringResource(Res.string.dashboard_cost), current?.number("cost") ?: 0.0, previous?.number("cost") ?: 0.0)
+        SummaryCard(stringResource(Res.string.dashboard_tokens), current?.long("input_tokens", "output_tokens") ?: current?.long("tokens") ?: 0L, previous?.long("input_tokens", "output_tokens") ?: previous?.long("tokens") ?: 0L)
+        SummaryCard(stringResource(Res.string.dashboard_cost), currentCost ?: stringResource(Res.string.dashboard_unpriced), previousCost ?: stringResource(Res.string.dashboard_unpriced))
         SummaryCard(stringResource(Res.string.dashboard_requests), current?.long("requests") ?: 0L, previous?.long("requests") ?: 0L)
         SummaryCard(stringResource(Res.string.dashboard_cache_hit), formatPercent(cacheHitRatio(current)), formatPercent(cacheHitRatio(previous)))
         SummaryCard(stringResource(Res.string.dashboard_tasks), current?.long("tasks_done") ?: 0L, previous?.long("tasks_done") ?: 0L)
@@ -299,7 +333,7 @@ private fun TimeseriesChart(
     data: JsonObject?,
     splitIo: Boolean,
     visibleSeries: Set<String>?,
-    onVisibleSeriesChanged: (Set<String>) -> Unit,
+    onVisibleSeriesChanged: (Set<String>?) -> Unit,
 ) {
     val series = data?.arr("series").orEmpty().mapNotNull { it as? JsonObject }
     val inputLabel = stringResource(Res.string.dashboard_input)
@@ -346,7 +380,7 @@ private fun TimeseriesChart(
                 onClick = {
                     val next = when {
                         selectedSeries == null -> setOf(line.key)
-                        selectedSeries.size == 1 && line.key in effectiveVisible -> emptySet()
+                        selectedSeries.size == 1 && line.key in effectiveVisible -> null
                         else -> setOf(line.key)
                     }
                     onVisibleSeriesChanged(next)
@@ -360,26 +394,45 @@ private fun TimeseriesChart(
 private data class ChartLine(val key: String, val label: String, val values: List<Double>, val channel: Int)
 
 @Composable
-private fun BreakdownList(data: JsonObject?, dimension: Dimension, onDrill: (String) -> Unit) {
+private fun BreakdownList(data: JsonObject?, onDrill: (String) -> Unit) {
     val rows = data?.arr("rows").orEmpty().mapNotNull { it as? JsonObject }
     if (rows.isEmpty()) { Text(stringResource(Res.string.dashboard_no_data), modifier = Modifier.padding(16.dp)); return }
-    androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), userScrollEnabled = false) {
-        items(rows.size) { index ->
-            val row = rows[index]; val usage = row.obj("usage")
-            Card(onClick = { onDrill(row.str("key") ?: "") }, modifier = Modifier.fillMaxWidth()) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        rows.forEach { row ->
+            val usage = row.obj("usage")
+            Card(onClick = { onDrill(row.str("key")) }, modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(row.str("label") ?: row.str("key") ?: "", style = MaterialTheme.typography.titleSmall)
-                        Text("${stringResource(Res.string.dashboard_detail_input)} ${usage?.long("input_tokens") ?: 0} · ${stringResource(Res.string.dashboard_detail_output)} ${usage?.long("output_tokens") ?: 0} · ${stringResource(Res.string.dashboard_detail_cache_read)} ${usage?.long("cache_read_tokens") ?: 0} · ${usage?.long("requests") ?: 0}", style = MaterialTheme.typography.bodySmall)
-                        row.arr("sparkline")?.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" ") { value -> value.toString().trim('"') }, style = MaterialTheme.typography.labelSmall) }
-                        row.obj("phases")?.takeIf { it.isNotEmpty() }?.let { phases ->
+                        Text(row.str("label").ifBlank { row.str("key") }, style = MaterialTheme.typography.titleSmall)
+                        Text("${stringResource(Res.string.dashboard_detail_input)} ${usage.long("input_tokens")} · ${stringResource(Res.string.dashboard_detail_output)} ${usage.long("output_tokens")} · ${stringResource(Res.string.dashboard_detail_cache_read)} ${usage.long("cache_read_tokens")} · ${usage.long("requests")}", style = MaterialTheme.typography.bodySmall)
+                        val sparkline = row.arr("sparkline").mapNotNull { it.toString().trim('"').toDoubleOrNull() }
+                        if (sparkline.size > 1) Sparkline(sparkline)
+                        val phases = row.obj("phases")
+                        if (phases.isNotEmpty()) {
                             Text("${stringResource(Res.string.dashboard_detail_phases)}: ${phases.entries.joinToString(" · ") { "${it.key} ${it.value}" }}", style = MaterialTheme.typography.labelSmall)
                         }
                     }
-                    Text(formatValue(usage?.number("cost") ?: 0.0), style = MaterialTheme.typography.labelLarge)
+                    Text(usage.number("cost")?.let { formatValue(it) } ?: stringResource(Res.string.dashboard_unpriced), style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun Sparkline(values: List<Double>) {
+    val primary = MaterialTheme.colorScheme.primary
+    Canvas(Modifier.width(88.dp).height(28.dp).padding(vertical = 4.dp)) {
+        val min = values.minOrNull() ?: return@Canvas
+        val max = values.maxOrNull() ?: return@Canvas
+        val span = (max - min).coerceAtLeast(1e-9)
+        val path = Path()
+        values.forEachIndexed { index, value ->
+            val x = if (values.size == 1) 0f else index * size.width / (values.size - 1)
+            val y = size.height - ((value - min) / span * size.height).toFloat()
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path, primary, style = Stroke(width = 2.dp.toPx()))
     }
 }
 

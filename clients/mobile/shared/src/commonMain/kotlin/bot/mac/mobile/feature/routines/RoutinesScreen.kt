@@ -49,10 +49,20 @@ import bot.mac.mobile.resources.routines_resume
 import bot.mac.mobile.resources.routines_title
 import bot.mac.mobile.resources.routines_trigger
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
+
+private suspend fun <T> routineRequest(onError: (String) -> Unit, block: suspend () -> T): T? = try {
+    block()
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (failure: Throwable) {
+    onError(failure.message.orEmpty())
+    null
+}
 
 @Composable
 fun RoutinesScreen(repository: MobileRepository, onOpenAssignment: (String) -> Unit, onBack: () -> Unit) {
@@ -62,7 +72,7 @@ fun RoutinesScreen(repository: MobileRepository, onOpenAssignment: (String) -> U
     var actionError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
-        runCatching { repository.call("routine.list") }.onFailure { actionError = it.message ?: "" }
+        routineRequest({ actionError = it }) { repository.call("routine.list") }
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -76,18 +86,17 @@ fun RoutinesScreen(repository: MobileRepository, onOpenAssignment: (String) -> U
             items(state.routines, key = { it.str("id") ?: it.hashCode() }) { routine ->
                 RoutineCard(routine, onToggle = { enabled ->
                     routine.str("id")?.let { id -> scope.launch {
-                        runCatching {
+                        routineRequest({ actionError = it }) {
                             repository.call("routine.set_enabled", buildJsonObject { put("routine_id", id); put("enabled", enabled) })
                             repository.call("routine.list")
-                        }.onFailure { actionError = it.message ?: "" }
+                        }
                     } }
                 }, onHistory = {
                     routine.str("id")?.let { id ->
                         historyRoutine = id
                         scope.launch {
-                            runCatching { repository.call("routine.runs", buildJsonObject { put("routine_id", id) }) }
-                                .onSuccess { response -> history = response.arr("runs").orEmpty().mapNotNull { it as? JsonObject } }
-                                .onFailure { actionError = it.message ?: "" }
+                            routineRequest({ actionError = it }) { repository.call("routine.runs", buildJsonObject { put("routine_id", id) }) }
+                                ?.let { response -> history = response.arr("runs").orEmpty().mapNotNull { it as? JsonObject } }
                         }
                     }
                 }, onOpenAssignment = onOpenAssignment)
@@ -102,9 +111,9 @@ fun RoutinesScreen(repository: MobileRepository, onOpenAssignment: (String) -> U
                     Column {
                         Text(run.str("status") ?: "", style = MaterialTheme.typography.titleSmall)
                         Text(run.str("started_at") ?: "", style = MaterialTheme.typography.labelSmall)
-                        run.str("trigger")?.let { Text(stringResource(Res.string.routines_trigger, it), style = MaterialTheme.typography.labelSmall) }
-                        run.str("finished_at")?.let { Text(stringResource(Res.string.routines_finished, it), style = MaterialTheme.typography.labelSmall) }
-                        run.str("assignment_id")?.let { assignmentId ->
+                        run.str("trigger").takeIf { it.isNotBlank() }?.let { Text(stringResource(Res.string.routines_trigger, it), style = MaterialTheme.typography.labelSmall) }
+                        run.str("finished_at").takeIf { it.isNotBlank() }?.let { Text(stringResource(Res.string.routines_finished, it), style = MaterialTheme.typography.labelSmall) }
+                        run.str("assignment_id").takeIf { it.isNotBlank() }?.let { assignmentId ->
                             TextButton(onClick = { onOpenAssignment(assignmentId) }) { Text(stringResource(Res.string.routines_details)) }
                         }
                         run.str("error")?.takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -127,15 +136,20 @@ private fun RoutineCard(routine: JsonObject, onToggle: (Boolean) -> Unit, onHist
             }
             Text(if (enabled) stringResource(Res.string.routines_enabled) else stringResource(Res.string.routines_disabled), style = MaterialTheme.typography.labelSmall)
             Text(routine.str("instructions") ?: "", style = MaterialTheme.typography.bodyMedium)
-            routine.arr("schedules")?.forEach { schedule ->
+            routine.arr("schedules").forEach { schedule ->
                 val item = schedule as? JsonObject
-                Text("◷ ${item?.str("label") ?: item?.str("cron") ?: ""}", style = MaterialTheme.typography.bodySmall)
+                val scheduleText = item?.str("label").orEmpty().ifBlank { item?.str("cron").orEmpty() }
+                if (scheduleText.isNotBlank()) Text("◷ $scheduleText", style = MaterialTheme.typography.bodySmall)
             }
-            Text("${stringResource(Res.string.routines_next_run)}: ${routine.str("next_run_at") ?: "—"}", style = MaterialTheme.typography.labelSmall)
-            routine.obj("last_run")?.let { last -> Text("${stringResource(Res.string.routines_last_run)}: ${last.str("status") ?: ""} ${last.str("started_at") ?: ""}", style = MaterialTheme.typography.labelSmall) }
+            Text("${stringResource(Res.string.routines_next_run)}: ${routine.str("next_run_at").ifBlank { "—" }}", style = MaterialTheme.typography.labelSmall)
+            (routine["last_run"] as? JsonObject)?.let { last ->
+                val status = last.str("status")
+                val started = last.str("started_at")
+                if (status.isNotBlank() || started.isNotBlank()) Text("${stringResource(Res.string.routines_last_run)}: $status $started", style = MaterialTheme.typography.labelSmall)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TextButton(onClick = onHistory) { Text(stringResource(Res.string.routines_history)) }
-                routine.obj("last_run")?.str("assignment_id")?.let { assignmentId -> TextButton(onClick = { onOpenAssignment(assignmentId) }) { Text(stringResource(Res.string.routines_details)) } }
+                ((routine["last_run"] as? JsonObject)?.str("assignment_id")).orEmpty().takeIf { it.isNotBlank() }?.let { assignmentId -> TextButton(onClick = { onOpenAssignment(assignmentId) }) { Text(stringResource(Res.string.routines_details)) } }
             }
         }
     }

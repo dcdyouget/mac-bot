@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -32,15 +31,18 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -58,12 +60,17 @@ import bot.mac.mobile.core.platform.platformScreenImageDecoder
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -94,7 +101,8 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
     var releaseNote by remember { mutableStateOf("") }
     var textInput by remember { mutableStateOf("") }
     var fps by remember { mutableStateOf(0f) }
-    var latencyMs by remember { mutableStateOf(0L) }
+    var frameAgeMs by remember { mutableStateOf(0L) }
+    var takeoverHostId by remember { mutableStateOf<String?>(null) }
     var lastFrameAt by remember { mutableStateOf<Long?>(null) }
     val scope = rememberCoroutineScope()
     val activeHost by repository.activeHost.collectAsState()
@@ -106,22 +114,38 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
     val connectionError = stringResource(Res.string.computer_connection_error)
     val requestError = stringResource(Res.string.computer_request_failed)
     val canInput = takeover && screenState?.driver == "user"
-    val inputQueue = remember { Channel<InputCommand>(Channel.UNLIMITED) }
+    // Keep stable State holders so the long-lived pointer coroutine always reads
+    // the latest Compose values without restarting on every frame or pan update.
+    val currentCanInput = rememberUpdatedState(canInput)
+    val currentConnection = rememberUpdatedState(activeConnection)
+    val currentFrame = rememberUpdatedState(frame)
+    val currentZoom = rememberUpdatedState(zoom)
+    val currentPan = rememberUpdatedState(pan)
+    val currentViewport = rememberUpdatedState(viewport)
+    val inputQueue = remember { InputEventQueue<InputCommand>(capacity = 64) }
+    val keyboardMutex = remember { Mutex() }
 
     LaunchedEffect(Unit) {
-        for (command in inputQueue) {
-            runCatching { command.connection.sendInput(command.payload) }
+        while (true) {
+            val command = inputQueue.receive()
+            try {
+                command.connection.sendInput(command.payload)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                // The screen connection owns reconnecting; stale input is safely discarded.
+            }
         }
     }
 
     LaunchedEffect(tabId) { selectedTab = tabId }
 
     LaunchedEffect(botId, quality, activeHost?.id) {
-        takeover = false
+        val connectionHostId = activeHost?.id
         takeoverError = null
         screenError = null; frameImage = null; frame = null
         zoom = 1f; pan = Offset.Zero
-        fps = 0f; latencyMs = 0L; lastFrameAt = null
+        fps = 0f; frameAgeMs = 0L; lastFrameAt = null
         val frameClock = coroutineContext[MonotonicFrameClock]
         if (frameClock == null) {
             screenError = frameClockError
@@ -142,7 +166,7 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                     lastFrameAt?.let { previous ->
                         if (renderedAt > previous) fps = (1000f / (renderedAt - previous)).coerceIn(0f, 60f)
                     }
-                    latencyMs = (renderedAt - incoming.header.timestampMillis).coerceAtLeast(0L)
+                    frameAgeMs = (renderedAt - incoming.header.timestampMillis).coerceAtLeast(0L)
                     lastFrameAt = renderedAt
                 }
             }
@@ -156,7 +180,14 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
         val runner: Job = connection.start()
         try { runner.join() } catch (cancelled: CancellationException) { throw cancelled }
         finally {
-            withContext(NonCancellable) { try { connection.stop() } catch (_: Throwable) { } }
+            withContext(NonCancellable) {
+                if (takeoverHostId == connectionHostId && connectionHostId != null) {
+                    releaseTakeover(repository, connectionHostId, botId)
+                    takeoverHostId = null
+                    takeover = false
+                }
+                try { connection.stop() } catch (_: Throwable) { }
+            }
             if (activeConnection === connection) activeConnection = null
         }
     }
@@ -189,66 +220,71 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
             }
         }
         screenError?.let { Text(stringResource(Res.string.computer_error, it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)) }
-        Box(Modifier.fillMaxWidth().weight(1f).padding(8.dp).aspectRatio(1.6f).onSizeChanged { viewport = it }
-            .pointerInput(canInput, activeConnection, frame, zoom, pan, viewport) {
-                if (!canInput) return@pointerInput
+        Box(Modifier.fillMaxWidth().weight(1f).padding(8.dp).clipToBounds().onSizeChanged { viewport = it }
+            .pointerInput(Unit) {
                 awaitEachGesture {
                     val first = awaitFirstDown(requireUnconsumed = false)
+                    val gestureConnection = currentConnection.value ?: return@awaitEachGesture
                     var multiTouch = false
                     var touchStarted = false
                     var firstEvent = true
                     var previousDistance = 0f
                     var previousCentroid = first.position
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Main)
-                        val pressed = event.changes.filter { it.pressed }
-                        if (pressed.size >= 2) {
-                            if (!multiTouch && touchStarted) {
-                                queueTouch(inputQueue, activeConnection, "end", null)
-                                touchStarted = false
-                            }
-                            val centroid = pressed.map { it.position }.centroid()
-                            val distance = pressed.take(2).let { distance(it[0].position, it[1].position) }
-                            if (!multiTouch) {
-                                multiTouch = true
-                                previousDistance = distance
-                                previousCentroid = centroid
-                            } else {
-                                val movement = centroid - previousCentroid
-                                if (previousDistance > 0f) {
-                                    val scaleDelta = distance / previousDistance
-                                    if (kotlin.math.abs(scaleDelta - 1f) > 0.01f) {
-                                        zoom = (zoom * scaleDelta).coerceIn(1f, 4f)
-                                        pan += movement
-                                    } else if (movement.getDistance() > 1f) {
-                                        queueWheel(inputQueue, activeConnection, mapToFrame(centroid, viewport, frame, zoom, pan), -movement.x, -movement.y)
+                    try {
+                        while (currentCanInput.value) {
+                            val event = awaitPointerEvent(PointerEventPass.Main)
+                            val pressed = event.changes.filter { it.pressed }
+                            if (pressed.size >= 2) {
+                                if (!multiTouch && touchStarted) {
+                                    queueTouch(inputQueue, scope, gestureConnection, "end", null)
+                                    touchStarted = false
+                                }
+                                val centroid = pressed.map { it.position }.centroid()
+                                val distance = pressed.take(2).let { distance(it[0].position, it[1].position) }
+                                if (!multiTouch) {
+                                    multiTouch = true
+                                    previousDistance = distance
+                                    previousCentroid = centroid
+                                } else {
+                                    val movement = centroid - previousCentroid
+                                    if (previousDistance > 0f) {
+                                        val scaleDelta = distance / previousDistance
+                                        if (kotlin.math.abs(scaleDelta - 1f) > 0.01f) {
+                                            zoom = (zoom * scaleDelta).coerceIn(1f, 4f)
+                                            pan += movement
+                                        } else if (movement.getDistance() > 1f) {
+                                            queueWheel(inputQueue, gestureConnection, mapToFrame(centroid, currentViewport.value, currentFrame.value, currentZoom.value, currentPan.value), -movement.x, -movement.y)
+                                        }
                                     }
+                                    previousDistance = distance
+                                    previousCentroid = centroid
                                 }
-                                previousDistance = distance
-                                previousCentroid = centroid
+                                event.changes.forEach { it.consume() }
+                            } else if (!multiTouch) {
+                                val change = pressed.firstOrNull()
+                                if (change != null && !firstEvent) {
+                                    if (!touchStarted) {
+                                        queueTouch(inputQueue, scope, gestureConnection, "start", mapToFrame(change.position, currentViewport.value, currentFrame.value, currentZoom.value, currentPan.value))
+                                        touchStarted = true
+                                    }
+                                    queueTouch(inputQueue, scope, gestureConnection, "move", mapToFrame(change.position, currentViewport.value, currentFrame.value, currentZoom.value, currentPan.value))
+                                    change.consume()
+                                }
                             }
-                            event.changes.forEach { it.consume() }
-                        } else if (!multiTouch) {
-                            val change = pressed.firstOrNull()
-                            if (change != null && !firstEvent) {
-                                if (!touchStarted) {
-                                    queueTouch(inputQueue, activeConnection, "start", mapToFrame(change.position, viewport, frame, zoom, pan))
-                                    touchStarted = true
+                            firstEvent = false
+                            if (event.changes.all { !it.pressed }) {
+                                if (!multiTouch) {
+                                    if (!touchStarted) {
+                                        queueTouch(inputQueue, scope, gestureConnection, "start", mapToFrame(first.position, currentViewport.value, currentFrame.value, currentZoom.value, currentPan.value))
+                                    }
+                                    queueTouch(inputQueue, scope, gestureConnection, "end", null)
+                                    touchStarted = false
                                 }
-                                queueTouch(inputQueue, activeConnection, "move", mapToFrame(change.position, viewport, frame, zoom, pan))
-                                change.consume()
+                                break
                             }
                         }
-                        firstEvent = false
-                        if (event.changes.all { !it.pressed }) {
-                            if (!multiTouch) {
-                                if (!touchStarted) {
-                                    queueTouch(inputQueue, activeConnection, "start", mapToFrame(first.position, viewport, frame, zoom, pan))
-                                }
-                                queueTouch(inputQueue, activeConnection, "end", null)
-                            }
-                            break
-                        }
+                    } finally {
+                        if (touchStarted) queueTouch(inputQueue, scope, gestureConnection, "end", null)
                     }
                 }
             }, contentAlignment = Alignment.Center) {
@@ -261,20 +297,37 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(Res.string.computer_quality), color = Color.LightGray, modifier = Modifier.padding(end = 6.dp))
-            Quality.entries.forEach { candidate -> FilterChip(quality == candidate, { quality = candidate }, label = { Text(candidate.label()) }) }
+            Quality.entries.forEach { candidate -> FilterChip(quality == candidate, { if (!takeover) quality = candidate }, enabled = !takeover, label = { Text(candidate.label()) }) }
             Text("×${zoom.toString().take(4)}", color = Color.LightGray, modifier = Modifier.padding(start = 8.dp))
             Text(
-                stringResource(Res.string.computer_fps, fps.toInt(), latencyMs),
+                stringResource(Res.string.computer_fps, fps.toInt(), frameAgeMs),
                 color = Color.LightGray,
                 modifier = Modifier.padding(start = 8.dp),
                 style = MaterialTheme.typography.labelSmall,
             )
         }
         if (canInput) OutlinedTextField(value = textInput, onValueChange = { next ->
-            val previous = textInput; textInput = next; val added = next.removePrefix(previous)
-            if (added.isNotEmpty()) scope.launch { enqueueText(inputQueue, activeConnection, added) } else if (next.length < previous.length) scope.launch { enqueueKey(inputQueue, activeConnection, "Backspace") }
+            val previous = textInput
+            textInput = next
+            if (next != previous) scope.launch {
+                keyboardMutex.withLock {
+                    when {
+                        next.startsWith(previous) -> enqueueText(inputQueue, activeConnection, next.removePrefix(previous))
+                        previous.startsWith(next) -> repeat(previous.length - next.length) { enqueueKey(inputQueue, activeConnection, "Backspace") }
+                        else -> {
+                            repeat(previous.length) { enqueueKey(inputQueue, activeConnection, "Backspace") }
+                            enqueueText(inputQueue, activeConnection, next)
+                        }
+                    }
+                }
+            }
         }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).onPreviewKeyEvent { event ->
-            if (event.type == KeyEventType.KeyDown) { scope.launch { enqueueKey(inputQueue, activeConnection, event.key.toString()) }; true } else false
+            if (event.type == KeyEventType.KeyDown) {
+                composeKeyDescriptor(event.key)?.let { (key, code) ->
+                    scope.launch { keyboardMutex.withLock { enqueueKey(inputQueue, activeConnection, key, code) } }
+                    true
+                } ?: false
+            } else false
         }, placeholder = { Text(stringResource(Res.string.computer_keyboard_hint)) }, singleLine = true)
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(if (takeover) Res.string.computer_takeover_active else Res.string.computer_touch_hint), color = Color.Gray, modifier = Modifier.weight(1f))
@@ -282,7 +335,10 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
             Button(onClick = {
                 if (!takeover) scope.launch {
                     takeoverError = captureError(requestError) { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
-                    if (takeoverError == null) takeover = true
+                    if (takeoverError == null) {
+                        takeoverHostId = activeHost?.id
+                        takeover = true
+                    }
                 }
                 else releaseDialog = true
             }) { Text(if (takeover) stringResource(Res.string.computer_release) else stringResource(Res.string.computer_takeover)) }
@@ -292,24 +348,45 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
     if (releaseDialog) AlertDialog(onDismissRequest = { releaseDialog = false }, title = { Text(stringResource(Res.string.computer_release)) }, text = { OutlinedTextField(releaseNote, { releaseNote = it }, label = { Text(stringResource(Res.string.computer_release_note)) }) }, confirmButton = { Button(onClick = {
         scope.launch {
             takeoverError = captureError(requestError) { repository.call("takeover.release", buildJsonObject { put("bot_id", botId); if (releaseNote.isNotBlank()) put("note", releaseNote) }) }
-            if (takeoverError == null) { takeover = false; releaseDialog = false; releaseNote = "" }
+            if (takeoverError == null) { takeoverHostId = null; takeover = false; releaseDialog = false; releaseNote = "" }
         }
     }) { Text(stringResource(Res.string.computer_release)) } }, dismissButton = { TextButton(onClick = { releaseDialog = false }) { Text(stringResource(Res.string.common_close)) } })
 }
 
 private val Quality.wireName: String get() = name.lowercase()
 private data class InputCommand(val connection: ScreenConnection, val payload: JsonObject)
-private fun queueTouch(channel: Channel<InputCommand>, connection: ScreenConnection?, action: String, point: Offset?) {
+
+/**
+ * Input delivery keeps a bounded queue without sacrificing lifecycle events.
+ * Transient motion can be dropped under slow network conditions; start/end/key
+ * events use [sendImportant] and therefore apply backpressure in FIFO order.
+ */
+internal class InputEventQueue<T>(capacity: Int = 64) {
+    private val channel = Channel<T>(capacity = capacity, onBufferOverflow = BufferOverflow.SUSPEND)
+
+    suspend fun receive(): T = channel.receive()
+
+    suspend fun sendImportant(value: T) = channel.send(value)
+
+    fun trySendTransient(value: T): Boolean = channel.trySend(value).isSuccess
+}
+
+private fun queueTouch(channel: InputEventQueue<InputCommand>, scope: CoroutineScope, connection: ScreenConnection?, action: String, point: Offset?) {
     connection ?: return
-    channel.trySend(InputCommand(connection, buildJsonObject {
+    val command = InputCommand(connection, buildJsonObject {
         put("type", "touch")
         put("action", action)
         put("points", if (point == null) JsonArray(emptyList()) else JsonArray(listOf(buildJsonObject { put("x", point.x); put("y", point.y) })))
-    }))
+    })
+    if (action == "move") {
+        channel.trySendTransient(command)
+    } else {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { channel.sendImportant(command) }
+    }
 }
-private fun queueWheel(channel: Channel<InputCommand>, connection: ScreenConnection?, point: Offset?, dx: Float, dy: Float) {
+private fun queueWheel(channel: InputEventQueue<InputCommand>, connection: ScreenConnection?, point: Offset?, dx: Float, dy: Float) {
     connection ?: return
-    channel.trySend(InputCommand(connection, buildJsonObject {
+    channel.trySendTransient(InputCommand(connection, buildJsonObject {
         put("type", "wheel")
         put("x", point?.x ?: 0f)
         put("y", point?.y ?: 0f)
@@ -317,18 +394,30 @@ private fun queueWheel(channel: Channel<InputCommand>, connection: ScreenConnect
         put("dy", dy)
     }))
 }
-private suspend fun enqueueKey(channel: Channel<InputCommand>, connection: ScreenConnection?, key: String) {
+private suspend fun enqueueKey(channel: InputEventQueue<InputCommand>, connection: ScreenConnection?, key: String, code: String = key, text: String? = key.takeIf { it.length == 1 }) {
     connection ?: return
-    channel.send(InputCommand(connection, buildJsonObject {
+    channel.sendImportant(InputCommand(connection, buildJsonObject {
         put("type", "key")
         put("action", "press")
         put("key", key)
-        put("code", key)
-        put("text", key.takeIf { it.length == 1 })
+        put("code", code)
+        put("text", text)
         put("modifiers", JsonArray(emptyList()))
     }))
 }
-private suspend fun enqueueText(channel: Channel<InputCommand>, connection: ScreenConnection?, text: String) {
+private fun composeKeyDescriptor(key: Key): Pair<String, String>? = when (key) {
+    Key.Backspace -> "Backspace" to "Backspace"
+    Key.Enter -> "Enter" to "Enter"
+    Key.Tab -> "Tab" to "Tab"
+    Key.Escape -> "Escape" to "Escape"
+    Key.Delete -> "Delete" to "Delete"
+    Key.DirectionUp -> "ArrowUp" to "ArrowUp"
+    Key.DirectionDown -> "ArrowDown" to "ArrowDown"
+    Key.DirectionLeft -> "ArrowLeft" to "ArrowLeft"
+    Key.DirectionRight -> "ArrowRight" to "ArrowRight"
+    else -> null
+}
+private suspend fun enqueueText(channel: InputEventQueue<InputCommand>, connection: ScreenConnection?, text: String) {
     text.forEach { enqueueKey(channel, connection, it.toString()) }
 }
 private suspend fun captureError(fallback: String, block: suspend () -> Unit): String? = try {
@@ -337,6 +426,9 @@ private suspend fun captureError(fallback: String, block: suspend () -> Unit): S
     throw error
 } catch (error: Throwable) {
     error.message ?: fallback
+}
+private suspend fun releaseTakeover(repository: MobileRepository, hostId: String, botId: String) {
+    runCatching { repository.callOnHost(hostId, "takeover.release", buildJsonObject { put("bot_id", botId) }) }
 }
 private fun List<Offset>.centroid(): Offset = if (isEmpty()) Offset.Zero else Offset(sumOf { it.x.toDouble() }.toFloat() / size, sumOf { it.y.toDouble() }.toFloat() / size)
 private fun distance(first: Offset, second: Offset): Float = sqrt((first.x - second.x) * (first.x - second.x) + (first.y - second.y) * (first.y - second.y))
