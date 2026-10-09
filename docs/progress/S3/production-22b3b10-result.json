@@ -1,0 +1,13 @@
+{
+  "scenario": "S3 skills usage search memory",
+  "source_commit": "22b3b106450092e3ac7e37e7930b5c2df2a0a757",
+  "result": "FAIL",
+  "error": "timed out waiting for S3 preference acknowledgement",
+  "marker": "macbot-e2e-s3-e26b205d4910",
+  "observed": "Second user request visible in UI/history; new model response repeated previous S1 write tool with old marker; unrelated approval left pending and not allowed.",
+  "scope": "S3 entire stage not passed; skill CRUD and usage shape checks reached before memory failure.",
+  "evidence": [
+    "production-22b3b10-memory-unrelated-tools.json",
+    "production-22b3b10-chat-history-order.json"
+  ]
+}

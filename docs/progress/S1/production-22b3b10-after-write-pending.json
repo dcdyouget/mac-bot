@@ -1,0 +1,30 @@
+{
+  "approvals": [
+    {
+      "assignment_id": null,
+      "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "created_at": "2026-10-09T11:52:11.830159+00:00",
+      "decided_at": null,
+      "detail": "{\"path\":\"e2e/macbot-e2e-s1-669c2d8f6eda.txt\"}",
+      "id": "01a12081-ad36-75ea-a379-32f83d157b7d",
+      "risk": "write",
+      "state": "pending",
+      "summary": "Approval required for read",
+      "tool": "read"
+    },
+    {
+      "assignment_id": null,
+      "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "created_at": "2026-10-09T11:46:13.286670+00:00",
+      "decided_at": "2026-10-09T11:52:11.649077+00:00",
+      "detail": "{\"content\":\"macbot-e2e-s1-669c2d8f6eda\",\"path\":\"e2e/macbot-e2e-s1-669c2d8f6eda.txt\"}",
+      "id": "01a1207c-34a6-761a-b6a7-9347fb6447d6",
+      "risk": "write",
+      "state": "allowed_once",
+      "summary": "Approval required for write",
+      "tool": "write"
+    }
+  ]
+}

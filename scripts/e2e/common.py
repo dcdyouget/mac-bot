@@ -170,6 +170,87 @@ def json_dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
+def approve_exact_pending(
+    client: RpcClient,
+    *,
+    run_id: str,
+    bot_id: str,
+    chat_id: str,
+    expected_calls: Mapping[str, Mapping[str, Any]],
+    approved_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Approve only pending unsafe calls identified by this run's trace call ids.
+
+    The wire Approval object has no run_id or call_id.  Callers must first find
+    the marker-specific run and pass only its expected calls here.  The exact
+    bot/chat/tool/risk and JSON detail are checked before the one-shot decision;
+    an ambiguous duplicate is rejected rather than approving an unrelated run.
+    """
+
+    if not expected_calls:
+        return []
+    result = require_dict(client.call("approval.list", {"state": ["pending"]}), "approval.list result")
+    approvals = require_list(result.get("approvals"), "approval.list.approvals")
+    decided: list[dict[str, Any]] = []
+    for call_id, expected in expected_calls.items():
+        expected_args = expected.get("args")
+        if not isinstance(expected_args, dict):
+            raise ValueError("internal approval expectation has no args")
+        tool = expected.get("tool")
+        matches: list[dict[str, Any]] = []
+        for candidate in approvals:
+            if not isinstance(candidate, dict) or candidate.get("state") != "pending":
+                continue
+            approval_id = candidate.get("id")
+            if not isinstance(approval_id, str) or approval_id in approved_ids:
+                continue
+            if (
+                candidate.get("bot_id") != bot_id
+                or candidate.get("chat_id") != chat_id
+                or candidate.get("assignment_id") is not None
+                or candidate.get("tool") != tool
+                or candidate.get("risk") != expected.get("risk")
+            ):
+                continue
+            detail = candidate.get("detail")
+            try:
+                actual_args = json.loads(detail) if isinstance(detail, str) else None
+            except json.JSONDecodeError:
+                # An unrelated/malformed approval is never a reason to approve
+                # it; leave it pending for the normal manual path.
+                continue
+            if not isinstance(actual_args, dict):
+                continue
+            if any(actual_args.get(key) != value for key, value in expected_args.items()):
+                continue
+            if tool == "bash":
+                # The scripted command deliberately has no timeout/cwd/
+                # background override.  Keep the allowed key set explicit so
+                # a provider cannot smuggle an execution-mode change through
+                # an otherwise matching command string.
+                if set(actual_args) != {"command"}:
+                    continue
+            elif set(actual_args) != set(expected_args):
+                continue
+            matches.append(candidate)
+        if len(matches) > 1:
+            raise ValueError(f"multiple pending approvals match marker run call {call_id}; refusing ambiguity")
+        if not matches:
+            continue
+        candidate = matches[0]
+        approval_id = candidate["id"]
+        decided_result = require_dict(
+            client.call("approval.decide", {"approval_id": approval_id, "decision": "allow_once"}),
+            "approval.decide result",
+        )
+        decided_approval = require_dict(decided_result.get("approval"), "approval.decide.approval")
+        if decided_approval.get("id") != approval_id or decided_approval.get("state") != "allowed_once":
+            raise ValueError(f"approval {approval_id} did not resolve as allowed_once")
+        approved_ids.add(approval_id)
+        decided.append({"approval_id": approval_id, "run_id": run_id, "call_id": call_id, "tool": tool})
+    return decided
+
+
 def safe_error(args: argparse.Namespace, exc: BaseException) -> str:
     """Keep auth material out of failure output even if a server echoes it."""
 

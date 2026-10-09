@@ -1,0 +1,13 @@
+{
+  "source": "22b3b106450092e3ac7e37e7930b5c2df2a0a757",
+  "source_dirty": false,
+  "pkg_sha256": "0ddf5d1582c7c239223690f0e0c39f26dc12921abc11945f9f185caad256487c",
+  "bytes": 14706882,
+  "artifact": "/Users/gongshaojie/Library/Caches/MacBot/integrator/staged/22b3b106450092e3ac7e37e7930b5c2df2a0a757/MacBot-Server-s1-22b3b10-20261009.pkg",
+  "daemon_sha256": "ee6402eb36f291eca420cfc26a81d280a04f97842e498d662cbbb3d49f83f484",
+  "sidecar_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+  "verification": "independent hash/payload/source metadata inspection passed",
+  "installation": "not performed; clean S5 pending",
+  "launchagent_secrets": "default Keychain; integration must explicitly set file backend",
+  "updater": "no update URL configured; expected fail closed"
+}

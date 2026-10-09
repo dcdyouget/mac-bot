@@ -1,0 +1,222 @@
+{
+  "workbench.get": {
+    "bots": [
+      {
+        "active": 0,
+        "assignments": [],
+        "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+        "max_parallel": 3
+      },
+      {
+        "active": 0,
+        "assignments": [],
+        "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "max_parallel": 3
+      }
+    ],
+    "done_today": [],
+    "global_limit": 8,
+    "running": 0,
+    "subagents_running": 0,
+    "waiting": []
+  },
+  "approval.list": {
+    "approvals": [
+      {
+        "assignment_id": null,
+        "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+        "chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+        "created_at": "2026-10-09T11:46:13.286670+00:00",
+        "decided_at": null,
+        "detail": "{\"content\":\"macbot-e2e-s1-669c2d8f6eda\",\"path\":\"e2e/macbot-e2e-s1-669c2d8f6eda.txt\"}",
+        "id": "01a1207c-34a6-761a-b6a7-9347fb6447d6",
+        "risk": "write",
+        "state": "pending",
+        "summary": "Approval required for write",
+        "tool": "write"
+      }
+    ]
+  },
+  "bootstrap": {
+    "seq": 25,
+    "bots": [
+      {
+        "avatar": {
+          "color": 0,
+          "kind": "bean"
+        },
+        "browser_mode": "headless",
+        "created_at": "2026-10-09T10:56:10.042828+00:00",
+        "description": "负责协调团队、派发任务和提醒验收",
+        "dm_chat_id": "chat_main",
+        "hidden": false,
+        "id": "main",
+        "is_main": true,
+        "label": "主 Bot",
+        "max_parallel": 0,
+        "model": null,
+        "name": "总管",
+        "notifications": true,
+        "pinned": true,
+        "status": {
+          "active": 0,
+          "queued": 0,
+          "summary": "idle",
+          "waiting": 0
+        },
+        "tools": {
+          "bash": true,
+          "browser": true,
+          "files": true,
+          "mcp": true,
+          "subagent": true,
+          "web": true
+        },
+        "updated_at": "2026-10-09T10:56:10.042828+00:00"
+      },
+      {
+        "avatar": {
+          "color": 0,
+          "kind": "bean"
+        },
+        "browser_mode": "headless",
+        "created_at": "2026-10-09T10:57:34.387393+00:00",
+        "description": "",
+        "dm_chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+        "hidden": false,
+        "id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+        "is_main": false,
+        "label": "",
+        "max_parallel": 3,
+        "model": null,
+        "name": "macbot-e2e-s1-96f9d5360d07",
+        "notifications": true,
+        "pinned": false,
+        "status": {
+          "active": 0,
+          "queued": 0,
+          "summary": "idle",
+          "waiting": 0
+        },
+        "tools": {
+          "bash": true,
+          "browser": true,
+          "files": true,
+          "mcp": true,
+          "subagent": true,
+          "web": true
+        },
+        "updated_at": "2026-10-09T10:57:34.387393+00:00"
+      },
+      {
+        "avatar": {
+          "color": 0,
+          "kind": "bean"
+        },
+        "browser_mode": "headless",
+        "created_at": "2026-10-09T10:58:19.223526+00:00",
+        "description": "",
+        "dm_chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+        "hidden": false,
+        "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "is_main": false,
+        "label": "",
+        "max_parallel": 3,
+        "model": null,
+        "name": "集成复现-私聊契约",
+        "notifications": true,
+        "pinned": false,
+        "status": {
+          "active": 0,
+          "queued": 0,
+          "summary": "idle",
+          "waiting": 0
+        },
+        "tools": {
+          "bash": true,
+          "browser": true,
+          "files": true,
+          "mcp": true,
+          "subagent": true,
+          "web": true
+        },
+        "updated_at": "2026-10-09T10:58:19.223526+00:00"
+      }
+    ],
+    "chats": [
+      {
+        "attention": "none",
+        "bot_id": null,
+        "id": "chat_main",
+        "kind": "main",
+        "last_message": null,
+        "last_read_seq": 0,
+        "last_seq": 0,
+        "member_bot_ids": [
+          "main"
+        ],
+        "muted": false,
+        "pinned": true,
+        "project_id": null,
+        "title": "主会话",
+        "unread": 0,
+        "updated_at": "2026-10-09T11:51:36.832Z"
+      },
+      {
+        "attention": "none",
+        "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+        "id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+        "kind": "direct",
+        "last_message": null,
+        "last_read_seq": 0,
+        "last_seq": 0,
+        "member_bot_ids": [
+          "01a1204f-aab3-7180-88c7-501d2cbb02d0"
+        ],
+        "muted": false,
+        "pinned": false,
+        "project_id": null,
+        "title": "macbot-e2e-s1-96f9d5360d07",
+        "unread": 0,
+        "updated_at": "2026-10-09T10:57:34.387393+00:00"
+      },
+      {
+        "attention": "none",
+        "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "direct",
+        "last_message": null,
+        "last_read_seq": 0,
+        "last_seq": 0,
+        "member_bot_ids": [
+          "01a12050-59d7-7669-98d5-eab07352b9d9"
+        ],
+        "muted": false,
+        "pinned": false,
+        "project_id": null,
+        "title": "集成复现-私聊契约",
+        "unread": 0,
+        "updated_at": "2026-10-09T10:58:19.223526+00:00"
+      }
+    ],
+    "pending": {
+      "approvals": [
+        {
+          "assignment_id": null,
+          "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+          "chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+          "created_at": "2026-10-09T11:46:13.286670+00:00",
+          "decided_at": null,
+          "detail": "{\"content\":\"macbot-e2e-s1-669c2d8f6eda\",\"path\":\"e2e/macbot-e2e-s1-669c2d8f6eda.txt\"}",
+          "id": "01a1207c-34a6-761a-b6a7-9347fb6447d6",
+          "risk": "write",
+          "state": "pending",
+          "summary": "Approval required for write",
+          "tool": "write"
+        }
+      ],
+      "questions": [],
+      "reviews": []
+    }
+  }
+}

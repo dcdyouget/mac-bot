@@ -1,0 +1,55 @@
+{
+  "scenario": "S1-existing-marker-tools",
+  "server_source_commit": "22b3b106450092e3ac7e37e7930b5c2df2a0a757",
+  "marker": "macbot-e2e-s1-669c2d8f6eda",
+  "chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+  "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+  "trace": {
+    "run_id": "run_chat_01a1207c_2473_74b1_8f70_28952f6259f6",
+    "items": 19,
+    "types": [
+      "llm.request",
+      "llm.response",
+      "run.end",
+      "run.resume",
+      "run.start",
+      "run.wait",
+      "tool.end",
+      "tool.start"
+    ],
+    "successful_tools": [
+      "bash",
+      "read",
+      "write"
+    ],
+    "live": false
+  },
+  "reply": {
+    "assignment_id": null,
+    "blocks": [
+      {
+        "markdown": "macbot-e2e-s1-669c2d8f6eda and the path is e2e/macbot-e2e-s1-669c2d8f6eda.txt",
+        "type": "text"
+      }
+    ],
+    "chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+    "created_at": "2026-10-09T11:46:09.305Z",
+    "deleted": false,
+    "delivery": [],
+    "edited_at": "2026-10-09T11:53:21.501Z",
+    "fallback_text": "macbot-e2e-s1-669c2d8f6eda and the path is e2e/macbot-e2e-s1-669c2d8f6eda.txt",
+    "id": "msg_run_chat_01a1207c_2473_74b1_8f70_28952f6259f6",
+    "intent": null,
+    "mentions": [],
+    "reactions": [],
+    "reply_to": null,
+    "sender": {
+      "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "kind": "bot"
+    },
+    "seq": 1,
+    "streaming": false,
+    "thread_count": 0
+  },
+  "test_observation": "Initial script timed out waiting for manual approval; same existing run completed after exact allow_once decisions; read/bash follow-up risk bug observed. API tools only; S1 stage not passed."
+}

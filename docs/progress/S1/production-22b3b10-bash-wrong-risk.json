@@ -1,0 +1,13 @@
+{
+  "assignment_id": null,
+  "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+  "chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+  "created_at": "2026-10-09T11:52:52.933234+00:00",
+  "decided_at": null,
+  "detail": "{\"command\":\"cat e2e/macbot-e2e-s1-669c2d8f6eda.txt\"}",
+  "id": "01a12082-4dc5-76ac-85dc-48ae08b0beeb",
+  "risk": "write",
+  "state": "pending",
+  "summary": "Approval required for bash",
+  "tool": "bash"
+}

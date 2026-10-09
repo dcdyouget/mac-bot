@@ -13,6 +13,7 @@ sys.path.insert(0, str(HERE.parents[1]))
 
 from common import (  # noqa: E402
     add_connection_args,
+    approve_exact_pending,
     bootstrap,
     chat_history,
     client_from_args,
@@ -37,7 +38,81 @@ def args_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Create a fresh non-main Bot when the production Host has no worker yet",
     )
+    parser.add_argument(
+        "--approve-test-tools-once",
+        "--approve-test-bash-once",
+        dest="approve_test_tools_once",
+        action="store_true",
+        help="Allow once only the marker run's exact write/bash calls (old bash alias kept); otherwise leave approvals for manual review",
+    )
     return parser
+
+
+def approve_marker_calls(
+    client: Any,
+    chat_id: str,
+    bot_id: str,
+    marker: str,
+    path: str,
+    approved_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Approve only this marker run's exact unsafe file and bash calls."""
+
+    result = require_dict(
+        client.call("trace.history", {"chat_id": chat_id, "tail": True, "limit": 500}),
+        "trace.history result",
+    )
+    items = [item for item in require_list(result.get("items"), "trace.history.items") if isinstance(item, dict)]
+    marker_runs = {
+        item.get("run_id")
+        for item in items
+        if item.get("type") == "tool.start"
+        and isinstance(item.get("run_id"), str)
+        and isinstance(item.get("data"), dict)
+        and marker in json.dumps(item["data"].get("args", {}), ensure_ascii=False)
+    }
+    if len(marker_runs) != 1:
+        return []
+    run_id = next(iter(marker_runs))
+    successful_calls = {
+        item["data"].get("call_id")
+        for item in items
+        if item.get("run_id") == run_id
+        and item.get("type") == "tool.end"
+        and isinstance(item.get("data"), dict)
+        and item["data"].get("is_error") is False
+    }
+    expected: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if item.get("run_id") != run_id or item.get("type") != "tool.start":
+            continue
+        data = item.get("data")
+        if not isinstance(data, dict) or data.get("name") not in {"write", "bash"}:
+            continue
+        call_id = data.get("call_id")
+        args = data.get("args")
+        if not isinstance(call_id, str) or not isinstance(args, dict):
+            raise ValueError("marker run has an unsafe tool call without call_id/args")
+        if call_id in successful_calls:
+            continue
+        name = data["name"]
+        if name == "write":
+            expected_args = {"path": path, "content": marker}
+            risk = "write"
+        else:
+            expected_args = {"command": f"cat {path}"}
+            risk = "exec"
+        if any(args.get(key) != value for key, value in expected_args.items()):
+            raise ValueError(f"marker run {name} call does not match the scripted path/command")
+        expected[call_id] = {"tool": name, "risk": risk, "args": expected_args}
+    return approve_exact_pending(
+        client,
+        run_id=run_id,
+        bot_id=bot_id,
+        chat_id=chat_id,
+        expected_calls=expected,
+        approved_ids=approved_ids,
+    )
 
 
 def trace_evidence(client: Any, chat_id: str, marker: str, args: argparse.Namespace) -> dict[str, Any] | None:
@@ -164,7 +239,14 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
     if not isinstance(sent_seq, int):
         raise ValueError("sent message has no numeric seq")
 
+    approved_ids: set[str] = set()
+    approval_evidence: list[dict[str, Any]] = []
+
     def bot_reply() -> dict[str, Any] | None:
+        if args.approve_test_tools_once:
+            approval_evidence.extend(
+                approve_marker_calls(client, chat_id, bot_id, marker, path, approved_ids)
+            )
         history = chat_history(client, chat_id, after_seq=sent_seq)
         for message in history["messages"]:
             if (
@@ -189,6 +271,7 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
         "marker": marker,
         "reply": reply,
         "trace": trace,
+        "approvals": approval_evidence,
         "note": "API checks only; desktop/Android streaming, replay UI, and restart recovery remain manual.",
     }
 

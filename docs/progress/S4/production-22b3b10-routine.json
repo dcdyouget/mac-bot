@@ -1,0 +1,32 @@
+{
+  "assignment": {
+    "id": "01a12082-b5ad-7349-bd47-5c95970954a1",
+    "status": "done",
+    "trace_items": 8
+  },
+  "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+  "health_version": "0.1.0",
+  "marker": "macbot-e2e-s4-c009ddd14eea",
+  "note": "API checks only; Chrome login state, screen JPEG/takeover, Android notification, and desktop/mobile evidence remain manual.",
+  "routine_id": "01a12082-b501-7562-ae9b-ff447e68693f",
+  "run": {
+    "assignment_id": "01a12082-b5ad-7349-bd47-5c95970954a1",
+    "error": null,
+    "finished_at": "2026-10-09T11:53:24.426193+00:00",
+    "id": "01a12082-b5ad-7349-bd47-5c96626e8c62",
+    "routine_id": "01a12082-b501-7562-ae9b-ff447e68693f",
+    "started_at": "2026-10-09T11:53:19.533083+00:00",
+    "status": "done",
+    "trigger": "test"
+  },
+  "scenario": "S4 routine API checks",
+  "screen": {
+    "documented_path": "/ws/screen",
+    "note": "PROTOCOL defines no screen.get/control_take/control_release/tabs RPC; JPEG, takeover UI, and notifications remain manual.",
+    "rpc_screen_get": false
+  },
+  "status": "PASS",
+  "url": "http://127.0.0.1:7788",
+  "server_source_commit": "22b3b106450092e3ac7e37e7930b5c2df2a0a757",
+  "scope": "Real MiniMax default-model routine.test_run done while service running. Not actual schedule notification or browser acceptance."
+}

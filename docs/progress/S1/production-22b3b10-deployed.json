@@ -1,0 +1,95 @@
+{
+  "source": "22b3b106450092e3ac7e37e7930b5c2df2a0a757",
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "listen_pid": 51479,
+  "secret_backend": "file",
+  "sidecar_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+  "bots": [
+    {
+      "id": "main",
+      "dm_chat_id": "chat_main",
+      "model": null,
+      "is_main": true
+    },
+    {
+      "id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "dm_chat_id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "model": null,
+      "is_main": false
+    },
+    {
+      "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+      "dm_chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "model": null,
+      "is_main": false
+    }
+  ],
+  "chats": [
+    {
+      "attention": "none",
+      "bot_id": null,
+      "id": "chat_main",
+      "kind": "main",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [
+        "main"
+      ],
+      "muted": false,
+      "pinned": true,
+      "project_id": null,
+      "title": "主会话",
+      "unread": 0,
+      "updated_at": "2026-10-09T11:46:10.245Z"
+    },
+    {
+      "attention": "none",
+      "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "kind": "direct",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [
+        "01a1204f-aab3-7180-88c7-501d2cbb02d0"
+      ],
+      "muted": false,
+      "pinned": false,
+      "project_id": null,
+      "title": "macbot-e2e-s1-96f9d5360d07",
+      "unread": 0,
+      "updated_at": "2026-10-09T10:57:34.387393+00:00"
+    },
+    {
+      "attention": "none",
+      "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+      "id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "kind": "direct",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [
+        "01a12050-59d7-7669-98d5-eab07352b9d9"
+      ],
+      "muted": false,
+      "pinned": false,
+      "project_id": null,
+      "title": "集成复现-私聊契约",
+      "unread": 0,
+      "updated_at": "2026-10-09T10:58:19.223526+00:00"
+    }
+  ],
+  "defaults": {
+    "bot_default": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+    "main": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+    "maintenance": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+    "subagent": "inherit"
+  },
+  "scope": "production deployment and DM migration precheck; S1 execution running"
+}

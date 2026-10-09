@@ -29,6 +29,7 @@ sys.path.insert(0, str(HERE.parents[1]))
 
 from common import (  # noqa: E402
     add_connection_args,
+    approve_exact_pending,
     bootstrap,
     chat_history,
     client_from_args,
@@ -55,6 +56,13 @@ def args_parser() -> argparse.ArgumentParser:
     group.add_argument("--create-worker", action="store_true", help="Create a unique non-main Bot for this run")
     parser.add_argument("--home", default=os.environ.get("MACBOT_HOME", str(Path.home() / "MacBot")))
     parser.add_argument("--restart-service", action="store_true", help="Allow killing the verified 7788 LaunchAgent PID")
+    parser.add_argument(
+        "--approve-test-tools-once",
+        "--approve-test-bash-once",
+        dest="approve_test_tools_once",
+        action="store_true",
+        help="Allow once only this marker run's exact bash call (old bash alias kept); otherwise leave approval for manual review",
+    )
     parser.add_argument("--restart-timeout", type=float, default=60.0)
     return parser
 
@@ -165,6 +173,63 @@ def trace_items(client: Any, chat_id: str) -> list[dict[str, Any]]:
         "trace.history result",
     )
     return [item for item in require_list(result.get("items"), "trace.history.items") if isinstance(item, dict)]
+
+
+def approve_marker_bash(
+    client: Any,
+    chat_id: str,
+    bot_id: str,
+    marker: str,
+    expected_command: str,
+    approved_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Approve the exact bash call in this marker run, never another approval."""
+
+    items = trace_items(client, chat_id)
+    marker_runs = {
+        item.get("run_id")
+        for item in items
+        if item.get("type") == "tool.start"
+        and isinstance(item.get("run_id"), str)
+        and isinstance(item.get("data"), dict)
+        and item["data"].get("name") == "bash"
+        and marker in json.dumps(item["data"].get("args", {}), ensure_ascii=False)
+    }
+    if len(marker_runs) != 1:
+        return []
+    run_id = next(iter(marker_runs))
+    successful_calls = {
+        item["data"].get("call_id")
+        for item in items
+        if item.get("run_id") == run_id
+        and item.get("type") == "tool.end"
+        and isinstance(item.get("data"), dict)
+        and item["data"].get("is_error") is False
+    }
+    expected: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if item.get("run_id") != run_id or item.get("type") != "tool.start":
+            continue
+        data = item.get("data")
+        if not isinstance(data, dict) or data.get("name") != "bash":
+            continue
+        call_id = data.get("call_id")
+        args = data.get("args")
+        if not isinstance(call_id, str) or not isinstance(args, dict):
+            raise ValueError("recovery marker run has bash without call_id/args")
+        if call_id in successful_calls:
+            continue
+        if args.get("command") != expected_command:
+            raise ValueError("recovery marker bash command differs from the scripted command")
+        expected[call_id] = {"tool": "bash", "risk": "exec", "args": {"command": expected_command}}
+    return approve_exact_pending(
+        client,
+        run_id=run_id,
+        bot_id=bot_id,
+        chat_id=chat_id,
+        expected_calls=expected,
+        approved_ids=approved_ids,
+    )
 
 
 def checkpoint_ready(
@@ -280,9 +345,10 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
     if target.exists() or target.is_symlink():
         raise ValueError("recovery marker path already exists; refusing to overwrite it")
     trigger_time = time.time()
+    expected_command = f"sleep 20; mkdir -p e2e; printf '%s\\n' '{marker}' > {relative_path}"
     prompt = (
         f"Durable recovery acceptance marker {marker}. Use exactly one tool call per model turn. "
-        f"First call bash with `sleep 20; mkdir -p e2e; printf '%s\\n' '{marker}' > {relative_path}`. "
+        f"First call bash with `{expected_command}`. "
         "After that bash call returns, stop and wait for the next model turn; do not call read in the same turn. "
         f"On the next turn call the read tool on {relative_path}, then reply with exactly {marker}."
     )
@@ -294,8 +360,18 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
     sent_seq = sent_message.get("seq")
     if not isinstance(sent_seq, int):
         raise ValueError("recovery message has no numeric seq")
+    approved_ids: set[str] = set()
+    approval_evidence: list[dict[str, Any]] = []
+
+    def checkpoint_poll() -> dict[str, Any] | None:
+        if args.approve_test_tools_once:
+            approval_evidence.extend(
+                approve_marker_bash(client, chat_id, bot_id, marker, expected_command, approved_ids)
+            )
+        return checkpoint_ready(client, chat_id, bot_id, marker, relative_path, home, trigger_time)
+
     ready = wait_until(
-        lambda: checkpoint_ready(client, chat_id, bot_id, marker, relative_path, home, trigger_time),
+        checkpoint_poll,
         timeout=args.timeout,
         interval=args.interval,
         description="same run active with durable checkpoint",
@@ -376,6 +452,7 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
         "old_service": before,
         "new_service": after,
         "recovered": recovered,
+        "approvals": approval_evidence,
         "note": "API and local durable/PID checks only; desktop/Android replay UI remains manual.",
     }
 
