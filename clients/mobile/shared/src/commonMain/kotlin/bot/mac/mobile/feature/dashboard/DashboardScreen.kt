@@ -3,6 +3,7 @@ package bot.mac.mobile.feature.dashboard
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.long
@@ -58,6 +60,7 @@ import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -202,7 +205,7 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
                     FilterChip(splitIo, { splitIo = !splitIo }, label = { Text(stringResource(Res.string.dashboard_split_io)) })
                 }
                 if (selectedDay != null) Text("${selectedDay}", style = MaterialTheme.typography.labelMedium)
-                TimeseriesChart(timeseries, splitIo, visibleSeries, onVisibleSeriesChanged = { visibleSeries = it })
+                TimeseriesChart(timeseries, splitIo, metric, visibleSeries, onVisibleSeriesChanged = { visibleSeries = it })
             }
             item {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -273,7 +276,7 @@ private fun SummaryCards(summary: JsonObject?) {
     val previousCost = previous?.number("cost")
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SummaryCard(stringResource(Res.string.dashboard_tokens), current?.long("input_tokens", "output_tokens") ?: current?.long("tokens") ?: 0L, previous?.long("input_tokens", "output_tokens") ?: previous?.long("tokens") ?: 0L)
-        SummaryCard(stringResource(Res.string.dashboard_cost), currentCost ?: stringResource(Res.string.dashboard_unpriced), previousCost ?: stringResource(Res.string.dashboard_unpriced))
+        SummaryCard(stringResource(Res.string.dashboard_cost), currentCost?.let(::formatCost) ?: stringResource(Res.string.dashboard_unpriced), previousCost?.let(::formatCost) ?: stringResource(Res.string.dashboard_unpriced))
         SummaryCard(stringResource(Res.string.dashboard_requests), current?.long("requests") ?: 0L, previous?.long("requests") ?: 0L)
         SummaryCard(stringResource(Res.string.dashboard_cache_hit), formatPercent(cacheHitRatio(current)), formatPercent(cacheHitRatio(previous)))
         SummaryCard(stringResource(Res.string.dashboard_tasks), current?.long("tasks_done") ?: 0L, previous?.long("tasks_done") ?: 0L)
@@ -332,6 +335,7 @@ private fun Heatmap(data: JsonObject?, mode: HeatMode, onDaySelected: (String) -
 private fun TimeseriesChart(
     data: JsonObject?,
     splitIo: Boolean,
+    metric: Metric,
     visibleSeries: Set<String>?,
     onVisibleSeriesChanged: (Set<String>?) -> Unit,
 ) {
@@ -352,24 +356,65 @@ private fun TimeseriesChart(
     val all = shown.flatMap { it.values }
     if (lines.isEmpty() || all.isEmpty()) { Text(stringResource(Res.string.dashboard_no_data), modifier = Modifier.padding(16.dp)); return }
     val max = all.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
-    Box(Modifier.fillMaxWidth().height(220.dp).horizontalScroll(rememberScrollState())) {
-        Canvas(Modifier.width(56.dp * lines.first().values.size.coerceAtLeast(8).toFloat()).fillMaxSize().padding(8.dp)) {
+    val bucketCount = lines.maxOfOrNull { it.values.size }?.coerceAtLeast(1) ?: 1
+    val buckets = data?.arr("buckets").orEmpty()
+    var selectedBucket by remember(data, splitIo, visibleSeries) { mutableStateOf<Int?>(null) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().height(176.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                Modifier.width(36.dp).fillMaxSize().padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.End,
+            ) {
+                Text(formatAxis(max, metric), style = MaterialTheme.typography.labelSmall)
+                Text(formatAxis(max / 2.0, metric), style = MaterialTheme.typography.labelSmall)
+                Text(formatAxis(0.0, metric), style = MaterialTheme.typography.labelSmall)
+            }
+            Canvas(
+                Modifier.weight(1f).fillMaxSize().padding(start = 6.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+                    .pointerInput(bucketCount) {
+                        detectTapGestures { offset ->
+                            selectedBucket = (offset.x / size.width * bucketCount).toInt().coerceIn(0, bucketCount - 1)
+                        }
+                    },
+            ) {
+                val chartMax = max
+                val chartWidth = size.width
+                val chartHeight = size.height
+                drawLine(Color.LightGray.copy(alpha = 0.35f), Offset(0f, 0f), Offset(chartWidth, 0f))
+                drawLine(Color.LightGray.copy(alpha = 0.35f), Offset(0f, chartHeight / 2f), Offset(chartWidth, chartHeight / 2f))
+                drawLine(Color.LightGray.copy(alpha = 0.35f), Offset(0f, chartHeight), Offset(chartWidth, chartHeight))
             val colors = listOf(Color(0xFF5757D9), Color(0xFF0A9E72), Color(0xFFE1842A), Color(0xFFD64A5B), Color(0xFF7B61A8), Color(0xFF2B7BBC))
-            shown.forEachIndexed { index, line ->
-                val values = line.values
-                if (values.size < 2) return@forEachIndexed
-                val path = Path(); values.forEachIndexed { point, value ->
-                    val x = point * (size.width / (values.size - 1)); val y = size.height - (value / max * size.height)
-                    if (point == 0) path.moveTo(x, y.toFloat()) else path.lineTo(x, y.toFloat())
+                shown.forEachIndexed { index, line ->
+                    val values = line.values
+                    if (values.size < 2) return@forEachIndexed
+                    val path = Path(); values.forEachIndexed { point, value ->
+                        val x = point * (chartWidth / (values.size - 1)); val y = chartHeight - (value / chartMax * chartHeight)
+                        if (point == 0) path.moveTo(x, y.toFloat()) else path.lineTo(x, y.toFloat())
+                    }
+                    drawPath(
+                        path,
+                        colors[index % colors.size],
+                        style = Stroke(
+                            width = 3.dp.toPx(),
+                            pathEffect = if (line.channel == 1) PathEffect.dashPathEffect(floatArrayOf(10f, 8f)) else null,
+                        ),
+                    )
                 }
-                drawPath(
-                    path,
-                    colors[index % colors.size],
-                    style = Stroke(
-                        width = 3.dp.toPx(),
-                        pathEffect = if (line.channel == 1) PathEffect.dashPathEffect(floatArrayOf(10f, 8f)) else null,
-                    ),
-                )
+            }
+        }
+        if (bucketCount > 1) {
+            Row(Modifier.fillMaxWidth().padding(start = 42.dp, end = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(bucketLabel(buckets.getOrNull(0), 0), style = MaterialTheme.typography.labelSmall)
+                Text(bucketLabel(buckets.getOrNull(bucketCount - 1), bucketCount - 1), style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        selectedBucket?.let { index ->
+            Text(stringResource(Res.string.dashboard_bucket_detail, bucketLabel(buckets.getOrNull(index), index)), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
+            shown.forEach { line ->
+                line.values.getOrNull(index)?.let { value ->
+                    Text(stringResource(Res.string.dashboard_bucket_value, line.label, formatMetricValue(value, metric)), style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
     }
@@ -409,10 +454,18 @@ private fun BreakdownList(data: JsonObject?, onDrill: (String) -> Unit) {
                         if (sparkline.size > 1) Sparkline(sparkline)
                         val phases = row.obj("phases")
                         if (phases.isNotEmpty()) {
-                            Text("${stringResource(Res.string.dashboard_detail_phases)}: ${phases.entries.joinToString(" · ") { "${it.key} ${it.value}" }}", style = MaterialTheme.typography.labelSmall)
+                            val phaseLabels = mapOf(
+                                "chat" to stringResource(Res.string.dashboard_phase_chat),
+                                "work" to stringResource(Res.string.dashboard_phase_work),
+                                "subagent" to stringResource(Res.string.dashboard_phase_subagent),
+                                "coordinate" to stringResource(Res.string.dashboard_phase_coordinate),
+                                "memory" to stringResource(Res.string.dashboard_phase_memory),
+                                "compact" to stringResource(Res.string.dashboard_phase_compact),
+                            )
+                            Text("${stringResource(Res.string.dashboard_detail_phases)}: ${phases.entries.joinToString(" · ") { "${phaseLabels[it.key] ?: it.key} ${it.value}" }}", style = MaterialTheme.typography.labelSmall)
                         }
                     }
-                    Text(usage.number("cost")?.let { formatValue(it) } ?: stringResource(Res.string.dashboard_unpriced), style = MaterialTheme.typography.labelLarge)
+                    Text(usage.number("cost")?.let(::formatCost) ?: stringResource(Res.string.dashboard_unpriced), style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -459,6 +512,25 @@ private fun cacheHitRatio(value: JsonObject?): Double = value?.let {
 
 private fun formatPercent(value: Double): String = "${(value * 100.0).toInt()}%"
 private fun formatPercent(value: String): String = value
+
+private fun formatCost(value: Double): String {
+    val rounded = kotlin.math.round(value * 100.0) / 100.0
+    val text = rounded.toString()
+    return if (text.contains('.')) text.substringBefore('.') + "." + text.substringAfter('.').padEnd(2, '0').take(2)
+    else "$text.00"
+}
+
+private fun formatMetricValue(value: Double, metric: Metric): String = if (metric == Metric.COST) formatCost(value) else formatValue(value)
+private fun formatAxis(value: Double, metric: Metric): String = formatMetricValue(value, metric)
+
+private fun bucketLabel(value: JsonElement?, fallback: Int): String {
+    val label = when (value) {
+        is JsonObject -> listOf("label", "start", "date", "time").firstNotNullOfOrNull { key -> value.str(key).takeIf { it.isNotBlank() } }
+        null -> null
+        else -> value.toString().trim('"').takeIf { it.isNotBlank() }
+    }
+    return label ?: (fallback + 1).toString()
+}
 
 private fun Dimension.label(): String = name.lowercase()
 @Composable private fun dimensionLabel(value: Dimension): String = when (value) {

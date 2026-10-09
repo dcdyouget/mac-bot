@@ -38,6 +38,14 @@
     <string name="dashboard_detail_output">输出</string>
     <string name="dashboard_detail_cache_read">缓存读</string>
     <string name="dashboard_detail_phases">阶段</string>
+    <string name="dashboard_bucket_detail">时间段：%1$s</string>
+    <string name="dashboard_bucket_value">%1$s：%2$s</string>
+    <string name="dashboard_phase_chat">对话</string>
+    <string name="dashboard_phase_work">工作</string>
+    <string name="dashboard_phase_subagent">子 Agent</string>
+    <string name="dashboard_phase_coordinate">协作</string>
+    <string name="dashboard_phase_memory">记忆</string>
+    <string name="dashboard_phase_compact">压缩</string>
     <string name="dashboard_split_io">拆分输入/输出</string>
     <string name="dashboard_input">输入</string>
     <string name="dashboard_output">输出</string>
