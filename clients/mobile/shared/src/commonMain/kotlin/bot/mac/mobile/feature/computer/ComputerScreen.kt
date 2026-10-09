@@ -1,9 +1,7 @@
 package bot.mac.mobile.feature.computer
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,167 +10,295 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.Image
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MonotonicFrameClock
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import bot.mac.mobile.core.protocol.arr
-import bot.mac.mobile.core.protocol.boolean
-import bot.mac.mobile.core.protocol.obj
-import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.network.ScreenConnection
+import bot.mac.mobile.core.network.ScreenFrame
+import bot.mac.mobile.core.network.ScreenState
+import bot.mac.mobile.core.platform.LandscapeScreen
 import bot.mac.mobile.core.platform.platformScreenImageDecoder
 import bot.mac.mobile.core.state.MobileRepository
-import bot.mac.mobile.resources.Res
-import bot.mac.mobile.resources.computer_auto
-import bot.mac.mobile.resources.computer_bot_working
-import bot.mac.mobile.resources.computer_idle
-import bot.mac.mobile.resources.computer_loading
-import bot.mac.mobile.resources.computer_no_frame
-import bot.mac.mobile.resources.computer_quality
-import bot.mac.mobile.resources.computer_quality_high
-import bot.mac.mobile.resources.computer_quality_low
-import bot.mac.mobile.resources.computer_quality_medium
-import bot.mac.mobile.resources.computer_release
-import bot.mac.mobile.resources.computer_tabs
-import bot.mac.mobile.resources.computer_takeover
-import bot.mac.mobile.resources.computer_takeover_active
-import bot.mac.mobile.resources.computer_title
-import bot.mac.mobile.resources.computer_touch_hint
-import kotlinx.coroutines.delay
+import bot.mac.mobile.resources.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
+import kotlin.coroutines.coroutineContext
+import kotlin.math.sqrt
 
-private enum class Quality { AUTO, LOW, MEDIUM, HIGH }
+private enum class Quality { AUTO, LOW, HIGH }
 
-/**
- * The screen channel is deliberately opened only while this page is visible. The repository's
- * screen adapter owns the actual /ws/screen socket; this page only sends input and quality
- * commands, so it remains commonMain and can later be reused by iOS.
- */
 @Composable
 fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? = null, onBack: () -> Unit) {
-    var selectedTab by remember { mutableStateOf(tabId) }
+    LandscapeScreen(enabled = true)
     var quality by remember { mutableStateOf(Quality.AUTO) }
     var takeover by remember { mutableStateOf(false) }
+    var takeoverError by remember { mutableStateOf<String?>(null) }
+    var screenError by remember { mutableStateOf<String?>(null) }
+    var activeConnection by remember { mutableStateOf<ScreenConnection?>(null) }
+    var selectedTab by remember { mutableStateOf(tabId) }
+    var frameImage by remember { mutableStateOf<ImageBitmap?>(null) }
+    var frame by remember { mutableStateOf<ScreenFrame?>(null) }
     var zoom by remember { mutableFloatStateOf(1f) }
-    var screen by remember { mutableStateOf<JsonObject?>(null) }
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    var viewport by remember { mutableStateOf(IntSize.Zero) }
+    var releaseDialog by remember { mutableStateOf(false) }
+    var releaseNote by remember { mutableStateOf("") }
+    var textInput by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val activeHost by repository.activeHost.collectAsState()
+    val emptyState = remember { MutableStateFlow<ScreenState?>(null) }
+    val screenState by (activeConnection?.state ?: emptyState).collectAsState()
+    val decoder = remember { platformScreenImageDecoder() }
+    val canInput = takeover && screenState?.driver == "user"
+    val inputQueue = remember { Channel<InputCommand>(Channel.UNLIMITED) }
 
-    LaunchedEffect(botId, selectedTab, quality) {
-        repository.call("screen.open", buildJsonObject {
-            put("bot_id", botId)
-            selectedTab?.let { put("tab_id", it) }
-            put("quality", quality.name.lowercase())
-        })
-        while (true) {
-            screen = runCatching { repository.call("screen.state", buildJsonObject { put("bot_id", botId) }) }.getOrNull()
-            delay(500)
+    LaunchedEffect(Unit) {
+        for (command in inputQueue) {
+            runCatching { command.connection.sendInput(command.payload) }
         }
     }
-    androidx.compose.runtime.DisposableEffect(botId) {
-        onDispose { scope.launch { repository.call("screen.close", buildJsonObject { put("bot_id", botId) }) } }
+
+    LaunchedEffect(tabId) { selectedTab = tabId }
+
+    LaunchedEffect(botId, quality, activeHost?.id) {
+        takeover = false
+        takeoverError = null
+        screenError = null; frameImage = null; frame = null
+        zoom = 1f; pan = Offset.Zero
+        val frameClock = coroutineContext[MonotonicFrameClock]
+        if (frameClock == null) {
+            screenError = "No Compose frame clock"
+            return@LaunchedEffect
+        }
+        val connectionResult = runCatching {
+            repository.createScreen(botId, quality.wireName, selectedTab) { incoming ->
+                val decoded = runCatching { decoder.decodeJpeg(incoming.jpeg) }.getOrNull()
+                if (decoded == null) {
+                    withContext(Dispatchers.Main.immediate) { screenError = "JPEG frame decode failed" }
+                    throw IllegalStateException("JPEG frame decode failed")
+                }
+                withContext(Dispatchers.Main.immediate + frameClock) {
+                    frame = incoming
+                    frameImage = decoded
+                    withFrameNanos { }
+                }
+            }
+        }
+        val connection = connectionResult.getOrNull()
+        if (connection == null) {
+            screenError = connectionResult.exceptionOrNull()?.message ?: "screen connection failed"
+            return@LaunchedEffect
+        }
+        activeConnection = connection
+        val runner: Job = connection.start()
+        try { runner.join() } catch (cancelled: CancellationException) { throw cancelled }
+        finally {
+            withContext(NonCancellable) { try { connection.stop() } catch (_: Throwable) { } }
+            if (activeConnection === connection) activeConnection = null
+        }
     }
 
-    val tabs = screen?.obj("state")?.arr("tabs")?.mapNotNull { it as? JsonObject } ?: screen?.arr("tabs")?.mapNotNull { it as? JsonObject }.orEmpty()
-    val driver = screen?.obj("state")?.str("driver") ?: screen?.str("driver")
+    LaunchedEffect(selectedTab, takeover) {
+        val connection = activeConnection ?: return@LaunchedEffect
+        val stateTab = selectedTab ?: return@LaunchedEffect
+        if (takeover) try { connection.switchTab(stateTab) } catch (_: Throwable) { }
+    }
 
+    val tabs = screenState?.tabs.orEmpty()
     Column(Modifier.fillMaxSize().background(Color.Black)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Text("‹", color = Color.White, style = MaterialTheme.typography.headlineSmall) }
             Text(stringResource(Res.string.computer_title), Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium)
-            Text(statusLabel(takeover, driver), color = if (takeover) MaterialTheme.colorScheme.primary else Color.White, style = MaterialTheme.typography.labelMedium)
+            Text(statusLabel(takeover, screenState?.driver), color = if (takeover) MaterialTheme.colorScheme.primary else Color.White, style = MaterialTheme.typography.labelMedium)
         }
         HorizontalDivider(color = Color.DarkGray)
         if (tabs.isNotEmpty()) {
             Text(stringResource(Res.string.computer_tabs), color = Color.LightGray, modifier = Modifier.padding(start = 12.dp, top = 6.dp))
             LazyRow(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(tabs, key = { it.str("tab_id") ?: it.hashCode() }) { tab ->
-                    val id = tab.str("tab_id")
-                    FilterChip(selectedTab == id, { selectedTab = id }, label = { Text(tab.str("title") ?: tab.str("url") ?: "", maxLines = 1) })
+                items(tabs, key = { it.tabId }) { tab ->
+                    FilterChip(selectedTab == tab.tabId, onClick = {
+                        if (canInput) {
+                            selectedTab = tab.tabId
+                            scope.launch { try { activeConnection?.switchTab(tab.tabId) } catch (_: Throwable) { } }
+                        }
+                    }, label = { Text(tab.title.ifBlank { tab.url }, maxLines = 1) })
                 }
             }
         }
-        Box(Modifier.fillMaxWidth().weight(1f).padding(8.dp).aspectRatio(1.6f).pointerInput(takeover, zoom) {
-            if (!takeover) return@pointerInput
-            detectTapGestures { offset ->
-                scope.launch { repository.call("screen.input", buildJsonObject { put("bot_id", botId); put("type", "tap"); put("x", offset.x / zoom); put("y", offset.y / zoom); selectedTab?.let { put("tab_id", it) } }) }
-            }
-        }.pointerInput(takeover) {
-            if (takeover) detectTransformGestures { _, pan, scale, _ ->
-                zoom = (zoom * scale).coerceIn(1f, 4f)
-                if (pan.x != 0f || pan.y != 0f) scope.launch { repository.call("screen.input", buildJsonObject { put("bot_id", botId); put("type", "scroll"); put("dx", pan.x); put("dy", pan.y) }) }
-            }
-        }) {
-            val frame = screen?.obj("frame") ?: screen?.obj("screen_frame")
-            if (frame == null) {
-                Text(if (screen == null) stringResource(Res.string.computer_loading) else stringResource(Res.string.computer_no_frame), color = Color.LightGray, modifier = Modifier.align(Alignment.Center))
-            } else {
-                val bytes = frame.arr("bytes").mapNotNull { it.toString().trim('"').toIntOrNull()?.toByte() }.toByteArray()
-                val image = remember(bytes.contentHashCode()) { bytes.takeIf { it.isNotEmpty() }?.let { platformScreenImageDecoder().decodeJpeg(it) } }
-                if (image != null) Image(image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
-                else ScreenFramePlaceholder(frame, zoom)
+        screenError?.let { Text(stringResource(Res.string.computer_error, it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)) }
+        Box(Modifier.fillMaxWidth().weight(1f).padding(8.dp).aspectRatio(1.6f).onSizeChanged { viewport = it }
+            .pointerInput(canInput, activeConnection, frame, zoom, pan, viewport) {
+                if (!canInput) return@pointerInput
+                awaitEachGesture {
+                    val first = awaitFirstDown(requireUnconsumed = false)
+                    var multiTouch = false
+                    var touchStarted = false
+                    var firstEvent = true
+                    var previousDistance = 0f
+                    var previousCentroid = first.position
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Main)
+                        val pressed = event.changes.filter { it.pressed }
+                        if (pressed.size >= 2) {
+                            multiTouch = true
+                            val centroid = pressed.map { it.position }.centroid()
+                            val distance = pressed.take(2).let { distance(it[0].position, it[1].position) }
+                            if (previousDistance > 0f) zoom = (zoom * (distance / previousDistance)).coerceIn(1f, 4f)
+                            pan += centroid - previousCentroid
+                            previousDistance = distance
+                            previousCentroid = centroid
+                            event.changes.forEach { it.consume() }
+                        } else if (!multiTouch) {
+                            val change = pressed.firstOrNull()
+                            if (change != null && !firstEvent) {
+                                if (!touchStarted) {
+                                    queueTouch(inputQueue, activeConnection, "start", mapToFrame(change.position, viewport, frame, zoom, pan))
+                                    touchStarted = true
+                                }
+                                queueTouch(inputQueue, activeConnection, "move", mapToFrame(change.position, viewport, frame, zoom, pan))
+                                change.consume()
+                            }
+                        }
+                        firstEvent = false
+                        if (event.changes.all { !it.pressed }) {
+                            if (!multiTouch) {
+                                if (!touchStarted) {
+                                    queueTouch(inputQueue, activeConnection, "start", mapToFrame(first.position, viewport, frame, zoom, pan))
+                                }
+                                queueTouch(inputQueue, activeConnection, "end", null)
+                            }
+                            break
+                        }
+                    }
+                }
+            }, contentAlignment = Alignment.Center) {
+            when {
+                frameImage != null -> Image(frameImage!!, contentDescription = frame?.header?.url, modifier = Modifier.fillMaxSize().graphicsLayer(scaleX = zoom, scaleY = zoom, translationX = pan.x, translationY = pan.y), contentScale = ContentScale.Fit)
+                screenError != null -> Text(stringResource(Res.string.computer_error, screenError!!), color = MaterialTheme.colorScheme.error)
+                screenState == null -> Text(stringResource(Res.string.computer_loading), color = Color.LightGray)
+                else -> Text(stringResource(Res.string.computer_no_frame), color = Color.LightGray)
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(Res.string.computer_quality), color = Color.LightGray, modifier = Modifier.padding(end = 6.dp))
             Quality.entries.forEach { candidate -> FilterChip(quality == candidate, { quality = candidate }, label = { Text(candidate.label()) }) }
+            Text("×${zoom.toString().take(4)}", color = Color.LightGray, modifier = Modifier.padding(start = 8.dp))
         }
+        if (canInput) OutlinedTextField(value = textInput, onValueChange = { next ->
+            val previous = textInput; textInput = next; val added = next.removePrefix(previous)
+            if (added.isNotEmpty()) scope.launch { enqueueText(inputQueue, activeConnection, added) } else if (next.length < previous.length) scope.launch { enqueueKey(inputQueue, activeConnection, "Backspace") }
+        }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).onPreviewKeyEvent { event ->
+            if (event.type == KeyEventType.KeyDown) { scope.launch { enqueueKey(inputQueue, activeConnection, event.key.toString()) }; true } else false
+        }, placeholder = { Text(stringResource(Res.string.computer_keyboard_hint)) }, singleLine = true)
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("×${zoom.toString().take(4)}", color = Color.LightGray, modifier = Modifier.padding(end = 6.dp))
-            Slider(zoom, { zoom = it }, valueRange = 1f..4f, modifier = Modifier.weight(1f))
+            Text(stringResource(if (takeover) Res.string.computer_takeover_active else Res.string.computer_touch_hint), color = Color.Gray, modifier = Modifier.weight(1f))
             Button(onClick = {
-                takeover = !takeover
-                scope.launch { repository.call(if (takeover) "takeover.start" else "takeover.release", buildJsonObject { put("bot_id", botId) }) }
+                if (!takeover) scope.launch {
+                    takeoverError = captureError { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
+                    if (takeoverError == null) takeover = true
+                }
+                else releaseDialog = true
             }) { Text(if (takeover) stringResource(Res.string.computer_release) else stringResource(Res.string.computer_takeover)) }
         }
-        Text(stringResource(if (takeover) Res.string.computer_takeover_active else Res.string.computer_touch_hint), color = Color.Gray, modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp))
+        takeoverError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp).align(Alignment.CenterHorizontally)) }
     }
+    if (releaseDialog) AlertDialog(onDismissRequest = { releaseDialog = false }, title = { Text(stringResource(Res.string.computer_release)) }, text = { OutlinedTextField(releaseNote, { releaseNote = it }, label = { Text(stringResource(Res.string.computer_release_note)) }) }, confirmButton = { Button(onClick = {
+        scope.launch {
+            takeoverError = captureError { repository.call("takeover.release", buildJsonObject { put("bot_id", botId); if (releaseNote.isNotBlank()) put("note", releaseNote) }) }
+            if (takeoverError == null) { takeover = false; releaseDialog = false; releaseNote = "" }
+        }
+    }) { Text(stringResource(Res.string.computer_release)) } }, dismissButton = { TextButton(onClick = { releaseDialog = false }) { Text(stringResource(Res.string.common_close)) } })
 }
 
-@Composable
-private fun ScreenFramePlaceholder(frame: JsonObject, zoom: Float) {
-    // The platform screen adapter replaces this placeholder with a decoded ImageBitmap when the
-    // binary frame is available. Keeping the protocol metadata visible also helps on slow links.
-    Column(Modifier.fillMaxSize().background(Color(0xFF111118)).padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text(frame.str("mime") ?: "image/jpeg", color = Color.LightGray)
-        Text(frame.str("seq") ?: "", color = Color.DarkGray, style = MaterialTheme.typography.labelSmall)
-        Text("×${zoom.toString().take(4)}", color = Color.DarkGray, style = MaterialTheme.typography.labelSmall)
-    }
+private val Quality.wireName: String get() = name.lowercase()
+private data class InputCommand(val connection: ScreenConnection, val payload: JsonObject)
+private fun queueTouch(channel: Channel<InputCommand>, connection: ScreenConnection?, action: String, point: Offset?) {
+    connection ?: return
+    channel.trySend(InputCommand(connection, buildJsonObject {
+        put("type", "touch")
+        put("action", action)
+        put("points", if (point == null) JsonArray(emptyList()) else JsonArray(listOf(buildJsonObject { put("x", point.x); put("y", point.y) })))
+    }))
 }
-
-@Composable
-private fun statusLabel(takeover: Boolean, driver: String?): String = when {
-    takeover -> stringResource(Res.string.computer_takeover_active)
-    driver == "idle" || driver == null -> stringResource(Res.string.computer_idle)
-    else -> stringResource(Res.string.computer_bot_working)
+private suspend fun enqueueKey(channel: Channel<InputCommand>, connection: ScreenConnection?, key: String) {
+    connection ?: return
+    channel.send(InputCommand(connection, buildJsonObject {
+        put("type", "key")
+        put("action", "press")
+        put("key", key)
+        put("code", key)
+        put("text", key.takeIf { it.length == 1 })
+        put("modifiers", JsonArray(emptyList()))
+    }))
 }
-
-@Composable
-private fun Quality.label(): String = when (this) {
-    Quality.AUTO -> stringResource(Res.string.computer_auto)
-    Quality.LOW -> stringResource(Res.string.computer_quality_low)
-    Quality.MEDIUM -> stringResource(Res.string.computer_quality_medium)
-    Quality.HIGH -> stringResource(Res.string.computer_quality_high)
+private suspend fun enqueueText(channel: Channel<InputCommand>, connection: ScreenConnection?, text: String) {
+    text.forEach { enqueueKey(channel, connection, it.toString()) }
 }
+private suspend fun captureError(block: suspend () -> Unit): String? = try {
+    block(); null
+} catch (error: CancellationException) {
+    throw error
+} catch (error: Throwable) {
+    error.message ?: "request failed"
+}
+private fun List<Offset>.centroid(): Offset = if (isEmpty()) Offset.Zero else Offset(sumOf { it.x.toDouble() }.toFloat() / size, sumOf { it.y.toDouble() }.toFloat() / size)
+private fun distance(first: Offset, second: Offset): Float = sqrt((first.x - second.x) * (first.x - second.x) + (first.y - second.y) * (first.y - second.y))
+internal fun mapToFrame(offset: Offset, viewport: IntSize, frame: ScreenFrame?, zoom: Float, pan: Offset): Offset? {
+    val header = frame?.header ?: return null
+    if (viewport.width == 0 || viewport.height == 0 || header.width <= 0 || header.height <= 0) return null
+    val scale = minOf(viewport.width.toFloat() / header.width, viewport.height.toFloat() / header.height)
+    val left = (viewport.width - header.width * scale) / 2f; val top = (viewport.height - header.height * scale) / 2f
+    val localX = (offset.x - viewport.width / 2f - pan.x) / zoom + viewport.width / 2f
+    val localY = (offset.y - viewport.height / 2f - pan.y) / zoom + viewport.height / 2f
+    return Offset(((localX - left) / scale).coerceIn(0f, header.width.toFloat()), ((localY - top) / scale).coerceIn(0f, header.height.toFloat()))
+}
+@Composable private fun statusLabel(takeover: Boolean, driver: String?): String = when { takeover && driver == "user" -> stringResource(Res.string.computer_takeover_active); driver == "idle" || driver == null -> stringResource(Res.string.computer_idle); else -> stringResource(Res.string.computer_bot_working) }
+@Composable private fun Quality.label(): String = when (this) { Quality.AUTO -> stringResource(Res.string.computer_auto); Quality.LOW -> stringResource(Res.string.computer_quality_low); Quality.HIGH -> stringResource(Res.string.computer_quality_high) }

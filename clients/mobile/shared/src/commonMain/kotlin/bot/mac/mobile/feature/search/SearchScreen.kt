@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
+import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.resources.Res
@@ -45,6 +46,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
@@ -92,7 +94,7 @@ fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Uni
             searching -> Text("…", Modifier.padding(24.dp))
             results.isEmpty() -> Text(stringResource(Res.string.search_no_results), Modifier.padding(24.dp))
             else -> LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(results, key = { "${it.str("kind")}:${it.str("id")}" }) { result -> SearchResult(result, onClick = { onOpenResult(result) }) }
+                items(results, key = { "${it.str("kind")}:${it.str("id")}" }) { result -> SearchResult(result, onClick = { onOpenResult(result.openTarget()) }) }
             }
         }
     }
@@ -115,6 +117,14 @@ internal fun searchKindParameter(kind: String): String? = when (kind) {
     else -> null
 }
 private fun kindsJson(kind: SearchKind): kotlinx.serialization.json.JsonPrimitive = kotlinx.serialization.json.JsonPrimitive(kind.name.lowercase())
+private fun JsonObject.openTarget(): JsonObject {
+    if (str("kind") != "artifact" || str("chat_id").isNotBlank()) return this
+    val projectId = str("project_id").ifBlank { obj("project").str("id") }
+    return JsonObject(this + mapOf(
+        "open_target" to JsonPrimitive("artifact_preview"),
+        "root_project_id" to JsonPrimitive(projectId),
+    ))
+}
 @Composable private fun SearchKind.label(): String = when (this) {
     SearchKind.ALL -> stringResource(Res.string.search_all)
     SearchKind.MESSAGE -> stringResource(Res.string.search_message)

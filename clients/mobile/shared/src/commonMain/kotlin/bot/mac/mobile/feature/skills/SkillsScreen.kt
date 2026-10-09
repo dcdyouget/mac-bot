@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -34,32 +33,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.platform.PickedFile
+import bot.mac.mobile.core.platform.platformFilePicker
 import bot.mac.mobile.core.state.MobileRepository
-import bot.mac.mobile.resources.Res
-import bot.mac.mobile.resources.common_close
-import bot.mac.mobile.resources.skills_all
-import bot.mac.mobile.resources.skills_builtin
-import bot.mac.mobile.resources.skills_content
-import bot.mac.mobile.resources.skills_delete
-import bot.mac.mobile.resources.skills_description
-import bot.mac.mobile.resources.skills_draft
-import bot.mac.mobile.resources.skills_edit
-import bot.mac.mobile.resources.skills_empty
-import bot.mac.mobile.resources.skills_files
-import bot.mac.mobile.resources.skills_git_url
-import bot.mac.mobile.resources.skills_import
-import bot.mac.mobile.resources.skills_imported
-import bot.mac.mobile.resources.skills_mine
-import bot.mac.mobile.resources.skills_name
-import bot.mac.mobile.resources.skills_new
-import bot.mac.mobile.resources.skills_preview
-import bot.mac.mobile.resources.skills_publish
-import bot.mac.mobile.resources.skills_save
-import bot.mac.mobile.resources.skills_search
-import bot.mac.mobile.resources.skills_title
+import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -116,12 +97,14 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
                 if (skills.isEmpty()) item { Text(stringResource(Res.string.skills_empty), Modifier.padding(20.dp)) }
             }
             if (detail != null) {
-                SkillDetail(detail!!, onEdit = { showEditor = true }, onDelete = {
+                SkillDetail(detail!!, bots = state.bots, modifier = Modifier.weight(1.1f), onEdit = { showEditor = true }, onDelete = {
                     detail?.str("name")?.let { name ->
                         scope.launch { repository.call("skill.delete", buildJsonObject { put("name", name) }); selectedName = null; detail = null }
                     }
                 }, onPublish = {
                     detail?.str("name")?.let { name -> scope.launch { repository.call("skill.publish", buildJsonObject { put("name", name) }) } }
+                }, onToggleBot = { botId, enabled ->
+                    detail?.str("name")?.let { name -> scope.launch { repository.call("skill.set_enabled", buildJsonObject { put("name", name); put("enabled", enabled); put("bot_id", botId) }) } }
                 })
             }
         }
@@ -145,8 +128,9 @@ private fun SkillRow(skill: JsonObject, selected: Boolean, onClick: () -> Unit, 
 }
 
 @Composable
-private fun SkillDetail(skill: JsonObject, onEdit: () -> Unit, onDelete: () -> Unit, onPublish: () -> Unit) {
-    Column(Modifier.weight(1.1f).fillMaxSize().padding(12.dp)) {
+private fun SkillDetail(skill: JsonObject, bots: List<JsonObject>, modifier: Modifier, onEdit: () -> Unit, onDelete: () -> Unit, onPublish: () -> Unit, onToggleBot: (String, Boolean) -> Unit) {
+    val disabledBots = skill.arr("disabled_bot_ids").map { it.toString().trim('"') }.toSet()
+    Column(modifier.fillMaxSize().padding(12.dp)) {
         Text(skill.str("name") ?: "", style = MaterialTheme.typography.titleLarge)
         Text(skill.str("description") ?: "", style = MaterialTheme.typography.bodyMedium)
         Text("${stringResource(Res.string.skills_files)}: ${skill.str("path") ?: ""}", style = MaterialTheme.typography.labelSmall)
@@ -156,6 +140,16 @@ private fun SkillDetail(skill: JsonObject, onEdit: () -> Unit, onDelete: () -> U
             if (skillCanPublish(skill.str("source"))) TextButton(onClick = onPublish) { Text(stringResource(Res.string.skills_publish)) }
         }
         HorizontalDivider()
+        if (bots.isNotEmpty()) {
+            Text(stringResource(Res.string.skills_bot_access), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
+            bots.forEach { bot ->
+                val botId = bot.str("id")
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(bot.str("label") ?: bot.str("name") ?: botId, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    Switch(checked = botId !in disabledBots, onCheckedChange = { onToggleBot(botId, it) })
+                }
+            }
+        }
         Text(skill.str("content") ?: stringResource(Res.string.skills_preview), Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -185,11 +179,23 @@ private fun SkillEditor(skill: JsonObject?, onDismiss: () -> Unit, onSaved: () -
 @Composable
 private fun SkillImportDialog(onDismiss: () -> Unit, repository: MobileRepository) {
     var url by remember { mutableStateOf("") }
+    var file by remember { mutableStateOf<PickedFile?>(null) }
     val scope = rememberCoroutineScope()
     AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(Res.string.skills_import)) }, text = {
-        OutlinedTextField(url, { url = it }, label = { Text(stringResource(Res.string.skills_git_url)) }, singleLine = true)
-    }, confirmButton = { Button(enabled = url.isNotBlank(), onClick = {
-        scope.launch { repository.call("skill.import", buildJsonObject { put("source", buildJsonObject { put("kind", "git"); put("url", url.trim()) }) }); onDismiss() }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(url, { url = it }, label = { Text(stringResource(Res.string.skills_git_url)) }, singleLine = true)
+            TextButton(onClick = { scope.launch { file = try { platformFilePicker().pickFile() } catch (_: Throwable) { null } } }) { Text(stringResource(Res.string.skills_import)) }
+            file?.let { Text("${stringResource(Res.string.skills_files)}: ${it.name}", style = MaterialTheme.typography.labelSmall) }
+        }
+    }, confirmButton = { Button(enabled = url.isNotBlank() || file != null, onClick = {
+        scope.launch {
+            if (url.isNotBlank()) repository.call("skill.import", buildJsonObject { put("source", buildJsonObject { put("kind", "git"); put("url", url.trim()) }) })
+            else file?.let { picked ->
+                val upload = repository.uploadFile(picked)
+                upload.str("upload_id")?.let { id -> repository.call("skill.import", buildJsonObject { put("source", buildJsonObject { put("kind", "upload"); put("upload_id", id) }) }) }
+            }
+            onDismiss()
+        }
     }) { Text(stringResource(Res.string.skills_import)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_close)) } })
 }
 

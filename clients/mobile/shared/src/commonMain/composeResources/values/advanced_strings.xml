@@ -25,6 +25,10 @@
     <string name="dashboard_seven_days">近 7 天</string>
     <string name="dashboard_thirty_days">近 30 天</string>
     <string name="dashboard_ninety_days">近 90 天</string>
+    <string name="dashboard_split_io">拆分输入/输出</string>
+    <string name="dashboard_input">输入</string>
+    <string name="dashboard_output">输出</string>
+    <string name="dashboard_export_csv">导出 CSV</string>
     <string name="skills_title">技能</string>
     <string name="skills_new">新建</string>
     <string name="skills_search">搜索技能</string>
@@ -41,11 +45,14 @@
     <string name="skills_save">保存</string>
     <string name="skills_delete">删除</string>
     <string name="skills_import">导入</string>
+    <string name="skills_choose_file">选择 zip 文件</string>
+    <string name="skills_file_selected">已选择：%1$s</string>
     <string name="skills_git_url">Git 地址</string>
     <string name="skills_content">SKILL.md 内容</string>
     <string name="skills_name">名称</string>
     <string name="skills_description">描述</string>
     <string name="skills_files">附带文件</string>
+    <string name="skills_bot_access">对个别 Bot 启用</string>
     <string name="skills_empty">暂无技能</string>
     <string name="search_title">搜索</string>
     <string name="search_hint">搜索消息、Bot、群、产物、定时任务</string>
@@ -77,10 +84,11 @@
     <string name="computer_loading">正在连接画面…</string>
     <string name="computer_no_frame">暂无画面</string>
     <string name="computer_touch_hint">接管后可触摸操作</string>
+    <string name="computer_keyboard_hint">输入文字或按键…</string>
+    <string name="computer_release_note">交还说明（可选）</string>
+    <string name="computer_error">画面连接失败：%1$s</string>
     <string name="computer_takeover_active">你正在操作（Bot 已暂停）</string>
     <string name="computer_tabs">标签页</string>
     <string name="computer_quality_low">低</string>
-    <string name="computer_quality_medium">中</string>
     <string name="computer_quality_high">高</string>
-    <string name="common_close">关闭</string>
 </resources>

@@ -1,8 +1,49 @@
-# clients/mobile/：Android 客户端（Kotlin Multiplatform + Compose Multiplatform）
+# Mac Bot Android
 
-**负责人：client-android。** v1 只有 Android target；iOS 以后再加（届时增加 iOS target 和 `iosApp/` 外壳，`commonMain` 的代码直接复用）。
+Android-only Kotlin Multiplatform + Compose Multiplatform 1.12.1. Package/applicationId: `bot.mac.mobile`; launcher: `bot.mac.mobile.MainActivity`. Shared code lives in `shared/src/commonMain` (`core/` and `feature/`); Android APIs are isolated behind platform interfaces in `androidMain` and the `androidApp` shell. No iOS target and no client memory page.
 
-- 包名和 applicationId：`bot.mac.mobile`
-- 代码组织见 [AGENTS.md](../../AGENTS.md) 第 1 节；界面以 [DESIGN.md](../../docs/DESIGN.md) 第 5 章为准；协议以 [PROTOCOL.md](../../docs/PROTOCOL.md) 为准。
-- 开发和演示使用本机的 Android 模拟器 `macbot_api36`（Android 16 / API 36、arm64）：`$ANDROID_HOME/emulator/emulator -avd macbot_api36`。模拟器里访问 Mac 本机用 `10.0.2.2`（mock：`10.0.2.2:7789`；正式服务：`10.0.2.2:7788`）。
-- 编译、安装（adb install）、运行的命令由 client-android 写在这里。
+## Build and test
+
+```sh
+cd clients/mobile
+export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+# Compose 1.12.1 Android artifacts require compile API 37.0; target remains API 36.
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
+./gradlew :androidApp:assembleDebug
+./gradlew :shared:commonTest :shared:androidUnitTest
+./gradlew :androidApp:connectedDebugAndroidTest
+```
+
+Gradle wrapper: 9.8.1; Kotlin: 2.4.21; AGP: 9.4.1; minSdk: 26; targetSdk: 36. AGP 9 runs `commonTest` and `src/androidUnitTest` together in `testAndroidHostTest`; the two aliases above execute that task. Reports: `shared/build/reports/tests/testAndroidHostTest/`.
+
+Protocol fixtures must be generated after server-mac publishes the authoritative contract:
+
+```sh
+# From repository root
+python3 protocol/kotlin/generate.py --check
+```
+
+The fixture contract test fails if the corpus is missing; no-fixture builds are not phase completion evidence.
+
+## Emulator deploy
+
+```sh
+"$ANDROID_HOME/emulator/emulator" -avd macbot_api36 &
+"$ANDROID_HOME/platform-tools/adb" wait-for-device
+"$ANDROID_HOME/platform-tools/adb" install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
+"$ANDROID_HOME/platform-tools/adb" shell am start -n bot.mac.mobile/.MainActivity
+"$ANDROID_HOME/platform-tools/adb" exec-out screencap -p > verification/S0.png
+```
+
+Add a Host using `10.0.2.2:7789`, password `dev`, for mock; real host uses `10.0.2.2:7788`. Physical devices can use any reachable IP/domain, including `192.168.31.162:7788`. Each Host accepts multiple ordered addresses, `ws`/`wss`/`http`/`https`, proxy prefixes and IPv6. Passwords are encrypted with Android Keystore; Host snapshots, drafts and replay cursors persist separately per Host.
+
+Debug APK: `androidApp/build/outputs/apk/debug/androidApp-debug.apk`. Release APK: `androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk`; signing uses user-provided credentials (never committed). Run `./gradlew :androidApp:assembleRelease` for an optimized unsigned release.
+
+Android notifications use channels `needs-you`, `completed`, `messages`. Grant notification permission when requested. The foreground service owns the long-lived main connection; screen streams open only while the Computer page is visible. Notification actions use the same idempotent protocol writes as in-app actions.
+
+## Verification
+
+Phase evidence and emulator screenshots are stored under `verification/`. The integrator can archive them in `docs/progress/`. See `verification/STATUS.md` for completed checks and remaining integration dependencies.
+
+Co-Authored-By: Codex <noreply@openai.com>

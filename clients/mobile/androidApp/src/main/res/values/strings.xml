@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Mac Bot</string>
+    <string name="connection_running">正在保持与 Host 的连接</string>
+    <string name="channel_needs_you">需要你处理</string>
+    <string name="channel_needs_you_description">审批和需要用户回答的问题</string>
+    <string name="channel_completed">已完成</string>
+    <string name="channel_messages">消息</string>
+    <string name="approval_allow_once">允许一次</string>
+    <string name="approval_always_allow">始终允许</string>
+    <string name="approval_reject">拒绝</string>
+    <string name="review_completion">确认完成</string>
+</resources>
