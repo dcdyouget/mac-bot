@@ -1,0 +1,179 @@
+{
+  "status": "PASS_LOCAL_ANDROID_NATIVE_USAGE_SUMMARY",
+  "at": "2026-10-09T21:42:20.633924+00:00",
+  "server_source": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+  "android_source": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "host_id": "d152bb68-f2b3-40c4-85eb-e68535af71d2",
+  "pid": 20943,
+  "range": {
+    "from": "2026-10-09T00:00:00Z",
+    "to": "2026-10-09T23:59:59Z"
+  },
+  "summary": {
+    "current": {
+      "cache_read_tokens": 2847087,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 4208766,
+      "output_tokens": 148876,
+      "requests": 490,
+      "tasks_done": 1
+    },
+    "previous": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "requests": 0,
+      "tasks_done": 0
+    }
+  },
+  "native": {
+    "total_tokens": 4357642,
+    "requests": 490,
+    "cost_label": "未定价",
+    "custom_from": "2026-10-09",
+    "custom_to": "2026-10-09",
+    "visually_reviewed": true,
+    "breakdown": {
+      "input_tokens": 4208766,
+      "output_tokens": 148876,
+      "cache_read_tokens": 2847087,
+      "requests": 490,
+      "visually_reviewed": true
+    }
+  },
+  "heatmap": {
+    "days": [
+      {
+        "cost": null,
+        "date": "2026-10-09",
+        "requests": 69,
+        "tokens": 257571,
+        "top_bot_id": "main",
+        "value": 257571.0
+      },
+      {
+        "cost": null,
+        "date": "2026-10-10",
+        "requests": 421,
+        "tokens": 4100071,
+        "top_bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "value": 4100071.0
+      }
+    ],
+    "thresholds": [
+      257571.0,
+      257571.0,
+      257571.0
+    ]
+  },
+  "timeseries": {
+    "buckets": [
+      "2026-10-09T00:00:00Z",
+      "2026-10-09T01:00:00Z",
+      "2026-10-09T02:00:00Z",
+      "2026-10-09T03:00:00Z",
+      "2026-10-09T04:00:00Z",
+      "2026-10-09T05:00:00Z",
+      "2026-10-09T06:00:00Z",
+      "2026-10-09T07:00:00Z",
+      "2026-10-09T08:00:00Z",
+      "2026-10-09T09:00:00Z",
+      "2026-10-09T10:00:00Z",
+      "2026-10-09T11:00:00Z",
+      "2026-10-09T12:00:00Z",
+      "2026-10-09T13:00:00Z",
+      "2026-10-09T14:00:00Z",
+      "2026-10-09T15:00:00Z",
+      "2026-10-09T16:00:00Z",
+      "2026-10-09T17:00:00Z",
+      "2026-10-09T18:00:00Z",
+      "2026-10-09T19:00:00Z",
+      "2026-10-09T20:00:00Z",
+      "2026-10-09T21:00:00Z",
+      "2026-10-09T22:00:00Z",
+      "2026-10-09T23:00:00Z"
+    ],
+    "granularity": "hour",
+    "series": [
+      {
+        "input_values": null,
+        "key": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "label": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "output_values": null,
+        "total": 4357642.0,
+        "values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          21657.0,
+          103408.0,
+          78793.0,
+          0.0,
+          53713.0,
+          93686.0,
+          47813.0,
+          1404101.0,
+          213546.0,
+          1037083.0,
+          1303842.0,
+          0.0,
+          0.0
+        ]
+      }
+    ]
+  },
+  "full_s3_pass": false,
+  "breakdown_export_verified": false,
+  "both_clients_same_window_verified": false,
+  "keyboard_tutorial_interruption_resolved": true,
+  "new_model_requests": false,
+  "screenshot": "production-094b7c5-cac5b12-android-dashboard-summary.png",
+  "breakdown": {
+    "rows": [
+      {
+        "key": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "label": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "phases": {
+          "chat": 348686,
+          "compact": 0,
+          "coordinate": 1490962,
+          "memory": 5069,
+          "subagent": 139298,
+          "work": 2373627
+        },
+        "sparkline": [
+          257571,
+          4100071
+        ],
+        "usage": {
+          "cache_read_tokens": 2847087,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 4208766,
+          "output_tokens": 148876,
+          "requests": 490
+        }
+      }
+    ]
+  },
+  "aggregation_checks": {
+    "series_sum": 4357642.0,
+    "heatmap_sum": 4357642,
+    "matches_summary": true,
+    "native_timeseries_peak": 1404101,
+    "matches_rpc_peak": true,
+    "native_breakdown_matches_rpc": true
+  },
+  "breakdown_screenshot": "production-094b7c5-cac5b12-android-dashboard-breakdown.png"
+}
