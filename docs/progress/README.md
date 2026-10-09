@@ -4,7 +4,7 @@
 
 ## 现在的状态
 
-正式服务 `22b3b10` 已从干净快照部署到 `7788`，使用本机开发文件凭据和 MiniMax-M2.5。桌面安装版 `222fda9` 已连接正式服务并显示真实工具结果；共享 mock `11bc831` 仍保留。Android 签名 Release `80d8a42` 已安装且 APK 哈希独立核对一致，当前仍显示“正在连接”，网络恢复由 Android 线处理。S0 历史通过；S1–S5 真实联合验收尚未通过。
+正式服务 `22b3b10` 已从干净快照部署到 `7788`，使用本机开发文件凭据和 MiniMax-M2.5。桌面安装版 `222fda9` 已连接正式服务并显示真实工具结果；共享 mock `11bc831` 仍保留。Android 签名 Release `80d8a42` 已安装且 APK 哈希独立核对一致，20:00恢复wlan0路由后已能访问7788/7789 health，但App仍显示“正在连接”；CUA无法绑定未打包的模拟器窗口，等待Android线诊断。S0 历史通过；S1–S5 真实联合验收尚未通过。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
@@ -19,7 +19,7 @@
 
 Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/性能资料清单](S5/android-80d8a42-artifact-manifest.json)已归档至各阶段目录，文件名带 `android-owner-80d8a42-`。这些是客户端 mock/专项证据，包含历史截图，不代表由集成线在最终 APK 上重新完成场景。Release 为 2,111,878 bytes；集成线拉取已安装 `base.apk` 的 SHA-256 与归属线一致，未重复安装或重启。性能 JSON 保留不同源码修订及软件/硬件模拟器限制；QEMU 曾 exit139，不能据样本认定真机性能或稳定性通过。
 
-当前阻断归 server-mac：安全 DM kill-9 自动恢复遗漏（修复未发布）；批准 write 后 read/bash 被错误标为 write 风险；私聊 pending 审批未进入 Workbench；`chat.mark_read` 路由缺失；第二轮不同请求触发上一轮工具任务，需核查上下文排序/重复；user/Bot消息序号重复导致 after_seq 轮询漏回复。证据：[待审批与工作台](S1/production-22b3b10-pending-workbench.json)、[桌面错误现场](S1/20261009-195202-desktop.png)、[连续对话轨迹](S3/production-22b3b10-memory-unrelated-tools.json)。Android 仍在连接，[当前截图](S1/20261009-195202-android.png)。
+当前阻断归 server-mac：安全 DM kill-9 自动恢复遗漏（修复未发布）；批准 write 后 read/bash 被错误标为 write 风险；私聊 pending 审批未进入 Workbench；`chat.mark_read` 路由缺失；第二轮不同请求触发上一轮工具任务，需核查上下文排序/重复；user/Bot消息序号重复导致 after_seq 轮询漏回复。证据：[待审批与工作台](S1/production-22b3b10-pending-workbench.json)、[桌面错误现场](S1/20261009-195202-desktop.png)、[连续对话轨迹](S3/production-22b3b10-memory-unrelated-tools.json)。Android恢复网络后仍在连接，[当前截图](S5/android-80d8a42-network-third-recovery.png)、[端口健康证据](S5/android-80d8a42-network-third-recovery.json)。
 
 `22b3b10` 已独立完成真实 MiniMax [同 run write/read/bash 与最终回复](S1/production-22b3b10-tools.json)；原脚本超时（审批等待及消息seq重复）；之后精确 allow_once 完成原 run，再从全历史与同run轨迹验证工具，原脚本仍记FAIL，未另起测试。另一 model=null Bot 的 [routine.test_run](S4/production-22b3b10-routine.json) 约4.9s完成，运行中 RPC 返回 done/finished_at；自建 routine 已删除。这些只计 API 局部证据。原 DM/default-model/routine 失败记录保留为历史。正式服务主连接 [断线补发](S1/production-bd6e7c2-connection-replay.json) 曾通过，不替代双端 UI。S5 [22b3 pkg载荷/来源校验](S5/server-pkg-22b3b10-verified.json)通过，尚未执行全新安装。
 
@@ -40,7 +40,7 @@ cd /Users/gongshaojie/Project/mac-bot
 
 `deploy.sh` 会按当前代码可用性编译并部署 `macbotd`、桌面 `.app` 和 Android APK；缺少某条开发线产物时会跳过并打印提示。正式服务使用端口 `7788`，数据目录为 `~/MacBot`，访问密码只从本机文件 `~/.macbot-dev-password` 读取或由部署流程设置，密码内容不写入仓库。
 
-S0 两端会话列表验收已归档：[记录](S0/main-s0-current.json)、[桌面](S0/main-eb088fa-desktop-sessions.png)、[Android](S0/main-08462a4-android.png)。当前桌面222专项回归通过；Android 最新截图已显示缓存列表但仍在连接，网络再次无路由，不能认定当前连接通过。
+S0 两端会话列表验收已归档：[记录](S0/main-s0-current.json)、[桌面](S0/main-eb088fa-desktop-sessions.png)、[Android](S0/main-08462a4-android.png)。当前桌面222专项回归通过；Android 最新截图显示缓存列表但仍在连接，20:00端口健康已恢复，不能认定App连接通过。
 桌面端：双击打开 `~/Applications/MacBot.app`；已保存正式 Host `127.0.0.1:7788` 的连接凭据并设为当前连接；可看到真实工具回复，连续对话仍有上述阻断。当前 mock 地址为 `127.0.0.1:7789`，密码 `dev`，开发部署已启用文件凭据后端。正式服务 ready 后填写 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`。
 
 Android 模拟器：需要时先执行：

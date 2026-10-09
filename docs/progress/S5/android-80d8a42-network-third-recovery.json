@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-09T12:00:13.641665+00:00",
+  "operation": "cmd wifi connect-network AndroidWifi open + svc data enable only; no restart or install",
+  "health": {
+    "7788": {
+      "rc": 0,
+      "output": "HTTP/1.0 200 OK\ncontent-type: application/json\ncontent-length: 65\ndate: Fri, 09 Oct 2026 12:00:29 GMT\n\n{\"ok\":true,\"protocol\":1,\"setup_required\":false,\"version\":\"0.1.0\"}"
+    },
+    "7789": {
+      "rc": 0,
+      "output": "HTTP/1.0 200 OK\ncontent-type: application/json\ncontent-length: 65\ndate: Fri, 09 Oct 2026 12:00:31 GMT\n\n{\"ok\":true,\"protocol\":1,\"setup_required\":false,\"version\":\"0.1.0\"}"
+    }
+  }
+}
