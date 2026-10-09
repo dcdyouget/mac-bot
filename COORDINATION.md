@@ -331,3 +331,11 @@
 - S3移动端局部PASS：正式Android仪表盘1,816,673 tokens/283 requests/未定价，与刷新前后RPC精确一致；`docs/progress/S3/production-d97e48f-android-dashboard.json`及截图。桌面锁屏，仍无同窗口双端一致性结论。S4旧b5直接JPEG/low640x316/ACK/同WS bot→user→bot传输复验通过，`docs/progress/S4/production-d97e48f-screen-restored.json`，不替代原生画面/输入、手机登录接管或通知。
 - 新服务端阻断（server-mac）：Tester asg`01a121fd-f9a6-71ae-98c6-204430a8e2a5`、parallel Coder asg`01a121fc-ff21-71bd-928f-90ca6017b0b7`的`background=true` Bash获批后进程已启动，但225/222秒观察仍job running/pending head、同call只有tool.start无tool.end。匹配d97源码execution.rs调用tool.call后await output_forwarder；后台pump保留sender，EOF等待阻止工具返回。server-mac已确认并隔离修工具立即返回/持续输出归属/取消/unsafe恢复。证据 `docs/progress/S2/production-d97e48f-background-output-stall.json`；保留正式现场，不自动重放已启动命令。
 - 模型产物单独记录：parallel Node已按反馈改3001，PID76297/cwd本项目server；原3000 Remotion PID2521未动。3001根页GET404、check-status API200，不能算demo可用。Node不在daemon PATH，模型只读定位实际nvm binary后按绝对路径调用；这些不归客户端故障。只有S0整阶段PASS，S1–S5双端/fresh未完成。
+
+
+## server-mac：后台 Bash EOF 等待与实时输出路由修复（2026-10-10）
+- 正式d97两个background=true Bash获准后已启动，但Running/unsafe checkpoint仍保留pending head且无tool.end。根因为后台pump保留输出sender，而执行入口等待forwarder EOF。仅后台Bash改为返回工具结果即tool.end/推进checkpoint，forwarder继续到输出EOF；前台行为、正常审批/取消/持久化边界不变。
+- 实际WS回归还确认tool_output此前缺内部assignment/chat路由，具体轨迹订阅无法收到。输出携带内部路由至gateway过滤，wire前剥离，公开data仍只有stream/call_id/chunk，无协议变更；模型请求结束后也可继续输出且不同run不串流。
+- 旧已启动命令不自动恢复执行、不伪造成功：Running/unsafe→Suspended，保持原run/head，启动不spawn；旧manager job_id/PID未写进该checkpoint，不能自动接管或清理。提供server/macbotd/tests/inspect_background_checkpoint.py只读最新commit/request摘要（ID/cwd/hash，无命令正文/密钥）。若明确终止旧任务，只走assignment.stop→Cancelled；重启前未知PID不自动杀，必须另核归属，禁止再approve旧head。
+- 验证324 workspace tests、all-targets clippy -D warnings、fmt/build通过；隔离真实旧d97→新版证据 /tmp/macbot-background-upgrade-20261010f.evidence.log（同名home）。核旧命令start=1、provider无新增、升级后同run Suspended；显式stop无重放，旧PID仍在，最后仅显式清理本测试自有进程。三个新后台调用各自新审批、同response后续调用、进程未退出时tool.end/下一模型请求、tool.end后实际WS输出/精确wire keys、跨run/call归属、取消一个run不影响另一个均PASS。
+- 完整协作 /tmp/macbot-background-collaboration-20261010b.evidence.log：24 assignments/27jobs全done。只读门禁复核无发布阻断，rebase最新origin/main后server/protocol内容逐字一致；升级后复跑证据 /tmp/macbot-background-upgrade-20261010g.evidence.log，全量 /tmp/macbot-background-rebase-workspace-20261010.log、同前缀clippy。未触正式7788/d97、共享7789、实际两个旧命令、GUI/AVD或真实key；集成沿固定SHA先读checkpoint/进程基线，不将隔离fake通过记成真实S2/双端或fresh整体通过。
