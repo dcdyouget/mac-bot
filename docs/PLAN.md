@@ -41,7 +41,7 @@
 | **Playwright MCP 扩展模式**、**mcp-chrome**、**Browser MCP**、**real-browser-mcp** | 通过 **Chrome 扩展**控制用户日常使用的浏览器，直接复用登录态（Chrome 136 起，默认 profile 不再允许 `--remote-debugging-port`，扩展是正路） |
 | **cua-driver**（trycua/cua，MIT） | 后台控制原生 Mac App，**不抢鼠标、不抢焦点**（可选，需要系统权限） |
 | **Peekaboo**（openclaw/peekaboo，MIT） | macOS 截图和 GUI 自动化 CLI/MCP（可选） |
-| **gpui-component**（longbridge） | GPUI 组件库，省去自己写基础控件 |
+| **gpui-kit**（[longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)，原名 gpui-component，Apache-2.0，约 1.6 万 star） | 桌面端组件库：75+ 组件，包括 Markdown/HTML 渲染、不等高虚拟列表（消息流）、Dock 和可拖拽面板、表单、浮层、菜单、主题；Longbridge Pro 在生产环境使用；自带给 AI 编程助手用的 skills |
 
 > cua 和 lume：lume 是在 Apple Silicon 上管理 macOS/Linux 虚拟机的工具，cua 是跑在虚拟机里的电脑操控 Agent 框架。我们不用虚拟机，所以**不采用 lume**；同一仓库里的 **cua-driver**（不用虚拟机、直接后台操控本机 App）可以作为原生桌面操控的候选。
 
@@ -139,7 +139,7 @@ mac-bot/
 │   ├── macbot-server        # 守护进程
 │   └── macbot-client        # 桌面端共用的协议客户端（重连、本地缓存）
 ├── apps/
-│   ├── desktop/             # GPUI + gpui-component
+│   ├── desktop/             # gpui-kit（只依赖这一个 crate，它会固定匹配的 GPUI 版本）
 │   ├── mobile/              # Kotlin Multiplatform + Compose Multiplatform
 │   │   ├── shared/          #   共享代码：UI、ViewModel、Ktor WebSocket、kotlinx.serialization、本地缓存
 │   │   ├── androidApp/      #   Android 外壳（前台服务、通知）
@@ -249,7 +249,7 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 | 用途 | 工具 | 备注 |
 |------|------|------|
 | 服务端和桌面端 | Rust stable（rustfmt、clippy），Xcode（提供 Metal 编译器，GPUI 需要） | crates.io 走清华 tuna 镜像 |
-| GPUI | `gpui` 0.2.x、`gpui-component` 0.7.x（crates.io） | |
+| GPUI | 只依赖 `gpui-kit` 0.7.x（它会 re-export GPUI、gpui-base、gpui-component 和 Lucide 图标），不单独依赖 `gpui` | Xcode 26 需要额外下载 Metal 工具链：`xcodebuild -downloadComponent MetalToolchain` |
 | 移动端 | JDK 21、Gradle（项目内使用 wrapper）、Android SDK 36 + build-tools 36.1、platform-tools（adb） | 真机调试用 USB 或无线 adb 连接小米 17 |
 | iOS | Xcode 26 + iOS Simulator 运行时；真机需要签名 | |
 | Windows 客户端 | **只能在 Windows 上构建**（GPUI 的 Windows 后端需要在 Windows 上编译 DirectX 着色器），用 GitHub Actions 的 windows runner 构建 | |
