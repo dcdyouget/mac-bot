@@ -2747,6 +2747,11 @@ impl crate::RpcBackend for ComposedBackend {
                     .and_then(|assignments| assignments.get(&assignment_id))
                     .cloned()
                     .unwrap_or(Value::Null);
+                // A repeated stop must still reconcile persisted approval
+                // events, but never cancel or restart the engine a second time.
+                if status == "cancelled" {
+                    return self.inner.call(method, params, state).await;
+                }
                 return Ok(json!({"assignment": assignment}));
             }
             cancel_assignment_engine(self, &assignment_id, &status).await?;
@@ -2765,20 +2770,28 @@ impl crate::RpcBackend for ComposedBackend {
             )
         {
             if let Some(approval_id) = params.get("approval_id").and_then(Value::as_str) {
+                // A late deny must be rejected before touching any active job.
+                // An expired receipt can belong to a run now waiting on a new
+                // corrected call; it is not permission to cancel that run.
+                let snapshot = snapshot_value(self)?;
+                let approval = snapshot
+                    .get("approvals")
+                    .and_then(|items| items.get(approval_id))
+                    .ok_or_else(|| crate::rpc_error("not_found", "approval not found", None))?;
+                if approval.get("state").and_then(Value::as_str) != Some("pending") {
+                    return Err(crate::rpc_error(
+                        "conflict",
+                        "non-pending approval cannot be decided",
+                        None,
+                    ));
+                }
                 if let Some(assignment_id) = approval_assignment_id(self, approval_id)? {
                     let status = assignment_status(self, &assignment_id)?;
                     if !matches!(status.as_str(), "done" | "failed" | "cancelled") {
                         cancel_assignment_engine(self, &assignment_id, &status).await?;
-                        self.inner
-                            .call(
-                                "assignment.stop",
-                                json!({
-                                    "assignment_id": assignment_id,
-                                    "client_request_id": format!("approval-deny:{approval_id}")
-                                }),
-                                &self.state,
-                            )
-                            .await?;
+                        // Keep the target approval pending until its explicit
+                        // denial is recorded. A preliminary assignment.stop
+                        // would expire it before approval.decide can run.
                     }
                 }
             }

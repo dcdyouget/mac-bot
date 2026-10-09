@@ -232,3 +232,14 @@ python3 server/macbotd/tests/smoke_user_steer_memory.py \
 ```
 
 只使用本机 fake provider；不调用 `assignment.steer`、不在 `chat.send` 传入内部 assignment_id。验证工作中用户插话、canonical delivery 与重放去重、同 run 参数纠正、旧审批过期和未执行 batch。旧版已经派出的插话 siblings 不迁移、不取消、不重放，本补丁只修新消息的入口。
+
+`assignment.stop` 在取消任务时将其关联 pending 审批收敛为 `expired`，并发布 `approval.resolved`；其他任务与无 assignment 的私聊审批保持。重复停止/重启不改决定时间、不重复发解决事件，过期审批不能被 allow_once/always_allow/deny 再次决定。旧版遗留的 terminal assignment + pending approval 在启动时按已有 assignment_id 修复，不重放工具或恢复任务。正常 pending 的 deny 仍记录 denied、取消 durable job，并保留失败任务和一次停止系统消息。
+
+隔离取消与旧 d799 升级回归（本机 fake provider，禁止 7788/7789，不执行任何待批写入）：
+
+```sh
+python3 server/macbotd/tests/smoke_cancelled_approvals.py \
+  --url http://127.0.0.1:7796 --home /tmp/macbot-cancelled-approvals \
+  --old-command '/path/to/d799dda/macbotd --port 7796 --password dev' \
+  --new-command '/path/to/new/macbotd --port 7796 --password dev'
+```

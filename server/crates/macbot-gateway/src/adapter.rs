@@ -110,10 +110,18 @@ impl ProductionBackend {
                 Ok(None) | Err(_) => None,
             },
         };
+        let mut terminal_approvals_migrated = false;
         if let Some(snapshot) = snapshot {
+            let old_approvals = snapshot.get("approvals").cloned();
             orchestrator
                 .restore(snapshot)
                 .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+            terminal_approvals_migrated = old_approvals
+                != orchestrator
+                    .snapshot()
+                    .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?
+                    .get("approvals")
+                    .cloned();
         }
         if let Some(settings) = store.read_snapshot::<Value>("data/settings.json")? {
             let limits = scheduler_limits(&settings)
@@ -155,9 +163,21 @@ impl ProductionBackend {
             event_lock: Arc::new(Mutex::new(())),
             idempotency: Arc::new(Mutex::new(idempotency)),
         };
+        if terminal_approvals_migrated {
+            // Constructor-only: persist normalized terminal approvals before
+            // any request or runtime writer can observe restored state.
+            backend
+                .persist_orchestrator_locked(json!({
+                    "method":"approval.terminal_recovery","status":"done","result":{}
+                }))
+                .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+        }
         backend.reconcile_durable_decision_waits()?;
         backend.repair_decision_question_messages()?;
         backend.repair_completed_operation_events(&operations)?;
+        backend
+            .terminal_approval_events(None)
+            .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
         Ok(backend)
     }
 
@@ -1173,6 +1193,52 @@ impl ProductionBackend {
         Ok(canonical)
     }
 
+    /// Expired approvals tied to terminal assignments are no longer actions.
+    /// Stable receipt keys repair a crash between state persistence and event
+    /// publication without emitting another resolution on repeated stop/open.
+    fn terminal_approval_events(
+        &self,
+        assignment_id: Option<&str>,
+    ) -> Result<Vec<macbot_store::Event>, RpcError> {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let mut events = Vec::new();
+        for approval in snapshot
+            .get("approvals")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|items| items.values())
+        {
+            let Some(id) = approval.get("assignment_id").and_then(Value::as_str) else {
+                continue;
+            };
+            if assignment_id.is_some_and(|expected| id != expected)
+                || approval.get("state").and_then(Value::as_str) != Some("expired")
+                || !matches!(
+                    snapshot
+                        .get("assignments")
+                        .and_then(|items| items.get(id))
+                        .and_then(|assignment| assignment.get("status"))
+                        .and_then(Value::as_str),
+                    Some("cancelled" | "done" | "failed")
+                )
+            {
+                continue;
+            }
+            let approval_id = approval
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if let Some(event) = self.append_repaired_event(
+                &format!("terminal-assignment:{id}:approval:{approval_id}"),
+                "approval.resolved",
+                json!({"approval":approval}),
+            )? {
+                events.push(event);
+            }
+        }
+        Ok(events)
+    }
+
     fn repair_operation_events(
         &self,
         operation: &Value,
@@ -1204,6 +1270,48 @@ impl ProductionBackend {
                     events.push(event);
                 }
             }
+        }
+        if method == "approval.decide" && canonical["approval"]["state"] == "denied" {
+            if let Some(id) = canonical["approval"]["assignment_id"].as_str() {
+                let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+                if let Some(assignment) =
+                    snapshot.get("assignments").and_then(|items| items.get(id))
+                {
+                    let mut assignment = assignment.clone();
+                    normalize_assignment(&mut assignment);
+                    if let Some(event) = self.append_repaired_event(
+                        &format!("{base_key}:assignment"),
+                        "assignment.updated",
+                        json!({"assignment":assignment}),
+                    )? {
+                        events.push(event);
+                    }
+                }
+                events.extend(self.terminal_approval_events(Some(id))?);
+                let message = self
+                    .orchestrator
+                    .create_task_stopped_message(id)
+                    .map_err(Self::error)?;
+                let mut message = serde_json::to_value(message).map_err(|error| RpcError {
+                    code: "internal".into(),
+                    message: error.to_string(),
+                    details: None,
+                })?;
+                normalize_message(&mut message);
+                let message = self.persist_client_message(&message)?;
+                if let Some(event) = self.append_repaired_event(
+                    &format!("task-stopped-message:{id}"),
+                    "message.created",
+                    json!({"message":message}),
+                )? {
+                    events.push(event);
+                }
+            }
+        }
+        if method == "assignment.stop" {
+            events.extend(
+                self.terminal_approval_events(params.get("assignment_id").and_then(Value::as_str))?,
+            );
         }
         if matches!(method, "bot.create" | "bot.duplicate") {
             if let Some(chat) = canonical.get("dm_chat").filter(|value| value.is_object()) {
@@ -3200,26 +3308,38 @@ impl ProductionBackend {
             .finish_assignment(&assignment_id, "cancelled")
             .map_err(Self::error)?;
         if !was_cancelled {
-            let message = self
-                .orchestrator
-                .create_task_stopped_message(&assignment_id)
-                .map_err(Self::error)?;
-            let mut data = serde_json::to_value(message).map_err(|error| RpcError {
-                code: "internal".into(),
-                message: error.to_string(),
-                details: None,
-            })?;
-            normalize_message(&mut data);
-            let data = self.persist_client_message(&data)?;
-            let event = self
-                .store
-                .append_event("message.created", json!({"message":data.clone()}))
-                .map_err(store_error)?;
+            self.publish_task_stopped_message(state, &assignment_id)
+                .await?;
+        }
+        Ok(json!({"assignment":assignment}))
+    }
+
+    async fn publish_task_stopped_message(
+        &self,
+        state: &GatewayState,
+        assignment_id: &str,
+    ) -> RpcResult {
+        let message = self
+            .orchestrator
+            .create_task_stopped_message(assignment_id)
+            .map_err(Self::error)?;
+        let mut data = serde_json::to_value(message).map_err(|error| RpcError {
+            code: "internal".into(),
+            message: error.to_string(),
+            details: None,
+        })?;
+        normalize_message(&mut data);
+        let data = self.persist_client_message(&data)?;
+        if let Some(event) = self.append_repaired_event(
+            &format!("task-stopped-message:{assignment_id}"),
+            "message.created",
+            json!({"message":data}),
+        )? {
             state
                 .publish_event(event.seq, &event.event, event.data)
                 .await;
         }
-        Ok(json!({"assignment":assignment}))
+        Ok(json!({}))
     }
 
     async fn duplicate_bot_with_skills(&self, params: &Value) -> RpcResult {
@@ -8655,6 +8775,183 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[tokio::test]
+    async fn cancelled_approvals_expire_and_repair_durable_events_once() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "origin_chat_id":"chat_main", "bot_id":"main",
+                    "title":"cancel approval", "instruction":"wait", "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let id = assignment["id"].as_str().unwrap();
+        let approval = backend
+            .orchestrator
+            .rpc(
+                "approval.request",
+                json!({
+                    "bot_id":"main", "assignment_id":id, "chat_id":"chat_main",
+                    "tool":"write", "risk":"write", "summary":"test write", "detail":"{}"
+                }),
+            )
+            .await
+            .unwrap();
+        let approval_id = approval["id"].as_str().unwrap();
+        let standalone = backend
+            .orchestrator
+            .rpc(
+                "approval.request",
+                json!({
+                    "bot_id":"main", "assignment_id":null, "chat_id":"chat_main",
+                    "tool":"write", "risk":"write", "summary":"DM write", "detail":"{}"
+                }),
+            )
+            .await
+            .unwrap();
+        backend
+            .persist_orchestrator(json!({"method":"test.setup", "result":{},"status":"done"}))
+            .await
+            .unwrap();
+        backend
+            .call(
+                "assignment.stop",
+                json!({"assignment_id":id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let current = backend
+            .call("approval.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        let expired = current["approvals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == approval_id)
+            .unwrap()
+            .clone();
+        assert_eq!(expired["state"], "expired");
+        assert!(expired["decided_at"].is_string());
+        let pending = backend
+            .call(
+                "approval.list",
+                json!({"state":["pending"]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(pending["approvals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["id"] == standalone["id"]));
+        assert!(!pending["approvals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["id"] == approval_id));
+        let workbench = backend
+            .call("workbench.get", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        assert!(!workbench["waiting"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["approval"]["id"] == approval_id));
+        for decision in ["allow_once", "always_allow", "deny"] {
+            assert!(backend
+                .call(
+                    "approval.decide",
+                    json!({"approval_id":approval_id,"decision":decision}),
+                    &gateway.state
+                )
+                .await
+                .is_err());
+        }
+        backend
+            .call(
+                "assignment.stop",
+                json!({"assignment_id":id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let resolved_count = |backend: &ProductionBackend| {
+            backend
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| {
+                    event.event == "approval.resolved"
+                        && event.data["approval"]["id"] == approval_id
+                })
+                .count()
+        };
+        assert_eq!(resolved_count(&backend), 1);
+        let event = backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .into_iter()
+            .find(|event| {
+                event.event == "approval.resolved" && event.data["approval"]["id"] == approval_id
+            })
+            .unwrap();
+        macbot_protocol::EventData::decode(
+            &macbot_protocol::EventName::ApprovalResolved,
+            event.data,
+        )
+        .unwrap();
+
+        // Simulate an old writer with a terminal assignment and pending approval.
+        let mut old = backend.orchestrator.snapshot().unwrap();
+        old["approvals"][approval_id]["state"] = json!("pending");
+        old["approvals"][approval_id]["decided_at"] = Value::Null;
+        backend
+            .store
+            .append_jsonl(
+                "data/orchestrator/operations.jsonl",
+                &json!({"method":"test.legacy", "status":"done", "snapshot":old, "result":{}}),
+            )
+            .unwrap();
+        drop(backend);
+        let restored = ProductionBackend::open(home.path()).unwrap();
+        let snapshot = restored.orchestrator.snapshot().unwrap();
+        assert_eq!(snapshot["approvals"][approval_id]["state"], "expired");
+        let decided_at = snapshot["approvals"][approval_id]["decided_at"].clone();
+        assert_eq!(decided_at, snapshot["assignments"][id]["finished_at"]);
+        let disk: Value = restored
+            .store
+            .read_snapshot("data/orchestrator/state.json")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            disk["approvals"][approval_id],
+            snapshot["approvals"][approval_id]
+        );
+        assert_eq!(resolved_count(&restored), 1);
+        drop(restored);
+        let twice = ProductionBackend::open(home.path()).unwrap();
+        assert_eq!(
+            twice.orchestrator.snapshot().unwrap()["approvals"][approval_id]["decided_at"],
+            decided_at
+        );
+        assert_eq!(resolved_count(&twice), 1);
     }
 
     #[tokio::test]

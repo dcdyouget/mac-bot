@@ -322,6 +322,33 @@ impl Orchestrator {
         restore_map(&mut i.messages, value.get("messages"))?;
         restore_map(&mut i.artifacts, value.get("artifacts"))?;
         restore_map(&mut i.approvals, value.get("approvals"))?;
+        let restore_expired_at = now();
+        let terminal_assignments = i
+            .assignments
+            .values()
+            .filter(|assignment| {
+                matches!(assignment.status.as_str(), "done" | "failed" | "cancelled")
+            })
+            .map(|assignment| (assignment.id.clone(), assignment.finished_at.clone()))
+            .collect::<HashMap<_, _>>();
+        for approval in i
+            .approvals
+            .values_mut()
+            .filter(|approval| approval.state == "pending")
+        {
+            let Some(assignment_id) = approval.assignment_id.as_deref() else {
+                continue;
+            };
+            let Some(finished_at) = terminal_assignments.get(assignment_id) else {
+                continue;
+            };
+            approval.state = "expired".into();
+            approval.decided_at = Some(
+                finished_at
+                    .clone()
+                    .unwrap_or_else(|| restore_expired_at.clone()),
+            );
+        }
         restore_map(&mut i.questions, value.get("questions"))?;
         restore_map(&mut i.question_created_at, value.get("question_created_at"))?;
         restore_map(&mut i.question_scopes, value.get("question_scopes"))?;
@@ -2599,12 +2626,33 @@ impl Inner {
         if !matches!(status, "done" | "failed" | "cancelled" | "blocked") {
             return Err(OrchestratorError::Invalid("invalid final status".into()));
         }
-        let a = self.assignment_mut(id)?;
-        a.status = status.into();
-        a.finished_at = Some(now());
-        a.wait = None;
-        let out = a.clone();
-        if status == "cancelled" {
+        let current = self.assignment(id)?.clone();
+        if matches!(current.status.as_str(), "done" | "failed" | "cancelled") {
+            if current.status == status {
+                return Ok(current);
+            }
+            return Err(OrchestratorError::Conflict(format!(
+                "terminal assignment {} cannot become {}",
+                current.id, status
+            )));
+        }
+        let finished_at = now();
+        let out = {
+            let a = self.assignment_mut(id)?;
+            a.status = status.into();
+            a.finished_at = Some(finished_at.clone());
+            a.wait = None;
+            a.clone()
+        };
+        if matches!(status, "done" | "failed" | "cancelled") {
+            // Terminalization and expiration happen under this same state
+            // lock, so a concurrent approval decision cannot resurrect the task.
+            for approval in self.approvals.values_mut().filter(|approval| {
+                approval.assignment_id.as_deref() == Some(id) && approval.state == "pending"
+            }) {
+                approval.state = "expired".into();
+                approval.decided_at = Some(finished_at.clone());
+            }
             self.create_task_stopped_message(id)?;
         }
         self.pump_queue();
@@ -2845,10 +2893,11 @@ impl Inner {
     }
     fn create_approval(&mut self, r: ApprovalRequest) -> Result<Approval> {
         if let Some(assignment_id) = &r.assignment_id {
-            if !self.assignments.contains_key(assignment_id) {
-                return Err(OrchestratorError::NotFound(format!(
-                    "assignment {assignment_id}"
-                )));
+            let assignment = self.assignment(assignment_id)?;
+            if matches!(assignment.status.as_str(), "done" | "failed" | "cancelled") {
+                return Err(OrchestratorError::Conflict(
+                    "cannot create approval for a terminal assignment".into(),
+                ));
             }
         }
         let id = new_id();
@@ -2892,14 +2941,19 @@ impl Inner {
     }
 
     fn decide_approval(&mut self, id: String, decision: String) -> Result<Approval> {
-        let a = self
+        let assignment_id = self
             .approvals
-            .get_mut(&id)
-            .ok_or_else(|| OrchestratorError::NotFound(format!("approval {id}")))?;
-        if a.state == "expired" {
-            return Err(OrchestratorError::Conflict(
-                "expired approval cannot be decided".into(),
-            ));
+            .get(&id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("approval {id}")))?
+            .assignment_id
+            .clone();
+        if let Some(assignment_id) = assignment_id.as_deref() {
+            let assignment = self.assignment(assignment_id)?;
+            if matches!(assignment.status.as_str(), "done" | "failed" | "cancelled") {
+                return Err(OrchestratorError::Conflict(
+                    "approval cannot be decided for a terminal assignment".into(),
+                ));
+            }
         }
         let state = match decision.as_str() {
             "allow_once" => "allowed_once",
@@ -2911,9 +2965,20 @@ impl Inner {
                 ))
             }
         };
-        a.state = state.into();
-        a.decided_at = Some(now());
-        let out = a.clone();
+        let out = {
+            let approval = self
+                .approvals
+                .get_mut(&id)
+                .ok_or_else(|| OrchestratorError::NotFound(format!("approval {id}")))?;
+            if approval.state != "pending" {
+                return Err(OrchestratorError::Conflict(
+                    "non-pending approval cannot be decided".into(),
+                ));
+            }
+            approval.state = state.into();
+            approval.decided_at = Some(now());
+            approval.clone()
+        };
         if state == "always_allowed" {
             self.approval_rules.push(ApprovalRuleRecord {
                 id: new_id(),
@@ -2922,15 +2987,12 @@ impl Inner {
                 created_at: now(),
             });
         }
-        if let Some(x) = &out.assignment_id {
-            if let Some(asn) = self.assignments.get_mut(x) {
+        if let Some(assignment_id) = assignment_id.as_deref() {
+            if state == "denied" {
+                self.finish_assignment(assignment_id, "failed")?;
+            } else if let Some(asn) = self.assignments.get_mut(assignment_id) {
                 asn.wait = None;
-                if state == "denied" {
-                    asn.status = "failed".into();
-                    asn.finished_at = Some(now());
-                } else {
-                    asn.status = "working".into();
-                }
+                asn.status = "working".into();
             }
         }
         Ok(out)
@@ -4282,6 +4344,199 @@ mod tests {
             .block_on(o.rpc("approval.list", json!({"state":["allowed_once"]})))
             .unwrap();
         assert_eq!(resolved["approvals"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn cancelling_assignment_expires_only_its_pending_approvals() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "取消审批 worker");
+        let make_assignment = |title: &str| {
+            o.create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat_main".into(),
+                bot_id: worker.clone(),
+                title: title.into(),
+                instruction: title.into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap()
+        };
+        let first = make_assignment("first");
+        let first_approval = o
+            .create_approval(ApprovalRequest {
+                bot_id: worker.clone(),
+                assignment_id: Some(first.id.clone()),
+                chat_id: "chat_main".into(),
+                tool: "bash".into(),
+                risk: "exec".into(),
+                summary: "first approval".into(),
+                detail: "first".into(),
+            })
+            .unwrap();
+        let second = make_assignment("second");
+        let second_approval = o
+            .create_approval(ApprovalRequest {
+                bot_id: worker.clone(),
+                assignment_id: Some(second.id.clone()),
+                chat_id: "dm_worker".into(),
+                tool: "bash".into(),
+                risk: "exec".into(),
+                summary: "second approval".into(),
+                detail: "second".into(),
+            })
+            .unwrap();
+        let standalone = o
+            .create_approval(ApprovalRequest {
+                bot_id: worker.clone(),
+                assignment_id: None,
+                chat_id: "dm_worker".into(),
+                tool: "browser".into(),
+                risk: "external".into(),
+                summary: "standalone".into(),
+                detail: "standalone".into(),
+            })
+            .unwrap();
+
+        let cancelled = o.finish_assignment(&first.id, "cancelled").unwrap();
+        let snapshot = o.snapshot().unwrap();
+        assert_eq!(
+            snapshot["approvals"][&first_approval.id]["state"],
+            "expired"
+        );
+        assert_eq!(
+            snapshot["approvals"][&first_approval.id]["decided_at"],
+            json!(cancelled.finished_at)
+        );
+        assert_eq!(
+            snapshot["approvals"][&second_approval.id]["state"],
+            "pending"
+        );
+        assert!(snapshot["approvals"][&second_approval.id]["decided_at"].is_null());
+        assert_eq!(snapshot["approvals"][&standalone.id]["state"], "pending");
+
+        let repeated = o.finish_assignment(&first.id, "cancelled").unwrap();
+        assert_eq!(repeated.finished_at, cancelled.finished_at);
+        assert_eq!(
+            o.snapshot().unwrap()["approvals"][&first_approval.id]["decided_at"],
+            json!(cancelled.finished_at)
+        );
+        let rules_before = o.snapshot().unwrap()["approval_rules"].clone();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        assert!(rt
+            .block_on(o.rpc(
+                "approval.decide",
+                json!({"approval_id":first_approval.id,"decision":"always_allow"}),
+            ))
+            .is_err());
+        assert_eq!(o.snapshot().unwrap()["approval_rules"], rules_before);
+        assert!(o
+            .create_approval(ApprovalRequest {
+                bot_id: worker.clone(),
+                assignment_id: Some(first.id.clone()),
+                chat_id: "chat_main".into(),
+                tool: "bash".into(),
+                risk: "exec".into(),
+                summary: "late".into(),
+                detail: "late".into(),
+            })
+            .is_err());
+
+        let historical = make_assignment("historical terminal");
+        let historical_approval = o
+            .create_approval(ApprovalRequest {
+                bot_id: worker.clone(),
+                assignment_id: Some(historical.id.clone()),
+                chat_id: "chat_main".into(),
+                tool: "bash".into(),
+                risk: "exec".into(),
+                summary: "historical".into(),
+                detail: "historical".into(),
+            })
+            .unwrap();
+        o.finish_assignment(&historical.id, "done").unwrap();
+        assert!(rt
+            .block_on(o.rpc(
+                "approval.decide",
+                json!({"approval_id":historical_approval.id,"decision":"always_allow"}),
+            ))
+            .is_err());
+        assert_eq!(
+            o.snapshot().unwrap()["approvals"][&historical_approval.id]["state"],
+            "expired"
+        );
+
+        // A legacy snapshot with a pending approval attached to a terminal
+        // assignment is repaired on restore using finished_at.
+        let mut legacy = o.snapshot().unwrap();
+        legacy["approvals"][&first_approval.id]["state"] = json!("pending");
+        legacy["approvals"][&first_approval.id]["decided_at"] = Value::Null;
+        let restored = Orchestrator::default();
+        restored.restore(legacy).unwrap();
+        let repaired = restored.snapshot().unwrap();
+        assert_eq!(
+            repaired["approvals"][&first_approval.id]["state"],
+            "expired"
+        );
+        assert_eq!(
+            repaired["approvals"][&first_approval.id]["decided_at"],
+            json!(cancelled.finished_at)
+        );
+    }
+
+    #[test]
+    fn denying_approval_fails_assignment_and_expires_other_pending() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "deny worker");
+        let assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat_main".into(),
+                bot_id: worker.clone(),
+                title: "deny task".into(),
+                instruction: "deny task".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let make_approval = |summary: &str| {
+            o.create_approval(ApprovalRequest {
+                bot_id: worker.clone(),
+                assignment_id: Some(assignment.id.clone()),
+                chat_id: "chat_main".into(),
+                tool: "bash".into(),
+                risk: "exec".into(),
+                summary: summary.into(),
+                detail: summary.into(),
+            })
+            .unwrap()
+        };
+        let denied = make_approval("deny target");
+        let other = make_approval("other pending");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let response = rt
+            .block_on(o.rpc(
+                "approval.decide",
+                json!({"approval_id":denied.id,"decision":"deny"}),
+            ))
+            .unwrap();
+        assert_eq!(response["approval"]["state"], "denied");
+        let snapshot = o.snapshot().unwrap();
+        assert_eq!(snapshot["assignments"][&assignment.id]["status"], "failed");
+        assert_eq!(snapshot["approvals"][&denied.id]["state"], "denied");
+        assert_eq!(snapshot["approvals"][&other.id]["state"], "expired");
+        assert_eq!(
+            snapshot["approvals"][&other.id]["decided_at"],
+            snapshot["assignments"][&assignment.id]["finished_at"]
+        );
     }
 
     #[test]
