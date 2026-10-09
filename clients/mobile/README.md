@@ -53,6 +53,13 @@ source "$HOME/.local/share/macbot/android-signing/release.env"
 
 Keep this key for later updates. Debug and release use different signatures; uninstall the debug app before first release installation, then use `adb install -r` for subsequent release updates. Signing keys and passwords are never committed.
 
+With a signed release already installed, keep its data and run device tests with
+the same signing environment:
+
+```sh
+./gradlew -PmacbotTestBuildType=release :androidApp:connectedReleaseAndroidTest
+```
+
 Android notifications use channels `needs-you`, `completed`, `messages`. Grant notification permission when requested. The foreground service owns the long-lived main connection; screen streams open only while the Computer page is visible. Notification actions use the same idempotent protocol writes as in-app actions.
 
 ## Verification

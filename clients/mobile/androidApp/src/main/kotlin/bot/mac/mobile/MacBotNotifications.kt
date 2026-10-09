@@ -247,8 +247,10 @@ internal object NotificationLedger {
     fun seed(context: Context, hostId: String, seq: Long) {
         val prefs = context.getSharedPreferences(NOTIFICATION_LEDGER_PREFS, Context.MODE_PRIVATE)
         val key = LAST_SEQ_PREFIX + hostId
-        val existing = prefs.getLong(key, 0L)
-        if (seq > existing) prefs.edit().putLong(key, seq).commit()
+        // Seeding is only a baseline for a brand-new ledger. During service
+        // startup, initialize() may already have delivered a persistent event
+        // to the collector; never overwrite that event's accepted sequence.
+        if (!prefs.contains(key)) prefs.edit().putLong(key, seq).commit()
     }
 
     fun acceptSeq(context: Context, hostId: String, seq: Long): Boolean {

@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -48,28 +49,10 @@ class MainConnectionService : Service() {
         scope.launch {
             while (isActive) {
                 try {
-                    AppRuntime.repository.initialize()
-                    AppRuntime.repository.hosts.value.forEach { host ->
-                        val snapshot = AppRuntime.repository.hostStates.value[host.id]
-                        NotificationLedger.seed(this@MainConnectionService, host.id, snapshot?.lastSeq ?: 0L)
-                    }
-                    ApprovalActionBridge.install { hostId, approvalId, action ->
-                        val decision = when (action) {
-                            "allow_once" -> "allow_once"
-                            "always_allow" -> "always_allow"
-                            else -> "deny"
-                        }
-                        AppRuntime.repository.callOnHost(hostId, "approval.decide", buildJsonObject {
-                            put("approval_id", approvalId)
-                            put("decision", decision)
-                        })
-                    }
-                    ApprovalActionBridge.installReview { hostId, projectId ->
-                        AppRuntime.repository.callOnHost(hostId, "project.confirm_done", buildJsonObject {
-                            put("project_id", projectId)
-                        })
-                    }
-                    val notifications = launch {
+                    // Subscribe before starting Hosts. SharedFlow has no replay, so
+                    // subscribing after initialize can lose events during the first
+                    // handshake/replay window.
+                    val notifications = launch(start = CoroutineStart.UNDISPATCHED) {
                         AppRuntime.repository.hostEvents.collect { hostEvent ->
                             if (!AppRuntime.repository.notifications.value) return@collect
                             try {
@@ -80,8 +63,28 @@ class MainConnectionService : Service() {
                             }
                         }
                     }
-                    AppRuntime.repository.background()
-                    notifications.cancel()
+                    try {
+                        ApprovalActionBridge.install { hostId, approvalId, action ->
+                            val decision = when (action) {
+                                "allow_once" -> "allow_once"
+                                "always_allow" -> "always_allow"
+                                else -> "deny"
+                            }
+                            AppRuntime.repository.callOnHost(hostId, "approval.decide", buildJsonObject {
+                                put("approval_id", approvalId)
+                                put("decision", decision)
+                            })
+                        }
+                        ApprovalActionBridge.installReview { hostId, projectId ->
+                            AppRuntime.repository.callOnHost(hostId, "project.confirm_done", buildJsonObject {
+                                put("project_id", projectId)
+                            })
+                        }
+                        AppRuntime.repository.initialize()
+                        AppRuntime.repository.background()
+                    } finally {
+                        notifications.cancel()
+                    }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Throwable) {
@@ -114,6 +117,12 @@ class MainConnectionService : Service() {
 
 private object NotificationEventRouter {
     suspend fun handle(context: Context, hostId: String, event: MainEvent, snapshot: MobileState) {
+        if (event is MainEvent.Hello) {
+            // Hello precedes replay. This is the cached cursor, before any newly
+            // received persistent events can advance the repository snapshot.
+            NotificationLedger.seed(context, hostId, snapshot.lastSeq)
+            return
+        }
         val data = when (event) {
             is MainEvent.Persistent -> event.data
             is MainEvent.Ephemeral -> event.data
@@ -132,7 +141,7 @@ private object NotificationEventRouter {
                 val id = approval.str("id")
                 if (id.isNotBlank()) MacBotNotifications.postNeedsYou(
                     context, hostId, id, context.getString(R.string.notification_approval_title),
-                    approval.str("description").ifBlank { approval.str("summary") }, seq,
+                    approval.str("detail").ifBlank { approval.str("summary") }, seq,
                 )
             }
             eventName == "question.asked" -> {
@@ -149,6 +158,11 @@ private object NotificationEventRouter {
                 val id = message.str("id")
                 val chatId = message.str("chat_id")
                 if (id.isBlank() || chatId.isBlank()) return
+                // A streaming placeholder is completed by a later persistent
+                // message.updated event. Notify only once the final message is
+                // available, otherwise the empty placeholder and final body
+                // produce two notifications.
+                if (!shouldNotifyMessage(message)) return
                 val chat = snapshot.chats.firstOrNull { it.str("id") == chatId }
                 val sender = message.obj("sender")
                 val isBot = sender.str("kind") == "bot"
@@ -166,12 +180,12 @@ private object NotificationEventRouter {
                         takeover?.str("reason").orEmpty().ifBlank { context.getString(R.string.notification_takeover_default_text) },
                         "computer",
                         takeoverBotId,
-                        seq,
+                        null,
                     )
                 } else if (mentionsUser(message)) {
                     MacBotNotifications.postNeedsYouEvent(
                         context, hostId, id, context.getString(R.string.notification_message_needs_you_title),
-                        message.str("fallback_text"), "chat", chatId, seq,
+                        message.str("fallback_text"), "chat", chatId, null,
                     )
                 } else if (isBot && chat?.str("kind") in setOf("main", "direct", "bot_dm")) {
                     val botId = sender.str("bot_id")
@@ -180,7 +194,7 @@ private object NotificationEventRouter {
                     MacBotNotifications.postMessage(
                         context, hostId, id, message.str("sender_name").ifBlank { context.getString(R.string.app_name) },
                         message.str("fallback_text"),
-                        chatId, chat?.boolean("muted") ?: false, notifications, seq,
+                        chatId, chat?.boolean("muted") ?: false, notifications, null,
                     )
                 }
             }
@@ -243,3 +257,5 @@ private object NotificationEventRouter {
     }
 
 }
+
+internal fun shouldNotifyMessage(message: JsonObject): Boolean = !message.boolean("streaming")

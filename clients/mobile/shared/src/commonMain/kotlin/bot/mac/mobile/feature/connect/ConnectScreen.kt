@@ -52,6 +52,15 @@ import org.jetbrains.compose.resources.stringResource
                             ConnectionStatus.RECONNECTING -> Res.string.host_reconnecting
                             else -> Res.string.host_offline
                         }),color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        statuses[host.id]?.error?.message?.let { reason ->
+                            val message = when {
+                                reason.contains("401") -> stringResource(Res.string.host_unauthorized)
+                                reason.contains("403") -> stringResource(Res.string.host_setup)
+                                reason.contains("protocol", ignoreCase = true) -> stringResource(Res.string.host_version)
+                                else -> stringResource(Res.string.host_connection_error, reason)
+                            }
+                            Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
                         Text(host.addresses.joinToString("\n"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row {
                             TextButton(onClick = { scope.launch { runCatching { repository.selectHost(host.id) }.onFailure { error = it.message }; onBack() } }) { Text(stringResource(Res.string.host_switch)) }

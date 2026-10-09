@@ -1,4 +1,5 @@
 <resources>
+<string name="host_connection_error">连接失败：%1$s</string>
 <string name="app_name">Mac Bot</string>
 <string name="tab_messages">消息</string><string name="tab_workbench">工作台</string><string name="tab_mine">我的</string>
 <string name="nav_hosts">Host 连接</string><string name="nav_bots">Bot 管理</string><string name="nav_dashboard">仪表盘</string><string name="nav_skills">技能</string><string name="nav_routines">定时任务</string><string name="nav_settings">设置</string><string name="nav_approval">需要你</string><string name="nav_search">搜索</string>
