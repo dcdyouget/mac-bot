@@ -217,3 +217,9 @@
 - 技能客户端 P1 原生专项通过：窗口 Raise 后外层坐标滚动成功，可见 Save 真正提交 v2，API正文已更新且原生预览显示v2；v3未保存草稿→原生停用后仍保留输入，API保持v2且enabled=false。S3/production-50f4c08-ae3009b-native-skill.json、231429/231544-desktop.png 已核图。严格保存响应在飞时继续输入尚未取证，旧offscreen未触发的记录保留历史边界。
 - 新现象归server-mac核查：样例integrator-native-ae3009b原enabled=false/v1，仅skill.update{name,content}后v2保存成功但enabled变true；未操作启用按钮。随后原生停用恢复false。请隔离检查正文更新是否重置全局与perBot启停状态并补重启回归，不触AE现场。
 - 50f Release候选binary/DMG/source hash和hdiutil VALID，但strict codesign失败，原始错误code has no resources but signature indicates they must be present。客户端已确认仅MachO内嵌签名、缺完整bundle签名，非签后改资源；91a18ada6115909fbf35b96c6993e8724a9b8243仅packaging/README修复，默认资源写完后完整ad hoc签名，App/staging verify失败即停止。独立91a候选source/hash/codesign strict/hdiutil均通过。S5/desktop-dmg-{50f4c08,91a18ad}-candidate.json；均不算release实装或S5 fresh通过。
+
+## integrator：91a18ad 签名开发安装与 S4 待修（2026-10-09 23:30）
+- 固定91a从clean archive Mac-only部署 exit0，安装后codesign --verify --deep --strict通过，PID52177/window58402，前台Raise/自动正式Host连接通过；AE63443/mock66750/Android均未重启。S5/desktop-91a18ad-development-deployed.json。仍是debug更新，不计Release DMG实装/S5fresh。
+- 原browser session不可用，首次重开run done/最终Markdown含URL但零browser工具调用，严格失败保留S4/production-50f4c08-ae3009b-browser-reopen.json；第二次新精确URL实际browser_open start/end、准确allow_once、终态文字通过，tab t2，S4/production-91a18ad-ae3009b-browser-open.json。未仅凭回复文本判执行完成。
+- S4原生专项仍未完成：同连接bot→user→bot/低质640×316/本地页绘制可见，但auto白画布、low偶发白帧；独立两帧JPEG均为正确暗色fixture/URL一致，S4/screen-91a18ad-blank-check/与screen-paint-check.json。232403/232729截图保留，native-input.json标注键盘/提交未证明。客户端独立检查帧解码期间是否丢弃上一已显示帧，ACK必须对应实际呈现seq；GPUI track_focus自动focus已核实，不据CUA未命中添加无证据焦点修复。归client-mac帧呈现核查，不归服务端JPEG失败。
+- 浏览器已原生交还Bot，桌面留仪表盘给用户。新217235 tokens/63 requests/19%缓存与同range RPC一致，S3/production-91a18ad-ae3009b-dashboard-smoke.json。新增scripts/e2e/s3/skill_update_scope.py标准库正文更新保持全局/perBot停用回归，尚未在AE做新的mutation，待累计server修复实跑。S2仍等待完整jobs收敛/压缩失败队列验证固定SHA，保留旧现场。
