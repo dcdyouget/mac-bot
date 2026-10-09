@@ -1,0 +1,76 @@
+{
+  "source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "android_source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "host": "10.0.2.2:7788",
+  "range": "last30 sliding days; UI exact RPC timestamp not observed",
+  "image": "production-d97e48f-android-dashboard-refreshed.png",
+  "ui": {
+    "tokens": 1816673,
+    "requests": 283,
+    "cost_text": "未定价"
+  },
+  "api_before": {
+    "params": {
+      "from": "2026-09-09T19:01:51.156603+00:00",
+      "to": "2026-10-09T19:01:51.156603+00:00"
+    },
+    "result": {
+      "current": {
+        "cache_read_tokens": 971688,
+        "cache_write_tokens": 0,
+        "cost": null,
+        "input_tokens": 1742207,
+        "output_tokens": 74466,
+        "requests": 283,
+        "tasks_done": 1
+      },
+      "previous": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost": null,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "requests": 0,
+        "tasks_done": 0
+      }
+    }
+  },
+  "api_after": {
+    "params": {
+      "from": "2026-09-09T19:01:54.842386+00:00",
+      "to": "2026-10-09T19:01:54.842386+00:00"
+    },
+    "result": {
+      "current": {
+        "cache_read_tokens": 971688,
+        "cache_write_tokens": 0,
+        "cost": null,
+        "input_tokens": 1742207,
+        "output_tokens": 74466,
+        "requests": 283,
+        "tasks_done": 1
+      },
+      "previous": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost": null,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "requests": 0,
+        "tasks_done": 0
+      }
+    }
+  },
+  "comparison": {
+    "matches_before": true,
+    "matches_after": true,
+    "between_brackets": true,
+    "cost_null_shown_unpriced": true
+  },
+  "full_s3_pass": false,
+  "limitations": [
+    "models continue recording usage during refresh",
+    "desktop locked; no same-window two-client comparison",
+    "native heatmap/trend figures do not prove skill or memory"
+  ]
+}

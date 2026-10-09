@@ -1,0 +1,54 @@
+{
+  "source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "evidence": "demo-d97/result.json",
+  "request": {
+    "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+    "text": "实测补充：当前项目 Home/index.html 是邮箱+密码表单，不是验收请求中声称的验证码表单；输入 123456 无法成功，TEST.md 记录的另一凭证可以成功。邮箱格式校验、错误凭证提示和375px窄屏已实测通过。请核对两项编码任务的交接与当前文件，统一需求、实现和测试报告，不要将尚未执行的验证码用例记为通过。请交测试 Bot 真正验证，再由主 Bot 发待验收；仅邮箱，不做手机号。",
+    "mentions": [
+      {
+        "kind": "bot",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "instruction": null
+      }
+    ],
+    "client_request_id": "c89fac58-ae71-48e2-9328-c7f02c573e68"
+  },
+  "status": "rpc_ok",
+  "accepted_project": false,
+  "result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "实测补充：当前项目 Home/index.html 是邮箱+密码表单，不是验收请求中声称的验证码表单；输入 123456 无法成功，TEST.md 记录的另一凭证可以成功。邮箱格式校验、错误凭证提示和375px窄屏已实测通过。请核对两项编码任务的交接与当前文件，统一需求、实现和测试报告，不要将尚未执行的验证码用例记为通过。请交测试 Bot 真正验证，再由主 Bot 发待验收；仅邮箱，不做手机号。",
+          "type": "text"
+        }
+      ],
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "created_at": "2026-10-09T18:47:12.704935+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "实测补充：当前项目 Home/index.html 是邮箱+密码表单，不是验收请求中声称的验证码表单；输入 123456 无法成功，TEST.md 记录的另一凭证可以成功。邮箱格式校验、错误凭证提示和375px窄屏已实测通过。请核对两项编码任务的交接与当前文件，统一需求、实现和测试报告，不要将尚未执行的验证码用例记为通过。请交测试 Bot 真正验证，再由主 Bot 发待验收；仅邮箱，不做手机号。",
+      "id": "01a121fd-a240-73d9-8d81-d8f3287cad4f",
+      "intent": "ack",
+      "mentions": [
+        {
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "instruction": null,
+          "kind": "bot"
+        }
+      ],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 16,
+      "streaming": false,
+      "thread_count": 0
+    }
+  }
+}

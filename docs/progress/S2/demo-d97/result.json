@@ -1,0 +1,99 @@
+{
+  "scenario": "S2 local email-login demo read-only browser validation",
+  "url": "http://127.0.0.1:51296/index.html",
+  "session": "macbot-integrator-demo-d97",
+  "profile": "/tmp/macbot-integrator-demo-d97-profile",
+  "server_binding": "127.0.0.1:51296",
+  "project_home": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5",
+  "scope": "local fixture only; no MacBot RPC/provider/API mutation; no shared CDP/session",
+  "checks": {
+    "page_load": {
+      "pass": true,
+      "evidence": [
+        "initial-snapshot.json",
+        "initial.png"
+      ],
+      "title": "邮箱登录 - Demo"
+    },
+    "form_controls": {
+      "pass": true,
+      "evidence": [
+        "initial-snapshot.json"
+      ],
+      "fields": [
+        "email",
+        "password"
+      ],
+      "login_button": true,
+      "register_link": true
+    },
+    "invalid_email": {
+      "pass": true,
+      "evidence": [
+        "invalid-email-validation.json",
+        "invalid-email-snapshot.json",
+        "invalid-email.png"
+      ],
+      "browser_valid": false,
+      "validation_message_present": true
+    },
+    "wrong_code": {
+      "pass": true,
+      "evidence": [
+        "wrong-code-toast-state.json",
+        "wrong-code-error-text.json",
+        "wrong-code-toast.png"
+      ],
+      "error_toast_shown": true,
+      "success_toast_shown": false
+    },
+    "requested_123456_code": {
+      "pass": false,
+      "evidence": [
+        "correct-code-toast-state.json",
+        "correct-code-toast.png"
+      ],
+      "error_toast_shown": true,
+      "success_toast_shown": false,
+      "finding": "The requested 123456 credential did not reach the success state."
+    },
+    "documented_demo_credential": {
+      "pass": true,
+      "evidence": [
+        "documented-password-toast-state.json",
+        "documented-password-success.png"
+      ],
+      "success_toast_shown": true,
+      "error_toast_shown": false,
+      "source": "project Home TEST.md; credential value omitted"
+    },
+    "narrow_viewport": {
+      "pass": true,
+      "evidence": [
+        "narrow-viewport.json",
+        "narrow-layout.json",
+        "narrow-snapshot.json",
+        "narrow.png"
+      ],
+      "viewport": [
+        375,
+        667
+      ],
+      "scroll_width": 375,
+      "layout_fits": true,
+      "controls_present": true
+    },
+    "page_errors": {
+      "pass": true,
+      "evidence": [
+        "page-errors.json"
+      ],
+      "count": 0
+    }
+  },
+  "conclusion": "PARTIAL_PASS_REQUESTED_CODE_MISMATCH: form, email validation, wrong-code error, documented demo credential, and 375px layout passed. The requested 123456 success criterion failed; documented TEST.md credential succeeds. This is local UI evidence only and does not replace real Tester or S2 end-to-end acceptance.",
+  "cleanup_required": [
+    "close only session macbot-integrator-demo-d97",
+    "stop only local HTTPServer"
+  ]
+}

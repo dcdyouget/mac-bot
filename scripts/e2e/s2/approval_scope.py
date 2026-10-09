@@ -19,6 +19,7 @@ from typing import Any, Mapping
 
 _MARKER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 _PROJECTS_NAME = "projects"
+_PATH_RESOLUTION = "home-v1"
 _SHELL_META_RE = re.compile(r"[$`;&|<>()\r\n*?\[\]]")
 
 
@@ -80,6 +81,43 @@ def _within_home(raw_path: Any, home: Path) -> bool:
     return resolved != home
 
 
+def _resolve_home_v1_raw(raw_path: Any, home: Path) -> Path | None:
+    """Resolve a tool path using the server's cwd and user-home rules.
+
+    The server expands only ``~`` and ``~/...`` with the real user HOME;
+    other relative paths are relative to the run's project cwd.  Returning a
+    canonical path lets the checker compare it with the server's explicit
+    ``resolved_path`` without trusting either spelling.
+    """
+    if not isinstance(raw_path, str) or not raw_path or "\x00" in raw_path:
+        return None
+    if raw_path == "~":
+        candidate = Path.home()
+    elif raw_path.startswith("~/"):
+        candidate = Path.home() / raw_path[2:]
+    elif raw_path.startswith("~"):
+        # ``~other`` is a literal relative path to the server, not a HOME
+        # expansion.  Reject it here rather than granting a misleading
+        # home-v1 interpretation.
+        return None
+    else:
+        candidate = Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = home / candidate
+    try:
+        return candidate.resolve(strict=False)
+    except OSError:
+        return None
+
+
+def _within_canonical_home(path: Path, home: Path) -> bool:
+    try:
+        path.relative_to(home)
+    except ValueError:
+        return False
+    return path != home
+
+
 def _decode_detail(approval: Mapping[str, Any], tool: str) -> dict[str, Any] | None:
     detail = approval.get("detail")
     if not isinstance(detail, str):
@@ -95,6 +133,25 @@ def _exact_bash(detail: dict[str, Any], marker: str, home: Path) -> dict[str, An
     if set(detail) != {"command"} or not isinstance(detail.get("command"), str):
         return _reject("bash arguments are not the exact command shape", tool="bash")
     command = detail["command"]
+    if command == "echo $HOME":
+        return _allow("bash", "echo_home")
+    # This is deliberately the one unquoted project listing accepted for the
+    # S2 audit.  Resolve the lexical HOME spelling and require exact identity
+    # with the already verified project Home before allowing it.
+    expected_project_ls = f"ls ~/MacBot/projects/{home.name}"
+    if command == expected_project_ls:
+        # ``home.name`` is interpolated into an unquoted shell command.  The
+        # broader project-home predicate only proves namespace/marker scope;
+        # it does not make spaces or shell punctuation safe syntax.
+        if _MARKER_RE.fullmatch(home.name) is None:
+            return _reject("bash ls project Home name is unsafe for unquoted shell syntax", tool="bash")
+        lexical_target = Path.home() / "MacBot" / _PROJECTS_NAME / home.name
+        try:
+            if lexical_target.resolve(strict=False) != home:
+                return _reject("bash ls target is not this project Home", tool="bash")
+        except OSError:
+            return _reject("bash ls target cannot be resolved", tool="bash")
+        return _allow("bash", "project_home_ls")
     expected_marker_command = f"mkdir -p e2e && printf '%s' '{marker}' > e2e/{marker}.txt"
     if command == expected_marker_command:
         if not _within_home(f"e2e/{marker}.txt", home):
@@ -118,7 +175,11 @@ def _exact_bash(detail: dict[str, Any], marker: str, home: Path) -> dict[str, An
 
 
 def _scoped_file(detail: dict[str, Any], tool: str, home: Path) -> dict[str, Any]:
-    expected = {"path", "content"} if tool == "write" else {"path", "edits"}
+    core = {"path", "content"} if tool == "write" else {"path", "edits"}
+    metadata = {"resolved_path", "path_resolution"} & set(detail)
+    if metadata and metadata != {"resolved_path", "path_resolution"}:
+        return _reject(f"{tool} path metadata must contain the exact home-v1 pair", tool=tool)
+    expected = core | metadata
     if set(detail) != expected:
         return _reject(f"{tool} arguments contain unexpected fields", tool=tool)
     if tool == "write" and not isinstance(detail.get("content"), str):
@@ -133,6 +194,26 @@ def _scoped_file(detail: dict[str, Any], tool: str, home: Path) -> dict[str, Any
             if not isinstance(edit["oldText"], str) or not isinstance(edit["newText"], str):
                 return _reject("edit replacement text has the wrong type", tool=tool)
     raw_path = detail.get("path")
+    if metadata:
+        if detail.get("path_resolution") != _PATH_RESOLUTION:
+            return _reject(f"{tool} path resolution is unsupported", tool=tool)
+        resolved_raw = detail.get("resolved_path")
+        if not isinstance(resolved_raw, str) or not Path(resolved_raw).is_absolute():
+            return _reject(f"{tool} resolved_path must be absolute", tool=tool)
+        raw_canonical = _resolve_home_v1_raw(raw_path, home)
+        try:
+            resolved_canonical = Path(resolved_raw).resolve(strict=False)
+        except OSError:
+            return _reject(f"{tool} resolved_path cannot be canonicalized", tool=tool)
+        if raw_canonical is None:
+            return _reject(f"{tool} path cannot be resolved with home-v1", tool=tool)
+        if not _within_canonical_home(raw_canonical, home) or not _within_canonical_home(
+            resolved_canonical, home
+        ):
+            return _reject(f"{tool} canonical path is outside this project Home", tool=tool)
+        if raw_canonical != resolved_canonical:
+            return _reject(f"{tool} resolved_path does not match path", tool=tool)
+        return _allow(tool, "project_home_file_mutation")
     # ToolContext receives these paths as ordinary strings. It does not run
     # shell/path expansion, so a leading ``~`` would be treated as a literal
     # directory under CWD and can land outside the intended target. The

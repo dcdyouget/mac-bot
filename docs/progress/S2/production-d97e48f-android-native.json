@@ -1,0 +1,76 @@
+{
+  "captured_at": "2026-10-09T18:48:03.426110+00:00",
+  "server_source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "android_source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "device": "emulator-5554/macbot_api36 API36",
+  "host": "10.0.2.2:7788",
+  "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+  "observations": [
+    {
+      "image": "production-d97e48f-android-login-chat.png",
+      "proved": [
+        "original production login project group displayed",
+        "Product done status and task cards readable"
+      ],
+      "does_not_prove": [
+        "full S2 workflow",
+        "approval action",
+        "final project acceptance"
+      ]
+    },
+    {
+      "image": "production-d97e48f-android-product-details.png",
+      "proved": [
+        "group remained visible after first details tap"
+      ],
+      "limitation": "First tap did not demonstrate navigation; no defect conclusion."
+    },
+    {
+      "image": "production-d97e48f-android-product-trace.png",
+      "proved": [
+        "native group task Details opened Product run trace",
+        "task title and done status readable",
+        "model response, ls error and bash/approval trace visible"
+      ],
+      "does_not_prove": [
+        "live streaming trace",
+        "current revised Tester completion"
+      ]
+    },
+    {
+      "image": "production-d97e48f-android-group-scrolled.png",
+      "proved": [
+        "returned to same group and scrolled messages"
+      ],
+      "does_not_prove": [
+        "complete current message delivery",
+        "project acceptance"
+      ]
+    },
+    {
+      "image": "production-d97e48f-android-group-newer.png",
+      "proved": [
+        "explicit original same-project user decision readable in native group",
+        "current Coder task displayed waiting_user"
+      ],
+      "does_not_prove": [
+        "steer read by Coder",
+        "Tester completion"
+      ]
+    },
+    {
+      "image": "production-d97e48f-android-announcement.png",
+      "proved": [
+        "native Announcement opened within original project group",
+        "project goal, Home and three-role flow readable"
+      ],
+      "does_not_prove": [
+        "artifact validity",
+        "final acceptance"
+      ]
+    }
+  ],
+  "desktop_blocker": "Mac screen locked; Android is independently usable",
+  "full_s2_pass": false,
+  "actions": "Read-only app navigation through scoped adb tap/swipe; no install/restart or acceptance-button press"
+}

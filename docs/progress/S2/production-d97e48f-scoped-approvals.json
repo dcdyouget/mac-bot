@@ -1,0 +1,826 @@
+{
+  "source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "approvals": [
+    {
+      "approval_id": "01a121e9-2e9b-73ac-84fb-4c9d66530b4e",
+      "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "memory",
+        "operation": "project_memory_add"
+      },
+      "request": {
+        "approval_id": "01a121e9-2e9b-73ac-84fb-4c9d66530b4e",
+        "decision": "allow_once",
+        "client_request_id": "eeced8fd-2130-4248-a5ae-a05f76d1ed40"
+      },
+      "request_at": "2026-10-09T18:26:41.096325+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121e9-3b94-7791-89bf-1c48a721e749",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "bash",
+        "operation": "echo_home"
+      },
+      "request": {
+        "approval_id": "01a121e9-3b94-7791-89bf-1c48a721e749",
+        "decision": "allow_once",
+        "client_request_id": "45841173-7c3c-45a1-a08f-1868630a65e7"
+      },
+      "request_at": "2026-10-09T18:27:15.933874+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121e9-48de-716d-9c78-a215362be1a1",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "bash",
+        "operation": "project_home_ls"
+      },
+      "request": {
+        "approval_id": "01a121e9-48de-716d-9c78-a215362be1a1",
+        "decision": "allow_once",
+        "client_request_id": "e23d4d47-7b87-4bd0-bd84-81cc26b65155"
+      },
+      "request_at": "2026-10-09T18:27:16.111979+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121eb-705c-7498-85b0-75c24882d578",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "scope": {
+        "authorized": true,
+        "reason": "manual exact read-only command plus independently verified project cwd",
+        "tool": "bash",
+        "operation": "project_cwd_listing"
+      },
+      "verified_run_cwd_matches_project_home": true,
+      "request": {
+        "approval_id": "01a121eb-705c-7498-85b0-75c24882d578",
+        "decision": "allow_once",
+        "client_request_id": "708fcade-5da7-40f6-a8d0-4944872cef15"
+      },
+      "request_at": "2026-10-09T18:30:35.886430+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121eb-c2d5-754b-9f62-88a0449727d3",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "verified_run_cwd_matches_project_home": true,
+      "request": {
+        "approval_id": "01a121eb-c2d5-754b-9f62-88a0449727d3",
+        "decision": "allow_once",
+        "client_request_id": "cc8370c5-971d-4c6f-99d3-1fa56f200153"
+      },
+      "request_at": "2026-10-09T18:30:36.091615+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121eb-3c37-7205-816d-4a3c0cd35fb4",
+      "assignment_id": "01a121ea-dfab-743a-9a37-3ce3e7cb5bd4",
+      "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "memory",
+        "operation": "project_memory_add"
+      },
+      "verified_run_cwd_matches_project_home": true,
+      "request": {
+        "approval_id": "01a121eb-3c37-7205-816d-4a3c0cd35fb4",
+        "decision": "allow_once",
+        "client_request_id": "83064fe2-2910-4e1f-8522-889ce8dd63ac"
+      },
+      "request_at": "2026-10-09T18:30:36.381609+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121ee-8835-7360-9261-d2cfd039e756",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "scope": {
+        "authorized": true,
+        "reason": "manually reviewed bounded security review of generated local index.html; verified parent project cwd",
+        "tool": "subagent",
+        "operation": "local_demo_security_review",
+        "task_sha256": "cc979f9a18d112072f4f3ee0eadb55542951be9d9a33585ab46df143d0853b1c"
+      },
+      "verified_run_cwd_matches_project_home": true,
+      "request": {
+        "approval_id": "01a121ee-8835-7360-9261-d2cfd039e756",
+        "decision": "allow_once",
+        "client_request_id": "7ac64da3-187d-42fb-b4a2-81925639417b"
+      },
+      "request_at": "2026-10-09T18:32:10.846611+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121ee-a2d7-7279-b120-25362b87fce7",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "verified_run_cwd_matches_project_home": true,
+      "request": {
+        "approval_id": "01a121ee-a2d7-7279-b120-25362b87fce7",
+        "decision": "allow_once",
+        "client_request_id": "d44215e5-ab41-4703-b3ea-2bf0cf9e761d"
+      },
+      "request_at": "2026-10-09T18:32:11.058979+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121f0-a198-731c-bac2-96b5478b1930",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "job_id": "job_01a121c8-cd13-71c3-8231-0b7f202929f7",
+      "call_id": "call_function_racph5pwcmg0_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "verified_unique_durable_head_and_run_routing": true,
+      "request": {
+        "approval_id": "01a121f0-a198-731c-bac2-96b5478b1930",
+        "decision": "allow_once",
+        "client_request_id": "6592791d-c052-42e1-b565-1510a88517f3"
+      },
+      "request_at": "2026-10-09T18:34:19.121361+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121f0-2566-76ba-8275-727739de340d",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "job_id": "job_01a121c8-2a31-7736-bbdb-7afe3f35b596",
+      "call_id": "call_function_dh5neiapwxkg_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "verified_unique_durable_head_and_run_routing": true,
+      "request": {
+        "approval_id": "01a121f0-2566-76ba-8275-727739de340d",
+        "decision": "allow_once",
+        "client_request_id": "fce6b3ba-3475-44d0-af0d-7a76dfd50219"
+      },
+      "request_at": "2026-10-09T18:34:19.343300+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121f2-08e3-77dd-9bd8-8b964176ba43",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "job_id": "job_01a121c8-2a31-7736-bbdb-7afe3f35b596",
+      "call_id": "call_function_8pxnhajylxo7_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "verified_unique_durable_head_and_run_routing": true,
+      "request": {
+        "approval_id": "01a121f2-08e3-77dd-9bd8-8b964176ba43",
+        "decision": "allow_once",
+        "client_request_id": "8bd6b580-e35c-4499-ba44-96fad093fe46"
+      },
+      "request_at": "2026-10-09T18:34:32.780806+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121f2-4ec0-7232-a16e-fbf4fdf415aa",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "job_id": "job_01a121c8-2a31-7736-bbdb-7afe3f35b596",
+      "call_id": "call_function_z66ytri3nuh6_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "verified_unique_durable_head_and_run_routing": true,
+      "request": {
+        "approval_id": "01a121f2-4ec0-7232-a16e-fbf4fdf415aa",
+        "decision": "allow_once",
+        "client_request_id": "9a899121-b036-460a-bfe4-aa55538f03e0"
+      },
+      "request_at": "2026-10-09T18:34:51.216634+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121f2-6c56-7519-8047-19579ae41715",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "scope": {
+        "authorized": true,
+        "tool": "subagent",
+        "operation": "local_demo_security_review",
+        "reason": "manually reviewed bounded local front-end security review; verified parent cwd",
+        "task_sha256": "5f99a15d426844f8f9cec22f08256cd1839a1edc9df75c416deba009a17e8856"
+      },
+      "request": {
+        "approval_id": "01a121f2-6c56-7519-8047-19579ae41715",
+        "decision": "allow_once",
+        "client_request_id": "96685944-f7a5-45ab-aa79-27e792a35789"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121f6-a068-7748-89d8-3600627ef975",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "call_id": "call_function_2qvhltc6kxx5_1",
+      "scope": {
+        "authorized": true,
+        "tool": "subagent",
+        "operation": "local_review_finish",
+        "reason": "manually reviewed exact command/action and unique waiting head/RQ project cwd"
+      },
+      "request": {
+        "approval_id": "01a121f6-a068-7748-89d8-3600627ef975",
+        "decision": "allow_once",
+        "client_request_id": "5d05033e-710e-4c9f-9a11-04fa88936301"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121fb-47b8-779a-8244-23f0c54913c9",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "call_id": "call_function_li5az6v0hx12_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "explicit_project_directory_readonly_ls",
+        "reason": "manually reviewed exact command/action and unique waiting head/RQ project cwd"
+      },
+      "request": {
+        "approval_id": "01a121fb-47b8-779a-8244-23f0c54913c9",
+        "decision": "allow_once",
+        "client_request_id": "4f8614ac-61d6-4e38-aaa1-77dc9f8ecf94"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121f5-c538-7377-a067-f8bcb95c04d9",
+      "assignment_id": "01a121eb-2722-72cb-80c5-344a85f3d608",
+      "run_id": "run_01a121eb-2722-72cb-80c5-344a85f3d608",
+      "call_id": "call_function_psey9f6o3j7c_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "memory",
+        "operation": "project_memory_add"
+      },
+      "request": {
+        "approval_id": "01a121f5-c538-7377-a067-f8bcb95c04d9",
+        "decision": "allow_once",
+        "client_request_id": "2db4b2d3-f470-4e8c-9ac5-c991ff844f2e"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121fc-f7cc-7311-8e89-777a4470542d",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "call_id": "call_function_rv6ok8j4a0nv_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "readonly_legacy_nested_directory_listing",
+        "reason": "exact manually reviewed command and canonical paths in verified project cwd; no generic shell permission"
+      },
+      "request": {
+        "approval_id": "01a121fc-f7cc-7311-8e89-777a4470542d",
+        "decision": "allow_once",
+        "client_request_id": "48311326-3c8f-4890-a29e-50781d01ce7a"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121fd-2bd1-716b-9a7f-008df1fbe5a8",
+      "assignment_id": "01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "run_id": "run_01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "call_id": "call_function_b0o1dw4dnn89_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "create_two_explicit_project_subdirectories",
+        "reason": "exact manually reviewed command and canonical paths in verified project cwd; no generic shell permission"
+      },
+      "request": {
+        "approval_id": "01a121fd-2bd1-716b-9a7f-008df1fbe5a8",
+        "decision": "allow_once",
+        "client_request_id": "fd4bb0a6-2b2d-4f56-9725-16c38ed6a316"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121ff-19d5-7254-85a3-25b8fd0fe46d",
+      "assignment_id": "01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "run_id": "run_01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "call_id": "call_function_4yshxqqi1c53_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "request": {
+        "approval_id": "01a121ff-19d5-7254-85a3-25b8fd0fe46d",
+        "decision": "allow_once",
+        "client_request_id": "666aae7e-f957-42fb-96ea-3f63ee8bb56e"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121ff-d2d0-7794-9e65-7c8e52c670d7",
+      "assignment_id": "01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "run_id": "run_01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "call_id": "call_function_b1dlsdgs7ywl_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "request": {
+        "approval_id": "01a121ff-d2d0-7794-9e65-7c8e52c670d7",
+        "decision": "allow_once",
+        "client_request_id": "e3d71b4c-34c9-4a7e-9842-ac0471eb2bce"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121fe-57c0-73ab-99f9-2201c83f6307",
+      "assignment_id": "01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "run_id": "run_01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "call_id": "call_function_v5y9qriwmsz6_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "explicit_project_directory_readonly_ls",
+        "reason": "manually reviewed exact readonly command, no file content/environment or mutation; unique waiting head/RQ routing verified"
+      },
+      "request": {
+        "approval_id": "01a121fe-57c0-73ab-99f9-2201c83f6307",
+        "decision": "allow_once",
+        "client_request_id": "e94c18b0-0d54-4c10-bc03-fd5b5e101c64"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12200-1a22-73b0-be0b-8f39fce23383",
+      "assignment_id": "01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "run_id": "run_01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "call_id": "call_function_tj8mjzzv0zg5_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "request": {
+        "approval_id": "01a12200-1a22-73b0-be0b-8f39fce23383",
+        "decision": "allow_once",
+        "client_request_id": "aa768b44-cf4b-4362-bfe5-5d0fab65562e"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121fd-fd7a-75be-9c50-82c7c75fcee4",
+      "assignment_id": "01a121fd-a240-73d9-8d81-d8f46cfb7d4a",
+      "run_id": "run_01a121fd-a240-73d9-8d81-d8f46cfb7d4a",
+      "call_id": "call_function_leerlw8zojy9_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "explicit_project_directory_readonly_ls",
+        "reason": "manually reviewed exact readonly command, no file content/environment or mutation; unique waiting head/RQ routing verified"
+      },
+      "request": {
+        "approval_id": "01a121fd-fd7a-75be-9c50-82c7c75fcee4",
+        "decision": "allow_once",
+        "client_request_id": "d7561f2c-82b1-4c87-ace5-3f455b65804d"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121fe-ee82-73f9-8d47-3c0f931d2d2f",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "call_id": "call_function_zcqvjuaa06dj_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "readonly_prd_filename_lookup",
+        "reason": "manually reviewed exact readonly command, no file content/environment or mutation; unique waiting head/RQ routing verified"
+      },
+      "request": {
+        "approval_id": "01a121fe-ee82-73f9-8d47-3c0f931d2d2f",
+        "decision": "allow_once",
+        "client_request_id": "dc52351c-1f9e-46f4-a201-abd17b22cae1"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12201-a67b-77af-ad97-d0aabd13aaea",
+      "assignment_id": "01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "run_id": "run_01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "call_id": "call_function_xmud13ohlaod_1",
+      "scope": {
+        "authorized": true,
+        "tool": "subagent",
+        "reason": "manually inspected exact local task/code and unique pending head/project cwd; one-shot only",
+        "operation": "tester_local_browser_validation",
+        "task_sha256": "dc2ca65effacd8550f608f3c50fe1a5898b0c3e6b064b5a2dc63a96e93a105f6"
+      },
+      "request": {
+        "approval_id": "01a12201-a67b-77af-ad97-d0aabd13aaea",
+        "decision": "allow_once",
+        "client_request_id": "a029d8c0-ebc0-48d3-a133-05101b5ea66e"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12201-91c7-7369-a874-ae336f51f3ce",
+      "assignment_id": "01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "run_id": "run_01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "call_id": "call_function_hlvaeec9h5zh_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "reason": "manually inspected exact local task/code and unique pending head/project cwd; one-shot only",
+        "operation": "local_demo_server_start",
+        "reviewed_file_sha256": "e1354b66a7dff8675f4a2cd3b81f59e7dc8153c233445b8fad68103cdc09d214",
+        "expected_limitation": "existing unrelated TCP3000 remains untouched; bind expected to fail, port-change steer already persisted; launch return does not prove listening"
+      },
+      "request": {
+        "approval_id": "01a12201-91c7-7369-a874-ae336f51f3ce",
+        "decision": "allow_once",
+        "client_request_id": "958e5c57-3e38-4a15-93ad-d789db2dfbb1"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12203-476f-74e2-95d5-0baf64db90ab",
+      "assignment_id": "01a12202-e5d0-7485-8ac8-85e6c0d8c56d",
+      "run_id": "run_01a12202-e5d0-7485-8ac8-85e6c0d8c56d",
+      "call_id": "call_function_rialaizsb4en_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "edit",
+        "operation": "project_home_file_mutation"
+      },
+      "request": {
+        "approval_id": "01a12203-476f-74e2-95d5-0baf64db90ab",
+        "decision": "allow_once",
+        "client_request_id": "839f5e47-2e34-4719-8cf9-c2b2f99dd622"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12204-2f4a-729e-a64c-509a4ea6f8de",
+      "assignment_id": "01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "run_id": "run_01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "call_id": "call_function_9vvq8r99g7tu_1",
+      "scope": {
+        "authorized": true,
+        "tool": "subagent",
+        "operation": "tester_browser_review_finish",
+        "reason": "manually reviewed exact task/action, local demo tests/report only and unique parent RQ cwd",
+        "args_sha256": "afc0312faec7d40cb7d7a0ec6a5fff03d6fe948b90275b2ac4354a35c474dee2"
+      },
+      "request": {
+        "approval_id": "01a12204-2f4a-729e-a64c-509a4ea6f8de",
+        "decision": "allow_once",
+        "client_request_id": "2277b897-593d-481c-97b9-bea1d3b058d6"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12202-24d4-76d6-978c-6e4effe1d894",
+      "assignment_id": "01a121fd-a240-73d9-8d81-d8f46cfb7d4a",
+      "run_id": "run_01a121fd-a240-73d9-8d81-d8f46cfb7d4a",
+      "call_id": "call_function_e2f69cne451x_1",
+      "scope": {
+        "authorized": true,
+        "tool": "subagent",
+        "operation": "coder_local_demo_test_and_report",
+        "reason": "manually reviewed exact task/action, local demo tests/report only and unique parent RQ cwd",
+        "args_sha256": "1e97cb03861e410736ba5c380b667f1307f90d57a6f667cb1e61b4a89effca47"
+      },
+      "request": {
+        "approval_id": "01a12202-24d4-76d6-978c-6e4effe1d894",
+        "decision": "allow_once",
+        "client_request_id": "4208ebe4-133f-4b9b-89c8-a0f665a6989c"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12205-4db2-7061-b1cc-8c85ac280699",
+      "assignment_id": "01a12202-e5d0-7485-8ac8-85e6c0d8c56d",
+      "run_id": "run_01a12202-e5d0-7485-8ac8-85e6c0d8c56d",
+      "call_id": "call_function_g0hphxib5unc_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "edit",
+        "operation": "project_home_file_mutation"
+      },
+      "request": {
+        "approval_id": "01a12205-4db2-7061-b1cc-8c85ac280699",
+        "decision": "allow_once",
+        "client_request_id": "bd47a487-fee3-44f9-8979-91a4aa9bd244"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12206-aa09-74b9-8979-8162d42664e6",
+      "assignment_id": "01a12202-e5d0-7485-8ac8-85e6c0d8c56d",
+      "run_id": "run_01a12202-e5d0-7485-8ac8-85e6c0d8c56d",
+      "call_id": "call_function_fto3ymxoyo8b_1",
+      "scope": {
+        "authorized": true,
+        "tool": "subagent",
+        "operation": "bounded_demo_server_security_review",
+        "reason": "manually reviewed exact local review task and unique parent/project cwd",
+        "task_sha256": "7d808861c50986948942d16b18855ec5883e2ee8c94c76210f6ca756af07943e"
+      },
+      "request": {
+        "approval_id": "01a12206-aa09-74b9-8979-8162d42664e6",
+        "decision": "allow_once",
+        "client_request_id": "2f7d21dd-3ade-418d-b07c-55a4b073a940"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12206-f74d-7682-814d-317f8d53a633",
+      "assignment_id": "01a12206-8259-73d2-bfae-0462c6d42d2a",
+      "run_id": "run_01a12206-8259-73d2-bfae-0462c6d42d2a",
+      "call_id": "call_function_oq55vb3kgayy_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "request": {
+        "approval_id": "01a12206-f74d-7682-814d-317f8d53a633",
+        "decision": "allow_once",
+        "client_request_id": "c1562f50-4165-44dd-9687-25682717fed9"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12205-ec6d-713f-8da1-feb4f34f6fae",
+      "assignment_id": "01a121fd-a240-73d9-8d81-d8f46cfb7d4a",
+      "run_id": "run_01a121fd-a240-73d9-8d81-d8f46cfb7d4a",
+      "call_id": "call_function_iko3nhj1x1uu_1",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "edit",
+        "operation": "project_home_file_mutation"
+      },
+      "request": {
+        "approval_id": "01a12205-ec6d-713f-8da1-feb4f34f6fae",
+        "decision": "allow_once",
+        "client_request_id": "f386f4e6-e4c3-4d67-be7f-09867e886048"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12207-cc3e-743f-a0d5-df2e529a9cce",
+      "assignment_id": "01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "run_id": "run_01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "call_id": "call_function_62bj6aj3y2qz_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "installed_browser_help",
+        "reason": "manually reviewed exact command and unique waiting head/project cwd"
+      },
+      "request": {
+        "approval_id": "01a12207-cc3e-743f-a0d5-df2e529a9cce",
+        "decision": "allow_once",
+        "client_request_id": "b1f2d026-b976-4bee-875a-5ca96e0ecca3"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12203-bad8-776a-8d98-c170eabbe6e3",
+      "assignment_id": "01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "run_id": "run_01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "call_id": "call_function_lbcm4nik1iy2_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "local_demo_http_test",
+        "reason": "manually reviewed exact command and unique waiting head/project cwd",
+        "reviewed_script_sha256": "750f5a05a45254692f511144003b034135641d4454cf8ca4eae16bfdce3f2070",
+        "limitation": "No listener on3001 at review; executing test may report connection refusal, exit0 is not pass"
+      },
+      "request": {
+        "approval_id": "01a12203-bad8-776a-8d98-c170eabbe6e3",
+        "decision": "allow_once",
+        "client_request_id": "1ec82c53-4df6-4b07-a7f8-a9ff68961cbe"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12209-270a-70b7-ac88-6dd50e3aa46d",
+      "assignment_id": "01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "run_id": "run_01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "call_id": "call_function_3w20ja0j6u49_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "tester_isolated_profile_mkdir",
+        "reason": "manually reviewed exact command and unique waiting head/project cwd"
+      },
+      "request": {
+        "approval_id": "01a12209-270a-70b7-ac88-6dd50e3aa46d",
+        "decision": "allow_once",
+        "client_request_id": "60f04e1e-707c-453b-aced-ad150c355567"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12209-32cd-71d9-b7ad-9042bd05edfc",
+      "assignment_id": "01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "run_id": "run_01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "call_id": "call_function_tqwhiiaaywsv_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "readonly_node_binary_discovery",
+        "reason": "manually reviewed exact command and unique waiting head/project cwd"
+      },
+      "request": {
+        "approval_id": "01a12209-32cd-71d9-b7ad-9042bd05edfc",
+        "decision": "allow_once",
+        "client_request_id": "419076d3-89ac-4b4a-9d3e-1ee6b26cf7d9"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a12209-62c5-76ef-97d3-9b9c782388c0",
+      "assignment_id": "01a12202-e5d0-7485-8ac8-85e6c0d8c56d",
+      "run_id": "run_01a12202-e5d0-7485-8ac8-85e6c0d8c56d",
+      "call_id": "call_function_et68n53kiki9_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "local_demo_server_bounded_start",
+        "reason": "manually reviewed exact command and unique waiting head/project cwd",
+        "reviewed_script_sha256": "43ea590ddbd570a0b4a7bf3e37ddf87e83f6f961bd41af47e3798d0ae3c8fd97",
+        "bound": "5-second startup probe; no readiness or persistent-service PASS from command exit"
+      },
+      "request": {
+        "approval_id": "01a12209-62c5-76ef-97d3-9b9c782388c0",
+        "decision": "allow_once",
+        "client_request_id": "c16d0c2e-4f4d-4b8f-892e-4e2762284503"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a1220c-64e7-73c0-b2b5-7b17a291f298",
+      "assignment_id": "01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "run_id": "run_01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "call_id": "call_function_37304inaf540_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "tester_isolated_loopback_http_server",
+        "reason": "manually inspected exact pending command and unique head/run request; bounded test-owned paths/process only",
+        "args_sha256": "92da76c03a52c21d9f741de15d48fc60b41e124c6b731102b34c31daacaef1a3"
+      },
+      "request": {
+        "approval_id": "01a1220c-64e7-73c0-b2b5-7b17a291f298",
+        "decision": "allow_once",
+        "client_request_id": "b33bca6d-9d8b-4572-ab36-4eed6dbc260c"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a1220c-67ad-76a4-918c-cac2154b096f",
+      "assignment_id": "01a12202-e5d0-7485-8ac8-85e6c0d8c56d",
+      "run_id": "run_01a12202-e5d0-7485-8ac8-85e6c0d8c56d",
+      "call_id": "call_function_3rjrltbxfc91_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "readonly_node_binary_discovery",
+        "reason": "manually inspected exact pending command and unique head/run request; bounded test-owned paths/process only",
+        "args_sha256": "fd2aa1a68e0bbecaf30be449f9ba513417b6223bded9cc218d642b677102ec6d"
+      },
+      "request": {
+        "approval_id": "01a1220c-67ad-76a4-918c-cac2154b096f",
+        "decision": "allow_once",
+        "client_request_id": "19c7c3bf-7579-41c0-82f6-128681b27fca"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a1220c-6432-7790-ab36-3ce78dcdb011",
+      "assignment_id": "01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "run_id": "run_01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "call_id": "call_function_bk0hummevylb_1",
+      "scope": {
+        "authorized": true,
+        "tool": "bash",
+        "operation": "local_demo_server_absolute_node_start",
+        "reason": "manually inspected exact pending command and unique head/run request; bounded test-owned paths/process only",
+        "args_sha256": "fe7db763c819ac66d0806bb1f4f4b034a800119563c489b6e3ec6d55e760f62b",
+        "reviewed_file_sha256": "43ea590ddbd570a0b4a7bf3e37ddf87e83f6f961bd41af47e3798d0ae3c8fd97"
+      },
+      "request": {
+        "approval_id": "01a1220c-6432-7790-ab36-3ce78dcdb011",
+        "decision": "allow_once",
+        "client_request_id": "0ee49c24-ca7f-49e3-a440-52d66ebb15fe"
+      },
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    }
+  ],
+  "bounded_pass": {
+    "duration_limit_seconds": 45,
+    "ended_at": "2026-10-09T18:35:04.457609+00:00",
+    "unknown_tools_not_approved": {
+      "01a121f2-6c56-7519-8047-19579ae41715": {
+        "tool": "subagent",
+        "reason": "tool is outside the scenario allowlist"
+      }
+    }
+  }
+}

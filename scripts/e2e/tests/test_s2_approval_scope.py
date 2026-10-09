@@ -49,6 +49,50 @@ class ApprovalScopeTests(unittest.TestCase):
         self.assert_allowed(result, "marker_file")
         self.assertNotIn(MARKER, json.dumps(result))
 
+    def test_read_only_s2_bash_diagnostics_are_exact_and_content_blind(self) -> None:
+        self.assert_allowed(
+            check_approval_scope(approval("bash", "exec", {"command": "echo $HOME"}), self.temp, MARKER),
+            "echo_home",
+        )
+        command = f"ls ~/MacBot/projects/{self.temp.name}"
+        result = check_approval_scope(approval("bash", "exec", {"command": command}), self.temp, MARKER)
+        self.assert_allowed(result, "project_home_ls")
+        self.assertNotIn("/Users/", json.dumps(result))
+
+    def test_read_only_s2_bash_diagnostics_reject_variants(self) -> None:
+        project = f"~/MacBot/projects/{self.temp.name}"
+        for command in (
+            'echo "$HOME"',
+            "echo $HOME/extra",
+            "echo $HOME && pwd",
+            f"ls -la {project}",
+            f"ls '{project}'",
+            f'ls "{project}"',
+            f"ls ~/MacBot/projects/{MARKER}",
+            f"ls ~/MacBot/projects/{self.temp.name}/.",
+            f"ls ~/MacBot/projects/{self.temp.name} other",
+        ):
+            self.assert_denied(
+                check_approval_scope(approval("bash", "exec", {"command": command}), self.temp, MARKER)
+            )
+
+    def test_unquoted_project_ls_rejects_unsafe_project_home_names(self) -> None:
+        # These are real entries in the trusted namespace, but their names
+        # cannot safely be interpolated into the deliberately unquoted ls
+        # command. This exercises only the approval predicate; no shell runs.
+        for suffix in (" with space", ";echo"):
+            unsafe_home = self.projects / f"{MARKER}{suffix}"
+            unsafe_home.mkdir()
+            try:
+                command = f"ls ~/MacBot/projects/{unsafe_home.name}"
+                result = check_approval_scope(
+                    approval("bash", "exec", {"command": command}), unsafe_home, MARKER
+                )
+                self.assert_denied(result)
+                self.assertIn("unsafe", result["reason"])
+            finally:
+                shutil.rmtree(unsafe_home, ignore_errors=True)
+
     def test_marker_bash_rejects_e2e_symlink_escape(self) -> None:
         outside = Path(tempfile.mkdtemp(prefix="macbot-s2-marker-outside-"))
         try:
@@ -137,6 +181,98 @@ class ApprovalScopeTests(unittest.TestCase):
         self.assertIn("runtime", write["reason"])
         self.assert_denied(edit)
         self.assertIn("runtime", edit["reason"])
+
+    def test_home_v1_metadata_allows_matching_tilde_path(self) -> None:
+        raw_path = f"~/MacBot/projects/{self.temp.name}/index.html"
+        resolved = self.temp / "index.html"
+        write = check_approval_scope(
+            approval(
+                "write",
+                "write",
+                {
+                    "path": raw_path,
+                    "content": "secret content",
+                    "resolved_path": str(resolved),
+                    "path_resolution": "home-v1",
+                },
+            ),
+            self.temp,
+            MARKER,
+        )
+        self.assert_allowed(write, "project_home_file_mutation")
+        self.assertNotIn("secret", json.dumps(write))
+
+    def test_home_v1_metadata_allows_matching_relative_edit(self) -> None:
+        resolved = self.temp / "src" / "README.md"
+        result = check_approval_scope(
+            approval(
+                "edit",
+                "write",
+                {
+                    "path": "src/README.md",
+                    "edits": [{"oldText": "a", "newText": "b"}],
+                    "resolved_path": str(resolved),
+                    "path_resolution": "home-v1",
+                },
+            ),
+            self.temp,
+            MARKER,
+        )
+        self.assert_allowed(result, "project_home_file_mutation")
+
+    def test_home_v1_metadata_requires_exact_pair_and_matching_target(self) -> None:
+        raw_path = f"~/MacBot/projects/{self.temp.name}/index.html"
+        base = {"path": raw_path, "content": "secret"}
+        cases = [
+            {**base, "resolved_path": str(self.temp / "index.html")},
+            {**base, "path_resolution": "home-v1"},
+            {
+                **base,
+                "resolved_path": str(self.temp / "index.html"),
+                "path_resolution": "home-v2",
+            },
+            {
+                **base,
+                "resolved_path": "relative/index.html",
+                "path_resolution": "home-v1",
+            },
+            {
+                **base,
+                "resolved_path": str(self.temp / "other.html"),
+                "path_resolution": "home-v1",
+            },
+            {
+                **base,
+                "resolved_path": str(self.temp / "index.html"),
+                "path_resolution": "home-v1",
+                "extra": "unexpected",
+            },
+        ]
+        for detail in cases:
+            self.assert_denied(check_approval_scope(approval("write", "write", detail), self.temp, MARKER))
+
+    def test_home_v1_metadata_rejects_symlink_escape_for_both_spellings(self) -> None:
+        outside = Path(tempfile.mkdtemp(prefix="macbot-s2-home-v1-outside-"))
+        try:
+            (self.temp / "linked").symlink_to(outside, target_is_directory=True)
+            raw_path = f"~/MacBot/projects/{self.temp.name}/linked/escape.txt"
+            result = check_approval_scope(
+                approval(
+                    "write",
+                    "write",
+                    {
+                        "path": raw_path,
+                        "content": "secret",
+                        "resolved_path": str(outside / "escape.txt"),
+                        "path_resolution": "home-v1",
+                    },
+                ),
+                self.temp,
+                MARKER,
+            )
+            self.assert_denied(result)
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
 
     def test_file_escape_symlink_and_extra_args_are_denied(self) -> None:
         outside = Path(tempfile.mkdtemp(prefix="macbot-s2-outside-"))

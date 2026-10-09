@@ -1,0 +1,44 @@
+{
+  "source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "listener_before": {
+    "pid": 2521,
+    "port": 3000,
+    "cwd": "/Users/gongshaojie/Project/buddy/advertising/video",
+    "comm": "node (npx remotion studio)"
+  },
+  "request": {
+    "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+    "text": "运行环境核对：TCP3000 已被其他工程的 remotion studio 占用，不能停止该进程或把它当作本项目服务进行测试。请本项目服务与测试统一改用独立端口3001；确认实际监听进程属于本项目 Home 后再请求测试。当前 server.js 固定PORT3000，会启动失败；请读取真实退出/错误结果，不要把 shell后台启动成功当成服务可用。保持原群，不新建项目。",
+    "mentions": [
+      {
+        "kind": "bot",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "instruction": null
+      }
+    ],
+    "client_request_id": "b2fa530b-d4d3-423f-b480-7c58bb9a3c8a"
+  },
+  "status": "rpc_ok",
+  "message_id": "01a12202-e5d0-7485-8ac8-85e550599204",
+  "message_seq": 17,
+  "listener_after": {
+    "pid": 76297,
+    "port": 3001,
+    "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89/server",
+    "original_3000_pid": 2521,
+    "checks": [
+      {
+        "url": "http://127.0.0.1:3001/",
+        "status": 404,
+        "content_type": null
+      },
+      {
+        "url": "http://127.0.0.1:3001/api/check-status",
+        "status": 200,
+        "content_type": "application/json",
+        "body_size": 18
+      }
+    ],
+    "at": "2026-10-09T19:05:51.394355+00:00"
+  }
+}

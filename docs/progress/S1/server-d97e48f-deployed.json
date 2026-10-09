@@ -1,0 +1,38 @@
+{
+  "artifact": "production server deployment evidence",
+  "observed_at": "2026-10-09T18:20:00Z",
+  "source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "deploy_log": "~/Library/Caches/MacBot/integrator/watch/server-deploy-d97e48f.log",
+  "deploy_result": {
+    "fixed_source_archive": true,
+    "exit_code": 0,
+    "authentication_probe": "passed per deployment run; credential value not recorded"
+  },
+  "service": {
+    "label": "com.macbot.server",
+    "launchagent_pid": 57640,
+    "listener_pid": 57640,
+    "listen": "*:7788",
+    "executable": "~/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+    "installed_source_marker": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+    "pid_match": true,
+    "argv": "omitted"
+  },
+  "health": {
+    "endpoint": "GET http://127.0.0.1:7788/api/v1/health",
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false,
+    "mock": false
+  },
+  "verification": {
+    "read_only": true,
+    "password_or_environment_recorded": false,
+    "screen_or_browser_acceptance": "not_checked",
+    "s1_joint_acceptance": "not_passed",
+    "s2_same_run_recovery": "pending e2e verification of the invalid-tool continuation boundary",
+    "s4_acceptance": "not_passed",
+    "s5_fresh_install": "not_passed"
+  }
+}

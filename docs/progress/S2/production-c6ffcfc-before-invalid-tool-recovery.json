@@ -1,0 +1,258 @@
+{
+  "scenario": "S2 c6-to-d97 pre-upgrade invalid-tool recovery baseline",
+  "source_commit_before_upgrade": "c6ffcfc45b716067dad9b2d0602cd82ddf395481",
+  "scope": "read-only exact approval/run/job/path metadata; no payload text/options/key; no mutation",
+  "projects": {
+    "project1": {
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "home_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/"
+    },
+    "parallel": {
+      "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+      "home_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89/"
+    }
+  },
+  "baseline_approvals": [
+    {
+      "label": "product_coder_third_write",
+      "approval": {
+        "id": "01a121cc-ecec-7108-9a09-6f4235ac4648",
+        "state": "pending",
+        "tool": "write",
+        "risk": "write",
+        "created_at": "2026-10-09T17:54:00.556982+00:00",
+        "decided_at": null,
+        "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "detail_keys": [
+          "content",
+          "path"
+        ]
+      },
+      "mapping": {
+        "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+        "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+        "job_id": "job_01a121c8-2a31-7736-bbdb-7afe3f35b596",
+        "project_key": "project1",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "parent_assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "trigger_message_id": "01a121c8-2936-747b-a0d1-812df5961772",
+        "pending_call_id": "call_function_5ot0zv56480q_1"
+      },
+      "project_home": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/",
+      "run_request": {
+        "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+        "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+        "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5",
+        "parent_run_id": null,
+        "phase": "work"
+      },
+      "job": {
+        "job_id": "job_01a121c8-2a31-7736-bbdb-7afe3f35b596",
+        "status": "waiting",
+        "owner": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "kind": "model_run",
+        "unsafe_replay": true,
+        "checkpoint": {
+          "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+          "waiting_reason": null,
+          "wait_intent": null,
+          "waiting_message": null,
+          "waiting_message_id": null,
+          "pending_tools_count": 1,
+          "pending_tools": [
+            {
+              "name": "write",
+              "call_id": "call_function_5ot0zv56480q_1",
+              "args_keys": [
+                "content",
+                "path"
+              ]
+            }
+          ]
+        }
+      },
+      "target": {
+        "raw_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/script.js",
+        "expanduser_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/script.js",
+        "expanduser_exists": false,
+        "cwd_joined_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/script.js",
+        "cwd_joined_exists": false,
+        "actual_nested_literal_tilde_path": null,
+        "size_bytes": null,
+        "sha256": null
+      }
+    },
+    {
+      "label": "main_coder_write",
+      "approval": {
+        "id": "01a121c9-60b2-7162-b646-57ef8bb50df6",
+        "state": "pending",
+        "tool": "write",
+        "risk": "write",
+        "created_at": "2026-10-09T17:50:08.050560+00:00",
+        "decided_at": null,
+        "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "detail_keys": [
+          "content",
+          "path"
+        ]
+      },
+      "mapping": {
+        "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+        "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+        "job_id": "job_01a121c8-cd13-71c3-8231-0b7f202929f7",
+        "project_key": "project1",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "parent_assignment_id": null,
+        "trigger_message_id": null,
+        "pending_call_id": "call_function_fmnhdbecgwca_1"
+      },
+      "project_home": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/",
+      "run_request": {
+        "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+        "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+        "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5",
+        "parent_run_id": null,
+        "phase": "work"
+      },
+      "job": {
+        "job_id": "job_01a121c8-cd13-71c3-8231-0b7f202929f7",
+        "status": "waiting",
+        "owner": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "kind": "model_run",
+        "unsafe_replay": true,
+        "checkpoint": {
+          "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+          "waiting_reason": null,
+          "wait_intent": null,
+          "waiting_message": null,
+          "waiting_message_id": null,
+          "pending_tools_count": 1,
+          "pending_tools": [
+            {
+              "name": "write",
+              "call_id": "call_function_fmnhdbecgwca_1",
+              "args_keys": [
+                "content",
+                "path"
+              ]
+            }
+          ]
+        }
+      },
+      "target": {
+        "raw_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+        "expanduser_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+        "expanduser_exists": false,
+        "cwd_joined_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+        "cwd_joined_exists": true,
+        "actual_nested_literal_tilde_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+        "size_bytes": 2524,
+        "sha256": "9684de8e35d98cc3605c76057906091a177fbad955c74d3dc8edbe76cc123cb9"
+      }
+    },
+    {
+      "label": "parallel_memory",
+      "approval": {
+        "id": "01a121c4-4287-76a6-91ab-5e8b56eaa60d",
+        "state": "pending",
+        "tool": "memory",
+        "risk": "write",
+        "created_at": "2026-10-09T17:44:32.647712+00:00",
+        "decided_at": null,
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "detail_keys": [
+          "action",
+          "content",
+          "scope"
+        ]
+      },
+      "mapping": {
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "job_id": "job_01a12167-b4b2-7276-bd22-32e1ec7ef105",
+        "project_key": "parallel",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "parent_assignment_id": null,
+        "trigger_message_id": null,
+        "pending_call_id": "call_function_5frz31hzzhan_1"
+      },
+      "project_home": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89/",
+      "run_request": {
+        "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89",
+        "parent_run_id": null,
+        "phase": "work"
+      },
+      "job": {
+        "job_id": "job_01a12167-b4b2-7276-bd22-32e1ec7ef105",
+        "status": "waiting",
+        "owner": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "kind": "model_run",
+        "unsafe_replay": true,
+        "checkpoint": {
+          "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "waiting_reason": null,
+          "wait_intent": null,
+          "waiting_message": null,
+          "waiting_message_id": null,
+          "pending_tools_count": 1,
+          "pending_tools": [
+            {
+              "name": "memory",
+              "call_id": "call_function_5frz31hzzhan_1",
+              "args_keys": [
+                "action",
+                "content",
+                "scope"
+              ]
+            }
+          ]
+        }
+      },
+      "target": null
+    }
+  ],
+  "written_files": {
+    "content_blind": true,
+    "files": [
+      {
+        "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+        "raw_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+        "size_bytes": 2524,
+        "sha256": "9684de8e35d98cc3605c76057906091a177fbad955c74d3dc8edbe76cc123cb9",
+        "approval_id": "01a121c8-674a-70e2-878a-dd85261e860b",
+        "approval_state": "allowed_once"
+      },
+      {
+        "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/styles.css",
+        "raw_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/styles.css",
+        "size_bytes": 4360,
+        "sha256": "c84b588449db8537b3b37ef0a2a5059fef78435e92057459b2fc2d412d4df9ee",
+        "approval_id": "01a121cb-9d0d-74a0-8eb6-f2c2b2d66c16",
+        "approval_state": "allowed_once"
+      }
+    ],
+    "note": "These files were written by the earlier allowed_once Product-parented Coder approvals; the three baseline approvals remain separately listed and were not assumed expired."
+  },
+  "conclusion": "PRE_D97_BASELINE_CAPTURED: two project1 Coder write approvals and the parallel Product memory approval are mapped to their original runs/jobs/checkpoints. Earlier approved writes are recorded at literal nested-tilde paths; pending target paths and tool calls are retained. No approval is assumed expired."
+}

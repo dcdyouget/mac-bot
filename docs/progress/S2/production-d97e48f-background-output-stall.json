@@ -1,0 +1,116 @@
+{
+  "server_source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "captured_at": "2026-10-09T19:09:12.562275+00:00",
+  "scenario": "approved background=true bash does not return tool result while background process remains active",
+  "records": [
+    {
+      "assignment_id": "01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "assignment_status": "working",
+      "run_id": "run_01a121fd-f9a6-71ae-98c6-204430a8e2a5",
+      "job_id": "job_01a121fd-fecc-75d8-8331-dfba9b81576f",
+      "job_status": "running",
+      "job_updated_at_ms": 1791572726764,
+      "observed_elapsed_seconds": 225.8,
+      "head": {
+        "call_id": "call_function_37304inaf540_1",
+        "tool": "bash",
+        "background": true,
+        "args_sha256": "92da76c03a52c21d9f741de15d48fc60b41e124c6b731102b34c31daacaef1a3"
+      },
+      "routing": {
+        "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+        "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5"
+      },
+      "approval": [
+        {
+          "id": "01a1220c-64e7-73c0-b2b5-7b17a291f298",
+          "state": "allowed_once",
+          "decided_at": "2026-10-09T19:05:25.687411+00:00"
+        }
+      ],
+      "call_trace": [
+        {
+          "aseq": 104,
+          "at": "2026-10-09T19:03:17.358Z",
+          "type": "tool.start",
+          "call_id": "call_function_37304inaf540_1",
+          "is_error": null
+        },
+        {
+          "aseq": 107,
+          "at": "2026-10-09T19:05:28.509Z",
+          "type": "tool.start",
+          "call_id": "call_function_37304inaf540_1",
+          "is_error": null
+        }
+      ],
+      "head_has_tool_end": false
+    },
+    {
+      "assignment_id": "01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "assignment_status": "working",
+      "run_id": "run_01a121fc-ff21-71bd-928f-90ca6017b0b7",
+      "job_id": "job_01a121fd-06a6-770d-89c8-a2ae1bb3814a",
+      "job_status": "running",
+      "job_updated_at_ms": 1791572730275,
+      "observed_elapsed_seconds": 222.29,
+      "head": {
+        "call_id": "call_function_bk0hummevylb_1",
+        "tool": "bash",
+        "background": true,
+        "args_sha256": "fe7db763c819ac66d0806bb1f4f4b034a800119563c489b6e3ec6d55e760f62b"
+      },
+      "routing": {
+        "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89"
+      },
+      "approval": [
+        {
+          "id": "01a1220c-6432-7790-ab36-3ce78dcdb011",
+          "state": "allowed_once",
+          "decided_at": "2026-10-09T19:05:29.219816+00:00"
+        }
+      ],
+      "call_trace": [
+        {
+          "aseq": 59,
+          "at": "2026-10-09T19:03:17.152Z",
+          "type": "tool.start",
+          "call_id": "call_function_bk0hummevylb_1",
+          "is_error": null
+        },
+        {
+          "aseq": 62,
+          "at": "2026-10-09T19:05:31.798Z",
+          "type": "tool.start",
+          "call_id": "call_function_bk0hummevylb_1",
+          "is_error": null
+        }
+      ],
+      "head_has_tool_end": false
+    }
+  ],
+  "source_observation": {
+    "execution": "server/crates/macbot-gateway/src/execution.rs:1998-2004 calls tool.call then awaits output_forwarder before tool.end",
+    "background_tool": "server/crates/macbot-tools/src/lib.rs:1020-1045 returns job_id immediately; start_for_with_output retains ToolOutputConfig in spawned pump tasks",
+    "interpretation": "forwarder EOF wait is coupled to long-lived background output; reproduction needs independent owner test",
+    "owner": "server-mac"
+  },
+  "known_processes": {
+    "3000": {
+      "pid": 2521,
+      "unrelated_remotion_untouched": true
+    },
+    "3001": {
+      "pid": 76297,
+      "project_demo_root_get_status": 404,
+      "project_demo_api_check_status": 200
+    }
+  },
+  "actions": "read-only evidence; no daemon/client/AVD restart and no kill/replay",
+  "full_s2_pass": false
+}

@@ -1,0 +1,980 @@
+{
+  "scenario": "S2 d97 invalid-tool recovery continuation read-only",
+  "source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "observed_at": "2026-10-09T18:29:02.144047+00:00",
+  "baseline_artifact": "docs/progress/S2/production-d97e48f-invalid-tool-recovery.json",
+  "scope": "read-only API/filesystem metadata; no approval, question, chat, or provider mutation; no payload text or credentials",
+  "host": {
+    "url": "http://127.0.0.1:7788",
+    "server_version": "0.1.0",
+    "protocol": 1,
+    "bootstrap_seq": 1032
+  },
+  "expired_original_routes": [
+    {
+      "label": "product_coder_third_write",
+      "old_approval": {
+        "id": "01a121cc-ecec-7108-9a09-6f4235ac4648",
+        "state_at_read": "expired",
+        "decided_at": "2026-10-09T18:24:55.898478+00:00",
+        "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "tool": "write",
+        "risk": "write"
+      },
+      "original_call_id": "call_function_5ot0zv56480q_1",
+      "same_assignment_route": true,
+      "current_assignment": {
+        "id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "origin_chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "parent_assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "root_message_id": "01a121c8-2936-747b-a0d1-812df5961772",
+        "trigger_message_id": "01a121c8-2936-747b-a0d1-812df5961772",
+        "status": "waiting_user",
+        "priority": 2,
+        "created_at": "2026-10-09T17:48:48.310400+00:00",
+        "started_at": "2026-10-09T17:48:48.310400+00:00",
+        "finished_at": null,
+        "result_message_id": null,
+        "from": {
+          "kind": "bot",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30"
+        },
+        "wait": {
+          "reason": "approval",
+          "message_id": null
+        }
+      },
+      "trace": {
+        "first_aseq": 1,
+        "last_aseq": 40,
+        "live": false,
+        "run_ids": [
+          "run_01a121c8-2936-747b-a0d1-812e89cf72d8"
+        ],
+        "event_types_observed": [
+          "run.resume",
+          "tool.end",
+          "tool.start"
+        ],
+        "has_tool_error_event": false,
+        "tool_end_error_count": 1,
+        "events": [
+          {
+            "aseq": 14,
+            "type": "run.resume",
+            "at": "2026-10-09T17:52:18.975Z",
+            "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 21,
+            "type": "run.resume",
+            "at": "2026-10-09T17:53:47.449Z",
+            "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 28,
+            "type": "tool.end",
+            "at": "2026-10-09T18:24:55.931Z",
+            "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+            "data_keys": [
+              "call_id",
+              "details",
+              "duration_ms",
+              "full_output",
+              "is_error",
+              "preview",
+              "truncated"
+            ],
+            "call_id": "call_function_5ot0zv56480q_1",
+            "is_error": true
+          },
+          {
+            "aseq": 29,
+            "type": "run.resume",
+            "at": "2026-10-09T18:24:55.942Z",
+            "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 32,
+            "type": "tool.start",
+            "at": "2026-10-09T18:24:58.597Z",
+            "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+            "data_keys": [
+              "args",
+              "call_id",
+              "name"
+            ],
+            "call_id": "call_function_3e24gotfpk5p_1",
+            "tool": "bash"
+          },
+          {
+            "aseq": 34,
+            "type": "run.resume",
+            "at": "2026-10-09T18:27:16.585Z",
+            "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 35,
+            "type": "tool.start",
+            "at": "2026-10-09T18:27:17.207Z",
+            "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+            "data_keys": [
+              "args",
+              "call_id",
+              "name"
+            ],
+            "call_id": "call_function_3e24gotfpk5p_1",
+            "tool": "bash"
+          },
+          {
+            "aseq": 36,
+            "type": "tool.end",
+            "at": "2026-10-09T18:27:17.227Z",
+            "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+            "data_keys": [
+              "call_id",
+              "details",
+              "duration_ms",
+              "full_output",
+              "is_error",
+              "preview",
+              "truncated"
+            ],
+            "call_id": "call_function_3e24gotfpk5p_1",
+            "is_error": false
+          }
+        ]
+      },
+      "post_expiry_followup_call_id": "call_function_3e24gotfpk5p_1"
+    },
+    {
+      "label": "main_coder_write",
+      "old_approval": {
+        "id": "01a121c9-60b2-7162-b646-57ef8bb50df6",
+        "state_at_read": "expired",
+        "decided_at": "2026-10-09T18:24:52.591154+00:00",
+        "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "tool": "write",
+        "risk": "write"
+      },
+      "original_call_id": "call_function_fmnhdbecgwca_1",
+      "same_assignment_route": true,
+      "current_assignment": {
+        "id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "origin_chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "parent_assignment_id": null,
+        "root_message_id": null,
+        "trigger_message_id": null,
+        "status": "waiting_user",
+        "priority": 1,
+        "created_at": "2026-10-09T17:49:28.395001+00:00",
+        "started_at": "2026-10-09T17:49:28.395001+00:00",
+        "finished_at": null,
+        "result_message_id": null,
+        "from": {
+          "kind": "bot",
+          "bot_id": "main"
+        },
+        "wait": {
+          "reason": "approval",
+          "message_id": null
+        }
+      },
+      "trace": {
+        "first_aseq": 1,
+        "last_aseq": 26,
+        "live": false,
+        "run_ids": [
+          "run_01a121c8-c5ca-7259-bc4f-0a51211cec88"
+        ],
+        "event_types_observed": [
+          "run.resume",
+          "tool.end",
+          "tool.start"
+        ],
+        "has_tool_error_event": false,
+        "tool_end_error_count": 1,
+        "events": [
+          {
+            "aseq": 14,
+            "type": "tool.end",
+            "at": "2026-10-09T18:24:52.625Z",
+            "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+            "data_keys": [
+              "call_id",
+              "details",
+              "duration_ms",
+              "full_output",
+              "is_error",
+              "preview",
+              "truncated"
+            ],
+            "call_id": "call_function_fmnhdbecgwca_1",
+            "is_error": true
+          },
+          {
+            "aseq": 15,
+            "type": "run.resume",
+            "at": "2026-10-09T18:24:52.638Z",
+            "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 18,
+            "type": "tool.start",
+            "at": "2026-10-09T18:24:55.187Z",
+            "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+            "data_keys": [
+              "args",
+              "call_id",
+              "name"
+            ],
+            "call_id": "call_function_eiq7nsjwiw5n_1",
+            "tool": "bash"
+          },
+          {
+            "aseq": 20,
+            "type": "run.resume",
+            "at": "2026-10-09T18:27:16.315Z",
+            "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 21,
+            "type": "tool.start",
+            "at": "2026-10-09T18:27:16.934Z",
+            "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+            "data_keys": [
+              "args",
+              "call_id",
+              "name"
+            ],
+            "call_id": "call_function_eiq7nsjwiw5n_1",
+            "tool": "bash"
+          },
+          {
+            "aseq": 22,
+            "type": "tool.end",
+            "at": "2026-10-09T18:27:16.953Z",
+            "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+            "data_keys": [
+              "call_id",
+              "details",
+              "duration_ms",
+              "full_output",
+              "is_error",
+              "preview",
+              "truncated"
+            ],
+            "call_id": "call_function_eiq7nsjwiw5n_1",
+            "is_error": false
+          }
+        ]
+      },
+      "post_expiry_followup_call_id": "call_function_eiq7nsjwiw5n_1"
+    },
+    {
+      "label": "parallel_memory",
+      "old_approval": {
+        "id": "01a121c4-4287-76a6-91ab-5e8b56eaa60d",
+        "state_at_read": "expired",
+        "decided_at": "2026-10-09T18:24:47.447654+00:00",
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "tool": "memory",
+        "risk": "write"
+      },
+      "original_call_id": "call_function_5frz31hzzhan_1",
+      "same_assignment_route": true,
+      "current_assignment": {
+        "id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+        "origin_chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "parent_assignment_id": null,
+        "root_message_id": null,
+        "trigger_message_id": null,
+        "status": "done",
+        "priority": 1,
+        "created_at": "2026-10-09T16:03:22.235256+00:00",
+        "started_at": "2026-10-09T16:03:22.235256+00:00",
+        "finished_at": "2026-10-09T18:26:51.205465+00:00",
+        "result_message_id": "01a121ea-fc21-75f9-a2d5-478ea76cf4f9",
+        "from": {
+          "kind": "bot",
+          "bot_id": "main"
+        }
+      },
+      "trace": {
+        "first_aseq": 1,
+        "last_aseq": 76,
+        "live": false,
+        "run_ids": [
+          "run_01a12167-a1fb-73c5-b084-9eee39ef7972"
+        ],
+        "event_types_observed": [
+          "run.end",
+          "run.resume",
+          "tool.end",
+          "tool.start"
+        ],
+        "has_tool_error_event": false,
+        "tool_end_error_count": 4,
+        "events": [
+          {
+            "aseq": 5,
+            "type": "tool.end",
+            "at": "2026-10-09T16:03:31.418Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "call_id",
+              "details",
+              "duration_ms",
+              "full_output",
+              "is_error",
+              "preview",
+              "truncated"
+            ],
+            "call_id": "call_function_urhru3ep3m2y_1",
+            "is_error": true
+          },
+          {
+            "aseq": 10,
+            "type": "run.resume",
+            "at": "2026-10-09T16:13:03.189Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 17,
+            "type": "run.resume",
+            "at": "2026-10-09T16:13:15.311Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 24,
+            "type": "run.resume",
+            "at": "2026-10-09T16:14:32.913Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 35,
+            "type": "run.resume",
+            "at": "2026-10-09T16:17:17.655Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 42,
+            "type": "run.resume",
+            "at": "2026-10-09T16:17:27.001Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 50,
+            "type": "run.resume",
+            "at": "2026-10-09T17:44:28.715Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 55,
+            "type": "tool.end",
+            "at": "2026-10-09T18:24:47.482Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "call_id",
+              "details",
+              "duration_ms",
+              "full_output",
+              "is_error",
+              "preview",
+              "truncated"
+            ],
+            "call_id": "call_function_5frz31hzzhan_1",
+            "is_error": true
+          },
+          {
+            "aseq": 56,
+            "type": "run.resume",
+            "at": "2026-10-09T18:24:47.495Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 59,
+            "type": "tool.start",
+            "at": "2026-10-09T18:24:51.853Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "args",
+              "call_id",
+              "name"
+            ],
+            "call_id": "call_function_4sc40omnc4tx_1",
+            "tool": "memory"
+          },
+          {
+            "aseq": 61,
+            "type": "run.resume",
+            "at": "2026-10-09T18:26:41.370Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "by_message_id"
+            ]
+          },
+          {
+            "aseq": 62,
+            "type": "tool.start",
+            "at": "2026-10-09T18:26:41.775Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "args",
+              "call_id",
+              "name"
+            ],
+            "call_id": "call_function_4sc40omnc4tx_1",
+            "tool": "memory"
+          },
+          {
+            "aseq": 63,
+            "type": "tool.end",
+            "at": "2026-10-09T18:26:41.786Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "call_id",
+              "details",
+              "duration_ms",
+              "full_output",
+              "is_error",
+              "preview",
+              "truncated"
+            ],
+            "call_id": "call_function_4sc40omnc4tx_1",
+            "is_error": false
+          },
+          {
+            "aseq": 67,
+            "type": "tool.end",
+            "at": "2026-10-09T18:26:45.230Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "call_id",
+              "details",
+              "duration_ms",
+              "full_output",
+              "is_error",
+              "preview",
+              "truncated"
+            ],
+            "call_id": "call_function_brz8dh5x9pgq_1",
+            "is_error": true
+          },
+          {
+            "aseq": 71,
+            "type": "tool.end",
+            "at": "2026-10-09T18:26:47.885Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "call_id",
+              "details",
+              "duration_ms",
+              "full_output",
+              "is_error",
+              "preview",
+              "truncated"
+            ],
+            "call_id": "call_function_k7n71tnyeo7d_1",
+            "is_error": true
+          },
+          {
+            "aseq": 76,
+            "type": "run.end",
+            "at": "2026-10-09T18:26:50.786Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "data_keys": [
+              "error",
+              "status"
+            ]
+          }
+        ]
+      },
+      "post_expiry_followup_call_id": "call_function_4sc40omnc4tx_1"
+    }
+  ],
+  "new_pending_relevant": [
+    {
+      "id": "01a121eb-705c-7498-85b0-75c24882d578",
+      "state": "pending",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "tool": "bash",
+      "risk": "exec",
+      "created_at": "2026-10-09T18:27:20.284257+00:00",
+      "decided_at": null,
+      "detail_keys": [
+        "command"
+      ],
+      "params_metadata": {
+        "command_length": 13,
+        "command_sha256": "0c9b65cde9f999f53c9e5029252bd00f5f5f776cc6c21b20c157f555b7ee621a"
+      }
+    },
+    {
+      "id": "01a121eb-c2d5-754b-9f62-88a0449727d3",
+      "state": "pending",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "tool": "write",
+      "risk": "write",
+      "created_at": "2026-10-09T18:27:41.397433+00:00",
+      "decided_at": null,
+      "detail_keys": [
+        "content",
+        "path",
+        "path_resolution",
+        "resolved_path"
+      ],
+      "params_metadata": {
+        "path_present": true,
+        "path_is_absolute": true,
+        "path_starts_tilde": false,
+        "resolved_path_present": true,
+        "resolved_path_is_absolute": true,
+        "path_resolution": "home-v1"
+      }
+    },
+    {
+      "id": "01a121eb-3c37-7205-816d-4a3c0cd35fb4",
+      "state": "pending",
+      "assignment_id": "01a121ea-dfab-743a-9a37-3ce3e7cb5bd4",
+      "bot_id": "main",
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "tool": "memory",
+      "risk": "write",
+      "created_at": "2026-10-09T18:27:06.935817+00:00",
+      "decided_at": null,
+      "detail_keys": [
+        "action",
+        "content",
+        "project_id",
+        "scope"
+      ],
+      "params_metadata": {
+        "action": "add",
+        "scope": "project",
+        "project_id": "01a12167-8cc6-7452-9f10-15a518384bee"
+      }
+    }
+  ],
+  "role_dispatch": {
+    "project1": {
+      "project": {
+        "id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "name": "macbot-e2e-s2-login-6770085010b5-登录功能",
+        "status": "active",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "lead_bot_id": "main",
+        "home_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/",
+        "created_at": "2026-10-09T15:59:51.698797+00:00",
+        "updated_at": "2026-10-09T15:59:51.698797+00:00",
+        "done_at": null,
+        "members": [
+          {
+            "bot_id": "main",
+            "joined_at": "2026-10-09T15:59:51.698776+00:00",
+            "role_note": ""
+          },
+          {
+            "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+            "joined_at": "2026-10-09T15:59:51.698781+00:00",
+            "role_note": ""
+          },
+          {
+            "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+            "joined_at": "2026-10-09T15:59:51.698782+00:00",
+            "role_note": ""
+          },
+          {
+            "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+            "joined_at": "2026-10-09T15:59:51.698783+00:00",
+            "role_note": ""
+          }
+        ]
+      },
+      "assignments": [
+        {
+          "id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "origin_chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "parent_assignment_id": null,
+          "root_message_id": null,
+          "trigger_message_id": null,
+          "status": "waiting_user",
+          "priority": 1,
+          "created_at": "2026-10-09T17:49:28.395001+00:00",
+          "started_at": "2026-10-09T17:49:28.395001+00:00",
+          "finished_at": null,
+          "result_message_id": null,
+          "from": {
+            "kind": "bot",
+            "bot_id": "main"
+          },
+          "wait": {
+            "reason": "approval",
+            "message_id": null
+          }
+        },
+        {
+          "id": "01a121c8-3597-7143-9b68-1143c917b422",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "origin_chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "parent_assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "root_message_id": "01a121c8-3597-7143-9b68-114232032a02",
+          "trigger_message_id": "01a121c8-3597-7143-9b68-114232032a02",
+          "status": "done",
+          "priority": 2,
+          "created_at": "2026-10-09T17:48:51.479342+00:00",
+          "started_at": "2026-10-09T17:48:51.479342+00:00",
+          "finished_at": "2026-10-09T17:49:05.885586+00:00",
+          "result_message_id": "01a121c8-6b72-758d-962d-59bd749dcf7a",
+          "from": {
+            "kind": "bot",
+            "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30"
+          }
+        },
+        {
+          "id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "origin_chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "parent_assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "root_message_id": "01a121c8-2936-747b-a0d1-812df5961772",
+          "trigger_message_id": "01a121c8-2936-747b-a0d1-812df5961772",
+          "status": "waiting_user",
+          "priority": 2,
+          "created_at": "2026-10-09T17:48:48.310400+00:00",
+          "started_at": "2026-10-09T17:48:48.310400+00:00",
+          "finished_at": null,
+          "result_message_id": null,
+          "from": {
+            "kind": "bot",
+            "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30"
+          },
+          "wait": {
+            "reason": "approval",
+            "message_id": null
+          }
+        },
+        {
+          "id": "01a12170-b386-776a-96da-513ceaaf93ea",
+          "bot_id": "main",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "origin_chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "parent_assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "root_message_id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+          "trigger_message_id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+          "status": "waiting_bot",
+          "priority": 2,
+          "created_at": "2026-10-09T16:13:16.550992+00:00",
+          "started_at": "2026-10-09T16:13:16.550992+00:00",
+          "finished_at": null,
+          "result_message_id": null,
+          "from": {
+            "kind": "bot",
+            "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30"
+          },
+          "wait": {
+            "reason": "decision",
+            "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34"
+          }
+        },
+        {
+          "id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "origin_chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "parent_assignment_id": null,
+          "root_message_id": null,
+          "trigger_message_id": null,
+          "status": "done",
+          "priority": 1,
+          "created_at": "2026-10-09T15:59:56.040477+00:00",
+          "started_at": "2026-10-09T15:59:56.040477+00:00",
+          "finished_at": "2026-10-09T17:48:52.216045+00:00",
+          "result_message_id": "01a121c8-3597-7143-9b68-114232032a02",
+          "from": {
+            "kind": "bot",
+            "bot_id": "main"
+          }
+        }
+      ],
+      "assignment_count": 5
+    },
+    "parallel": {
+      "project": {
+        "id": "01a12167-8cc6-7452-9f10-15a518384bee",
+        "name": "macbot-e2e-s2-parallel-670fbcbf1d89-并行官网改版",
+        "status": "active",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "lead_bot_id": "main",
+        "home_path": "~/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89/",
+        "created_at": "2026-10-09T16:03:16.806750+00:00",
+        "updated_at": "2026-10-09T16:03:16.806750+00:00",
+        "done_at": null,
+        "members": [
+          {
+            "bot_id": "main",
+            "joined_at": "2026-10-09T16:03:16.806743+00:00",
+            "role_note": ""
+          },
+          {
+            "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+            "joined_at": "2026-10-09T16:03:16.806745+00:00",
+            "role_note": ""
+          },
+          {
+            "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+            "joined_at": "2026-10-09T16:03:16.806745+00:00",
+            "role_note": ""
+          },
+          {
+            "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+            "joined_at": "2026-10-09T16:03:16.806745+00:00",
+            "role_note": ""
+          }
+        ]
+      },
+      "assignments": [
+        {
+          "id": "01a121eb-2722-72cb-80c5-344a85f3d608",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+          "origin_chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+          "parent_assignment_id": "01a121ea-dfab-743a-9a37-3ce3e7cb5bd4",
+          "root_message_id": "task_attention:task_no_report:01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "trigger_message_id": "01a121eb-2722-72cb-80c5-3449445a58a5",
+          "status": "waiting_user",
+          "priority": 2,
+          "created_at": "2026-10-09T18:27:01.538575+00:00",
+          "started_at": "2026-10-09T18:27:01.538575+00:00",
+          "finished_at": null,
+          "result_message_id": null,
+          "from": {
+            "kind": "bot",
+            "bot_id": "main"
+          },
+          "wait": {
+            "reason": "decision",
+            "message_id": "01a121eb-6abf-7338-ab66-ec7e8f00c6ab"
+          }
+        },
+        {
+          "id": "01a121ea-dfab-743a-9a37-3ce3e7cb5bd4",
+          "bot_id": "main",
+          "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+          "origin_chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+          "parent_assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "root_message_id": "task_attention:task_no_report:01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "trigger_message_id": "task_attention:task_no_report:01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "status": "waiting_user",
+          "priority": 2,
+          "created_at": "2026-10-09T18:26:43.243925+00:00",
+          "started_at": "2026-10-09T18:26:43.243925+00:00",
+          "finished_at": null,
+          "result_message_id": null,
+          "from": {
+            "kind": "bot",
+            "bot_id": "main"
+          },
+          "wait": {
+            "reason": "approval",
+            "message_id": null
+          }
+        },
+        {
+          "id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+          "origin_chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+          "parent_assignment_id": null,
+          "root_message_id": null,
+          "trigger_message_id": null,
+          "status": "done",
+          "priority": 1,
+          "created_at": "2026-10-09T16:03:22.235256+00:00",
+          "started_at": "2026-10-09T16:03:22.235256+00:00",
+          "finished_at": "2026-10-09T18:26:51.205465+00:00",
+          "result_message_id": "01a121ea-fc21-75f9-a2d5-478ea76cf4f9",
+          "from": {
+            "kind": "bot",
+            "bot_id": "main"
+          }
+        }
+      ],
+      "assignment_count": 3
+    }
+  },
+  "old_completed_files": [
+    {
+      "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+      "exists": true,
+      "bytes": 2524,
+      "sha256": "9684de8e35d98cc3605c76057906091a177fbad955c74d3dc8edbe76cc123cb9",
+      "hash_unchanged": true
+    },
+    {
+      "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/styles.css",
+      "exists": true,
+      "bytes": 4360,
+      "sha256": "c84b588449db8537b3b37ef0a2a5059fef78435e92057459b2fc2d412d4df9ee",
+      "hash_unchanged": true
+    }
+  ],
+  "project_home_file_observation": {
+    "project1": {
+      "home_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5",
+      "entries": [
+        {
+          "relative_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/PRD.md",
+          "kind": "file",
+          "bytes": 1230,
+          "sha256": "c4df939907c469d970fd5ccd8092e96e9539344666f6a0af6794f3f292e310cb"
+        },
+        {
+          "relative_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+          "kind": "file",
+          "bytes": 2524,
+          "sha256": "9684de8e35d98cc3605c76057906091a177fbad955c74d3dc8edbe76cc123cb9"
+        },
+        {
+          "relative_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/styles.css",
+          "kind": "file",
+          "bytes": 4360,
+          "sha256": "c84b588449db8537b3b37ef0a2a5059fef78435e92057459b2fc2d412d4df9ee"
+        }
+      ]
+    },
+    "parallel": {
+      "home_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89",
+      "entries": [
+        {
+          "relative_path": "PRD.md",
+          "kind": "file",
+          "bytes": 1691,
+          "sha256": "339891d81eb2c1f2080b8e9e5a9b478f19610930a7354ccaacf438b73c6a11d5"
+        },
+        {
+          "relative_path": "~/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89/PRD.md",
+          "kind": "file",
+          "bytes": 1691,
+          "sha256": "339891d81eb2c1f2080b8e9e5a9b478f19610930a7354ccaacf438b73c6a11d5"
+        }
+      ]
+    }
+  },
+  "assessment": {
+    "expired_ids_remain_expired": true,
+    "old_file_hashes_unchanged": true,
+    "run_resume_observed": true,
+    "pending_scope_is_content_blind": true,
+    "phase_result": "CONTINUATION_READONLY; API evidence only, not full S2 pass",
+    "old_call_error_evidence": {
+      "product_coder_third_write": {
+        "baseline_pending_call_id": "call_function_5ot0zv56480q_1",
+        "matched_trace_events": [
+          {
+            "aseq": 28,
+            "type": "tool.end",
+            "at": "2026-10-09T18:24:55.931Z",
+            "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+            "call_id": "call_function_5ot0zv56480q_1",
+            "is_error": true
+          }
+        ],
+        "exact_call_id_match": true,
+        "all_is_error_true": true
+      },
+      "main_coder_write": {
+        "baseline_pending_call_id": "call_function_fmnhdbecgwca_1",
+        "matched_trace_events": [
+          {
+            "aseq": 14,
+            "type": "tool.end",
+            "at": "2026-10-09T18:24:52.625Z",
+            "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+            "call_id": "call_function_fmnhdbecgwca_1",
+            "is_error": true
+          }
+        ],
+        "exact_call_id_match": true,
+        "all_is_error_true": true
+      },
+      "parallel_memory": {
+        "baseline_pending_call_id": "call_function_5frz31hzzhan_1",
+        "matched_trace_events": [
+          {
+            "aseq": 55,
+            "type": "tool.end",
+            "at": "2026-10-09T18:24:47.482Z",
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "call_id": "call_function_5frz31hzzhan_1",
+            "is_error": true
+          }
+        ],
+        "exact_call_id_match": true,
+        "all_is_error_true": true
+      }
+    },
+    "old_call_error_evidence_all_match": true,
+    "trace_error_encoding": "PROTOCOL trace represents the tool error as tool.end with data.is_error=true; a separate tool.error event type is not required.",
+    "named_tool_error_event_present": false,
+    "old_call_error_event_type": "tool.end"
+  }
+}

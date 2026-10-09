@@ -1,0 +1,881 @@
+{
+  "source_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+  "observed_at": "2026-10-09T18:25:27.875352+00:00",
+  "baseline": "docs/progress/S2/production-c6ffcfc-before-invalid-tool-recovery.json",
+  "scope": "read-only recovery before any new approval",
+  "rows": [
+    {
+      "label": "product_coder_third_write",
+      "old_approval": {
+        "id": "01a121cc-ecec-7108-9a09-6f4235ac4648",
+        "state": "expired",
+        "decided_at": "2026-10-09T18:24:55.898478+00:00",
+        "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "tool": "write",
+        "risk": "write"
+      },
+      "same_run_id": true,
+      "same_request_routing": true,
+      "job": {
+        "id": "job_01a121c8-2a31-7736-bbdb-7afe3f35b596",
+        "status": "waiting",
+        "unsafe_replay": true
+      },
+      "checkpoint": {
+        "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+        "waiting_reason": null,
+        "waiting_message_id": null
+      },
+      "pending_tools": [
+        {
+          "name": "bash",
+          "call_id": "call_function_3e24gotfpk5p_1",
+          "args_keys": [
+            "command"
+          ]
+        }
+      ],
+      "trace_shape_keys": [
+        "first_aseq",
+        "has_more_before",
+        "items",
+        "last_aseq",
+        "live"
+      ],
+      "trace_tail": [
+        {
+          "aseq": 1,
+          "type": "run.start",
+          "at": "2026-10-09T17:48:48.577Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 2,
+          "type": "llm.request",
+          "at": "2026-10-09T17:48:49.064Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 3,
+          "type": "llm.response",
+          "at": "2026-10-09T17:48:51.615Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 4,
+          "type": "tool.start",
+          "at": "2026-10-09T17:48:51.625Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 5,
+          "type": "tool.end",
+          "at": "2026-10-09T17:48:51.636Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 6,
+          "type": "llm.request",
+          "at": "2026-10-09T17:48:51.682Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 7,
+          "type": "llm.response",
+          "at": "2026-10-09T17:48:54.346Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 8,
+          "type": "tool.start",
+          "at": "2026-10-09T17:48:54.359Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 9,
+          "type": "tool.end",
+          "at": "2026-10-09T17:48:54.374Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 10,
+          "type": "llm.request",
+          "at": "2026-10-09T17:48:54.412Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 11,
+          "type": "llm.response",
+          "at": "2026-10-09T17:49:03.758Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 12,
+          "type": "tool.start",
+          "at": "2026-10-09T17:49:03.773Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 13,
+          "type": "run.wait",
+          "at": "2026-10-09T17:49:03.816Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 14,
+          "type": "run.resume",
+          "at": "2026-10-09T17:52:18.975Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 15,
+          "type": "tool.start",
+          "at": "2026-10-09T17:52:19.395Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 16,
+          "type": "tool.end",
+          "at": "2026-10-09T17:52:19.408Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 17,
+          "type": "llm.request",
+          "at": "2026-10-09T17:52:19.452Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 18,
+          "type": "llm.response",
+          "at": "2026-10-09T17:52:34.066Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 19,
+          "type": "tool.start",
+          "at": "2026-10-09T17:52:34.080Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 20,
+          "type": "run.wait",
+          "at": "2026-10-09T17:52:34.124Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 21,
+          "type": "run.resume",
+          "at": "2026-10-09T17:53:47.449Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 22,
+          "type": "tool.start",
+          "at": "2026-10-09T17:53:47.978Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 23,
+          "type": "tool.end",
+          "at": "2026-10-09T17:53:47.991Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 24,
+          "type": "llm.request",
+          "at": "2026-10-09T17:53:48.034Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 25,
+          "type": "llm.response",
+          "at": "2026-10-09T17:54:00.018Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 26,
+          "type": "tool.start",
+          "at": "2026-10-09T17:54:00.032Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 27,
+          "type": "run.wait",
+          "at": "2026-10-09T17:54:00.071Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 28,
+          "type": "tool.end",
+          "at": "2026-10-09T18:24:55.931Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 29,
+          "type": "run.resume",
+          "at": "2026-10-09T18:24:55.942Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 30,
+          "type": "llm.request",
+          "at": "2026-10-09T18:24:56.382Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 31,
+          "type": "llm.response",
+          "at": "2026-10-09T18:24:58.584Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 32,
+          "type": "tool.start",
+          "at": "2026-10-09T18:24:58.597Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 33,
+          "type": "run.wait",
+          "at": "2026-10-09T18:24:58.645Z",
+          "body_keys": []
+        }
+      ]
+    },
+    {
+      "label": "main_coder_write",
+      "old_approval": {
+        "id": "01a121c9-60b2-7162-b646-57ef8bb50df6",
+        "state": "expired",
+        "decided_at": "2026-10-09T18:24:52.591154+00:00",
+        "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "tool": "write",
+        "risk": "write"
+      },
+      "same_run_id": true,
+      "same_request_routing": true,
+      "job": {
+        "id": "job_01a121c8-cd13-71c3-8231-0b7f202929f7",
+        "status": "waiting",
+        "unsafe_replay": true
+      },
+      "checkpoint": {
+        "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+        "waiting_reason": null,
+        "waiting_message_id": null
+      },
+      "pending_tools": [
+        {
+          "name": "bash",
+          "call_id": "call_function_eiq7nsjwiw5n_1",
+          "args_keys": [
+            "command"
+          ]
+        }
+      ],
+      "trace_shape_keys": [
+        "first_aseq",
+        "has_more_before",
+        "items",
+        "last_aseq",
+        "live"
+      ],
+      "trace_tail": [
+        {
+          "aseq": 1,
+          "type": "run.start",
+          "at": "2026-10-09T17:49:30.274Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 2,
+          "type": "llm.request",
+          "at": "2026-10-09T17:49:30.730Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 3,
+          "type": "llm.response",
+          "at": "2026-10-09T17:49:34.923Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 4,
+          "type": "tool.start",
+          "at": "2026-10-09T17:49:34.936Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 5,
+          "type": "tool.end",
+          "at": "2026-10-09T17:49:34.949Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 6,
+          "type": "llm.request",
+          "at": "2026-10-09T17:49:34.987Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 7,
+          "type": "llm.response",
+          "at": "2026-10-09T17:49:37.030Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 8,
+          "type": "tool.start",
+          "at": "2026-10-09T17:49:37.043Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 9,
+          "type": "tool.end",
+          "at": "2026-10-09T17:49:37.057Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 10,
+          "type": "llm.request",
+          "at": "2026-10-09T17:49:37.100Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 11,
+          "type": "llm.response",
+          "at": "2026-10-09T17:50:07.544Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 12,
+          "type": "tool.start",
+          "at": "2026-10-09T17:50:07.559Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 13,
+          "type": "run.wait",
+          "at": "2026-10-09T17:50:07.602Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 14,
+          "type": "tool.end",
+          "at": "2026-10-09T18:24:52.625Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 15,
+          "type": "run.resume",
+          "at": "2026-10-09T18:24:52.638Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 16,
+          "type": "llm.request",
+          "at": "2026-10-09T18:24:53.080Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 17,
+          "type": "llm.response",
+          "at": "2026-10-09T18:24:55.172Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 18,
+          "type": "tool.start",
+          "at": "2026-10-09T18:24:55.187Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 19,
+          "type": "run.wait",
+          "at": "2026-10-09T18:24:55.233Z",
+          "body_keys": []
+        }
+      ]
+    },
+    {
+      "label": "parallel_memory",
+      "old_approval": {
+        "id": "01a121c4-4287-76a6-91ab-5e8b56eaa60d",
+        "state": "expired",
+        "decided_at": "2026-10-09T18:24:47.447654+00:00",
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "tool": "memory",
+        "risk": "write"
+      },
+      "same_run_id": true,
+      "same_request_routing": true,
+      "job": {
+        "id": "job_01a12167-b4b2-7276-bd22-32e1ec7ef105",
+        "status": "waiting",
+        "unsafe_replay": true
+      },
+      "checkpoint": {
+        "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "waiting_reason": null,
+        "waiting_message_id": null
+      },
+      "pending_tools": [
+        {
+          "name": "memory",
+          "call_id": "call_function_4sc40omnc4tx_1",
+          "args_keys": [
+            "action",
+            "content",
+            "project_id",
+            "scope"
+          ]
+        }
+      ],
+      "trace_shape_keys": [
+        "first_aseq",
+        "has_more_before",
+        "items",
+        "last_aseq",
+        "live"
+      ],
+      "trace_tail": [
+        {
+          "aseq": 1,
+          "type": "run.start",
+          "at": "2026-10-09T16:03:27.040Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 2,
+          "type": "llm.request",
+          "at": "2026-10-09T16:03:27.357Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 3,
+          "type": "llm.response",
+          "at": "2026-10-09T16:03:31.394Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 4,
+          "type": "tool.start",
+          "at": "2026-10-09T16:03:31.406Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 5,
+          "type": "tool.end",
+          "at": "2026-10-09T16:03:31.418Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 6,
+          "type": "llm.request",
+          "at": "2026-10-09T16:03:31.453Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 7,
+          "type": "llm.response",
+          "at": "2026-10-09T16:03:33.990Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 8,
+          "type": "tool.start",
+          "at": "2026-10-09T16:03:34.001Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 9,
+          "type": "run.wait",
+          "at": "2026-10-09T16:03:34.037Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 10,
+          "type": "run.resume",
+          "at": "2026-10-09T16:13:03.189Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 11,
+          "type": "tool.start",
+          "at": "2026-10-09T16:13:03.491Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 12,
+          "type": "tool.end",
+          "at": "2026-10-09T16:13:03.513Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 13,
+          "type": "llm.request",
+          "at": "2026-10-09T16:13:03.551Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 14,
+          "type": "llm.response",
+          "at": "2026-10-09T16:13:14.414Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 15,
+          "type": "tool.start",
+          "at": "2026-10-09T16:13:14.425Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 16,
+          "type": "run.wait",
+          "at": "2026-10-09T16:13:14.451Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 17,
+          "type": "run.resume",
+          "at": "2026-10-09T16:13:15.311Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 18,
+          "type": "tool.start",
+          "at": "2026-10-09T16:13:15.628Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 19,
+          "type": "tool.end",
+          "at": "2026-10-09T16:13:15.640Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 20,
+          "type": "llm.request",
+          "at": "2026-10-09T16:13:15.681Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 21,
+          "type": "llm.response",
+          "at": "2026-10-09T16:13:22.482Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 22,
+          "type": "tool.start",
+          "at": "2026-10-09T16:13:22.491Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 23,
+          "type": "run.wait",
+          "at": "2026-10-09T16:13:22.516Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 24,
+          "type": "run.resume",
+          "at": "2026-10-09T16:14:32.913Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 25,
+          "type": "tool.start",
+          "at": "2026-10-09T16:14:33.246Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 26,
+          "type": "tool.end",
+          "at": "2026-10-09T16:14:33.259Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 27,
+          "type": "llm.request",
+          "at": "2026-10-09T16:14:33.301Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 28,
+          "type": "llm.response",
+          "at": "2026-10-09T16:14:35.707Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 29,
+          "type": "tool.start",
+          "at": "2026-10-09T16:14:35.717Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 30,
+          "type": "tool.end",
+          "at": "2026-10-09T16:14:35.728Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 31,
+          "type": "llm.request",
+          "at": "2026-10-09T16:14:35.762Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 32,
+          "type": "llm.response",
+          "at": "2026-10-09T16:14:38.006Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 33,
+          "type": "tool.start",
+          "at": "2026-10-09T16:14:38.017Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 34,
+          "type": "run.wait",
+          "at": "2026-10-09T16:14:38.042Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 35,
+          "type": "run.resume",
+          "at": "2026-10-09T16:17:17.655Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 36,
+          "type": "tool.start",
+          "at": "2026-10-09T16:17:18.099Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 37,
+          "type": "tool.end",
+          "at": "2026-10-09T16:17:18.117Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 38,
+          "type": "llm.request",
+          "at": "2026-10-09T16:17:18.158Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 39,
+          "type": "llm.response",
+          "at": "2026-10-09T16:17:25.833Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 40,
+          "type": "tool.start",
+          "at": "2026-10-09T16:17:25.845Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 41,
+          "type": "run.wait",
+          "at": "2026-10-09T16:17:25.871Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 42,
+          "type": "run.resume",
+          "at": "2026-10-09T16:17:27.001Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 43,
+          "type": "tool.start",
+          "at": "2026-10-09T16:17:27.344Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 44,
+          "type": "tool.end",
+          "at": "2026-10-09T16:17:27.355Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 45,
+          "type": "llm.request",
+          "at": "2026-10-09T16:17:27.397Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 46,
+          "type": "llm.response",
+          "at": "2026-10-09T16:17:30.871Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 47,
+          "type": "tool.start",
+          "at": "2026-10-09T16:17:30.882Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 48,
+          "type": "send_msg",
+          "at": "2026-10-09T16:17:31.166Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 49,
+          "type": "run.wait",
+          "at": "2026-10-09T16:17:31.193Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 50,
+          "type": "run.resume",
+          "at": "2026-10-09T17:44:28.715Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 51,
+          "type": "llm.request",
+          "at": "2026-10-09T17:44:29.085Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 52,
+          "type": "llm.response",
+          "at": "2026-10-09T17:44:32.222Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 53,
+          "type": "tool.start",
+          "at": "2026-10-09T17:44:32.236Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 54,
+          "type": "run.wait",
+          "at": "2026-10-09T17:44:32.270Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 55,
+          "type": "tool.end",
+          "at": "2026-10-09T18:24:47.482Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 56,
+          "type": "run.resume",
+          "at": "2026-10-09T18:24:47.495Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 57,
+          "type": "llm.request",
+          "at": "2026-10-09T18:24:48.435Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 58,
+          "type": "llm.response",
+          "at": "2026-10-09T18:24:51.838Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 59,
+          "type": "tool.start",
+          "at": "2026-10-09T18:24:51.853Z",
+          "body_keys": []
+        },
+        {
+          "aseq": 60,
+          "type": "run.wait",
+          "at": "2026-10-09T18:24:51.900Z",
+          "body_keys": []
+        }
+      ]
+    }
+  ],
+  "old_completed_files": [
+    {
+      "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+      "exists": true,
+      "bytes": 2524,
+      "sha256": "9684de8e35d98cc3605c76057906091a177fbad955c74d3dc8edbe76cc123cb9",
+      "hash_unchanged": true
+    },
+    {
+      "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/styles.css",
+      "exists": true,
+      "bytes": 4360,
+      "sha256": "c84b588449db8537b3b37ef0a2a5059fef78435e92057459b2fc2d412d4df9ee",
+      "hash_unchanged": true
+    }
+  ],
+  "new_pending_approvals": [
+    {
+      "id": "01a121e9-2e9b-73ac-84fb-4c9d66530b4e",
+      "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "tool": "memory",
+      "risk": "write",
+      "state": "pending",
+      "detail_keys": [
+        "action",
+        "content",
+        "project_id",
+        "scope"
+      ],
+      "path": null,
+      "resolved_path": null,
+      "path_resolution": null,
+      "project_id": "01a12167-8cc6-7452-9f10-15a518384bee"
+    },
+    {
+      "id": "01a121e9-3b94-7791-89bf-1c48a721e749",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "tool": "bash",
+      "risk": "exec",
+      "state": "pending",
+      "detail_keys": [
+        "command"
+      ],
+      "path": null,
+      "resolved_path": null,
+      "path_resolution": null,
+      "project_id": null
+    },
+    {
+      "id": "01a121e9-48de-716d-9c78-a215362be1a1",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "tool": "bash",
+      "risk": "exec",
+      "state": "pending",
+      "detail_keys": [
+        "command"
+      ],
+      "path": null,
+      "resolved_path": null,
+      "path_resolution": null,
+      "project_id": null
+    }
+  ]
+}

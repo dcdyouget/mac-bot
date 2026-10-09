@@ -1,0 +1,70 @@
+{
+  "artifact": "server invalid-tools package audit",
+  "checked_at": "2026-10-10",
+  "package_path": "/tmp/MacBot-Server-invalid-tools-d97e48f-20261010.pkg",
+  "expanded_path": "/tmp/macbot-integrator-pkg-d97e48f-expanded-20261010",
+  "owner_record": "/tmp/macbot-invalid-tools-package-check-20261010.json",
+  "owner_evidence": "/tmp/macbot-invalid-tools-20261010f.evidence.log",
+  "package_sha256": {
+    "expected": "8cb70311d1d530ff916afe14ca26cca18972995d68c0818f28ea17ade33b28f6",
+    "actual": "8cb70311d1d530ff916afe14ca26cca18972995d68c0818f28ea17ade33b28f6",
+    "match": true
+  },
+  "source": {
+    "expected_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+    "embedded_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+    "bundle_commit": "d97e48fe9b41cf9003c91d3b03d84f7730cdbf20",
+    "dirty": false,
+    "match": true
+  },
+  "binaries": {
+    "macbotd": {
+      "expected_sha256": "55189426ed124041904ca162c8fc1870db258ef5d8b21cf73847cdd7d77a44bf",
+      "actual_sha256": "55189426ed124041904ca162c8fc1870db258ef5d8b21cf73847cdd7d77a44bf",
+      "match": true
+    },
+    "agent_browser": {
+      "expected_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "actual_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "match": true
+    }
+  },
+  "package_metadata": {
+    "identifier": "com.macbot.server",
+    "version": "0.1.0",
+    "payload_files": 29,
+    "install_location": "/",
+    "postinstall_script": true,
+    "launchagent_label": "com.macbot.server",
+    "run_at_load": true,
+    "keep_alive": true,
+    "environment_keys": [
+      "MACBOT_HOME"
+    ],
+    "default_secret_backend": "Keychain; package does not embed a secret backend override",
+    "argv_recorded": false
+  },
+  "verification_scope": {
+    "read_only_package_audit": true,
+    "owner_workspace_tests": 321,
+    "installed": false,
+    "shared_cache_touched": false,
+    "runtime_pid_recorded": false,
+    "fresh_install_passed": false,
+    "joint_acceptance_passed": false,
+    "credentials_read": false,
+    "notes": [
+      "The package, source stamp, embedded build metadata, daemon hash, and official arm64 sidecar hash all match the owner-supplied release values.",
+      "Owner scope is isolated upgrade and package payload checks; it does not establish production deployment or joint acceptance."
+    ]
+  },
+  "owner_release_payload_upgrade_smoke": {
+    "origin": "server-mac isolated verification; not rerun by integrator",
+    "owner_record_contains_result": true,
+    "evidence": "/tmp/macbot-invalid-tools-pkg-20261010a.evidence.log",
+    "home": "/Users/gongshaojie/Library/Caches/macbot-invalid-tools-pkg-20261010a",
+    "reported_scenarios_passed": 5,
+    "actual_installer_used": false,
+    "fresh_install_passed": false
+  }
+}
