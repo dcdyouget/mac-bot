@@ -12,10 +12,29 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, anyhow};
-use security_framework::os::macos::{keychain::SecKeychain, passwords::find_generic_password};
+use anyhow::{anyhow, Context, Result};
+use core_foundation::{
+    base::{CFGetTypeID, CFRelease, CFType, CFTypeRef, TCFType},
+    data::CFData,
+    dictionary::{CFDictionary, CFMutableDictionary},
+    string::{CFString, CFStringRef},
+};
+use security_framework::base::Error as SecurityError;
+use security_framework_sys::{
+    base::{errSecDuplicateItem, errSecItemNotFound, errSecSuccess},
+    item::{
+        kSecAttrAccount, kSecAttrService, kSecClass, kSecClassGenericPassword, kSecReturnData,
+        kSecUseAuthenticationUI, kSecValueData,
+    },
+    keychain_item::{SecItemAdd, SecItemCopyMatching, SecItemDelete, SecItemUpdate},
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+#[link(name = "Security", kind = "framework")]
+unsafe extern "C" {
+    static kSecUseAuthenticationUIFail: CFStringRef;
+}
 
 const KEYCHAIN_SERVICE: &str = "bot.mac.desktop.host-password";
 const STORE_DIR: &str = "Library/Application Support/MacBot";
@@ -75,6 +94,7 @@ impl HostStore {
 
     /// Build an empty store at a custom path. Production callers should use
     /// [`Self::load`], but this keeps storage tests isolated from user data.
+    #[cfg(test)]
     pub fn new_at(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
@@ -203,9 +223,9 @@ impl HostStore {
 
     /// Read the password for a record from the macOS login keychain.
     pub fn password(&self, record: &HostRecord) -> Result<String> {
-        let (password, _item) = find_generic_password(None, KEYCHAIN_SERVICE, &record.id)
+        let password = keychain_password(&record.id)
             .with_context(|| format!("read password for host {} from macOS Keychain", record.id))?;
-        String::from_utf8(password.as_ref().to_vec()).context("host password is not valid UTF-8")
+        String::from_utf8(password).context("host password is not valid UTF-8")
     }
 
     /// Remove metadata and its keychain password. Missing records are a no-op.
@@ -251,34 +271,132 @@ fn sync_directory(path: &Path) -> Result<()> {
 }
 
 fn set_keychain_password(account: &str, password: &[u8]) -> Result<()> {
-    // `set_generic_password` updates an existing item or creates it. It is
-    // intentionally the only persistence path for the credential.
-    SecKeychain::default()?
-        .set_generic_password(KEYCHAIN_SERVICE, account, password)
-        .map_err(Into::into)
+    // Use the modern SecItem APIs directly. The authentication UI value is
+    // deliberately noninteractive: a locked/protected item returns an error instead
+    // of synchronously presenting a Keychain dialog on the GPUI thread.
+    let add = keychain_attributes(account, Some(password), false);
+    let status = unsafe { SecItemAdd(add.as_concrete_TypeRef(), std::ptr::null_mut()) };
+    if status == errSecDuplicateItem {
+        let search = keychain_attributes(account, None, false);
+        let update = keychain_update(password);
+        let status =
+            unsafe { SecItemUpdate(search.as_concrete_TypeRef(), update.as_concrete_TypeRef()) };
+        security_status(status)
+    } else {
+        security_status(status)
+    }
+}
+
+fn keychain_password(account: &str) -> Result<Vec<u8>> {
+    let query = keychain_attributes(account, None, true);
+    let mut result: CFTypeRef = std::ptr::null();
+    security_status(unsafe { SecItemCopyMatching(query.as_concrete_TypeRef(), &mut result) })?;
+    if result.is_null() {
+        return Err(anyhow!("Keychain returned no password data"));
+    }
+    if unsafe { CFGetTypeID(result) } != CFData::type_id() {
+        unsafe {
+            CFRelease(result);
+        }
+        return Err(anyhow!("Keychain returned a non-data password item"));
+    }
+    let data = unsafe { CFData::wrap_under_create_rule(result as _) };
+    Ok(data.bytes().to_vec())
+}
+
+fn keychain_update(password: &[u8]) -> CFDictionary<CFType, CFType> {
+    let mut update = CFMutableDictionary::<CFType, CFType>::from_CFType_pairs(&[]);
+    let key = unsafe { CFString::wrap_under_get_rule(kSecValueData) }.into_CFType();
+    let value = CFData::from_buffer(password).into_CFType();
+    update.add(&key, &value);
+    update.to_immutable()
 }
 
 fn delete_keychain_password(account: &str) -> Result<()> {
-    match find_generic_password(None, KEYCHAIN_SERVICE, account) {
-        Ok((_password, item)) => {
-            item.delete();
-            Ok(())
+    let query = keychain_attributes(account, None, false);
+    let status = unsafe { SecItemDelete(query.as_concrete_TypeRef()) };
+    if status == errSecItemNotFound {
+        Ok(())
+    } else {
+        security_status(status)
+    }
+}
+
+fn keychain_attributes(
+    account: &str,
+    password: Option<&[u8]>,
+    return_data: bool,
+) -> CFDictionary<CFType, CFType> {
+    let mut query = CFMutableDictionary::<CFType, CFType>::from_CFType_pairs(&[]);
+    unsafe {
+        add_static_string(&mut query, kSecClass, kSecClassGenericPassword);
+        add_string(&mut query, kSecAttrService, KEYCHAIN_SERVICE);
+    }
+    if !account.is_empty() {
+        unsafe {
+            add_string(&mut query, kSecAttrAccount, account);
         }
-        Err(error) => {
-            // Security.framework uses errSecItemNotFound for an already absent
-            // item. The store remains safe either way; surface other failures.
-            if error.code() == -25300 {
-                Ok(())
-            } else {
-                Err(error.into())
-            }
+    }
+    if let Some(password) = password {
+        let key = unsafe { CFString::wrap_under_get_rule(kSecValueData) }.into_CFType();
+        let value = CFData::from_buffer(password).into_CFType();
+        query.add(&key, &value);
+    }
+    if return_data {
+        unsafe {
+            add_static_boolean_true(&mut query, kSecReturnData);
         }
+    }
+    // Bind Apple's exported constant, which is absent from security-framework-sys 2.17.
+    unsafe {
+        add_static_string(&mut query, kSecUseAuthenticationUI, kSecUseAuthenticationUIFail);
+    }
+    query.to_immutable()
+}
+
+fn add_static_string(
+    query: &mut CFMutableDictionary<CFType, CFType>,
+    key_ref: CFStringRef,
+    value_ref: CFStringRef,
+) {
+    let key = unsafe { CFString::wrap_under_get_rule(key_ref) }.into_CFType();
+    let value = unsafe { CFString::wrap_under_get_rule(value_ref) }.into_CFType();
+    query.add(&key, &value);
+}
+
+fn add_string(query: &mut CFMutableDictionary<CFType, CFType>, key_ref: CFStringRef, value: &str) {
+    let key = unsafe { CFString::wrap_under_get_rule(key_ref) }.into_CFType();
+    let value = CFString::from(value).into_CFType();
+    query.add(&key, &value);
+}
+
+fn add_static_boolean_true(query: &mut CFMutableDictionary<CFType, CFType>, key_ref: CFStringRef) {
+    let key = unsafe { CFString::wrap_under_get_rule(key_ref) }.into_CFType();
+    let value = core_foundation::boolean::CFBoolean::true_value().into_CFType();
+    query.add(&key, &value);
+}
+
+fn security_status(status: i32) -> Result<()> {
+    if status == errSecSuccess {
+        Ok(())
+    } else {
+        Err(SecurityError::from_code(status).into())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keychain_queries_disable_authentication_ui() {
+        let query = keychain_attributes("host-test", None, false);
+        let key = unsafe { CFString::wrap_under_get_rule(kSecUseAuthenticationUI) }.into_CFType();
+        let expected = unsafe { CFString::wrap_under_get_rule(kSecUseAuthenticationUIFail) }.into_CFType();
+        assert_eq!(*query.find(&key).unwrap(), expected);
+        let return_key = unsafe { CFString::wrap_under_get_rule(kSecReturnData) }.into_CFType();
+        assert!(query.find(&return_key).is_none());
+    }
 
     #[test]
     fn serialized_records_never_contain_password() {

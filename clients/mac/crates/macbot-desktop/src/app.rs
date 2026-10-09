@@ -185,14 +185,55 @@ impl MacBot {
         let Some(hello)=self.state.hello.as_ref() else{return;};
         let name=self.host_name.read(cx).value().to_string();
         let name=if name.trim().is_empty(){s(hello,"host_name").to_owned()}else{name};
-        let addresses=self.address.read(cx).value().split(',').map(|s|s.trim().to_string()).collect();
+        let addresses:Vec<String>=self.address.read(cx).value().split(',').map(|s|s.trim().to_string()).collect();
         let password=self.password.read(cx).value().to_string();
-        if let Some(store)=self.hosts.as_mut(){match store.remember(name,addresses,&password,Some(s(hello,"node_id").into()),self.state.last_seq){Ok(host)=>self.active_host=Some(host.id),Err(error)=>self.notice=error.to_string()}}
+        let node=Some(s(hello,"node_id").to_owned());
+        let seq=self.state.last_seq;
+        let task=self.runtime.spawn_blocking(move || {
+            let mut store=HostStore::load()?;
+            let record=store.remember(name,addresses,&password,node,seq)?;
+            Ok::<_,anyhow::Error>((store,record.id))
+        });
+        cx.spawn(async move |this,cx| {
+            let result=task.await;
+            let _=this.update(cx,|view,cx| {
+                match result {
+                    Ok(Ok((store,id)))=>{view.hosts=Some(store);view.active_host=Some(id);},
+                    Ok(Err(error))=>view.notice=error.to_string(),
+                    Err(error)=>view.notice=error.to_string(),
+                }
+                cx.notify();
+            });
+        }).detach();
     }
     fn activate_host(&mut self,id:&str,window:&mut Window,cx:&mut Context<Self>){
-        if let Some(store)=&self.hosts {if let Some(record)=store.get(id).cloned(){match store.password(&record){Ok(password)=>{
-            self.active_host=Some(record.id);self.address.update(cx,|s,cx|s.set_value(record.addresses.join(", "),window,cx));self.host_name.update(cx,|s,cx|s.set_value(record.name,window,cx));self.password.update(cx,|s,cx|s.set_value(password,window,cx));self.connect(cx);
-        },Err(error)=>{self.notice=error.to_string();cx.notify();}}}}
+        let Some(record)=self.hosts.as_ref().and_then(|store|store.get(id)).cloned() else{return;};
+        let requested=record.id.clone();
+        self.active_host=Some(requested.clone());
+        self.connecting=true;
+        cx.notify();
+        let task=self.runtime.spawn_blocking(move || {
+            let store=HostStore::load()?;
+            let password=store.password(&record)?;
+            Ok::<_,anyhow::Error>((record,password))
+        });
+        cx.spawn_in(window,async move |this,cx| {
+            let result=task.await;
+            let _=this.update_in(cx,|view,window,cx| {
+                if view.active_host.as_deref()!=Some(&requested){return;}
+                match result {
+                    Ok(Ok((record,password)))=>{
+                        view.address.update(cx,|s,cx|s.set_value(record.addresses.join(", "),window,cx));
+                        view.host_name.update(cx,|s,cx|s.set_value(record.name,window,cx));
+                        view.password.update(cx,|s,cx|s.set_value(password,window,cx));
+                        view.connect(cx);
+                    },
+                    Ok(Err(error))=>{view.connecting=false;view.notice=error.to_string();},
+                    Err(error)=>{view.connecting=false;view.notice=error.to_string();},
+                }
+                cx.notify();
+            });
+        }).detach();
     }
     fn select_main(&mut self,cx:&mut Context<Self>){if let Some(chat)=self.state.chats.values().find(|v|s(v,"kind")=="main"){let id=s(chat,"id").to_owned();self.selected_chat=id.clone();self.page="chat".into();if self.connected{self.rpc("chat.history",json!({"chat_id":id}),cx);}}}
     fn select_chat(&mut self,id:String,window:&mut Window,cx:&mut Context<Self>){
