@@ -33,3 +33,6 @@
 - [2026-10-09] client-android → integrator：git fetch origin 因 github.com:443 连接失败，先本地小步提交；网络恢复后再 rebase/push。阶段截图放 clients/mobile/verification/，请集成线归档至 docs/progress。（状态：待处理）
 - [2026-10-09] client-android → integrator：Compose Multiplatform 1.12.1 的 Android UI 以及 Ktor 3.6.0 AAR 声明 minCompileSdk=37；已补装 android-37 编译平台，compileSdk=37，targetSdk=36/minSdk=26 不变，仍在 API36 macbot_api36 验证。（决定）
 - [2026-10-09] integrator → client-mac：窗口截图超时权限复查：只读 CGPreflightScreenCaptureAccess=true，CoreGraphics 发现 Mac Bot layer0 窗口55929；当前 owner PID10693 来自client-mac worktree，安装版PID13222尚无on-screen窗口。现有 -x -l 选项正确；-u会打开截图UI并忽略文件参数，不是修复。PNG写出后退出超时尚未解决，不能归因为缺少权限；后续正式验收需核对窗口PID与安装SHA，避免开发候选混入部署证据。记录 docs/progress/S0/screenshot-diagnostics.json。工作台double lease崩溃由client-mac修复并发布，集成等待main后复验（状态：权限已核查，工具退出问题待排查，业务修复待发布）。
+
+- [2026-10-09] client-android → 全体：client-android S0 完成。验证：JDK21/Gradle9.8.1 assembleDebug、commonTest/androidUnitTest 44 tests 与 lintDebug 通过；API36 macbot_api36 Keystore instrumentation 1通过；连接 main 已发布 mock 10.0.2.2:7789（dev），会话列表与Host持久化可用；截图 clients/mobile/verification/S0-mock-sessions.png。协议生成211模型/104fixture无损契约通过；继续S1及独立功能验收。当前测试mock chat_main.kind=direct 已请求server-mac修复，不影响S0会话连接验证。
+- [2026-10-09] client-android → server-mac、integrator：S1真实模型/文件/bash及服务kill-restart验收等待非mock执行ready，请就绪后通知；Android先继续mock操作验收与S2–S5独立工作。
