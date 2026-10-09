@@ -1,0 +1,43 @@
+{
+  "checked_at": "2026-10-09T22:28:20.080866+00:00",
+  "source_commit": "d799ddaa676471394d667dd31faf474052552432",
+  "approval_id": "01a122c7-1d4f-75e7-8f11-fc73e75676c7",
+  "scope": {
+    "authorized": true,
+    "reason": "scenario-owned and path-scoped",
+    "tool": "edit",
+    "operation": "project_home_file_mutation"
+  },
+  "checkpoint": {
+    "approval_id": "01a122c7-1d4f-75e7-8f11-fc73e75676c7",
+    "assignment_id": "01a12293-133d-71bd-92e7-f8cd863d5e2b",
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "run_id": "run_01a12293-133d-71bd-92e7-f8cd863d5e2b",
+    "job_id": "job_01a12293-de8a-7422-948b-d9780a3213a6",
+    "call_id": "call_function_g0jdp0uauxaw_1",
+    "job_status": "waiting",
+    "checkpoint_head_match": true,
+    "pending_tools_count": 1,
+    "run_request_match": true,
+    "detail_args_match": true,
+    "detail_metadata_keys": [
+      "path_resolution",
+      "resolved_path"
+    ],
+    "args_keys": [
+      "edits",
+      "path"
+    ]
+  },
+  "actual_target": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/index.html",
+  "edit_count": 2,
+  "file_before_sha256": "b97ce7133e3917846f3f7bcd03c94a913722ccbcfc884ab945480fdd68b59019",
+  "edits_sha256": "0ca83c685d6a4c4cd85cf87375f1db81e384a079863dbb7384fb49c4842456b0",
+  "prior_edit_tool_error": "oldText is not unique",
+  "all_oldtext_unique_before_call": true,
+  "original_login_html_issue_resolved": false,
+  "decision": "allowed_once",
+  "full_s2_pass": false
+}

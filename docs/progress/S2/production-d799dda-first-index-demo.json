@@ -1,0 +1,73 @@
+{
+  "artifact": "integrator real-browser local demo verification",
+  "checked_at": "2026-10-10",
+  "source_project": "macbot-e2e-s2-login-522c6b619b92",
+  "actual_file": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/index.html",
+  "original_login_html_issue_resolved": false,
+  "source_bytes": 14596,
+  "source_sha256": "f03b877fea9a916e33d6b8a3b5189a5fbda643ce4370b416c7355067a9361dc0",
+  "marker": "macbot-e2e-s2-demo-fix-568128b803e8",
+  "serve": {
+    "url": "http://127.0.0.1:52204/index.html",
+    "server": "python3 -m http.server",
+    "port_owned_by_integrator": true,
+    "http_pid_cleaned": true
+  },
+  "browser": {
+    "binary": "/Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/agent-browser",
+    "version": "0.38.2",
+    "headless": true,
+    "isolated_namespace": "d799f02x",
+    "isolated_sessions": ["f028", "f029"],
+    "profile": "integrator-owned temporary profiles under /tmp/macbot-integrator-first-index-*",
+    "existing_sessions_touched": false
+  },
+  "steps": [
+    {
+      "name": "invalid_email",
+      "status": "PASS",
+      "inputs": {"email": "invalid-email"},
+      "observed": "emailError 可见",
+      "evidence": ["browser-flow.log", "invalid-email.png"]
+    },
+    {
+      "name": "wrong_password",
+      "status": "PASS",
+      "inputs": {"email": "demo@example.com", "password": "wrong-password"},
+      "observed": "errorAlert 可见且文本为“账号或密码错误”",
+      "evidence": ["browser-flow.log", "wrong-password.png"]
+    },
+    {
+      "name": "correct_login",
+      "status": "PASS",
+      "inputs": {"email": "demo@example.com", "password": "demo123"},
+      "observed": "loginForm 不可见，userInfo 可见，仅成功区显示",
+      "evidence": ["browser-flow.log", "correct-login.png"]
+    },
+    {
+      "name": "refresh_retains_login",
+      "status": "PASS",
+      "observed": "reload 后 loginForm 不可见，userInfo 仍可见",
+      "evidence": ["browser-flow.log", "refresh-retained.png"]
+    },
+    {
+      "name": "logout",
+      "status": "PASS",
+      "observed": "退出后 loginForm 可见，userInfo 不可见",
+      "evidence": ["browser-flow.log", "logout.png"]
+    },
+    {
+      "name": "narrow_375px",
+      "status": "PASS_LAYOUT_LOCAL",
+      "viewport": "375x844",
+      "observed": "DOM 可见；innerWidth=375，documentElement.scrollWidth=375，无水平溢出证据",
+      "evidence": ["narrow-375x844.log", "narrow-375x844.png"]
+    }
+  ],
+  "limits": {
+    "real_model_or_server_used": false,
+    "tester_report": false,
+    "full_s2_pass": false,
+    "note": "这是 integrator 隔离浏览器对原项目 index.html 的专项验证，不是 Tester 报告或双端 S2 联调通过；原 login.html 的失败证据保留且未覆盖。"
+  }
+}

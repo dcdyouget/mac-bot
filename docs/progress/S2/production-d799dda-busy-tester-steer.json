@@ -179,5 +179,16 @@
     }
   ],
   "updated_at": "2026-10-09T22:09:19.691622+00:00",
-  "approval_decision_note": "同一 approval/call 的两条 observation 来自 journal 重复追加；只有一次 approval.decide，唯一已批准 ID=01a122ae-6152-7455-a8bf-b82189b0325b。重复历史记录保留，不计两次审批。"
+  "approval_decision_note": "同一 approval/call 的两条 observation 来自 journal 重复追加；只有一次 approval.decide，唯一已批准 ID=01a122ae-6152-7455-a8bf-b82189b0325b。重复历史记录保留，不计两次审批。",
+  "post_run_request_identity": {
+    "checked_at": "2026-10-09T22:33:41.967476+00:00",
+    "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+    "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+    "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+    "project_id": "01a12236-b308-7080-9877-6fc078239999",
+    "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+    "identity_match": true,
+    "read_only": true,
+    "new_request_or_decision": false
+  }
 }

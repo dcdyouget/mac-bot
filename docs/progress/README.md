@@ -8,6 +8,8 @@
 
 正式服务 `d799ddaa676471394d667dd31faf474052552432` 已从固定干净 archive 部署到 `7788`（当前 PID `66203`，可执行文件为 `~/Applications/MacBotServer.app/Contents/MacOS/macbotd`），[部署证据](S1/server-d799dda-deployed.json)确认 LaunchAgent/监听 PID 一致、安装 source、公开健康检查和部署认证探测；固定 SHA 部署退出 0。MiniMax-M2.5 沿用本机 file backend。桌面当前仍是 `deploy.sh` 的 debug 开发安装 `7c5e480f`（PID `66995`，窗口 `58491`），Release DMG 仅完成候选校验；[历史现场截图](S4/20261009-235101-desktop.png)只记录 23:51 的“正在连接”页，不能代表当前 094 状态或 formal 已连接证据。`lsof` 的 7788 ESTABLISHED 只证明 TCP；CUA fullpath、Finder、Activity Monitor 均 `cgWindowNotFound`，native 连续帧和输入仍未验收。[3 秒样本](S5/desktop-dmg-7c5e480-deployment.json)不能据 AppKit idle/connect timer 判定冻结。Android 当前通知修复 Release 来源为 `cac5b12d68fbe409b41e763231c28f2e7baaff37`（发布记录 `6e1d7f8`），APK `2,111,890` bytes、SHA-256 `c1b2e2fb…2872f2a`，[保留数据覆盖安装记录](S4/android-notification-cac5b12-installed.json)核对与旧版本同签名、安装base.apk哈希一致，新PID `20943`，连接目标为正式 `10.0.2.2:7788`；owner 证据是局部 Production 检查，不等于集成线全场景 PASS。持续部署保留 UI 验证 hold，避免中断现场。
 
+本轮新增：原忙碌 Coder 接收修复插话并在同 run 内完成项目 `index.html` 编辑；[独立实浏览器复验](S2/production-d799dda-first-index-demo.json)确认错误输入提示、登录后仅成功区、刷新保持、退出及375px布局通过。原 `login.html` 未被修改，其表单同时显示的失败记录保留；这是新 `index.html` 的产物专项，不替代 Tester 实测、原文件修复或完整 S2。已取消任务仍残留 pending 审批的 P1 已交 server-mac，未点击该审批。Mac 锁屏仍为 true，桌面 UI 和 S5 fresh 尚未恢复验收。
+
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
 | S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 通过：两端连接 mock 并看到会话列表 | `docs/progress/S0/` |

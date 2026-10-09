@@ -1,0 +1,86 @@
+✓ 邮箱登录 - macbot-e2e-s2-login-522c6b619b92
+  http://127.0.0.1:52204/index.html
+
+- generic
+  - heading "邮箱登录" [level=1, ref=e1]
+  - paragraph
+    - StaticText "欢迎使用邮箱账号登录"
+  - form
+    - LabelText
+    - textbox "邮箱地址" [ref=e3]
+    - LabelText
+    - generic
+      - textbox "密码" [ref=e4]
+      - generic [ref=e5] clickable [cursor:pointer]
+    - button "登录" [ref=e2]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-index-demo/initial.png
+
+✓ Done
+
+true
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-index-demo/invalid-email.png
+
+✓ Done
+
+✓ Done
+
+✓ Done
+
+true
+
+账号或密码错误
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-index-demo/wrong-password.png
+
+✓ Done
+
+✓ Done
+
+✓ Done
+
+false
+
+true
+
+- generic
+  - button "退出登录" [ref=e6]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-index-demo/correct-login.png
+
+http://127.0.0.1:52204/index.html
+
+✓ Done
+
+false
+
+true
+
+- generic
+  - button "退出登录" [ref=e7]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-index-demo/refresh-retained.png
+
+✓ Done
+
+✓ Done
+
+true
+
+false
+
+- generic
+  - heading "邮箱登录" [level=1, ref=e8]
+  - paragraph
+    - StaticText "欢迎使用邮箱账号登录"
+  - form
+    - LabelText
+    - textbox "邮箱地址" [ref=e10]
+    - LabelText
+    - generic
+      - textbox "密码" [ref=e11]
+      - generic [ref=e12] clickable [cursor:pointer]
+    - button "登录" [ref=e9]
+
+✓ Screenshot saved to docs/progress/S2/production-d799dda-first-index-demo/logout.png

@@ -1,0 +1,43 @@
+{
+  "checked_at": "2026-10-09T22:26:57.471906+00:00",
+  "source_commit": "d799ddaa676471394d667dd31faf474052552432",
+  "approval_id": "01a122c4-e790-7459-bed1-2dc6aa7c2267",
+  "scope": {
+    "authorized": true,
+    "reason": "scenario-owned and path-scoped",
+    "tool": "edit",
+    "operation": "project_home_file_mutation"
+  },
+  "checkpoint": {
+    "approval_id": "01a122c4-e790-7459-bed1-2dc6aa7c2267",
+    "assignment_id": "01a12293-133d-71bd-92e7-f8cd863d5e2b",
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "run_id": "run_01a12293-133d-71bd-92e7-f8cd863d5e2b",
+    "job_id": "job_01a12293-de8a-7422-948b-d9780a3213a6",
+    "call_id": "call_function_6i3qqow5rit8_1",
+    "job_status": "waiting",
+    "checkpoint_head_match": true,
+    "pending_tools_count": 1,
+    "run_request_match": true,
+    "detail_args_match": true,
+    "detail_metadata_keys": [
+      "path_resolution",
+      "resolved_path"
+    ],
+    "args_keys": [
+      "edits",
+      "path"
+    ]
+  },
+  "actual_target": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/index.html",
+  "edits_sha256": "f52892123a16e49bf35162785cc813ec5d37f42f4135874f139771d5469a3675",
+  "edit_count": 6,
+  "request_target_was_login_html": true,
+  "actual_target_is_index_html": true,
+  "original_login_html_issue_resolved": false,
+  "review": "only scenario-owned index.html CSS display/local UI changes and marker; duplicate demo is not proof original login.html repaired",
+  "decision": "allowed_once",
+  "full_s2_pass": false
+}

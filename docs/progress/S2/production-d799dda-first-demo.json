@@ -17,7 +17,11 @@
     "version": "0.38.2",
     "headless": true,
     "isolated_namespace": "d799f02x",
-    "isolated_sessions": ["f025", "f026", "f027"],
+    "isolated_sessions": [
+      "f025",
+      "f026",
+      "f027"
+    ],
     "profile": "integrator-owned temporary profiles under /tmp/macbot-integrator-first-*",
     "existing_sessions_touched": false
   },
@@ -26,53 +30,84 @@
       "name": "initial_dom",
       "status": "PASS",
       "observed": "邮箱登录表单、邮箱/密码输入框和登录按钮可见",
-      "evidence": ["browser-flow.log", "initial.png"]
+      "evidence": [
+        "browser-flow.log",
+        "initial.png"
+      ]
     },
     {
       "name": "invalid_email",
       "status": "PASS",
-      "inputs": {"email": "invalid-email"},
+      "inputs": {
+        "email": "invalid-email"
+      },
       "observed": "blur 后 emailError 可见",
-      "evidence": ["browser-flow.log", "invalid-email.png"]
+      "evidence": [
+        "browser-flow.log",
+        "invalid-email.png"
+      ]
     },
     {
       "name": "wrong_password",
       "status": "PASS",
-      "inputs": {"email": "demo@example.com", "password": "wrong-password"},
+      "inputs": {
+        "email": "demo@example.com",
+        "password": "wrong-password"
+      },
       "observed": "errorMessage 可见且文本为“账号或密码错误”",
-      "evidence": ["browser-flow.log", "wrong-password.png"]
+      "evidence": [
+        "browser-flow.log",
+        "wrong-password.png"
+      ]
     },
     {
       "name": "correct_login",
       "status": "PARTIAL_UI_SWITCH",
-      "inputs": {"email": "demo@example.com", "password": "demo123"},
+      "inputs": {
+        "email": "demo@example.com",
+        "password": "demo123"
+      },
       "observed": "userInfo 可见且显示登录成功，但 loginForm 仍可见；两个区域同时 visible",
-      "evidence": ["browser-flow.log", "correct-login.png", "correct-login-visibility.log", "correct-login-visibility.png"]
+      "evidence": [
+        "browser-flow.log",
+        "correct-login.png",
+        "correct-login-visibility.log",
+        "correct-login-visibility.png"
+      ]
     },
     {
       "name": "refresh_retains_login",
       "status": "PARTIAL_UI_SWITCH",
       "observed": "reload 后 userInfo 仍可见，说明 localStorage 状态保持；loginForm 仍同时可见",
-      "evidence": ["browser-flow.log", "refresh-retained.png"]
+      "evidence": [
+        "browser-flow.log",
+        "refresh-retained.png"
+      ]
     },
     {
       "name": "logout",
       "status": "PASS",
       "observed": "点击退出登录后回到邮箱登录表单",
-      "evidence": ["browser-flow.log", "logout.png"]
+      "evidence": [
+        "browser-flow.log",
+        "logout.png"
+      ]
     },
     {
       "name": "narrow_375px",
       "status": "PASS_LAYOUT_LOCAL",
       "viewport": "375x844",
       "observed": "DOM 可见；innerWidth=375，documentElement.scrollWidth=375，无水平溢出证据",
-      "evidence": ["narrow-375x844.log", "narrow-375x844.png"]
+      "evidence": [
+        "narrow-375x844.log",
+        "narrow-375x844.png"
+      ]
     }
   ],
   "limits": {
     "real_model_or_server_used": false,
     "tester_report": false,
     "full_s2_pass": false,
-    "note": "这是 integrator 隔离浏览器对本地 HTML 的专项验证，不是 Tester 报告或双端 S2 联调通过；登录成功后的表单隐藏缺口需归属线修复。"
+    "note": "这是 integrator 隔离浏览器对原项目 HTML 的专项验证，不是 Tester 报告或双端 S2 联调通过；登录成功后的表单隐藏缺口应由原项目 Coder 修复产物，集成线不修改 HTML。"
   }
 }

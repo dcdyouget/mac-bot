@@ -14,17 +14,66 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common import add_connection_args, client_from_args, ready_health, require_production_host, unique_marker
 from s2.project_followup import (
-    FollowupStop, complete_trace_items, handle_approvals, persist,
+    FollowupStop, complete_trace_items, exact_main_run_request, handle_approvals, persist,
     send_chat, steer_evidence, tracked_assignments,
 )
 from s2.approval_scope import check_approval_scope
 from s2.login_feature import validate_approval_checkpoint
 
 BUSY = {"working", "waiting_user", "waiting_bot", "blocked"}
+
+
+def validate_run_request_identity(
+    run_request: Any, *, run_id: str, assignment_id: str, bot_id: str,
+    project_id: str, chat_id: str,
+) -> dict[str, Any]:
+    """Validate the local durable request before sending a new steer."""
+    if not isinstance(run_request, dict):
+        raise FollowupStop("run_request is not an object")
+    expected = {
+        "run_id": run_id,
+        "assignment_id": assignment_id,
+        "bot_id": bot_id,
+        "project_id": project_id,
+        "chat_id": chat_id,
+    }
+    for key, value in expected.items():
+        if run_request.get(key) != value:
+            raise FollowupStop(f"run_request identity mismatch at {key}")
+    return {**expected, "identity_match": True}
+
+
+def self_test() -> dict[str, Any]:
+    expected = {
+        "run_id": "run_busy",
+        "assignment_id": "asg_busy",
+        "bot_id": "tester",
+        "project_id": "project_busy",
+        "chat_id": "chat_busy",
+    }
+    good = validate_run_request_identity(dict(expected), **expected)
+    assert good["identity_match"] is True
+    for key in ("assignment_id", "bot_id", "project_id", "chat_id"):
+        bad = dict(expected)
+        bad[key] = "wrong"
+        try:
+            validate_run_request_identity(bad, **expected)
+        except FollowupStop:
+            pass
+        else:
+            raise AssertionError(f"run_request {key} conflict was accepted")
+    try:
+        validate_run_request_identity({"run_id": expected["run_id"]}, **expected)
+    except FollowupStop:
+        pass
+    else:
+        raise AssertionError("incomplete run_request was accepted")
+    return {"scenario": "busy_user_steer run_request identity fake checks", "status": "PASS", "network": False}
 
 
 def selected_delivery_events(message_id: str, assignment_id: str) -> list[dict]:
@@ -76,9 +125,18 @@ def run(args: argparse.Namespace) -> dict:
         raise FollowupStop("no unique busy assignment for this Bot/project/chat")
     before = complete_trace_items(client, args.assignment_id)
     run_ids = {x.get("run_id") for x in before if x.get("type") == "run.start"}
-    if len(run_ids) != 1:
+    if len(run_ids) != 1 or not isinstance(next(iter(run_ids)), str):
         raise FollowupStop("target does not have exactly one original run")
     run_id = next(iter(run_ids))
+    run_request = exact_main_run_request(run_id)
+    run_request_identity = validate_run_request_identity(
+        run_request,
+        run_id=run_id,
+        assignment_id=args.assignment_id,
+        bot_id=bot_id,
+        project_id=project_id,
+        chat_id=project["chat_id"],
+    )
     marker = unique_marker("macbot-e2e-s2-steer")
     project["marker"] = marker
     pending_before = [x for x in client.call("approval.list", {"state": ["pending"]})["approvals"] if x.get("assignment_id") == args.assignment_id]
@@ -99,6 +157,7 @@ def run(args: argparse.Namespace) -> dict:
         "chat_id": project["chat_id"], "assignment_id": args.assignment_id, "bot_id": bot_id,
         "run_id": run_id, "marker": marker, "requests": [], "approval_observations": [],
         "baseline": {"status": target["status"], "run_start_count": 1,
+                     "run_request_identity": run_request_identity,
                      "pending_approval_ids": [x["id"] for x in pending_before],
                      "reviewed_checkpoint": checkpoint},
         "full_s2_pass": False, "status": "PREPARED",
@@ -185,6 +244,9 @@ def run(args: argparse.Namespace) -> dict:
 
 
 if __name__ == "__main__":
+    if "--self-test" in sys.argv[1:]:
+        print(json.dumps(self_test(), ensure_ascii=False, sort_keys=True))
+        raise SystemExit(0)
     parser = argparse.ArgumentParser(description=__doc__)
     add_connection_args(parser)
     parser.add_argument("--source-journal", type=Path, required=True)
