@@ -158,6 +158,30 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
             ),
             "",
         )
+        user_messages = [
+            message.get("content", "")
+            for message in messages
+            if message.get("role") == "user"
+        ]
+
+        scenario_markers = (
+            ("takeover", scenario.get("takeover_marker", "")),
+            ("question", scenario.get("question_marker", "")),
+            ("notify", scenario.get("notify_marker", "")),
+        )
+
+        def latest_scenario_marker() -> str | None:
+            # A project assignment appends its instruction after the user's
+            # marker.  Choose the newest marker in the bounded user window,
+            # rather than independently matching every old marker: a later
+            # question must not be stolen by an earlier takeover marker.
+            candidates = [
+                (index, name)
+                for index, content in list(enumerate(user_messages))[-3:]
+                for name, marker in scenario_markers
+                if marker and marker in content
+            ]
+            return max(candidates, default=(-1, None))[1]
         # The main coordination script is only valid for the main Bot.  Child
         # Bots receive the original marker in their worklog, so matching the
         # marker alone would make every worker try to create another project.
@@ -210,15 +234,19 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                     "mentions": [],
                 }
             return None
-        if scenario.get("takeover_marker") and scenario["takeover_marker"] in latest_user and "request_takeover" in called:
+        active_marker = latest_scenario_marker()
+        takeover_active = active_marker == "takeover"
+        if takeover_active and "request_takeover" in called:
             return None
-        if scenario.get("takeover_marker") and scenario["takeover_marker"] in latest_user and "request_takeover" not in called:
+        if takeover_active and "request_takeover" not in called:
             return "request_takeover", {"reason": "smoke 模型需要用户登录"}
-        if scenario.get("question_marker") and scenario["question_marker"] in latest_user and "question" not in called:
+        question_active = active_marker == "question"
+        if question_active and "question" not in called:
             return "question", {"question": "smoke 请选择登录环境"}
-        if scenario.get("question_marker") and scenario["question_marker"] in latest_user and "question" in called:
+        if question_active and "question" in called:
             return None
-        if scenario.get("notify_marker") and scenario["notify_marker"] in latest_user and "notify_user" not in called:
+        notify_active = active_marker == "notify"
+        if notify_active and "notify_user" not in called:
             return "notify_user", {
                 "text": "巡检完成，已通知用户",
                 "intent": "progress",
