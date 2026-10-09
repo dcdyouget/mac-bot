@@ -635,6 +635,8 @@ interface Workbench {
 | `routine.test_run` | `{ routine_id }` | `{ run: RoutineRun }` |
 | `routine.runs` | `{ routine_id }` | `{ runs: RoutineRun[] }`（最近 20 次） |
 
+定时任务在派发时确定投递会话：项目存在且未归档时使用项目群的 `chat_id`，否则使用该 Bot 的 `dm_chat_id`（主 Bot 为 `chat_main`）。任务、正常结果和失败提示都使用这个真实会话，不创建 `routine:*` 会话。投递会话不改变项目用量归属；没有项目的定时任务仍计入 `project` 维度的 `routine`。
+
 ### 5.10 模型与设置
 
 | 方法 | 参数 | 返回 |
