@@ -1806,6 +1806,12 @@ impl Inner {
         Ok(notices)
     }
 
+    fn clear_attention_markers(&mut self, assignment_id: &str) {
+        let prefix = format!("{assignment_id}:");
+        self.attention_notices
+            .retain(|marker| !marker.starts_with(&prefix));
+    }
+
     fn announcement(&self, project_id: &str) -> Result<Announcement> {
         let p = self.project(project_id)?;
         let artifacts = self
@@ -2334,12 +2340,22 @@ impl Inner {
                 at: ts.clone(),
                 applied_at: None,
             };
+            let resumed_from_blocked = self
+                .assignments
+                .get(&id)
+                .is_some_and(|assignment| assignment.status == "blocked");
             let a = self.assignment_mut(&id)?;
-            if a.status == "waiting_user" || a.status == "waiting_bot" {
+            if matches!(
+                a.status.as_str(),
+                "waiting_user" | "waiting_bot" | "blocked"
+            ) {
                 a.status = "working".into();
                 a.wait = None;
             }
             a.steers.push(steer.clone());
+            if resumed_from_blocked {
+                self.clear_attention_markers(&id);
+            }
             (Some(id), "queued", steer)
         } else {
             let assignment = self.create_assignment(AssignmentRequest {
@@ -5065,5 +5081,72 @@ mod tests {
                     && value["project_id"] == project_id
                     && matches!(value["status"].as_str(), Some("working" | "queued"))
             }));
+    }
+
+    #[test]
+    fn blocked_attention_is_deduped_per_episode_and_reopens_after_resume() {
+        let o = Orchestrator::default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let worker = bot(&o, "需要再次提醒");
+        let project = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"阻塞重开","goal":"测试","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let chat_id = project["chat"]["id"].as_str().unwrap().to_owned();
+        let assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(project_id.clone()),
+                origin_chat_id: chat_id.clone(),
+                bot_id: worker.clone(),
+                title: "可恢复阻塞".into(),
+                instruction: "等待外部输入".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        o.finish_assignment(&assignment.id, "blocked").unwrap();
+
+        assert_eq!(o.poll_project_attention(Utc::now()).unwrap().len(), 1);
+        assert!(o.poll_project_attention(Utc::now()).unwrap().is_empty());
+
+        let resumed = o
+            .queue_steer(SteerRequest {
+                bot_id: worker.clone(),
+                project_id: Some(project_id.clone()),
+                chat_id: chat_id.clone(),
+                text: "继续处理".into(),
+                message_id: None,
+            })
+            .unwrap();
+        assert_eq!(
+            resumed.assignment_id.as_deref(),
+            Some(assignment.id.as_str())
+        );
+        let snapshot = o.snapshot().unwrap();
+        assert_eq!(snapshot["assignments"][&assignment.id]["status"], "working");
+        assert!(o.poll_project_attention(Utc::now()).unwrap().is_empty());
+
+        o.send_msg(SendMessageRequest {
+            bot_id: worker,
+            chat_id,
+            assignment_id: Some(assignment.id.clone()),
+            run_id: None,
+            call_id: None,
+            text: "再次阻塞".into(),
+            intent: "blocked".into(),
+            mentions: vec![],
+            artifacts: vec![],
+            options: vec![],
+        })
+        .unwrap();
+        assert_eq!(o.poll_project_attention(Utc::now()).unwrap().len(), 1);
+        assert!(o.poll_project_attention(Utc::now()).unwrap().is_empty());
     }
 }
