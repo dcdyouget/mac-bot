@@ -1248,14 +1248,17 @@ async fn finish_assignment_with_status(
     status: &str,
 ) {
     if let Ok(assignment) = inner.orchestrator.finish_assignment(&assignment_id, status) {
-        if let Ok(snapshot) = inner.orchestrator.snapshot() {
-            let _ = inner.store.append_jsonl(
-                "data/orchestrator/operations.jsonl",
-                &json!({"method":"execution.finish","params":{"assignment_id":assignment_id},"result":{"assignment":assignment},"snapshot":snapshot,"status":status,"at":crate::now()}),
-            );
-            let _ = inner
-                .store
-                .write_snapshot("data/orchestrator/state.json", &snapshot);
+        if let Err(error) = inner
+            .persist_orchestrator(json!({
+                "method": "execution.finish",
+                "params": {"assignment_id": assignment_id},
+                "result": {"assignment": assignment},
+                "status": status,
+                "at": crate::now()
+            }))
+            .await
+        {
+            tracing::warn!(%error, %assignment_id, "failed to persist execution finish");
         }
         if let Ok(event) = inner
             .store
@@ -1302,14 +1305,20 @@ async fn reconcile_steers(
     for message_id in &applied {
         let _ = inner.orchestrator.mark_steer_read(message_id);
     }
+    if let Err(error) = inner
+        .persist_orchestrator(json!({
+            "method": "execution.steer.read",
+            "params": {"assignment_id": assignment_id},
+            "result": {"assignment_id": assignment_id, "message_ids": applied},
+            "status": "done",
+            "at": crate::now()
+        }))
+        .await
+    {
+        tracing::warn!(%error, %assignment_id, "failed to persist steer reconciliation");
+        return;
+    }
     if let Ok(snapshot) = inner.orchestrator.snapshot() {
-        let _ = inner.store.append_jsonl(
-            "data/orchestrator/operations.jsonl",
-            &json!({"method":"execution.steer.read","params":{"assignment_id":assignment_id},"result":{"assignment_id":assignment_id,"message_ids":applied},"snapshot":snapshot,"status":"done","at":crate::now()}),
-        );
-        let _ = inner
-            .store
-            .write_snapshot("data/orchestrator/state.json", &snapshot);
         if let Some(assignment) = snapshot
             .get("assignments")
             .and_then(Value::as_object)
@@ -3953,14 +3962,19 @@ impl ExecutionSink for OrchestratorSink {
                 return;
             }
         };
-        if let Ok(snapshot) = self.orchestrator.snapshot() {
-            let _ = self.store.append_jsonl(
-                "data/orchestrator/operations.jsonl",
-                &json!({"method":"execution.approval.request","params":approval,"result":{"approval":created},"snapshot":snapshot,"status":"done","at":crate::now()}),
-            );
-            let _ = self
-                .store
-                .write_snapshot("data/orchestrator/state.json", &snapshot);
+        if let Err(error) = self
+            .backend
+            .persist_orchestrator(json!({
+                "method": "execution.approval.request",
+                "params": approval,
+                "result": {"approval": created},
+                "status": "done",
+                "at": crate::now()
+            }))
+            .await
+        {
+            tracing::error!(%error, "failed to persist execution approval operation");
+            return;
         }
         if let Some(call_id) = approval.get("id").and_then(Value::as_str) {
             if let Some(approval_id) = created.get("id").and_then(Value::as_str) {
@@ -3980,7 +3994,11 @@ impl ExecutionSink for OrchestratorSink {
     }
 
     async fn assignment_usage(&self, assignment_id: &str, usage: Value) {
-        match self.backend.update_assignment_usage(assignment_id, &usage) {
+        match self
+            .backend
+            .update_assignment_usage(assignment_id, &usage)
+            .await
+        {
             Ok(result) => {
                 self.inner
                     .emit(ExecutionEvent {
@@ -4188,6 +4206,209 @@ mod model_resolution_tests {
                 "unknown"
             ),
             "dm_worker"
+        );
+    }
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::ProductionBackend;
+    use crate::{Gateway, GatewayConfig, RpcBackend};
+    use serde_json::{json, Value};
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    async fn seeded_backend() -> (Arc<ProductionBackend>, crate::GatewayState, Vec<String>) {
+        let home = tempdir().expect("temporary home");
+        // The caller owns the temporary directory through the leaked path. It
+        // is reclaimed by the test process after the backend is dropped.
+        let path = home.keep();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).expect("open backend"));
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"persist-worker"}),
+                &gateway.state,
+            )
+            .await
+            .expect("create bot");
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"persist-project",
+                    "goal":"concurrent persistence",
+                    "member_bot_ids":[bot["bot"]["id"]]
+                }),
+                &gateway.state,
+            )
+            .await
+            .expect("create project");
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let chat_id = project["chat"]["id"].as_str().unwrap().to_owned();
+        let mut assignments = Vec::new();
+        for index in 0..8 {
+            let value = backend
+                .call(
+                    "assignment.create",
+                    json!({
+                        "project_id":project_id,
+                        "origin_chat_id":chat_id,
+                        "bot_id":bot["bot"]["id"],
+                        "title":format!("persist-{index}"),
+                        "instruction":"persist",
+                        "from":"main"
+                    }),
+                    &gateway.state,
+                )
+                .await
+                .expect("create assignment");
+            assignments.push(value["id"].as_str().unwrap().to_owned());
+        }
+        (backend, gateway.state, assignments)
+    }
+
+    fn unwrap_arc<T>(value: Arc<T>) -> T {
+        match Arc::try_unwrap(value) {
+            Ok(value) => value,
+            Err(_) => panic!("all persistence test tasks must be joined before reopen"),
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_finish_usage_and_rpc_rebuild_latest_fresh_snapshots() {
+        let (backend, state, assignments) = seeded_backend().await;
+        let mut jobs = Vec::new();
+
+        // Runtime usage callbacks and ordinary RPC mutations deliberately run
+        // together. Each callback must persist a fresh snapshot while holding
+        // the adapter's persistence lock.
+        for (index, assignment_id) in assignments.iter().enumerate() {
+            let backend = backend.clone();
+            let assignment_id = assignment_id.clone();
+            jobs.push(tokio::spawn(async move {
+                backend
+                    .update_assignment_usage(
+                        &assignment_id,
+                        &json!({
+                            "input_tokens":index as u64 + 1,
+                            "output_tokens":2,
+                            "cache_read_tokens":0,
+                            "cache_write_tokens":0,
+                            "cost":null
+                        }),
+                    )
+                    .await
+                    .expect("persist usage");
+            }));
+        }
+        for seq in 1..=8_u64 {
+            let backend = backend.clone();
+            let state = state.clone();
+            jobs.push(tokio::spawn(async move {
+                backend
+                    .call(
+                        "chat.mark_read",
+                        json!({"chat_id":"chat_main","seq":seq}),
+                        &state,
+                    )
+                    .await
+                    .expect("persist RPC");
+            }));
+        }
+
+        // A runtime completion is another writer and races with the usage
+        // callbacks above. Its operation intentionally carries no snapshot;
+        // persist_orchestrator must supply the current one under its lock.
+        let finish_backend = backend.clone();
+        let finish_id = assignments[0].clone();
+        jobs.push(tokio::spawn(async move {
+            let assignment = finish_backend
+                .orchestrator
+                .finish_assignment(&finish_id, "done")
+                .expect("finish assignment");
+            finish_backend
+                .persist_orchestrator(json!({
+                    "method":"execution.finish",
+                    "result":{"assignment":assignment},
+                    "status":"done"
+                }))
+                .await
+                .expect("persist finish");
+        }));
+        for job in jobs {
+            job.await.expect("writer task");
+        }
+
+        let expected = backend.orchestrator.snapshot().expect("memory snapshot");
+        let operations = backend
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+            .expect("operation WAL");
+        assert!(!operations.is_empty());
+        assert!(operations
+            .iter()
+            .filter(|operation| { operation.get("status").and_then(Value::as_str) == Some("done") })
+            .all(|operation| operation.get("snapshot").is_some()));
+        let disk = backend
+            .store
+            .read_snapshot::<Value>("data/orchestrator/state.json")
+            .expect("state snapshot")
+            .expect("state snapshot exists");
+        assert_eq!(disk, expected, "disk must contain the final fresh snapshot");
+
+        let backend = unwrap_arc(backend);
+        let root = backend.store.root().to_path_buf();
+        drop(backend);
+        drop(state);
+        let reopened = ProductionBackend::open(root).expect("reopen backend");
+        assert_eq!(
+            reopened.orchestrator.snapshot().expect("replayed snapshot"),
+            expected,
+            "WAL replay must preserve concurrent RPC/runtime mutations"
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_caller_snapshot_is_replaced_before_wal_append() {
+        let (backend, state, assignments) = seeded_backend().await;
+        let stale = backend.orchestrator.snapshot().expect("stale snapshot");
+        let assignment = backend
+            .orchestrator
+            .finish_assignment(&assignments[0], "done")
+            .expect("finish assignment");
+        backend
+            .persist_orchestrator(json!({
+                "method":"execution.finish",
+                "result":{"assignment":assignment},
+                "snapshot":stale,
+                "status":"done"
+            }))
+            .await
+            .expect("persist fresh snapshot");
+
+        let operations = backend
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+            .expect("operation WAL");
+        let last = operations.last().expect("finish operation");
+        assert_eq!(
+            last["snapshot"]["assignments"][&assignments[0]]["status"], "done",
+            "caller-provided stale snapshot must not win"
+        );
+        let backend = unwrap_arc(backend);
+        let root = backend.store.root().to_path_buf();
+        drop(backend);
+        drop(state);
+        let reopened = ProductionBackend::open(root).expect("reopen backend");
+        assert_eq!(
+            reopened.orchestrator.snapshot().expect("replayed snapshot")["assignments"]
+                [&assignments[0]]["status"],
+            "done"
         );
     }
 }

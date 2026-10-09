@@ -50,11 +50,12 @@ pub struct ProductionBackend {
     pub usage: Arc<Mutex<UsageLedger>>,
     pub providers: Arc<Mutex<ProviderRegistry>>,
     write_lock: Arc<Mutex<()>>,
+    persist_lock: Arc<Mutex<()>>,
     idempotency: Arc<Mutex<HashMap<String, Value>>>,
 }
 
 impl ProductionBackend {
-    pub(crate) fn update_assignment_usage(
+    pub(crate) async fn update_assignment_usage(
         &self,
         assignment_id: &str,
         usage: &Value,
@@ -69,17 +70,14 @@ impl ProductionBackend {
             .orchestrator
             .update_assignment_usage(assignment_id, totals)
             .map_err(Self::error)?;
-        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
-        self.store
-            .append_jsonl(
-                "data/orchestrator/operations.jsonl",
-                &json!({"method":"assignment.usage","params":{"assignment_id":assignment_id,"usage":usage},"result":{"assignment":assignment},"snapshot":snapshot,"status":"done","at":now()}),
-            )
-            .map_err(store_error)?;
-        self.store
-            .write_snapshot("data/orchestrator/state.json", &snapshot)
-            .map_err(store_error)?;
-        Ok(json!({"assignment":assignment}))
+        self.persist_orchestrator(json!({
+            "method":"assignment.usage",
+            "params":{"assignment_id":assignment_id,"usage":usage},
+            "result":{"assignment":assignment},
+            "status":"done",
+            "at":now()
+        }))
+        .await
     }
 
     pub fn open(home: impl AsRef<Path>) -> Result<Self, AdapterError> {
@@ -133,6 +131,7 @@ impl ProductionBackend {
             usage: Arc::new(Mutex::new(usage)),
             providers: Arc::new(Mutex::new(registry)),
             write_lock: Arc::new(Mutex::new(())),
+            persist_lock: Arc::new(Mutex::new(())),
             idempotency: Arc::new(Mutex::new(idempotency)),
         })
     }
@@ -334,7 +333,7 @@ impl ProductionBackend {
 
     fn event_name(method: &str) -> Option<&'static str> {
         Some(match method {
-            "bot.create" | "bot.create_from_template" | "bot.duplicate" => "bot.created",
+            "bot.create" | "bot.duplicate" => "bot.created",
             "bot.update" => "bot.updated",
             "bot.delete" => "bot.deleted",
             "project.create" => "project.created",
@@ -365,6 +364,58 @@ impl ProductionBackend {
         })
     }
 
+    /// Persist one orchestrator operation while serializing the fresh snapshot
+    /// with every runtime writer. This lock is intentionally independent from
+    /// `write_lock`: model/runtime callbacks may call this entry point without
+    /// holding the RPC request lock.
+    pub async fn persist_orchestrator(&self, mut operation: Value) -> RpcResult {
+        let _guard = self.persist_lock.lock().await;
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let (result, request_id, status, snapshot) = {
+            let object = operation.as_object_mut().ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: "orchestrator operation must be an object".into(),
+                details: None,
+            })?;
+            object.insert("snapshot".into(), snapshot);
+            object.entry("status").or_insert_with(|| json!("done"));
+            object.entry("at").or_insert_with(|| json!(now()));
+            (
+                object.get("result").cloned().unwrap_or(Value::Null),
+                object
+                    .get("client_request_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                object
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("done")
+                    .to_owned(),
+                object.get("snapshot").cloned().unwrap_or(Value::Null),
+            )
+        };
+        self.store
+            .append_jsonl("data/orchestrator/operations.jsonl", &operation)
+            .map_err(store_error)?;
+        if status == "rolled_back" {
+            if let Some(request_id) = request_id.as_ref() {
+                self.idempotency.lock().await.remove(request_id);
+            }
+        }
+        self.store
+            .write_snapshot("data/orchestrator/state.json", &snapshot)
+            .map_err(store_error)?;
+        if status == "done" {
+            if let Some(request_id) = request_id {
+                self.idempotency
+                    .lock()
+                    .await
+                    .insert(request_id, result.clone());
+            }
+        }
+        Ok(result)
+    }
+
     async fn persist(
         &self,
         state: &GatewayState,
@@ -373,25 +424,20 @@ impl ProductionBackend {
         result: &Value,
     ) -> RpcResult {
         let request_id = params.get("client_request_id").and_then(Value::as_str);
-        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
         let audit_params = if method == "settings.update" {
             redact_settings_params(params)
         } else {
             params.clone()
         };
-        let operation = json!({ "method": method, "params": audit_params, "client_request_id": request_id, "result": result, "snapshot": snapshot, "status": "done", "at": now() });
-        self.store
-            .append_jsonl("data/orchestrator/operations.jsonl", &operation)
-            .map_err(store_error)?;
-        self.store
-            .write_snapshot("data/orchestrator/state.json", &snapshot)
-            .map_err(store_error)?;
-        if let Some(request_id) = request_id {
-            self.idempotency
-                .lock()
-                .await
-                .insert(request_id.into(), result.clone());
-        }
+        self.persist_orchestrator(json!({
+            "method":method,
+            "params":audit_params,
+            "client_request_id":request_id,
+            "result":result,
+            "status":"done",
+            "at":now()
+        }))
+        .await?;
         if let Some(event_name) = Self::event_name(method) {
             let data = event_data(method, params, result);
             let event = self
@@ -399,6 +445,45 @@ impl ProductionBackend {
                 .append_event(event_name, data.clone())
                 .map_err(store_error)?;
             state.publish_event(event.seq, &event.event, data).await;
+        }
+        if matches!(method, "bot.create" | "bot.duplicate") {
+            if let Some(chat) = result.get("dm_chat").filter(|chat| chat.is_object()) {
+                let data = json!({"chat":chat});
+                let event = self
+                    .store
+                    .append_event("chat.created", data.clone())
+                    .map_err(store_error)?;
+                state.publish_event(event.seq, &event.event, data).await;
+            }
+        } else if method == "bot.create_from_template" {
+            let bots = result
+                .get("bots")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let chats = result
+                .get("dm_chats")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for index in 0..bots.len().max(chats.len()) {
+                if let Some(bot) = bots.get(index) {
+                    let data = json!({"bot":bot});
+                    let event = self
+                        .store
+                        .append_event("bot.created", data.clone())
+                        .map_err(store_error)?;
+                    state.publish_event(event.seq, &event.event, data).await;
+                }
+                if let Some(chat) = chats.get(index) {
+                    let data = json!({"chat":chat});
+                    let event = self
+                        .store
+                        .append_event("chat.created", data.clone())
+                        .map_err(store_error)?;
+                    state.publish_event(event.seq, &event.event, data).await;
+                }
+            }
         }
         Ok(result.clone())
     }
@@ -422,10 +507,14 @@ impl ProductionBackend {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
-        self.store
-            .write_snapshot("data/orchestrator/state.json", &snapshot)
-            .map_err(store_error)?;
+        self.persist_orchestrator(json!({
+            "method":"routine.tick",
+            "params":{"at":at.to_rfc3339()},
+            "result":{"runs":values},
+            "status":"done",
+            "at":now()
+        }))
+        .await?;
         let state_snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
         for run in values.iter() {
             if let Some(assignment_id) = run.get("assignment_id").and_then(Value::as_str) {
@@ -1373,10 +1462,13 @@ impl ProductionBackend {
             Err(error) => {
                 self.rollback_duplicate_bot(&target_bot_id, &feature_service, &skill_snapshot)
                     .await;
-                if let Err(compensation_error) = self.persist_duplicate_rollback_snapshot(
-                    &target_bot_id,
-                    params.get("client_request_id").and_then(Value::as_str),
-                ) {
+                if let Err(compensation_error) = self
+                    .persist_duplicate_rollback_snapshot(
+                        &target_bot_id,
+                        params.get("client_request_id").and_then(Value::as_str),
+                    )
+                    .await
+                {
                     tracing::error!(
                         %compensation_error,
                         target_bot_id,
@@ -1391,26 +1483,21 @@ impl ProductionBackend {
     /// The initial operation WAL record can outlive a failed snapshot rename.
     /// Append a non-`done` compensation record with the post-rollback snapshot
     /// so restart chooses the clean snapshot and never reconstructs the target.
-    fn persist_duplicate_rollback_snapshot(
+    async fn persist_duplicate_rollback_snapshot(
         &self,
         target_bot_id: &str,
         client_request_id: Option<&str>,
     ) -> Result<(), RpcError> {
-        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
-        self.store
-            .append_jsonl(
-                "data/orchestrator/operations.jsonl",
-                &json!({
-                    "method":"bot.duplicate.rollback",
-                    "params":{"target_bot_id":target_bot_id},
-                    "client_request_id":client_request_id,
-                    "result":{"rolled_back":true},
-                    "snapshot":snapshot,
-                    "status":"rolled_back",
-                    "at":now()
-                }),
-            )
-            .map_err(store_error)
+        self.persist_orchestrator(json!({
+            "method":"bot.duplicate.rollback",
+            "params":{"target_bot_id":target_bot_id},
+            "client_request_id":client_request_id,
+            "result":{"rolled_back":true},
+            "status":"rolled_back",
+            "at":now()
+        }))
+        .await
+        .map(|_| ())
     }
 
     async fn rollback_duplicate_bot(
@@ -2108,7 +2195,7 @@ fn browser_error(error: BrowserError) -> RpcError {
 fn event_data(method: &str, params: &Value, result: &Value) -> Value {
     match method {
         "bot.delete" => json!({ "bot_id": params.get("bot_id").cloned().unwrap_or(Value::Null) }),
-        "bot.duplicate" => {
+        "bot.create" | "bot.update" | "bot.duplicate" => {
             json!({ "bot": result.get("bot").cloned().unwrap_or(Value::Null) })
         }
         "project.request_changes" => {
@@ -3293,6 +3380,68 @@ mod tests {
                 let _: macbot_protocol::RoutineRun =
                     serde_json::from_value(event.data["run"].clone()).unwrap();
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn bot_lifecycle_events_have_single_typed_bot_and_chat_payloads() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let created = backend
+            .call("bot.create", json!({"name":"事件 Bot"}), &gateway.state)
+            .await
+            .unwrap();
+        let events = backend.store.events_since(0).unwrap();
+        let bot_created = events
+            .iter()
+            .filter(|event| event.event == "bot.created")
+            .collect::<Vec<_>>();
+        let chat_created = events
+            .iter()
+            .filter(|event| event.event == "chat.created")
+            .collect::<Vec<_>>();
+        assert_eq!(bot_created.len(), 1);
+        assert_eq!(chat_created.len(), 1);
+        let _: Bot = serde_json::from_value(bot_created[0].data["bot"].clone()).unwrap();
+        let _: Chat = serde_json::from_value(chat_created[0].data["chat"].clone()).unwrap();
+        assert_eq!(chat_created[0].data["chat"]["id"], created["dm_chat"]["id"]);
+
+        let before = events.len();
+        let template = backend
+            .call(
+                "bot.create_from_template",
+                json!({"template_id":"product-code-test"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let events = backend.store.events_since(0).unwrap();
+        let delta = &events[before..];
+        let template_bots = template["bots"].as_array().unwrap().len();
+        let template_chats = template["dm_chats"].as_array().unwrap().len();
+        assert_eq!(
+            delta
+                .iter()
+                .filter(|event| event.event == "bot.created")
+                .count(),
+            template_bots
+        );
+        assert_eq!(
+            delta
+                .iter()
+                .filter(|event| event.event == "chat.created")
+                .count(),
+            template_chats
+        );
+        for event in delta.iter().filter(|event| event.event == "bot.created") {
+            let _: Bot = serde_json::from_value(event.data["bot"].clone()).unwrap();
+        }
+        for event in delta.iter().filter(|event| event.event == "chat.created") {
+            let _: Chat = serde_json::from_value(event.data["chat"].clone()).unwrap();
         }
     }
 
