@@ -603,6 +603,7 @@ impl Render for Computer {
             .unwrap_or(tr("computer.title"))
             .to_string();
         let quality = self.quality.clone();
+        let quality_display = quality_label(&quality);
         let frame = self.render_frame(window, cx);
         let fps = self.current_fps();
         let paint_latency = self.paint_latency_ms;
@@ -742,7 +743,7 @@ impl Render for Computer {
                     .child(div().text_sm().text_color(t.secondary).child(format!(
                         "{} · {} × {} · {} {:.1}/s · {} {}",
                         tr("computer.quality"),
-                        quality,
+                        quality_display,
                         if width == 0 {
                             "—".to_string()
                         } else {
@@ -761,7 +762,7 @@ impl Render for Computer {
                             .gap_1()
                             .children(["auto", "high", "low"].into_iter().map(|value| {
                                 let value = value.to_string();
-                                let label = value.clone();
+                                let label = quality_label(&value);
                                 let selected = value == quality;
                                 Button::new(SharedString::from(format!("computer-quality-{value}")))
                                     .ghost()
@@ -838,10 +839,22 @@ fn tr(key: &str) -> &'static str {
         "computer.decode_error" => "画面解码失败",
         "computer.idle" => "空闲",
         "computer.quality" => "画质",
+        "computer.quality_auto" => "自动",
+        "computer.quality_high" => "高",
+        "computer.quality_low" => "低",
         "computer.close" => "收起",
         "computer.frames" => "帧率",
         "computer.paint_latency" => "绘制延迟",
         _ => "—",
+    }
+}
+
+fn quality_label(value: &str) -> &'static str {
+    match value {
+        "auto" => tr("computer.quality_auto"),
+        "high" => tr("computer.quality_high"),
+        "low" => tr("computer.quality_low"),
+        _ => tr("computer.quality_auto"),
     }
 }
 

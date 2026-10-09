@@ -101,17 +101,17 @@ pub struct TraceView {
     visible_filter: TraceFilter,
     data_revision: u64,
     visible_revision: u64,
+    measured_sizes: BTreeMap<u64, (f32, gpui_kit::Pixels)>,
     scroll: VirtualListScrollHandle,
 }
 
 impl TraceView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(trace_tr("trace.search")));
-        let subscriptions = vec![cx.subscribe_in(&search, window, |this, _, event, _, cx| {
+        let subscriptions = vec![cx.subscribe_in(&search, window, |_, _, event, _, cx| {
             if matches!(event, InputEvent::Change) {
                 cx.notify();
             }
-            this.output.clear();
         })];
         Self {
             timeline: TraceTimeline::default(),
@@ -131,6 +131,7 @@ impl TraceView {
             visible_filter: TraceFilter::All,
             data_revision: 0,
             visible_revision: 0,
+            measured_sizes: BTreeMap::new(),
             scroll: VirtualListScrollHandle::new(),
         }
     }
@@ -153,6 +154,7 @@ impl TraceView {
         self.assignment = assignment;
         self.output.clear();
         self.inflight.clear();
+        self.measured_sizes.clear();
         self.data_revision = self.data_revision.wrapping_add(1);
         if self.following {
             self.scroll.scroll_to_bottom();
@@ -268,6 +270,10 @@ impl TraceView {
         if timeline_changed {
             self.data_revision = self.data_revision.wrapping_add(1);
         }
+        // Deltas and tool output can change the rendered height without
+        // changing an event sequence.  Re-measure visible rows after each
+        // transport update so the virtual list never reuses stale offsets.
+        self.measured_sizes.clear();
         cx.notify();
     }
 
@@ -300,6 +306,21 @@ impl TraceView {
             method: method.to_string(),
             params,
         });
+    }
+
+    fn set_measured_size(&mut self, aseq: u64, width: f32, height: gpui_kit::Pixels) -> bool {
+        if width <= 0.0 || height.as_f32() <= 0.0 {
+            return false;
+        }
+        let changed = self
+            .measured_sizes
+            .get(&aseq)
+            .map(|(old_width, old_height)| (old_width - width).abs() > 0.5 || *old_height != height)
+            .unwrap_or(true);
+        if changed {
+            self.measured_sizes.insert(aseq, (width, height));
+        }
+        changed
     }
 
     fn history_params(&self) -> Value {
@@ -410,6 +431,7 @@ impl TraceView {
                 if !this.expanded.insert(key) {
                     this.expanded.remove(&key);
                 }
+                this.measured_sizes.remove(&key);
                 cx.notify();
             }));
         row = row.child(
@@ -693,31 +715,61 @@ impl Render for TraceView {
             self.visible_ids
                 .iter()
                 .map(|id| {
+                    let estimated = if self.expanded.contains(id) {
+                        176.
+                    } else {
+                        68.
+                    };
                     size(
                         px(1.),
-                        px(if self.expanded.contains(id) {
-                            176.
-                        } else {
-                            68.
-                        }),
+                        self.measured_sizes
+                            .get(id)
+                            .map(|(_, height)| *height)
+                            .unwrap_or_else(|| px(estimated)),
                     )
                 })
                 .collect(),
         );
         let entity = cx.entity();
         let list = v_virtual_list(
-            entity,
+            entity.clone(),
             "trace-virtual-list",
             sizes,
             move |view, range, _, cx| {
-                range
+                let visible_rows = range
                     .filter_map(|index| keys.get(index).copied())
                     .filter_map(|aseq| {
                         view.timeline
                             .items
                             .get(&aseq)
                             .cloned()
-                            .map(|item| view.render_row(aseq, item, cx))
+                            .map(|item| (aseq, item))
+                    })
+                    .collect::<Vec<_>>();
+                visible_rows
+                    .into_iter()
+                    .map(|(aseq, item)| {
+                        let row = view.render_row(aseq, item, cx);
+                        let entity = entity.clone();
+                        div()
+                            .on_children_prepainted(move |bounds, _, cx| {
+                                let Some(bounds) = bounds.first().copied() else {
+                                    return;
+                                };
+                                let width = bounds.size.width.as_f32();
+                                let height = bounds.size.height;
+                                let entity = entity.clone();
+                                cx.defer(move |cx| {
+                                    entity.update(cx, |view, cx| {
+                                        if view.set_measured_size(aseq, width, height) {
+                                            cx.notify();
+                                        }
+                                    });
+                                });
+                            })
+                            .id(SharedString::from(format!("trace-measured-{aseq}")))
+                            .child(row)
+                            .into_any_element()
                     })
                     .collect::<Vec<_>>()
             },

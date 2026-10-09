@@ -5,7 +5,7 @@
 //! connection being opened.
 
 use std::{
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{self, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
@@ -31,6 +31,8 @@ pub struct CachedState {
 struct CacheEnvelope {
     host_id: String,
     node_id: String,
+    #[serde(default)]
+    stamp: u64,
     last_seq: u64,
     state: Value,
 }
@@ -55,11 +57,26 @@ pub fn path_for(root: impl AsRef<Path>, host_id: &str) -> Result<PathBuf> {
     Ok(root.as_ref().join(format!("{host_id}.json")))
 }
 
+#[cfg(test)]
 pub fn save(
     root: impl AsRef<Path>,
     host_id: &str,
     node_id: &str,
     state: &AppState,
+) -> Result<PathBuf> {
+    save_ordered(root, host_id, node_id, state, cache_stamp()?)
+}
+
+/// Save a cache snapshot in captured order. The caller should capture the
+/// stamp before handing a snapshot to an asynchronous task. A later snapshot
+/// may legitimately have a lower server sequence after a server reset, so
+/// ordering is based on the local capture stamp rather than `last_seq`.
+pub fn save_ordered(
+    root: impl AsRef<Path>,
+    host_id: &str,
+    node_id: &str,
+    state: &AppState,
+    stamp: u64,
 ) -> Result<PathBuf> {
     let path = path_for(root, host_id)?;
     let parent = path
@@ -69,6 +86,30 @@ pub fn save(
         .with_context(|| format!("create cache directory {}", parent.display()))?;
     set_mode(parent, 0o700)?;
 
+    // The lock is separate from the atomically replaced cache file, so a
+    // writer cannot lose the lock by renaming the cache underneath it.
+    let lock_path = path.with_extension("lock");
+    let lock_file: File = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(&lock_path)
+        .with_context(|| format!("open state cache lock {}", lock_path.display()))?;
+    set_mode(&lock_path, 0o600)?;
+    lock_file.lock().context("lock state cache")?;
+
+    // A newer captured snapshot wins even when its server cursor rolled back.
+    // Caches from a different node are never allowed to block a new node.
+    if let Ok(bytes) = fs::read(&path)
+        && let Ok(existing) = serde_json::from_slice::<CacheEnvelope>(&bytes)
+        && existing.node_id == node_id
+        && existing.stamp > stamp
+    {
+        return Ok(path);
+    }
+
     let value = state.to_bootstrap_cache();
     let last_seq = value
         .get("seq")
@@ -77,6 +118,7 @@ pub fn save(
     let envelope = CacheEnvelope {
         host_id: host_id.to_owned(),
         node_id: node_id.to_owned(),
+        stamp,
         last_seq,
         state: value,
     };
@@ -101,6 +143,14 @@ pub fn save(
         let _ = fs::remove_file(&temporary);
     }
     result.map(|()| path)
+}
+
+pub fn cache_stamp() -> Result<u64> {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("cache clock is before Unix epoch")?
+        .as_nanos();
+    Ok(nanos.try_into().unwrap_or(u64::MAX))
 }
 
 /// Load a cache only when it belongs to `host_id` and the remembered node.
@@ -208,6 +258,42 @@ mod tests {
         envelope["last_seq"] = json!(42);
         fs::write(&path, serde_json::to_vec(&envelope).unwrap()).unwrap();
         assert!(load(&root, "host-1", "node-1").is_err());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn older_async_save_is_skipped_by_capture_stamp() {
+        let root = temp_root("ordered-old");
+        let mut newer = AppState::default();
+        newer.apply_bootstrap(json!({"seq": 7, "bots": [{"id":"new"}]}));
+        save_ordered(&root, "host-1", "node-1", &newer, 200).unwrap();
+
+        let mut older = AppState::default();
+        older.apply_bootstrap(json!({"seq": 3, "bots": [{"id":"old"}]}));
+        save_ordered(&root, "host-1", "node-1", &older, 100).unwrap();
+
+        let loaded = load(&root, "host-1", "node-1").unwrap().unwrap();
+        assert_eq!(loaded.last_seq, 7);
+        assert!(loaded.state.bots.contains_key("new"));
+        assert!(!loaded.state.bots.contains_key("old"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn newer_stamp_can_commit_a_legal_server_cursor_rollback() {
+        let root = temp_root("ordered-rollback");
+        let mut old_server_state = AppState::default();
+        old_server_state.apply_bootstrap(json!({"seq": 200, "bots": [{"id":"old"}]}));
+        save_ordered(&root, "host-1", "node-1", &old_server_state, 100).unwrap();
+
+        let mut reset_state = AppState::default();
+        reset_state.apply_bootstrap(json!({"seq": 4, "bots": [{"id":"reset"}]}));
+        save_ordered(&root, "host-1", "node-1", &reset_state, 200).unwrap();
+
+        let loaded = load(&root, "host-1", "node-1").unwrap().unwrap();
+        assert_eq!(loaded.last_seq, 4);
+        assert!(loaded.state.bots.contains_key("reset"));
+        assert!(!loaded.state.bots.contains_key("old"));
         let _ = fs::remove_dir_all(root);
     }
 }

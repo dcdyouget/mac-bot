@@ -4,7 +4,7 @@
 
 界面和交互遵循 [DESIGN.md](../../docs/DESIGN.md) 第 4 章，协议遵循 [PROTOCOL.md](../../docs/PROTOCOL.md)。编译需要 Xcode 的 Metal 工具链（本机已安装）。
 
-当前发布范围：打包、截图、连接配置、Host persistence、设置页 RPC 和 update helper 已接入主应用；S0 仍需用 server-mac mock 做联调验收。自动更新依赖用户配置 manifest URL，未配置时状态为 disabled；完整下载、DMG 挂载和替换流程仍需在发布版 `.app` 与测试 manifest 上验收。
+S0 已在 main 安装版完成桌面与 Android 的 mock 联调。客户端已接入私聊、全部消息块、轨迹、群协作、工作台、Bot 管理、技能、仪表盘、搜索、Agent Computer 和定时任务。后续阶段的客户端原生验收证据见 `progress/S1` 至 `progress/S5`；真实模型执行和两端场景验收由集成线依赖服务端推进。自动更新未配置 manifest URL 时为 disabled；本地产出的 DMG 已通过独立目录内的安装替换测试，公开发布源与签名尚未配置。
 
 ## 编译、测试和检查
 
@@ -19,7 +19,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 上述命令是集成线的验证入口；本 README 不宣称它们在每次改动后都已运行通过。
 
-只运行桌面程序时（不设置环境变量会显示连接页，由用户填写 Host 和密码）：
+只运行桌面程序时（不设置环境变量时优先恢复已保存 Host；无记录时显示连接页）：
 
 ```sh
 cd clients/mac
@@ -53,7 +53,7 @@ open dist/MacBot.app
 ```sh
 MACBOT_HOST=127.0.0.1:7789 MACBOT_PASSWORD=dev packaging/run.sh debug
 MACBOT_HOST=127.0.0.1:7788 MACBOT_PASSWORD="$MACBOT_PASSWORD" packaging/run.sh release
-# 不设置 MACBOT_HOST/MACBOT_PASSWORD：打开连接页
+# 不设置 MACBOT_HOST/MACBOT_PASSWORD：恢复已保存 Host；无记录时打开连接页
 packaging/run.sh debug
 ```
 
@@ -91,7 +91,7 @@ packaging/screenshot-window.sh progress/S5/connect.png "Mac Bot" 12345
 MACBOT_UPDATE_URL=http://127.0.0.1:7789/update.json packaging/check-update.sh
 ```
 
-`UpdateClient::download_and_stage` 会先下载并校验 digest，再生成缓存目录中的可复核 `install-<version>.sh`。设置页的检查、下载和安装事件已由主应用接线；只有用户点击安装后才执行脚本。脚本会重新校验 SHA-256，以只读方式挂载 DMG，校验 `bot.mac.desktop` 和版本，使用 `ditto` 写入目标父目录，等待旧进程退出后原子替换，并在替换失败时恢复应用备份。备份只保留应用 bundle，不删除其他用户文件。若程序是直接运行的 Rust binary 而不是 `.app`，不会生成替换脚本；应打开已校验的 DMG 手动安装。当前尚未配置公开发布 URL，也未在真实发布 DMG 上执行替换验收。
+`UpdateClient::download_and_stage` 会先下载并校验 digest，再生成缓存目录中的可复核 `install-<version>.sh`。设置页的检查、下载和安装事件已由主应用接线；只有用户点击安装后才执行脚本。脚本会重新校验 SHA-256，以只读方式挂载 DMG，校验 `bot.mac.desktop` 和版本，使用 `ditto` 写入目标父目录，等待旧进程退出后原子替换，并在替换失败时恢复应用备份。备份只保留应用 bundle，不删除其他用户文件。若程序是直接运行的 Rust binary 而不是 `.app`，不会生成替换脚本；应打开已校验的 DMG 手动安装。当前尚未配置公开发布 URL；本机生成的实际 DMG 已完成独立目录内的替换验收。
 
 更新比较使用运行中 `.app/Contents/Info.plist` 的 `CFBundleShortVersionString`；直接运行 target binary 时回退到 `CARGO_PKG_VERSION`。可对现有 DMG 做隔离替换验收（测试会在系统临时目录创建 `.app`、设置 `MACBOT_TEST_UPDATE_NO_OPEN=1`，不打开应用）：
 
@@ -100,6 +100,14 @@ MACBOT_TEST_UPDATE_DMG="$PWD/dist/MacBot.dmg" \
   cargo test -p macbot-desktop isolated_dmg_install_when_requested -- --nocapture
 ```
 
-该测试只在显式设置 `MACBOT_TEST_UPDATE_DMG` 时执行，验证 SHA-256、Bundle ID、版本、原子替换和旧 bundle 备份；不会触碰 `~/Applications` 或工作树应用。当前未将真实发布 DMG 替换和 UI 重启验收标记为已通过。
+该测试只在显式设置 `MACBOT_TEST_UPDATE_DMG` 时执行，验证 SHA-256、Bundle ID、版本、原子替换和旧 bundle 备份；不会触碰 `~/Applications` 或工作树应用。独立替换测试已验证本机实际 DMG，测试模式跳过重新打开 GUI；公开源下载和真实安装版重启仍由发布集成验收。
 
 当前状态：`.app`/`.dmg` 打包、DMG 安装脚本、manifest 校验、截图入口和设置页更新入口已集成；更新地址尚未发布时保持 `MACBOT_UPDATE_URL` 未配置，检查结果为 `disabled`。README 中的命令用于独立验证配置和脚本，真实发布验收由集成线执行。
+
+## 原生验收与性能
+
+`progress/` 的开发窗口截图来自本 worktree；S0 正式安装证据由集成线归档于 `docs/progress/S0/`。独立 mock 测试使用已发布服务端 bundle、独立数据目录和 `127.0.0.1:7790`，不修改共享 `7789` 或 Android 会话。测试记录必须注明服务端 source commit、客户端 commit、窗口 PID 和连接地址。
+
+消息与轨迹使用虚拟列表并测量可见行高度；Host 缓存按捕获顺序异步写入，断线待发消息保存稳定请求 ID。`macbot-client-core/examples/state_bench.rs` 提供大状态合并基准（`cargo run -p macbot-client-core --example state_bench --release`）；结果是状态层基准，不代表 GUI 帧率。
+
+常用快捷键：`⌘0` 总管，`⌘1…9` 已固定会话，`⌘N` 新建，`⌘K` 搜索，`⌘,` 设置，`⌘⇧W/U/S` 工作台/仪表盘/技能，`⌘\` 侧栏，`⌘⇧\` 上下文，`Esc` 返回，`⌘Q` 退出。

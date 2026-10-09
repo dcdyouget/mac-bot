@@ -62,6 +62,10 @@ make_app() {
     cp -R "$MAC_ROOT/../../protocol/fixtures" "$APP_DIR/Contents/Resources/fixtures"
   fi
   chmod 755 "$APP_DIR/Contents/MacOS/$BINARY_NAME"
+  git -C "$MAC_ROOT" rev-parse HEAD > "$APP_DIR/Contents/Resources/source-commit"
+  if [[ -n "$(git -C "$MAC_ROOT" status --porcelain -- crates packaging Cargo.toml Cargo.lock)" ]]; then
+    print "uncommitted-client-source" > "$APP_DIR/Contents/Resources/source-dirty"
+  fi
 
   # Keep the source plist reviewable while allowing release automation to stamp
   # the version without changing files in the source tree.

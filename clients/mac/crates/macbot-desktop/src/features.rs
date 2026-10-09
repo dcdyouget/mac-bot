@@ -552,8 +552,17 @@ fn action_button(
     action: FeatureAction,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement + use<> {
+    action_button_with_id(format!("action-{label}"), label, action, cx)
+}
+
+fn action_button_with_id(
+    id: String,
+    label: &str,
+    action: FeatureAction,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
     let label = label.to_string();
-    Button::new(format!("action-{label}"))
+    Button::new(id)
         .label(label)
         .primary()
         .on_click(cx.listener(move |this, _, _, cx| this.emit_action(action.clone(), cx)))
@@ -836,6 +845,29 @@ pub fn routine_update_params_with_context(
     if let Some(timezone) = timezone {
         patch["timezone"] = json!(timezone);
     }
+    json!({"routine_id": routine_id, "patch": patch})
+}
+
+/// Build a routine patch while preserving an explicit `null` project value.
+/// The protocol uses `Patch<Id>` here, so clearing the project must be sent as
+/// `project_id: null` instead of omitting the field.
+pub fn routine_update_params_with_project_patch(
+    routine_id: &str,
+    name: &str,
+    instructions: &str,
+    schedules: Value,
+    project_id: Option<Value>,
+    timezone: Option<&str>,
+) -> Value {
+    let mut patch = json!({
+        "name": name,
+        "instructions": instructions,
+        "schedules": schedules,
+    });
+    patch["project_id"] = project_id.unwrap_or(Value::Null);
+    if let Some(timezone) = timezone {
+        patch["timezone"] = json!(timezone);
+    }
     json!({
         "routine_id": routine_id,
         "patch": patch,
@@ -1064,12 +1096,12 @@ fn routine_save_button(
             let (method, params) = if let Some(routine_id) = &routine_id {
                 (
                     "routine.update",
-                    routine_update_params_with_context(
+                    routine_update_params_with_project_patch(
                         routine_id.as_str().unwrap_or_default(),
                         &name,
                         &instructions,
                         json!(schedules),
-                        (!project_id.trim().is_empty()).then_some(project_id.as_str()),
+                        (!project_id.trim().is_empty()).then(|| json!(project_id)),
                         (!timezone.trim().is_empty()).then_some(timezone.as_str()),
                     ),
                 )
@@ -1190,7 +1222,18 @@ fn dashboard_rpc_button(
     params: Value,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement + use<> {
-    action_button(
+    dashboard_rpc_button_with_id(format!("dashboard-rpc-{label}"), label, method, params, cx)
+}
+
+fn dashboard_rpc_button_with_id(
+    id: String,
+    label: &str,
+    method: &str,
+    params: Value,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
+    action_button_with_id(
+        id,
         label,
         FeatureAction::Rpc {
             method: method.to_owned(),
@@ -1214,7 +1257,11 @@ fn dashboard_period_rpc_button(
     Button::new(format!("dashboard-period-{label}"))
         .label(label)
         .on_click(cx.listener(move |this, _, _, cx| {
-            let params = build(&from.read(cx).value(), &to.read(cx).value());
+            let from_value = from.read(cx).value().to_string();
+            let to_value = to.read(cx).value().to_string();
+            this.data["from"] = json!(from_value.clone());
+            this.data["to"] = json!(to_value.clone());
+            let params = build(&from_value, &to_value);
             this.emit_action(
                 FeatureAction::Rpc {
                     method: method.clone(),
@@ -1228,24 +1275,94 @@ fn dashboard_period_rpc_button(
 fn dashboard_dimension_button(
     label: &str,
     dimension: &str,
-    data: &Value,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement + use<> {
     let label = label.to_owned();
     let dimension = dimension.to_owned();
-    let snapshot = data.clone();
     Button::new(format!("dashboard-dimension-{dimension}"))
         .label(label)
         .on_click(cx.listener(move |this, _, _, cx| {
             this.data["dimension"] = json!(dimension.clone());
+            let snapshot = this.data.clone();
             this.emit_action(
                 FeatureAction::Rpc {
                     method: "usage.timeseries".into(),
-                    params: usage_timeseries_params(&snapshot, &dimension, "tokens", false),
+                    params: usage_timeseries_params(
+                        &snapshot,
+                        &dimension,
+                        snapshot
+                            .get("metric")
+                            .and_then(Value::as_str)
+                            .unwrap_or("tokens"),
+                        snapshot
+                            .get("split_io")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    ),
+                },
+                cx,
+            );
+            this.emit_action(
+                FeatureAction::Rpc {
+                    method: "usage.breakdown".into(),
+                    params: usage_breakdown_params(&snapshot, &dimension),
                 },
                 cx,
             );
             cx.notify();
+        }))
+}
+
+fn dashboard_metric_button(
+    label: &str,
+    metric: &str,
+    split_io: bool,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
+    let label = label.to_owned();
+    let metric = metric.to_owned();
+    Button::new(format!("dashboard-metric-{metric}-{split_io}"))
+        .label(label)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.data["metric"] = json!(metric.clone());
+            this.data["split_io"] = json!(split_io);
+            let snapshot = this.data.clone();
+            this.emit_action(
+                FeatureAction::Rpc {
+                    method: "usage.timeseries".into(),
+                    params: usage_timeseries_params(
+                        &snapshot,
+                        dashboard_dimension(&snapshot),
+                        &metric,
+                        split_io,
+                    ),
+                },
+                cx,
+            );
+        }))
+}
+
+fn dashboard_heatmap_metric_button(
+    label: &str,
+    metric: &str,
+    mode: &str,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
+    let label = label.to_owned();
+    let metric = metric.to_owned();
+    let mode = mode.to_owned();
+    Button::new(format!("dashboard-heatmap-{mode}-{metric}"))
+        .label(label)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.data["metric"] = json!(metric.clone());
+            let snapshot = this.data.clone();
+            this.emit_action(
+                FeatureAction::Rpc {
+                    method: "usage.heatmap".into(),
+                    params: usage_heatmap_params(&snapshot, &mode, &metric),
+                },
+                cx,
+            );
         }))
 }
 
@@ -1293,7 +1410,7 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
         .into_iter()
         .filter(|job| !is_finished_assignment(job))
     {
-        let key = workbench_group_key(&job, &group_mode);
+        let key = workbench_group_key(&job, &group_mode, data);
         groups.entry(key).or_default().push(job);
     }
     let active_groups =
@@ -1311,7 +1428,9 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
                             .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
                             .child(format!("{} · {}", workbench_group_label(&group_mode), key)),
                     )
-                    .children(jobs.iter().map(|job| workbench_job_row(job, tokens, cx)))
+                    .children(jobs.iter().enumerate().map(|(index, job)| {
+                        workbench_job_row(job, data, tokens, cx, &format!("{key}-{index}"))
+                    }))
             }));
     let done = workbench_done_jobs(data);
     let body = div()
@@ -1391,12 +1510,41 @@ fn workbench_done_jobs(data: &Value) -> Vec<Value> {
         .collect()
 }
 
-fn workbench_group_key(job: &Value, mode: &str) -> String {
+fn workbench_group_key(job: &Value, mode: &str, data: &Value) -> String {
     match mode {
-        "project" => string(job, "project_id", t("workbench.no_project")),
+        "project" => workbench_entity_label(
+            data,
+            "projects",
+            job.get("project_id").and_then(Value::as_str),
+            t("workbench.no_project"),
+        ),
         "status" => string(job, "status", t("common.unknown")),
-        _ => string(job, "bot", &string(job, "bot_id", t("common.unknown"))),
+        _ => {
+            let bot_id = job.get("bot_id").and_then(Value::as_str);
+            let bot = string(job, "bot", "");
+            if !bot.is_empty() {
+                bot
+            } else {
+                workbench_entity_label(data, "all_bots", bot_id, t("common.unknown"))
+            }
+        }
     }
+}
+
+fn workbench_entity_label(
+    data: &Value,
+    collection: &str,
+    id: Option<&str>,
+    fallback: &str,
+) -> String {
+    let Some(id) = id.filter(|id| !id.is_empty()) else {
+        return fallback.to_owned();
+    };
+    array(data, collection)
+        .iter()
+        .find(|item| item.get("id").and_then(Value::as_str) == Some(id))
+        .map(|item| string(item, "name", &string(item, "label", id)))
+        .unwrap_or_else(|| id.to_owned())
 }
 
 fn workbench_group_label(mode: &str) -> &'static str {
@@ -1409,12 +1557,31 @@ fn workbench_group_label(mode: &str) -> &'static str {
 
 fn workbench_job_row(
     job: &Value,
+    data: &Value,
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
+    row_key: &str,
 ) -> impl IntoElement + use<> {
     let name = string(job, "title", t("common.unnamed_task"));
-    let bot = string(job, "bot", &string(job, "bot_id", t("common.unknown")));
-    let project = string(job, "project_id", t("workbench.no_project"));
+    let bot = {
+        let bot = string(job, "bot", "");
+        if bot.is_empty() {
+            workbench_entity_label(
+                data,
+                "all_bots",
+                job.get("bot_id").and_then(Value::as_str),
+                t("common.unknown"),
+            )
+        } else {
+            bot
+        }
+    };
+    let project = workbench_entity_label(
+        data,
+        "projects",
+        job.get("project_id").and_then(Value::as_str),
+        t("workbench.no_project"),
+    );
     let status = string(job, "status", t("common.unknown"));
     let elapsed = string(job, "elapsed", t("common.unknown"));
     let usage = job
@@ -1431,7 +1598,8 @@ fn workbench_job_row(
         .and_then(Value::as_u64)
         .unwrap_or(0);
     let assignment_id = string(job, "id", "");
-    let mut actions = div().flex().gap_1().child(action_button(
+    let mut actions = div().flex().gap_1().child(action_button_with_id(
+        format!("workbench-{row_key}-detail"),
         t("workbench.detail"),
         FeatureAction::Trace(assignment_id.clone()),
         cx,
@@ -1441,12 +1609,23 @@ fn workbench_job_row(
             method: "assignment.stop".into(),
             params: assignment_stop_params(&assignment_id),
         };
-        actions = actions.child(action_button(t("workbench.stop"), stop.clone(), cx));
+        actions = actions.child(action_button_with_id(
+            format!("workbench-{row_key}-stop"),
+            t("workbench.stop"),
+            stop.clone(),
+            cx,
+        ));
         if status == "queued" {
-            actions = actions.child(action_button(t("workbench.cancel"), stop, cx));
+            actions = actions.child(action_button_with_id(
+                format!("workbench-{row_key}-cancel"),
+                t("workbench.cancel"),
+                stop,
+                cx,
+            ));
         }
         if status == "failed" {
-            actions = actions.child(action_button(
+            actions = actions.child(action_button_with_id(
+                format!("workbench-{row_key}-retry"),
                 t("workbench.retry"),
                 FeatureAction::Navigate(format!("assignment/{assignment_id}/retry")),
                 cx,
@@ -1488,7 +1667,7 @@ fn workbench_waiting(
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
     let mut container = div().flex().flex_col().gap_2();
-    for item in waiting {
+    for (item_index, item) in waiting.iter().enumerate() {
         let kind = string(item, "kind", "");
         let mut row = div()
             .flex()
@@ -1502,7 +1681,8 @@ fn workbench_waiting(
             "review" => {
                 if let Some(project_id) = item.get("project_id").and_then(Value::as_str) {
                     row = row
-                        .child(action_button(
+                        .child(action_button_with_id(
+                            format!("workbench-waiting-{item_index}-confirm"),
                             t("workbench.confirm"),
                             FeatureAction::Rpc {
                                 method: "project.confirm_done".into(),
@@ -1510,7 +1690,8 @@ fn workbench_waiting(
                             },
                             cx,
                         ))
-                        .child(action_button(
+                        .child(action_button_with_id(
+                            format!("workbench-waiting-{item_index}-changes"),
                             t("workbench.changes"),
                             FeatureAction::Navigate(format!("project/{project_id}/changes")),
                             cx,
@@ -1525,7 +1706,8 @@ fn workbench_waiting(
                             (t("workbench.always_allow"), "always_allow"),
                             (t("workbench.deny"), "deny"),
                         ] {
-                            row = row.child(action_button(
+                            row = row.child(action_button_with_id(
+                                format!("workbench-waiting-{item_index}-approval-{decision}"),
                                 label,
                                 FeatureAction::Rpc {
                                     method: "approval.decide".into(),
@@ -1542,7 +1724,8 @@ fn workbench_waiting(
                     if let Some(question_id) = question.get("id").and_then(Value::as_str) {
                         if let Some(options) = question.get("options").and_then(Value::as_array) {
                             for (index, option) in options.iter().enumerate() {
-                                row = row.child(action_button(
+                                row = row.child(action_button_with_id(
+                                    format!("workbench-waiting-{item_index}-question-{index}"),
                                     option.as_str().unwrap_or(t("common.confirm")),
                                     FeatureAction::Rpc {
                                         method: "question.answer".into(),
@@ -1557,7 +1740,8 @@ fn workbench_waiting(
                             .and_then(Value::as_bool)
                             .unwrap_or(false)
                         {
-                            row = row.child(action_button(
+                            row = row.child(action_button_with_id(
+                                format!("workbench-waiting-{item_index}-answer"),
                                 t("workbench.answer"),
                                 FeatureAction::Navigate(format!("question/{question_id}")),
                                 cx,
@@ -1571,7 +1755,8 @@ fn workbench_waiting(
                     .get("bot_id")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                row = row.child(action_button(
+                row = row.child(action_button_with_id(
+                    format!("workbench-waiting-{item_index}-takeover"),
                     t("workbench.takeover"),
                     FeatureAction::Rpc {
                         method: "takeover.start".into(),
@@ -1631,7 +1816,7 @@ fn dashboard(
         .map(Vec::len)
         .unwrap_or_else(|| array(data, "days").len());
     let details = dashboard_details(data);
-    let heat = heatmap(data, tokens, cx);
+    let heat = heatmap(data, inputs, tokens, cx);
     let trend = trend_chart(data, tokens, cx);
     div()
         .flex()
@@ -1699,87 +1884,72 @@ fn dashboard(
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(div().flex().gap_2().children([
-                    dashboard_dimension_button(t("dashboard.model"), "model", data, cx),
-                    dashboard_dimension_button(t("dashboard.bot"), "bot", data, cx),
-                    dashboard_dimension_button(t("dashboard.project"), "project", data, cx),
-                ]))
-                .child(div().flex().gap_2().children([
-                    dashboard_rpc_button(
-                        t("dashboard.refresh_summary"),
-                        "usage.summary",
-                        usage_summary_params(data),
-                        cx,
-                    ),
-                    dashboard_rpc_button(
-                        t("dashboard.refresh_heatmap"),
-                        "usage.heatmap",
-                        usage_heatmap_params(data, "calendar", "tokens"),
-                        cx,
-                    ),
-                    dashboard_rpc_button(
-                        t("dashboard.metric_cost"),
-                        "usage.heatmap",
-                        usage_heatmap_params(data, "calendar", "cost"),
-                        cx,
-                    ),
-                    dashboard_rpc_button(
-                        t("dashboard.metric_requests"),
-                        "usage.heatmap",
-                        usage_heatmap_params(data, "calendar", "requests"),
-                        cx,
-                    ),
-                    dashboard_rpc_button(
-                        t("dashboard.weekhour"),
-                        "usage.heatmap",
-                        usage_heatmap_params(data, "weekhour", "tokens"),
-                        cx,
-                    ),
-                    dashboard_rpc_button(
-                        t("dashboard.model"),
-                        "usage.breakdown",
-                        usage_breakdown_params(data, "model"),
-                        cx,
-                    ),
-                    dashboard_rpc_button(
-                        t("dashboard.bot"),
-                        "usage.breakdown",
-                        usage_breakdown_params(data, "bot"),
-                        cx,
-                    ),
-                    dashboard_rpc_button(
-                        t("dashboard.project"),
-                        "usage.breakdown",
-                        usage_breakdown_params(data, "project"),
-                        cx,
-                    ),
-                ]))
-                .child(div().flex().gap_2().children([
-                    dashboard_rpc_button(
-                        t("dashboard.metric_tokens"),
-                        "usage.timeseries",
-                        usage_timeseries_params(data, dashboard_dimension(data), "tokens", false),
-                        cx,
-                    ),
-                    dashboard_rpc_button(
-                        t("dashboard.metric_cost"),
-                        "usage.timeseries",
-                        usage_timeseries_params(data, dashboard_dimension(data), "cost", false),
-                        cx,
-                    ),
-                    dashboard_rpc_button(
-                        t("dashboard.metric_requests"),
-                        "usage.timeseries",
-                        usage_timeseries_params(data, dashboard_dimension(data), "requests", false),
-                        cx,
-                    ),
-                    dashboard_rpc_button(
-                        t("dashboard.split_io"),
-                        "usage.timeseries",
-                        usage_timeseries_params(data, dashboard_dimension(data), "tokens", true),
-                        cx,
-                    ),
-                ]))
+                .child(
+                    div().flex().gap_2().children([
+                        dashboard_dimension_button(t("dashboard.model"), "model", cx)
+                            .into_any_element(),
+                        dashboard_dimension_button(t("dashboard.bot"), "bot", cx)
+                            .into_any_element(),
+                        dashboard_dimension_button(t("dashboard.project"), "project", cx)
+                            .into_any_element(),
+                    ]),
+                )
+                .child(
+                    div().flex().gap_2().children([
+                        dashboard_rpc_button(
+                            t("dashboard.refresh_summary"),
+                            "usage.summary",
+                            usage_summary_params(data),
+                            cx,
+                        )
+                        .into_any_element(),
+                        dashboard_heatmap_metric_button(
+                            t("dashboard.refresh_heatmap"),
+                            "tokens",
+                            "calendar",
+                            cx,
+                        )
+                        .into_any_element(),
+                        dashboard_heatmap_metric_button(
+                            t("dashboard.metric_cost"),
+                            "cost",
+                            "calendar",
+                            cx,
+                        )
+                        .into_any_element(),
+                        dashboard_heatmap_metric_button(
+                            t("dashboard.metric_requests"),
+                            "requests",
+                            "calendar",
+                            cx,
+                        )
+                        .into_any_element(),
+                        dashboard_heatmap_metric_button(
+                            t("dashboard.weekhour"),
+                            "tokens",
+                            "weekhour",
+                            cx,
+                        )
+                        .into_any_element(),
+                    ]),
+                )
+                .child(
+                    div().flex().gap_2().children([
+                        dashboard_metric_button(t("dashboard.metric_tokens"), "tokens", false, cx)
+                            .into_any_element(),
+                        dashboard_metric_button(t("dashboard.metric_cost"), "cost", false, cx)
+                            .into_any_element(),
+                        dashboard_metric_button(
+                            t("dashboard.metric_requests"),
+                            "requests",
+                            false,
+                            cx,
+                        )
+                        .into_any_element(),
+                        dashboard_metric_button(t("dashboard.split_io"), "tokens", true, cx)
+                            .into_any_element(),
+                    ]),
+                )
                 .child(action_button(
                     t("dashboard.export"),
                     FeatureAction::Navigate("usage/export.csv".into()),
@@ -1806,7 +1976,7 @@ fn dashboard_detail_rows(
         .flex()
         .flex_col()
         .gap_1()
-        .children(details.iter().map(|item| {
+        .children(details.iter().enumerate().map(|(index, item)| {
             let label = string(item, "label", &string(item, "source", t("common.unknown")));
             let usage = item.get("usage").unwrap_or(item);
             let input = usage
@@ -1822,10 +1992,7 @@ fn dashboard_detail_rows(
                 .and_then(Value::as_u64)
                 .unwrap_or(0);
             let requests = usage.get("requests").and_then(Value::as_u64).unwrap_or(0);
-            let cost = usage
-                .get("cost")
-                .map(Value::to_string)
-                .unwrap_or_else(|| "—".to_owned());
+            let cost = usage.get("cost").and_then(json_value_text);
             let key = string(item, "key", "");
             let drill = if key.is_empty() {
                 None
@@ -1841,13 +2008,15 @@ fn dashboard_detail_rows(
                 if let Value::Object(object) = &mut drill_data {
                     object.insert("drill".into(), drill);
                 }
-                dashboard_rpc_button(
+                dashboard_rpc_button_with_id(
+                    format!("dashboard-drill-{dimension}-{key}-{index}"),
                     t("dashboard.drill"),
                     "usage.breakdown",
                     usage_breakdown_params(&drill_data, &dimension),
                     cx,
                 )
             });
+            let cost_label = cost.map(|cost| format!(" · ¥{cost}")).unwrap_or_default();
             let mut row = div()
                 .flex()
                 .items_center()
@@ -1856,7 +2025,7 @@ fn dashboard_detail_rows(
                 .border_b_1()
                 .border_color(tokens.border)
                 .child(format!(
-                "{label}   in {input} · out {output} · cache {cached} · {requests} req · ¥{cost}"
+                "{label}   in {input} · out {output} · cache {cached} · {requests} req{cost_label}"
             ));
             if let Some(drill_button) = drill_button {
                 row = row.child(drill_button);
@@ -1867,6 +2036,7 @@ fn dashboard_detail_rows(
 
 fn heatmap(
     data: &Value,
+    inputs: &BTreeMap<String, Entity<InputState>>,
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement + use<> {
@@ -1885,6 +2055,8 @@ fn heatmap(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
+    let from_input = inputs.get("from").cloned();
+    let to_input = inputs.get("to").cloned();
     if let Some(days) = heatmap_data.get("days").and_then(Value::as_array) {
         if days.is_empty() {
             return div()
@@ -1892,16 +2064,74 @@ fn heatmap(
                 .text_color(tokens.secondary)
                 .child(t("dashboard.no_data"));
         }
-        return div()
+        let weeks = days.chunks(7).map(|week| week.to_vec()).collect::<Vec<_>>();
+        let mut previous_month = String::new();
+        let month_labels = weeks
+            .iter()
+            .map(|week| {
+                let month = week
+                    .first()
+                    .and_then(|day| day.get("date"))
+                    .and_then(Value::as_str)
+                    .and_then(|date| date.get(5..7))
+                    .unwrap_or_default()
+                    .to_owned();
+                if month.is_empty() || month == previous_month {
+                    String::new()
+                } else {
+                    previous_month = month.clone();
+                    format!(
+                        "{}{}",
+                        month.trim_start_matches('0'),
+                        t("dashboard.month_suffix")
+                    )
+                }
+            })
+            .collect::<Vec<_>>();
+        let weekday_labels = [
+            t("dashboard.weekday_mon"),
+            t("dashboard.weekday_tue"),
+            t("dashboard.weekday_wed"),
+            t("dashboard.weekday_thu"),
+            t("dashboard.weekday_fri"),
+            t("dashboard.weekday_sat"),
+            t("dashboard.weekday_sun"),
+        ];
+        let month_row = div()
             .flex()
-            .flex_row()
             .gap_1()
-            .children(days.chunks(7).map(|week| {
+            .child(div().w(px(24.)).h(px(16.)))
+            .children(month_labels.iter().map(|month| {
+                div()
+                    .w(px(18.))
+                    .text_xs()
+                    .text_color(tokens.secondary)
+                    .child(month.clone())
+            }));
+        let weekday_column = div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .children(weekday_labels.iter().map(|label| {
+                div()
+                    .w(px(24.))
+                    .h(px(18.))
+                    .text_xs()
+                    .text_color(tokens.secondary)
+                    .child(*label)
+            }));
+        let weeks_grid = div()
+            .flex()
+            .gap_1()
+            .child(weekday_column)
+            .children(weeks.iter().map(|week| {
                 div()
                     .flex()
                     .flex_col()
                     .gap_1()
                     .children(week.iter().map(|day| {
+                        let from_input = from_input.clone();
+                        let to_input = to_input.clone();
                         let value = day.get("value").and_then(Value::as_f64).unwrap_or(0.);
                         let date = day
                             .get("date")
@@ -1910,8 +2140,8 @@ fn heatmap(
                             .to_owned();
                         let cost = day
                             .get("cost")
-                            .map(Value::to_string)
-                            .unwrap_or_else(|| "—".to_owned());
+                            .and_then(json_value_text)
+                            .unwrap_or_else(|| t("common.unknown").to_owned());
                         let top_bot = day
                             .get("top_bot_id")
                             .and_then(Value::as_str)
@@ -1937,18 +2167,56 @@ fn heatmap(
                                 );
                                 move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx)
                             })
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 this.data["selected_day"] = json!(date.clone());
+                                let from = format!("{date}T00:00:00Z");
+                                let to = format!("{date}T23:59:59Z");
+                                this.data["from"] = json!(from.clone());
+                                this.data["to"] = json!(to.clone());
+                                if let Some(input) = &from_input {
+                                    input.update(cx, |state, cx| {
+                                        state.set_value(from.clone(), window, cx);
+                                    });
+                                }
+                                if let Some(input) = &to_input {
+                                    input.update(cx, |state, cx| {
+                                        state.set_value(to.clone(), window, cx);
+                                    });
+                                }
+                                let snapshot = this.data.clone();
                                 this.emit_action(
                                     FeatureAction::Rpc {
                                         method: "usage.timeseries".into(),
-                                        params: usage_day_timeseries_params(&this.data, &date),
+                                        params: usage_day_timeseries_params(&snapshot, &date),
+                                    },
+                                    cx,
+                                );
+                                this.emit_action(
+                                    FeatureAction::Rpc {
+                                        method: "usage.summary".into(),
+                                        params: usage_summary_params(&snapshot),
+                                    },
+                                    cx,
+                                );
+                                this.emit_action(
+                                    FeatureAction::Rpc {
+                                        method: "usage.breakdown".into(),
+                                        params: usage_breakdown_params(
+                                            &snapshot,
+                                            dashboard_dimension(&snapshot),
+                                        ),
                                     },
                                     cx,
                                 );
                             }))
                     }))
             }));
+        return div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(month_row)
+            .child(weeks_grid);
     }
     let matrix = heatmap_data
         .get("matrix")
@@ -2031,6 +2299,7 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
                         format!("{label} · {}", t("dashboard.input")),
                         values.clone(),
                         series_color(tokens, variants.len()),
+                        false,
                     ));
                 }
                 if let Some(values) = output {
@@ -2038,27 +2307,50 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
                         format!("{label} · {}", t("dashboard.output")),
                         values.clone(),
                         series_color(tokens, variants.len()),
+                        true,
                     ));
                 }
             } else if let Some(values) = item.get("values").and_then(Value::as_array) {
-                variants.push((label, values.clone(), series_color(tokens, variants.len())));
+                variants.push((
+                    label,
+                    values.clone(),
+                    series_color(tokens, variants.len()),
+                    false,
+                ));
             }
+        }
+        if variants.len() > 6 {
+            let retained = variants.drain(..5).collect::<Vec<_>>();
+            let other_values = aggregate_series_values(
+                &variants
+                    .iter()
+                    .map(|(_, values, _, _)| values.clone())
+                    .collect::<Vec<_>>(),
+            );
+            variants = retained;
+            variants.push((
+                t("dashboard.other").to_owned(),
+                other_values,
+                series_color(tokens, 5),
+                false,
+            ));
         }
         let legend = div()
             .flex()
             .flex_wrap()
             .gap_1()
-            .children(variants.iter().map(|(label, _, color)| {
+            .children(variants.iter().map(|(label, _, color, dashed)| {
                 let label_for_event = label.clone();
                 let is_hidden = hidden
                     .iter()
                     .any(|value| value.as_str() == Some(label.as_str()));
                 Button::new(format!("usage-legend-{label}"))
-                    .label(if is_hidden {
-                        format!("○ {label}")
-                    } else {
-                        format!("● {label}")
-                    })
+                    .label(format!(
+                        "{} {}{}",
+                        if is_hidden { "○" } else { "●" },
+                        if *dashed { "┄ " } else { "" },
+                        label
+                    ))
                     .text_color(*color)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let mut selected = this
@@ -2079,35 +2371,74 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
                         cx.notify();
                     }))
             }));
-        let charts = variants
+        let visible = variants
             .iter()
-            .enumerate()
-            .filter(|(_, (label, _, _))| {
+            .filter(|(label, _, _, _)| {
                 !hidden
                     .iter()
                     .any(|value| value.as_str() == Some(label.as_str()))
             })
-            .map(|(index, (label, values, color))| {
+            .collect::<Vec<_>>();
+        let (mut y_min, mut y_max) = visible
+            .iter()
+            .flat_map(|(_, values, _, _)| values.iter().filter_map(Value::as_f64))
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+                (min.min(value), max.max(value))
+            });
+        if !y_min.is_finite() || !y_max.is_finite() {
+            y_min = 0.;
+            y_max = 1.;
+        } else if (y_max - y_min).abs() < f64::EPSILON {
+            y_max = y_min + 1.;
+        }
+        let axis_labels = data
+            .get("timeseries")
+            .and_then(|timeseries| timeseries.get("labels").or_else(|| timeseries.get("dates")))
+            .and_then(Value::as_array)
+            .map(|labels| {
+                labels
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let charts = visible
+            .iter()
+            .enumerate()
+            .map(|(index, (label, values, color, dashed))| {
                 let points = values
                     .iter()
                     .enumerate()
                     .map(|(point, value)| (point, value.as_f64().unwrap_or(0.) as f32))
                     .collect::<Vec<_>>();
-                div().flex().flex_col().gap_1().child(label.clone()).child(
-                    LineChart::new(points)
-                        .id(format!("usage-timeseries-{index}"))
-                        .x(|(point, _)| point.to_string())
-                        .y(|(_, value)| *value)
-                        .stroke(*color)
-                        .dot(),
-                )
+                let labels = axis_labels.clone();
+                let chart = LineChart::new(points)
+                    .id(format!("usage-timeseries-{index}"))
+                    .x(move |(point, _)| {
+                        labels
+                            .get(*point)
+                            .cloned()
+                            .unwrap_or_else(|| point.to_string())
+                    })
+                    .y(|(_, value)| *value)
+                    .stroke(*color)
+                    .y_domain(y_min as f32, y_max as f32)
+                    .x_tick_count(6)
+                    .y_axis(index == 0)
+                    .x_axis(index == 0)
+                    .grid(index == 0)
+                    .interactive(index == 0)
+                    .name(label.clone());
+                let chart = if *dashed { chart } else { chart.dot() };
+                div().absolute().inset_0().child(chart)
             });
         return div()
             .flex()
             .flex_col()
             .gap_2()
             .child(legend)
-            .children(charts)
+            .child(div().relative().h(px(220.)).w_full().children(charts))
             .into_any_element();
     }
     let values = array(data, "trend");
@@ -2147,6 +2478,20 @@ fn series_color(tokens: &Tokens, index: usize) -> gpui_kit::Hsla {
     }
 }
 
+fn aggregate_series_values(series: &[Vec<Value>]) -> Vec<Value> {
+    let length = series.iter().map(Vec::len).max().unwrap_or(0);
+    (0..length)
+        .map(|index| {
+            json!(
+                series
+                    .iter()
+                    .filter_map(|values| values.get(index).and_then(Value::as_f64))
+                    .sum::<f64>()
+            )
+        })
+        .collect()
+}
+
 fn skills(
     data: &Value,
     inputs: &BTreeMap<String, Entity<InputState>>,
@@ -2154,8 +2499,16 @@ fn skills(
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
-    let filter = query_value(data, "filter");
-    let query = input_state(inputs, "query").read(cx).value().to_lowercase();
+    let route_query = skill_route_query(data);
+    let filter = query_value(data, "filter").filter(|value| {
+        matches!(
+            value.as_str(),
+            "all" | "builtin" | "user" | "draft" | "disabled"
+        )
+    });
+    let query = route_query
+        .unwrap_or_else(|| input_state(inputs, "query").read(cx).value().to_string())
+        .to_lowercase();
     let skills = array(data, "skills")
         .into_iter()
         .filter(|skill| skill_matches_filter(skill, filter.as_deref(), &query))
@@ -2192,7 +2545,8 @@ fn skills(
                 ))
                 .child({
                     let mut actions = div().flex().gap_2();
-                    actions = actions.child(action_button(
+                    actions = actions.child(action_button_with_id(
+                        format!("skill-{index}-toggle"),
                         if enabled {
                             t("skills.disable")
                         } else {
@@ -2204,13 +2558,15 @@ fn skills(
                         },
                         cx,
                     ));
-                    actions = actions.child(action_button(
+                    actions = actions.child(action_button_with_id(
+                        format!("skill-{index}-edit"),
                         t("skills.edit"),
                         FeatureAction::Navigate(format!("skill/{id}")),
                         cx,
                     ));
                     if skill_source(skill) == t("skills.draft") {
-                        actions = actions.child(action_button(
+                        actions = actions.child(action_button_with_id(
+                            format!("skill-{index}-publish"),
                             t("skills.publish"),
                             FeatureAction::Rpc {
                                 method: "skill.publish".into(),
@@ -2265,44 +2621,38 @@ fn skills(
             skill_bot_controls(selected, data, cx),
             tokens,
         ))
-        .child(
-            div()
-                .flex()
-                .gap_2()
-                .child(action_button(
-                    t("skills.preview"),
-                    FeatureAction::Toast(t("skills.preview_ready").to_string()),
-                    cx,
-                ))
-                .child(textarea_rpc_button(
-                    t("settings.save"),
-                    "skill.update",
-                    skill_update_params(
-                        selected
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default(),
-                        "",
-                    ),
-                    "content",
-                    textareas,
-                    None,
-                    cx,
-                ))
-                .child(action_button(
-                    t("skills.delete"),
-                    FeatureAction::Rpc {
-                        method: "skill.delete".into(),
-                        params: skill_delete_params(
-                            selected
-                                .get("name")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default(),
-                        ),
-                    },
-                    cx,
-                )),
-        );
+        .child({
+            let selected_name = selected
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let mut actions = div().flex().gap_2().child(action_button(
+                t("skills.preview"),
+                FeatureAction::Toast(t("skills.preview_ready").to_string()),
+                cx,
+            ));
+            if !selected_name.is_empty() {
+                actions = actions
+                    .child(textarea_rpc_button(
+                        t("settings.save"),
+                        "skill.update",
+                        skill_update_params(selected_name, ""),
+                        "content",
+                        textareas,
+                        None,
+                        cx,
+                    ))
+                    .child(action_button(
+                        t("skills.delete"),
+                        FeatureAction::Rpc {
+                            method: "skill.delete".into(),
+                            params: skill_delete_params(selected_name),
+                        },
+                        cx,
+                    ));
+            }
+            actions
+        });
     div()
         .flex()
         .flex_col()
@@ -2314,6 +2664,7 @@ fn skills(
                 .flex()
                 .gap_2()
                 .child(Input::new(input_state(inputs, "query")).id("skill-search-input"))
+                .child(skill_search_button(inputs, cx))
                 .child(skill_filter_button(t("skills.all"), None, cx))
                 .child(skill_filter_button(
                     t("skills.builtin"),
@@ -2397,6 +2748,26 @@ fn skill_filter_button(
         .map(|filter| format!("skills?filter={filter}"))
         .unwrap_or_else(|| "skills?filter=all".to_owned());
     action_button(label, FeatureAction::Navigate(target), cx)
+}
+
+fn skill_route_query(data: &Value) -> Option<String> {
+    let raw = data.get("filter").and_then(Value::as_str)?;
+    raw.split('&')
+        .find_map(|part| part.strip_prefix("query=").map(str::to_owned))
+        .filter(|query| !query.is_empty())
+}
+
+fn skill_search_button(
+    inputs: &BTreeMap<String, Entity<InputState>>,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
+    let query = input_state(inputs, "query").clone();
+    Button::new("skills-search-button")
+        .label(t("skills.search"))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            let query = query.read(cx).value().to_string();
+            this.emit_action(FeatureAction::Navigate(format!("skills?query={query}")), cx);
+        }))
 }
 
 fn query_value(data: &Value, key: &str) -> Option<String> {
@@ -2654,10 +3025,9 @@ fn bot_tools_picker(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoEle
             .map(|key| {
                 let checked = tools.get(key).and_then(Value::as_bool).unwrap_or(false);
                 let bot_id = bot_id.clone();
-                let mut next_tools = tools.clone();
-                next_tools[key] = json!(!checked);
+                let key = key.to_owned();
                 Checkbox::new(format!("bot-tool-{key}"))
-                    .label(t(match key {
+                    .label(t(match key.as_str() {
                         "files" => "settings.tool.files",
                         "bash" => "settings.tool.shell",
                         "browser" => "settings.tool.browser",
@@ -2666,17 +3036,22 @@ fn bot_tools_picker(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoEle
                         _ => "settings.tool.mcp",
                     }))
                     .checked(checked)
-                    .on_change(cx.listener(move |this, _, _, cx| {
+                    .on_change(cx.listener(move |this, next, _, cx| {
                         if bot_id.is_empty() {
                             this.emit_action(
                                 FeatureAction::Toast(t("bot.tools_after_create").to_owned()),
                                 cx,
                             );
                         } else {
+                            let mut next_tools = this.data.get("tools").cloned().unwrap_or_else(|| {
+                                json!({"files": false, "bash": false, "browser": false, "subagent": false, "web": false, "mcp": false})
+                            });
+                            next_tools[key.clone()] = json!(*next);
+                            this.data["tools"] = next_tools.clone();
                             this.emit_action(
                                 FeatureAction::Rpc {
                                     method: "bot.update".into(),
-                                    params: bot_tools_update_params(&bot_id, next_tools.clone()),
+                                    params: bot_tools_update_params(&bot_id, next_tools),
                                 },
                                 cx,
                             );
@@ -2895,6 +3270,11 @@ fn routine_editor(
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
+    let routine_id = data
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
     let routine_list = routines_list(data, tokens, cx);
     let history = array(data, "runs")
         .iter()
@@ -2927,6 +3307,40 @@ fn routine_editor(
         ],
         tokens,
     );
+    let routine_actions = if routine_id.is_empty() {
+        div()
+    } else {
+        div()
+            .flex()
+            .gap_2()
+            .child(action_button(
+                t("routine.test_run"),
+                FeatureAction::Rpc {
+                    method: "routine.test_run".into(),
+                    params: routine_test_params(&routine_id),
+                },
+                cx,
+            ))
+            .child(action_button(
+                t("routine.toggle"),
+                FeatureAction::Rpc {
+                    method: "routine.set_enabled".into(),
+                    params: routine_enabled_params(
+                        &routine_id,
+                        !data.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+                    ),
+                },
+                cx,
+            ))
+            .child(action_button(
+                t("routine.delete"),
+                FeatureAction::Rpc {
+                    method: "routine.delete".into(),
+                    params: routine_test_params(&routine_id),
+                },
+                cx,
+            ))
+    };
     div()
         .flex()
         .flex_col()
@@ -2963,37 +3377,7 @@ fn routine_editor(
                     textareas,
                     cx,
                 ))
-                .child(action_button(
-                    t("routine.test_run"),
-                    FeatureAction::Rpc {
-                        method: "routine.test_run".into(),
-                        params: routine_test_params(
-                            data.get("id").and_then(Value::as_str).unwrap_or_default(),
-                        ),
-                    },
-                    cx,
-                ))
-                .child(action_button(
-                    t("routine.toggle"),
-                    FeatureAction::Rpc {
-                        method: "routine.set_enabled".into(),
-                        params: routine_enabled_params(
-                            data.get("id").and_then(Value::as_str).unwrap_or_default(),
-                            !data.get("enabled").and_then(Value::as_bool).unwrap_or(true),
-                        ),
-                    },
-                    cx,
-                ))
-                .child(action_button(
-                    t("routine.delete"),
-                    FeatureAction::Rpc {
-                        method: "routine.delete".into(),
-                        params: routine_test_params(
-                            data.get("id").and_then(Value::as_str).unwrap_or_default(),
-                        ),
-                    },
-                    cx,
-                )),
+                .child(routine_actions),
         )
 }
 
@@ -3232,7 +3616,7 @@ fn search_result_rows(
         .flex()
         .flex_col()
         .gap_1()
-        .children(results.iter().map(|result| {
+        .children(results.iter().enumerate().map(|(index, result)| {
             let kind = string(result, "kind", "");
             let title = string(result, "title", t("common.unknown"));
             let snippet = string(result, "snippet", t("common.unknown"));
@@ -3246,7 +3630,8 @@ fn search_result_rows(
                 .border_color(tokens.border)
                 .child(format!("{kind}   {title}\n{snippet}"));
             if let Some(target) = target {
-                row = row.child(action_button(
+                row = row.child(action_button_with_id(
+                    format!("search-open-{index}"),
                     t("search.open"),
                     FeatureAction::Navigate(target),
                     cx,
@@ -3375,13 +3760,10 @@ fn member_ids(data: &Value) -> Vec<String> {
 }
 
 fn dashboard_metric(data: &Value, key: &str, fallback: &str) -> String {
-    if let Some(value) = data.get(key) {
-        if let Some(text) = value.as_str() {
-            return text.to_string();
-        }
-        if value.is_number() {
-            return value.to_string();
-        }
+    if let Some(value) = data.get(key)
+        && let Some(text) = json_value_text(value)
+    {
+        return text;
     }
     let usage = data.get("current").or_else(|| {
         data.get("summary")
@@ -3399,8 +3781,8 @@ fn dashboard_metric(data: &Value, key: &str, fallback: &str) -> String {
                 .unwrap_or(0);
             return (input + output).to_string();
         }
-        if let Some(value) = usage.get(key) {
-            return value.to_string();
+        if let Some(value) = usage.get(key).and_then(json_value_text) {
+            return value;
         }
     }
     fallback.to_string()
@@ -3492,6 +3874,18 @@ fn array(data: &Value, key: &str) -> Vec<Value> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
+}
+
+fn json_value_text(value: &Value) -> Option<String> {
+    if value.is_null() {
+        None
+    } else if let Some(text) = value.as_str() {
+        Some(text.to_owned())
+    } else if value.is_number() {
+        Some(value.to_string())
+    } else {
+        None
+    }
 }
 
 fn string(data: &Value, key: &str, fallback: &str) -> String {

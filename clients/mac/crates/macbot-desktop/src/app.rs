@@ -56,6 +56,9 @@ pub struct MacBot {
     trace_view: Entity<crate::trace_view::TraceView>,
     feature_data: Value,
     editor_reload: bool,
+    feature_route: String,
+    connection_generation: u64,
+    trace_epoch: u64,
     last_cache: std::time::Instant,
     _update_task: Option<Task<()>>,
     update_release: Option<crate::update::Release>,
@@ -165,6 +168,9 @@ impl MacBot {
             trace_view,
             feature_data: json!({}),
             editor_reload: false,
+            feature_route: String::new(),
+            connection_generation: 0,
+            trace_epoch: 0,
             last_cache: std::time::Instant::now(),
             _update_task: None,
             update_release: None,
@@ -286,6 +292,10 @@ impl MacBot {
             cx.notify();
             return;
         }
+        self.connection_generation = self.connection_generation.wrapping_add(1);
+        let generation = self.connection_generation;
+        self.close_trace(cx);
+        self.close_screen();
         if let Some(client) = self.client.take() {
             let _guard = self.runtime.enter();
             self.runtime.spawn(async move {
@@ -303,6 +313,13 @@ impl MacBot {
             .collect();
         let mut config =
             ClientConfig::new(addresses.first().cloned().unwrap_or_default(), password);
+        self.active_host = self.hosts.as_ref().and_then(|store| {
+            store
+                .hosts()
+                .iter()
+                .find(|host| host.addresses == addresses)
+                .map(|host| host.id.clone())
+        });
         config.addresses = addresses;
         if let Some(store) = &self.hosts {
             config.device_id = store.device_id().into();
@@ -352,7 +369,11 @@ impl MacBot {
                     eprintln!("client: event bridge received");
                 }
                 if this
-                    .update(cx, |view, cx| view.on_event(event, cx))
+                    .update(cx, |view, cx| {
+                        if view.connection_generation == generation {
+                            view.on_event(event, cx);
+                        }
+                    })
                     .is_err()
                 {
                     if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
@@ -378,6 +399,8 @@ impl MacBot {
             self.pending_messages.insert(id.clone(),json!({"id":id,"chat_id":params["chat_id"],"seq":u64::MAX,"sender":{"kind":"user"},"created_at":chrono::Utc::now().to_rfc3339(),"reply_to":params["reply_to"],"deleted":false,"blocks":[{"type":"text","text":params["text"]}],"fallback_text":params["text"],"send_status":"queued","retry_params":params,"in_flight":true}));
             self.persist_outbox();
         }
+        let generation = self.connection_generation;
+        let trace_epoch = self.trace_epoch;
         let method = method.to_owned();
         let params_copy = params.clone();
         let receiver = {
@@ -387,6 +410,19 @@ impl MacBot {
         cx.spawn(async move |this, cx| {
             let result = receiver.await;
             let _ = this.update(cx, |view, cx| {
+                if view.connection_generation != generation {
+                    return;
+                }
+                if matches!(method.as_str(), "trace.history" | "trace.subscribe")
+                    && view.trace_epoch != trace_epoch
+                {
+                    if method == "trace.subscribe"
+                        && let Ok(Ok(value)) = &result
+                    {
+                        view.rpc("trace.unsubscribe", json!({"stream":value["stream"]}), cx);
+                    }
+                    return;
+                }
                 match result {
                     Ok(Ok(value)) => view.rpc_result(&method, &params_copy, value, cx),
                     Ok(Err(error)) => {
@@ -453,6 +489,8 @@ impl MacBot {
                 if !self.state.chats.contains_key(&self.selected_chat) {
                     self.selected_chat.clear();
                     self.select_main(cx);
+                } else {
+                    self.rpc("chat.history", json!({"chat_id":self.selected_chat}), cx);
                 }
             }
             ClientEvent::Protocol(event) => {
@@ -498,6 +536,7 @@ impl MacBot {
                 self.connected = false;
                 self.connecting = false;
                 self.trace_stream = None;
+                self.trace_epoch = self.trace_epoch.wrapping_add(1);
                 if let Some(e) = error {
                     self.notice = e;
                 }
@@ -714,14 +753,19 @@ impl MacBot {
         let password = self.password.read(cx).value().to_string();
         let node = Some(s(hello, "node_id").to_owned());
         let seq = self.state.last_seq;
+        let generation = self.connection_generation;
         let task = self.runtime.spawn_blocking(move || {
-            let mut store = HostStore::load()?;
-            let record = store.remember(name, addresses, &password, node, seq)?;
-            Ok::<_, anyhow::Error>((store, record.id))
+            HostStore::with_store(|store| {
+                let record = store.remember(name, addresses, &password, node, seq)?;
+                Ok((store.clone(), record.id))
+            })
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |view, cx| {
+                if view.connection_generation != generation {
+                    return;
+                }
                 match result {
                     Ok(Ok((store, id))) => {
                         view.hosts = Some(store);
@@ -738,9 +782,10 @@ impl MacBot {
     }
     fn remove_host(&mut self, id: String, cx: &mut Context<Self>) {
         let task = self.runtime.spawn_blocking(move || {
-            let mut store = HostStore::load()?;
-            store.remove(&id)?;
-            Ok::<_, anyhow::Error>((store, id))
+            HostStore::with_store(|store| {
+                store.remove(&id)?;
+                Ok((store.clone(), id))
+            })
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -764,6 +809,11 @@ impl MacBot {
         let Some(record) = self.hosts.as_ref().and_then(|store| store.get(id)).cloned() else {
             return;
         };
+        self.connection_generation = self.connection_generation.wrapping_add(1);
+        let generation = self.connection_generation;
+        self.connected = false;
+        self.close_trace(cx);
+        self.close_screen();
         let requested = record.id.clone();
         self.active_host = Some(requested.clone());
         self.connecting = true;
@@ -776,7 +826,9 @@ impl MacBot {
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |view, window, cx| {
-                if view.active_host.as_deref() != Some(&requested) {
+                if view.connection_generation != generation
+                    || view.active_host.as_deref() != Some(&requested)
+                {
                     return;
                 }
                 match result {
@@ -984,6 +1036,7 @@ impl MacBot {
         }
     }
     fn close_trace(&mut self, cx: &mut Context<Self>) {
+        self.trace_epoch = self.trace_epoch.wrapping_add(1);
         if let Some(stream) = self.trace_stream.take() {
             self.rpc("trace.unsubscribe", json!({"stream":stream}), cx);
         }
@@ -1006,6 +1059,10 @@ impl MacBot {
     fn navigate(&mut self, page: &str, cx: &mut Context<Self>) {
         self.close_trace(cx);
         self.close_screen();
+        self.context.clear();
+        if let Some(data) = self.feature_data.as_object_mut() {
+            data.remove("filter");
+        }
         if matches!(page, "new_bot" | "new_group") {
             self.feature_data = json!({});
             self.editor_reload = false;

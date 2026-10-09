@@ -2213,6 +2213,40 @@ mod tests {
     }
 
     #[test]
+    fn streaming_message_deltas_merge_in_sequence_and_finalize() {
+        let mut state = AppState::default();
+        state.apply_bootstrap(json!({
+            "seq": 3,
+            "messages": [{"id":"msg_stream","streaming":true}],
+            "chats": [], "projects": []
+        }));
+        // The second chunk can arrive first on the wire; the state layer must
+        // wait for the missing sequence before exposing either chunk.
+        state.apply_event(ProtocolEvent {
+            seq: Some(5),
+            event: "message.delta".into(),
+            data: json!({"message_id":"msg_stream","text":"world"}),
+        });
+        assert!(!state.message_deltas.contains_key("msg_stream"));
+        state.apply_event(ProtocolEvent {
+            seq: Some(4),
+            event: "message.delta".into(),
+            data: json!({"message_id":"msg_stream","text":"hello "}),
+        });
+        assert_eq!(state.message_deltas["msg_stream"], "hello world");
+        state.apply_event(ProtocolEvent {
+            seq: Some(6),
+            event: "message.updated".into(),
+            data: json!({
+                "message":{"id":"msg_stream","streaming":false,"fallback_text":"hello world"}
+            }),
+        });
+        assert!(!state.message_deltas.contains_key("msg_stream"));
+        assert_eq!(state.messages["msg_stream"]["fallback_text"], "hello world");
+        assert_eq!(state.last_seq, 6);
+    }
+
+    #[test]
     fn bootstrap_indexes_nested_pending_and_cache_round_trip() {
         let value = json!({
             "seq": 9,
@@ -2252,6 +2286,24 @@ mod tests {
         assert_eq!(trace.first_aseq, Some(1));
         assert_eq!(trace.last_aseq, Some(20));
         assert!(trace.items.contains_key(&20));
+    }
+
+    #[test]
+    fn trace_history_overlap_deduplicates_by_aseq_without_cursor_regression() {
+        let mut trace = TraceTimeline::default();
+        trace.apply_history(&json!({
+            "items":[{"aseq":4,"type":"tool.start"},{"aseq":5,"type":"tool.end"},{"aseq":6,"type":"run.end"}],
+            "first_aseq":4,"last_aseq":6,"has_more_before":true,"live":true
+        }));
+        trace.apply_history(&json!({
+            "items":[{"aseq":2,"type":"run.start"},{"aseq":3,"type":"llm.request"},{"aseq":4,"type":"tool.start","replacement":true}],
+            "first_aseq":2,"last_aseq":4,"has_more_before":false,"live":true
+        }));
+        assert_eq!(trace.items.len(), 5);
+        assert_eq!(trace.first_aseq, Some(2));
+        assert_eq!(trace.last_aseq, Some(6));
+        assert_eq!(trace.items[&4]["replacement"], true);
+        assert!(trace.items.contains_key(&6));
     }
 
     #[test]

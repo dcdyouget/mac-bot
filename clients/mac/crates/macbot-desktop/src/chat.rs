@@ -21,6 +21,32 @@ enum MessageKey {
     Pending(String),
 }
 
+fn list_message(view: &MacBot, key: &MessageKey) -> Option<Value> {
+    match key {
+        MessageKey::Stored(id) => view.state.messages.get(id).cloned(),
+        MessageKey::Pending(request_id) => view.pending_messages.get(request_id).map(|pending| {
+            let mut message = pending.clone();
+            message["pending"] = json!(true);
+            message["client_request_id"] = json!(request_id);
+            message
+        }),
+    }
+}
+
+fn merges_bot_identity(previous: &Value, current: &Value) -> bool {
+    if previous["pending"] == true || current["pending"] == true {
+        return false;
+    }
+    let previous_sender = &previous["sender"];
+    let current_sender = &current["sender"];
+    let previous_kind = s(previous_sender, "kind");
+    let current_kind = s(current_sender, "kind");
+    !matches!(previous_kind, "user" | "system")
+        && !matches!(current_kind, "user" | "system")
+        && !s(previous_sender, "bot_id").is_empty()
+        && s(previous_sender, "bot_id") == s(current_sender, "bot_id")
+}
+
 impl MessageListCache {
     fn key_id(key: &MessageKey) -> String {
         match key {
@@ -71,13 +97,6 @@ impl MessageListCache {
                 (
                     message["seq"].as_u64().unwrap_or(0),
                     MessageKey::Stored(s(message, "id").to_owned()),
-                    message_height(
-                        message,
-                        view.state
-                            .message_deltas
-                            .get(s(message, "id"))
-                            .map(String::as_str),
-                    ),
                 )
             })
             .collect::<Vec<_>>();
@@ -85,17 +104,28 @@ impl MessageListCache {
             view.pending_messages
                 .iter()
                 .filter(|(_, message)| s(message, "chat_id") == view.selected_chat)
-                .map(|(request_id, message)| {
-                    (
-                        u64::MAX,
-                        MessageKey::Pending(request_id.clone()),
-                        message_height(message, None),
-                    )
-                }),
+                .map(|(request_id, _message)| (u64::MAX, MessageKey::Pending(request_id.clone()))),
         );
-        entries.sort_by_key(|(seq, key, _)| (*seq, matches!(key, MessageKey::Pending(_))));
-        self.keys = entries.iter().map(|(_, key, _)| key.clone()).collect();
-        self.sizes = entries.into_iter().map(|(_, _, size)| size).collect();
+        entries.sort_by_key(|(seq, key)| (*seq, matches!(key, MessageKey::Pending(_))));
+        self.keys = entries.into_iter().map(|(_, key)| key).collect();
+        self.sizes = self
+            .keys
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                let message = list_message(view, key).unwrap_or(Value::Null);
+                let merged = index
+                    .checked_sub(1)
+                    .and_then(|previous| self.keys.get(previous))
+                    .and_then(|previous| list_message(view, previous))
+                    .is_some_and(|previous| merges_bot_identity(&previous, &message));
+                let delta = match key {
+                    MessageKey::Stored(id) => view.state.message_deltas.get(id).map(String::as_str),
+                    MessageKey::Pending(_) => None,
+                };
+                message_height(&message, delta, merged)
+            })
+            .collect();
         self.chat_id = view.selected_chat.clone();
         self.signature = signature;
     }
@@ -109,34 +139,41 @@ fn message_list_signature(view: &MacBot) -> u64 {
     for message in view.state.messages.values() {
         if s(message, "chat_id") == view.selected_chat && message["reply_to"].is_null() {
             signature = signature
-                .wrapping_add(s(message, "id").len() as u64)
+                .wrapping_add(hash_text(&message.to_string()))
+                .wrapping_add(hash_text(s(message, "id")))
                 .wrapping_mul(33)
-                .wrapping_add(message["seq"].as_u64().unwrap_or_default())
-                .wrapping_add(s(message, "fallback_text").len() as u64)
-                .wrapping_add(arr(message, "blocks").len() as u64);
+                .wrapping_add(message["seq"].as_u64().unwrap_or_default());
         }
     }
     for (id, message) in &view.pending_messages {
         if s(message, "chat_id") == view.selected_chat {
             signature = signature
-                .wrapping_add(id.len() as u64)
-                .wrapping_add(s(message, "send_status").len() as u64)
-                .wrapping_add(s(message, "error").len() as u64)
-                .wrapping_add(message_display_text(message).len() as u64)
-                .wrapping_add(arr(message, "blocks").len() as u64);
+                .wrapping_add(hash_text(id))
+                .wrapping_add(hash_text(&message.to_string()));
         }
     }
     for (id, delta) in &view.state.message_deltas {
         signature = signature
-            .wrapping_add(id.len() as u64)
-            .wrapping_add(delta.len() as u64);
+            .wrapping_add(hash_text(id))
+            .wrapping_add(hash_text(delta));
     }
     signature
+}
+
+fn hash_text(text: &str) -> u64 {
+    // FNV-1a keeps this render-path fingerprint allocation-free for strings
+    // while still invalidating when content changes but its length does not.
+    text.as_bytes()
+        .iter()
+        .fold(14_695_981_039_346_656_037u64, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(1_099_511_628_211)
+        })
 }
 
 fn message_height(
     message: &Value,
     delta: Option<&str>,
+    merged_identity: bool,
 ) -> gpui_kit::gpui::Size<gpui_kit::gpui::Pixels> {
     let text = delta
         .filter(|delta| !delta.is_empty())
@@ -157,7 +194,8 @@ fn message_height(
         })
         .sum();
     let lines = (text as f32 / 64.0).ceil().clamp(1.0, 24.0);
-    size(px(1.0), px(72.0 + lines * 18.0 + block_height))
+    let identity_height = if merged_identity { 56.0 } else { 72.0 };
+    size(px(1.0), px(identity_height + lines * 18.0 + block_height))
 }
 
 fn message_display_text(message: &Value) -> &str {
@@ -201,6 +239,9 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.sending" => "发送中…",
         "chat.send_failed" => "发送失败",
         "chat.retry" => "重试",
+        "chat.everyone" => "所有成员",
+        "chat.skill_hint" => "技能建议",
+        "chat.project_status" => "当前状态",
         "chat.skill_uploaded" => "技能包已上传，正在导入",
         "chat.skill_upload_invalid" => "技能包上传响应无效",
         _ => key,
@@ -395,28 +436,22 @@ impl MacBot {
             sizes,
             move |view, range, _, cx| {
                 let visible_messages = range
-                    .filter_map(|index| keys.get(index))
-                    .filter_map(|key| match key {
-                        MessageKey::Stored(id) => view
-                            .state
-                            .messages
-                            .get(id)
-                            .cloned()
-                            .map(|message| (MessageListCache::key_id(key), message)),
-                        MessageKey::Pending(request_id) => {
-                            view.pending_messages.get(request_id).map(|pending| {
-                                let mut message = pending.clone();
-                                message["pending"] = json!(true);
-                                message["client_request_id"] = json!(request_id);
-                                (MessageListCache::key_id(key), message)
-                            })
-                        }
+                    .filter_map(|index| keys.get(index).map(|key| (index, key)))
+                    .filter_map(|(index, key)| {
+                        list_message(view, key).map(|message| {
+                            let merged = index
+                                .checked_sub(1)
+                                .and_then(|previous| keys.get(previous))
+                                .and_then(|previous| list_message(view, previous))
+                                .is_some_and(|previous| merges_bot_identity(&previous, &message));
+                            (MessageListCache::key_id(key), message, merged)
+                        })
                     })
                     .collect::<Vec<_>>();
                 visible_messages
                     .into_iter()
-                    .map(|(cache_key, message)| {
-                        let row = view.message_row(&message, cx);
+                    .map(|(cache_key, message, merged_identity)| {
+                        let row = view.message_row(&message, merged_identity, cx);
                         let entity = view_entity.clone();
                         let row_id = SharedString::from(format!("message-row-{cache_key}"));
                         div()
@@ -498,12 +533,14 @@ impl MacBot {
                     })),
             );
         }
-        if self
-            .state
-            .typing
-            .get(&format!("{}:{}", self.selected_chat, s(&chat, "bot_id")))
-            .copied()
-            .unwrap_or(false)
+        let is_private_chat = matches!(s(&chat, "kind"), "main" | "bot_dm");
+        if is_private_chat
+            && self
+                .state
+                .typing
+                .get(&format!("{}:{}", self.selected_chat, s(&chat, "bot_id")))
+                .copied()
+                .unwrap_or(false)
         {
             contents = contents.child(
                 div()
@@ -534,6 +571,22 @@ impl MacBot {
             && last.starts_with('@')
         {
             let mut choices = div().flex().flex_wrap().gap_1();
+            if s(&chat, "kind") == "project" {
+                let prefix = last.to_string();
+                choices = choices.child(
+                    Button::new("mention-everyone")
+                        .ghost()
+                        .small()
+                        .label(format!("@{}", chat_tr("chat.everyone")))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            let text = this.composer.read(cx).value().to_string();
+                            let start = text.rfind(&prefix).unwrap_or(text.len());
+                            let result = format!("{}@everyone ", &text[..start]);
+                            this.composer
+                                .update(cx, |input, cx| input.set_value(result, window, cx));
+                        })),
+                );
+            }
             for bot in self.state.bots.values().filter(|b| {
                 s(&chat, "kind") != "project"
                     || arr(&chat, "member_bot_ids").iter().any(|id| id == &b["id"])
@@ -547,14 +600,51 @@ impl MacBot {
                         .label(format!("@{name}"))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             let text = this.composer.read(cx).value().to_string();
-                            let keep = text.len().saturating_sub(prefix.len());
-                            let result = format!("{}@{} ", &text[..keep], name);
+                            let start = text.rfind(&prefix).unwrap_or(text.len());
+                            let result = format!("{}@{} ", &text[..start], name);
                             this.composer
                                 .update(cx, |input, cx| input.set_value(result, window, cx));
                         })),
                 );
             }
             composer = composer.child(choices);
+        }
+        if let Some(last) = text.split_whitespace().last()
+            && let Some(query) = last.strip_prefix('/')
+        {
+            let query = query.to_lowercase();
+            let mut choices = div().flex().flex_wrap().gap_1();
+            let mut skill_count = 0;
+            for skill in self.state.skills.values().filter(|skill| {
+                let name = s(skill, "name");
+                !name.is_empty() && name.to_lowercase().starts_with(&query)
+            }) {
+                let name = s(skill, "name").to_owned();
+                let prefix = last.to_owned();
+                skill_count += 1;
+                choices = choices.child(
+                    Button::new(SharedString::from(format!("skill-suggest-{name}")))
+                        .ghost()
+                        .small()
+                        .label(format!("/{name}"))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            let text = this.composer.read(cx).value().to_string();
+                            let start = text.rfind(&prefix).unwrap_or(text.len());
+                            let result = format!("{}/{} ", &text[..start], name);
+                            this.composer
+                                .update(cx, |input, cx| input.set_value(result, window, cx));
+                        })),
+                );
+            }
+            if skill_count > 0 {
+                composer = composer.child(
+                    div()
+                        .text_xs()
+                        .text_color(t.secondary)
+                        .child(chat_tr("chat.skill_hint")),
+                );
+                composer = composer.child(choices);
+            }
         }
         composer = composer.child(
             div()
@@ -636,7 +726,18 @@ impl MacBot {
             .px_4()
             .py_2()
             .border_b_1()
-            .border_color(t.border);
+            .border_color(t.border)
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(t.secondary)
+                    .child(format!(
+                        "{} · {}",
+                        chat_tr("chat.project_status"),
+                        state(s(&project, "status"))
+                    )),
+            );
         for member in arr(&ann, "members") {
             let bot = self
                 .state
@@ -718,7 +819,12 @@ impl MacBot {
             ))
             .into_any_element()
     }
-    fn message_row(&mut self, message: &Value, cx: &mut Context<Self>) -> AnyElement {
+    fn message_row(
+        &mut self,
+        message: &Value,
+        merged_identity: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let t = Tokens::get(cx);
         let pending = message["pending"] == true;
         let user = pending || s(&message["sender"], "kind") == "user";
@@ -778,7 +884,7 @@ impl MacBot {
             .flex_col()
             .gap_1()
             .max_w(px(660.))
-            .when(!user && !system, |el| {
+            .when(!user && !system && !merged_identity, |el| {
                 el.child(
                     div()
                         .text_xs()
@@ -894,7 +1000,12 @@ impl MacBot {
             .gap_3()
             .when(user, |el| el.justify_end())
             .when(system, |el| el.justify_center())
-            .when(!user && !system, |el| el.child(bean(&bot, 28., cx)))
+            .when(!user && !system && merged_identity, |el| {
+                el.child(div().w(px(28.)))
+            })
+            .when(!user && !system && !merged_identity, |el| {
+                el.child(bean(&bot, 28., cx))
+            })
             .child(message_content.child(menu))
             .into_any_element()
     }
@@ -1379,6 +1490,11 @@ impl MacBot {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = Tokens::get(cx);
+        let project_chat = self
+            .state
+            .chats
+            .get(&self.selected_chat)
+            .is_some_and(|chat| s(chat, "kind") == "project");
         let title = match self.context.last().map(String::as_str) {
             Some("trace") => {
                 if self.timeline.live {
@@ -1388,6 +1504,7 @@ impl MacBot {
                 }
             }
             Some("thread") => "chat.thread",
+            None if project_chat => "context.announcement",
             _ => "context.title",
         };
         let header = div()
@@ -1427,9 +1544,9 @@ impl MacBot {
             body = body.child(div().flex_1().min_h_0().child(self.trace_view.clone()));
         } else if self.context.last().is_some_and(|p| p == "thread") {
             if let Some(thread) = self.thread.clone() {
-                body = body.child(self.message_row(&thread["root"], cx));
+                body = body.child(self.message_row(&thread["root"], false, cx));
                 for message in arr(&thread, "replies") {
-                    body = body.child(self.message_row(message, cx));
+                    body = body.child(self.message_row(message, false, cx));
                 }
             }
         } else if let Some(chat) = self.state.chats.get(&self.selected_chat) {

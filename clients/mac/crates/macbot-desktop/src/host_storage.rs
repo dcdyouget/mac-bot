@@ -43,6 +43,7 @@ const SECRET_BACKEND_ENV: &str = "MACBOT_SECRET_BACKEND";
 const DEVELOPMENT_SECRET_FILE: &str = "development-secrets.json";
 const STORE_DIR: &str = "Library/Application Support/MacBot";
 const STORE_FILE: &str = "hosts.json";
+const LOCK_FILE: &str = "hosts.lock";
 
 /// Non-secret information needed to reconnect to one Mac Bot host.
 ///
@@ -60,6 +61,7 @@ pub struct HostRecord {
 
 /// A collection of remembered hosts. The store path is private so callers do
 /// not accidentally write credentials or metadata to an arbitrary location.
+#[derive(Clone)]
 pub struct HostStore {
     path: PathBuf,
     device_id: String,
@@ -94,6 +96,49 @@ impl HostStore {
             device_id,
             hosts,
         })
+    }
+
+    /// Serialize a cross-process read/modify/write operation through the
+    /// private lock file. The store is loaded after taking the lock, so an
+    /// older in-memory snapshot cannot overwrite a newer host record.
+    ///
+    /// Callers must mutate the supplied store and return from the closure;
+    /// the updated metadata is saved after the closure succeeds.
+    pub fn with_store<T, F>(mutation: F) -> Result<T>
+    where
+        F: FnOnce(&mut Self) -> Result<T>,
+    {
+        Self::with_store_at(default_store_path()?, mutation)
+    }
+
+    fn with_store_at<T, F>(path: impl Into<PathBuf>, mutation: F) -> Result<T>
+    where
+        F: FnOnce(&mut Self) -> Result<T>,
+    {
+        let path = path.into();
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow!("host store has no parent directory"))?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create host store directory {}", parent.display()))?;
+        set_mode(parent, 0o700)?;
+        let lock_path = parent.join(LOCK_FILE);
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(&lock_path)
+            .with_context(|| format!("open host store lock {}", lock_path.display()))?;
+        set_mode(&lock_path, 0o600)?;
+        lock.lock()
+            .with_context(|| format!("lock host store {}", lock_path.display()))?;
+
+        let mut store = Self::load_from_path(path)?;
+        let result = mutation(&mut store)?;
+        store.save()?;
+        Ok(result)
     }
 
     /// Build an empty store at a custom path. Production callers should use
@@ -566,6 +611,66 @@ mod tests {
         assert_eq!(loaded.hosts(), &[record]);
         let _ = fs::remove_file(&path);
         let _ = fs::remove_dir(&root);
+    }
+
+    #[test]
+    fn locked_mutations_keep_records_from_concurrent_snapshots() {
+        let root = std::env::temp_dir().join(format!("macbot-host-lock-{}", Uuid::new_v4()));
+        let path = root.join("hosts.json");
+        HostStore::new_at(&path).save().unwrap();
+        // Keep an old snapshot alive while both mutations run.  The
+        // with_store API must never use this stale value for its write.
+        let stale_snapshot = HostStore::load_from_path(&path).unwrap();
+
+        let first_path = path.clone();
+        let first = std::thread::spawn(move || {
+            HostStore::with_store_at(&first_path, |store| {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+                let device_id = store.device_id.clone();
+                store.hosts.push(HostRecord {
+                    id: "host-a".into(),
+                    name: "A".into(),
+                    node_id: Some("node-a".into()),
+                    addresses: vec!["127.0.0.1:7788".into()],
+                    last_seq: 1,
+                    device_id,
+                });
+                Ok(())
+            })
+        });
+        let second_path = path.clone();
+        let second = std::thread::spawn(move || {
+            HostStore::with_store_at(&second_path, |store| {
+                let device_id = store.device_id.clone();
+                store.hosts.push(HostRecord {
+                    id: "host-b".into(),
+                    name: "B".into(),
+                    node_id: Some("node-b".into()),
+                    addresses: vec!["127.0.0.1:7789".into()],
+                    last_seq: 2,
+                    device_id,
+                });
+                Ok(())
+            })
+        });
+        first.join().unwrap().unwrap();
+        second.join().unwrap().unwrap();
+
+        let final_store = HostStore::load_from_path(&path).unwrap();
+        assert_eq!(final_store.hosts().len(), 2);
+        assert!(stale_snapshot.hosts().is_empty());
+        assert!(final_store.get("host-a").is_some());
+        assert!(final_store.get("host-b").is_some());
+        let lock_path = root.join(LOCK_FILE);
+        assert_eq!(
+            fs::metadata(&lock_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

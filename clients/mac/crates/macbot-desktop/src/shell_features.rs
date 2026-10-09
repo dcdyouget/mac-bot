@@ -81,8 +81,9 @@ impl MacBot {
             self.page.as_str()
         }
         .to_string();
-        if self.feature_view.read(cx).page != page {
+        if self.feature_route != self.page || self.feature_view.read(cx).page != page {
             let data = self.page_data();
+            self.feature_route = self.page.clone();
             self.feature_view
                 .update(cx, |v, cx| v.set_page(page, data, window, cx));
         }
@@ -215,8 +216,28 @@ impl MacBot {
                 match kind {
                     "provider" => insert(&mut self.state.providers, item, key),
                     "model" => insert(&mut self.state.models, item, key),
-                    "skill" => insert(&mut self.state.skills, item, key),
-                    "routine" => insert(&mut self.state.routines, item, key),
+                    "skill" => {
+                        insert(&mut self.state.skills, item, key);
+                        if self.page == "skill"
+                            && s(&self.feature_data["selected"], "name") == s(item, "name")
+                        {
+                            let mut selected = self.feature_data["selected"].clone();
+                            for (field, value) in item.as_object().into_iter().flatten() {
+                                selected[field] = value.clone();
+                            }
+                            self.feature_data["selected"] = selected;
+                            self.editor_reload = true;
+                        }
+                    }
+                    "routine" => {
+                        insert(&mut self.state.routines, item, key);
+                        if self.page == "routine" {
+                            for (field, value) in item.as_object().into_iter().flatten() {
+                                self.feature_data[field] = value.clone();
+                            }
+                            self.feature_route.clear();
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -237,9 +258,13 @@ impl MacBot {
                 }
                 "skill.delete" => {
                     self.state.skills.remove(s(params, "name"));
+                    self.feature_data = json!({});
+                    self.page = "skills".into();
                 }
                 "routine.delete" => {
                     self.state.routines.remove(s(params, "routine_id"));
+                    self.feature_data = json!({});
+                    self.page = "routines".into();
                 }
                 _ => {}
             }
@@ -371,6 +396,7 @@ impl MacBot {
                             .cloned()
                             .unwrap_or_else(|| json!({}))
                     };
+                    self.feature_route.clear();
                     self.navigate("routine", cx);
                     if id != "new" {
                         self.rpc("routine.runs", json!({"routine_id":id}), cx);
@@ -559,8 +585,9 @@ impl MacBot {
             crate::state_cache::default_root(),
         ) {
             let state = self.state.clone();
-            self.runtime.spawn(async move {
-                let _ = crate::state_cache::save(root, &id, &node, &state);
+            let stamp = crate::state_cache::cache_stamp().unwrap_or(0);
+            self.runtime.spawn_blocking(move || {
+                let _ = crate::state_cache::save_ordered(root, &id, &node, &state, stamp);
             });
             self.last_cache = std::time::Instant::now();
         }
