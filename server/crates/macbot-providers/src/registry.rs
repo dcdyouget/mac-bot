@@ -95,6 +95,13 @@ impl ProviderRegistry {
         &self.store
     }
 
+    /// Return the injected credential backend to runtime integrations. The
+    /// backend stores credentials outside registry snapshots and never exposes
+    /// their values through provider RPC results.
+    pub fn secret_store(&self) -> Arc<dyn SecretStore> {
+        self.secrets.clone()
+    }
+
     pub fn providers(&self) -> impl Iterator<Item = &Provider> {
         self.providers.values()
     }
