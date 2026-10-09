@@ -1,4 +1,4 @@
-# Mac Bot 技术方案 v1.0
+# Mac Bot 技术方案 v1.1
 
 > 状态：方案已定稿，进入开发。历史修订见 git log。
 
@@ -51,7 +51,7 @@
 | 工具 | 照搬 pi 的文件工具和 bash，另有 agent-browser、子代理、web、`send_msg`、技能（5.10） |
 | 技能 | Agent Skills 规范，所有 Bot 共用；客户端可以增删改，逻辑都在服务端 |
 | 浏览器 | agent-browser sidecar；**每个 Bot 一个浏览器会话**，同一个 Bot 并行的任务各用一个标签页（5.8） |
-| 连接 | **一条 `/ws` 长连接承载全部实时数据**，包括画面；文件走 HTTP（5.7） |
+| 连接 | 一个 TCP 端口：主连接 `/ws`（消息、事件、心跳、运行轨迹）+ 按需的画面连接 `/ws/screen` + HTTP（文件）。QUIC 以后作为画面的可选加速（5.7） |
 | 模型 | 用户自定义服务商和模型；每个 Bot 一个模型；默认认为模型支持看图 |
 | 通知 | Android：前台服务保持长连接，弹本地通知。iOS：前台走长连接，后台走 APNs（需要用户的推送密钥） |
 | 许可证、签名 | MIT；签名和公证由用户负责 |
@@ -94,7 +94,7 @@
 
 ```
 ┌──────────── Mac（macbotd，无界面守护进程，LaunchAgent）──────────────┐
-│ Gateway  axum，端口 7788：/ws（全部实时数据，含画面） /api/v1 /admin   │
+│ Gateway  axum，端口 7788：/ws（主连接） /ws/screen（画面） /api/v1 /admin │
 │ Local CLI  Unix socket ← macbot status|passwd|logs|restart|update   │
 │ Orchestrator  主 Bot、群、任务派发与交接、插话、路由、防循环          │
 │ Runtime       durable 执行、send_msg、子代理、审批、挂起与恢复       │
@@ -133,7 +133,7 @@ mac-bot/
 │   │   ├── macbot-orchestrator  # 主 Bot、群、任务、路由、调度
 │   │   ├── macbot-browser       # agent-browser sidecar 管理、标签页、画面
 │   │   ├── macbot-usage         # 记账和汇总
-│   │   └── macbot-gateway       # axum：/ws、/api/v1、/admin
+│   │   └── macbot-gateway       # axum：/ws、/ws/screen、/api/v1、/admin
 │   └── macbotd/                 # 二进制：守护进程 + CLI + --mock；packaging/（LaunchAgent、pkg 脚本）
 ├── clients/
 │   ├── mac/                 # 【client-mac】独立的 Cargo workspace：macbot-client-core + macbot-desktop
@@ -275,6 +275,8 @@ send_msg(
   - 被 @。
   - 有成员 `blocked` 或 `failed`。
   - 某个任务 2 小时没有进展。
+- **普通 Bot 转交给主 Bot**：用户在和普通 Bot 的私聊里提出一件需要别人配合的事时，这个 Bot 用 `send_msg(to: {bot: 主 Bot}, mentions: ["main"])` 把事情转给主 Bot，并在私聊里告诉用户「已交给总管拉群处理」；之后由主 Bot 建群。
+- **提议新建 Bot**：`propose_bot` 会在主 Bot 私聊里生成一个提问卡片（「要不要新建『测试』Bot？」）。用户选「新建」后，服务端创建这个 Bot，主 Bot 继续。
 - **建群规则**：满足任一条件就建群：需要其他 Bot、要跨多次对话、有需要沉淀的产出、用户要求建群。小事用 `delegate`；闲聊和知识问答直接回答。设置 `main_bot.auto_create_project=false` 时，建群前先问用户。用户说「不用建群」时，解散群，事情回到私聊。
 
 #### 5.3.6 并发调度
@@ -385,12 +387,17 @@ send_msg(
 
 ### 5.7 连接
 
-协议见 PROTOCOL.md。实现要点：
-- **一条 `/ws` 承载全部实时数据**：请求和响应、持久事件（全局 `seq`，断线补发）、临时事件、运行轨迹（订阅制）、Agent Computer 画面（二进制帧，订阅制）。
-- **发送队列分两级**：文本帧优先于画面帧；画面采用 ack 节流，每个流同一时间最多 1 帧未确认，只发最新的一帧。所以画面不会阻塞心跳和消息。
-- 文件、上传、被截断的工具输出全文、CSV 导出走 HTTP。
+协议见 PROTOCOL.md。一个 TCP 端口上有三类通道：
+- **主连接 `/ws`**：请求和响应、持久事件（全局 `seq`，断线补发）、临时事件、运行轨迹（订阅制）。客户端在前台时常驻。
+- **画面连接 `/ws/screen`**：Agent Computer 的 JPEG 帧和输入，只在打开画面时建立。和主连接分开，是为了避免 TCP 丢包重传时画面数据阻塞消息和心跳（队头阻塞）。服务端采用 ack 节流，只发最新的一帧。
+- **HTTP**：文件、上传、被截断的工具输出全文、CSV 导出、`/api/v1/rpc`。
+- **以后可选**：如果实测公网或手机网络上画面卡顿，再给画面加一个 QUIC 通道（同端口的 UDP，Rust 用 quinn）作为加速，失败时自动退回 `/ws/screen`。v1 不做，原因有四个：
+  1. 不少网络会限制 UDP，必须保留 TCP 作为备用，等于两套传输都要实现。
+  2. QUIC 强制 TLS，需要证书管理。
+  3. Kotlin Multiplatform 里没有成熟的 QUIC 客户端。
+  4. 两个通道之间的鉴权和消息顺序需要额外协调。
 - 客户端为每台 Host 保存 `{node_id, name, addresses[], password, last_seq}`，按顺序尝试各个地址。
-- 移动端后台：Android 用前台服务保持连接；iOS 进入后台后断开，回到前台时用 `last_seq` 补齐，后台期间的提醒走 APNs（macbotd 用 `a2` crate 直接调用 APNs，需要用户在管理页配置 .p8 密钥）。
+- **移动端后台**：Android 用前台服务保持主连接；iOS 进入后台后断开，回到前台时用 `last_seq` 补齐，后台期间的提醒走 APNs（macbotd 用 `a2` crate 调用 APNs，需要用户在管理页配置 .p8 密钥）。
 
 ### 5.8 浏览器：vercel-labs/agent-browser
 
@@ -406,7 +413,7 @@ send_msg(
   | `attach` | `--auto-connect` | 连接用户正在使用的 Chrome；只用于需要人在旁边的场景 |
 
 - **内存**：每个会话大约 300–500 MB。会话空闲 15 分钟后关闭，下次使用时恢复。
-- **画面**：agent-browser 的 screencast → macbotd → `/ws` 二进制帧（PROTOCOL 第 8 节）。无头模式的画面来自 CDP screencast，和 Mac 屏幕是否锁定无关。
+- **画面**：agent-browser 的 screencast → macbotd → `/ws/screen` 二进制帧（PROTOCOL 第 8 节）。没有画面连接时，停止 screencast。无头模式的画面来自 CDP screencast，和 Mac 屏幕是否锁定无关。
 - **接管**：`request_takeover` 工具让当前任务挂起（`wait.reason=takeover`），并发出 `takeover_request` 块；用户 `takeover.start` 之后，输入事件转发给浏览器；`takeover.release` 之后任务恢复。
 - **开发时需要先确认**：`--profile Default` 读取 Chrome cookie 时会不会触发钥匙串弹窗；`--profile` 和 `--restore` 组合使用的行为。
 - 原生桌面控制（cua-driver）留到以后。
@@ -462,6 +469,7 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 | `send_msg` | 见 5.3.2 | |
 | `memory` | `scope, action: add\|replace\|remove, content, id?` | |
 | `memory_search` `session_search` `project_find` `chat_history` | | 检索 |
+| `routine` | `action: list\|create\|update\|delete, routine?` | 通过对话为自己创建和管理定时任务（每个 Bot 最多 50 个，间隔至少 5 分钟）；主 Bot 也可以为其他 Bot 创建 |
 | 主 Bot 专用 | 见 5.3.5 | |
 
 - 相对路径以项目 Home 为准（私聊和转交的小事以 `~/MacBot/bots/<bot>/` 为准）。
@@ -510,7 +518,9 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 
 ## 6. 开发计划（唯一的计划）
 
-**目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。四条开发线同时推进，归属见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
+**目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。**四条开发线加一条集成线**同时推进，归属见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
+
+**开发机就是目标机**：这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。**每个阶段的成果都要能在这台机器上直接运行和查看**：服务端以 LaunchAgent 方式常驻，桌面客户端打包成 .app 打开使用，手机连接 `192.168.31.162:7788`。
 
 | 阶段 | server-mac | client-mac | client-android | client-ios | 联调验收 |
 |------|-----------|-----------|----------------|-----------|---------|
@@ -523,7 +533,12 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 
 **执行规则**
 - 每条线完成一个阶段后，在 `COORDINATION.md` 里打卡「Sx 完成」，然后**直接进入下一阶段**，不停下来等待。
-- 四条线都打卡某个阶段后，由 server-mac 运行 `scripts/e2e/<阶段>` 场景做联调，问题记录到 COORDINATION.md，交给对应的开发线处理。
+- **集成线（integrator）** 负责：
+  - 在这台 Mac mini 上持续部署 main 分支的最新版本：`scripts/dev/deploy.sh` 编译并安装 macbotd 的 LaunchAgent、编译桌面客户端 `.app`、给小米 17 安装 APK、在 iOS 模拟器上安装 App。
+  - 编写并运行每个阶段的端到端场景（`scripts/e2e/<阶段>/`）。
+  - 截图存档到 `docs/progress/<阶段>/`。
+  - 把问题记录到 COORDINATION.md，交给对应的开发线。
+- 四条开发线都打卡某个阶段后，集成线在 Mac mini 上跑完该阶段的「联调验收」，并把结果写进 COORDINATION.md。
 - 只有被其他开发线阻塞时才停下来，并在 COORDINATION.md 里写明原因。
 
 ## 7. 开发环境（这台 Mac 上已经装好）
@@ -535,6 +550,7 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 | Android | JDK 21、Gradle 9.8（项目内使用 wrapper）、Android SDK 36、build-tools 36.1、adb；真机是小米 17 |
 | iOS | Xcode 26.6、iOS 26.5 模拟器；真机需要用户签名 |
 | 浏览器 | Chrome（S4 使用） |
+| 机器 | 这台 Mac mini（M4，16 GB，192.168.31.162）就是开发机和目标 Host；数据目录开发时可以用 `MACBOT_HOME` 指到别处，部署时用 `~/MacBot` |
 
 ## 8. 不在 v1 范围内
 

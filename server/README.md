@@ -14,7 +14,7 @@ server/
 │   ├── macbot-orchestrator  # 主 Bot、群、任务流转、路由、并发调度
 │   ├── macbot-browser       # agent-browser sidecar：每个 Bot 一个会话、按任务分标签页、画面
 │   ├── macbot-usage         # 用量记账和汇总
-│   └── macbot-gateway       # axum：/ws（含画面）、/api/v1、/admin
+│   └── macbot-gateway       # axum：/ws（主连接）、/ws/screen（画面）、/api/v1、/admin
 └── macbotd/                 # 二进制：守护进程 + CLI（macbot）+ --mock
 ```
 

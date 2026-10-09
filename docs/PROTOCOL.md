@@ -15,15 +15,18 @@
 - 填 `host:port` 时使用 `ws://` 和 `http://`。填 `wss://…` 或 `https://…` 时使用 TLS；TLS 由用户自己的反向代理或 frp 提供，服务端本身只监听明文。
 - 一台 Host 可以保存多个地址，客户端按顺序尝试。用 `hello.node_id` 判断两个地址是不是同一台 Host。
 
-### 1.2 通道
+### 1.2 通道（同一个端口）
 
-| 通道 | 用途 |
-|------|------|
-| **`/ws`**（WebSocket） | **唯一的长连接**。承载请求和响应、所有事件、心跳、断线补发、运行轨迹推送，以及 Agent Computer 的画面（二进制帧，见第 8 节） |
-| `/api/v1/*`（HTTP） | 大块数据：文件和产物下载（支持 Range）、附件上传、被截断的工具输出全文、CSV 导出；另外 `/api/v1/rpc` 可以用 HTTP 调用任意方法，方便脚本使用 |
-| `/admin` | Web 管理页（不属于客户端协议） |
+| 通道 | 用途 | 生命周期 |
+|------|------|----------|
+| **`/ws`**（WebSocket） | 主连接：请求和响应、所有事件、心跳、断线补发、运行轨迹推送 | 客户端在前台时常驻，每台 Host 一条 |
+| **`/ws/screen`**（WebSocket） | Agent Computer 画面：下行 JPEG 二进制帧，上行确认和输入（见第 8 节） | **只在打开画面时建立**，关闭就断开 |
+| `/api/v1/*`（HTTP） | 大块数据：文件和产物下载（支持 Range）、附件上传、被截断的工具输出全文、CSV 导出；另外 `/api/v1/rpc` 可以用 HTTP 调用任意方法，方便脚本使用 | 按需 |
+| `/admin` | Web 管理页（不属于客户端协议） | — |
 
-**同一条连接如何避免大块数据阻塞**：服务端的发送队列分两级，文本帧（响应、事件、心跳）总是先于画面帧发送。画面采用 ack 节流，每个画面流同一时间最多只有 1 帧未确认，所以心跳和消息最多等一帧（10–50 KB）发完。
+**为什么画面单独一条连接**：画面每秒 100–700 KB，如果和消息共用一条 TCP 连接，一旦丢包，重传期间后面的心跳和消息都要排队（TCP 队头阻塞），应用层的优先级处理不了这个问题。分开之后，丢包只影响画面自己。两条连接用同一个端口、同一个密码，代理（frp 等）不需要额外配置。
+
+**以后可选**：如果在公网或手机网络上看画面仍然卡顿，再给画面增加一个 QUIC 通道作为加速，连不上 UDP 时自动退回 `/ws/screen`。v1 不做。
 
 ### 1.3 流量参考
 
@@ -33,13 +36,13 @@
 | 群消息（Bot 用 `send_msg` 发的完整消息，不流式） | 每条几百字节到几 KB |
 | 私聊，Bot 的回复流式显示 | 1–3 KB/s 的短时峰值 |
 | 打开某个 Bot 的运行轨迹（**只有打开时才推送**） | 平均 2–10 KB/s |
-| 打开 Agent Computer 画面 | 100–700 KB/s（只在打开时产生） |
+| 打开 Agent Computer 画面（走 `/ws/screen`） | 100–700 KB/s（只在打开时产生） |
 
 文本帧启用 `permessage-deflate` 压缩。
 
 ### 1.4 鉴权
 
-- `/ws` 握手和每个 HTTP 请求都带请求头 `Authorization: Bearer <访问密码>`。如果某个平台无法设置请求头，可以改用查询参数 `?token=<访问密码>`。
+- `/ws`、`/ws/screen` 握手和每个 HTTP 请求都带请求头 `Authorization: Bearer <访问密码>`。如果某个平台无法设置请求头，可以改用查询参数 `?token=<访问密码>`。
 - 密码错误：返回 HTTP 401，body 为 `{"error":"unauthorized"}`。
 - 服务端还没有设置密码：返回 HTTP 403，body 为 `{"error":"setup_required"}`。客户端应提示「请先在 Bot 主机上打开 localhost:7788/admin 设置密码」。
 - `GET /api/v1/health` 不需要鉴权。
@@ -63,7 +66,7 @@
 - 收到 `reset` 后，客户端调用 `bootstrap` 重建本地状态，并把 `last_seq` 设为返回值里的 `seq`。
 - 重连退避：1s、2s、4s … 最长 30s，带 ±20% 随机抖动。
 - 无法发送 WebSocket ping 的平台，改为每 20 秒调用一次 `ping` 方法。
-- 断线时，客户端的订阅（运行轨迹、画面）全部失效，重连后需要重新订阅。
+- 主连接断开时，运行轨迹的订阅全部失效，重连后需要重新订阅。画面连接独立重连。
 
 ---
 
@@ -81,9 +84,6 @@
 { v: 1, kind: "evt", seq: number, event: string, data: object }
 // 临时事件（没有 seq，不补发）
 { v: 1, kind: "evt", event: string, data: object }
-// 画面确认、画面输入（客户端 → 服务端，没有响应，见第 8 节）
-{ v: 1, kind: "ack",   stream: string, seq: number }
-{ v: 1, kind: "input", stream: string, event: ScreenInput }
 ```
 
 - `id` 由客户端生成，在本连接内唯一即可。
@@ -104,7 +104,7 @@ type ErrorCode =
 
 ### 2.3 二进制帧
 
-只用于 Agent Computer 画面，格式见第 8 节。
+主连接 `/ws` 上没有二进制帧。二进制帧只出现在 `/ws/screen` 上，格式见第 8 节。
 
 ---
 
@@ -394,7 +394,7 @@ interface Question {
 interface Skill {
   name: string;                // 小写字母、数字和连字符，最多 64 个字符
   description: string;         // 最多 1024 个字符
-  source: "builtin" | "user" | "imported";
+  source: "builtin" | "user" | "imported" | "draft";   // draft：Bot 生成的草稿，用户确认后才生效
   path: string;                // 技能目录
   files: string[];             // 目录下除 SKILL.md 以外的文件（相对路径）
   enabled: boolean;
@@ -536,6 +536,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 
 - `chat.send` 里用户可以用的 mention 只有 `bot`、`main`、`everyone`（`instruction` 必须为 null）。服务端按 PLAN 5.4 的规则路由。
 - `bot_dm` 会话是只读的，对它调用 `chat.send` 返回 `forbidden`。
+- **强制使用技能**：`text` 以 `/<技能名>` 开头时（例如 `/web-auth-patterns 按这个规范做`），服务端把这个技能的全文加载进本次任务，其余文字作为指令。技能名不存在时，按普通文本处理。
 
 ### 5.3 Bot
 
@@ -547,6 +548,8 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `bot.update` | `{ bot_id, patch: Partial<Pick<Bot, "name"\|"label"\|"description"\|"avatar"\|"model"\|"max_parallel"\|"tools"\|"browser_mode"\|"pinned"\|"hidden"\|"notifications">> }` | `{ bot: Bot }` |
 | `bot.duplicate` | `{ bot_id, name }` | `{ bot: Bot, dm_chat: Chat }`（复制资料、技能停用设置和定时任务，不复制记忆和历史） |
 | `bot.delete` | `{ bot_id }` | `{}`（主 Bot 返回 `forbidden`；有进行中任务时返回 `conflict`） |
+| `bot.templates` | `{}` | `{ templates: { id: string, name: string, description: string, bots: { name, label, description, avatar }[] }[] }`（服务端内置的团队模板，例如「产品 + 编码 + 测试」「调研 + 写作」） |
+| `bot.create_from_template` | `{ template_id: string }` | `{ bots: Bot[], dm_chats: Chat[] }`（同名 Bot 已经存在时跳过） |
 
 ### 5.4 项目（群）
 
@@ -558,7 +561,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `project.update` | `{ project_id, patch: { name?, goal?, flow?, deadline? } }` | `{ project: Project }` |
 | `project.add_member` | `{ project_id, bot_id, role_note? }` | `{ project: Project }` |
 | `project.remove_member` | `{ project_id, bot_id }` | `{ project: Project }`（有进行中任务时先停止） |
-| `project.confirm_done` | `{ project_id }` | `{ project: Project }`（只能在 `review` 状态下调用） |
+| `project.confirm_done` | `{ project_id }` | `{ project: Project }`（`review` 状态下是确认验收；`active` 状态下是用户直接标记完成，进行中的任务会被停止） |
 | `project.request_changes` | `{ project_id, text: string }` | `{ message: Message }`（意见会作为一条消息发到群里并 @主 Bot，群回到 `active`） |
 | `project.archive` | `{ project_id }` | `{ project: Project }` |
 | `project.reopen` | `{ project_id }` | `{ project: Project }` |
@@ -582,7 +585,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `approval.decide` | `{ approval_id, decision: "allow_once"\|"always_allow"\|"deny" }` | `{ approval: Approval }`（always_allow 会新增一条 auto_allow 规则） |
 | `question.answer` | `{ question_id, option_index?: number, text?: string }` | `{ question: Question }` |
 | `loop.resolve` | `{ root_message_id, action: "continue"\|"end" }` | `{}` |
-| `takeover.start` | `{ bot_id }` | `{ stream: string }`（同时打开画面流，见第 8 节） |
+| `takeover.start` | `{ bot_id }` | `{}`（之后 `/ws/screen` 上的输入才会被接受；客户端需要已经打开该 Bot 的画面连接） |
 | `takeover.release` | `{ bot_id, note?: string }` | `{}`（note 会作为插话交给 Bot） |
 
 ### 5.7 工作台
@@ -617,6 +620,7 @@ interface Workbench {
 | `skill.update` | `{ name, content: string }` | `{ skill: Skill }`（builtin 技能返回 `forbidden`） |
 | `skill.delete` | `{ name }` | `{}`（builtin 技能返回 `forbidden`） |
 | `skill.set_enabled` | `{ name, enabled: boolean, bot_id?: Id /* 只对某个 Bot 生效 */ }` | `{ skill: Skill }` |
+| `skill.publish` | `{ name }` | `{ skill: Skill }`（把 `draft` 转为 `user` 并启用；只能用于草稿） |
 | `skill.import` | `{ source: { kind: "git"; url: string; subdir?: string } \| { kind: "upload"; upload_id: Id } \| { kind: "path"; path: string } }` | `{ skills: Skill[] }`（zip 先用 HTTP 上传，拿到 `upload_id`） |
 
 ### 5.9 定时任务
@@ -667,20 +671,7 @@ interface Workbench {
 
 ### 5.13 画面
 
-| 方法 | 参数 | 返回 |
-|------|------|------|
-| `screen.open` | `{ bot_id, tab_id?: string, quality?: "auto"\|"high"\|"low" }` | `{ stream: string, state: ScreenState }` |
-| `screen.switch_tab` | `{ stream, tab_id }` | `{ state: ScreenState }`（只在用户接管时可用） |
-| `screen.close` | `{ stream }` | `{}` |
-
-```ts
-interface ScreenState {
-  bot_id: Id;
-  driver: "bot" | "user" | "idle";
-  tabs: { tab_id: string; title: string; url: string; assignment_id: Id | null; active: boolean }[];
-  width: number; height: number;
-}
-```
+画面不走主连接，见第 8 节。主连接上只有和接管相关的两个方法（5.6）：`takeover.start`、`takeover.release`。
 
 ---
 
@@ -726,7 +717,6 @@ interface ScreenState {
 | `trace.item` | **只发给订阅者** | `{ stream, item: TraceItem }` |
 | `trace.delta` | **只发给订阅者** | `{ stream, request_id, channel: "text"\|"thinking"\|"tool_args", call_id: Id\|null, text }` |
 | `trace.tool_output` | **只发给订阅者** | `{ stream, call_id, chunk }` |
-| `screen.state` | **只发给订阅者** | `{ stream, state: ScreenState }` |
 
 ---
 
@@ -754,22 +744,35 @@ client ── req trace.history {assignment_id, tail: true, limit: 200} ──�
 
 ---
 
-## 8. Agent Computer 画面（走 `/ws` 主连接）
+## 8. Agent Computer 画面（`/ws/screen`）
 
-- **每个 Bot 一个浏览器会话**（登录状态在这个 Bot 的所有任务之间共享）。同一个 Bot 并行的多个任务，各自使用一个标签页；`ScreenState.tabs` 里的 `assignment_id` 标明每个标签页属于哪个任务。
-- 打开：`screen.open {bot_id}` 返回 `stream`，之后服务端在同一条 `/ws` 上推送二进制帧：
-
-```text
-二进制帧 = [0x01][4 字节大端整数：头部长度 N][N 字节 UTF-8 JSON 头部][JPEG 数据]
-JSON 头部 = { stream: string, seq: number, tab_id: string, w: number, h: number, ts: number /* 毫秒 */, url: string }
-```
-
-- **ack 节流**：客户端每画完一帧就回 `{ v: 1, kind: "ack", stream, seq }`。服务端在收到上一帧的 ack 之前不发下一帧，并且总是发送最新的一帧（中间积压的旧帧直接丢弃）。
-- 画质：`auto` 时桌面默认最大宽度 1280、画质 70、15 fps，手机默认最大宽度 720、画质 50、10 fps；`low` 是最大宽度 640、画质 30、8 fps。
-- **输入**（只有调用 `takeover.start` 之后才会被接受）：
+- **每个 Bot 一个浏览器会话**（登录状态在这个 Bot 的所有任务之间共享）。同一个 Bot 并行的多个任务各用一个标签页；`ScreenState.tabs` 里的 `assignment_id` 标明每个标签页属于哪个任务。
+- **建立连接**：`GET /ws/screen?bot_id=<id>&quality=auto|high|low&tab_id=<可选>`，带 `Authorization: Bearer <密码>`。一条连接看一个 Bot 的画面；要同时看多个 Bot，就开多条。
+- **连接建立后**，服务端先发一个文本帧 `{ "type": "state", "state": ScreenState }`；之后每当状态变化（谁在操作、标签页切换、URL 变化），都再发一个这样的文本帧。
 
 ```ts
-{ v: 1, kind: "input", stream, event: ScreenInput }
+interface ScreenState {
+  bot_id: Id;
+  driver: "bot" | "user" | "idle";
+  tabs: { tab_id: string; title: string; url: string; assignment_id: Id | null; active: boolean }[];
+  width: number; height: number;
+}
+```
+
+- **画面帧**（二进制）：
+
+```text
+二进制帧 = [4 字节大端整数：头部长度 N][N 字节 UTF-8 JSON 头部][JPEG 数据]
+JSON 头部 = { seq: number, tab_id: string, w: number, h: number, ts: number /* 毫秒 */, url: string }
+```
+
+- **ack 节流**：客户端每画完一帧，就回一个文本帧 `{ "type": "ack", "seq": N }`。服务端收到上一帧的 ack 之前不发下一帧，并且总是发送最新的一帧，积压的旧帧直接丢弃。
+- **画质**：`auto` 时桌面默认最大宽度 1280、画质 70、15 fps，手机默认最大宽度 720、画质 50、10 fps；`high` 是 1600、85、20 fps；`low` 是 640、30、8 fps。
+- **切换标签页**（只在用户接管时可用）：`{ "type": "switch_tab", "tab_id": "…" }`。
+- **输入**（只有在主连接上调用 `takeover.start` 之后才会被接受）：
+
+```ts
+{ type: "input", event: ScreenInput }
 type ScreenInput =
   | { type: "mouse"; action: "move" | "down" | "up" | "click"; x: number; y: number; button: "left" | "right" | "middle"; click_count: number }
   | { type: "wheel"; x: number; y: number; dx: number; dy: number }
@@ -778,7 +781,7 @@ type ScreenInput =
 // 坐标是相对于帧画面的像素坐标；服务端换算后转发给 agent-browser
 ```
 
-- 状态变化（谁在操作、标签页切换、URL 变化）通过 `screen.state` 事件推送。
+- 断开：客户端直接关闭 WebSocket。服务端在没有任何画面连接时，停止向 agent-browser 请求 screencast。
 
 ---
 

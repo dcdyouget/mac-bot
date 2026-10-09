@@ -2,7 +2,7 @@
 
 > 本仓库由多个 AI agent 同时开发。动手之前先读完本文，再读 `docs/` 下的文档。**每类规则只有一个权威来源**（见 PLAN 第 0 章）：协议字段看 PROTOCOL.md，界面和交互看 DESIGN.md，服务端实现和开发计划看 PLAN.md。各开发线的启动 prompt 在 `docs/AGENT_PROMPTS.md`。
 
-## 1. 四条开发线和目录归属
+## 1. 开发线和目录归属（四条开发线 + 一条集成线）
 
 | 开发线 | 负责的目录（只改这些） | 产出 |
 |--------|------------------------|------|
@@ -10,6 +10,7 @@
 | **client-mac** | `clients/mac/` | macOS 桌面客户端（Rust + GPUI + gpui-kit） |
 | **client-android** | `clients/mobile/`（除下面归 client-ios 的部分）、`protocol/kotlin/` | KMP 的 core、Android 外壳，以及归属自己的 feature |
 | **client-ios** | `clients/mobile/iosApp/`、`clients/mobile/shared/src/iosMain/`，以及 `shared` 里归属自己的 feature | iOS 外壳，以及归属自己的 feature |
+| **integrator**（集成线） | `scripts/`、`docs/progress/`；负责整理 `COORDINATION.md` | 在这台 Mac mini 上持续部署 main 分支、编写和运行端到端场景、截图存档、分派问题；**不修改其他开发线的代码** |
 
 **`clients/mobile/shared/src/commonMain/` 的归属**（包名 `bot.mac.mobile`）：
 
@@ -33,9 +34,11 @@
   git worktree add ../mac-bot-client-mac    -b dev/client-mac
   git worktree add ../mac-bot-client-android -b dev/client-android
   git worktree add ../mac-bot-client-ios    -b dev/client-ios
+  git worktree add ../mac-bot-integrator    -b dev/integrator
   ```
 - **小步提交，频繁合入 main**（至少每完成一个可以运行的小功能合一次）：先 `git fetch && git rebase origin/main`，确认能编译、测试通过，再合入 main 并推送。
-- 提交说明的前缀：`server:`、`protocol:`、`client-mac:`、`mobile-core:`、`android:`、`ios:`、`mobile-<feature>:`。结尾按仓库约定附上 Co-Authored-By。
+- 提交说明的前缀：`server:`、`protocol:`、`client-mac:`、`mobile-core:`、`android:`、`ios:`、`mobile-<feature>:`、`integrator:`。
+- 每条开发线在自己目录的 README 里写清楚**怎么编译和运行**（命令、环境变量、产物路径），集成线据此编写部署脚本。结尾按仓库约定附上 Co-Authored-By。
 - 不要提交构建产物、密钥或 `local.properties`（见 `.gitignore`）。
 
 ## 3. 协议变更流程（最重要）
@@ -63,6 +66,7 @@
   - Rust stable，crates.io 走清华 tuna 镜像；`cargo search` 需要加 `--registry crates-io`。
   - Xcode 26.6 + Metal 工具链 + iOS 26.5 模拟器。
   - JDK 21、Android SDK 36、Gradle 9.8。
+- **在 Mac mini 上能看到效果**：这台 Mac mini（M4，192.168.31.162）就是目标 Host。每个阶段的成果都要能部署到这台机器上运行和查看（集成线负责部署）。
 - **mock 优先**：客户端先基于 `protocol/fixtures` 开发；server-mac 提供 `macbotd --mock` 之后，切换到 mock；最后再连接真实服务端。
 - **测试**：
   - server：单元测试，加一个基于 mock provider 的场景测试。
@@ -71,4 +75,4 @@
 
 ## 5. 阶段与汇合点
 
-阶段划分见 PLAN 第 6 章（唯一的开发计划）：S0 契约与骨架 → S1 单 Bot 闭环 → S2 主 Bot 与群协作 → S3 技能、仪表盘、记忆 → S4 浏览器、定时任务、推送 → S5 打磨与分发。**目标是一次做完全部功能**：每完成一个阶段，在 COORDINATION.md 打卡后直接进入下一阶段；四条线都打卡后由 server-mac 运行联调场景。只有被阻塞时才停下来。
+阶段划分见 PLAN 第 6 章（唯一的开发计划）：S0 契约与骨架 → S1 单 Bot 闭环 → S2 主 Bot 与群协作 → S3 技能、仪表盘、记忆 → S4 浏览器、定时任务、推送 → S5 打磨与分发。**目标是一次做完全部功能**：每完成一个阶段，在 COORDINATION.md 打卡后直接进入下一阶段；四条开发线都打卡后，由集成线在 Mac mini 上运行该阶段的联调场景。只有被阻塞时才停下来。
