@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.10
+# Mac Bot 规划 v0.11
 
 > 状态：规划中，尚未开始编码。
+> v0.11 变更：新增主 Bot（日常对话 + 所有群的负责人）；任务接力（收到 → 工作中 → 完成 → @下一个）；两段式输出（发言 / 干活）；插话；系统维护的公告和产物；按群并行和并发上限；工作台和统计；用量记账。
 > v0.10 变更：项目 = 一件事 = 一个群（私聊里自动建项目、项目生命周期）；记忆简化为用户、Bot、项目三种；上下文全自动管理，界面不暴露任何控件。
 > v0.9 变更：新增「记忆与上下文管理」（每个会话独立执行线程、四层记忆、当前项目由会话决定、分段与压缩、群上下文包）。
 > v0.8 变更：界面和组件设计拆分到 DESIGN.md（含线框图、设计语言、群聊专章）。
@@ -13,7 +14,7 @@
 
 ## 1. 定位
 
-**自托管版 Grok Bot。** 一个人拥有一支 Bot 团队，这些 Bot 运行在自己 24 小时常开的 Apple Silicon Mac 上。每个 Bot 有名字和明确职责；Bot 之间可以拉群、互发消息、交接任务。用户在 macOS、Android 或 iOS 客户端（Windows 放到 v2）上填入 `host:port` 和访问密码，就可以像和同事聊天一样给 Bot 派活。
+**自托管版 Grok Bot。** 一个人拥有一支 Bot 团队，这些 Bot 运行在自己 24 小时常开的 Apple Silicon Mac 上。你日常只和**主 Bot** 对话：交代一件事，它就拉相关的 Bot 建群（群名就是这件事），在群里分派任务；各 Bot 按「收到 → 工作中 → 完成 → @下一个」接力，做完后主 Bot 通知你。你也可以随时在群里 @ 任意 Bot 进行指导，即使它正在干活。用户在 macOS、Android 或 iOS 客户端（Windows 放到 v2）上填入 `host:port` 和访问密码，就可以像和同事聊天一样给 Bot 派活。
 
 ## 2. 已确认的决策
 
@@ -24,6 +25,11 @@
 | 网络 | 服务端监听一个固定端口，客户端填 `host:port` 直连。公网代理由用户自行解决，不在本项目范围内 |
 | 安全 | v1 **只做访问密码**：客户端每次连接都带上密码，管理页用同一个密码；其他安全措施全部放到以后（详见 5.0.1） |
 | Bot | 支持多个 Bot，**每个 Bot 有独立工作间**（目录、记忆、会话、定时任务）；支持**群聊和 Bot 间消息** |
+| **主 Bot** | 每台 Host 内置一个、不能删除（可以改名，默认叫「总管」）。它是日常对话对象，也是**所有群的负责人**：负责建群、拉人、分派任务、跟进、验收，以及完成后通知你 |
+| **群 = 一件事 = 项目** | 群名就是这件事的名字；有 Home 目录、系统自动维护的公告（成员状态、产物、项目记忆） |
+| **两段式输出** | 每个 Bot 的输出分两路：**群里发言**（短、快，用发言模型）和**干活**（长、带工具、过程不进群）。详见 5.3 |
+| **并行** | 同一个 Bot 可以同时在多个群里干活（每个群是独立的会话，只是加载的项目记忆不同）。有全局上限（默认 8）和每个 Bot 的上限（默认 3，主 Bot 默认 4）；同一个群里同一个 Bot 的活按顺序做 |
+| **可观测** | 工作台（每个 Bot 正在干什么）+ 统计（每个 Bot 的 token、模型、按群分布、费用）；每次模型调用都记账 |
 | 电脑操控 | 以网页任务为主，**使用系统浏览器**（复用已有的登录凭证）；放到后续阶段，先把 Bot 形态跑通 |
 | 系统权限 | 屏幕录制和辅助功能权限**不强制**；没授权时提示「部分功能不可用」 |
 | 模型 | 用户自定义 provider 和模型；默认认为模型支持看图 |
@@ -73,25 +79,21 @@
 - **Stop**：立即停止，但不撤销已经完成的动作。
 - 会话流里除了普通消息，还会展示：工具活动（可折叠）、电脑操作、生成的文件、提问、**审批请求**、草稿卡片（发送 / 丢弃）。
 
-### 4.3 项目（= 一件事 = 一个群）
+### 4.3 主 Bot 与群（= 一件事 = 项目）
 
-模仿日常工作的方式：**有一件事，就把相关的 Bot 拉进来，群名就是这件事的名字，大家在群里把它做完。**
-- **项目和项目群是一对一的**：建项目就是建群，建群就是建项目。项目名就是群名。
-- 成员是 **1 到 6 个 Bot**。单个 Bot 的项目也是一个项目群，方便以后再拉人。
-- 创建项目有两个入口：
-  - 用户在私聊里说「帮我做 xxx」，Bot 判断这是一件需要跟进的事，就**自动建项目**并拉相关 Bot 进群（规则见 5.5.4）。
-  - 用户点 ⌘N →「新建项目」。
-- 项目有状态：**进行中 → 已完成 → 已归档**。完成时负责人写一份项目总结。
-- 群内规则同 Grok 群聊：
-  - 不 @ 任何人时，由路由决定谁回应（见 5.4）；`@Bot` 指定某个 Bot；`@everyone` 慎用。
-  - 点 Reply 只发给那个 Bot。
-  - **群里不出现**审批请求、密码或登录请求、外发草稿，这些都回到对应 Bot 的私聊里。
-  - Bot 在群里的交接消息只有文字。
+- **主 Bot**是日常对话对象，也是所有群的负责人。你对它说「帮我做 xxx」，它判断需要多人配合时就**建群**：群名就是这件事，创建 Home 目录，拉相关的 Bot 进群，在群里发开场（事项、目标、流程），并 @ 第一个 Bot。
+- 群成员是主 Bot 加上 1–6 个 Bot。也可以手动建群（⌘N），主 Bot 自动加入。
+- 群里的协作是**任务接力**：被 @ 的 Bot 先回复「收到」（状态变为 ⟳ 工作中），在后台干活；完成后在群里报告产物和位置，并 @ 下一个 Bot；最后一个 Bot 完成后 @主 Bot。主 Bot 验收、写总结、标记完成，然后在私聊里通知你。
+- **公告**由系统自动维护：Home 路径、目标、流程、成员分工和状态、产物清单、项目记忆。
+- 你可以随时在群里 **@ 任意 Bot**。它正在干活时，这条消息就是**插话**：它立即回复，指令插进当前工作，下一步生效。
+- 群里不 @ 任何人时，消息交给主 Bot 处理。
+- **群里不出现**审批请求、密码或登录请求、外发草稿，这些都回到对应 Bot 的私聊里。
+- 群的状态：进行中 → 已完成 → 已归档。
 
 ### 4.4 Bot 之间的协作
-- Bot 可以**异步**给另一个 Bot 发消息：对方被唤醒、处理请求，之后再回复；整个交接过程用户可见。
-- **任务归属**：每个阶段只有一个负责人；用 `handoff` 把归属交给另一个 Bot。
-- 典型场景：某个系统归谁管、专家评审、被另一个角色卡住、长时间运行的任务。
+- **交接**：完成报告里的 @ 就是交接，附带产物清单和说明。
+- **私信**：Bot 可以异步给另一个 Bot 发消息，对方被唤醒处理，之后再回复，过程用户可见。
+- **防循环**：一条用户消息引发的 Bot 间往返默认最多 8 次。
 
 ### 4.5 审批
 - 卡片上的选项：**Allow once**、**Deny**、**Always allow**。
@@ -185,18 +187,18 @@
 │   密码鉴权 / 协议版本 / 事件流（按 seq 断线续传）                    │
 │ Local CLI  Unix socket ← `macbot status|passwd|logs`               │
 │                                                                   │
-│ Orchestrator（群聊路由、Bot 间消息、handoff、防循环）                 │
+│ Orchestrator（主 Bot 建群、群路由、任务流转、交接、插话、防循环）     │
 │   │                                                               │
-│ Bot Runtime × N（每个 Bot 一个 actor，各有一个 inbox，同时只跑一个 run）│
+│ Bot Runtime：两段式输出（发言 / 干活）· Scheduler 并发调度            │
 │   ├ Durable Engine（Rust 版 pi-durable）                           │
 │   ├ Providers（Rust 版 pi-ai）                                     │
 │   ├ Memory（hermes 风格）                                          │
 │   └ Tools：workspace 文件 / shell（需审批）/ web_fetch /            │
 │           send_message / handoff / memory / session_search /       │
 │           routine / ask_user / [后期] browser / desktop / MCP       │
-│ Scheduler（Routines）                                              │
+│ Scheduler（并发、排队、Routines）  Usage（每次模型调用都记账）        │
 │ Store：SQLite（rusqlite + FTS5）  Secrets：macOS 钥匙串             │
-│ 文件：~/MacBot/bots/<bot>/workspace   ~/MacBot/shared               │
+│ 文件：~/MacBot/projects/<群>/（Home）  ~/MacBot/bots/<bot>/          │
 └───────────────────────────────────────────────────────────────────┘
         ▲ ws://host:port                     ▲
  ┌──────┴──────────┐            ┌────────────┴─────────────┐
@@ -243,7 +245,8 @@ mac-bot/
 ### 5.2 数据模型（SQLite 草案）
 
 ```
-bots(id, node_id, name, label, description, avatar, model_ref, pinned, hidden, created_at)
+bots(id, node_id, name, label, description, avatar, is_main, work_model_ref, voice_model_ref, max_parallel, pinned, hidden, created_at)
+                                                            -- is_main：主 Bot，全局唯一
 chats(id, node_id, kind[direct|project|bot_dm], title, project_id, created_at)
                                                             -- kind=project 的会话就是项目群，与 projects 一对一
 threads(id, bot_id, chat_id, loaded_project_id, segment_no, summary_entry_id, token_estimate, updated_at)
@@ -251,13 +254,19 @@ threads(id, bot_id, chat_id, loaded_project_id, segment_no, summary_entry_id, to
 thread_segments(id, thread_id, no, reason[start|compact|project_loaded|snapshot_stale], summary, memory_snapshot_json, created_at)
 chat_members(chat_id, member_kind[user|bot], member_id)
 messages(id, chat_id, seq, sender_kind, sender_id, reply_to, mentions, content_json, created_at)   -- FTS5
-runs(id, bot_id, chat_id, thread_id, trigger_message_id, status, owner_task_id, started_at, ended_at)
+runs(id, bot_id, chat_id, thread_id, assignment_id, phase[voice|work|memory|compact], trigger_message_id, status, started_at, ended_at)
 entries(id, thread_id, segment_no, run_id, seq, kind, json) -- 不可变，参照 pi-durable 的 Entry
-tasks(id, owner, kind, status, checkpoint_json, updated_at) -- 可恢复的状态机
+jobs(id, owner, kind, status, checkpoint_json, updated_at)  -- durable 引擎内部可恢复的状态机（原 pi-durable Task）
+assignments(id, project_id, bot_id, title, instruction, from_kind[user|bot], from_id, parent_id,
+            status[queued|acked|working|blocked|waiting_user|done|failed|cancelled], queue_reason,
+            started_at, finished_at, tokens_in, tokens_out, cost)          -- 群里的「任务」，见 5.3
+assignment_steers(id, assignment_id, message_id, text, applied_at)  -- 插话
+artifacts(id, project_id, bot_id, assignment_id, title, path_or_url, kind, created_at, updated_at)
 submissions(id, bot_id, request_id UNIQUE, status)          -- 幂等
 approvals(id, bot_id, run_id, tool, args_json, status, decision, rule_id)
-projects(id, name, goal, status[active|done|archived], owner_bot_id, chat_id, created_by[user|bot_id], created_at, done_at)
-project_members(project_id, bot_id, role_note)            -- 1–6 个 Bot
+projects(id, name, slug, goal, flow, deadline, home_path, status[active|done|archived], lead_bot_id, chat_id, created_by[user|bot_id], created_at, done_at)
+                                                            -- 一个项目 = 一个群；lead 默认为主 Bot
+project_members(project_id, bot_id, role_note)            -- 主 Bot + 1–6 个 Bot；role_note=分工
 memories(id, scope[user|bot|project], kind[fact|self|worklog|summary], bot_id, project_id, content, source_bot_id, source_chat_id, updated_at)   -- FTS5
 skills(id, name, description, body_md, updated_at)
 routines(id, bot_id, project_id, name, schedule, tz, instructions, enabled, next_run_at)
@@ -267,28 +276,91 @@ providers(id, name, api_kind, base_url, secret_ref)
 models(id, provider_id, model_id, caps_json, context_window, cost_json)
 auth(id=1, password_hash)                                   -- 单行
 node(node_id, name, created_at)                             -- 本机 Host 的身份（单行）
-usage(id, bot_id, run_id, model_id, input_tokens, output_tokens, cost)
+usage(id, ts, bot_id, project_id, chat_id, assignment_id, run_id, phase[voice|work|memory|compact],
+      provider_id, model_id, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost)
+usage_daily(day, bot_id, project_id, model_id, phase, input_tokens, output_tokens, cache_read_tokens, cost)   -- 汇总表，供统计页查询
+settings(key, value_json)                                   -- 并发上限、默认模型等
 events(seq, chat_id, type, payload_json)                    -- 推送和断线补发
 ```
 
-用户可见的**消息层**（messages）与 Bot 内部的**运行层**（runs、entries、tasks）分开存储。工具活动这类运行层事件以「活动卡片」的形式挂在对应 Bot 的消息下面。
+三层分开存储：
+- **消息层**（messages）：群里发言、私聊，用户可见。
+- **任务层**（assignments、artifacts）：状态、产物、公告的数据来源。
+- **运行层**（threads、runs、entries、jobs）：干活的完整过程，在「工作详情」里展示。
 
-### 5.3 Bot 运行模型
-- 每个 Bot 是一个 actor，有一个持久化的 **inbox**。消息来源包括：用户私聊、群聊里被路由到它、其他 Bot 的消息、Routine 触发。
-- 同一时间只执行一个 run。用户私聊的新消息作为 **steer** 插入当前 run，在下一轮生效；其他来源的消息排队。
-- 每一步都先提交到 SQLite 再推送给客户端。进程重启后自动 resume。有副作用的工具调用标记为「不可安全重放」，resume 到这类调用时先询问用户。
-- 同一个 Bot 在所有会话中**同一时间只执行一个 run**（共用一个 inbox）；但每个会话有**各自独立的执行线程**，上下文互不污染（见 5.5）。
-- 上下文怎么组装、何时压缩、切换项目会发生什么：见 5.5。
+### 5.3 Bot 运行模型：两段式输出 + 并发调度
 
-### 5.4 群聊路由（核心算法）
-1. 用户消息 @ 了某些 Bot：只投递给被 @ 的 Bot。
-2. 用户 Reply 了某个 Bot 的消息：只投递给这个 Bot。
-3. 两者都没有：**路由器**做一次轻量 LLM 调用，输入是成员资料、群目标、当前负责人和最近消息，输出 0 到 n 个应回应的 Bot，以及各自的理由。默认倾向当前负责人。参考 AutoGen selector 和 LobeHub supervisor。
-4. Bot 在群里发言时 @ 了其他 Bot：触发被 @ 的 Bot。
-5. **防循环**：一条用户消息引发的 Bot 间往返设硬上限（默认 8 跳），超过就暂停并请用户介入；同一个 Bot 对同一个触发只回应一次；Bot 可以选择「沉默」。
-6. **归属**：群上记录 `current_owner`，`handoff(to, summary)` 更新归属，并在群里显示交接卡片。
+#### 5.3.1 两段式输出（发言 / 干活）
 
-Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话。用户可以查看，但默认不显示在主列表，而是在双方会话里以「交接」卡片的形式出现。
+每个 Bot 是同一个「人格」，但输出分两路，分别由两类模型调用承担：
+
+| | **发言（voice）** | **干活（work）** |
+|---|---|---|
+| 作用 | 群里和私聊里的简短回复：收到、插话确认、回答问题、完成报告的措辞 | 真正执行任务：调用工具、读写文件、浏览网页、运行命令 |
+| 模型 | `voice_model_ref`，默认是便宜、快的模型（可以和干活模型相同） | `work_model_ref` |
+| 上下文 | Bot 身份 + 公告 + 最近的群消息 + 这个 Bot 在本群的任务状态 | Bot 身份 + 三种记忆 + 公告 + 任务简报 + 干活线程（见 5.5） |
+| 工具 | 不带工具，只输出结构化 JSON | 完整工具集 + 协作工具（见下） |
+| 输出去向 | 群消息 / 私聊消息 | 干活线程（`entries`），**不进群**；工作详情里可以看 |
+| 时延 | 秒级 | 分钟到小时级，可以恢复 |
+| 是否占并发名额 | 否（有单独的速率限制） | 是 |
+
+**一个任务的生命周期**（对应 `assignments.status`）：
+1. **派发**：被 @、被交接，或者主 Bot 分派 → 创建 assignment，状态为 `queued`。
+2. **收到**：调用一次发言模型，输出 `{reply, accept, task_title}`，把 reply 发到群里，例如「收到，开始写 PRD 和原型」；状态变为 `acked`。如果 `accept=false`（例如不是自己的职责），回复里说明原因并 @主 Bot。
+3. **排队或开工**：Scheduler 判断是否有并发名额。有名额就进入 `working`，开始干活 run；没有就保持 `acked` 并记录 `queue_reason`，界面显示「… 排队」。
+4. **干活**：干活 run 在 (Bot, 群) 的执行线程里运行。可以使用的协作工具：
+   - `group_update(text)`：发一条进展小字到群里，每个任务最多 3 条。
+   - `complete_task(summary, artifacts[], next?: {bot, instruction})`：结束任务。
+   - `report_blocked(reason, need: user|bot, who?)`：报告卡住。
+   - `ask_user(question, options?)`：向用户提问，在私聊里显示提问卡片。
+   - `send_message(bot, text)`：私信其他 Bot。
+   - `memory(...)`、`project_note(text)`：写项目记忆。
+5. **完成**：`complete_task` 被调用后，系统**确定性地**生成完成报告，格式为「✓ 已完成 {summary}」+ 产物卡片 + `@next 指令`，不再调用一次模型；把 artifacts 登记到公告；状态变为 `done`；如果有 `next`，就为下一个 Bot 创建新的 assignment（回到第 1 步）。
+6. **卡住**：`report_blocked` → 状态变为 `blocked` 或 `waiting_user`，群里显示卡住报告，并通知主 Bot（需要用户时同时通知用户）。
+7. **结束**：流程中最后一个 Bot 完成后 @主 Bot。主 Bot 用干活 run 验收（检查产物是否齐全，必要时打回），然后写总结、标记群完成，并在主 Bot 私聊里发完成通知和推送。
+
+**插话（用户 @ 一个正在干活的 Bot）**：
+1. 立即调用一次发言模型生成确认回复，例如「收到，改为只做邮箱登录」，发到群里。
+2. 写入 `assignment_steers`，并作为高优先级的用户指令注入干活线程。在下一个工具调用的边界生效（pi-durable 的 steer）。
+3. 如果插话是「停 / 取消」，就中止干活 run，状态变为 `cancelled`，Bot 回到待命。
+4. 如果是决定性内容，例如「只做邮箱」，自动写入项目记忆。
+
+**主 Bot 的额外职责**（L0 规则 + 专用工具）：
+- `create_project(name, goal, flow, members[], deadline?)`：建群、建 Home 目录、生成公告、发开场。
+- `assign(bot, instruction)`：在群里 @ 某个 Bot 并创建 assignment。
+- `list_bots()`：按头衔和描述挑选成员；找不到合适的 Bot 时提议新建，需要用户同意。
+- `finish_project(summary)`：验收、写总结、标记完成、通知用户。
+- 监控：某个成员 `blocked` 超过阈值或者失败时，主 Bot 被唤醒去跟进（重试、换人或问用户）。
+
+#### 5.3.2 并发调度
+
+- **调度单位**：(Bot, 群) 的干活 run。私聊和定时任务也各算一个调度单位。
+- **三层限制**：
+  1. 全局上限：默认 8，受 API 速率限制和内存（浏览器会话）约束。
+  2. 每个 Bot 的上限 `max_parallel`：默认 3，主 Bot 默认 4。
+  3. 同一个群内，同一个 Bot 的 assignment **串行**执行，避免同一个人自己跟自己冲突。
+- **排队顺序**：先按优先级（用户直接 @ > 交接 > 定时任务），再按到达时间。名额释放时唤醒排队的任务。
+- **资源**：
+  - 每个干活 run 有自己的执行线程。
+  - 浏览器会话按 (Bot, 群) 隔离，`--session <bot>-<project>`。
+  - Home 目录由群成员共享。约定每个 Bot 写自己的子目录（例如 `product/`、`code/`、`test/`），共享文件由负责人维护。
+- **记忆并发**：三种记忆的写入都是追加或按条目替换，在 run 结束时提交。冲突时以后写入的为准，后台整理时再合并。
+- 发言调用不占并发名额，单独按每分钟次数限速。
+
+#### 5.3.3 持久化与恢复
+
+- 每一步都先提交到 SQLite 再推送。进程重启后，处于 `working` 的 assignment 自动 resume。
+- 有副作用的工具调用标记为「不可安全重放」，resume 到这类调用时，先问用户或主 Bot。
+- 上下文怎么组装、何时压缩：见 5.5。
+
+### 5.4 群消息路由（确定性优先，不靠模型猜）
+
+1. 用户消息 **@ 了某些 Bot** → 投递给被 @ 的 Bot。对方在本群有进行中的任务，就当作**插话**；没有就**创建新任务**。
+2. 用户**回复了**某条 Bot 消息 → 投递给那个 Bot，规则同上。
+3. **没有 @ 也没有回复** → 交给**主 Bot**，由它回答，或者用 `assign` 转派（转派时在群里 @ 对方，让用户看到）。不再设单独的路由模型。
+4. Bot 在完成报告或发言里 @ 了其他 Bot → 为被 @ 的 Bot 创建任务，也就是交接。
+5. **防循环**：一条用户消息引发的 Bot 之间自动派发链，默认最多 8 次，超过后暂停，等用户在横幅上选择；同一个 Bot 对同一个触发只响应一次。
+6. Bot 私信（`send_message`）走 `bot_dm` 会话，用户可以查看，在群里以「✉」卡片的形式出现。
 
 ### 5.5 记忆、项目与上下文管理
 
@@ -330,34 +402,35 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 
 同一个 Bot 可以同时在多个项目里：
 - 它在每个项目群里各有一条**独立的执行线程**，上下文互不干扰，只通过三种记忆互通。
-- 它同一时间只执行一个 run，各项目的任务在它的 inbox 里排队。
+- 它在不同群里的活可以**并行**（受并发上限约束，见 5.3.2）；同一个群里的活按顺序做。
 
-#### 5.5.4 什么时候自动建项目
+#### 5.5.4 主 Bot 什么时候建群
 
-用户说「帮我干个什么」时，由接到这句话的 Bot 判断。满足**任一**条件就建项目，否则直接在私聊里做完：
+用户对主 Bot 说「帮我干个什么」时，由主 Bot 判断（用户直接对普通 Bot 说时，普通 Bot 自己做完；如果需要别人配合，就转给主 Bot 建群）。满足**任一**条件就建群，否则直接在私聊里做完：
 - 需要**其他 Bot** 参与（超出自己的职责）
 - 预计**跨多次对话**或耗时较长（多步骤、需要等待、有截止日期）
 - 有**持续的产出物**（文档、代码、方案）需要沉淀
-- 用户明确说「建个项目」「拉个群」
+- 用户明确说「建个群」「拉个群」
 
-不建项目的例子：「查下明天天气」「把这段话翻译一下」「总结这个链接」。
+不建群的例子：「查下明天天气」「把这段话翻译一下」「总结这个链接」。
 
-建项目的过程**不打断用户**：
-1. Bot 起一个项目名（简短的事项名，例如「v0.1 发布」），写好目标。
-2. 按成员资料（头衔、描述）挑选相关 Bot 拉进群。nightly-labs 的做法是先 `list_bots`，再按名字、头衔、描述匹配。自己默认担任负责人。
-3. 在私聊里发一张**项目卡片**：项目名、目标、负责人、成员，以及 [进入项目群] [调整] 两个按钮。
-4. 在群里发开场消息：目标、分工，第一步由谁做。
-5. 如果找不到合适的 Bot，就提议「要不要新建一个『研究员』Bot？」。**新建 Bot 必须经过用户同意**。
+建群的过程**不打断用户**（主 Bot 设置里可以改成「建群前先问我」）：
+1. 主 Bot 起群名（简短的事项名，例如「登录功能」），写好目标、流程和截止时间，创建 Home 目录。
+2. 用 `list_bots` 按头衔和描述挑选相关 Bot 拉进群（nightly-labs 的做法），自己担任负责人。
+3. 在私聊里发一张**新群卡片**：群名、目标、成员、负责人，以及 [进入群] 按钮。
+4. 在群里发开场消息：事项、目标、流程，并 @ 第一个 Bot。
+5. 如果找不到合适的 Bot，就提议「要不要新建一个『测试』Bot？」。**新建 Bot 必须经过用户同意**。
 
-如果判断错了，用户直接说「不用建项目」，系统就把群解散，事情回到私聊。
+如果判断错了，用户说一句「不用建群」，系统就把群解散，事情回到私聊。
 
 #### 5.5.5 项目生命周期
 
-- **进行中**：显示在侧栏「项目」分组。
-- **完成**：负责人判断事情已经做完时，在群里提议「标记完成」，或者用户直接点。完成时会做三件事：
-  1. 负责人把项目总结写进项目记忆，包括结果、产出物和遗留问题。
+- **进行中**：显示在侧栏「群」列表。
+- **完成**：主 Bot 验收通过后标记完成，或者用户直接点。完成时会做四件事：
+  1. 主 Bot 在群里发总结，并写进项目记忆，包括结果、产出物和遗留问题。
   2. 每个成员 Bot 的工作记录追加一条。
   3. 如果过程中发现了用户偏好，提炼进用户记忆。
+  4. 主 Bot 在私聊里发完成通知，同时推送到手机。
 - **已完成**的项目折叠到侧栏的「已完成」里。可以继续发消息，发了就自动重新打开。
 - **归档**：从列表中隐藏，但记忆和记录保留，可以搜索。
 
@@ -393,18 +466,31 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 
 **Bot 间消息必须自包含**：交接或私信时，写清楚请求、背景和期望的产出。
 
-**群聊路由器**只读群摘要和成员资料，不读完整记录，也不带工具。能确定性判断的情况（@、回复、只有一个人在做的任务）不调用模型。
+**发言调用**只读公告、最近的群消息和自己的任务状态，不读完整记录，也不带工具。
 
 #### 5.5.7 记忆整理
 
 - run 结束时，L0 里有一条规则提醒 Bot：如果用户表达了偏好、纠正了它、或者形成了结论，就写进相应的记忆。
 - 每天空闲时跑一次后台整理：合并重复条目，清理过期内容，把工作记录合并成月度摘要。整理全程自动，不需要用户确认；改动可以在记忆页的「最近变化」里看到。
 
+#### 5.5.8 公告的生成
+
+公告不单独存储，而是由以下数据**实时拼出来**：projects（名称、目标、流程、截止日期、Home）、project_members（分工）、assignments（每个成员的当前状态）、artifacts（产物清单）、memories（项目记忆）。
+- 任何相关事件都会触发 `announcement.updated` 推送。
+- 干活 run 的上下文里放的是公告的文本版，这就是项目的共享上下文。
+
+#### 5.5.9 用量记账与统计
+
+- **每次模型调用都记一行 `usage`**，包括 Bot、群、任务、阶段（发言 / 干活 / 记忆 / 压缩）、服务商、模型、输入和输出 token、缓存读写 token、费用。费用 = token × `models.cost_json` 里配置的单价；没有配置单价时费用为空。
+- 写入时同时更新 `usage_daily` 汇总表，统计页只查汇总表。
+- 任务卡片上的实时 token 数由 `usage.tick` 事件推送，每个任务每 2 秒最多推一次。
+- API：`GET /api/v1/usage?from&to&group_by=bot|project|model|phase&bot_id&project_id`。
+
 ### 5.6 Provider
 - API 类型：`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative`。
 - 用户新增 provider 时填 base_url、key（存入钥匙串）和 API 类型，然后添加模型 ID 或从 `/models` 拉取列表。
 - 统一的流式事件：TextDelta、ThinkingDelta、ToolCallDelta、Usage、Stop。
-- 每个 Bot 单独选模型；群聊路由器可以单独配一个便宜的模型。
+- 每个 Bot 单独选**干活模型**和**发言模型**；发言模型默认用全局设置里便宜、快的模型。记忆整理和压缩也有单独的默认模型。
 
 ### 5.7 协议
 - WebSocket，JSON 帧 `{v, id, type, payload}`，请求/响应和服务端推送并存。
@@ -456,13 +542,13 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 
 | 阶段 | 内容 | 验收 |
 |------|------|------|
-| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、单个 Bot 私聊流式对话、durable resume、执行线程和分段、自动压缩（80% 阈值，先做摘要；记忆提取放到 P3）、密码鉴权、`/admin` 管理页（含首次设置密码）、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 和密码后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
-| **P2 多 Bot 与项目群** | Bot 增删改、Pin/Hide/Duplicate、独立 workspace 和基础工具、审批卡片；**项目（= 群）**：手动新建、私聊里自动建项目、项目卡片、生命周期；群聊路由、@ 和 Reply、Bot 间消息与 handoff、防循环 | 私聊里说「帮我准备 v0.1 发布」，自动建项目并拉 3 个 Bot 进群分工完成；审批只出现在私聊里 |
-| **P3 记忆与技能** | 三种记忆（用户、Bot、项目）；工作记录自动追加和滚动；私聊里自动识别并加载项目记忆；开新段前的记忆提取；项目完成总结；后台记忆整理；session_search / memory_search；记忆页；Skills 和 `/` 引用 | 跨会话记住用户偏好，能回答「我上周说过什么」 |
-| **P4 移动端** | Compose Multiplatform 客户端：会话列表、聊天、群聊、审批、通知、搜索；Android 前台服务；iOS 接入 APNs | 在小米 17 和 iPhone 上都能完成 P2 的场景 |
+| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、**和主 Bot 的私聊**流式对话、durable resume、执行线程和分段、自动压缩（80% 阈值，先做摘要；记忆提取放到 P3）、密码鉴权、`/admin` 管理页（含首次设置密码）、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 和密码后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
+| **P2 主 Bot 与群协作** | 主 Bot；Bot 增删改；**群 = 项目**（主 Bot 建群、Home 目录、公告、产物登记、生命周期）；**assignments 任务流转**（收到 → 工作中 → 完成 → @下一个、卡住）；**两段式输出**；**插话**；确定性路由（没 @ 时交给主 Bot）；**并发调度**（全局、每个 Bot、群内串行）；审批卡片；防循环；**工作台**；用量记账 | 场景测试：对主 Bot 说「给 App 加邮箱登录」→ 自动建群、产品 → 编码 → 测试依次接力 → 中途 @编码 插话生效 → 主 Bot 验收并在私聊里通知；同时另一个群里的编码任务并行；工作台能看到两件活 |
+| **P3 记忆、技能与统计** | 三种记忆（用户、Bot、项目）；工作记录自动追加和滚动；私聊里自动识别并加载项目记忆；开新段前的记忆提取；项目完成总结；后台记忆整理；session_search / memory_search；记忆页；Skills 和 `/` 引用；**统计页**（按 Bot / 群 / 模型 / 阶段，含趋势） | 跨会话记住用户偏好，能回答「我上周说过什么」 |
+| **P4 移动端** | Compose Multiplatform 客户端：消息（主 Bot / 群 / Bot）、群（状态条、公告、任务卡片、插话）、工作详情、工作台、统计、审批、通知、搜索；Android 前台服务；iOS 接入 APNs | 在小米 17 和 iPhone 上都能完成 P2 的场景 |
 | **P5 Routines** | 调度器、通过对话创建、Test run、运行历史 | 「每天 9 点总结 xxx」按时执行并推送结果 |
 | **P6 电脑操控** | 以 sidecar 方式集成 agent-browser（每个 Bot 一个会话，复用 Chrome profile）；macbotd 代理实时画面和输入；Agent Computer 面板和接管 | 用系统 Chrome 已有的 X 登录态刷帖并总结 |
-| **P7 打磨** | 语音、文件页、全局搜索、用量统计；客户端和服务端的自动更新（服务端通过 `/admin` 或 `macbot update` 更新）；签名的 .pkg 和 .dmg | 双击 .pkg 安装后，到客户端登录、开始对话，全程不需要碰终端 |
+| **P7 打磨** | 语音、文件页、全局搜索；客户端和服务端的自动更新（服务端通过 `/admin` 或 `macbot update` 更新）；签名的 .pkg 和 .dmg | 双击 .pkg 安装后，到客户端登录、开始对话，全程不需要碰终端 |
 | **v2** | Windows 客户端；Computer Node（在 Windows 上以 `macbotd node` 运行）| Mac 上的 Bot 能操作 Windows 上的浏览器 |
 | **v3（可选）** | Host 联邦：跨 Host 的 Bot 消息和群聊 | |
 
