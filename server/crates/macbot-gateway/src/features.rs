@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -133,6 +133,7 @@ pub struct FeatureService {
     maintenance: Arc<RwLock<Option<Arc<dyn AsyncMaintenanceProvider>>>>,
     maintenance_policy: Arc<RwLock<MaintenancePolicy>>,
     maintenance_state: Arc<RwLock<MaintenanceState>>,
+    project_finalize_lock: Arc<Mutex<()>>,
 }
 
 /// The one feature state handle shared by gateway RPCs, a model run and
@@ -229,6 +230,7 @@ impl FeatureService {
             maintenance: Arc::new(RwLock::new(None)),
             maintenance_policy: Arc::new(RwLock::new(MaintenancePolicy::default())),
             maintenance_state: Arc::new(RwLock::new(maintenance_state)),
+            project_finalize_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -654,6 +656,92 @@ impl FeatureService {
 
     pub fn rollback_memory_run(&self, run_id: &str) -> FeatureResult<bool> {
         Ok(self.shared_memory.rollback_run(run_id)?)
+    }
+
+    /// Persist the final project summary and the originating Bot's worklog as
+    /// one idempotent memory transaction. Confirm-done retries reuse stable
+    /// entry IDs; identical retries are no-ops and later project completions
+    /// replace the same two records instead of appending duplicates.
+    pub fn finalize_project_summary(
+        &self,
+        project_id: &str,
+        bot_id: &str,
+        summary: &str,
+    ) -> FeatureResult<Vec<MemoryEntry>> {
+        let project_id = project_id.trim();
+        let bot_id = bot_id.trim();
+        let summary = summary.trim();
+        if project_id.is_empty() || bot_id.is_empty() || summary.is_empty() {
+            return Err(FeatureError::Invalid(
+                "project_id, bot_id and summary are required".into(),
+            ));
+        }
+        let _guard = self
+            .project_finalize_lock
+            .lock()
+            .map_err(|_| FeatureError::Invalid("project finalize lock poisoned".into()))?;
+        let project_entry_id = format!("project-summary:{project_id}");
+        let worklog_entry_id = format!("project-summary-worklog:{project_id}:{bot_id}");
+        let existing = self.shared_memory.entries()?;
+        let existing_project = existing.iter().find(|entry| entry.id == project_entry_id);
+        let existing_worklog = existing.iter().find(|entry| entry.id == worklog_entry_id);
+        if let (Some(project), Some(worklog)) = (existing_project, existing_worklog) {
+            if project.content == summary && worklog.content == summary {
+                return Ok(vec![project.clone(), worklog.clone()]);
+            }
+        }
+
+        let run_id = format!("project-summary-run:{project_id}:{bot_id}");
+        self.begin_memory_run(&run_id)?;
+        let source = MemorySource {
+            bot_id: Some(bot_id.to_owned()),
+            run_id: Some(run_id.clone()),
+            session_id: None,
+        };
+        let stage = (|| {
+            self.shared_memory.stage(
+                &run_id,
+                MemoryRequest {
+                    target: MemoryTarget::project(project_id),
+                    action: if existing_project.is_some() {
+                        MemoryAction::Replace
+                    } else {
+                        MemoryAction::Add
+                    },
+                    content: summary.to_owned(),
+                    id: Some(project_entry_id),
+                    kind: Some(MemoryKind::Project),
+                    source: source.clone(),
+                },
+            )?;
+            self.shared_memory.stage(
+                &run_id,
+                MemoryRequest {
+                    target: MemoryTarget::bot(bot_id),
+                    action: if existing_worklog.is_some() {
+                        MemoryAction::Replace
+                    } else {
+                        MemoryAction::Add
+                    },
+                    content: summary.to_owned(),
+                    id: Some(worklog_entry_id),
+                    kind: Some(MemoryKind::BotWorklog),
+                    source,
+                },
+            )?;
+            Ok::<_, MemoryError>(())
+        })();
+        if let Err(error) = stage {
+            let _ = self.rollback_memory_run(&run_id);
+            return Err(error.into());
+        }
+        match self.commit_memory_run(&run_id) {
+            Ok(entries) => Ok(entries),
+            Err(error) => {
+                let _ = self.rollback_memory_run(&run_id);
+                Err(error)
+            }
+        }
     }
 
     /// Complete a successful execution and append its durable Bot worklog in
@@ -2028,6 +2116,46 @@ mod tests {
             .entries
             .iter()
             .any(|entry| { entry.target.scope == MemoryScope::Bot && entry.content == "fact" }));
+    }
+
+    #[test]
+    fn project_summary_is_idempotent_and_survives_restart() {
+        let home = tempfile::tempdir().unwrap().keep();
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let first = service
+            .finalize_project_summary("project-a", "bot-a", "最终项目结论")
+            .unwrap();
+        assert_eq!(first.len(), 2);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
+        let retry = service
+            .finalize_project_summary("project-a", "bot-a", "最终项目结论")
+            .unwrap();
+        assert_eq!(retry, first);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
+        let updated = service
+            .finalize_project_summary("project-a", "bot-a", "第二次项目结论")
+            .unwrap();
+        assert_eq!(updated.len(), 2);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
+        let retry_updated = service
+            .finalize_project_summary("project-a", "bot-a", "第二次项目结论")
+            .unwrap();
+        assert_eq!(retry_updated, updated);
+        drop(service);
+
+        let restored = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
+        let entries = restored.shared_memory.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|entry| {
+            entry.target == MemoryTarget::project("project-a")
+                && entry.kind == MemoryKind::Project
+                && entry.content == "第二次项目结论"
+        }));
+        assert!(entries.iter().any(|entry| {
+            entry.target == MemoryTarget::bot("bot-a")
+                && entry.kind == MemoryKind::BotWorklog
+                && entry.content == "第二次项目结论"
+        }));
     }
 
     struct FakeMaintenance;
