@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.4
+# Mac Bot 规划 v0.5
 
 > 状态：规划中，尚未开始编码。
+> v0.5 变更：服务端改为无界面守护进程 macbotd（.pkg 安装、LaunchAgent），只带极简的本机 Web 管理页和 CLI；所有业务配置都通过客户端走 API；桌面 App 改为纯客户端。
 > v0.4 变更：确定部署形态为中心 Host + 客户端（支持多 Host，预留节点和联邦扩展）；v1 不做 Windows，只做 macOS、Android、iOS；当前阶段只做设计和规划。
 > v0.3 变更：移动端增加 iOS，改用 Kotlin Multiplatform + Compose Multiplatform；补充开发环境说明。
 > v0.2 变更：去掉虚拟机和沙箱；改为多 Bot，每个 Bot 有独立工作间；新增群聊和 Bot 间协作；电脑操控改为控制系统自带的浏览器，并推迟到后续阶段；交互全面对齐 Grok Bot；Android 改用原生技术栈。
@@ -13,7 +14,7 @@
 
 | 项 | 决策 |
 |----|------|
-| 部署形态 | **中心 Host + 客户端**（详见 5.0）：Bot 只运行在 Host 上，客户端可以连接多台 Host；桌面 App 同时包含客户端和可选的 Host |
+| 部署形态 | **无界面服务端 + 客户端**（详见 5.0）：服务端 `macbotd` 是守护进程，只带一个极简的本机 Web 管理页（`/admin`）和 CLI；Bot、模型、记忆等所有配置都通过客户端走 API；客户端可以连接多台 Host |
 | 部署 | 服务端运行在 M 系列 Mac 上，16 GB 内存；**不用虚拟机，不做沙箱**（沙箱作为远期可选项） |
 | 网络 | 服务端监听一个固定端口，客户端填 `host:port` 直连。公网代理由用户自行解决，不在本项目范围内 |
 | 安全 | v1 只做**设备配对和令牌鉴权**；TLS、审计等以后再做 |
@@ -117,22 +118,50 @@
 | 跨机能力 | Client 可以同时连接多台 Host，所以操控另一台机器上的 Bot 天然就支持 | 原生支持 |
 | 复杂度 | 低 | 高（节点之间要配对和互信、消息要路由、要做补发和去重） |
 
-**决策：采用 A（中心 Host），但从第一天起按「多 Host + 节点」预留扩展点。三种角色都放进同一个桌面 App：**
+**决策：采用 A（中心 Host），服务端做成无界面的守护进程，所有管理都走 API（API-first）。从第一天起按「多 Host + 节点」预留扩展点。**
 
-1. **桌面 App = Client + 可选的 Host。** 在 Mac 上，第一次启动时问「是否把这台 Mac 作为 Bot 主机？」。选「是」就在后台以 LoginItem 方式运行 macbot-server，并显示配对码；选「否」就只当客户端。分发时只有一个 dmg。
-2. **手机 App 只是 Client。**
-3. **Client 支持多个 Host**：侧栏顶部有一个 Host 切换器，类似 Slack 切换工作区，可以同时连接家里的 Mac mini 和办公室的另一台 Mac。「操控另一台机器上的 Bot」就是靠这个实现的。
-4. **全局唯一标识**：每台 Host 有一个 `node_id`（UUID）和名字；Bot、会话、消息的 ID 都用 UUIDv7，并记录所属的 `node_id`。Bot 的完整地址写作 `bot_id@node_id`。
-5. **服务端核心与平台无关**：和平台相关的能力都放在 trait 后面，包括密钥存储、自启动、浏览器桥接、桌面操控。以后要在 Windows 上做 Host，只需要实现这几个 trait。
+1. **服务端 = 无界面的守护进程 `macbotd`**，装好就能用。
+   - 安装包是 `.pkg`，安装时做三件事：把程序装进系统；注册当前用户的 **LaunchAgent**，开机登录后自动启动、崩溃后自动重启；安装结束时用浏览器打开 `http://localhost:7788/admin`。
+   - **为什么必须是用户级 LaunchAgent，而不是 root 级 LaunchDaemon**：只有在用户会话里运行，才能访问该用户的钥匙串、用户的 Chrome（后期电脑操控要用），以及将来可能用到的屏幕录制和辅助功能权限。
+   - 打包形式：二进制放在一个**没有界面的 `.app` 包**里（`LSUIElement`）。好处是签名、公证和系统权限都有一个稳定的身份，升级后不用重新授权。
+2. **所有管理操作都走同一个端口的 API。** Bot 的增删改、模型和 provider、记忆、定时任务、审批规则、设备管理，**全部在客户端里完成**；服务端本身不提供业务界面。
+3. **服务端只提供一个极简的 Web 管理页**（`/admin`），**默认只允许本机（localhost）访问**。它只负责客户端连上之前的那些事：
+   - 运行状态（版本、端口、node_id、运行时长、已连接的设备）
+   - **配对码和二维码**（二维码里包含 host:port 和配对码）
+   - 已配对设备列表和吊销
+   - 修改端口和 Host 名称、查看日志、重启服务
+   - 页面是嵌入二进制的单个 HTML 文件加少量原生 JS，**不引入前端构建链**
+4. **命令行 `macbot`**（与 `macbotd` 是同一个二进制的子命令）：`macbot status`、`macbot pair`（在终端里打印配对码和二维码，适合通过 SSH 远程配置 Mac mini）、`macbot devices`、`macbot logs`、`macbot restart`。CLI 通过本地 Unix socket 和守护进程通信，靠文件权限鉴权，不需要令牌。
+5. **桌面 App（GPUI）和手机 App 都只是客户端**，不再内置 Host，也不管理服务端的生命周期。
+6. **Client 支持多个 Host**：侧栏顶部有一个 Host 切换器，类似 Slack 切换工作区，可以同时连接家里的 Mac mini 和办公室的另一台 Mac。「操控另一台机器上的 Bot」就是靠这个实现的。
+7. **全局唯一标识**：每台 Host 有一个 `node_id`（UUID）和名字；Bot、会话、消息的 ID 都用 UUIDv7，并记录所属的 `node_id`。Bot 的完整地址写作 `bot_id@node_id`。
+8. **服务端核心与平台无关**：和平台相关的能力都放在 trait 后面，包括密钥存储、自启动、浏览器桥接、桌面操控。服务端没有界面，所以以后移植到 Windows、Linux（例如 NAS），只需要实现这几个 trait。
+
+**首次使用流程**
+1. 在 Mac mini 上双击 `MacBot-Server.pkg` 安装，安装结束后浏览器自动打开 `localhost:7788/admin`。
+2. 管理页显示配对码和二维码。如果 Mac mini 没接显示器，可以 SSH 上去执行 `macbot pair`。
+3. 在 Mac、Android 或 iOS 客户端里「添加 Host」：扫码，或者手动填 host:port 和配对码。
+4. 之后的一切操作，包括创建 Bot、配置模型等，都在客户端里完成。
+
+**端口上的路由规划（同一个端口）**
+
+| 路径 | 用途 | 访问范围 |
+|------|------|----------|
+| `/ws` | 客户端协议：请求、响应、事件推送 | 已配对设备（令牌） |
+| `/api/v1/*` | HTTP JSON，和 `/ws` 能力一致，方便脚本和第三方集成 | 已配对设备（令牌） |
+| `/pair` | 提交配对码、换取设备令牌 | 公开（配对码 5 分钟有效，限制尝试次数） |
+| `/admin` | 极简管理页 | 默认只允许 localhost；可选开放到局域网，但需要设置管理密码 |
+| `/ext` | 后期：Chrome 扩展连接 | 只允许 localhost |
 
 **后续扩展路径（按价值排序）：**
-- **v2 Computer Node**：Windows 机器装上同一个 App，开启「把本机电脑借给 Host」，Mac 上的 Bot 就能操作 Windows 上的浏览器和 shell。Bot 和记忆仍然集中在 Mac 上，没有数据同步问题。**这比在 Windows 上另起一套 Bot 更实用。**
+- **v2 Computer Node**：在 Windows 上运行同一个守护进程，以 `macbotd node` 模式启动，把本机的浏览器和 shell 借给 Mac 上的 Bot 使用。Bot 和记忆仍然集中在 Mac 上，没有数据同步问题。**这比在 Windows 上另起一套 Bot 更实用。**
 - **v3 Host 联邦（可选）**：两台 Host 之间配对以后，Bot 可以通过 `send_message(to: bot@node)` 跨机器发消息。跨机群聊由发起方所在的 Host 担任「主节点」保存记录，远端的 Bot 以「远程成员」身份参与，消息投递到它所在 Host 的 inbox。协议上预留了这些字段，等真有需要再做。
 
 ```
-┌──────────────── Mac（macbot-server，单进程）─────────────────────┐
-│ Gateway  axum + WebSocket，固定端口（默认 7788）                    │
+┌──────────── Mac（macbotd，无界面守护进程，LaunchAgent）──────────────┐
+│ Gateway  axum，固定端口（默认 7788）：/ws /api/v1 /pair /admin /ext   │
 │   配对 / 令牌鉴权 / 协议版本 / 事件流（按 seq 断线续传）               │
+│ Local CLI  Unix socket ← `macbot status|pair|devices|logs`         │
 │                                                                   │
 │ Orchestrator（群聊路由、Bot 间消息、handoff、防循环）                 │
 │   │                                                               │
@@ -150,7 +179,7 @@
         ▲ ws://host:port                     ▲
  ┌──────┴──────────┐            ┌────────────┴─────────────┐
  │ Desktop（GPUI）  │            │ Mobile（Compose MP）      │
- │ macOS / Windows  │            │ Android + iOS，Ktor WS    │
+ │ v1 macOS（纯客户端）│          │ Android + iOS，Ktor WS    │
  └─────────────────┘            │ iOS 后台通知走 APNs        │
                                 └──────────────────────────┘
         ▲ 后期：Chrome 扩展「Mac Bot Connector」通过 localhost 连接服务端
@@ -168,8 +197,8 @@ mac-bot/
 │   ├── macbot-memory        # curated memory + session_search
 │   ├── macbot-orchestrator  # 群聊路由、Bot 间消息、handoff
 │   ├── macbot-tools         # 内置工具；后期加入 browser、desktop、mcp
-│   ├── macbot-server        # 守护进程
-│   └── macbot-client        # 桌面端共用的协议客户端（重连、本地缓存）
+│   ├── macbot-server        # 守护进程 + CLI，二进制名为 macbotd（`macbot` 是指向它的软链接）；内嵌 /admin 页面
+│   └── macbot-client        # 桌面端用的协议客户端（重连、本地缓存）
 ├── apps/
 │   ├── desktop/             # gpui-kit（只依赖这一个 crate，它会固定匹配的 GPUI 版本）
 │   ├── mobile/              # Kotlin Multiplatform + Compose Multiplatform
@@ -180,7 +209,15 @@ mac-bot/
 └── docs/
 ```
 
-在 macOS 上分发时只有一个 dmg：桌面 App 内置 macbot-server，作为 LoginItem 运行，角色说明见 5.0。
+**分发产物**
+
+| 产物 | 内容 |
+|------|------|
+| `MacBot-Server.pkg` | macbotd（放在无界面的 .app 包里）、LaunchAgent plist、`macbot` CLI 软链接；装在 Host 上 |
+| `MacBot.dmg` | 桌面客户端（GPUI），装在任意 Mac 上 |
+| `MacBot.apk` / iOS（TestFlight 或自签） | 手机客户端 |
+
+另外提供 `install.sh`（`curl … \| sh`），给喜欢命令行安装的用户。
 
 ### 5.2 数据模型（SQLite 草案）
 
@@ -263,21 +300,21 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 | 会话详情抽屉 | Profile、Routines、Files、Memory、Members（群聊） |
 | New chat 面板 | Create new Bot / 选 2 到 6 个 Bot 建群 |
 | Skills 页 | 列表、编辑、新建 |
-| Settings | Models & Providers、Agent（Auto Review 档位与允许/拒绝规则）、Devices、Computer（后期）、Appearance、Language、Usage、Host（端口、配对码） |
+| Settings | Models & Providers、Agent（Auto Review 档位与允许/拒绝规则）、Devices、Computer（后期）、Appearance、Language、Usage、Host（当前 Host 的名称、版本、node_id；添加和切换 Host） |
 | Agent Computer | 后期：右侧面板，显示实时画面，提供接管按钮 |
 
 ## 7. 里程碑（按顺序推进，不先做技术验证）
 
 | 阶段 | 内容 | 验收 |
 |------|------|------|
-| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、单个 Bot 私聊流式对话、durable resume、配对、GPUI 侧栏和聊天 | 桌面端填 host:port 并配对后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
+| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、单个 Bot 私聊流式对话、durable resume、配对、`/admin` 管理页、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 并配对后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
 | **P2 多 Bot 与群聊** | Bot 增删改、Pin/Hide/Duplicate、独立 workspace 和基础工具、审批卡片、群聊路由、@ 和 Reply、Bot 间消息与 handoff、防循环 | 3 个 Bot 在群里分工完成一个任务，中间有交接；审批只出现在私聊里 |
 | **P3 记忆与技能** | 用户画像和 Bot 笔记、session_search、Memory 页、Skills 和 `/` 引用 | 跨会话记住用户偏好，能回答「我上周说过什么」 |
 | **P4 移动端** | Compose Multiplatform 客户端：会话列表、聊天、群聊、审批、通知、搜索；Android 前台服务；iOS 接入 APNs | 在小米 17 和 iPhone 上都能完成 P2 的场景 |
 | **P5 Routines** | 调度器、通过对话创建、Test run、运行历史 | 「每天 9 点总结 xxx」按时执行并推送结果 |
 | **P6 电脑操控** | 先用 Playwright MCP 扩展模式过渡，再上 Mac Bot Connector 扩展；Agent Computer 实时画面和接管；可选接入 cua-driver | 用系统 Chrome 已有的 X 登录态刷帖并总结 |
-| **P7 打磨** | 语音、文件页、全局搜索、用量统计、自动更新 | |
-| **v2** | Windows 客户端、Computer Node（Host 上的 Bot 借用其他机器的浏览器和 shell）| 在 Windows 上打开 App，就能让 Mac 上的 Bot 操作这台 Windows 的浏览器 |
+| **P7 打磨** | 语音、文件页、全局搜索、用量统计；客户端和服务端的自动更新（服务端通过 `/admin` 或 `macbot update` 更新）；签名的 .pkg 和 .dmg | 双击 .pkg 安装后，从客户端配对到开始对话全程不需要碰终端 |
+| **v2** | Windows 客户端；Computer Node（在 Windows 上以 `macbotd node` 运行）| Mac 上的 Bot 能操作 Windows 上的浏览器 |
 | **v3（可选）** | Host 联邦：跨 Host 的 Bot 消息和群聊 | |
 
 ## 8. 开发环境
