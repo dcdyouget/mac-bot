@@ -1,0 +1,4 @@
+# Generated application bundles and distributable archives.
+/dist/
+
+# Progress screenshots are stage evidence and may be committed under progress/.

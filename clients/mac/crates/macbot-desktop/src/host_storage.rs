@@ -1,0 +1,325 @@
+//! Persistent multi-host connection metadata for the macOS client.
+//!
+//! Host metadata is kept in `~/Library/Application Support/MacBot/hosts.json`.
+//! Passwords are deliberately kept out of that file and stored in the macOS
+//! login keychain as generic passwords. A keychain failure is returned to the
+//! caller; there is no plaintext fallback.
+
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{self, Write},
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    path::{Path, PathBuf},
+};
+
+use anyhow::{Context, Result, anyhow};
+use security_framework::os::macos::{keychain::SecKeychain, passwords::find_generic_password};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+const KEYCHAIN_SERVICE: &str = "bot.mac.desktop.host-password";
+const STORE_DIR: &str = "Library/Application Support/MacBot";
+const STORE_FILE: &str = "hosts.json";
+
+/// Non-secret information needed to reconnect to one Mac Bot host.
+///
+/// `id` is the local stable identifier used as the keychain account. The
+/// server's `node_id` may be absent before the first successful handshake.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct HostRecord {
+    pub id: String,
+    pub name: String,
+    pub node_id: Option<String>,
+    pub addresses: Vec<String>,
+    pub last_seq: u64,
+    pub device_id: String,
+}
+
+/// A collection of remembered hosts. The store path is private so callers do
+/// not accidentally write credentials or metadata to an arbitrary location.
+pub struct HostStore {
+    path: PathBuf,
+    device_id: String,
+    hosts: Vec<HostRecord>,
+}
+
+impl HostStore {
+    /// Load the default store. A missing file means a fresh, empty store.
+    pub fn load() -> Result<Self> {
+        Self::load_from_path(default_store_path()?)
+    }
+
+    /// Load a store from a path. This is useful for tests and does not change
+    /// the production default used by [`Self::load`].
+    pub fn load_from_path(path: impl Into<PathBuf>) -> Result<Self> {
+        let path = path.into();
+        let hosts = match fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice::<Vec<HostRecord>>(&bytes)
+                .with_context(|| format!("decode host store {}", path.display()))?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => {
+                return Err(error).with_context(|| format!("read host store {}", path.display()));
+            }
+        };
+
+        let device_id = hosts
+            .first()
+            .map(|host| host.device_id.clone())
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        Ok(Self {
+            path,
+            device_id,
+            hosts,
+        })
+    }
+
+    /// Build an empty store at a custom path. Production callers should use
+    /// [`Self::load`], but this keeps storage tests isolated from user data.
+    pub fn new_at(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            device_id: Uuid::new_v4().to_string(),
+            hosts: Vec::new(),
+        }
+    }
+
+    pub fn hosts(&self) -> &[HostRecord] {
+        &self.hosts
+    }
+
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
+    pub fn get(&self, id: &str) -> Option<&HostRecord> {
+        self.hosts.iter().find(|host| host.id == id)
+    }
+
+    /// Persist metadata with an atomic rename and mode 0600.
+    pub fn save(&self) -> Result<()> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| anyhow!("host store has no parent directory"))?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create host store directory {}", parent.display()))?;
+        set_mode(parent, 0o700)?;
+
+        let temp_path = temporary_path(&self.path);
+        let bytes = serde_json::to_vec_pretty(&self.hosts).context("encode host store")?;
+        let write_result = (|| -> Result<()> {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&temp_path)
+                .with_context(|| format!("create temporary host store {}", temp_path.display()))?;
+            file.write_all(&bytes).context("write host store")?;
+            file.sync_all().context("sync host store")?;
+            set_mode(&temp_path, 0o600)?;
+            fs::rename(&temp_path, &self.path)
+                .with_context(|| format!("replace host store {}", self.path.display()))?;
+            set_mode(&self.path, 0o600)?;
+            sync_directory(parent)
+        })();
+
+        if write_result.is_err() {
+            let _ = fs::remove_file(&temp_path);
+        }
+        write_result
+    }
+
+    /// Remember or update a host, storing its password in the login keychain.
+    ///
+    /// Existing records are matched by server `node_id`, then by their first
+    /// address. Password storage succeeds before metadata is written. If the
+    /// keychain rejects the operation, the JSON file is left untouched.
+    pub fn remember(
+        &mut self,
+        name: impl Into<String>,
+        addresses: Vec<String>,
+        password: &str,
+        node_id: Option<String>,
+        last_seq: u64,
+    ) -> Result<HostRecord> {
+        let name = name.into().trim().to_owned();
+        if name.is_empty() {
+            return Err(anyhow!("host name cannot be empty"));
+        }
+        let addresses = addresses
+            .into_iter()
+            .map(|address| address.trim().to_owned())
+            .filter(|address| !address.is_empty())
+            .collect::<Vec<_>>();
+        if addresses.is_empty() {
+            return Err(anyhow!("host requires at least one address"));
+        }
+
+        let index = node_id
+            .as_deref()
+            .and_then(|id| {
+                self.hosts
+                    .iter()
+                    .position(|host| host.node_id.as_deref() == Some(id))
+            })
+            .or_else(|| {
+                let first_address = addresses.first()?;
+                self.hosts
+                    .iter()
+                    .position(|host| host.addresses.first() == Some(first_address))
+            });
+        let id = index
+            .map(|index| self.hosts[index].id.clone())
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        // The password never enters HostRecord or the serialized buffer.
+        set_keychain_password(&id, password.as_bytes())
+            .with_context(|| format!("store password for host {id} in macOS Keychain"))?;
+
+        let record = HostRecord {
+            id: id.clone(),
+            name,
+            node_id,
+            addresses,
+            last_seq,
+            device_id: self.device_id.clone(),
+        };
+        let old = index.map(|index| self.hosts[index].clone());
+        match index {
+            Some(index) => self.hosts[index] = record.clone(),
+            None => self.hosts.push(record.clone()),
+        }
+        if let Err(error) = self.save() {
+            match old {
+                Some(previous) => self.hosts[index.expect("existing index")] = previous,
+                None => {
+                    self.hosts.retain(|host| host.id != id);
+                }
+            }
+            return Err(error).context("persist host metadata after keychain update");
+        }
+        Ok(record)
+    }
+
+    /// Read the password for a record from the macOS login keychain.
+    pub fn password(&self, record: &HostRecord) -> Result<String> {
+        let (password, _item) = find_generic_password(None, KEYCHAIN_SERVICE, &record.id)
+            .with_context(|| format!("read password for host {} from macOS Keychain", record.id))?;
+        String::from_utf8(password.as_ref().to_vec()).context("host password is not valid UTF-8")
+    }
+
+    /// Remove metadata and its keychain password. Missing records are a no-op.
+    pub fn remove(&mut self, id: &str) -> Result<()> {
+        let Some(index) = self.hosts.iter().position(|host| host.id == id) else {
+            return Ok(());
+        };
+        delete_keychain_password(id)?;
+        let removed = self.hosts.remove(index);
+        if let Err(error) = self.save() {
+            self.hosts.insert(index, removed);
+            return Err(error).context("persist host metadata after keychain removal");
+        }
+        Ok(())
+    }
+}
+
+fn default_store_path() -> Result<PathBuf> {
+    let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
+    Ok(PathBuf::from(home).join(STORE_DIR).join(STORE_FILE))
+}
+
+fn temporary_path(path: &Path) -> PathBuf {
+    let suffix = format!("{}.{}.tmp", std::process::id(), Uuid::new_v4());
+    path.with_file_name(format!(
+        ".{}.{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(STORE_FILE),
+        suffix
+    ))
+}
+
+fn set_mode(path: &Path, mode: u32) -> Result<()> {
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .with_context(|| format!("set permissions {:o} on {}", mode, path.display()))
+}
+
+fn sync_directory(path: &Path) -> Result<()> {
+    File::open(path)
+        .and_then(|file| file.sync_all())
+        .with_context(|| format!("sync directory {}", path.display()))
+}
+
+fn set_keychain_password(account: &str, password: &[u8]) -> Result<()> {
+    // `set_generic_password` updates an existing item or creates it. It is
+    // intentionally the only persistence path for the credential.
+    SecKeychain::default()?
+        .set_generic_password(KEYCHAIN_SERVICE, account, password)
+        .map_err(Into::into)
+}
+
+fn delete_keychain_password(account: &str) -> Result<()> {
+    match find_generic_password(None, KEYCHAIN_SERVICE, account) {
+        Ok((_password, item)) => {
+            item.delete();
+            Ok(())
+        }
+        Err(error) => {
+            // Security.framework uses errSecItemNotFound for an already absent
+            // item. The store remains safe either way; surface other failures.
+            if error.code() == -25300 {
+                Ok(())
+            } else {
+                Err(error.into())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialized_records_never_contain_password() {
+        let record = HostRecord {
+            id: "host-id".into(),
+            name: "Mac mini".into(),
+            node_id: Some("node-1".into()),
+            addresses: vec!["127.0.0.1:7789".into()],
+            last_seq: 4,
+            device_id: "device-1".into(),
+        };
+        let json = serde_json::to_string(&record).unwrap();
+        assert!(!json.contains("password"));
+        assert!(json.contains("node_id"));
+    }
+
+    #[test]
+    fn store_uses_private_mode_and_round_trips_metadata() {
+        let root = std::env::temp_dir().join(format!("macbot-host-store-{}", Uuid::new_v4()));
+        let path = root.join("hosts.json");
+        let store = HostStore::new_at(&path);
+        let record = HostRecord {
+            id: "host-id".into(),
+            name: "Mac mini".into(),
+            node_id: None,
+            addresses: vec!["127.0.0.1:7789".into()],
+            last_seq: 9,
+            device_id: store.device_id.clone(),
+        };
+        let store = HostStore {
+            hosts: vec![record.clone()],
+            ..store
+        };
+        store.save().unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let loaded = HostStore::load_from_path(&path).unwrap();
+        assert_eq!(loaded.hosts(), &[record]);
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(&root);
+    }
+}
