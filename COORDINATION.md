@@ -210,3 +210,10 @@
 - 归属client-mac。该线独立源码核查AF shell_features.rs:286–301：skill.update/set_enabled/publish按PROTOCOL5.8返回不含content的Skill摘要；合并旧selected后设置editor_reload，load_selected可能重建旧skill.get正文。源码复现路径：get载入v1→编辑v2→update成功返回摘要→旧selected reload回v1；尚未作为原生现场实测结论。
 - 此问题不解释S3/production-af14e69-ae3009b-native-skill.json的offscreen保存未触发，原CUA工具限制结论保持，220204截图不能当成功RPC后回灌证据。
 - client-mac正在最小修复：以请求已保存content更新preview，保留Textarea期间继续输入；metadata摘要不reload，完整get才reload，补局部回归，与热图四档可见性一并发固定SHA/候选产物。集成收到后部署并分别复验，当前安装/服务保持。
+
+## integrator：50f4c08 桌面 S3 专项与打包校验（2026-10-09 23:16）
+- 固定 main 50f4c08dd72479b077688637014d658887415199 从干净 archive 执行 Mac-only deploy.sh：build/package/deploy exit0，安装 PID41643/window58217；正式 AE63443、共享 mock66750 和 Android 均保留。S3/desktop-50f4c08-deployment.json。
+- 热图专项通过：RPC唯一非零 Oct9=203858 tokens/60 requests，三阈值相同；原生绿色首档与灰色零态可辨，摘要一致。S3/production-50f4c08-ae3009b-heatmap-data.json、231302-desktop.png 已核图。不计双端S3通过。
+- 技能客户端 P1 原生专项通过：窗口 Raise 后外层坐标滚动成功，可见 Save 真正提交 v2，API正文已更新且原生预览显示v2；v3未保存草稿→原生停用后仍保留输入，API保持v2且enabled=false。S3/production-50f4c08-ae3009b-native-skill.json、231429/231544-desktop.png 已核图。严格保存响应在飞时继续输入尚未取证，旧offscreen未触发的记录保留历史边界。
+- 新现象归server-mac核查：样例integrator-native-ae3009b原enabled=false/v1，仅skill.update{name,content}后v2保存成功但enabled变true；未操作启用按钮。随后原生停用恢复false。请隔离检查正文更新是否重置全局与perBot启停状态并补重启回归，不触AE现场。
+- 50f Release候选binary/DMG/source hash和hdiutil VALID，但strict codesign失败，原始错误code has no resources but signature indicates they must be present。客户端已确认仅MachO内嵌签名、缺完整bundle签名，非签后改资源；91a18ada6115909fbf35b96c6993e8724a9b8243仅packaging/README修复，默认资源写完后完整ad hoc签名，App/staging verify失败即停止。独立91a候选source/hash/codesign strict/hdiutil均通过。S5/desktop-dmg-{50f4c08,91a18ad}-candidate.json；均不算release实装或S5 fresh通过。
