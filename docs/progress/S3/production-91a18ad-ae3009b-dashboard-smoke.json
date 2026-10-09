@@ -1,0 +1,27 @@
+{
+  "scenario": "Signed development desktop smoke",
+  "desktop_source": "91a18ada6115909fbf35b96c6993e8724a9b8243",
+  "desktop_pid": 52177,
+  "server_source": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "usage_request": {
+    "from": "2026-09-09T15:30:13.969688+00:00",
+    "to": "2026-10-09T15:30:13.969688+00:00"
+  },
+  "current": {
+    "cache_read_tokens": 46945,
+    "cache_write_tokens": 0,
+    "cost": null,
+    "input_tokens": 204970,
+    "output_tokens": 12265,
+    "requests": 63,
+    "tasks_done": 0
+  },
+  "native_tokens": 217235,
+  "native_requests": 63,
+  "native_cache_percent": 19,
+  "green_positive_zero_grey_visually_verified": true,
+  "status": "PASS",
+  "joint_s3_passed": false,
+  "screenshot": "20261009-233044-desktop.png",
+  "screenshot_visually_verified": true
+}

@@ -1,0 +1,20 @@
+{
+  "source_commit": "91a18ada6115909fbf35b96c6993e8724a9b8243",
+  "configuration": "debug",
+  "deployed_by": "deploy.sh fixed clean archive Mac-only",
+  "desktop_pids": [
+    "52177"
+  ],
+  "strict_codesign_verified": true,
+  "server_source": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "server_listener_pids": [
+    "63443"
+  ],
+  "mock_listener_pids": [
+    "66750"
+  ],
+  "observed_at": "2026-10-09T15:22:28.791229+00:00",
+  "native_window_raised": true,
+  "formal_host_autoconnected": true,
+  "s5_fresh_install_passed": false
+}

@@ -1,0 +1,40 @@
+{
+  "scenario": "S4 native browser input attempt",
+  "status": "INCOMPLETE",
+  "desktop_source": "91a18ada6115909fbf35b96c6993e8724a9b8243",
+  "desktop_pid": 52177,
+  "window_id": 58402,
+  "server_source": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "server_pid": 63443,
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "tab_id": "t2",
+  "url": "http://127.0.0.1:52200/?marker=macbot-e2e-native-input-91a18ad-20261009",
+  "native_driver_transition": [
+    "bot",
+    "user",
+    "bot"
+  ],
+  "takeover_release_visually_verified": true,
+  "quality_low_dimensions": [
+    640,
+    316
+  ],
+  "low_page_visually_painted": true,
+  "intermittent_white_canvas_observed": true,
+  "raw_low_jpeg_visually_verified": true,
+  "typed_text_visible": false,
+  "fixture_submit_verified": false,
+  "screenshots": [
+    "20261009-232403-desktop.png",
+    "20261009-232729-desktop.png"
+  ],
+  "raw_jpeg": "screen-91a18ad-blank-check/frame-01-seq-1.jpg",
+  "notes": [
+    "Coordinate click/type and single-key attempts produced no verified input result",
+    "CUA target coordinate mapping and Computer focus are unproven; no confirmed product input root cause",
+    "Raw JPEG page is correct while native auto canvas observed white; low redraw intermittently visible; client-mac asked to isolate",
+    "Browser control returned through native Release; service/mock/Android were preserved",
+    "Companion Android captures still show mock and do not prove formal UI"
+  ],
+  "joint_s4_passed": false
+}

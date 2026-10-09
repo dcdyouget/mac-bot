@@ -1,0 +1,29 @@
+{
+  "scenario": "S4 browser reopen API check",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "marker": "macbot-e2e-screen-controls-20261009",
+  "url": "http://127.0.0.1:52200/?run=macbot-e2e-screen-controls-20261009",
+  "status": "FAIL",
+  "sent_id": "01a1213e-04d6-76cb-a331-a32c29dc82a3",
+  "sent_seq": 5,
+  "trace_after_aseq": 22,
+  "error": "timed out waiting for run.end and final known Markdown",
+  "run_id": "run_chat_01a1213e_04d6_76cb_a331_a32c29dc82a3",
+  "run_status": "done",
+  "trace": {
+    "tool_starts": 0,
+    "tool_ends": 0,
+    "browser_open_verified": false,
+    "pending_exact_approval": false
+  },
+  "reply": {
+    "id": "msg_run_chat_01a1213e_04d6_76cb_a331_a32c29dc82a3",
+    "seq": 6,
+    "streaming": false,
+    "known_markdown": true,
+    "marker_in_markdown": true,
+    "url_in_markdown": true
+  },
+  "conclusion": "API FAIL: the final Bot message contains marker and URL, but this run has no browser_open tool.start/tool.end evidence, so no tab opening is proven. No pending exact approval remained; no automatic retry was performed."
+}

@@ -1,0 +1,33 @@
+{
+  "scenario": "S4 browser open exact-tool retry",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "marker": "macbot-e2e-native-input-91a18ad-20261009",
+  "url": "http://127.0.0.1:52200/?marker=macbot-e2e-native-input-91a18ad-20261009",
+  "status": "PASS",
+  "sent_id": "01a12141-ecce-776c-b075-6445f70be3ca",
+  "sent_seq": 7,
+  "trace_after_aseq": 26,
+  "run_id": "run_chat_01a12141_ecce_776c_b075_6445f70be3ca",
+  "approval_id": "01a12141-fdab-72dc-a88c-f4b31e6fa2ad",
+  "tool": {
+    "call_id": "call_function_6t6bht3pldwp_1",
+    "name": "browser_open",
+    "url": "http://127.0.0.1:52200/?marker=macbot-e2e-native-input-91a18ad-20261009",
+    "tab_id": "t2",
+    "active": true
+  },
+  "reply": {
+    "id": "msg_run_chat_01a12141_ecce_776c_b075_6445f70be3ca",
+    "seq": 8,
+    "streaming": false,
+    "known_markdown": true,
+    "marker_in_markdown": true,
+    "url_in_markdown": true
+  },
+  "trace": {
+    "tool_starts": 2,
+    "tool_ends": 1,
+    "run_end": "done"
+  }
+}
