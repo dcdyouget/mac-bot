@@ -2001,7 +2001,9 @@ async fn reconcile_steers(
         return;
     }
     for message_id in &applied {
-        let _ = inner.orchestrator.mark_steer_read(message_id);
+        let _ = inner
+            .orchestrator
+            .mark_steer_for_assignment(message_id, assignment_id, "read");
     }
     if let Err(error) = inner
         .persist_orchestrator(json!({
@@ -2871,6 +2873,94 @@ impl crate::RpcBackend for ComposedBackend {
         }
         let mut resumed_waiting_message = false;
         if method == "chat.send" {
+            let deliveries = result
+                .pointer("/message/delivery")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let has_user_deliveries = !deliveries.is_empty();
+            let has_queued_deliveries = deliveries
+                .iter()
+                .any(|delivery| delivery.get("state").and_then(Value::as_str) == Some("queued"));
+            let delivery_key = result
+                .pointer("/message/id")
+                .and_then(Value::as_str)
+                .map(|id| format!("user-delivery:{id}"));
+            let fresh_delivery = match delivery_key {
+                Some(key) => self.scheduled.lock().await.insert(key),
+                None => false,
+            };
+            if fresh_delivery {
+                for delivery in deliveries {
+                    if delivery.get("state").and_then(Value::as_str) != Some("queued") {
+                        continue;
+                    }
+                    let Some(assignment_id) = delivery
+                        .get("assignment_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                    else {
+                        continue;
+                    };
+                    let Some(message_id) = result
+                        .pointer("/message/id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                    else {
+                        continue;
+                    };
+                    let text = result
+                        .pointer("/message/fallback_text")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    let scheduler = self.clone();
+                    tokio::spawn(async move {
+                        match scheduler
+                            .runtime
+                            .resume_user_steer(&assignment_id, &message_id, text.clone())
+                            .await
+                        {
+                            Ok(Some((assignment, outcome))) => {
+                                scheduler.mark_waiting(
+                                    assignment.as_deref(),
+                                    &outcome.run_id,
+                                    matches!(
+                                        outcome.status.as_str(),
+                                        "waiting" | "blocked" | "suspended"
+                                    ),
+                                );
+                                if outcome.status == "done" {
+                                    if let Some(id) = assignment {
+                                        scheduler
+                                            .finish_assignment_and_resume_parent(id, outcome.text)
+                                            .await;
+                                    }
+                                } else if matches!(outcome.status.as_str(), "failed" | "cancelled")
+                                {
+                                    if let Some(id) = assignment {
+                                        fail_assignment(
+                                            scheduler.inner.clone(),
+                                            scheduler.state.clone(),
+                                            id,
+                                            &outcome.status,
+                                        )
+                                        .await;
+                                    }
+                                }
+                                scheduler.dispatch_ready_assignments().await;
+                            }
+                            Ok(None) => {
+                                enqueue_steer_runtime(scheduler.runtime.clone(),
+                                    &json!({"steer":{"message_id":message_id,"assignment_id":assignment_id}}), &json!({"text":text})).await;
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, %assignment_id, "user steer continuation failed")
+                            }
+                        }
+                    });
+                }
+            }
             let reply_to = params
                 .get("reply_to")
                 .and_then(Value::as_str)
@@ -2897,7 +2987,8 @@ impl crate::RpcBackend for ComposedBackend {
                             })
                     })
                 });
-            if let (Some(assignment_id), Some(text)) = (
+            if let (false, Some(assignment_id), Some(text)) = (
+                has_user_deliveries,
                 assignment_id,
                 params
                     .get("text")
@@ -2964,7 +3055,7 @@ impl crate::RpcBackend for ComposedBackend {
             } else {
                 true
             };
-            if fresh && !resumed_waiting_message {
+            if fresh && !resumed_waiting_message && !has_queued_deliveries {
                 if let Some(request) = self.request_for_chat(&params, &result).await {
                     if request
                         .assignment_id
@@ -4045,6 +4136,51 @@ impl RuntimeExecution {
         .await
     }
 
+    async fn resume_user_steer(
+        &self,
+        assignment_id: &str,
+        message_id: &str,
+        text: String,
+    ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
+        let Some(request) =
+            self.find_request(|request| request.assignment_id.as_deref() == Some(assignment_id))
+        else {
+            return Ok(None);
+        };
+        let expected = {
+            let durable = self.state.durable.lock().await;
+            let message_id = durable
+                .jobs()
+                .find(|job| {
+                    job.checkpoint.get("run_id").and_then(Value::as_str) == Some(&request.run_id)
+                        && matches!(
+                            job.status,
+                            macbot_durable::JobStatus::Waiting
+                                | macbot_durable::JobStatus::Suspended
+                        )
+                        && !job.unsafe_replay
+                        && matches!(
+                            job.checkpoint.get("waiting_reason").and_then(Value::as_str),
+                            Some("decision" | "blocked")
+                        )
+                })
+                .and_then(|job| {
+                    job.checkpoint
+                        .get("waiting_message_id")
+                        .and_then(Value::as_str)
+                })
+                .map(str::to_owned);
+            message_id
+        };
+        self.resume_message_for_decision_inner(
+            assignment_id,
+            expected.as_deref(),
+            text,
+            Some(message_id),
+        )
+        .await
+    }
+
     pub async fn resume_message(
         &self,
         assignment_id: &str,
@@ -4065,6 +4201,17 @@ impl RuntimeExecution {
         assignment_id: &str,
         expected_message_id: Option<&str>,
         message: String,
+    ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
+        self.resume_message_for_decision_inner(assignment_id, expected_message_id, message, None)
+            .await
+    }
+
+    async fn resume_message_for_decision_inner(
+        &self,
+        assignment_id: &str,
+        expected_message_id: Option<&str>,
+        message: String,
+        steer_message_id: Option<&str>,
     ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
         let Some(expected_message_id) = expected_message_id.filter(|id| !id.is_empty()) else {
             return Ok(None);
@@ -4114,9 +4261,22 @@ impl RuntimeExecution {
                 continue;
             }
             let assignment = request.assignment_id.clone();
+            if let Some(message_id) = steer_message_id {
+                if !self
+                    .enqueue_steer_for_assignment(assignment_id, message_id, &message)
+                    .await
+                {
+                    return Ok(None);
+                }
+            }
+            let resume_text = if steer_message_id.is_some() {
+                String::new()
+            } else {
+                message
+            };
             let outcome = self
                 .engine_for(&request)?
-                .continue_message(request, message)
+                .continue_message(request, resume_text)
                 .await?;
             return Ok(Some((assignment, outcome)));
         }
@@ -5443,6 +5603,27 @@ impl OrchestratorSink {
 impl ExecutionSink for OrchestratorSink {
     async fn emit(&self, event: ExecutionEvent) {
         let refresh_status = is_run_status_boundary(&event);
+        if event.event == "message.updated" {
+            if let Some(message) = event.data.get("message") {
+                if let (Some(id), Some(deliveries)) = (
+                    message.get("id").and_then(Value::as_str),
+                    message.get("delivery").and_then(Value::as_array),
+                ) {
+                    if !deliveries.is_empty() {
+                        for delivery in deliveries {
+                            if let Err(error) = self
+                                .backend
+                                .execution_update_steer_delivery(&self.state, id, delivery)
+                                .await
+                            {
+                                tracing::warn!(%error, message_id = id, "failed to persist steer delivery");
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
+        }
         if event.event == "message.created" {
             if let Some(message) = event.data.get("message") {
                 if let Some(block) =

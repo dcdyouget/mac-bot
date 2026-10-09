@@ -1150,7 +1150,7 @@ impl ProductionBackend {
                     canonical = Value::Null;
                 }
             }
-            "send_msg" | "chat.send" | "chat.react" => {
+            "send_msg" | "chat.send" | "chat.react" | "execution.steer.delivery" => {
                 let id = result
                     .get("message")
                     .and_then(|value| value.get("id"))
@@ -1339,6 +1339,74 @@ impl ProductionBackend {
             .await
     }
 
+    /// Merge only the delivery transition into the canonical user message.
+    /// Runtime placeholders must never replace its identity, mentions or seq.
+    pub async fn execution_update_steer_delivery(
+        &self,
+        state: &GatewayState,
+        message_id: &str,
+        delivery: &Value,
+    ) -> RpcResult {
+        let _guard = self.write_lock.lock().await;
+        let bot_id = delivery
+            .get("bot_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| crate::rpc_error("invalid_params", "steer bot_id is required", None))?;
+        let assignment_id = delivery
+            .get("assignment_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                crate::rpc_error("invalid_params", "steer assignment_id is required", None)
+            })?;
+        let next = delivery
+            .get("state")
+            .and_then(Value::as_str)
+            .filter(|next| matches!(*next, "delivered" | "read"))
+            .ok_or_else(|| {
+                crate::rpc_error("invalid_params", "invalid steer delivery state", None)
+            })?;
+        let (_, mut message) = self.find_chat_message(message_id)?;
+        let current = message
+            .get_mut("delivery")
+            .and_then(Value::as_array_mut)
+            .and_then(|items| {
+                items.iter_mut().find(|item| {
+                    item.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                        && item.get("assignment_id").and_then(Value::as_str) == Some(assignment_id)
+                })
+            })
+            .ok_or_else(|| {
+                crate::rpc_error("not_found", "canonical steer delivery not found", None)
+            })?;
+        if current.get("state").and_then(Value::as_str) == Some("read")
+            || current.get("state").and_then(Value::as_str) == Some(next)
+        {
+            return Ok(json!({"message":message}));
+        }
+        let transition = self
+            .orchestrator
+            .mark_steer_for_assignment(message_id, assignment_id, next)
+            .map_err(Self::error)?;
+        if transition.bot_id != bot_id || transition.assignment_id.as_deref() != Some(assignment_id)
+        {
+            return Err(crate::rpc_error(
+                "invalid_params",
+                "steer identity mismatch",
+                None,
+            ));
+        }
+        current["state"] = json!(next);
+        current["at"] = json!(transition.at);
+        let message = self.persist_client_message(&message)?;
+        self.persist(
+            state,
+            "execution.steer.delivery",
+            &json!({"message_id":message_id}),
+            &json!({"message":message}),
+        )
+        .await
+    }
+
     fn event_name(method: &str) -> Option<&'static str> {
         Some(match method {
             "bot.create" | "bot.duplicate" => "bot.created",
@@ -1355,7 +1423,7 @@ impl ProductionBackend {
             "assignment.create" | "assign" | "delegate" => "assignment.created",
             "assignment.stop" | "assignment.steer" | "steer" => "assignment.updated",
             "send_msg" | "chat.send" => "message.created",
-            "chat.react" => "message.updated",
+            "chat.react" | "execution.steer.delivery" => "message.updated",
             "chat.set_pinned" | "chat.set_muted" => "chat.updated",
             "approval.request" => "approval.requested",
             "approval.decide" | "approval.invalid" => "approval.resolved",
@@ -2278,10 +2346,13 @@ impl RpcBackend for ProductionBackend {
             }
             if matches!(method, "assignment.create" | "assign" | "delegate") {
                 self.ensure_assignment_cards(state, &result, method).await?;
-            } else if method == "send_msg" {
+            } else if matches!(method, "send_msg" | "chat.send") {
                 self.ensure_trigger_assignment_cards(
                     state,
-                    result.get("id").and_then(Value::as_str),
+                    result
+                        .get("id")
+                        .or_else(|| result.pointer("/message/id"))
+                        .and_then(Value::as_str),
                 )
                 .await?;
                 if let Some(context) = bot_dm_context.as_ref() {
@@ -9102,6 +9173,99 @@ mod tests {
             .unwrap();
         assert_eq!(proposal_assignment["assignment"]["status"], "cancelled");
     }
+    #[tokio::test]
+    async fn user_chat_steer_preserves_canonical_message_and_independent_delivery() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let first = backend
+            .call("bot.create", json!({"name":"Coder one"}), &gateway.state)
+            .await
+            .unwrap();
+        let second = backend
+            .call("bot.create", json!({"name":"Coder two"}), &gateway.state)
+            .await
+            .unwrap();
+        let project = backend.call("project.create", json!({"name":"Steer regression", "goal":"delivery", "member_bot_ids":[first["bot"]["id"],second["bot"]["id"]]}), &gateway.state).await.unwrap();
+        for bot in [&first, &second] {
+            backend.call("assignment.create", json!({"bot_id":bot["bot"]["id"],"project_id":project["project"]["id"],"origin_chat_id":project["chat"]["id"],"title":"working", "instruction":"keep working", "from":"main"}), &gateway.state).await.unwrap();
+        }
+        let sent = backend.call("chat.send", json!({"chat_id":project["chat"]["id"],"text":"邮箱登录优先", "mentions":[{"kind":"bot","bot_id":first["bot"]["id"],"instruction":null},{"kind":"bot","bot_id":second["bot"]["id"],"instruction":null}],"reply_to":"earlier", "client_request_id":"steer-users"}), &gateway.state).await.unwrap();
+        let canonical = sent["message"].clone();
+        assert_eq!(canonical["delivery"].as_array().unwrap().len(), 2);
+        assert!(canonical["delivery"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|d| d["state"] == "queued"));
+        for delivery in canonical["delivery"].as_array().unwrap() {
+            let mut transition = delivery.clone();
+            for status in ["delivered", "read", "delivered"] {
+                transition["state"] = json!(status);
+                backend
+                    .execution_update_steer_delivery(
+                        &gateway.state,
+                        canonical["id"].as_str().unwrap(),
+                        &transition,
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":project["chat"]["id"],"after_seq":0}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let current = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["id"] == canonical["id"])
+            .unwrap();
+        for field in [
+            "id",
+            "seq",
+            "created_at",
+            "mentions",
+            "reply_to",
+            "blocks",
+            "fallback_text",
+        ] {
+            assert_eq!(current[field], canonical[field], "{field}");
+        }
+        assert!(current["delivery"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|d| d["state"] == "read"));
+        let snapshots = backend.orchestrator.snapshot().unwrap();
+        assert_eq!(
+            snapshots["messages"][canonical["id"].as_str().unwrap()]["delivery"],
+            current["delivery"]
+        );
+        for event in backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.event == "message.updated" && e.data["message"]["id"] == canonical["id"])
+        {
+            assert_eq!(event.data["message"]["seq"], canonical["seq"]);
+            macbot_protocol::EventData::decode(
+                &macbot_protocol::EventName::MessageUpdated,
+                event.data,
+            )
+            .unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn production_chat_send_persists_reply_and_attachments_through_restart() {
         let home = tempdir().unwrap();

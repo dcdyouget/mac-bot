@@ -217,3 +217,18 @@ python3 server/macbotd/tests/smoke_background_bash.py \
 ```
 
 只使用新隔离 home 和本机 fake provider。覆盖旧 unsafe 调用不重放、逐项审批和同 response 后续后台调用、tool.end 后持续输出、跨群 run/call 隔离和取消仅终止本 run 的非 persistent 子进程；测试结束清理其自有进程。
+
+用户 `chat.send` 的 `@Bot` 会按实际群 ID 和 Bot 查找现有 working/waiting/blocked 任务：有任务时进入该 run 的 durable inbox，没有任务时创建一次新任务。原用户消息的 `delivery` 经 `message.updated` 从 queued 推进到 delivered/read；更新保留原 ID、seq、created_at、mentions 和 reply_to，同一 client_request_id 重放不重复插话。挂起的 decision/blocked 只续接精确关联的原 run，工具审批等待不会被插话自动批准。私聊的新请求仍使用流式对话模式。
+
+`memory` 的 action、kind、必填 id/content 与 scope 在审批前统一校验；例如项目记忆的 kind 仅接受 `project`，不接受 `project_status`。合法的默认 user owner 和省略 action（默认 add）保持。旧版无效 kind 的 pending 仅沿已有唯一 approval/map/call/run 校验使审批 expired，向同 run 返回工具错误；不修改原参数、不沿用授权、同批剩余调用不执行。模型必须显式纠正，合法新写入仍需新审批。
+
+真实用户 RPC 入口及旧版升级回归（隔离 home 必须不存在，端口禁止 7788/7789）：
+
+```sh
+python3 server/macbotd/tests/smoke_user_steer_memory.py \
+  --url http://127.0.0.1:7866 --home /tmp/macbot-user-steer-memory-smoke \
+  --old-command '/path/to/094b7c5/macbotd --port 7866 --password dev' \
+  --new-command '/path/to/new/macbotd --port 7866 --password dev'
+```
+
+只使用本机 fake provider；不调用 `assignment.steer`、不在 `chat.send` 传入内部 assignment_id。验证工作中用户插话、canonical delivery 与重放去重、同 run 参数纠正、旧审批过期和未执行 batch。旧版已经派出的插话 siblings 不迁移、不取消、不重放，本补丁只修新消息的入口。

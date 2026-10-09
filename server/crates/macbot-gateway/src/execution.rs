@@ -1029,7 +1029,11 @@ impl ExecutionEngine {
                     }));
                 }
             }
-            messages.push(json!({"role":"user","content":message}));
+            // A queued canonical steer supplies its text at the next boundary.
+            // The empty continuation only transitions the waiting job.
+            if !message.is_empty() {
+                messages.push(json!({"role":"user","content":message}));
+            }
             self.state.durable.lock().await.commit(
                 &job.id,
                 JobStatus::Running,
