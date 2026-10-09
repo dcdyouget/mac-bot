@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
@@ -154,8 +155,12 @@ class RpcClient:
     def call(self, method: str, params: Mapping[str, Any] | None = None) -> Any:
         if not method:
             raise ValueError("RPC method is empty")
+        call_params = dict(params or {})
+        if method in {"chat.send", "project.create", "skill.create", "skill.update",
+                      "skill.delete", "skill.set_enabled"}:
+            call_params.setdefault("client_request_id", str(uuid.uuid4()))
         body = json.dumps(
-            {"method": method, "params": dict(params or {})},
+            {"method": method, "params": call_params},
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
