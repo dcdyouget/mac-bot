@@ -53,12 +53,22 @@ source "$HOME/.local/share/macbot/android-signing/release.env"
 
 Keep this key for later updates. Debug and release use different signatures; uninstall the debug app before first release installation, then use `adb install -r` for subsequent release updates. Signing keys and passwords are never committed.
 
-With a signed release already installed, keep its data and run device tests with
-the same signing environment:
+With a signed release already installed, run device tests using a debug build
+signed by the same distribution key, then restore the optimized release. This
+avoids R8 removing shared classes needed by the test runner. Gradle's
+`connected*AndroidTest` runner can uninstall the target app and reset its data;
+use direct instrumentation when keeping existing Host records and drafts:
 
 ```sh
-./gradlew -PmacbotTestBuildType=release :androidApp:connectedReleaseAndroidTest
+./gradlew -PmacbotSignedDeviceTests=true :androidApp:assembleDebug :androidApp:assembleDebugAndroidTest :androidApp:assembleRelease
+adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
+adb install -r -t androidApp/build/outputs/apk/androidTest/debug/androidApp-debug-androidTest.apk
+adb shell am instrument -w bot.mac.mobile.test/androidx.test.runner.AndroidJUnitRunner
+adb install -r androidApp/build/outputs/apk/release/androidApp-release.apk
 ```
+
+Check the instrumentation output reports the expected test count (currently 4),
+not merely a successful build with zero discovered tests.
 
 Android notifications use channels `needs-you`, `completed`, `messages`. Grant notification permission when requested. The foreground service owns the long-lived main connection; screen streams open only while the Computer page is visible. Notification actions use the same idempotent protocol writes as in-app actions.
 
