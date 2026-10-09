@@ -1,0 +1,27 @@
+{
+  "benchmark": "macbot-client-core state and trace merge",
+  "event_apply_operations": 200000,
+  "max_buffered_events": 2048,
+  "memory_note": "Peak RSS is process-wide and includes the benchmark's retained ordered and out-of-order states.",
+  "ordered_state_last_seq": 100000,
+  "out_of_order": "descending sequence; each sequence repeated twice",
+  "peak_rss_bytes_after": 498286592,
+  "peak_rss_bytes_before": 1540096,
+  "peak_rss_delta_bytes": 496746496,
+  "schema": 1,
+  "state_last_seq": 0,
+  "state_messages": 100000,
+  "state_needs_resync": true,
+  "timing_ms": {
+    "bootstrap_index": 74.73787499999999,
+    "ordered_state_merge": 131.839958,
+    "state_merge_and_dedup": 164.072584,
+    "total": 425.17508300000003,
+    "trace_merge": 54.524665999999996
+  },
+  "trace_items": 100000,
+  "trace_last_aseq": 100000,
+  "unique_events": 100000,
+  "unique_messages": 100000,
+  "warning": "No GPUI paint, frame-rate, or UI latency is measured here."
+}

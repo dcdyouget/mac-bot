@@ -1,0 +1,126 @@
+{
+  "date": "2026-10-09",
+  "scope": "client implementation and isolated native mock QA; not integrated S1-S5 acceptance",
+  "endpoint": "127.0.0.1:7790",
+  "bundle_id": "bot.mac.desktop.qa",
+  "bundle_name": "MacBotQA",
+  "data_dir": "/tmp/macbot-client-isolated-profile",
+  "secret_backend": "file",
+  "shared_7789_android_installed_app_modified": false,
+  "capture": "screencapture -x -l with PID-matched CG window; complete PNG written before bounded finalize timeout; CUA/manual visual confirmation",
+  "screenshots": [
+    {
+      "path": "S1/main-history-restored.png",
+      "client_source": "a5a55b37ab007f2ced3c397ec4e39bbd2e4777ea",
+      "owner_pid": 56336,
+      "mock_source": "11bc831df3cead8d8ec667501769aad92adec472",
+      "assertion": "restart/cursor rollback followed by bootstrap and four main messages",
+      "sha256": "e904865b9d652445a53cc382481bebc3719b629ef49cc6d99c652babdb73d51d"
+    },
+    {
+      "path": "S1/private-trace.png",
+      "client_source": "a5a55b37ab007f2ced3c397ec4e39bbd2e4777ea",
+      "owner_pid": 56336,
+      "mock_source": "11bc831df3cead8d8ec667501769aad92adec472",
+      "assertion": "private message and three replay trace items",
+      "sha256": "acc40edb193ad27180b394a22df2c9ab55ff74051ae289efe84218e814133e7b"
+    },
+    {
+      "path": "S2/workbench.png",
+      "client_source": "71326a7c683feecdbcedd32710dfec18e2783cca",
+      "owner_pid": 27137,
+      "mock_source": "d173bab",
+      "assertion": "actual running/tasks/pending aggregation; allow_once and question safe actions",
+      "sha256": "9db1b759c091a3516fbc3826e0295f14be3f2b30c6047999068ed9e719254bb3"
+    },
+    {
+      "path": "S2/new-group.png",
+      "client_source": "03930a1afd3dc109d11feb11ff334a228a373087",
+      "owner_pid": 31940,
+      "mock_source": "d173bab",
+      "assertion": "native creation of a group with two selected Bots",
+      "sha256": "dc4d52bab7213237328c1739e21fb2ed013bea1e3adb66e8ccab97bfa55ebb1f"
+    },
+    {
+      "path": "S2/group-announcement.png",
+      "client_source": "5d5911107da04646580e0a68c4007895a85c26cc",
+      "owner_pid": 62244,
+      "mock_source": "11bc831df3cead8d8ec667501769aad92adec472",
+      "assertion": "login group statuses, roles, artifacts and announcement",
+      "sha256": "a8736359ab30871c8761bd8ab8225f1c71983478dc76901ff485743a7b61249b"
+    },
+    {
+      "path": "S3/dashboard.png",
+      "client_source": "5d5911107da04646580e0a68c4007895a85c26cc",
+      "owner_pid": 62244,
+      "mock_source": "11bc831df3cead8d8ec667501769aad92adec472",
+      "assertion": "nonzero 30-day usage, shared axes and dashed output curves",
+      "sha256": "05da895958db7a49ea26b1c4dd0e5ac5b526d8da8c13c4549c0e3e1950237e6b"
+    },
+    {
+      "path": "S3/skill-readback.png",
+      "client_source": "5d5911107da04646580e0a68c4007895a85c26cc",
+      "owner_pid": 62244,
+      "mock_source": "11bc831df3cead8d8ec667501769aad92adec472",
+      "assertion": "created skill, edited content, saved and fetched persisted content",
+      "sha256": "43df5156b16c198d1e83f18c705a1850876091cd657968aa9563c5a8bc61bd7d"
+    },
+    {
+      "path": "S3/dashboard-hourly.png",
+      "client_source": "bbfbb57d0045646d27eef596ddaf0d55234771a4",
+      "owner_pid": 70485,
+      "mock_source": "40ca95e9e3e5758e53233b77d6cf91938f817791",
+      "assertion": "one-day automatic hourly axis; heading corrected in final source",
+      "sha256": "159dac47677991a4bfa6c55a978c145d38de84e0aaeda90e309be0491e09f606"
+    },
+    {
+      "path": "S3/dashboard-details.png",
+      "client_source": "bbfbb57d0045646d27eef596ddaf0d55234771a4",
+      "owner_pid": 70485,
+      "mock_source": "40ca95e9e3e5758e53233b77d6cf91938f817791",
+      "assertion": "Chinese input/output/cache requests, phase distribution and mini sparkline",
+      "sha256": "bf93f1e2da403173a32e65b0806f36f9c07edfdc0c657cfc0768558b46688adc"
+    },
+    {
+      "path": "S4/computer-takeover.png",
+      "client_source": "a5a55b37ab007f2ced3c397ec4e39bbd2e4777ea",
+      "owner_pid": 56336,
+      "mock_source": "11bc831df3cead8d8ec667501769aad92adec472",
+      "assertion": "native JPEG painting and ACK; user driver, two tabs, quality reconnect and release",
+      "sha256": "d0992954c733c35a653bbf0e46c222e8a8f76425b9ed452bd743f274e6647efd"
+    },
+    {
+      "path": "S4/routine-run.png",
+      "client_source": "a5a55b37ab007f2ced3c397ec4e39bbd2e4777ea",
+      "owner_pid": 56336,
+      "mock_source": "11bc831df3cead8d8ec667501769aad92adec472",
+      "assertion": "created scheduled task, trial run history with started_at, disabled task",
+      "sha256": "d4489f53b151099b5ddbf3835bfe366c38b8c8c1a1e4862ec640a2b31338b289"
+    },
+    {
+      "path": "S5/window-reopened.png",
+      "client_source": "bbfbb57d0045646d27eef596ddaf0d55234771a4",
+      "owner_pid": 70485,
+      "mock_source": "11bc831df3cead8d8ec667501769aad92adec472",
+      "assertion": "closed own window, standard open reused process, recreated window and restored history",
+      "sha256": "7b23f7662e31b7f4cbfbb46a7ef7bb3bd6b6ccde1a4a72b935b9b78b49935897"
+    }
+  ],
+  "checks": {
+    "unit_tests": {
+      "core": 33,
+      "desktop": 32
+    },
+    "clippy": "workspace all-targets all-features -D warnings",
+    "release": "passed",
+    "dmg": "hdiutil verify passed; actual isolated installation/replacement test passed; no user installation overwritten"
+  },
+  "external_pending": [
+    "real provider/files/bash and server kill restart integrated acceptance",
+    "two-end parallel groups and cross-session memory acceptance",
+    "real Chrome session/timed notification acceptance",
+    "public update URL, Developer ID signing and notarization",
+    "real installed app update/relaunch integration"
+  ],
+  "performance_note": "state-bench.json is retained 100k state and 100k trace benchmark, not GPUI frame-rate certification"
+}
