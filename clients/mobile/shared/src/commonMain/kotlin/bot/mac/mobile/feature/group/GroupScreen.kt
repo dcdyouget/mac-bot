@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.boolean
@@ -91,36 +92,38 @@ fun GroupScreen(
             Button(onClick = { showEdit = !showEdit }) { Text(stringResource(Res.string.feature_edit_group)) }
         }
         if (showEdit) {
-            OutlinedTextField(editName, { editName = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_group_name)) })
-            OutlinedTextField(editGoal, { editGoal = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_goal)) })
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
-                    scope.launch { runCatching { repository.call("project.update", buildJsonObject { put("project_id", projectId); put("patch", buildJsonObject { put("name", editName.trim()); put("goal", editGoal.trim()) }) }) }.onFailure { error = it.message } }
-                    showEdit = false
-                }) { Text(stringResource(Res.string.feature_save_group)) }
-            }
-            Text(stringResource(Res.string.feature_add_member), Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.titleSmall)
-            val memberIds = project?.arr("members")?.mapNotNull { (it as? JsonObject)?.str("bot_id") }.orEmpty()
-            state.bots.filter { !it.boolean("is_main") }.forEach { bot ->
-                val id = bot.str("id")
-                val inProject = id in memberIds
-                Button(onClick = {
-                    scope.launch { runCatching { repository.call(if (inProject) "project.remove_member" else "project.add_member", buildJsonObject { put("project_id", projectId); put("bot_id", id) }) }.onFailure { error = it.message } }
-                }) { Text(if (inProject) "${bot.str("name")} · ${stringResource(Res.string.feature_remove_member)}" else "＋ ${bot.str("name")}") }
+            Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(editName, { editName = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_group_name)) })
+                OutlinedTextField(editGoal, { editGoal = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_goal)) })
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        scope.launch { runCatching { repository.call("project.update", buildJsonObject { put("project_id", projectId); put("patch", buildJsonObject { put("name", editName.trim()); put("goal", editGoal.trim()) }) }) }.onFailure { error = it.message } }
+                        showEdit = false
+                    }) { Text(stringResource(Res.string.feature_save_group)) }
+                }
+                Text(stringResource(Res.string.feature_add_member), Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.titleSmall)
+                val memberIds = project?.arr("members")?.mapNotNull { (it as? JsonObject)?.str("bot_id") }.orEmpty()
+                state.bots.filter { !it.boolean("is_main") }.forEach { bot ->
+                    val id = bot.str("id")
+                    val inProject = id in memberIds
+                    Button(onClick = {
+                        scope.launch { runCatching { repository.call(if (inProject) "project.remove_member" else "project.add_member", buildJsonObject { put("project_id", projectId); put("bot_id", id) }) }.onFailure { error = it.message } }
+                    }) { Text(if (inProject) "${bot.str("name")} · ${stringResource(Res.string.feature_remove_member)}" else "＋ ${bot.str("name")}") }
+                }
             }
         }
         error?.let { Text(it, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
         val announcementMembers = announcement?.arr("members").orEmpty()
         (if (announcementMembers.isNotEmpty()) announcementMembers else project?.arr("members").orEmpty()).let { members ->
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 members.forEach { member ->
                     val m = member as? JsonObject
                     val botId = m?.str("bot_id").orEmpty()
                     val botName = state.bots.firstOrNull { it.str("id") == botId }?.str("name").orEmpty().ifBlank { botId }
-                    Column {
+                    Column(Modifier.widthIn(min = 150.dp)) {
                         Text("● $botName", style = MaterialTheme.typography.labelMedium)
                         m?.let { member ->
-                            member.str("role_note").takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            member.str("role_note").takeIf { it.isNotBlank() }?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }
                             member.str("state").takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
                             val assignmentId = member.str("current_assignment_id")
                             val assignment = state.assignments.firstOrNull { it.str("id") == assignmentId }
@@ -221,10 +224,16 @@ fun GroupCreateScreen(
         Text(stringResource(Res.string.feature_group_members), style = MaterialTheme.typography.titleSmall)
         state.bots.filter { !it.boolean("is_main") && !it.boolean("hidden") }.forEach { bot ->
             val id = bot.str("id").takeIf { it.isNotBlank() } ?: return@forEach
-            FilterChip(selected = selected.contains(id), onClick = { selected = if (selected.contains(id)) selected - id else selected + id }, label = { Text(bot.str("name").ifBlank { id }) })
+            val isSelected = selected.contains(id)
+            FilterChip(
+                selected = isSelected,
+                enabled = isSelected || selected.size < 6,
+                onClick = { selected = if (isSelected) selected - id else selected + id },
+                label = { Text(bot.str("name").ifBlank { id }) },
+            )
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Button(enabled = name.isNotBlank() && goal.isNotBlank() && selected.isNotEmpty(), onClick = {
+        Button(enabled = name.isNotBlank() && goal.isNotBlank() && selected.size in 1..6, onClick = {
             scope.launch {
                 runCatching {
                     repository.call("project.create", buildJsonObject {

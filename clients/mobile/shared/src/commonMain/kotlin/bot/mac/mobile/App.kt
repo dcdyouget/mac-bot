@@ -22,6 +22,7 @@ import bot.mac.mobile.feature.connect.ConnectScreen
 import bot.mac.mobile.feature.mainbot.MainBotScreen
 import bot.mac.mobile.feature.trace.TraceScreen
 import bot.mac.mobile.feature.trace.HistoryAssignmentScreen
+import bot.mac.mobile.feature.trace.buildSteerChatParams
 import bot.mac.mobile.feature.group.*
 import bot.mac.mobile.feature.workbench.WorkbenchScreen
 import bot.mac.mobile.feature.bots.*
@@ -133,10 +134,7 @@ import org.jetbrains.compose.resources.stringResource
                         page == "trace" -> TraceScreen(repository, target.ifBlank { null }, secondTarget.ifBlank { null }, { bot, tabId -> open("computer", bot, tabId.orEmpty()) }, onBack=back, onSteer={assignmentId,text ->
                             val assignment=repository.state.value.assignments.firstOrNull{it.str("id")==assignmentId}
                             val hostId=repository.activeHost.value?.id
-                            if(assignment!=null && hostId!=null) scope.launch { runCatching { repository.callOnHost(hostId,"chat.send",buildJsonObject {
-                                put("chat_id",assignment.str("chat_id"));put("text",text)
-                                put("mentions",JsonArray(listOf(buildJsonObject{put("kind","bot");put("bot_id",assignment.str("bot_id"));put("instruction",JsonNull)})))
-                            }) }.onFailure{actionError=it.message} }
+                            if(assignment!=null && hostId!=null) scope.launch { runCatching { repository.callOnHost(hostId,"chat.send",buildSteerChatParams(assignment, text)) }.onFailure{actionError=it.message} }
                         })
                         page == "bots" -> BotsScreen(repository, { open("bot_editor", it) }, { open("bot_editor") }, back)
                         page == "bot_editor" -> BotEditorScreen(repository, target.ifBlank { null }, { open("bots") }, back)

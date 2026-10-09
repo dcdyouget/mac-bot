@@ -73,8 +73,12 @@ object MacBotNotifications {
         title: String,
         text: String,
         eventSeq: Long? = null,
-        projectId: String = id,
+        projectId: String? = null,
+        chatId: String? = null,
     ) {
+        val reviewId = projectId?.takeIf { it.isNotBlank() }
+        val chatTarget = chatId?.takeIf { it.isNotBlank() }
+        val targetId = reviewId ?: chatTarget ?: return
         if (!canNotify(context) || !NotificationLedger.accept(context, "$hostId:completed:$id", eventSeq)) return
         ensureChannels(context)
         val builder = NotificationCompat.Builder(context, CHANNEL_COMPLETED)
@@ -83,8 +87,8 @@ object MacBotNotifications {
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
-            .setContentIntent(activityIntent(context, "review", projectId, hostId))
-            .addAction(reviewAction(context, hostId, projectId))
+            .setContentIntent(activityIntent(context, if (reviewId != null) "review" else "chat", targetId, hostId))
+        reviewId?.let { builder.addAction(reviewAction(context, hostId, it)) }
         notify(context, (hostId + id).hashCode(), builder)
     }
 

@@ -9,4 +9,12 @@
     <string name="approval_always_allow">始终允许</string>
     <string name="approval_reject">拒绝</string>
     <string name="review_completion">确认完成</string>
+    <string name="notification_approval_title">需要审批</string>
+    <string name="notification_question_title">需要你回答</string>
+    <string name="notification_message_needs_you_title">需要你处理</string>
+    <string name="notification_assignment_done_title">任务已完成</string>
+    <string name="notification_assignment_attention_title">任务需要你处理</string>
+    <string name="notification_project_review_title">项目待验收</string>
+    <string name="notification_takeover_title">需要接管画面</string>
+    <string name="notification_takeover_default_text">Bot 请求你接管 Agent Computer</string>
 </resources>

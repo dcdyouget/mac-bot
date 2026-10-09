@@ -131,14 +131,16 @@ private object NotificationEventRouter {
                 val approval = data.obj("approval").takeUnless { it.isEmpty() } ?: data
                 val id = approval.str("id")
                 if (id.isNotBlank()) MacBotNotifications.postNeedsYou(
-                    context, hostId, id, "需要审批", approval.str("description").ifBlank { approval.str("summary") }, seq,
+                    context, hostId, id, context.getString(R.string.notification_approval_title),
+                    approval.str("description").ifBlank { approval.str("summary") }, seq,
                 )
             }
             eventName == "question.asked" -> {
                 val question = data.obj("question").takeUnless { it.isEmpty() } ?: data
                 val id = question.str("id").ifBlank { question.str("question_id") }
                 if (id.isNotBlank()) MacBotNotifications.postNeedsYouEvent(
-                    context, hostId, id, "需要你回答", question.str("text").ifBlank { question.str("prompt") },
+                    context, hostId, id, context.getString(R.string.notification_question_title),
+                    question.str("text").ifBlank { question.str("prompt") },
                     "chat", question.str("chat_id"), seq,
                 )
             }
@@ -150,18 +152,34 @@ private object NotificationEventRouter {
                 val chat = snapshot.chats.firstOrNull { it.str("id") == chatId }
                 val sender = message.obj("sender")
                 val isBot = sender.str("kind") == "bot"
-                val needsYou = mentionsUser(message)
-                val isPrivateChat = chat?.str("kind") in setOf("main", "direct", "bot_dm")
-                if (needsYou) {
+                val takeover = message.arr("blocks")
+                    .asSequence()
+                    .mapNotNull { it as? JsonObject }
+                    .firstOrNull { it.str("type") == "takeover_request" && it.str("state") == "pending" }
+                val takeoverBotId = takeover?.str("bot_id").orEmpty()
+                if (takeoverBotId.isNotBlank()) {
                     MacBotNotifications.postNeedsYouEvent(
-                        context, hostId, id, "需要你处理", message.str("fallback_text"), "chat", chatId, seq,
+                        context,
+                        hostId,
+                        id,
+                        context.getString(R.string.notification_takeover_title),
+                        takeover?.str("reason").orEmpty().ifBlank { context.getString(R.string.notification_takeover_default_text) },
+                        "computer",
+                        takeoverBotId,
+                        seq,
                     )
-                } else if (isBot && isPrivateChat) {
+                } else if (mentionsUser(message)) {
+                    MacBotNotifications.postNeedsYouEvent(
+                        context, hostId, id, context.getString(R.string.notification_message_needs_you_title),
+                        message.str("fallback_text"), "chat", chatId, seq,
+                    )
+                } else if (isBot && chat?.str("kind") in setOf("main", "direct", "bot_dm")) {
                     val botId = sender.str("bot_id")
                     val notifications = snapshot.bots
                         .firstOrNull { it.str("id") == botId }?.boolean("notifications") ?: true
                     MacBotNotifications.postMessage(
-                        context, hostId, id, message.str("sender_name").ifBlank { "Mac Bot" }, message.str("fallback_text"),
+                        context, hostId, id, message.str("sender_name").ifBlank { context.getString(R.string.app_name) },
+                        message.str("fallback_text"),
                         chatId, chat?.boolean("muted") ?: false, notifications, seq,
                     )
                 }
@@ -170,17 +188,31 @@ private object NotificationEventRouter {
                 val assignment = data.obj("assignment").takeUnless { it.isEmpty() } ?: data
                 if (assignment.str("status") == "done") {
                     val id = assignment.str("id").ifBlank { assignment.str("assignment_id") }
-                    if (id.isNotBlank()) MacBotNotifications.postCompleted(
-                        context, hostId, id, "任务已完成", assignment.str("title").ifBlank { assignment.str("summary") },
-                        seq, assignment.str("project_id").ifBlank { id },
-                    )
+                    if (id.isNotBlank()) {
+                        val title = assignment.str("title").ifBlank { assignment.str("summary") }
+                        val projectId = assignment.str("project_id")
+                        if (projectId.isNotBlank()) {
+                            MacBotNotifications.postCompleted(
+                                context, hostId, id, context.getString(R.string.notification_assignment_done_title), title,
+                                eventSeq = seq, projectId = projectId,
+                            )
+                        } else {
+                            MacBotNotifications.postCompleted(
+                                context, hostId, id, context.getString(R.string.notification_assignment_done_title), title,
+                                eventSeq = seq,
+                                chatId = assignment.str("origin_chat_id").ifBlank { assignment.str("chat_id") },
+                            )
+                        }
+                    }
                 } else if ((assignment.str("status") == "blocked" || assignment.str("status") == "waiting_user") &&
                     assignmentMentionsUser(assignment, snapshot)
                 ) {
                     val id = assignment.str("id").ifBlank { assignment.str("assignment_id") }
+                    val chatId = assignment.str("origin_chat_id").ifBlank { assignment.str("chat_id") }
                     if (id.isNotBlank()) MacBotNotifications.postNeedsYouEvent(
-                        context, hostId, id, "任务需要你处理", assignment.str("title").ifBlank { assignment.str("summary") },
-                        "chat", assignment.str("chat_id"), seq,
+                        context, hostId, id, context.getString(R.string.notification_assignment_attention_title),
+                        assignment.str("title").ifBlank { assignment.str("summary") },
+                        "chat", chatId, seq,
                     )
                 }
             }
@@ -189,16 +221,10 @@ private object NotificationEventRouter {
                 if (project.str("status") == "review") {
                     val id = project.str("id").ifBlank { project.str("project_id") }
                     if (id.isNotBlank()) MacBotNotifications.postCompleted(
-                        context, hostId, id, "项目待验收", project.str("name").ifBlank { project.str("goal") }, seq, id,
+                        context, hostId, id, context.getString(R.string.notification_project_review_title),
+                        project.str("name").ifBlank { project.str("goal") }, eventSeq = seq, projectId = id,
                     )
                 }
-            }
-            eventName.contains("takeover") -> {
-                val id = data.str("id").ifBlank { data.str("bot_id") }
-                if (id.isNotBlank()) MacBotNotifications.postNeedsYouEvent(
-                    context, hostId, id, "需要接管画面", data.str("message").ifBlank { "Bot 请求你接管 Agent Computer" },
-                    "computer", id, seq,
-                )
             }
         }
     }
@@ -215,4 +241,5 @@ private object NotificationEventRouter {
             .firstOrNull { it.str("id") == resultMessageId }
             ?.let(::mentionsUser) == true
     }
+
 }
