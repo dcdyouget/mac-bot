@@ -155,9 +155,163 @@ impl ProductionBackend {
             event_lock: Arc::new(Mutex::new(())),
             idempotency: Arc::new(Mutex::new(idempotency)),
         };
+        backend.reconcile_durable_decision_waits()?;
         backend.repair_decision_question_messages()?;
         backend.repair_completed_operation_events(&operations)?;
         Ok(backend)
+    }
+
+    /// Reconcile only decisions proven to be waiting by a durable checkpoint.
+    /// A historical Message alone cannot establish whether it was answered.
+    fn reconcile_durable_decision_waits(&self) -> Result<(), AdapterError> {
+        let jobs = match fs::read_dir(self.store.root().join("data/jobs")) {
+            Ok(jobs) => jobs,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(macbot_store::StoreError::Io(error).into()),
+        };
+        let mut candidates: HashMap<String, Vec<(Option<String>, String, String)>> = HashMap::new();
+        for entry in jobs {
+            let entry = entry.map_err(macbot_store::StoreError::Io)?;
+            let path = entry.path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(job) = self.store.read_snapshot::<macbot_durable::Job>(format!(
+                "data/jobs/{}",
+                entry.file_name().to_string_lossy()
+            ))?
+            else {
+                continue;
+            };
+            let checkpoint = &job.checkpoint;
+            if job.unsafe_replay
+                || !matches!(
+                    job.status,
+                    macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
+                )
+                || checkpoint.get("waiting_reason").and_then(Value::as_str) != Some("decision")
+                || !checkpoint.get("pending_tool").is_none_or(Value::is_null)
+                || !checkpoint.get("pending_tools").is_none_or(|tools| {
+                    tools.is_null() || tools.as_array().is_some_and(Vec::is_empty)
+                })
+            {
+                continue;
+            }
+            let Some(message_id) = checkpoint.get("waiting_message_id").and_then(Value::as_str)
+            else {
+                continue;
+            };
+            let Some(run_id) = checkpoint.get("run_id").and_then(Value::as_str) else {
+                continue;
+            };
+            if takeover_component(run_id) != run_id {
+                continue;
+            }
+            let Some(request) = self
+                .store
+                .read_snapshot::<Value>(format!("data/run_requests/{run_id}.json"))?
+            else {
+                continue;
+            };
+            if request.get("run_id").and_then(Value::as_str) != Some(run_id) {
+                continue;
+            }
+            let (Some(bot_id), Some(chat_id)) = (
+                request.get("bot_id").and_then(Value::as_str),
+                request.get("chat_id").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            let assignment_id = match request.get("assignment_id") {
+                Some(Value::String(id)) => Some(id.clone()),
+                None | Some(Value::Null) => None,
+                _ => continue,
+            };
+            candidates.entry(message_id.to_owned()).or_default().push((
+                assignment_id,
+                bot_id.to_owned(),
+                chat_id.to_owned(),
+            ));
+        }
+        let mut assignment_claims: HashMap<String, usize> = HashMap::new();
+        for claims in candidates.values() {
+            for (assignment_id, _, _) in claims {
+                if let Some(assignment_id) = assignment_id {
+                    *assignment_claims.entry(assignment_id.clone()).or_default() += 1;
+                }
+            }
+        }
+        let mut changed = false;
+        let mut recovered_assignments = Vec::new();
+        for (message_id, candidates) in candidates {
+            // Two jobs claiming the same canonical decision are ambiguous.
+            if candidates.len() != 1 {
+                tracing::warn!(%message_id, "skipping ambiguous decision jobs");
+                continue;
+            }
+            let (assignment_id, bot_id, chat_id) = &candidates[0];
+            if assignment_id
+                .as_ref()
+                .is_some_and(|id| assignment_claims.get(id).copied().unwrap_or(0) != 1)
+            {
+                tracing::warn!(%message_id, "skipping multiple decision jobs for one assignment");
+                continue;
+            }
+            match self.orchestrator.reconcile_waiting_decision(
+                &message_id,
+                assignment_id.as_deref(),
+                bot_id,
+                chat_id,
+            ) {
+                Ok(reconciled) => {
+                    changed |= reconciled;
+                    if let Some(assignment_id) = assignment_id {
+                        recovered_assignments.push((message_id.clone(), assignment_id.clone()));
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%message_id, %error, "skipping inconsistent decision checkpoint")
+                }
+            }
+        }
+        if changed {
+            // Constructor-only: no runtime writer can exist before open returns.
+            let _guard = self
+                .persist_lock
+                .try_lock()
+                .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+            self.persist_orchestrator_locked(
+                json!({"method":"decision.recovery","status":"done","result":{}}),
+            )
+            .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+        }
+        let snapshot = self
+            .orchestrator
+            .snapshot()
+            .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+        for (message_id, assignment_id) in recovered_assignments {
+            let Some(assignment) = snapshot
+                .get("assignments")
+                .and_then(|items| items.get(&assignment_id))
+            else {
+                continue;
+            };
+            if assignment
+                .pointer("/wait/message_id")
+                .and_then(Value::as_str)
+                != Some(message_id.as_str())
+            {
+                continue;
+            }
+            let mut assignment = assignment.clone();
+            normalize_assignment(&mut assignment);
+            self.store.append_event_once(
+                &format!("decision-recovery:{message_id}:assignment"),
+                "assignment.updated",
+                json!({"assignment":assignment}),
+            )?;
+        }
+        Ok(())
     }
 
     /// Older writers exposed option-bearing decisions as plain text. Repair
@@ -1076,51 +1230,49 @@ impl ProductionBackend {
     /// with every runtime writer. This lock is intentionally independent from
     /// `write_lock`: model/runtime callbacks may call this entry point without
     /// holding the RPC request lock.
-    pub async fn persist_orchestrator(&self, mut operation: Value) -> RpcResult {
+    pub async fn persist_orchestrator(&self, operation: Value) -> RpcResult {
         let _guard = self.persist_lock.lock().await;
-        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
-        let (result, request_id, status, snapshot) = {
-            let object = operation.as_object_mut().ok_or_else(|| RpcError {
-                code: "invalid_params".into(),
-                message: "orchestrator operation must be an object".into(),
-                details: None,
-            })?;
-            object.insert("snapshot".into(), snapshot);
-            object.entry("status").or_insert_with(|| json!("done"));
-            object.entry("at").or_insert_with(|| json!(now()));
-            (
-                object.get("result").cloned().unwrap_or(Value::Null),
-                object
-                    .get("client_request_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                object
-                    .get("status")
-                    .and_then(Value::as_str)
-                    .unwrap_or("done")
-                    .to_owned(),
-                object.get("snapshot").cloned().unwrap_or(Value::Null),
-            )
-        };
-        self.store
-            .append_jsonl("data/orchestrator/operations.jsonl", &operation)
-            .map_err(store_error)?;
-        if status == "rolled_back" {
-            if let Some(request_id) = request_id.as_ref() {
-                self.idempotency.lock().await.remove(request_id);
-            }
-        }
-        self.store
-            .write_snapshot("data/orchestrator/state.json", &snapshot)
-            .map_err(store_error)?;
-        if status == "done" {
-            if let Some(request_id) = request_id {
+        let request_id = operation
+            .get("client_request_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let status = operation
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("done")
+            .to_owned();
+        let result = self.persist_orchestrator_locked(operation)?;
+        if let Some(request_id) = request_id {
+            if status == "rolled_back" {
+                self.idempotency.lock().await.remove(&request_id);
+            } else if status == "done" {
                 self.idempotency
                     .lock()
                     .await
                     .insert(request_id, result.clone());
             }
         }
+        Ok(result)
+    }
+
+    // All callers hold persist_lock, including the single-threaded constructor.
+    fn persist_orchestrator_locked(&self, mut operation: Value) -> RpcResult {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let object = operation.as_object_mut().ok_or_else(|| RpcError {
+            code: "invalid_params".into(),
+            message: "orchestrator operation must be an object".into(),
+            details: None,
+        })?;
+        object.insert("snapshot".into(), snapshot.clone());
+        object.entry("status").or_insert_with(|| json!("done"));
+        object.entry("at").or_insert_with(|| json!(now()));
+        let result = object.get("result").cloned().unwrap_or(Value::Null);
+        self.store
+            .append_jsonl("data/orchestrator/operations.jsonl", &operation)
+            .map_err(store_error)?;
+        self.store
+            .write_snapshot("data/orchestrator/state.json", &snapshot)
+            .map_err(store_error)?;
         Ok(result)
     }
 
@@ -6838,6 +6990,205 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn durable_wait_rebuilds_missing_legacy_questions_without_running_tools() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"legacy decisions"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let mut expected = Vec::new();
+        for index in 0..4 {
+            let project = backend.call("project.create", json!({"name":format!("legacy {index}"),"goal":"choose login","member_bot_ids":[bot_id]}), &gateway.state).await.unwrap();
+            let chat_id = project["project"]["chat_id"].as_str().unwrap();
+            let assignment = backend.call("assignment.create", json!({"bot_id":bot_id,"project_id":project["project"]["id"],"origin_chat_id":chat_id,"title":"decision","instruction":"choose login"}), &gateway.state).await.unwrap();
+            let assignment_id = assignment["id"].as_str().unwrap();
+            let message = backend.execution_send_msg(&gateway.state, json!({"receipt":{"run_id":format!("legacy-{index}"),"call_id":"decision"},"message":{"chat_id":chat_id,"bot_id":bot_id,"assignment_id":assignment_id,"text":"Choose login","intent":"decision","options":["Email","Phone"],"mentions":["user"]}})).await.unwrap();
+            let run_id = format!("legacy-run-{index}");
+            let mut checkpoint = json!({"run_id":run_id,"waiting_reason":"decision","waiting_message_id":message["id"],"waiting_message":true,"pending_tools":[]});
+            if index == 2 {
+                checkpoint["pending_tools"] = json!([{"name":"write","call_id":"unsafe"}]);
+            }
+            let mut durable = backend.durable.lock().await;
+            let job = durable
+                .create_job(bot_id, "execution", checkpoint.clone())
+                .unwrap();
+            durable
+                .commit(
+                    &job.id,
+                    if index == 3 {
+                        macbot_durable::JobStatus::Suspended
+                    } else {
+                        macbot_durable::JobStatus::Waiting
+                    },
+                    checkpoint,
+                    index == 3,
+                )
+                .unwrap();
+            drop(durable);
+            backend.store.write_snapshot(format!("data/run_requests/{run_id}.json"), &json!({"run_id":run_id,"assignment_id":assignment_id,"bot_id":bot_id,"chat_id":chat_id,"model":"mock-model","instruction":"choose login"})).unwrap();
+            expected.push((assignment_id.to_owned(), chat_id.to_owned(), message));
+        }
+        let mut legacy = backend.orchestrator.snapshot().unwrap();
+        legacy["questions"] = json!({});
+        legacy["question_created_at"] = json!({});
+        legacy["question_scopes"] = json!({});
+        for (assignment_id, chat_id, message) in &expected {
+            legacy["messages"][message["id"].as_str().unwrap()]
+                .as_object_mut()
+                .unwrap()
+                .remove("question_id");
+            legacy["assignments"][assignment_id]["status"] = json!("working");
+            legacy["assignments"][assignment_id]["wait"] = Value::Null;
+            let mut old_wire = message.clone();
+            old_wire["blocks"] = json!([{"type":"text","markdown":"Choose login"}]);
+            backend
+                .store
+                .append_jsonl(format!("data/chats/{chat_id}/messages.jsonl"), &old_wire)
+                .unwrap();
+        }
+        backend
+            .store
+            .append_jsonl(
+                "data/orchestrator/operations.jsonl",
+                &json!({"method":"legacy.fixture","status":"done","snapshot":legacy}),
+            )
+            .unwrap();
+        let baseline_events = backend.store.events_since(0).unwrap().len() as u64;
+        let job_commits = backend
+            .store
+            .read_jsonl::<Value>("data/jobs/commits.jsonl")
+            .unwrap();
+        drop(backend);
+        let mut previous_events = None;
+        for _ in 0..2 {
+            let restarted = ProductionBackend::open(home.path()).unwrap();
+            let bootstrap = restarted
+                .call("bootstrap", json!({}), &gateway.state)
+                .await
+                .unwrap();
+            assert_eq!(
+                bootstrap["pending"]["questions"].as_array().unwrap().len(),
+                2
+            );
+            let workbench = restarted
+                .call("workbench.get", json!({}), &gateway.state)
+                .await
+                .unwrap();
+            assert_eq!(
+                workbench["waiting"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|item| item.get("question").is_some())
+                    .count(),
+                2
+            );
+            let disk: Value = restarted
+                .store
+                .read_snapshot("data/orchestrator/state.json")
+                .unwrap()
+                .unwrap();
+            for (index, (assignment_id, chat_id, original)) in expected.iter().enumerate() {
+                let history = restarted
+                    .call(
+                        "chat.history",
+                        json!({"chat_id":chat_id,"limit":100}),
+                        &gateway.state,
+                    )
+                    .await
+                    .unwrap();
+                let current = history["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|m| m["id"] == original["id"])
+                    .unwrap();
+                for field in ["id", "seq", "created_at"] {
+                    assert_eq!(current[field], original[field]);
+                }
+                if index < 2 {
+                    let question_id = format!("decision:{}", original["id"].as_str().unwrap());
+                    assert_eq!(
+                        current["blocks"],
+                        json!([{"type":"question","question_id":question_id}])
+                    );
+                    assert_eq!(
+                        disk["questions"][&question_id]["options"],
+                        json!(["Email", "Phone"])
+                    );
+                    assert_eq!(
+                        disk["assignments"][assignment_id]["wait"]["message_id"],
+                        original["id"]
+                    );
+                    assert_eq!(disk["assignments"][assignment_id]["status"], "waiting_user");
+                } else {
+                    assert_eq!(current["blocks"][0]["type"], "text");
+                    assert_eq!(disk["assignments"][assignment_id]["status"], "working");
+                    assert!(disk["assignments"][assignment_id]["wait"].is_null());
+                }
+            }
+            if let Some(cursor) = previous_events {
+                assert!(restarted.store.events_since(cursor).unwrap().is_empty());
+            }
+            previous_events = Some(
+                restarted
+                    .store
+                    .events_since(0)
+                    .unwrap()
+                    .last()
+                    .map(|event| event.seq)
+                    .unwrap_or(0),
+            );
+            let new_events = restarted.store.events_since(baseline_events).unwrap();
+            assert_eq!(
+                new_events
+                    .iter()
+                    .filter(|event| event.event == "question.asked")
+                    .count(),
+                2
+            );
+            assert_eq!(
+                new_events
+                    .iter()
+                    .filter(|event| event.event == "message.updated"
+                        && event.data["message"]["blocks"][0]["type"] == "question"
+                        && expected
+                            .iter()
+                            .any(|(_, _, message)| event.data["message"]["id"] == message["id"]))
+                    .count(),
+                2
+            );
+            for (index, (assignment_id, _, _)) in expected.iter().enumerate() {
+                assert_eq!(
+                    new_events
+                        .iter()
+                        .filter(|event| event.event == "assignment.updated"
+                            && event.data["assignment"]["id"] == *assignment_id)
+                        .count(),
+                    usize::from(index < 2)
+                );
+            }
+            assert_eq!(
+                restarted
+                    .store
+                    .read_jsonl::<Value>("data/jobs/commits.jsonl")
+                    .unwrap(),
+                job_commits
+            );
+        }
     }
 
     #[tokio::test]

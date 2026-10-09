@@ -462,6 +462,23 @@ impl Orchestrator {
         i.create_question(request)
     }
 
+    /// Reconcile a durable decision message after restoring an older snapshot.
+    ///
+    /// This deliberately accepts the canonical message identity and routing
+    /// fields from the gateway instead of inferring anything from the message
+    /// text.  It is used for jobs which already persisted a decision wait but
+    /// whose Question record was not persisted by an older server.
+    pub fn reconcile_waiting_decision(
+        &self,
+        message_id: &str,
+        assignment_id: Option<&str>,
+        bot_id: &str,
+        chat_id: &str,
+    ) -> Result<bool> {
+        let mut i = self.lock()?;
+        i.reconcile_waiting_decision(message_id, assignment_id, bot_id, chat_id)
+    }
+
     /// Finish a Bot-to-Bot decision handoff without executing the continuation.
     /// Runtime calls this after the child Bot has produced its answer; the
     /// method only resolves the parent's linked question (when present) and
@@ -2778,6 +2795,212 @@ impl Inner {
         Ok(q)
     }
 
+    fn reconcile_waiting_decision(
+        &mut self,
+        message_id: &str,
+        assignment_id: Option<&str>,
+        bot_id: &str,
+        chat_id: &str,
+    ) -> Result<bool> {
+        let message = self
+            .messages
+            .get(message_id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("message {message_id}")))?
+            .clone();
+        if message.chat_id != chat_id
+            || !same_bot_id(&message.sender, bot_id)
+            || message.intent.as_deref() != Some("decision")
+            || message.assignment_id.as_deref() != assignment_id
+        {
+            return Err(OrchestratorError::Conflict(
+                "decision message routing does not match canonical identity".into(),
+            ));
+        }
+
+        let mut assignment = None;
+        if let Some(assignment_id) = assignment_id {
+            let current = self.assignments.get(assignment_id).ok_or_else(|| {
+                OrchestratorError::NotFound(format!("assignment {assignment_id}"))
+            })?;
+            if !matches!(
+                current.status.as_str(),
+                "working" | "waiting_user" | "waiting_bot"
+            ) {
+                return Err(OrchestratorError::Conflict(
+                    "cannot reconcile a queued or terminal assignment".into(),
+                ));
+            }
+            if current.origin_chat_id != chat_id {
+                return Err(OrchestratorError::Conflict(
+                    "decision assignment chat does not match canonical message".into(),
+                ));
+            }
+            if !same_bot_id(&current.bot_id, bot_id) {
+                return Err(OrchestratorError::Conflict(
+                    "decision assignment Bot does not match canonical message".into(),
+                ));
+            }
+            if current
+                .wait
+                .as_ref()
+                .and_then(|wait| wait.message_id.as_deref())
+                .is_some_and(|id| id != message_id)
+            {
+                return Err(OrchestratorError::Conflict(
+                    "assignment already waits on another message".into(),
+                ));
+            }
+            assignment = Some(current.clone());
+        } else {
+            let bot = self
+                .bots
+                .get(bot_id)
+                .or_else(|| {
+                    (bot_id == "bot_main")
+                        .then(|| self.bots.get("main"))
+                        .flatten()
+                })
+                .ok_or_else(|| OrchestratorError::NotFound(format!("bot {bot_id}")))?;
+            if bot.dm_chat_id != chat_id {
+                return Err(OrchestratorError::Forbidden(
+                    "a private decision must target the Bot direct chat".into(),
+                ));
+            }
+        }
+
+        let options = message.options.clone();
+        let question_scope = assignment_id
+            .map(str::to_owned)
+            .unwrap_or_else(|| private_question_scope(chat_id));
+        let (existing_question_id, ambiguous_question) = if options.is_empty() {
+            (None, false)
+        } else if let Some(question_id) = message
+            .question_id
+            .as_deref()
+            .filter(|id| self.questions.contains_key(*id))
+        {
+            (Some(question_id.to_owned()), false)
+        } else {
+            let stable = format!("decision:{message_id}");
+            if self.questions.contains_key(&stable) {
+                (Some(stable), false)
+            } else {
+                let matches = self
+                    .questions
+                    .values()
+                    .filter(|question| {
+                        question.assignment_id == question_scope
+                            && same_bot_id(&question.bot_id, bot_id)
+                            && question.chat_id == chat_id
+                            && question.text == message.text
+                            && question.options == options
+                    })
+                    .map(|question| question.id.clone())
+                    .take(2)
+                    .collect::<Vec<_>>();
+                match matches.as_slice() {
+                    [] => (None, false),
+                    [question_id] => (Some(question_id.clone()), false),
+                    _ => (None, true),
+                }
+            }
+        };
+        if ambiguous_question {
+            return Ok(false);
+        }
+        if let Some(question_id) = existing_question_id.as_deref() {
+            let question = self.questions.get(question_id).ok_or_else(|| {
+                OrchestratorError::Conflict(
+                    "decision Question disappeared during reconciliation".into(),
+                )
+            })?;
+            if !same_bot_id(&question.bot_id, bot_id)
+                || question.assignment_id != question_scope
+                || question.chat_id != chat_id
+                || question.text != message.text
+                || question.options != options
+            {
+                return Err(OrchestratorError::Conflict(
+                    "decision Question does not match canonical message".into(),
+                ));
+            }
+            if question.state != "pending" {
+                return Ok(false);
+            }
+        }
+        let mut changed = false;
+        if let Some(assignment) = assignment.as_ref() {
+            let wait = WaitState {
+                reason: "decision".into(),
+                message_id: Some(message_id.into()),
+            };
+            let target_status = if options.is_empty() {
+                if matches!(assignment.status.as_str(), "waiting_user" | "waiting_bot") {
+                    assignment.status.clone()
+                } else {
+                    "waiting_bot".into()
+                }
+            } else if matches!(assignment.status.as_str(), "waiting_user" | "waiting_bot") {
+                assignment.status.clone()
+            } else if message
+                .mentions
+                .iter()
+                .any(|mention| matches!(mention, Mention::Bot { .. } | Mention::Main))
+            {
+                "waiting_bot".into()
+            } else {
+                "waiting_user".into()
+            };
+            let current = self.assignments.get_mut(&assignment.id).expect("validated");
+            if current.status != target_status || current.wait.as_ref() != Some(&wait) {
+                current.status = target_status;
+                current.wait = Some(wait);
+                changed = true;
+            }
+        }
+
+        if options.is_empty() {
+            return Ok(changed);
+        }
+
+        let question_id = existing_question_id.unwrap_or_else(|| format!("decision:{message_id}"));
+        if !self.questions.contains_key(&question_id) {
+            self.questions.insert(
+                question_id.clone(),
+                Question {
+                    id: question_id.clone(),
+                    bot_id: bot_id.into(),
+                    assignment_id: question_scope.clone(),
+                    chat_id: chat_id.into(),
+                    text: message.text.clone(),
+                    options,
+                    allow_free_text: true,
+                    state: "pending".into(),
+                    answer: None,
+                },
+            );
+            self.question_created_at
+                .insert(question_id.clone(), message.created_at.clone());
+            if assignment_id.is_none() {
+                self.question_scopes.insert(
+                    question_id.clone(),
+                    QuestionScope {
+                        bot_id: bot_id.into(),
+                        chat_id: chat_id.into(),
+                    },
+                );
+            }
+            changed = true;
+        }
+        if message.question_id.as_deref() != Some(question_id.as_str()) {
+            if let Some(message) = self.messages.get_mut(message_id) {
+                message.question_id = Some(question_id);
+            }
+            changed = true;
+        }
+        Ok(changed)
+    }
+
     fn answer_decision_for_child(
         &mut self,
         parent_assignment_id: &str,
@@ -4562,6 +4785,270 @@ mod tests {
         assert_eq!(
             restored.snapshot().unwrap()["assignments"][&assignment.id]["wait"]["message_id"],
             message.id
+        );
+    }
+
+    #[test]
+    fn reconcile_legacy_working_decision_is_idempotent() {
+        let source = Orchestrator::default();
+        let bot_id = bot(&source, "迁移决策");
+        let assignment = source
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat".into(),
+                bot_id: bot_id.clone(),
+                title: "迁移".into(),
+                instruction: "恢复旧等待".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let message = source
+            .send_msg(SendMessageRequest {
+                bot_id: bot_id.clone(),
+                chat_id: "chat".into(),
+                assignment_id: Some(assignment.id.clone()),
+                run_id: None,
+                call_id: None,
+                text: "请确认登录方式".into(),
+                intent: "decision".into(),
+                mentions: vec![MentionInput::User("user".into())],
+                artifacts: vec![],
+                options: vec!["邮箱".into(), "手机".into()],
+            })
+            .unwrap();
+        let mut snapshot = source.snapshot().unwrap();
+        snapshot["messages"][&message.id]
+            .as_object_mut()
+            .unwrap()
+            .remove("question_id");
+        snapshot["questions"] = json!({});
+        snapshot["question_created_at"] = json!({});
+        snapshot["assignments"][&assignment.id]["status"] = json!("working");
+        snapshot["assignments"][&assignment.id]["wait"] = Value::Null;
+
+        let restored = Orchestrator::default();
+        restored.restore(snapshot).unwrap();
+        assert!(restored
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat",)
+            .unwrap());
+        let after = restored.snapshot().unwrap();
+        let question_id = format!("decision:{}", message.id);
+        assert_eq!(after["messages"][&message.id]["question_id"], question_id);
+        assert_eq!(
+            after["questions"][&question_id]["options"],
+            json!(["邮箱", "手机"])
+        );
+        assert_eq!(
+            after["assignments"][&assignment.id]["status"],
+            "waiting_user"
+        );
+        assert_eq!(
+            after["assignments"][&assignment.id]["wait"]["message_id"],
+            message.id
+        );
+        assert!(!restored
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat",)
+            .unwrap());
+        assert_eq!(restored.snapshot().unwrap(), after);
+    }
+
+    #[test]
+    fn reconcile_decision_rejects_terminal_and_does_not_infer_without_options() {
+        let source = Orchestrator::default();
+        let bot_id = bot(&source, "迁移校验");
+        let assignment = source
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat".into(),
+                bot_id: bot_id.clone(),
+                title: "迁移".into(),
+                instruction: "拒绝终态".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let message = source
+            .send_msg(SendMessageRequest {
+                bot_id: bot_id.clone(),
+                chat_id: "chat".into(),
+                assignment_id: Some(assignment.id.clone()),
+                run_id: None,
+                call_id: None,
+                text: "旧决定".into(),
+                intent: "decision".into(),
+                mentions: vec![MentionInput::User("user".into())],
+                artifacts: vec![],
+                options: vec!["A".into(), "B".into()],
+            })
+            .unwrap();
+        let mut terminal = source.snapshot().unwrap();
+        terminal["messages"][&message.id]
+            .as_object_mut()
+            .unwrap()
+            .remove("question_id");
+        terminal["questions"] = json!({});
+        terminal["question_created_at"] = json!({});
+        terminal["assignments"][&assignment.id]["status"] = json!("done");
+        terminal["assignments"][&assignment.id]["wait"] = Value::Null;
+        let restored = Orchestrator::default();
+        restored.restore(terminal).unwrap();
+        assert!(restored
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .is_err());
+        assert!(restored.snapshot().unwrap()["questions"]
+            .as_object()
+            .unwrap()
+            .is_empty());
+
+        let mut no_options = source.snapshot().unwrap();
+        no_options["messages"][&message.id]["options"] = json!([]);
+        no_options["messages"][&message.id]
+            .as_object_mut()
+            .unwrap()
+            .remove("question_id");
+        no_options["questions"] = json!({});
+        no_options["question_created_at"] = json!({});
+        no_options["assignments"][&assignment.id]["status"] = json!("working");
+        no_options["assignments"][&assignment.id]["wait"] = Value::Null;
+        let restored = Orchestrator::default();
+        restored.restore(no_options).unwrap();
+        assert!(restored
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .unwrap());
+        let after = restored.snapshot().unwrap();
+        assert!(after["questions"].as_object().unwrap().is_empty());
+        assert_eq!(
+            after["assignments"][&assignment.id]["status"],
+            "waiting_bot"
+        );
+        assert_eq!(
+            after["assignments"][&assignment.id]["wait"]["message_id"],
+            message.id
+        );
+    }
+
+    #[test]
+    fn reconcile_bot_decision_waits_for_bot_and_skips_ambiguous_match() {
+        let source = Orchestrator::default();
+        let bot_id = bot(&source, "提问 Bot");
+        let target_id = bot(&source, "回答 Bot");
+        let assignment = source
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat".into(),
+                bot_id: bot_id.clone(),
+                title: "Bot 决策".into(),
+                instruction: "恢复".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let message = source
+            .send_msg(SendMessageRequest {
+                bot_id: bot_id.clone(),
+                chat_id: "chat".into(),
+                assignment_id: Some(assignment.id.clone()),
+                run_id: None,
+                call_id: None,
+                text: "请回答".into(),
+                intent: "decision".into(),
+                mentions: vec![MentionInput::Bot {
+                    bot_id: target_id,
+                    instruction: None,
+                }],
+                artifacts: vec![],
+                options: vec!["A".into(), "B".into()],
+            })
+            .unwrap();
+        let mut snapshot = source.snapshot().unwrap();
+        snapshot["messages"][&message.id]
+            .as_object_mut()
+            .unwrap()
+            .remove("question_id");
+        snapshot["questions"] = json!({});
+        snapshot["question_created_at"] = json!({});
+        snapshot["assignments"][&assignment.id]["status"] = json!("working");
+        snapshot["assignments"][&assignment.id]["wait"] = Value::Null;
+        let restored = Orchestrator::default();
+        restored.restore(snapshot).unwrap();
+        assert!(restored
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .unwrap());
+        assert_eq!(
+            restored.snapshot().unwrap()["assignments"][&assignment.id]["status"],
+            "waiting_bot"
+        );
+
+        let source = Orchestrator::default();
+        let bot_id = bot(&source, "歧义决策");
+        let assignment = source
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat".into(),
+                bot_id: bot_id.clone(),
+                title: "歧义".into(),
+                instruction: "不猜".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let message = source
+            .send_msg(SendMessageRequest {
+                bot_id: bot_id.clone(),
+                chat_id: "chat".into(),
+                assignment_id: Some(assignment.id.clone()),
+                run_id: None,
+                call_id: None,
+                text: "重复选项".into(),
+                intent: "decision".into(),
+                mentions: vec![MentionInput::User("user".into())],
+                artifacts: vec![],
+                options: vec!["A".into(), "B".into()],
+            })
+            .unwrap();
+        source
+            .create_question(QuestionRequest {
+                bot_id: bot_id.clone(),
+                assignment_id: Some(assignment.id.clone()),
+                chat_id: "chat".into(),
+                text: message.text.clone(),
+                options: message.options.clone(),
+                allow_free_text: true,
+            })
+            .unwrap();
+        let mut snapshot = source.snapshot().unwrap();
+        snapshot["messages"][&message.id]
+            .as_object_mut()
+            .unwrap()
+            .remove("question_id");
+        snapshot["question_created_at"] = json!({});
+        snapshot["assignments"][&assignment.id]["status"] = json!("working");
+        snapshot["assignments"][&assignment.id]["wait"] = Value::Null;
+        let restored = Orchestrator::default();
+        restored.restore(snapshot).unwrap();
+        assert!(!restored
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .unwrap());
+        assert_eq!(
+            restored.snapshot().unwrap()["assignments"][&assignment.id]["wait"],
+            Value::Null
         );
     }
 

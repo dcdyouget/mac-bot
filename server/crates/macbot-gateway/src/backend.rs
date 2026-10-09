@@ -1857,6 +1857,9 @@ fn waiting_checkpoint_matches_message(checkpoint: &Value, message_id: &str) -> b
         checkpoint.get("waiting_reason").and_then(Value::as_str),
         Some("decision" | "blocked")
     ) && checkpoint.get("pending_tool").is_none_or(Value::is_null)
+        && checkpoint
+            .get("pending_tools")
+            .is_none_or(|tools| tools.is_null() || tools.as_array().is_some_and(Vec::is_empty))
         && checkpoint.get("waiting_message_id").and_then(Value::as_str) == Some(message_id)
 }
 
@@ -1915,7 +1918,10 @@ fn pending_decision_question_id(
 
 fn decision_checkpoint_matches_question(checkpoint: &Value, message_id: &str) -> bool {
     checkpoint.get("waiting_reason").and_then(Value::as_str) == Some("decision")
-        && checkpoint.get("pending_tool").is_none()
+        && checkpoint.get("pending_tool").is_none_or(Value::is_null)
+        && checkpoint
+            .get("pending_tools")
+            .is_none_or(|tools| tools.is_null() || tools.as_array().is_some_and(Vec::is_empty))
         && checkpoint.get("waiting_message_id").and_then(Value::as_str) == Some(message_id)
 }
 
@@ -5174,6 +5180,14 @@ mod model_resolution_tests {
         ));
         assert!(!decision_checkpoint_matches_question(
             &json!({"waiting_reason":"decision","waiting_message_id":"old-message"}),
+            "question-message"
+        ));
+        assert!(!decision_checkpoint_matches_question(
+            &json!({"waiting_reason":"decision","waiting_message_id":"question-message","pending_tools":[{"name":"write"}]}),
+            "question-message"
+        ));
+        assert!(!waiting_checkpoint_matches_message(
+            &json!({"waiting_reason":"decision","waiting_message_id":"question-message","pending_tools":[{"name":"write"}]}),
             "question-message"
         ));
         let mut stale = snapshot.clone();
