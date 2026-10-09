@@ -1,0 +1,155 @@
+{
+  "scenario": "S2 pre-answer-delivery baseline (before c6ffcfc45b716067dad9b2d0602cd82ddf395481 deployment)",
+  "source_commit": "7968e7e2a1b6806f857b996ba561a4bfbbbff2da",
+  "before_artifact": "docs/progress/S2/production-7968e7e-answered-decisions-undelivered.json",
+  "scope": "read-only state/jobs/events metadata; no mutation; no question text/options/answer text/provider/key",
+  "state_file": {
+    "path": "/Users/gongshaojie/MacBot/data/orchestrator/state.json",
+    "exists": true
+  },
+  "product_decisions": [
+    {
+      "label": "f6b1",
+      "question": {
+        "id": "01a12170-b386-776a-96da-513b6dc64bfd",
+        "state": "answered",
+        "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "options_count": 2,
+        "answer": {
+          "present": true,
+          "at": "2026-10-09T16:13:19.034758+00:00",
+          "option_index": 0,
+          "text_present": false
+        }
+      },
+      "original_decision_message": {
+        "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+        "present": true,
+        "seq": 2,
+        "created_at": "2026-10-09T16:13:16.550963+00:00",
+        "intent": "decision",
+        "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "sender_bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "has_question_block": false
+      },
+      "matching": {
+        "assignment_id_match": true,
+        "bot_id_match": true,
+        "chat_id_match": true,
+        "message_intent_is_decision": true
+      },
+      "run": {
+        "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+        "trace_last_aseq": 24,
+        "job": {
+          "job_id": "job_01a12164-809f-7316-bd5f-82da38a1793e",
+          "status": "waiting",
+          "kind": "model_run",
+          "owner": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "unsafe_replay": false,
+          "checkpoint": {
+            "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+            "waiting_reason": "decision",
+            "wait_intent": "decision",
+            "waiting_message": true,
+            "waiting_message_id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+            "pending_tools": []
+          }
+        }
+      }
+    },
+    {
+      "label": "f0bc",
+      "question": {
+        "id": "01a12174-9595-70d1-994f-657145f20584",
+        "state": "answered",
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "options_count": 2,
+        "answer": {
+          "present": true,
+          "at": "2026-10-09T16:17:33.267874+00:00",
+          "option_index": 0,
+          "text_present": false
+        }
+      },
+      "original_decision_message": {
+        "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+        "present": true,
+        "seq": 2,
+        "created_at": "2026-10-09T16:17:31.029311+00:00",
+        "intent": "decision",
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "sender_bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "has_question_block": false
+      },
+      "matching": {
+        "assignment_id_match": true,
+        "bot_id_match": true,
+        "chat_id_match": true,
+        "message_intent_is_decision": true
+      },
+      "run": {
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "trace_last_aseq": 49,
+        "job": {
+          "job_id": "job_01a12167-b4b2-7276-bd22-32e1ec7ef105",
+          "status": "waiting",
+          "kind": "model_run",
+          "owner": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "unsafe_replay": false,
+          "checkpoint": {
+            "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+            "waiting_reason": "decision",
+            "wait_intent": "decision",
+            "waiting_message": true,
+            "waiting_message_id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+            "pending_tools": []
+          }
+        }
+      }
+    }
+  ],
+  "main_cc34": {
+    "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+    "present": true,
+    "seq": 5,
+    "created_at": "2026-10-09T16:17:25.411795+00:00",
+    "intent": "decision",
+    "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+    "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+    "has_question_block": false,
+    "job": {
+      "job_id": "job_01a12170-b4d7-75cd-80fe-3d6f93352c2b",
+      "status": "waiting",
+      "kind": "model_run",
+      "owner": "main",
+      "unsafe_replay": false,
+      "checkpoint": {
+        "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+        "waiting_reason": "decision",
+        "wait_intent": "decision",
+        "waiting_message": true,
+        "waiting_message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+        "pending_tools": []
+      },
+      "trace_last_aseq": 24
+    }
+  },
+  "assessment": {
+    "answered_product_questions": true,
+    "both_option_index_zero": true,
+    "decision_message_identity_stable": true,
+    "product_runs_waiting_safe": true,
+    "main_cc34_retained": true,
+    "purpose": "Baseline for verifying c6ffcfc45b716067dad9b2d0602cd82ddf395481 startup delivery to the same answered Product runs."
+  },
+  "conclusion": "PRE_UPGRADE_BASELINE_CAPTURED: both answered Product Questions, original decision identities, two safe waiting Product jobs/runs, and Main cc34 wait path are recorded for post-upgrade same-run delivery comparison."
+}

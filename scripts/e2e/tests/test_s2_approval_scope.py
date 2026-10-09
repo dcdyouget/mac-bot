@@ -121,6 +121,23 @@ class ApprovalScopeTests(unittest.TestCase):
         self.assert_allowed(edit, "project_home_file_mutation")
         self.assertNotIn("secret", json.dumps(write))
 
+    def test_write_and_edit_reject_runtime_leading_tilde_paths(self) -> None:
+        raw_path = f"~/MacBot/projects/{MARKER}/index.html"
+        write = check_approval_scope(
+            approval("write", "write", {"path": raw_path, "content": "secret"}),
+            self.temp,
+            MARKER,
+        )
+        edit = check_approval_scope(
+            approval("edit", "write", {"path": raw_path, "edits": [{"oldText": "a", "newText": "b"}]}),
+            self.temp,
+            MARKER,
+        )
+        self.assert_denied(write)
+        self.assertIn("runtime", write["reason"])
+        self.assert_denied(edit)
+        self.assertIn("runtime", edit["reason"])
+
     def test_file_escape_symlink_and_extra_args_are_denied(self) -> None:
         outside = Path(tempfile.mkdtemp(prefix="macbot-s2-outside-"))
         try:

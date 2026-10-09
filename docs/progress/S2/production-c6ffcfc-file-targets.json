@@ -1,0 +1,107 @@
+{
+  "scenario": "S2 c6ffcfc write target path resolution read-only",
+  "source_commit": "c6ffcfc45b716067dad9b2d0602cd82ddf395481",
+  "scope": "approved write path/CWD/project metadata and stat/hash only; no content/key/RPC mutation",
+  "project": {
+    "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+    "home_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/",
+    "home_exists": true
+  },
+  "run_requests": [
+    {
+      "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5",
+      "cwd_equals_project_home": true,
+      "project_home_from_state": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/",
+      "bot_home_field_present": false
+    },
+    {
+      "run_id": "run_01a121c8-3597-7143-9b68-1143c917b422",
+      "assignment_id": "01a121c8-3597-7143-9b68-1143c917b422",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5",
+      "cwd_equals_project_home": true,
+      "project_home_from_state": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/",
+      "bot_home_field_present": false
+    },
+    {
+      "run_id": "run_01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5",
+      "cwd_equals_project_home": true,
+      "project_home_from_state": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/",
+      "bot_home_field_present": false
+    }
+  ],
+  "approvals": [
+    {
+      "approval_id": "01a121c8-674a-70e2-878a-dd85261e860b",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "tool": "write",
+      "risk": "write",
+      "state": "allowed_once",
+      "raw_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+      "expanduser_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+      "expanduser_exists": false,
+      "tool_context_cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/",
+      "cwd_joined_raw_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+      "cwd_joined_raw_exists": true,
+      "path_representation": "leading_tilde_in_tool_argument",
+      "basename": "index.html",
+      "actual_file": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html",
+      "size_bytes": 2524,
+      "sha256": "9684de8e35d98cc3605c76057906091a177fbad955c74d3dc8edbe76cc123cb9",
+      "realpath": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/index.html"
+    },
+    {
+      "approval_id": "01a121cb-9d0d-74a0-8eb6-f2c2b2d66c16",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "tool": "write",
+      "risk": "write",
+      "state": "allowed_once",
+      "raw_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/styles.css",
+      "expanduser_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/styles.css",
+      "expanduser_exists": false,
+      "tool_context_cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/",
+      "cwd_joined_raw_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/styles.css",
+      "cwd_joined_raw_exists": true,
+      "path_representation": "leading_tilde_in_tool_argument",
+      "basename": "styles.css",
+      "actual_file": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/styles.css",
+      "size_bytes": 4360,
+      "sha256": "c84b588449db8537b3b37ef0a2a5059fef78435e92057459b2fc2d412d4df9ee",
+      "realpath": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/styles.css"
+    },
+    {
+      "approval_id": "01a121cc-ecec-7108-9a09-6f4235ac4648",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "tool": "write",
+      "risk": "write",
+      "state": "pending",
+      "raw_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/script.js",
+      "expanduser_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/script.js",
+      "expanduser_exists": false,
+      "tool_context_cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/",
+      "cwd_joined_raw_path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-6770085010b5/~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/script.js",
+      "cwd_joined_raw_exists": false,
+      "path_representation": "leading_tilde_in_tool_argument",
+      "basename": "script.js",
+      "actual_file": null,
+      "size_bytes": null,
+      "sha256": null,
+      "realpath": null
+    }
+  ],
+  "finding": {
+    "expanduser_target_files_exist": false,
+    "cwd_joined_targets_exist": 2,
+    "representation_repro": "The raw approval path begins with ~/; expanduser resolves it to project_home child, but the ToolContext CWD join treats the literal ~/ prefix as a relative directory, yielding project_home/~/MacBot/projects/.../<file>.",
+    "interpretation": "This is a path representation difference confirmed by run_request cwd=project_home and actual nested literal-tilde files. Do not classify it as an external Home write or duplicate bug without a separate path policy decision."
+  }
+}

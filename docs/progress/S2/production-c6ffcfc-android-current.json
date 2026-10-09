@@ -1,0 +1,16 @@
+{
+  "checked_at": "2026-10-09T17:53:16.920793+00:00",
+  "android_source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "server_source_commit": "c6ffcfc45b716067dad9b2d0602cd82ddf395481",
+  "server_pid": 37123,
+  "capture": "adb -s emulator-5554 exec-out screencap -p",
+  "image": "docs/progress/S2/production-c6ffcfc-android-current.png",
+  "sha256": "4ed75595a4dc210f4285e7a3212a261cc778b61d0348c64fc49a37479f8e053a",
+  "visually_checked": true,
+  "observed_host_label": "Production",
+  "observed_projects": [
+    "macbot-e2e-s2-login-6770085010b5",
+    "macbot-e2e-s2-parallel-670fbcbf1d89"
+  ],
+  "note": "Read-only sidebar screenshot; existing project names do not prove answer delivery, coding/handoff or S2 UI acceptance. No adb input/install/restart. Desktop capture blocked by screen_locked=1."
+}

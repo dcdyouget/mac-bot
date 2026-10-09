@@ -132,7 +132,16 @@ def _scoped_file(detail: dict[str, Any], tool: str, home: Path) -> dict[str, Any
                 return _reject("edit contains an unexpected edit shape", tool=tool)
             if not isinstance(edit["oldText"], str) or not isinstance(edit["newText"], str):
                 return _reject("edit replacement text has the wrong type", tool=tool)
-    if not _within_home(detail.get("path"), home):
+    raw_path = detail.get("path")
+    # ToolContext receives these paths as ordinary strings. It does not run
+    # shell/path expansion, so a leading ``~`` would be treated as a literal
+    # directory under CWD and can land outside the intended target. The
+    # project_home configuration itself is still expanded by
+    # _canonical_project_home; only tool-supplied write/edit paths are
+    # rejected here until the runtime contract is explicit.
+    if isinstance(raw_path, str) and raw_path.startswith("~"):
+        return _reject(f"{tool} leading-~ path is ambiguous for the runtime path resolver", tool=tool)
+    if not _within_home(raw_path, home):
         return _reject(f"{tool} path is outside this project Home", tool=tool)
     return _allow(tool, "project_home_file_mutation")
 

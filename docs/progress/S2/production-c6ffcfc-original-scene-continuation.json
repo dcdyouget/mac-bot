@@ -1,0 +1,476 @@
+{
+  "scenario": "S2 original-scene continuation read-only",
+  "source_commit": "c6ffcfc45b716067dad9b2d0602cd82ddf395481",
+  "baseline_artifact": "docs/progress/S2/production-7968e7e-before-answer-delivery.json",
+  "main_reply_journal": "docs/progress/S2/production-c6ffcfc-main-reply.json",
+  "scope": "first Product scene only; metadata/no payload text/options/provider/key; no mutation",
+  "original_product_runs": {
+    "f6b1": {
+      "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+      "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+      "baseline_last_aseq": 24,
+      "new_trace_first_aseq": 25,
+      "new_trace_last": {
+        "event_seq": 826,
+        "aseq": 41,
+        "type": "run.end",
+        "at": "2026-10-09T17:48:51.747Z"
+      },
+      "run_ended": true,
+      "assignment_final_event_seq": 827
+    },
+    "f0bc": {
+      "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "baseline_last_aseq": 49,
+      "current_trace_last": {
+        "event_seq": 793,
+        "aseq": 54,
+        "type": "run.wait",
+        "at": "2026-10-09T17:44:32.270Z"
+      },
+      "new_trace_after_baseline": [
+        {
+          "event_seq": 788,
+          "aseq": 50,
+          "type": "run.resume",
+          "at": "2026-10-09T17:44:28.715Z"
+        },
+        {
+          "event_seq": 789,
+          "aseq": 51,
+          "type": "llm.request",
+          "at": "2026-10-09T17:44:29.085Z"
+        },
+        {
+          "event_seq": 791,
+          "aseq": 52,
+          "type": "llm.response",
+          "at": "2026-10-09T17:44:32.222Z"
+        },
+        {
+          "event_seq": 792,
+          "aseq": 53,
+          "type": "tool.start",
+          "at": "2026-10-09T17:44:32.236Z"
+        },
+        {
+          "event_seq": 793,
+          "aseq": 54,
+          "type": "run.wait",
+          "at": "2026-10-09T17:44:32.270Z"
+        }
+      ]
+    }
+  },
+  "new_project1_assignments": [
+    {
+      "assignment": {
+        "event_seq": 805,
+        "id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "origin_chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "parent_assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "status": "working",
+        "priority": 2
+      },
+      "run_id": null,
+      "trace_last": {
+        "event_seq": 897,
+        "aseq": 27,
+        "type": "run.wait"
+      },
+      "trace_count": 27,
+      "job": {
+        "job_id": "job_01a121c8-2a31-7736-bbdb-7afe3f35b596",
+        "status": "waiting",
+        "owner": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "kind": "model_run",
+        "unsafe_replay": true,
+        "checkpoint": {
+          "run_id": "run_01a121c8-2936-747b-a0d1-812e89cf72d8",
+          "waiting_reason": null,
+          "wait_intent": null,
+          "waiting_message_id": null,
+          "pending_tools_count": 1,
+          "pending_tools": [
+            {
+              "name": "write",
+              "call_id": "call_function_5ot0zv56480q_1",
+              "args_keys": [
+                "content",
+                "path"
+              ]
+            }
+          ]
+        }
+      },
+      "source_analysis": {
+        "source": "Product child",
+        "from_bot": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "parent_assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "trigger_message_id": "01a121c8-2936-747b-a0d1-812df5961772",
+        "root_message_id": "01a121c8-2936-747b-a0d1-812df5961772",
+        "trigger_event_seq": 803,
+        "trigger_intent": "progress"
+      },
+      "new_pending_approval_id": "01a121cc-ecec-7108-9a09-6f4235ac4648"
+    },
+    {
+      "assignment": {
+        "event_seq": 820,
+        "id": "01a121c8-3597-7143-9b68-1143c917b422",
+        "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "origin_chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "parent_assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "status": "working",
+        "priority": 2
+      },
+      "run_id": null,
+      "trace_last": {
+        "event_seq": 848,
+        "aseq": 6,
+        "type": "run.end",
+        "at": "2026-10-09T17:49:05.492Z"
+      },
+      "trace_count": 6,
+      "job": {
+        "job_id": "job_01a121c8-3a0c-7066-a408-569ca1b52c71",
+        "status": "done",
+        "owner": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "kind": "model_run",
+        "unsafe_replay": false,
+        "checkpoint": {
+          "run_id": "run_01a121c8-3597-7143-9b68-1143c917b422",
+          "waiting_reason": null,
+          "wait_intent": null,
+          "waiting_message_id": null,
+          "pending_tools_count": 0,
+          "pending_tools": []
+        }
+      }
+    },
+    {
+      "assignment": {
+        "event_seq": 857,
+        "id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "origin_chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "parent_assignment_id": null,
+        "status": "working",
+        "priority": 1
+      },
+      "run_id": null,
+      "trace_last": {
+        "event_seq": 877,
+        "aseq": 13,
+        "type": "run.wait"
+      },
+      "trace_count": 13,
+      "job": {
+        "job_id": "job_01a12170-b4d7-75cd-80fe-3d6f93352c2b",
+        "status": "waiting",
+        "owner": "main",
+        "kind": "model_run",
+        "unsafe_replay": true,
+        "checkpoint": {
+          "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+          "waiting_reason": null,
+          "wait_intent": null,
+          "waiting_message_id": null,
+          "pending_tools_count": 1,
+          "pending_tools": [
+            {
+              "name": "write",
+              "call_id": "call_function_fmnhdbecgwca_1",
+              "args_keys": [
+                "content",
+                "path"
+              ]
+            }
+          ]
+        }
+      },
+      "source_analysis": {
+        "source": "Main-created direct assignment",
+        "from_bot": "main",
+        "parent_assignment_id": null,
+        "trigger_message_id": null,
+        "root_message_id": null,
+        "observed_after_main_ack_event_seq": 851,
+        "exact_trigger_linkage": "not present in assignment metadata; temporal association only"
+      }
+    }
+  ],
+  "main_original_run": {
+    "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+    "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+    "original_message": {
+      "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+      "seq": 5,
+      "created_at": "2026-10-09T16:17:25.411795+00:00",
+      "intent": "decision",
+      "has_question_block": false
+    },
+    "baseline_last_aseq": 24,
+    "new_trace": [
+      {
+        "event_seq": 852,
+        "aseq": 25,
+        "type": "run.resume",
+        "at": "2026-10-09T17:49:20.184Z"
+      },
+      {
+        "event_seq": 853,
+        "aseq": 26,
+        "type": "llm.request",
+        "at": "2026-10-09T17:49:20.588Z"
+      },
+      {
+        "event_seq": 855,
+        "aseq": 27,
+        "type": "llm.response",
+        "at": "2026-10-09T17:49:28.360Z"
+      },
+      {
+        "event_seq": 856,
+        "aseq": 28,
+        "type": "tool.start",
+        "at": "2026-10-09T17:49:28.375Z"
+      },
+      {
+        "event_seq": 860,
+        "aseq": 29,
+        "type": "tool.end",
+        "at": "2026-10-09T17:49:28.613Z"
+      },
+      {
+        "event_seq": 861,
+        "aseq": 30,
+        "type": "llm.request",
+        "at": "2026-10-09T17:49:28.648Z"
+      }
+    ],
+    "last_trace": {
+      "event_seq": 861,
+      "aseq": 30,
+      "type": "llm.request",
+      "at": "2026-10-09T17:49:28.648Z"
+    },
+    "job": {
+      "job_id": "job_01a12170-b4d7-75cd-80fe-3d6f93352c2b",
+      "status": "running",
+      "owner": "main",
+      "kind": "model_run",
+      "unsafe_replay": false,
+      "checkpoint": {
+        "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+        "waiting_reason": null,
+        "wait_intent": null,
+        "waiting_message_id": null,
+        "pending_tools_count": 0,
+        "pending_tools": []
+      }
+    },
+    "canonical_user_ack": {
+      "event_seq": 851,
+      "message_id": "01a121c8-a4df-70b0-90fc-38b6fa5a5582",
+      "seq": 11,
+      "created_at": "2026-10-09T17:49:19.967009+00:00",
+      "assignment_id": null,
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "sender_kind": "non-user",
+      "intent": "ack",
+      "reply_to": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+      "streaming": false,
+      "block_types": [
+        "text"
+      ]
+    },
+    "rpc_request": {
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "reply_to": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+      "client_request_id": "ce8d0654-34e0-4ca4-8af7-b36f78d39c60",
+      "submitted_at": "2026-10-09T17:49:19.936544+00:00",
+      "status": "response_timeout_outcome_unknown",
+      "error_class": "timeout_outcome_unknown"
+    }
+  },
+  "approvals_after_baseline": [
+    {
+      "approval_id": "01a121c4-3224-75a2-88d5-682be8ccee90",
+      "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "tool": "memory",
+      "risk": "write",
+      "state": "allowed_once",
+      "created_at": "2026-10-09T17:44:28.452690+00:00",
+      "detail_keys": [
+        "action",
+        "content",
+        "project_id",
+        "scope"
+      ],
+      "detail_project_id_present": true,
+      "content_blind": true,
+      "request_event_seq": [
+        787
+      ]
+    },
+    {
+      "approval_id": "01a121c4-4287-76a6-91ab-5e8b56eaa60d",
+      "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "tool": "memory",
+      "risk": "write",
+      "state": "pending",
+      "created_at": "2026-10-09T17:44:32.647712+00:00",
+      "detail_keys": [
+        "action",
+        "content",
+        "scope"
+      ],
+      "detail_project_id_present": false,
+      "content_blind": true,
+      "request_event_seq": [
+        794
+      ]
+    },
+    {
+      "approval_id": "01a121c8-674a-70e2-878a-dd85261e860b",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "tool": "write",
+      "risk": "write",
+      "state": "allowed_once",
+      "created_at": "2026-10-09T17:49:04.202907+00:00",
+      "detail_keys": [
+        "content",
+        "path"
+      ],
+      "detail_project_id_present": false,
+      "content_blind": true,
+      "request_event_seq": [
+        840
+      ],
+      "resolved_event_seq": 879
+    },
+    {
+      "approval_id": "01a121c9-60b2-7162-b646-57ef8bb50df6",
+      "assignment_id": "01a121c8-c5ca-7259-bc4f-0a51211cec88",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "tool": "write",
+      "risk": "write",
+      "state": "pending",
+      "created_at": "2026-10-09T17:50:08.050560+00:00",
+      "detail_keys": [
+        "content",
+        "path"
+      ],
+      "detail_project_id_present": false,
+      "content_blind": true,
+      "request_event_seq": [
+        878
+      ]
+    },
+    {
+      "approval_id": "01a121cb-9d0d-74a0-8eb6-f2c2b2d66c16",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "tool": "write",
+      "risk": "write",
+      "state": "pending",
+      "created_at": "2026-10-10T01:??",
+      "detail_keys": [
+        "content",
+        "path"
+      ],
+      "detail_project_id_present": false,
+      "content_blind": true,
+      "request_event_seq": [
+        888
+      ]
+    },
+    {
+      "approval_id": "01a121cc-ecec-7108-9a09-6f4235ac4648",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "tool": "write",
+      "risk": "write",
+      "state": "pending",
+      "created_at": "2026-10-09T17:54:00.556982+00:00",
+      "detail_keys": [
+        "content",
+        "path"
+      ],
+      "detail_project_id_present": false,
+      "content_blind": true,
+      "request_event_seq": [
+        898
+      ]
+    }
+  ],
+  "assessment": {
+    "f6b1_product_run_continued_and_ended": true,
+    "parallel_product_run_continued": true,
+    "main_same_run_resumed": true,
+    "main_user_ack_persisted": true,
+    "main_reply_outcome": "RPC timeout, but canonical user ack message is present; Main same run remains incomplete/blocked by child work.",
+    "historical_main_opening_proven": false,
+    "new_approvals_require_scope_review": true,
+    "overall": "PARTIAL_PASS_CONTINUATION_ONLY",
+    "approval_provenance": "f6b1 Coder approval is parented by Product assignment and triggered by Product progress message; the later Coder approval is a Main-created direct assignment with no parent/trigger IDs, temporally after the Main ack. Both are same project/path, so keep them as distinct pending approvals pending owner scope review.",
+    "product_to_coder": "Product produced progress and done messages; Product follow-up assignment reached run.end. The Product-parented Coder resumed through aseq27 after two scoped write approvals and is now waiting on a third write approval; no Tester handoff assignment is observed.",
+    "artifact_stat": "Content-blind stat/hash and path resolution are recorded in production-c6ffcfc-file-targets.json: run_request cwd equals project Home; raw leading-tilde paths were joined literally under CWD, producing nested files. No Tester handoff is observed."
+  },
+  "conclusion": "PARTIAL_PASS_CONTINUATION_ONLY: Product progress/done and same-run completion are evidenced; its Coder child resumed after two scoped approvals but now waits on a third write approval. Both expected basenames exist under the project Home, while exact approved path literals do not resolve; no Tester handoff assignment is observed. A separate Main-created Coder approval remains pending. Do not classify the two same-path/different-content requests as a duplicate bug or two-group parallel execution; overall S2 remains incomplete.",
+  "approval_target_comparison": {
+    "approval_ids": [
+      "01a121c8-674a-70e2-878a-dd85261e860b",
+      "01a121c9-60b2-7162-b646-57ef8bb50df6"
+    ],
+    "same_project": true,
+    "same_target_path": true,
+    "target_path_output": "omitted",
+    "same_content": false,
+    "content_output": "omitted",
+    "interpretation": "Two distinct assignments request write approvals for the same path but different content; this alone does not establish a duplicate bug or two-group parallel execution."
+  },
+  "artifact_observation": {
+    "project_home_exists": true,
+    "approval_targets": [
+      {
+        "approval_id": "01a121c8-674a-70e2-878a-dd85261e860b",
+        "basename": "index.html",
+        "exact_approved_path_exists": false,
+        "same_basename_under_project_home_count": 1,
+        "exact_path_is_symlink": false,
+        "found_artifact_size_bytes": 2524,
+        "found_artifact_sha256": "9684de8e35d98cc3605c76057906091a177fbad955c74d3dc8edbe76cc123cb9",
+        "found_artifact_path_depth": 5
+      },
+      {
+        "approval_id": "01a121cb-9d0d-74a0-8eb6-f2c2b2d66c16",
+        "basename": "styles.css",
+        "exact_approved_path_exists": false,
+        "same_basename_under_project_home_count": 1,
+        "exact_path_is_symlink": false,
+        "found_artifact_size_bytes": 4360,
+        "found_artifact_sha256": "c84b588449db8537b3b37ef0a2a5059fef78435e92057459b2fc2d412d4df9ee",
+        "found_artifact_path_depth": 5
+      }
+    ],
+    "content_blind": true,
+    "interpretation": "Path resolution is now explained: raw approval paths begin with ~/MacBot/...; pathlib.expanduser(raw) points to project_home/index.html or styles.css and is absent, while ToolContext CWD=project_home joined with the raw string creates a literal nested ~/MacBot/... directory containing the files. Record this as path representation evidence, not an external Home write or duplicate bug."
+  },
+  "file_target_artifact": "docs/progress/S2/production-c6ffcfc-file-targets.json"
+}

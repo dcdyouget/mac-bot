@@ -4,16 +4,16 @@
 
 ## 现在的状态
 
-正式服务 `7968e7e` 已从固定干净 archive 部署到 `7788`（当前 PID `24284`，可执行文件为 `~/Applications/MacBotServer.app/Contents/MacOS/macbotd`），[部署证据](S1/server-7968e7e-deployed.json)确认 LaunchAgent PID、监听 PID、安装 source、公开健康检查和部署认证探测；本次固定 SHA 部署退出 0。MiniMax-M2.5 沿用本机 file backend。桌面当前是 `deploy.sh` 的 debug 开发安装 `7c5e480f`（PID `66995`，窗口 `58491`），Release DMG 仅完成候选校验；[历史现场截图](S4/20261009-235101-desktop.png)只记录 23:51 的“正在连接”页，不能代表当前 7968e7e 状态或 formal 已连接证据。`lsof` 的 7788 ESTABLISHED 只证明 TCP；CUA fullpath、Finder、Activity Monitor 均 `cgWindowNotFound`，native 连续帧和输入仍未验收。[3 秒样本](S5/desktop-dmg-7c5e480-deployment.json)不能据 AppKit idle/connect timer 判定冻结。Android 当前 owner continuation Release 来源为 `2ccfc88e`，APK `2,111,890` bytes、SHA-256 `8ecb6e7d…30448664`，连接目标为正式 `10.0.2.2:7788`；owner 证据是局部 Production 检查，不等于集成线全场景 PASS。持续部署保留 UI 验证 hold，避免中断现场。
+正式服务 `c6ffcfc` 已从固定干净 archive 部署到 `7788`（当前 PID `37123`，可执行文件为 `~/Applications/MacBotServer.app/Contents/MacOS/macbotd`），[部署证据](S1/server-c6ffcfc-deployed.json)确认 LaunchAgent PID、监听 PID、安装 source、公开健康检查和部署认证探测；本次固定 SHA 部署退出 0。MiniMax-M2.5 沿用本机 file backend。桌面当前是 `deploy.sh` 的 debug 开发安装 `7c5e480f`（PID `66995`，窗口 `58491`），Release DMG 仅完成候选校验；[历史现场截图](S4/20261009-235101-desktop.png)只记录 23:51 的“正在连接”页，不能代表当前 c6ffcfc 状态或 formal 已连接证据。`lsof` 的 7788 ESTABLISHED 只证明 TCP；CUA fullpath、Finder、Activity Monitor 均 `cgWindowNotFound`，native 连续帧和输入仍未验收。[3 秒样本](S5/desktop-dmg-7c5e480-deployment.json)不能据 AppKit idle/connect timer 判定冻结。Android 当前 owner continuation Release 来源为 `2ccfc88e`，APK `2,111,890` bytes、SHA-256 `8ecb6e7d…30448664`，连接目标为正式 `10.0.2.2:7788`；owner 证据是局部 Production 检查，不等于集成线全场景 PASS。持续部署保留 UI 验证 hold，避免中断现场。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
 | S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 通过：两端连接 mock 并看到会话列表 | `docs/progress/S0/` |
-| S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未通过：历史 ae3009b 的工具、实际 Markdown 和旧历史身份问题已修复并有专项证据；固定 7968e7e 重跑后的 Android、桌面、完整流式/回放联合仍待验 | `docs/progress/S1/` |
-| S2 | 主 Bot、群协作、插话和待验收 | 未通过：[两个旧 Question 已回答 option 0](S2/production-7968e7e-answered-decisions-undelivered.json)，但答案未送达原 Waiting run，decision wire 引用也未恢复；[消息身份/等待映射](S2/production-7968e7e-decision-migration.json)保持。等待 server-mac 固定续接补丁，原场景不重发 | `docs/progress/S2/` |
+| S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未通过：历史 ae3009b 的工具、实际 Markdown 和旧历史身份问题已修复并有专项证据；固定 c6ffcfc 重跑后的 Android、桌面、完整流式/回放联合仍待验 | `docs/progress/S1/` |
+| S2 | 主 Bot、群协作、插话和待验收 | 部分通过（启动答案送达）：[answer-delivery](S2/production-c6ffcfc-answer-delivery.json)与[decision wire](S2/production-c6ffcfc-decision-wire.json)确认两个 Product 原 run 自动续接，原 qid、`answered/option0`、答案时间、Message identity 和 HTTP wire qid 引用保持。Main HTTP reply 曾 10s 超时，但 canonical user ack seq11、`reply_to=cc34` 和原 run resume 已确认，不重发。Product done→Parent-Coder 已有两个精确 `write` `allow_once`，但 `ToolContext cwd.join(raw)` 未展开 leading `~`，产物落到原 Home 下的 `~/MacBot/projects/...`，预期 Home 直系目标不存在；无越 Home 或 duplicate，但当前 demo 不可验收。第三 write `4648` 暂停，server 已处理解析/参数校验；Main-created Coder 同目标不同 content 仍 pending，parallel memory approval 缺 `project_id` 保持未批准并交 server 核查。完整原场景仍待验 | `docs/progress/S2/` |
 | S3 | 技能、仪表盘、搜索和记忆 | 未通过：技能 scope API [PASS](S3/production-1f771c7-skill-update-scope.json)，正文 skill-enabled API 回归已修复并通过；API、桌面热图、技能保存/预览与启停保留草稿专项通过，双端一致性待验 | `docs/progress/S3/` |
-| S4 | 浏览器画面、接管、定时任务和通知 | 未通过（transport 专项通过，原生未验）：[7968e7e screen/接管](S4/production-7968e7e-screen-restored.json) 已复跑通过 low 640×316、原 URL、ACK 和同 WS `bot→user→bot`，且未新增 model/browser_open/run；native 绘制/输入、登录、手机接管和通知仍待验，Mac `screen_locked=1` 仍阻断 CUA | `docs/progress/S4/` |
-| S5 | pkg 全新安装、两端连接和完整场景 | 未验收 | `docs/progress/S5/` |
+| S4 | 浏览器画面、接管、定时任务和通知 | 未通过（transport 专项通过，原生未验）：[c6ffcfc screen/接管](S4/production-c6ffcfc-screen-restored.json) 已通过 low 640×316、原 URL、ACK 和同 WS `bot→user→bot`，且未新增 model/browser_open/run；native 绘制/输入、登录、手机接管和通知仍待验，Mac `screen_locked=1` 仍阻断 CUA | `docs/progress/S4/` |
+| S5 | pkg 全新安装、两端连接和完整场景 | 未验收：c6 server pkg 来源/载荷审计通过，但仅为候选，未做 fresh install | `docs/progress/S5/` |
 
 每个阶段只有在三条开发线都在 `COORDINATION.md` 打卡，并且集成线完成真实联调、保存两端截图后，才会标记为“通过”。
 
@@ -21,7 +21,7 @@ Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/
 
 最新 Android continuation owner 证据已按 [2ccfc88e Release 记录](S5/android-2ccfc88-continuation-release.json)归档；对应的 [fresh-install](S5/android-owner-2ccfc88-release-fresh-install.png)、[connected](S5/android-owner-2ccfc88-release-connected.png)、[dark-theme](S5/android-owner-2ccfc88-dark-theme.png) 和 [swipe-actions](S5/android-owner-2ccfc88-swipe-actions.png) 截图来自 owner 工作流。它确认签名 Release、模拟器安装哈希、Production/Mock Host 配置和局部真实聊天/trace/dashboard 检查；不替代 PLAN 第 6 章的集成线 S0–S5 双端联合验收，也不将 owner 截图记为 root 全场景通过。 [Android 正式新鲜度观察](S2/production-1f771c7-android-live-project.json)对比 23:51 基线与 00:01:42 当前画面，确认 1f 升级后 formal 侧栏出现新 marker `macbot-e2e-s2-login-6770085010b5-登录功能` 及 project `01a12164-6b92-732d-9ecb-ed48e8a94ca8`；这只证明正式侧栏收到新项目，不证明聊天、轨迹、协作或 S2 全场 UI。最新[Android 当前只读截图](S2/production-7968e7e-android-current.png)及[记录](S2/production-7968e7e-android-current.json)仍显示 Production 侧栏原有两个项目，名称未变；不据此判断 live freshness 或新增 Question。
 
-当前阻断：S2 的 [原场景](S2/production-1f771c7-login-scene-partial.json)仍等待；[完整落盘核对](S2/production-7968e7e-answered-decisions-undelivered.json)确认两个 Product Question 已回答“只做邮箱登录”，此前依据 pending 清单推断 Question 本体丢失的诊断已纠正。7968e7e 正确保护 answered 状态，但尚未补旧已提交答案的同 run 送达及 wire 关联。已向 server-mac 提交安全证据，等待固定补丁；当前不重复回答、不发 Main reply、不批准未知工具、不重建原项目。[7968e7e 浏览器 transport](S4/production-7968e7e-screen-restored.json)通过，原生画面与输入仍受 Mac 锁屏阻断。S5 全新安装尚未演练。
+当前阻断：S2 启动答案送达和原 qid wire 已 partial PASS：[answer-delivery](S2/production-c6ffcfc-answer-delivery.json)、[decision wire](S2/production-c6ffcfc-decision-wire.json)确认两个 Product 原 run 已续接；Main HTTP reply 超时不改变 canonical user ack seq11、`reply_to=cc34` 和原 run resume 证据，不重发。Product→Parent-Coder 两个精确 `write` `allow_once` 的产物因 `cwd.join(raw)` 未展开 leading `~` 落在原 Home 的 `~/MacBot/projects/...`，预期 Home 直系目标不存在；第三 write `4648` 暂停，server 正处理解析/参数校验。无越 Home 或 duplicate，但当前 demo 不可验收；Main-created Coder 同目标不同 content pending，parallel memory approval 缺 `project_id`，未执行 deny 以免取消任务。完整原场景和剩余 e2e 仍待验；不重复 `question.answer`、不新建 run/Q、不自动批准工具。[c6ffcfc 浏览器 transport](S4/production-c6ffcfc-screen-restored.json)通过，原生画面与输入仍受 Mac 锁屏阻断。S5 server pkg 仅完成候选审计，未做全新安装。
 
 历史 `ae3009b` 证据（保留，不代表当前 7968e7e）：[实际部署来源](S1/server-ae3009b-deployed.json)、[旧6消息原 ID/seq/时间戳与文字恢复](S1/production-ae3009b-history-repaired.json)、[新 write/read/bash 与已知 Markdown](S1/production-ae3009b-private-chat.json)、[原生只读消息与 trace](S1/production-af14e69-ae3009b-native-read.json)、[文字截图](S1/20261009-214932-desktop.png)、[同连接接管/交还与低画质](S4/production-ae3009b-screen-transport.json)、[桌面 Computer 专项](S4/production-af14e69-ae3009b-native-computer.json)、[包来源与哈希](S5/server-pkg-ae3009b-verified.json)。首次 browser 工具结束后即读到流式占位的记录保留为 early snapshot incomplete，[最终只读复核](S4/production-ae3009b-browser-final.json)已确认文字和 URL。API、桌面专项和候选包校验均不替代真实双端整体验收。最新[桌面摘要](S3/production-af14e69-ae3009b-dashboard-summary.json)与同range RPC一致；[heatmap只读核查](S3/production-af14e69-ae3009b-heatmap-check.json)有Oct9非零数据，不以灰图推断数据缺失。[原生技能新建](S3/production-af14e69-ae3009b-native-skill.json)已落盘，保存按钮在页底，工具滚动限制使修改尚未触发；源码未确认误绑，样例已停用保留复现。
 
@@ -56,7 +56,7 @@ cd /Users/gongshaojie/Project/mac-bot
 
 `deploy.sh` 会按当前代码可用性编译并部署 `macbotd`、桌面 `.app` 和 Android APK；缺少某条开发线产物时会跳过并打印提示。正式服务使用端口 `7788`，数据目录为 `~/MacBot`，访问密码只从本机文件 `~/.macbot-dev-password` 读取或由部署流程设置，密码内容不写入仓库。
 
-S0 两端会话列表验收已归档：[记录](S0/main-s0-current.json)、[桌面](S0/main-eb088fa-desktop-sessions.png)、[Android](S0/main-08462a4-android.png)。当前 formal `7968e7e` 服务和桌面均已部署；该 S0 记录属于历史 mock 验收，不替代当前 formal Android UI。
+S0 两端会话列表验收已归档：[记录](S0/main-s0-current.json)、[桌面](S0/main-eb088fa-desktop-sessions.png)、[Android](S0/main-08462a4-android.png)。当前 formal `c6ffcfc` 服务和桌面均已部署；该 S0 记录属于历史 mock 验收，不替代当前 formal Android UI。
 桌面端：双击打开 `~/Applications/MacBot.app`，Host 填 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`；当前可查看真实消息和工具轨迹，旧消息文字修复已复验。需要 mock 时填 `127.0.0.1:7789`，密码 `dev`。
 
 Android 模拟器：需要时先执行：

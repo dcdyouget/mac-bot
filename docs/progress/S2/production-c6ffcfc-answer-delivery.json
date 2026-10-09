@@ -1,0 +1,316 @@
+{
+  "scenario": "S2 c6ffcfc answer delivery read-only",
+  "source_commit": "c6ffcfc45b716067dad9b2d0602cd82ddf395481",
+  "before_artifact": "docs/progress/S2/production-7968e7e-before-answer-delivery.json",
+  "scope": "same Product Q/decision IDs; no question.answer/chat.send/approval mutation; no payload text/options/key",
+  "products": [
+    {
+      "label": "f6b1",
+      "question_and_message": {
+        "question": {
+          "id": "01a12170-b386-776a-96da-513b6dc64bfd",
+          "state": "answered",
+          "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "options_count": 2,
+          "answer": {
+            "present": true,
+            "at": "2026-10-09T16:13:19.034758+00:00",
+            "option_index": 0,
+            "text_present": false
+          }
+        },
+        "message": {
+          "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+          "present": true,
+          "seq": 2,
+          "created_at": "2026-10-09T16:13:16.550963+00:00",
+          "intent": "decision",
+          "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "sender_bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "has_question_block": false
+        },
+        "identity_match": true
+      },
+      "baseline": {
+        "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+        "job_id": "job_01a12164-809f-7316-bd5f-82da38a1793e",
+        "last_aseq": 24
+      },
+      "new_trace": [
+        {
+          "event_seq": 781,
+          "aseq": 25,
+          "type": "run.resume",
+          "at": "2026-10-09T17:44:23.544Z"
+        },
+        {
+          "event_seq": 782,
+          "aseq": 26,
+          "type": "llm.request",
+          "at": "2026-10-09T17:44:24.098Z"
+        },
+        {
+          "event_seq": 784,
+          "aseq": 27,
+          "type": "llm.response",
+          "at": "2026-10-09T17:44:27.918Z"
+        },
+        {
+          "event_seq": 785,
+          "aseq": 28,
+          "type": "tool.start",
+          "at": "2026-10-09T17:44:27.929Z"
+        },
+        {
+          "event_seq": 786,
+          "aseq": 29,
+          "type": "run.wait",
+          "at": "2026-10-09T17:44:27.954Z"
+        }
+      ],
+      "automatic_resume": {
+        "same_run_id": true,
+        "first_new_aseq": 25,
+        "last_new_aseq": 29,
+        "ended_in_run_wait": true
+      },
+      "message_updates": [
+        {
+          "event_seq": 779,
+          "message_id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+          "message_seq": 2,
+          "intent": "decision",
+          "streaming": false,
+          "has_question_block": true
+        }
+      ],
+      "current_job": {
+        "job_id": "job_01a12164-809f-7316-bd5f-82da38a1793e",
+        "status": "waiting",
+        "unsafe_replay": true,
+        "checkpoint": {
+          "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+          "waiting_reason": null,
+          "wait_intent": null,
+          "waiting_message": null,
+          "waiting_message_id": null,
+          "pending_tools_count": 1,
+          "pending_tools": [
+            {
+              "name": "memory",
+              "call_id": "call_function_c2q452y5ud30_1",
+              "args_keys": [
+                "action",
+                "content",
+                "project_id",
+                "scope"
+              ]
+            }
+          ]
+        }
+      },
+      "new_approvals": [
+        {
+          "event_seq": 787,
+          "approval_id": "01a121c4-3224-75a2-88d5-682be8ccee90",
+          "tool": "memory",
+          "risk": "write",
+          "state": "pending",
+          "created_at": "2026-10-09T17:44:28.452690+00:00",
+          "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+          "project_id_from_assignment": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "detail_keys": [
+            "action",
+            "content",
+            "project_id",
+            "scope"
+          ],
+          "detail_project_id_present": true,
+          "content_blind_ownership": "assignment/chat/bot scoped; detail content omitted"
+        }
+      ]
+    },
+    {
+      "label": "f0bc",
+      "question_and_message": {
+        "question": {
+          "id": "01a12174-9595-70d1-994f-657145f20584",
+          "state": "answered",
+          "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+          "options_count": 2,
+          "answer": {
+            "present": true,
+            "at": "2026-10-09T16:17:33.267874+00:00",
+            "option_index": 0,
+            "text_present": false
+          }
+        },
+        "message": {
+          "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+          "present": true,
+          "seq": 2,
+          "created_at": "2026-10-09T16:17:31.029311+00:00",
+          "intent": "decision",
+          "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+          "sender_bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "has_question_block": false
+        },
+        "identity_match": true
+      },
+      "baseline": {
+        "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "job_id": "job_01a12167-b4b2-7276-bd22-32e1ec7ef105",
+        "last_aseq": 49
+      },
+      "new_trace": [
+        {
+          "event_seq": 788,
+          "aseq": 50,
+          "type": "run.resume",
+          "at": "2026-10-09T17:44:28.715Z"
+        },
+        {
+          "event_seq": 789,
+          "aseq": 51,
+          "type": "llm.request",
+          "at": "2026-10-09T17:44:29.085Z"
+        },
+        {
+          "event_seq": 791,
+          "aseq": 52,
+          "type": "llm.response",
+          "at": "2026-10-09T17:44:32.222Z"
+        },
+        {
+          "event_seq": 792,
+          "aseq": 53,
+          "type": "tool.start",
+          "at": "2026-10-09T17:44:32.236Z"
+        },
+        {
+          "event_seq": 793,
+          "aseq": 54,
+          "type": "run.wait",
+          "at": "2026-10-09T17:44:32.270Z"
+        }
+      ],
+      "automatic_resume": {
+        "same_run_id": true,
+        "first_new_aseq": 50,
+        "last_new_aseq": 54,
+        "ended_in_run_wait": true
+      },
+      "message_updates": [
+        {
+          "event_seq": 780,
+          "message_id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+          "message_seq": 2,
+          "intent": "decision",
+          "streaming": false,
+          "has_question_block": true
+        }
+      ],
+      "current_job": {
+        "job_id": "job_01a12167-b4b2-7276-bd22-32e1ec7ef105",
+        "status": "waiting",
+        "unsafe_replay": true,
+        "checkpoint": {
+          "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "waiting_reason": null,
+          "wait_intent": null,
+          "waiting_message": null,
+          "waiting_message_id": null,
+          "pending_tools_count": 1,
+          "pending_tools": [
+            {
+              "name": "memory",
+              "call_id": "call_function_5frz31hzzhan_1",
+              "args_keys": [
+                "action",
+                "content",
+                "scope"
+              ]
+            }
+          ]
+        }
+      },
+      "new_approvals": [
+        {
+          "event_seq": 794,
+          "approval_id": "01a121c4-4287-76a6-91ab-5e8b56eaa60d",
+          "tool": "memory",
+          "risk": "write",
+          "state": "pending",
+          "created_at": "2026-10-09T17:44:32.647712+00:00",
+          "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+          "project_id_from_assignment": "01a12167-8cc6-7452-9f10-15a518384bee",
+          "detail_keys": [
+            "action",
+            "content",
+            "scope"
+          ],
+          "detail_project_id_present": false,
+          "content_blind_ownership": "assignment/chat/bot scoped; detail content omitted"
+        }
+      ]
+    }
+  ],
+  "main_cc34": {
+    "message": {
+      "id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+      "present": true,
+      "seq": 5,
+      "created_at": "2026-10-09T16:17:25.411795+00:00",
+      "intent": "decision",
+      "has_question_block": false
+    },
+    "baseline_aseq": 24,
+    "new_trace": [],
+    "automatic_resume": {
+      "same_run_id": false,
+      "first_new_aseq": null,
+      "last_new_aseq": null
+    },
+    "current_job": {
+      "job_id": "job_01a12170-b4d7-75cd-80fe-3d6f93352c2b",
+      "status": "waiting",
+      "unsafe_replay": false,
+      "checkpoint": {
+        "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+        "waiting_reason": "decision",
+        "wait_intent": "decision",
+        "waiting_message": true,
+        "waiting_message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+        "pending_tools_count": 0,
+        "pending_tools": []
+      }
+    }
+  },
+  "assessment": {
+    "answers_still_present_and_identity_stable": true,
+    "automatic_same_run_resume_observed": true,
+    "product_new_trace_last_aseq": {
+      "f6b1": 29,
+      "f0bc": 54
+    },
+    "main_new_trace_after_aseq24": false,
+    "new_approval_baseline": {
+      "f6b1": 1,
+      "f0bc": 1
+    },
+    "interpretation": "Startup automatically resumed both original Product runs; each reached a new memory approval and is waiting. Main cc34 has no new trace after aseq24. Provider call count is not used as a pass criterion."
+  },
+  "conclusion": "PARTIAL_PASS_AUTOMATIC_RESUME: both answered Product Questions remain matched to their original decision messages and the same Product run IDs resumed beyond baseline. Both are currently blocked on new pending memory approvals; Main cc34 remains unchanged. Full delivery/continuation is not complete until approvals are handled by the authorized owner.",
+  "wire_verification_artifact": "docs/progress/S2/production-c6ffcfc-decision-wire.json",
+  "internal_message_note": "question_and_message.message is an internal state Message; normalized HTTP/event wire carries question blocks. See separate wire artifact for original qid references."
+}

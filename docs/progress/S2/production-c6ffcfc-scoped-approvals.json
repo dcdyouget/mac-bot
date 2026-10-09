@@ -1,0 +1,92 @@
+{
+  "source_commit": "c6ffcfc45b716067dad9b2d0602cd82ddf395481",
+  "created_at": "2026-10-09T17:48:18.342005+00:00",
+  "phase": "Three exact scoped allow_once responses recorded; unscoped parallel memory remains pending, no deny sent",
+  "approvals": [
+    {
+      "approval_id": "01a121c4-3224-75a2-88d5-682be8ccee90",
+      "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "memory",
+        "operation": "project_memory_add",
+        "assignment_matches": true,
+        "bot_matches": true
+      },
+      "request": {
+        "approval_id": "01a121c4-3224-75a2-88d5-682be8ccee90",
+        "decision": "allow_once",
+        "client_request_id": "d0753540-52fe-44b4-af36-5907c5d49ecc"
+      },
+      "request_at": "2026-10-09T17:48:43.857951+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121c4-4287-76a6-91ab-5e8b56eaa60d",
+      "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+      "scope": {
+        "authorized": false,
+        "reason": "memory arguments contain unexpected fields",
+        "tool": "memory",
+        "assignment_matches": true,
+        "bot_matches": true
+      },
+      "status": "withheld_pending_parameter_fix",
+      "detail_keys": [
+        "action",
+        "content",
+        "scope"
+      ],
+      "missing_required_fields": [
+        "project_id"
+      ],
+      "owner_confirmation": "c6 does not inject project_id; deny cancels assignment; leave original call unchanged and unapproved"
+    },
+    {
+      "approval_id": "01a121c8-674a-70e2-878a-dd85261e860b",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "origin": "Product parent/trigger verified in original-scene-continuation evidence",
+      "request": {
+        "approval_id": "01a121c8-674a-70e2-878a-dd85261e860b",
+        "decision": "allow_once",
+        "client_request_id": "485b9464-4df4-40c8-a576-02b1ae2b64d9"
+      },
+      "request_at": "2026-10-09T17:52:18.630458+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    },
+    {
+      "approval_id": "01a121cb-9d0d-74a0-8eb6-f2c2b2d66c16",
+      "assignment_id": "01a121c8-2936-747b-a0d1-812e89cf72d8",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "origin": "same verified Product-parent Coder run",
+      "request": {
+        "approval_id": "01a121cb-9d0d-74a0-8eb6-f2c2b2d66c16",
+        "decision": "allow_once",
+        "client_request_id": "9ee97a6b-bc96-4f87-a3f7-2230e9e17f46"
+      },
+      "request_at": "2026-10-09T17:53:47.102171+00:00",
+      "status": "rpc_ok",
+      "result_state": "allowed_once"
+    }
+  ],
+  "file_target_verification": "docs/progress/S2/production-c6ffcfc-file-targets.json",
+  "file_target_outcome": "Files stay inside project Home but leading ~ was interpreted as a literal relative segment; expanded intended targets do not exist. Existing scoped approval responses are historical evidence, not intended artifact placement PASS. Third write withheld."
+}
