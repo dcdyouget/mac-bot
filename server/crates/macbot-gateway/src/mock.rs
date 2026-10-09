@@ -310,7 +310,7 @@ fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
             bot_id: "bot_worker",
             project_id: Some("project_alpha"),
             model_id: "fast-model",
-            phase: "maintenance",
+            phase: "memory",
             input_tokens: 600,
             output_tokens: 200,
             cache_read_tokens: 50,
