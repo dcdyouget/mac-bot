@@ -686,10 +686,127 @@ pub fn validate_rpc_params(method: &str, params: &Value) -> Result<()> {
 /// the original JSON value. Unknown response fields therefore remain
 /// available to the state layer even when the typed contract is older.
 pub fn decode_rpc_result(method: &str, result: Value) -> Result<Value> {
-    let method_type = serde_json::from_value::<protocol::Method>(Value::String(method.to_owned()))
-        .map_err(|error| CoreError::Protocol(error.to_string()))?;
-    protocol::MethodResult::decode(&method_type, result.clone()).map_err(CoreError::Protocol)?;
-    Ok(result)
+    let Ok(method_type) =
+        serde_json::from_value::<protocol::Method>(Value::String(method.to_owned()))
+    else {
+        // A newer server may add an RPC before this client knows its typed
+        // contract. Keep the raw result available to the UI in that case.
+        return Ok(result);
+    };
+    match protocol::MethodResult::decode(&method_type, result.clone()) {
+        Ok(_) => Ok(result),
+        Err(error) => {
+            // The shared protocol enums are intentionally closed. Validate a
+            // compatibility copy with only the two extensible collections
+            // relaxed, while returning the untouched wire JSON below.
+            let mut compatible = result.clone();
+            let changed = sanitize_compat_result(method, &mut compatible);
+            if !changed {
+                return Err(CoreError::Protocol(error));
+            }
+            protocol::MethodResult::decode(&method_type, compatible)
+                .map_err(CoreError::Protocol)?;
+            Ok(result)
+        }
+    }
+}
+
+const KNOWN_BLOCK_TYPES: &[&str] = &[
+    "text",
+    "image",
+    "file",
+    "task_card",
+    "completion",
+    "progress",
+    "blocked",
+    "question",
+    "project_card",
+    "review_card",
+    "delegation",
+    "approval",
+    "approval_ref",
+    "takeover_request",
+    "bot_dm_ref",
+    "system",
+    "loop_paused",
+];
+
+const KNOWN_TRACE_TYPES: &[&str] = &[
+    "run.start",
+    "llm.request",
+    "llm.response",
+    "tool.start",
+    "tool.end",
+    "send_msg",
+    "steer",
+    "run.wait",
+    "run.resume",
+    "compaction",
+    "run.end",
+];
+
+fn sanitize_compat_result(method: &str, value: &mut Value) -> bool {
+    let mut changed = false;
+    if matches!(
+        method,
+        "bootstrap" | "chat.history" | "chat.thread" | "chat.send" | "project.request_changes"
+    ) {
+        changed |= sanitize_unknown_message_blocks(value);
+    }
+    if method == "trace.history" {
+        changed |= sanitize_unknown_trace_items(value);
+    }
+    changed
+}
+
+fn sanitize_unknown_message_blocks(value: &mut Value) -> bool {
+    match value {
+        Value::Array(values) => {
+            let mut changed = false;
+            for value in values {
+                changed |= sanitize_unknown_message_blocks(value);
+            }
+            changed
+        }
+        Value::Object(object) => {
+            let fallback = object
+                .get("fallback_text")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let mut changed = false;
+            if let Some(Value::Array(blocks)) = object.get_mut("blocks") {
+                if let Some(fallback) = fallback.as_deref() {
+                    for block in blocks {
+                        let Some(block_type) = block.get("type").and_then(Value::as_str) else {
+                            continue;
+                        };
+                        if !KNOWN_BLOCK_TYPES.contains(&block_type) {
+                            *block = json!({"type": "text", "markdown": fallback});
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            for child in object.values_mut() {
+                changed |= sanitize_unknown_message_blocks(child);
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
+fn sanitize_unknown_trace_items(value: &mut Value) -> bool {
+    let Some(items) = value.get_mut("items").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    let original_len = items.len();
+    items.retain(|item| {
+        item.get("type")
+            .and_then(Value::as_str)
+            .is_none_or(|item_type| KNOWN_TRACE_TYPES.contains(&item_type))
+    });
+    items.len() != original_len
 }
 
 async fn receive_response(
@@ -2182,6 +2299,68 @@ mod tests {
         let result = json!({"mode":"replay", "server_extension":{"kept":true}});
         let preserved = decode_rpc_result("session.resume", result.clone()).unwrap();
         assert_eq!(preserved, result);
+        let future_result = json!({"future_field": {"kept": true}});
+        assert_eq!(
+            decode_rpc_result("future.method", future_result.clone()).unwrap(),
+            future_result
+        );
+    }
+
+    #[test]
+    fn unknown_message_blocks_are_fallbacked_for_history_and_preserved_on_wire() {
+        let message = json!({
+            "id":"msg_future", "chat_id":"chat_main", "seq":1,
+            "sender":{"kind":"user"}, "created_at":"2026-10-09T10:19:02.312Z",
+            "edited_at":null, "deleted":false, "reply_to":null, "thread_count":0,
+            "mentions":[], "blocks":[{"type":"future_block","payload":{"v":1}}],
+            "fallback_text":"Future block", "intent":null, "assignment_id":null,
+            "streaming":false, "delivery":[], "reactions":[]
+        });
+        let history = json!({"messages":[message.clone()], "has_more":false});
+        let preserved = decode_rpc_result("chat.history", history.clone()).unwrap();
+        assert_eq!(preserved, history);
+
+        let bootstrap = json!({
+            "seq":1,
+            "hello": serde_json::from_str::<Value>(include_str!("../../../../../protocol/fixtures/objects/hello.json")).unwrap(),
+            "bots":[], "chats":[], "projects":[],
+            "settings": serde_json::from_str::<Value>(include_str!("../../../../../protocol/fixtures/objects/settings.json")).unwrap(),
+            "pending":{"approvals":[],"questions":[],"reviews":[]},
+            "messages":[message]
+        });
+        let preserved_bootstrap = decode_rpc_result("bootstrap", bootstrap.clone()).unwrap();
+        assert_eq!(preserved_bootstrap, bootstrap);
+
+        let malformed = json!({"messages":[{"blocks":[{"type":"future_block"}],"fallback_text":"x"}],"has_more":false});
+        assert!(decode_rpc_result("chat.history", malformed).is_err());
+    }
+
+    #[test]
+    fn unknown_trace_items_are_ignored_for_validation_and_unknown_events_are_ignored_in_state() {
+        let trace = json!({
+            "items":[{
+                "assignment_id":null, "chat_id":"chat_main", "run_id":"run_1",
+                "aseq":9, "at":"2026-10-09T10:19:02.312Z", "type":"future.trace",
+                "data":{"new_shape":true}
+            }],
+            "first_aseq":9, "last_aseq":9, "has_more_before":false, "live":true
+        });
+        let preserved = decode_rpc_result("trace.history", trace.clone()).unwrap();
+        assert_eq!(preserved, trace);
+
+        let mut state = AppState::default();
+        state.apply_event(ProtocolEvent {
+            seq: Some(1),
+            event: "future.event".into(),
+            data: json!({"new_shape":true}),
+        });
+        state.apply_event(ProtocolEvent {
+            seq: Some(2),
+            event: "bot.created".into(),
+            data: json!({"bot":{"id":"bot_a","name":"main"}}),
+        });
+        assert_eq!(state.last_seq, 2);
+        assert_eq!(state.bots["bot_a"]["name"], "main");
     }
 
     #[test]
