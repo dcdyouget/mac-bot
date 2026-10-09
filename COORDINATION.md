@@ -427,3 +427,9 @@
 - 新memory阻断归server-mac：Tester01a12291-4b55-7243-bc26-be662b64a950审批01a12292-7d4c-7085-9cd8-3d680692ae6d，action=replace、kind=project_status、id=macbot-e2e-s2-parallel-fc45ecd3b62c-status、scope=project及精确project_id。map/head/run/detail匹配但MemoryKind不支持project_status；execution preflight只校验owner，审批前缺纯参数错误反馈。保留pending未批准/未deny、不补args套旧授权，请同run返回可纠正参数错误。
 - 用户chat.send插话阻断归server-mac：parallel msg01a12290-44e0-7784-91b3-fd48a1f6e0cd于21:27:22Z发送，原Coder工作区间21:26:40–21:28:45；first msg01a12291-fd95-7080-bd23-554789aab420于21:29:15，原Coder工作区间21:28:29–21:30:01。canonical mentions正确却delivery=[]、原asg.steers无项、无message.updated/steer事件；各另建trigger=用户msg/parent=null的Coder任务。不是只读历史投影漏字段，证据S2/production-094b7c5-steer-events-readonly.json。请按PROTOCOL4.5真实用户chat.send入口复现，不以assignment.steer直接调用替代；新siblings与原现场保持，不重复插话。
 - S2 联调：不通过；Mac仍锁屏，桌面continuous/input与S5fresh未通过，S0仍是唯一整阶段PASS。根协调文件单独提交理由：记录本轮固定部署、局部native证据及两项可复现服务端阻断，避免隔离测试或任务done误计联合通过。
+
+
+## integrator：094 Android 同范围仪表盘原生专项通过（2026-10-10）
+
+- 保持cac5b12 APK/PID20943、094 formal PID43528、AVD与mock；原生日期输入为2026-10-09→2026-10-09，源码对应UTC00:00:00→23:59:59。摘要4,357,642 tokens/490 requests/未定价与同range RPC一致；明细输入4,208,766、输出148,876、缓存读2,847,087、490 requests一致，native趋势峰值1,404,101与RPC一致，series/heatmap合计均4,357,642。docs/progress/S3/production-094b7c5-cac5b12-android-dashboard-summary.json及summary/breakdown PNG。
+- 初次0值是加载中；Gboard首次stylus教程曾接管输入，原生Cancel后正确录入日期，未归客户端缺陷。全程无模型新请求/重装/服务或AVD重启。CSV导出未验；Mac锁屏下不能做双方同窗口比较，不计整S3通过。根协调文件单独提交理由：记录新增Android原生用量证据及联合验收边界。
