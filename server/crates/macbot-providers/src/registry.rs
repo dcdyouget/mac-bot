@@ -391,7 +391,7 @@ impl ProviderRegistry {
                 context_window: old.map(|model| model.context_window).unwrap_or(128_000),
                 max_output: old.map(|model| model.max_output).unwrap_or(8_192),
                 caps: old.map(|model| model.caps.clone()).unwrap_or(ModelCaps {
-                    vision: false,
+                    vision: true,
                     tools: true,
                     reasoning: false,
                 }),
@@ -464,7 +464,7 @@ impl ProviderRegistry {
                 .caps
                 .or_else(|| old.map(|model| model.caps.clone()))
                 .unwrap_or(ModelCaps {
-                    vision: false,
+                    vision: true,
                     tools: true,
                     reasoning: false,
                 }),
