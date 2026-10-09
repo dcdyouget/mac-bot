@@ -132,7 +132,7 @@
       "$ref": "#/definitions/EmptyResult"
     },
     {
-      "$ref": "#/definitions/WorkbenchResult"
+      "$ref": "#/definitions/Workbench"
     },
     {
       "$ref": "#/definitions/SkillListResult"
@@ -4498,17 +4498,6 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0
-        }
-      }
-    },
-    "WorkbenchResult": {
-      "type": "object",
-      "required": [
-        "workbench"
-      ],
-      "properties": {
-        "workbench": {
-          "$ref": "#/definitions/Workbench"
         }
       }
     },

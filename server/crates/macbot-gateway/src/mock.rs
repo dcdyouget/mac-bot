@@ -1956,7 +1956,7 @@ fn workbench(state: &MockState) -> RpcResult {
         "bots":bots,
         "done_today":done_today
     });
-    Ok(json!({"workbench":workbench}))
+    Ok(workbench)
 }
 
 fn skill_default(name: &str, description: &str, source: &str, content: Option<&str>) -> Value {

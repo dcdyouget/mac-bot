@@ -1783,6 +1783,8 @@ pub struct WorkbenchBot {
     pub assignments: Vec<Assignment>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(transparent)]
+#[schemars(transparent)]
 pub struct WorkbenchResult {
     pub workbench: Workbench,
 }

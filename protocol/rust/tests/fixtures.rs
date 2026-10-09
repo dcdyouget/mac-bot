@@ -32,6 +32,21 @@ fn heatmap_result_decodes_flat_protocol_shapes_without_field_loss() {
 }
 
 #[test]
+fn workbench_result_decodes_and_serializes_as_flat_protocol_shape() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/results/workbench.json");
+    roundtrip(&path, |value| {
+        let result = MethodResult::decode(&Method::WorkbenchGet, value)?;
+        let MethodResult::WorkbenchGet(workbench) = result else {
+            unreachable!()
+        };
+        assert_eq!(workbench.workbench.running, 1);
+        Ok(serde_json::to_value(workbench)?)
+    });
+    let nested = serde_json::json!({"workbench": {"running": 1}});
+    assert!(MethodResult::decode(&Method::WorkbenchGet, nested).is_err());
+}
+
+#[test]
 fn fixture_objects_roundtrip_without_field_loss() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/objects");
     let parsers: &[(&str, FixtureParser)] = &[

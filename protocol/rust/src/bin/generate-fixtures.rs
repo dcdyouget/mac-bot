@@ -36,6 +36,16 @@ fn project() -> Value {
 fn assignment() -> Value {
     json!({"id":"asg_1","project_id":"prj_login","origin_chat_id":"chat_login","bot_id":"bot_main","title":"任务","instruction":"做事","from":{"kind":"user"},"trigger_message_id":null,"parent_assignment_id":null,"status":"working","queue_reason":null,"wait":null,"created_at":now(),"started_at":now(),"finished_at":null,"usage":usage(),"subagents_active":0,"steers":[],"result_message_id":null,"model":"prv_mock/mock-model"})
 }
+fn workbench() -> Value {
+    json!({
+        "running": 1,
+        "global_limit": 4,
+        "subagents_running": 0,
+        "waiting": [],
+        "bots": [{"bot_id":"bot_main","active":1,"max_parallel":2,"assignments":[assignment()]}],
+        "done_today": []
+    })
+}
 fn artifact_obj() -> Value {
     json!({"id":"art_prd","project_id":"prj_login","bot_id":"bot_main","assignment_id":"asg_1","title":"PRD","path_or_url":"product/prd.md","kind":"file","created_at":now(),"updated_at":now()})
 }
@@ -935,6 +945,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "usage_heatmap_weekhour.json",
         json!({"matrix":matrix,"thresholds":[25.0,50.0,100.0]}),
     )?;
+    write(&root.join("results"), "workbench.json", workbench())?;
     write(
         &root.join("frames"),
         "screen-state.json",
