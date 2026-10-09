@@ -103,6 +103,8 @@ python3 server/macbotd/tests/smoke_packaging.py --pkg target/MacBot-Server.pkg
 
 `server/macbotd/tests/smoke_mock.py` 验证隔离 mock 的协议、事件补发、轨迹游标和画面 ACK。正式模式的 `smoke_runtime.py`、`smoke_collaboration.py`、`smoke_features.py`、`smoke_screen.py` 使用本机 fake provider 与独立数据目录；运行参数见各脚本 `--help`。开发测试必须显式选择 file secrets 的临时目录，使用不同端口，不连接真实模型。
 
+`smoke_conversation.py` 验证连续两轮 provider 请求、共享消息序号及 `after_seq`、混合 write/read/bash 审批、私聊待处理工作台和已读状态。`smoke_recovery.py` 验证安全私聊 kill9 后以同一 run 自动恢复，并确认不安全工具暂停等待审批、不会自动重放。
+
 以下场景自行启动和关闭隔离服务；每次使用新的 `--home`。Python 依赖为 `websockets` 和 `jsonschema`，可安装在仓库外的 venv。`smoke_trace.py` 验证进行中的文本与游标补发，`smoke_routines.py` 验证调度、通知和禁用；定时场景使用隔离日志中的到期时间，不改变正式服务的最短周期。
 
 ```sh

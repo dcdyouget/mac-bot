@@ -178,24 +178,18 @@ def configure(base: str, password: str, provider_url: str, suffix: str) -> dict[
 
 def safe_recovery(base: str, password: str, home: Path, daemon: RestartDaemon, provider: RecoveryProviderState, worker: dict[str, Any], suffix: str) -> dict[str, Any]:
     dm_chat = worker["dm_chat_id"]
-    rpc(base, password, "chat.send", {"chat_id": dm_chat, "text": "SAFE_RECOVERY", "mentions": [{"kind": "bot", "bot_id": worker["id"], "instruction": "SAFE_RECOVERY"}], "client_request_id": f"safe-recovery-chat:{suffix}"})
-    assignment: dict[str, Any] = {}
+    rpc(base, password, "chat.send", {"chat_id": dm_chat, "text": "SAFE_RECOVERY", "mentions": [], "client_request_id": f"safe-recovery-chat:{suffix}"})
 
-    def find_safe_assignment() -> bool:
-        try:
-            assignment.update(assignment_for_dm(base, password, dm_chat, "SAFE_RECOVERY"))
-        except LookupError:
-            return False
-        return True
+    def private_trace() -> list[dict[str, Any]]:
+        items = rpc(base, password, "trace.history", {"chat_id": dm_chat, "tail": True, "limit": 500})["items"]
+        return [item for item in items if run_id is None or item.get("run_id") == run_id]
 
-    wait_until(find_safe_assignment, "safe DM assignment", 30)
-    assignment_id = assignment["id"]
     run_id: str | None = None
     checkpoint: dict[str, Any] | None = None
 
     def checkpoint_ready() -> bool:
         nonlocal run_id, checkpoint
-        items = trace(base, password, assignment_id)
+        items = private_trace()
         starts = [item for item in items if item.get("type") == "run.start"]
         if not starts:
             return False
@@ -208,12 +202,13 @@ def safe_recovery(base: str, password: str, home: Path, daemon: RestartDaemon, p
     wait_until(lambda: provider.snapshot()[1] >= 1, "safe provider request in flight", 30)
     wait_until(checkpoint_ready, "safe durable checkpoint", 30)
     assert run_id and checkpoint
+    assert not any(item.get("origin_chat_id") == dm_chat for item in rpc(base, password, "assignment.list", {"limit": 200})["items"]), "plain private run must not acquire an assignment"
     calls_before_restart = len(provider.snapshot()[0])
-    starts_before = [item for item in trace(base, password, assignment_id) if item.get("type") == "run.start"]
+    starts_before = [item for item in private_trace() if item.get("type") == "run.start"]
     daemon.restart()
     wait_until(lambda: provider.snapshot()[1] >= 2, "safe provider call after restart", 30)
-    wait_until(lambda: assignment_for_dm(base, password, dm_chat, "SAFE_RECOVERY").get("status") == "done", "safe assignment completion", 40)
-    items = trace(base, password, assignment_id)
+    wait_until(lambda: any(item.get("type") == "run.end" and item.get("data", {}).get("status") == "done" for item in private_trace()), "safe private run completion", 40)
+    items = private_trace()
     assert sum(item.get("type") == "run.start" for item in items) == len(starts_before) == 1, items
     assert sum(item.get("type") == "run.end" and item.get("data", {}).get("status") == "done" for item in items) == 1, items
     assert any(item.get("type") == "run.resume" and item.get("run_id") == run_id for item in items), items
@@ -221,7 +216,7 @@ def safe_recovery(base: str, password: str, home: Path, daemon: RestartDaemon, p
     final = [item for item in history if item.get("sender", {}).get("kind") == "bot" and "safe recovery completed" in item.get("fallback_text", "")]
     assert len(final) == 1, history
     assert len(provider.snapshot()[0]) > calls_before_restart
-    return {"assignment_id": assignment_id, "run_id": run_id, "provider_calls": len(provider.snapshot()[0]), "final_messages": len(final), "checkpoint_unsafe_replay": checkpoint["unsafe_replay"]}
+    return {"assignment_id": None, "run_id": run_id, "provider_calls": len(provider.snapshot()[0]), "final_messages": len(final), "checkpoint_unsafe_replay": checkpoint["unsafe_replay"]}
 
 
 def unsafe_guard(base: str, password: str, home: Path, daemon: RestartDaemon, provider: RecoveryProviderState, worker: dict[str, Any], suffix: str) -> dict[str, Any]:

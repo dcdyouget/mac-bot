@@ -105,6 +105,46 @@ def assert_cron_next(routine: dict[str, Any], timezone: str) -> None:
     assert local.minute % 5 == 0, (routine, local.isoformat())
 
 
+def assert_send_msg_persistence(base: str, password: str, home: Path, trace: list[dict[str, Any]], assignment_id: str) -> None:
+    """Tie every executor receipt to the canonical message actually stored.
+
+    A trace receipt alone is insufficient: after a crash/replay the bridge
+    must still leave one message with the same id in the target chat.  Done
+    receipts additionally have to be the assignment's durable result card.
+    """
+    receipts = [item for item in trace if item.get("type") == "send_msg"]
+    assert receipts, trace
+    call_ids = [item.get("data", {}).get("call_id") for item in receipts]
+    message_ids = [item.get("data", {}).get("message_id") for item in receipts]
+    assert all(call_ids) and len(call_ids) == len(set(call_ids)), receipts
+    assert all(message_ids) and len(message_ids) == len(set(message_ids)), receipts
+    assignment = next(
+        item for item in rpc(base, password, "assignment.list", {"limit": 200})["items"]
+        if item.get("id") == assignment_id
+    )
+    for receipt in receipts:
+        data = receipt["data"]
+        chat_id = data.get("chat_id")
+        assert chat_id, receipt
+        messages = rpc(base, password, "chat.history", {"chat_id": chat_id, "limit": 100})["messages"]
+        matches = [item for item in messages if item.get("id") == data["message_id"]]
+        assert len(matches) == 1, (data, messages)
+        assert matches[0].get("assignment_id") == assignment_id, (data, matches[0])
+        if data.get("intent") == "done":
+            assert assignment.get("result_message_id") == data["message_id"], (assignment, data)
+    events_path = home / "data" / "events" / "events.jsonl"
+    if events_path.exists():
+        created = []
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            event = json.loads(line)
+            if event.get("event") != "message.created":
+                continue
+            message = event.get("data", {}).get("message", {})
+            if message.get("id") in message_ids:
+                created.append(message["id"])
+        assert len(created) == len(set(created)) == len(message_ids), created
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
     p.add_argument("--url", default="http://127.0.0.1:7797")
@@ -326,6 +366,7 @@ def main() -> None:
             and item.get("data", {}).get("usage", {}).get("requests", 0) > 0
             for item in test_trace
         ), test_trace
+        assert_send_msg_persistence(base, args.password, args.home, test_trace, test_assignment_id)
 
         # The production create path intentionally enforces the five-minute
         # spacing. Move only this isolated snapshot's clock backwards while
@@ -379,7 +420,7 @@ def main() -> None:
             for item in trace
         ), trace
         assert any(item.get("type") == "routine.run" or item.get("type") == "send_msg" for item in trace)
-        assert any(item.get("type") == "send_msg" for item in trace), trace
+        assert_send_msg_persistence(base, args.password, args.home, trace, assignment_id)
         history = rpc(base, args.password, "chat.history", {"chat_id": bot["dm_chat_id"], "limit": 50})["messages"]
         assert any("定时任务已完成" in item.get("fallback_text", "") for item in history), history
 
@@ -437,6 +478,8 @@ def main() -> None:
         assert project_assignment.get("project_id") == project_id
         project_history = rpc(base, args.password, "chat.history", {"chat_id": project_chat, "limit": 50})["messages"]
         assert any("定时任务已完成" in item.get("fallback_text", "") for item in project_history), project_history
+        project_trace = rpc(base, args.password, "trace.history", {"assignment_id": project_assignment_id, "limit": 500})["items"]
+        assert_send_msg_persistence(base, args.password, args.home, project_trace, project_assignment_id)
         rpc(base, args.password, "routine.set_enabled", {"routine_id": project_routine_id, "enabled": False})
 
         # Paused routines remain due in the controlled clock, but the daemon
