@@ -46,7 +46,12 @@ install_server() {
 }
 
 server_rc=0
-macbot_build_server || server_rc=$?
+if [ "${MACBOT_SKIP_PRODUCTION:-0}" = 1 ]; then
+  macbot_log "server：当前仅部署 mock，正式执行链路尚未 ready；跳过 7788"
+  server_rc=2
+else
+  macbot_build_server || server_rc=$?
+fi
 case "$server_rc" in
   0)
     if ! install_server; then

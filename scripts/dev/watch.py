@@ -51,6 +51,9 @@ def run_once() -> int:
         log_file = STATE / (now.strftime("%Y%m%d-%H%M%S") + "-" + sha[:10] + ".log")
         result = {"sha": sha, "at": now.isoformat(), "log": str(log_file)}
         deploy_env = dict(os.environ, MACBOT_DEPLOY_SHA=sha)
+        if (STATE / "mock-only").exists():
+            deploy_env["MACBOT_SKIP_PRODUCTION"] = "1"
+            result["production_status"] = "deferred: mock-only release"
         with log_file.open("w") as log:
             code = subprocess.call([str(ROOT / "scripts/dev/deploy.sh")], stdout=log, stderr=log, env=deploy_env)
             result["deploy_exit"] = code
