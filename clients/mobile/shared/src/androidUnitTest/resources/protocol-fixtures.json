@@ -1079,6 +1079,65 @@
     }
   },
   {
+    "source": "protocol/fixtures/events/trace_delta.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "req_1",
+        "stream": "asg_1",
+        "text": "正在生成实现计划"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "seq": 37,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/trace_item.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 1,
+          "assignment_id": "asg_1",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": null,
+            "phase": "work",
+            "subagent_task": null
+          },
+          "run_id": "run_1",
+          "type": "run.start"
+        },
+        "stream": "asg_1"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "seq": 36,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/trace_tool_output.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "call_id": "call_1",
+        "chunk": "20 tests passed",
+        "stream": "asg_1"
+      },
+      "event": "trace.tool_output",
+      "kind": "evt",
+      "seq": 38,
+      "v": 1
+    }
+  },
+  {
     "source": "protocol/fixtures/events/typing.json",
     "line": 1,
     "value": {
@@ -1629,6 +1688,333 @@
     "line": 2,
     "value": {
       "data": {
+        "chat": {
+          "attention": "none",
+          "bot_id": "bot_main",
+          "id": "chat_main",
+          "kind": "main",
+          "last_message": null,
+          "last_read_seq": 0,
+          "last_seq": 0,
+          "member_bot_ids": [],
+          "muted": false,
+          "pinned": true,
+          "project_id": null,
+          "title": "总管",
+          "unread": 0,
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "chat.created",
+      "kind": "evt",
+      "seq": 1,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 3,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "给 App 加个邮箱登录，周六前上线",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "给 App 加个邮箱登录，周六前上线",
+          "id": "msg_user",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 1,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 2,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 4,
+    "value": {
+      "data": {
+        "bot": {
+          "avatar": {
+            "color": 0,
+            "kind": "bean"
+          },
+          "browser_mode": "headless",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "description": "协调团队",
+          "dm_chat_id": "chat_product",
+          "hidden": false,
+          "id": "bot_product",
+          "is_main": false,
+          "label": "产品经理",
+          "max_parallel": 3,
+          "model": null,
+          "name": "产品",
+          "notifications": true,
+          "pinned": true,
+          "status": {
+            "active": 0,
+            "queued": 0,
+            "summary": "idle",
+            "waiting": 0
+          },
+          "tools": {
+            "bash": true,
+            "browser": false,
+            "files": true,
+            "mcp": false,
+            "subagent": true,
+            "web": true
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "bot.created",
+      "kind": "evt",
+      "seq": 3,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 5,
+    "value": {
+      "data": {
+        "chat": {
+          "attention": "none",
+          "bot_id": "bot_product",
+          "id": "chat_product",
+          "kind": "direct",
+          "last_message": null,
+          "last_read_seq": 0,
+          "last_seq": 0,
+          "member_bot_ids": [
+            "bot_product"
+          ],
+          "muted": false,
+          "pinned": true,
+          "project_id": null,
+          "title": "产品",
+          "unread": 0,
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "chat.created",
+      "kind": "evt",
+      "seq": 4,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 6,
+    "value": {
+      "data": {
+        "bot": {
+          "avatar": {
+            "color": 0,
+            "kind": "bean"
+          },
+          "browser_mode": "headless",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "description": "协调团队",
+          "dm_chat_id": "chat_code",
+          "hidden": false,
+          "id": "bot_code",
+          "is_main": false,
+          "label": "工程师",
+          "max_parallel": 3,
+          "model": null,
+          "name": "编码",
+          "notifications": true,
+          "pinned": true,
+          "status": {
+            "active": 0,
+            "queued": 0,
+            "summary": "idle",
+            "waiting": 0
+          },
+          "tools": {
+            "bash": true,
+            "browser": false,
+            "files": true,
+            "mcp": false,
+            "subagent": true,
+            "web": true
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "bot.created",
+      "kind": "evt",
+      "seq": 5,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 7,
+    "value": {
+      "data": {
+        "chat": {
+          "attention": "none",
+          "bot_id": "bot_code",
+          "id": "chat_code",
+          "kind": "direct",
+          "last_message": null,
+          "last_read_seq": 0,
+          "last_seq": 0,
+          "member_bot_ids": [
+            "bot_code"
+          ],
+          "muted": false,
+          "pinned": true,
+          "project_id": null,
+          "title": "编码",
+          "unread": 0,
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "chat.created",
+      "kind": "evt",
+      "seq": 6,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 8,
+    "value": {
+      "data": {
+        "bot": {
+          "avatar": {
+            "color": 0,
+            "kind": "bean"
+          },
+          "browser_mode": "headless",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "description": "协调团队",
+          "dm_chat_id": "chat_test",
+          "hidden": false,
+          "id": "bot_test",
+          "is_main": false,
+          "label": "测试工程师",
+          "max_parallel": 3,
+          "model": null,
+          "name": "测试",
+          "notifications": true,
+          "pinned": true,
+          "status": {
+            "active": 0,
+            "queued": 0,
+            "summary": "idle",
+            "waiting": 0
+          },
+          "tools": {
+            "bash": true,
+            "browser": false,
+            "files": true,
+            "mcp": false,
+            "subagent": true,
+            "web": true
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "bot.created",
+      "kind": "evt",
+      "seq": 7,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 9,
+    "value": {
+      "data": {
+        "chat": {
+          "attention": "none",
+          "bot_id": "bot_test",
+          "id": "chat_test",
+          "kind": "direct",
+          "last_message": null,
+          "last_read_seq": 0,
+          "last_seq": 0,
+          "member_bot_ids": [
+            "bot_test"
+          ],
+          "muted": false,
+          "pinned": true,
+          "project_id": null,
+          "title": "测试",
+          "unread": 0,
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "chat.created",
+      "kind": "evt",
+      "seq": 8,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 10,
+    "value": {
+      "data": {
+        "chat": {
+          "attention": "none",
+          "bot_id": null,
+          "id": "chat_login",
+          "kind": "project",
+          "last_message": null,
+          "last_read_seq": 0,
+          "last_seq": 0,
+          "member_bot_ids": [
+            "bot_main",
+            "bot_product",
+            "bot_code",
+            "bot_test"
+          ],
+          "muted": false,
+          "pinned": true,
+          "project_id": "prj_login",
+          "title": "登录功能",
+          "unread": 0,
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "chat.created",
+      "kind": "evt",
+      "seq": 9,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 11,
+    "value": {
+      "data": {
         "project": {
           "chat_id": "chat_login",
           "created_at": "2026-10-09T10:19:02.312Z",
@@ -1655,21 +2041,21 @@
       },
       "event": "project.created",
       "kind": "evt",
-      "seq": 1,
+      "seq": 10,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 3,
+    "line": 12,
     "value": {
       "data": {
         "message": {
           "assignment_id": null,
           "blocks": [
             {
-              "markdown": "hi",
-              "type": "text"
+              "project_id": "prj_login",
+              "type": "project_card"
             }
           ],
           "chat_id": "chat_main",
@@ -1677,125 +2063,9 @@
           "deleted": false,
           "delivery": [],
           "edited_at": null,
-          "fallback_text": "hi",
-          "id": "msg_1",
+          "fallback_text": "新群 · 登录功能",
+          "id": "msg_new_group",
           "intent": null,
-          "mentions": [],
-          "reactions": [],
-          "reply_to": null,
-          "sender": {
-            "kind": "user"
-          },
-          "seq": 1,
-          "streaming": false,
-          "thread_count": 0
-        }
-      },
-      "event": "message.created",
-      "kind": "evt",
-      "seq": 2,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 4,
-    "value": {
-      "data": {
-        "assignment": {
-          "bot_id": "bot_main",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "finished_at": null,
-          "from": {
-            "kind": "user"
-          },
-          "id": "asg_1",
-          "instruction": "做事",
-          "model": "prv_mock/mock-model",
-          "origin_chat_id": "chat_login",
-          "parent_assignment_id": null,
-          "project_id": "prj_login",
-          "queue_reason": null,
-          "result_message_id": null,
-          "started_at": "2026-10-09T10:19:02.312Z",
-          "status": "working",
-          "steers": [],
-          "subagents_active": 0,
-          "title": "任务",
-          "trigger_message_id": null,
-          "usage": {
-            "cache_read_tokens": 0,
-            "cache_write_tokens": 0,
-            "cost": null,
-            "input_tokens": 10,
-            "output_tokens": 20,
-            "requests": 1
-          },
-          "wait": null
-        }
-      },
-      "event": "assignment.created",
-      "kind": "evt",
-      "seq": 3,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 5,
-    "value": {
-      "data": {
-        "item": {
-          "aseq": 1,
-          "assignment_id": "asg_1",
-          "at": "2026-10-09T10:19:02.312Z",
-          "chat_id": "chat_login",
-          "data": {
-            "model": "prv_mock/mock-model",
-            "parent_run_id": null,
-            "phase": "work",
-            "subagent_task": null
-          },
-          "run_id": "run_1",
-          "type": "run.start"
-        },
-        "stream": "asg_1"
-      },
-      "event": "trace.item",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 6,
-    "value": {
-      "data": {
-        "message": {
-          "assignment_id": "asg_1",
-          "blocks": [
-            {
-              "artifacts": [
-                {
-                  "artifact_id": "art_prd",
-                  "path_or_url": "product/prd.md",
-                  "title": "PRD"
-                }
-              ],
-              "next": [],
-              "notify_main": true,
-              "summary": "已完成 PRD 和原型",
-              "type": "completion"
-            }
-          ],
-          "chat_id": "chat_login",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "deleted": false,
-          "delivery": [],
-          "edited_at": null,
-          "fallback_text": "已完成 PRD 和原型",
-          "id": "msg_done",
-          "intent": "done",
           "mentions": [],
           "reactions": [],
           "reply_to": null,
@@ -1810,49 +2080,812 @@
       },
       "event": "message.created",
       "kind": "evt",
-      "seq": 4,
+      "seq": 11,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 7,
+    "line": 13,
     "value": {
       "data": {
         "message": {
           "assignment_id": null,
           "blocks": [
             {
-              "markdown": "先只做邮箱登录，不要手机号",
+              "markdown": "本次事项：给 App 加邮箱登录，周六前上线。流程：产品 → 编码 → 测试。",
               "type": "text"
             }
           ],
           "chat_id": "chat_login",
           "created_at": "2026-10-09T10:19:02.312Z",
           "deleted": false,
-          "delivery": [
-            {
-              "assignment_id": "asg_1",
-              "at": "2026-10-09T10:19:02.312Z",
-              "bot_id": "bot_main",
-              "state": "queued"
-            }
-          ],
+          "delivery": [],
           "edited_at": null,
-          "fallback_text": "先只做邮箱登录，不要手机号",
-          "id": "msg_steer",
+          "fallback_text": "本次事项：给 App 加邮箱登录，周六前上线。@产品 先出 PRD 和原型。",
+          "id": "msg_opening",
           "intent": null,
           "mentions": [
             {
-              "bot_id": "bot_main",
-              "instruction": null,
+              "bot_id": "bot_product",
+              "instruction": "先出 PRD 和原型",
               "kind": "bot"
             }
           ],
           "reactions": [],
           "reply_to": null,
           "sender": {
-            "kind": "user"
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "seq": 1,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 12,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 14,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_product",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_product",
+          "instruction": "编写 PRD 和原型",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": null,
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": null,
+          "status": "queued",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "编写 PRD 和原型",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "requests": 0
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.created",
+      "kind": "evt",
+      "seq": 13,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 15,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_product",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_product",
+          "instruction": "编写 PRD 和原型",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": null,
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "working",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "编写 PRD 和原型",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "requests": 0
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.updated",
+      "kind": "evt",
+      "seq": 14,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 16,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_product",
+          "blocks": [
+            {
+              "markdown": "收到，开始写 PRD 和原型。",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "收到，开始写 PRD 和原型。",
+          "id": "msg_product_ack",
+          "intent": "ack",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_product",
+            "kind": "bot"
+          },
+          "seq": 2,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 15,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 17,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 1,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": null,
+            "phase": "work",
+            "subagent_task": null
+          },
+          "run_id": "run_product",
+          "type": "run.start"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 18,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 2,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "context": {
+              "l0": 100,
+              "l1": 200,
+              "l2": 300,
+              "l3": 0,
+              "l4": 0,
+              "total": 600
+            },
+            "model": "prv_mock/mock-model",
+            "prompt_ref": null,
+            "request_id": "req_product_1",
+            "tools": [
+              "skill.load",
+              "write"
+            ]
+          },
+          "run_id": "run_product",
+          "type": "llm.request"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 19,
+    "value": {
+      "data": {
+        "call_id": null,
+        "channel": "thinking",
+        "request_id": "req_product_1",
+        "stream": "asg_product",
+        "text": "先加载 PRD 模板并拆分登录流程。"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 20,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 3,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "args": {
+              "name": "prd-template"
+            },
+            "call_id": "call_skill",
+            "name": "skill.load"
+          },
+          "run_id": "run_product",
+          "type": "tool.start"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 21,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 4,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "call_id": "call_skill",
+            "details": {},
+            "duration_ms": 18,
+            "full_output": null,
+            "is_error": false,
+            "preview": "prd-template loaded",
+            "truncated": false
+          },
+          "run_id": "run_product",
+          "type": "tool.end"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 22,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 5,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": "run_product",
+            "phase": "subagent",
+            "subagent_task": "子代理 1：竞品登录流程"
+          },
+          "run_id": "run_product_sub1",
+          "type": "run.start"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 23,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 6,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "context": {
+              "l0": 20,
+              "l1": 30,
+              "l2": 40,
+              "l3": 0,
+              "l4": 0,
+              "total": 90
+            },
+            "model": "prv_mock/mock-model",
+            "prompt_ref": null,
+            "request_id": "req_sub1",
+            "tools": [
+              "web.search"
+            ]
+          },
+          "run_id": "run_product_sub1",
+          "type": "llm.request"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 24,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 7,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "latency_ms": 80,
+            "request_id": "req_sub1",
+            "stop_reason": "stop",
+            "text": "竞品登录流程结论",
+            "thinking": null,
+            "tool_calls": [],
+            "ttft_ms": 12,
+            "usage": {
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "cost": null,
+              "input_tokens": 10,
+              "output_tokens": 20,
+              "requests": 1
+            }
+          },
+          "run_id": "run_product_sub1",
+          "type": "llm.response"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 25,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 8,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "error": null,
+            "status": "done"
+          },
+          "run_id": "run_product_sub1",
+          "type": "run.end"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 26,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 9,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": "run_product",
+            "phase": "subagent",
+            "subagent_task": "子代理 2：密码规则"
+          },
+          "run_id": "run_product_sub2",
+          "type": "run.start"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 27,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 10,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "context": {
+              "l0": 20,
+              "l1": 30,
+              "l2": 40,
+              "l3": 0,
+              "l4": 0,
+              "total": 90
+            },
+            "model": "prv_mock/mock-model",
+            "prompt_ref": null,
+            "request_id": "req_sub2",
+            "tools": [
+              "web.search"
+            ]
+          },
+          "run_id": "run_product_sub2",
+          "type": "llm.request"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 28,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 11,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "latency_ms": 80,
+            "request_id": "req_sub2",
+            "stop_reason": "stop",
+            "text": "密码规则结论",
+            "thinking": null,
+            "tool_calls": [],
+            "ttft_ms": 12,
+            "usage": {
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "cost": null,
+              "input_tokens": 10,
+              "output_tokens": 20,
+              "requests": 1
+            }
+          },
+          "run_id": "run_product_sub2",
+          "type": "llm.response"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 29,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 12,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "error": null,
+            "status": "done"
+          },
+          "run_id": "run_product_sub2",
+          "type": "run.end"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 30,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 13,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": "run_product",
+            "phase": "subagent",
+            "subagent_task": "子代理 3：邮箱验证体验"
+          },
+          "run_id": "run_product_sub3",
+          "type": "run.start"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 31,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 14,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "context": {
+              "l0": 20,
+              "l1": 30,
+              "l2": 40,
+              "l3": 0,
+              "l4": 0,
+              "total": 90
+            },
+            "model": "prv_mock/mock-model",
+            "prompt_ref": null,
+            "request_id": "req_sub3",
+            "tools": [
+              "web.search"
+            ]
+          },
+          "run_id": "run_product_sub3",
+          "type": "llm.request"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 32,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 15,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "latency_ms": 80,
+            "request_id": "req_sub3",
+            "stop_reason": "stop",
+            "text": "邮箱验证体验结论",
+            "thinking": null,
+            "tool_calls": [],
+            "ttft_ms": 12,
+            "usage": {
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "cost": null,
+              "input_tokens": 10,
+              "output_tokens": 20,
+              "requests": 1
+            }
+          },
+          "run_id": "run_product_sub3",
+          "type": "llm.response"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 33,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 16,
+          "assignment_id": "asg_product",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "error": null,
+            "status": "done"
+          },
+          "run_id": "run_product_sub3",
+          "type": "run.end"
+        },
+        "stream": "asg_product"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 34,
+    "value": {
+      "data": {
+        "skill": {
+          "description": "PRD 模板",
+          "disabled_bot_ids": [],
+          "enabled": true,
+          "files": [
+            "template.md"
+          ],
+          "invocations_7d": {
+            "by_bot": [],
+            "total": 1
+          },
+          "name": "prd-template",
+          "path": "skills/prd-template",
+          "source": "builtin",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "skill.updated",
+      "kind": "evt",
+      "seq": 16,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 35,
+    "value": {
+      "data": {
+        "artifact": {
+          "assignment_id": "asg_1",
+          "bot_id": "bot_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "id": "art_prd",
+          "kind": "file",
+          "path_or_url": "product/prd.md",
+          "project_id": "prj_login",
+          "title": "PRD",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "artifact.registered",
+      "kind": "evt",
+      "seq": 17,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 36,
+    "value": {
+      "data": {
+        "artifact": {
+          "assignment_id": "asg_1",
+          "bot_id": "bot_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "id": "art_prototype",
+          "kind": "dir",
+          "path_or_url": "product/prototype/",
+          "project_id": "prj_login",
+          "title": "邮箱登录原型",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "artifact.registered",
+      "kind": "evt",
+      "seq": 18,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 37,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_product",
+          "blocks": [
+            {
+              "artifacts": [
+                {
+                  "artifact_id": "art_prd",
+                  "path_or_url": "product/prd.md",
+                  "title": "PRD"
+                },
+                {
+                  "artifact_id": "art_prototype",
+                  "path_or_url": "product/prototype/",
+                  "title": "邮箱登录原型"
+                }
+              ],
+              "next": [
+                {
+                  "bot_id": "bot_code",
+                  "instruction": "请按 PRD 实现邮箱登录"
+                }
+              ],
+              "notify_main": true,
+              "summary": "已完成 PRD 和原型",
+              "type": "completion"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "已完成 PRD 和原型，@编码 请按 PRD 实现邮箱登录。",
+          "id": "msg_product_done",
+          "intent": "done",
+          "mentions": [
+            {
+              "bot_id": "bot_code",
+              "instruction": "请按 PRD 实现邮箱登录",
+              "kind": "bot"
+            }
+          ],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_product",
+            "kind": "bot"
           },
           "seq": 3,
           "streaming": false,
@@ -1861,13 +2894,1218 @@
       },
       "event": "message.created",
       "kind": "evt",
-      "seq": 5,
+      "seq": 19,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 8,
+    "line": 38,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_product",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": "2026-10-09T10:19:02.312Z",
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_product",
+          "instruction": "编写 PRD 和原型",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": null,
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "done",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "编写 PRD 和原型",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "requests": 1
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.updated",
+      "kind": "evt",
+      "seq": 20,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 39,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_code",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_code",
+          "instruction": "实现邮箱登录",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": "asg_product",
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": null,
+          "status": "queued",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "实现邮箱登录",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "requests": 0
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.created",
+      "kind": "evt",
+      "seq": 21,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 40,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_code",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_code",
+          "instruction": "实现邮箱登录",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": "asg_product",
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "working",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "实现邮箱登录",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "requests": 0
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.updated",
+      "kind": "evt",
+      "seq": 22,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 41,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_code",
+          "blocks": [
+            {
+              "markdown": "收到，开始实现。",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "收到，开始实现。",
+          "id": "msg_code_ack",
+          "intent": "ack",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_code",
+            "kind": "bot"
+          },
+          "seq": 4,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 23,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 42,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 1,
+          "assignment_id": "asg_code",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": null,
+            "phase": "work",
+            "subagent_task": null
+          },
+          "run_id": "run_code",
+          "type": "run.start"
+        },
+        "stream": "asg_code"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 43,
+    "value": {
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "req_code_1",
+        "stream": "asg_code",
+        "text": "正在按 PRD 搭建邮箱登录流程。"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 44,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "@编码 先只做邮箱登录，不要手机号",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [
+            {
+              "assignment_id": "asg_code",
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_code",
+              "state": "queued"
+            }
+          ],
+          "edited_at": null,
+          "fallback_text": "@编码 先只做邮箱登录，不要手机号",
+          "id": "msg_steer",
+          "intent": null,
+          "mentions": [
+            {
+              "bot_id": "bot_code",
+              "instruction": "先只做邮箱登录，不要手机号",
+              "kind": "bot"
+            }
+          ],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 5,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 24,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 45,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "@编码 先只做邮箱登录，不要手机号",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [
+            {
+              "assignment_id": "asg_code",
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_code",
+              "state": "delivered"
+            }
+          ],
+          "edited_at": null,
+          "fallback_text": "@编码 先只做邮箱登录，不要手机号",
+          "id": "msg_steer",
+          "intent": null,
+          "mentions": [
+            {
+              "bot_id": "bot_code",
+              "instruction": "先只做邮箱登录，不要手机号",
+              "kind": "bot"
+            }
+          ],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 5,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.updated",
+      "kind": "evt",
+      "seq": 25,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 46,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "@编码 先只做邮箱登录，不要手机号",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [
+            {
+              "assignment_id": "asg_code",
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_code",
+              "state": "read"
+            }
+          ],
+          "edited_at": null,
+          "fallback_text": "@编码 先只做邮箱登录，不要手机号",
+          "id": "msg_steer",
+          "intent": null,
+          "mentions": [
+            {
+              "bot_id": "bot_code",
+              "instruction": "先只做邮箱登录，不要手机号",
+              "kind": "bot"
+            }
+          ],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 5,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.updated",
+      "kind": "evt",
+      "seq": 26,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 47,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 2,
+          "assignment_id": "asg_code",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "from": {
+              "kind": "user"
+            },
+            "message_id": "msg_steer",
+            "text": "先只做邮箱登录，不要手机号"
+          },
+          "run_id": "run_code",
+          "type": "steer"
+        },
+        "stream": "asg_code"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 48,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 3,
+          "assignment_id": "asg_code",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "call_id": "call_code_progress",
+            "chat_id": "chat_login",
+            "intent": "progress",
+            "message_id": "msg_code_progress"
+          },
+          "run_id": "run_code",
+          "type": "send_msg"
+        },
+        "stream": "asg_code"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 49,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_code",
+          "blocks": [
+            {
+              "text": "收到，改为只做邮箱登录，正在调整。",
+              "type": "progress"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "收到，改为只做邮箱登录，正在调整。",
+          "id": "msg_code_progress",
+          "intent": "progress",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_code",
+            "kind": "bot"
+          },
+          "seq": 6,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 27,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 50,
+    "value": {
+      "data": {
+        "announcement": {
+          "artifacts": [
+            {
+              "assignment_id": "asg_1",
+              "bot_id": "bot_main",
+              "created_at": "2026-10-09T10:19:02.312Z",
+              "id": "art_prd",
+              "kind": "file",
+              "path_or_url": "product/prd.md",
+              "project_id": "prj_login",
+              "title": "PRD",
+              "updated_at": "2026-10-09T10:19:02.312Z"
+            },
+            {
+              "assignment_id": "asg_1",
+              "bot_id": "bot_main",
+              "created_at": "2026-10-09T10:19:02.312Z",
+              "id": "art_prototype",
+              "kind": "dir",
+              "path_or_url": "product/prototype/",
+              "project_id": "prj_login",
+              "title": "邮箱登录原型",
+              "updated_at": "2026-10-09T10:19:02.312Z"
+            }
+          ],
+          "highlights": [
+            {
+              "at": "2026-10-09T10:19:02.312Z",
+              "text": "只做邮箱登录，不做手机号"
+            }
+          ],
+          "members": [],
+          "project_id": "prj_login",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "announcement.updated",
+      "kind": "evt",
+      "seq": 28,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 51,
+    "value": {
+      "data": {
+        "chat": {
+          "attention": "none",
+          "bot_id": null,
+          "id": "chat_web",
+          "kind": "project",
+          "last_message": null,
+          "last_read_seq": 0,
+          "last_seq": 0,
+          "member_bot_ids": [
+            "bot_code"
+          ],
+          "muted": false,
+          "pinned": true,
+          "project_id": "prj_web",
+          "title": "官网改版",
+          "unread": 0,
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "chat.created",
+      "kind": "evt",
+      "seq": 29,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 52,
+    "value": {
+      "data": {
+        "project": {
+          "chat_id": "chat_web",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": null,
+          "done_at": null,
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "官网登录入口改版",
+          "home_path": "~/MacBot/projects/web/",
+          "id": "prj_web",
+          "lead_bot_id": "bot_code",
+          "members": [],
+          "name": "官网改版",
+          "slug": "web",
+          "status": "active",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "project.created",
+      "kind": "evt",
+      "seq": 30,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 53,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_code",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_code_web",
+          "instruction": "官网登录入口改版",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_web",
+          "parent_assignment_id": null,
+          "project_id": "prj_web",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "working",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "官网登录入口改版",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "requests": 0
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.created",
+      "kind": "evt",
+      "seq": 31,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 54,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_code_web",
+          "blocks": [
+            {
+              "markdown": "收到，开始改版。",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_web",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "收到，开始改版。",
+          "id": "msg_web_ack",
+          "intent": "ack",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_code",
+            "kind": "bot"
+          },
+          "seq": 1,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 32,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 55,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 1,
+          "assignment_id": "asg_code_web",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_web",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": null,
+            "phase": "work",
+            "subagent_task": null
+          },
+          "run_id": "run_code_web",
+          "type": "run.start"
+        },
+        "stream": "asg_code_web"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 56,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_code",
+          "blocks": [
+            {
+              "artifacts": [
+                {
+                  "artifact_id": "art_code",
+                  "path_or_url": "code/",
+                  "title": "代码"
+                },
+                {
+                  "artifact_id": "art_preview",
+                  "path_or_url": "http://localhost:3000",
+                  "title": "预览地址"
+                }
+              ],
+              "next": [
+                {
+                  "bot_id": "bot_test",
+                  "instruction": "请测试邮箱登录"
+                }
+              ],
+              "notify_main": true,
+              "summary": "已实现并部署到 localhost:3000",
+              "type": "completion"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "已实现并部署到 localhost:3000，@测试 请测试。",
+          "id": "msg_code_done",
+          "intent": "done",
+          "mentions": [
+            {
+              "bot_id": "bot_test",
+              "instruction": "请测试邮箱登录",
+              "kind": "bot"
+            }
+          ],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_code",
+            "kind": "bot"
+          },
+          "seq": 7,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 33,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 57,
+    "value": {
+      "data": {
+        "artifact": {
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "id": "art_code",
+          "kind": "dir",
+          "path_or_url": "code/",
+          "project_id": "prj_login",
+          "title": "代码",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "artifact.registered",
+      "kind": "evt",
+      "seq": 34,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 58,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_code",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": "2026-10-09T10:19:02.312Z",
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_code",
+          "instruction": "实现邮箱登录",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": "asg_product",
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "done",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "实现邮箱登录",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "requests": 1
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.updated",
+      "kind": "evt",
+      "seq": 35,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 59,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_test",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_test",
+          "instruction": "测试邮箱登录",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": "asg_code",
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "working",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "测试邮箱登录",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "requests": 0
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.created",
+      "kind": "evt",
+      "seq": 36,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 60,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_test",
+          "blocks": [
+            {
+              "markdown": "收到，开始测试。",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "收到，开始测试。",
+          "id": "msg_test_ack",
+          "intent": "ack",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_test",
+            "kind": "bot"
+          },
+          "seq": 8,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 37,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 61,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 1,
+          "assignment_id": "asg_test",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "model": "prv_mock/mock-model",
+            "parent_run_id": null,
+            "phase": "work",
+            "subagent_task": null
+          },
+          "run_id": "run_test",
+          "type": "run.start"
+        },
+        "stream": "asg_test"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 62,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 2,
+          "assignment_id": "asg_test",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "context": {
+              "l0": 100,
+              "l1": 100,
+              "l2": 100,
+              "l3": 0,
+              "l4": 0,
+              "total": 300
+            },
+            "model": "prv_mock/mock-model",
+            "prompt_ref": null,
+            "request_id": "req_test_1",
+            "tools": [
+              "bash"
+            ]
+          },
+          "run_id": "run_test",
+          "type": "llm.request"
+        },
+        "stream": "asg_test"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 63,
+    "value": {
+      "data": {
+        "call_id": "call_test",
+        "chunk": "20 tests passed",
+        "stream": "asg_test"
+      },
+      "event": "trace.tool_output",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 64,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_test",
+          "blocks": [
+            {
+              "text": "正在运行回归测试。",
+              "type": "progress"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "正在运行回归测试。",
+          "id": "msg_test_progress",
+          "intent": "progress",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_test",
+            "kind": "bot"
+          },
+          "seq": 9,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 38,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 65,
+    "value": {
+      "data": {
+        "artifact": {
+          "assignment_id": "asg_test",
+          "bot_id": "bot_test",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "id": "art_report",
+          "kind": "file",
+          "path_or_url": "test/report.md",
+          "project_id": "prj_login",
+          "title": "测试报告",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "artifact.registered",
+      "kind": "evt",
+      "seq": 39,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 66,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_test",
+          "blocks": [
+            {
+              "artifacts": [
+                {
+                  "artifact_id": "art_report",
+                  "path_or_url": "test/report.md",
+                  "title": "测试报告"
+                }
+              ],
+              "next": [
+                {
+                  "bot_id": "bot_main",
+                  "instruction": "请验收登录功能"
+                }
+              ],
+              "notify_main": true,
+              "summary": "测试 20/20 通过",
+              "type": "completion"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "测试 20/20 通过，报告在 test/report.md，@总管 请验收。",
+          "id": "msg_test_done",
+          "intent": "done",
+          "mentions": [
+            {
+              "kind": "main"
+            }
+          ],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_test",
+            "kind": "bot"
+          },
+          "seq": 10,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 40,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 67,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_test",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": "2026-10-09T10:19:02.312Z",
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_test",
+          "instruction": "测试邮箱登录",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": "asg_code",
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "done",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "测试邮箱登录",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "requests": 1
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.updated",
+      "kind": "evt",
+      "seq": 41,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 68,
+    "value": {
+      "data": {
+        "announcement": {
+          "artifacts": [
+            {
+              "assignment_id": "asg_1",
+              "bot_id": "bot_main",
+              "created_at": "2026-10-09T10:19:02.312Z",
+              "id": "art_prd",
+              "kind": "file",
+              "path_or_url": "product/prd.md",
+              "project_id": "prj_login",
+              "title": "PRD",
+              "updated_at": "2026-10-09T10:19:02.312Z"
+            },
+            {
+              "assignment_id": "asg_1",
+              "bot_id": "bot_main",
+              "created_at": "2026-10-09T10:19:02.312Z",
+              "id": "art_prototype",
+              "kind": "dir",
+              "path_or_url": "product/prototype/",
+              "project_id": "prj_login",
+              "title": "邮箱登录原型",
+              "updated_at": "2026-10-09T10:19:02.312Z"
+            },
+            {
+              "assignment_id": "asg_code",
+              "bot_id": "bot_code",
+              "created_at": "2026-10-09T10:19:02.312Z",
+              "id": "art_code",
+              "kind": "dir",
+              "path_or_url": "code/",
+              "project_id": "prj_login",
+              "title": "代码",
+              "updated_at": "2026-10-09T10:19:02.312Z"
+            },
+            {
+              "assignment_id": "asg_test",
+              "bot_id": "bot_test",
+              "created_at": "2026-10-09T10:19:02.312Z",
+              "id": "art_report",
+              "kind": "file",
+              "path_or_url": "test/report.md",
+              "project_id": "prj_login",
+              "title": "测试报告",
+              "updated_at": "2026-10-09T10:19:02.312Z"
+            }
+          ],
+          "highlights": [
+            {
+              "at": "2026-10-09T10:19:02.312Z",
+              "text": "只做邮箱登录，不做手机号"
+            },
+            {
+              "at": "2026-10-09T10:19:02.312Z",
+              "text": "测试 20/20 通过"
+            }
+          ],
+          "members": [],
+          "project_id": "prj_login",
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "announcement.updated",
+      "kind": "evt",
+      "seq": 42,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 69,
     "value": {
       "data": {
         "project": {
@@ -1896,13 +4134,13 @@
       },
       "event": "project.updated",
       "kind": "evt",
-      "seq": 6,
+      "seq": 43,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 9,
+    "line": 70,
     "value": {
       "data": {
         "message": {
@@ -1914,6 +4152,21 @@
                   "artifact_id": "art_prd",
                   "path_or_url": "product/prd.md",
                   "title": "PRD"
+                },
+                {
+                  "artifact_id": "art_prototype",
+                  "path_or_url": "product/prototype/",
+                  "title": "邮箱登录原型"
+                },
+                {
+                  "artifact_id": "art_code",
+                  "path_or_url": "code/",
+                  "title": "代码"
+                },
+                {
+                  "artifact_id": "art_report",
+                  "path_or_url": "test/report.md",
+                  "title": "测试报告"
                 }
               ],
               "project_id": "prj_login",
@@ -1926,7 +4179,7 @@
           "deleted": false,
           "delivery": [],
           "edited_at": null,
-          "fallback_text": "登录功能待验收",
+          "fallback_text": "登录功能已完成，待你验收。",
           "id": "msg_review",
           "intent": null,
           "mentions": [],
@@ -1936,6 +4189,65 @@
             "bot_id": "bot_main",
             "kind": "bot"
           },
+          "seq": 3,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 44,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 71,
+    "value": {
+      "data": {
+        "assignment_id": "asg_test",
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost": 0.02,
+          "input_tokens": 420,
+          "output_tokens": 180,
+          "requests": 4
+        }
+      },
+      "event": "usage.tick",
+      "kind": "evt",
+      "seq": 45,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 72,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "确认完成",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "确认完成",
+          "id": "msg_confirm",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
           "seq": 4,
           "streaming": false,
           "thread_count": 0
@@ -1943,13 +4255,75 @@
       },
       "event": "message.created",
       "kind": "evt",
-      "seq": 7,
+      "seq": 46,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 10,
+    "line": 73,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "artifacts": [
+                {
+                  "artifact_id": "art_prd",
+                  "path_or_url": "product/prd.md",
+                  "title": "PRD"
+                },
+                {
+                  "artifact_id": "art_prototype",
+                  "path_or_url": "product/prototype/",
+                  "title": "邮箱登录原型"
+                },
+                {
+                  "artifact_id": "art_code",
+                  "path_or_url": "code/",
+                  "title": "代码"
+                },
+                {
+                  "artifact_id": "art_report",
+                  "path_or_url": "test/report.md",
+                  "title": "测试报告"
+                }
+              ],
+              "project_id": "prj_login",
+              "state": "confirmed",
+              "type": "review_card"
+            }
+          ],
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "登录功能已确认完成。",
+          "id": "msg_review",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "seq": 3,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.updated",
+      "kind": "evt",
+      "seq": 47,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 74,
     "value": {
       "data": {
         "project": {
@@ -1978,310 +4352,80 @@
       },
       "event": "project.updated",
       "kind": "evt",
-      "seq": 8,
+      "seq": 48,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 11,
+    "line": 75,
     "value": {
       "data": {
-        "message": {
-          "assignment_id": "asg_1",
-          "blocks": [
-            {
-              "markdown": "收到，正在继续处理。",
-              "type": "text"
-            }
-          ],
-          "chat_id": "chat_login",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "deleted": false,
-          "delivery": [
+        "announcement": {
+          "artifacts": [
             {
               "assignment_id": "asg_1",
-              "at": "2026-10-09T10:19:02.312Z",
               "bot_id": "bot_main",
-              "state": "delivered"
-            }
-          ],
-          "edited_at": null,
-          "fallback_text": "收到，正在继续处理。",
-          "id": "msg_steer",
-          "intent": "progress",
-          "mentions": [],
-          "reactions": [],
-          "reply_to": null,
-          "sender": {
-            "bot_id": "bot_main",
-            "kind": "bot"
-          },
-          "seq": 3,
-          "streaming": false,
-          "thread_count": 0
-        }
-      },
-      "event": "message.updated",
-      "kind": "evt",
-      "seq": 9,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 12,
-    "value": {
-      "data": {
-        "message": {
-          "assignment_id": "asg_1",
-          "blocks": [
-            {
-              "markdown": "收到，正在继续处理。",
-              "type": "text"
-            }
-          ],
-          "chat_id": "chat_login",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "deleted": false,
-          "delivery": [
+              "created_at": "2026-10-09T10:19:02.312Z",
+              "id": "art_prd",
+              "kind": "file",
+              "path_or_url": "product/prd.md",
+              "project_id": "prj_login",
+              "title": "PRD",
+              "updated_at": "2026-10-09T10:19:02.312Z"
+            },
             {
               "assignment_id": "asg_1",
-              "at": "2026-10-09T10:19:02.312Z",
               "bot_id": "bot_main",
-              "state": "read"
+              "created_at": "2026-10-09T10:19:02.312Z",
+              "id": "art_prototype",
+              "kind": "dir",
+              "path_or_url": "product/prototype/",
+              "project_id": "prj_login",
+              "title": "邮箱登录原型",
+              "updated_at": "2026-10-09T10:19:02.312Z"
+            },
+            {
+              "assignment_id": "asg_code",
+              "bot_id": "bot_code",
+              "created_at": "2026-10-09T10:19:02.312Z",
+              "id": "art_code",
+              "kind": "dir",
+              "path_or_url": "code/",
+              "project_id": "prj_login",
+              "title": "代码",
+              "updated_at": "2026-10-09T10:19:02.312Z"
+            },
+            {
+              "assignment_id": "asg_test",
+              "bot_id": "bot_test",
+              "created_at": "2026-10-09T10:19:02.312Z",
+              "id": "art_report",
+              "kind": "file",
+              "path_or_url": "test/report.md",
+              "project_id": "prj_login",
+              "title": "测试报告",
+              "updated_at": "2026-10-09T10:19:02.312Z"
             }
           ],
-          "edited_at": null,
-          "fallback_text": "收到，正在继续处理。",
-          "id": "msg_steer",
-          "intent": "progress",
-          "mentions": [],
-          "reactions": [],
-          "reply_to": null,
-          "sender": {
-            "bot_id": "bot_main",
-            "kind": "bot"
-          },
-          "seq": 3,
-          "streaming": false,
-          "thread_count": 0
-        }
-      },
-      "event": "message.updated",
-      "kind": "evt",
-      "seq": 10,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 13,
-    "value": {
-      "data": {
-        "project": {
-          "chat_id": "chat_research",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "created_by": {
-            "kind": "user"
-          },
-          "deadline": null,
-          "done_at": null,
-          "flow": [
-            "调研",
-            "写作"
+          "highlights": [
+            {
+              "at": "2026-10-09T10:19:02.312Z",
+              "text": "项目已确认完成"
+            },
+            {
+              "at": "2026-10-09T10:19:02.312Z",
+              "text": "测试 20/20 通过"
+            }
           ],
-          "goal": "竞品调研",
-          "home_path": "~/MacBot/projects/research/",
-          "id": "prj_research",
-          "lead_bot_id": "bot_main",
           "members": [],
-          "name": "竞品调研",
-          "slug": "research",
-          "status": "active",
+          "project_id": "prj_login",
           "updated_at": "2026-10-09T10:19:02.312Z"
         }
       },
-      "event": "project.created",
+      "event": "announcement.updated",
       "kind": "evt",
-      "seq": 11,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 14,
-    "value": {
-      "data": {
-        "assignment": {
-          "bot_id": "bot_main",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "finished_at": null,
-          "from": {
-            "kind": "bot",
-            "bot_id": "bot_main"
-          },
-          "id": "asg_research",
-          "instruction": "调研前三个竞品",
-          "model": "prv_mock/mock-model",
-          "origin_chat_id": "chat_research",
-          "parent_assignment_id": null,
-          "project_id": "prj_research",
-          "queue_reason": "global_limit",
-          "result_message_id": null,
-          "started_at": null,
-          "status": "queued",
-          "steers": [],
-          "subagents_active": 3,
-          "title": "竞品调研",
-          "trigger_message_id": null,
-          "usage": {
-            "cache_read_tokens": 0,
-            "cache_write_tokens": 0,
-            "cost": null,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "requests": 0
-          },
-          "wait": null
-        }
-      },
-      "event": "assignment.created",
-      "kind": "evt",
-      "seq": 12,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 15,
-    "value": {
-      "data": {
-        "item": {
-          "aseq": 2,
-          "assignment_id": "asg_research",
-          "at": "2026-10-09T10:19:02.312Z",
-          "chat_id": "chat_research",
-          "data": {
-            "model": "prv_mock/mock-model",
-            "parent_run_id": "run_research",
-            "phase": "subagent",
-            "subagent_task": "subagent-1: competitor login flows"
-          },
-          "run_id": "run_subagent_1",
-          "type": "run.start"
-        },
-        "stream": "asg_research"
-      },
-      "event": "trace.item",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 16,
-    "value": {
-      "data": {
-        "item": {
-          "aseq": 3,
-          "assignment_id": "asg_research",
-          "at": "2026-10-09T10:19:02.312Z",
-          "chat_id": "chat_research",
-          "data": {
-            "model": "prv_mock/mock-model",
-            "parent_run_id": "run_research",
-            "phase": "subagent",
-            "subagent_task": "subagent-2: password rules"
-          },
-          "run_id": "run_subagent_2",
-          "type": "run.start"
-        },
-        "stream": "asg_research"
-      },
-      "event": "trace.item",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 17,
-    "value": {
-      "data": {
-        "item": {
-          "aseq": 4,
-          "assignment_id": "asg_research",
-          "at": "2026-10-09T10:19:02.312Z",
-          "chat_id": "chat_research",
-          "data": {
-            "model": "prv_mock/mock-model",
-            "parent_run_id": "run_research",
-            "phase": "subagent",
-            "subagent_task": "subagent-3: onboarding UX"
-          },
-          "run_id": "run_subagent_3",
-          "type": "run.start"
-        },
-        "stream": "asg_research"
-      },
-      "event": "trace.item",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 18,
-    "value": {
-      "data": {
-        "assignment_id": "asg_research",
-        "usage": {
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0,
-          "cost": 0.01,
-          "input_tokens": 300,
-          "output_tokens": 120,
-          "requests": 3
-        }
-      },
-      "event": "usage.tick",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 19,
-    "value": {
-      "data": {
-        "project": {
-          "chat_id": "chat_login",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "created_by": {
-            "kind": "user"
-          },
-          "deadline": "2026-10-12",
-          "done_at": "2026-10-09T10:19:02.312Z",
-          "flow": [
-            "产品",
-            "编码",
-            "测试"
-          ],
-          "goal": "给 App 加邮箱登录",
-          "home_path": "~/MacBot/projects/login/",
-          "id": "prj_login",
-          "lead_bot_id": "bot_main",
-          "members": [],
-          "name": "登录功能",
-          "slug": "login",
-          "status": "done",
-          "updated_at": "2026-10-09T10:19:02.312Z"
-        }
-      },
-      "event": "project.updated",
-      "kind": "evt",
-      "seq": 13,
+      "seq": 49,
       "v": 1
     }
   },

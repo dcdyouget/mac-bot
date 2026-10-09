@@ -97,6 +97,8 @@ class ScreenConnection(
         return try {
             current.send(Frame.Text(text))
             true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Throwable) {
             false
         }
@@ -140,7 +142,9 @@ class ScreenConnection(
                             val screenFrame = ScreenFrameCodec.decode(frame.readBytes())
                             onFrame(screenFrame)
                             // Ack only after the render callback has consumed this frame.
-                            send(Frame.Text(ScreenFrameCodec.ack(screenFrame.header.seq)))
+                            check(send(ScreenFrameCodec.ack(screenFrame.header.seq))) {
+                                "screen frame ack failed"
+                            }
                         }
                         else -> Unit
                     }

@@ -173,7 +173,7 @@ class ClientRepository(
         return callOnHost(id, method, params)
     }
 
-    suspend fun callOnHost(hostId: String, method: String, params: JsonObject = buildJsonObject {}): JsonObject {
+    override suspend fun callOnHost(hostId: String, method: String, params: JsonObject): JsonObject {
         val session = hostMutex.withLock { hostSessions[hostId] ?: error("Host is not connected: " + hostId) }
         val write = method in WRITE_METHODS
         val retryKey = hostId + ":" + method + ":" + params

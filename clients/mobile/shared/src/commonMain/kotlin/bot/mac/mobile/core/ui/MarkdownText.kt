@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -85,7 +86,7 @@ private fun MarkdownInlineText(
     }
     ClickableText(
         text = annotated,
-        style = style,
+        style = style.copy(color = if(style.color == Color.Unspecified) LocalContentColor.current else style.color),
         onClick = { offset ->
             annotated.getStringAnnotations(URL_TAG, offset, offset)
                 .firstOrNull()

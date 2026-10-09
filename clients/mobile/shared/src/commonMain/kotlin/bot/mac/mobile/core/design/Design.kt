@@ -27,12 +27,20 @@ object DesignTokens {
 private val LightColors = lightColorScheme(
     primary = DesignTokens.accent, onPrimary = Color.White, background = Color.White,
     surface = Color.White, surfaceContainer = Color(0xFFF5F5F7), surfaceVariant = Color(0xFFEFEFF1),
+    surfaceContainerLowest=Color.White, surfaceContainerLow=Color(0xFFF5F5F7), surfaceContainerHigh=Color(0xFFEFEFF1), surfaceContainerHighest=Color(0xFFEFEFF1),
+    secondary=DesignTokens.accent, onSecondary=Color.White, secondaryContainer=Color(0xFFEFEFF1), onSecondaryContainer=Color(0xFF1D1D1F),
+    tertiary=DesignTokens.accent, onTertiary=Color.White, tertiaryContainer=Color(0xFFEFEFF1), onTertiaryContainer=Color(0xFF1D1D1F),
+    outline=Color(0xFFC7C7CC), outlineVariant=Color(0xFFD1D1D6),
     onBackground = Color(0xFF1D1D1F), onSurface = Color(0xFF1D1D1F), onSurfaceVariant = Color(0xFF86868B),
     primaryContainer = Color(0xFF111111), onPrimaryContainer = Color.White, error = DesignTokens.danger,
 )
 private val DarkColors = darkColorScheme(
     primary = Color(0xFF4C8DFF), onPrimary = Color.White, background = Color(0xFF1C1C1E),
     surface = Color(0xFF1C1C1E), surfaceContainer = Color(0xFF232325), surfaceVariant = Color(0xFF2C2C2E),
+    surfaceContainerLowest=Color(0xFF1C1C1E), surfaceContainerLow=Color(0xFF232325), surfaceContainerHigh=Color(0xFF2C2C2E), surfaceContainerHighest=Color(0xFF2C2C2E),
+    secondary=Color(0xFF4C8DFF), onSecondary=Color.White, secondaryContainer=Color(0xFF2C2C2E), onSecondaryContainer=Color(0xFFF5F5F7),
+    tertiary=Color(0xFF4C8DFF), onTertiary=Color.White, tertiaryContainer=Color(0xFF2C2C2E), onTertiaryContainer=Color(0xFFF5F5F7),
+    outline=Color(0xFF48484A), outlineVariant=Color(0xFF38383A),
     onBackground = Color(0xFFF5F5F7), onSurface = Color(0xFFF5F5F7), onSurfaceVariant = Color(0xFF98989D),
     primaryContainer = Color(0xFFF2F2F2), onPrimaryContainer = Color.Black, error = DesignTokens.danger,
 )

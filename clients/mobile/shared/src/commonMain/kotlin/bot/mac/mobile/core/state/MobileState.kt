@@ -39,6 +39,10 @@ interface MobileRepository {
     val hostStatuses: StateFlow<Map<String, ConnectionSnapshot>>
     val hostEvents: SharedFlow<HostEvent>
     suspend fun call(method: String, params: JsonObject = buildJsonObject {}): JsonObject
+    suspend fun callOnHost(hostId: String, method: String, params: JsonObject = buildJsonObject {}): JsonObject {
+        check(activeHost.value?.id == hostId) { "Host is no longer active" }
+        return call(method, params)
+    }
     val activeHost: StateFlow<bot.mac.mobile.core.network.HostProfile?>
     fun createScreen(botId: String, quality: String = "auto", tabId: String? = null, onFrame: suspend (bot.mac.mobile.core.network.ScreenFrame) -> Unit): bot.mac.mobile.core.network.ScreenConnection
     suspend fun uploadFile(file: bot.mac.mobile.core.platform.PickedFile): JsonObject
