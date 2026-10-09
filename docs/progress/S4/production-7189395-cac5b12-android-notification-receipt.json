@@ -1,0 +1,51 @@
+{
+  "scenario": "Android notification receipt",
+  "serial": "emulator-5554",
+  "package": "bot.mac.mobile",
+  "marker": "macbot-e2e-s4-schedule-e016e826f393",
+  "started_at": "2026-10-09T20:53:02.033627Z",
+  "read_only": true,
+  "full_s4_pass": false,
+  "snapshots": [
+    {
+      "at": "2026-10-09T20:53:02.525686Z",
+      "app_active_count": 9,
+      "keys": [
+        "0|bot.mac.mobile|-1718419961|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:approval:01a12270-0354-724e-8da0-de7e181ed95f|10219",
+        "0|bot.mac.mobile|-1937619742|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:approval:01a1226f-0ddd-7070-946b-313ed7d6d539|10219",
+        "0|bot.mac.mobile|357242948|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:chat:bot_dm_01a120c6-2f4f-7073-aeb4-b099cc363ecd_main|10219",
+        "0|bot.mac.mobile|2069644350|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:approval:01a1226f-483a-763f-b149-c52075878d82|10219",
+        "0|bot.mac.mobile|0|0|bot.mac.mobile|g:Aggregate_AlertingSection|10219|0|bot.mac.mobile|g:Aggregate_AlertingSection",
+        "0|bot.mac.mobile|-2077886509|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:completed:01a12270-4d71-77b9-805b-2974712a559e|10219",
+        "0|bot.mac.mobile|-1034817307|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:approval:01a1226f-8926-7245-ac5c-2cea982de5b3|10219",
+        "0|bot.mac.mobile|-253668206|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:chat:dm_01a12227-e6b9-7276-96cb-98ab5185e1a5|10219",
+        "0|bot.mac.mobile|100|null|10219"
+      ],
+      "matching_notifications": [
+        {
+          "key": "0|bot.mac.mobile|-2077886509|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:completed:01a12270-4d71-77b9-805b-2974712a559e|10219",
+          "marker_present": true
+        },
+        {
+          "key": "0|bot.mac.mobile|-253668206|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:chat:dm_01a12227-e6b9-7276-96cb-98ab5185e1a5|10219",
+          "marker_present": true
+        }
+      ],
+      "query_failures": []
+    }
+  ],
+  "status": "OBSERVED",
+  "note": "New scheduler event received and visually displayed after update. Before 50, after update/start 1; cause unproven, no manual cancel. This is not a native 50-notification quota proof or full S4.",
+  "finished_at": "2026-10-09T20:53:02.525719Z",
+  "server_source_commit": "7189395802e38174dd3f2c7196eff3bc35751cf6",
+  "android_source_commit": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "root_visual_review": {
+    "marker_visible": true,
+    "completion_notification_visible": true,
+    "message_notification_visible": true,
+    "screenshot": "docs/progress/S4/production-7189395-cac5b12-native-notifications.png"
+  },
+  "pre_update_active_count": 50,
+  "post_update_start_active_count": 1,
+  "native_full_quota_test": false
+}
