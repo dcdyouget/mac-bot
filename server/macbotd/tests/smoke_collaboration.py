@@ -933,7 +933,11 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
             tester_match = [
                 item
                 for item in items
-                if item.get("project_id") in {target_project_id, None}
+                # send_msg is emitted in the source project group.  Its
+                # child assignment must inherit that group's project even
+                # though the coordinator's assign/delegate children belong
+                # to the model-created project above.
+                if item.get("project_id") == project_id
                 and item.get("origin_chat_id") == project_chat
                 and item.get("bot_id") == tester["id"]
                 and item.get("instruction") in {"接手测试", "重复交接不得创建第二个任务"}

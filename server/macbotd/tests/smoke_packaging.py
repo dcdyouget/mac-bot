@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import subprocess
 import tempfile
 
@@ -28,6 +29,8 @@ def inspect_pkg(pkg, destination):
         "Contents/Resources/update-installed.sh",
         "Contents/Resources/update-manifest.json",
         "Contents/Resources/com.macbot.server.plist",
+        "Contents/Resources/source-commit.txt",
+        "Contents/Resources/build-info.json",
     ):
         assert (app / relative).is_file(), relative
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
@@ -41,6 +44,13 @@ def inspect_pkg(pkg, destination):
         "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
         "787cb40e086a188d0bb13ff29a99a0b2380aff3aa5e8600b8f8131a0b98ca69c",
     }
+    source = (app / "Contents/Resources/source-commit.txt").read_text().strip()
+    build = json.loads((app / "Contents/Resources/build-info.json").read_text())
+    assert re.fullmatch(r"[0-9a-fA-F]{40}", source), source
+    assert build["source_commit"] == source == info["MacBotSourceCommit"]
+    assert build["source_dirty"] is False, build
+    assert build["macbotd_sha256"] == digest(daemon)
+    assert build["agent_browser_sha256"] == digest(sidecar)
     manifest = json.loads((app / "Contents/Resources/update-manifest.json").read_text())
     assert manifest["version"] == info["CFBundleVersion"]
     return daemon

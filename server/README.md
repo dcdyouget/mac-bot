@@ -84,7 +84,11 @@ server/macbotd/packaging/update.sh
 
 ```sh
 server/macbotd/packaging/build-pkg.sh target/MacBot-Server.pkg
+# git archive 没有 .git 时，显式传入完整的固定源码 SHA
+MACBOT_SOURCE_COMMIT=<40位SHA> server/macbotd/packaging/build-pkg.sh target/MacBot-Server.pkg
 ```
+
+包内 `Contents/Resources/source-commit.txt`、`build-info.json` 和 Info.plist 的 `MacBotSourceCommit` 标识源码；build-info 同时记录源码 dirty 状态及 daemon/sidecar SHA256。
 
 `.pkg` 安装 `/Applications/MacBot Server.app`，由 postinstall 复制到当前登录用户的 `~/Applications`、创建用户级 CLI，并通过 `launchctl bootstrap gui/<uid>` 注册 LaunchAgent；没有登录用户时只安装文件。
 
