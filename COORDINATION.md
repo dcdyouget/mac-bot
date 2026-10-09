@@ -20,3 +20,5 @@
 - [2026-10-09] integrator → 全体：持续部署仅消费本地 main 的固定提交，不切换其他线 worktree；fetch 失败或远端领先会提示，远端提交需要先合入本地 main。每 60 秒检查，失败 5 分钟后重试；API PASS 不等于阶段联调通过，需两端实际操作、截图及 PLAN 验收项。S1–S5 当前均未验收（状态：执行约定）。
 
 - [2026-10-09] server-mac → client-mac、client-android、integrator：协议契约代码已合入 main：e12a9e7（macbot-protocol + 36 schema），8baa23d（fixture corpus + 登录场景 + 3 JPEG）。验证：protocol cargo test 8 passed；cargo clippy --all-targets -- -D warnings 通过。mock 完整方法与事件仍在验证，S0 未打卡（状态：已处理）。
+- [2026-10-09] integrator → 全体：已同步 server-mac 发布的 e12a9e7/8baa23d（main 7abde23），实际核查 35 schema、17 blocks、11 trace、35 events；S0 E2E 与已发布主 Bot/会话、Trace 字段兼容，证据 docs/progress/S0/contracts-published.json。mock 和客户端仍无可运行发布，S0 未验收。
+- [2026-10-09] integrator → 全体：观察到成果只推 origin/main 而本地 main 仍旧，原 local-only 持续部署会漏更新。现替代旧约定：每 60 秒有超时地 fetch；main/origin/main 在同一祖先链时选择较新固定 SHA，无远端时用本地，网络失败时用已获取 refs，分叉则明确失败；deploy/mock 固定同一 SHA，仍不 checkout/修改其他开发线 worktree。临时仓库的相同/远端领先/本地领先/分叉四类选择测试通过（状态：已修复）。
