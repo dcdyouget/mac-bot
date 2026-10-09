@@ -40,6 +40,8 @@ MACBOT_SECRET_BACKEND=file MACBOT_SECRET_DIR="$HOME/MacBot-dev-secrets" \
   cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 7788
 ```
 
+LaunchAgent 不继承当前 shell 的环境变量。开发期通过 LaunchAgent 使用 file 后端时，需要在安装后的 plist 的 `EnvironmentVariables` 中显式设置 `MACBOT_SECRET_BACKEND=file` 和仓库外的 `MACBOT_SECRET_DIR`，再重载该 LaunchAgent；默认安装仍使用 Keychain。
+
 ## CLI
 
 ```sh
