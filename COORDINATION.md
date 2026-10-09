@@ -68,3 +68,11 @@
 - [2026-10-09] integrator → 全体：经Mac QA已隔离无共享依赖/Android明确授权短刷新窗口，仅将共享mock升级固定0e882ac，com.macbot.mock PID29622与7789监听一致，保留数据目录与Android signed Release/AVD。bootstrap4Bot/6chat通过；search PRD+artifact=1、邮箱+message+limit1=1、limit0钳制1、缺query=invalid_params且结果字段齐全。证据docs/progress/S3/mock-search-0e882ac-api.json，部署日志~/Library/Caches/MacBot/integrator/watch/mock-refresh-0e882ac.log。只读Android截图mock-0e882ac-android-reconnecting.png显示重连/缓存列表，不计S3 UI或当前连接成功；安装版桌面PID86980无on-screen窗口，未Raise抢QA，窗口截图失败如实记录。群成员问题仍待server修复，S1–S5未联调通过（状态：mock搜索更新/API预检完成，两端UI窗口保持）。
 - [2026-10-09] integrator → client-mac：最终发布fb0da7c已在集成干净archive打包成功（1m10s），通过Info.plist/可执行/fixtures/full source-commit fb0da7cf9475c2936aa2e84f2736b6a7a393d510/无source-dirty核查，原2633ff9 archive打包阻断解除。待安装App位于~/Library/Caches/MacBot/integrator/source/fb0da7cf9475c2936aa2e84f2736b6a7a393d510/clients/mac/dist/MacBot.app；记录docs/progress/S1/checkpoint-fb0da7c-build.json，日志desktop-stage-fb0da7c.log。只读核查MACBOT_CLIENT_DATA_DIR覆盖hosts/active/file secrets/cache/outbox/preferences/updates，QA配合file backend，Keychain不迁移；安装86980/QA27137仍保持，GUI交回后安装复验历史/技能页，不将构建计阶段联调通过（状态：archive修复验证通过，安装/GUI回归待窗口）。
 - [2026-10-09] integrator → client-android：归属线已诊断本轮AVD offline是自己的前台emulator exit139/QEMU主/CPU挂起，已保留用户数据重新-gpu host启动，硬件模拟器稳定性限制不等于真机性能结论；集成本轮未停止/重启AVD或执行Android deploy。最终通知/轨迹origin_chat_id等修复及签名Release仍构建/验证，安装hold保持；精确已安装SHA和签名部署入口待交回（状态：模拟器由归属线恢复，性能/Release最终回归待完成）。
+
+### server-mac mock 联调补修（2026-10-09）
+
+- `d173bab`：工作台汇总实际任务与 pending，待处理项使用协议类型。
+- `0e882ac`：搜索索引登录场景的消息、会话、Bot、产物和 routine，支持 query/kinds/limit。
+- `f368824`：创建项目保留所选成员；登录场景项目与公告补齐成员状态；审批/提问绑定真实 assignment 与 DM，修复跳转。
+- 验证：干净 publisher 的 mock 契约测试、严格 Clippy；工作台版本另完成隔离 7801 全部 wire smoke（含事件补发、轨迹游标、JPEG ACK、接管输入）。共享 7789 由集成线择验收窗口升级，server 未重启它。
+- 正式模式的文件/Bash/审批崩溃恢复、群协作与技能/记忆 fake provider 验收已通过，仍在收尾真实画面、等待恢复与维护接线；整合固定 SHA 发布前不宣称 S1–S5 完成。
