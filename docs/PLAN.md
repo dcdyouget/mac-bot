@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.12
+# Mac Bot 规划 v0.13
 
 > 状态：规划中，尚未开始编码。
+> v0.13 变更：参考项目整理到 REFERENCES.md。
 > v0.12 变更：主 Bot 只协调不干活（转交小事、提醒验收、新增待验收状态）；新增 5.10「工具与技能」（pi 风格的文件和 bash 工具、agent-browser 工具、子代理、技能管理、各角色的工具权限）；仪表盘（热力图、按模型 / Bot / 项目的每日折线）的 API。
 > v0.11 变更：新增主 Bot（日常对话 + 所有群的负责人）；任务接力（收到 → 工作中 → 完成 → @下一个）；两段式输出（发言 / 干活）；插话；系统维护的公告和产物；按群并行和并发上限；工作台和统计；用量记账。
 > v0.10 变更：项目 = 一件事 = 一个群（私聊里自动建项目、项目生命周期）；记忆简化为用户、Bot、项目三种；上下文全自动管理，界面不暴露任何控件。
@@ -45,27 +46,18 @@
 | 交互和页面 | **全面参考 Grok Bot** |
 | 断电恢复 | 暂不考虑 |
 
-## 3. 参考项目与用途
+## 3. 参考项目
 
-| 项目 | 借鉴点 |
-|------|--------|
-| **Grok Bot**（[docs.x.ai/grok-bot](https://docs.x.ai/grok-bot/overview)） | 产品形态、页面结构、交互细节（见第 4 节） |
-| **hermes-agent**（[GitHub](https://github.com/NousResearch/hermes-agent)） | 记忆系统：两份有字数上限的 curated 笔记 + 快照注入 + 会话全文检索 |
-| **pi / coding-agent 工具**（[GitHub](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/src/core/tools)） | 工具定义：read、write、edit、ls、find、grep、bash 的参数和截断规则（2000 行 / 50KB）、file-mutation-queue；Agent Skills（按需加载、`/skill:name`） |
-| **pi / pi-ai**（[GitHub](https://github.com/earendil-works/pi/tree/main/packages/ai)） | Provider 层：按 API 类型抽象、模型目录（能力和价格）、任意 OpenAI 兼容端点 |
-| **pi / pi-durable**（[GitHub](https://github.com/earendil-works/pi/tree/main/packages/durable)） | 持久化运行：Entry、Commit、Task checkpoint、inbox 排队、`requestId` 幂等、resume、compaction |
-| **nightly-labs/openbot**（[GitHub](https://github.com/nightly-labs/openbot)，PolyForm 非商用许可，**只参考设计，不复用代码**） | 与本项目形态最接近的开源实现：本地优先的 AI 队友桌面应用；每个 agent 有独立工作区；**频道（群聊）里每个 agent × 每个频道有一条独立执行线程**；按包组装频道上下文；先做确定性路由；单个负责人加显式委派；每个根请求最多 8 次自动委派；按 80% 阈值压缩；频道记忆；还能从 Grok Bot 导入 agent |
-| **CopilotKit/OpenBot**（[GitHub](https://github.com/CopilotKit/OpenBot)，MIT） | 企业版的「每个 Bot 一台电脑」：常驻角色在每个频道都生效；接管流程有审计记录；用 CEL 写策略；集中的 Memory 页 |
-| **OpenClaw**（[多 Agent 文档](https://docs.openclaw.ai/multi-agent)） | 每个 agent 一套独立的 workspace 和会话存储；默认隔离，显式开启跨 agent 通信；设备配对 |
-| **LobeHub Agent Groups**（[RFC 130](https://lobehub.com/blog/rfc-130)） | 群聊编排：supervisor 决定下一个发言者，以及公开发言还是私信 |
-| **AutoGen GroupChat** | Selector 模式：由 LLM 选下一个发言者，并设置终止条件 |
-| **vercel-labs/agent-browser**（Rust，Apache-2.0） | **浏览器操控主力**：无头/有头、复用 Chrome profile、每个 Bot 独立会话、WebSocket 推送实时画面并接收输入（见 5.8） |
-| Playwright MCP 扩展模式、mcp-chrome | 远期备选：通过 Chrome 扩展控制用户正在使用的浏览器 |
-| **cua-driver**（trycua/cua，MIT） | 后台控制原生 Mac App，**不抢鼠标、不抢焦点**（可选，需要系统权限） |
-| **Peekaboo**（openclaw/peekaboo，MIT） | macOS 截图和 GUI 自动化 CLI/MCP（可选） |
-| **gpui-kit**（[longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)，原名 gpui-component，Apache-2.0，约 1.6 万 star） | 桌面端组件库：75+ 组件，包括 Markdown/HTML 渲染、不等高虚拟列表（消息流）、Dock 和可拖拽面板、表单、浮层、菜单、主题；Longbridge Pro 在生产环境使用；自带给 AI 编程助手用的 skills |
+按组件整理的完整清单（包括许可证、借鉴了什么、使用方式、Rust 依赖库）见 **[REFERENCES.md](REFERENCES.md)**。最主要的几个：
 
-> cua 和 lume：lume 是在 Apple Silicon 上管理 macOS/Linux 虚拟机的工具，cua 是跑在虚拟机里的电脑操控 Agent 框架。我们不用虚拟机，所以**不采用 lume**；同一仓库里的 **cua-driver**（不用虚拟机、直接后台操控本机 App）可以作为原生桌面操控的候选。
+| 组件 | 参考 |
+|------|------|
+| 运行时、模型接入、工具、技能 | earendil-works/pi（pi-durable、pi-ai、coding-agent tools、skills） |
+| 记忆与上下文 | NousResearch/hermes-agent、openclaw/openclaw |
+| 群协作与上下文包 | nightly-labs/openbot（只借鉴设计）、CopilotKit/OpenBot |
+| 浏览器 | vercel-labs/agent-browser（sidecar） |
+| 桌面 / 移动 UI | longbridge/gpui-kit + GPUI；JetBrains Compose Multiplatform |
+| 产品交互 | Grok Bot（闭源） |
 
 ## 4. 从 Grok Bot 提炼的交互规格
 
