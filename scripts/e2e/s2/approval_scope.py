@@ -230,10 +230,13 @@ def _scoped_file(detail: dict[str, Any], tool: str, home: Path) -> dict[str, Any
 def _scoped_memory(detail: dict[str, Any], project_id: str | None) -> dict[str, Any]:
     if project_id is None or not isinstance(project_id, str) or not project_id:
         return _reject("caller did not provide the verified project ID", tool="memory")
-    if set(detail) != {"action", "scope", "project_id", "content"}:
+    required = {"action", "scope", "project_id", "content"}
+    if not required <= set(detail) or set(detail) - required not in (set(), {"kind"}):
         return _reject("memory arguments contain unexpected fields", tool="memory")
     if detail.get("action") != "add" or detail.get("scope") != "project":
         return _reject("memory action or scope is outside the project allowlist", tool="memory")
+    if "kind" in detail and detail.get("kind") != "project":
+        return _reject("memory kind is not valid for project scope", tool="memory")
     if detail.get("project_id") != project_id:
         return _reject("memory project ID does not match the verified project", tool="memory")
     if not isinstance(detail.get("content"), str):

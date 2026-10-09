@@ -322,6 +322,18 @@ class ApprovalScopeTests(unittest.TestCase):
         self.assert_allowed(result, "project_memory_add")
         self.assertNotIn("private content", json.dumps(result))
 
+    def test_project_memory_allows_only_matching_optional_kind(self) -> None:
+        project_id = "01a12164-6b92-732d-9ecb-ed48e8a94ca8"
+        detail = {
+            "action": "add", "scope": "project", "project_id": project_id,
+            "kind": "project", "content": "private content",
+        }
+        result = check_approval_scope(
+            approval("memory", "write", detail), self.temp, MARKER, project_id=project_id
+        )
+        self.assert_allowed(result, "project_memory_add")
+        self.assertNotIn("private content", json.dumps(result))
+
     def test_project_memory_rejects_wrong_id_missing_id_broader_scope_and_extra_args(self) -> None:
         project_id = "project-owned"
         base = {"action": "add", "scope": "project", "project_id": project_id, "content": "secret"}
@@ -330,6 +342,9 @@ class ApprovalScopeTests(unittest.TestCase):
             (base, None),
             ({**base, "scope": "global"}, project_id),
             ({**base, "action": "replace"}, project_id),
+            ({**base, "kind": "project_status"}, project_id),
+            ({**base, "kind": "bot_experience"}, project_id),
+            ({**base, "id": "client-chosen-id"}, project_id),
             ({**base, "extra": "unexpected"}, project_id),
         ]
         for detail, verified_id in cases:
