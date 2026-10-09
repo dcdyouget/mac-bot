@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--journal", type=Path, help="New journal path; must not already exist")
     p.add_argument("--resume-journal", type=Path, help="Resume only the requests recorded in this journal")
     p.add_argument("--approve-test-tools-once", action="store_true", help="Allow only exact, journal-scoped tool approvals")
+    p.add_argument("--self-test", action="store_true", help="Run local fake trace-selection checks; never contacts a Host")
     return p
 
 
@@ -203,26 +205,15 @@ def exact_main_run_request(run_id: str) -> dict[str, Any]:
     return value
 
 
-def bind_main_run(
-    client: Any,
-    *,
-    project: dict[str, Any],
-    request: dict[str, Any],
-    run_id: str,
-    role_ids: dict[str, str],
-) -> dict[str, Any]:
-    run_request = exact_main_run_request(run_id)
-    if (
-        run_request.get("run_id") != run_id
-        or run_request.get("bot_id") != "main"
-        or run_request.get("assignment_id") is not None
-        or run_request.get("project_id") != project["project_id"]
-        or run_request.get("chat_id") != project["chat_id"]
-    ):
-        raise FollowupStop(f"main run_request identity mismatch for {run_id}")
-    instruction = run_request.get("instruction")
-    if not isinstance(instruction, str):
-        raise FollowupStop(f"main run_request has no instruction: {run_id}")
+class MainRunNotReady(FollowupStop):
+    """A strict candidate exists, but its assign trace is not complete yet."""
+
+
+def canonical_user_instruction(
+    client: Any, *, project: dict[str, Any], request: dict[str, Any]
+) -> tuple[str, str, dict[str, Any]]:
+    """Return the one canonical user instruction without exposing its text."""
+
     history = complete_chat_history(client, project["chat_id"])
     canonical = [
         item for item in history["messages"]
@@ -248,17 +239,126 @@ def bind_main_run(
         and isinstance(item.get("sender"), dict)
         and item["sender"].get("kind") == "user"
         and item.get("chat_id", project["chat_id"]) == project["chat_id"]
-        and item.get("fallback_text") == instruction
+        and item.get("fallback_text") == fallback
     ]
     if (
         not isinstance(fallback, str)
         or len(exact_fallbacks) != 1
         or exact_fallbacks[0].get("id") != message.get("id")
-        or instruction != fallback
         or len(markdowns) != 1
-        or instruction != markdowns[0]
+        or fallback != markdowns[0]
     ):
-        raise FollowupStop(f"main run instruction is not the unique canonical fallback/knownText for {run_id}")
+        raise FollowupStop("canonical followup is not the unique fallback/knownText message")
+    return fallback, fallback, message
+
+
+def select_main_run_candidates(
+    trace_items: list[dict[str, Any]],
+    run_requests: dict[str, dict[str, Any]],
+    *,
+    project_id: str,
+    chat_id: str,
+    main_id: str,
+    instruction: str,
+) -> list[str]:
+    """Select exact run.start candidates; no time, adjacency, or marker guessing."""
+
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for item in trace_items:
+        if not isinstance(item, dict) or item.get("type") != "run.start":
+            continue
+        run_id = item.get("run_id")
+        if not isinstance(run_id, str) or _RUN_ID_RE.fullmatch(run_id) is None or run_id in seen:
+            continue
+        seen.add(run_id)
+        run_request = run_requests.get(run_id)
+        if not isinstance(run_request, dict):
+            continue
+        if run_request.get("bot_id") != main_id or run_request.get("assignment_id") is not None:
+            continue
+        if run_request.get("instruction") != instruction:
+            continue
+        identity = (
+            run_request.get("run_id") == run_id
+            and run_request.get("bot_id") == main_id
+            and run_request.get("assignment_id") is None
+            and run_request.get("project_id") == project_id
+            and run_request.get("chat_id") == chat_id
+        )
+        if not identity:
+            raise FollowupStop(f"run.start candidate has conflicting Main/run_request identity: {run_id}")
+        candidates.append(run_id)
+    if len(candidates) > 1:
+        raise FollowupStop("multiple exact canonical Main run candidates; refusing ambiguous binding")
+    return candidates
+
+
+def assign_trace_result(run_items: list[dict[str, Any]], run_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Pair the one assign start/end and return its safe start/end metadata."""
+
+    assign_starts = [
+        item for item in run_items
+        if item.get("type") == "tool.start"
+        and isinstance(item.get("data"), dict)
+        and item["data"].get("name") == "assign"
+    ]
+    if len(assign_starts) > 1:
+        raise FollowupStop(f"main run {run_id} has multiple assign traces; refusing ambiguous binding")
+    if not assign_starts:
+        raise MainRunNotReady(f"main run {run_id} has no unique assign trace")
+    start = assign_starts[0]
+    start_data = require_dict(start.get("data"), "main assign tool.start data")
+    call_id = start_data.get("call_id")
+    if not isinstance(call_id, str):
+        raise MainRunNotReady(f"main assign trace has no call_id: {run_id}")
+    ends = [
+        item for item in run_items
+        if item.get("type") == "tool.end"
+        and isinstance(item.get("data"), dict)
+        and item["data"].get("call_id") == call_id
+    ]
+    if len(ends) != 1:
+        if len(ends) > 1:
+            raise FollowupStop(f"main assign call has duplicate tool.end entries: {run_id}")
+        raise MainRunNotReady(f"main assign call is not paired with exactly one tool.end: {run_id}")
+    end_data = require_dict(ends[0].get("data"), "main assign tool.end data")
+    details = require_dict(end_data.get("details"), "main assign tool.end.details")
+    if not isinstance(details.get("id"), str):
+        raise MainRunNotReady(f"main assign result has no assignment ID: {run_id}")
+    return start, ends[0]
+
+
+def bind_main_run(
+    client: Any,
+    *,
+    project: dict[str, Any],
+    request: dict[str, Any],
+    run_id: str,
+    role_ids: dict[str, str],
+) -> dict[str, Any]:
+    run_request = exact_main_run_request(run_id)
+    if (
+        run_request.get("run_id") != run_id
+        or run_request.get("bot_id") != "main"
+        or run_request.get("assignment_id") is not None
+        or run_request.get("project_id") != project["project_id"]
+        or run_request.get("chat_id") != project["chat_id"]
+    ):
+        raise FollowupStop(f"main run_request identity mismatch for {run_id}")
+    instruction = run_request.get("instruction")
+    if not isinstance(instruction, str):
+        raise FollowupStop(f"main run_request has no instruction: {run_id}")
+    canonical_instruction, fallback, message = canonical_user_instruction(
+        client, project=project, request=request
+    )
+    markdowns = [
+        block.get("markdown")
+        for block in message.get("blocks", [])
+        if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("markdown"), str)
+    ]
+    if instruction != canonical_instruction:
+        raise FollowupStop(f"main run instruction is not the canonical followup for {run_id}")
     trace_result = require_dict(
         client.call("trace.history", {"chat_id": project["chat_id"], "tail": True, "limit": 500}),
         "main chat trace.history result",
@@ -269,34 +369,11 @@ def bind_main_run(
         item for item in require_list(trace_result.get("items"), "main chat trace.items")
         if isinstance(item, dict) and item.get("run_id") == run_id
     ]
-    assign_starts = []
-    for item in run_items:
-        data = item.get("data") if isinstance(item.get("data"), dict) else {}
-        if item.get("type") == "tool.start" and data.get("name") == "assign":
-            assign_starts.append(item)
-    if len(assign_starts) != 1:
-        failed_send_count = sum(
-            1 for item in run_items
-            if item.get("type") == "tool.start"
-            and isinstance(item.get("data"), dict)
-            and item["data"].get("name") == "send_msg"
-        )
-        raise FollowupStop(
-            f"main run {run_id} has no unique assign trace (send_msg starts={failed_send_count}); STOP/PARTIAL"
-        )
-    start = assign_starts[0]
+    start, end = assign_trace_result(run_items, run_id)
     start_data = require_dict(start.get("data"), "main assign tool.start data")
-    call_id = start_data.get("call_id")
-    if not isinstance(call_id, str):
-        raise FollowupStop(f"main assign trace has no call_id: {run_id}")
-    ends = []
-    for item in run_items:
-        data = item.get("data") if isinstance(item.get("data"), dict) else {}
-        if item.get("type") == "tool.end" and data.get("call_id") == call_id:
-            ends.append(item)
-    if len(ends) != 1:
-        raise FollowupStop(f"main assign call is not paired with exactly one tool.end: {run_id}")
-    end_data = require_dict(ends[0].get("data"), "main assign tool.end data")
+    call_id = start_data["call_id"]
+    ends = [end]
+    end_data = require_dict(end.get("data"), "main assign tool.end data")
     details = require_dict(end_data.get("details"), "main assign tool.end.details")
     root_id = details.get("id")
     if not isinstance(root_id, str):
@@ -330,11 +407,11 @@ def bind_main_run(
         "knownText_markdown": text_digest(markdowns[0]),
         "instruction_matches_fallback": True,
         "instruction_matches_knownText": True,
-        "canonical_user_matches": len(exact_fallbacks) == 1,
+        "canonical_user_matches": True,
         "trace_run_items": len(run_items),
         "assign_call_id": call_id,
         "assign_start_aseq": start.get("aseq"),
-        "assign_end_aseq": ends[0].get("aseq"),
+        "assign_end_aseq": end.get("aseq"),
         "root_assignment_id": root_id,
     }
 
@@ -402,6 +479,142 @@ def bind_main_runs(
             item["project_id"]: [item["root_assignment_id"]]
             for item in journal["main_run_bindings"]
         }
+        persist(journal, journal_path)
+
+
+def discover_main_run_id(
+    client: Any,
+    *,
+    project: dict[str, Any],
+    request: dict[str, Any],
+    main_id: str,
+) -> str | None:
+    """Find one exact Main root from this project's trace, or return not-ready.
+
+    A run.start is only a candidate.  The corresponding local run_request must
+    prove the Main/project/chat/assignment identity and exact canonical
+    instruction before the candidate can be bound.  No timestamps, sender
+    adjacency, marker substring, or assignment proximity are used.
+    """
+
+    instruction, _, _ = canonical_user_instruction(client, project=project, request=request)
+    result = require_dict(
+        client.call("trace.history", {"chat_id": project["chat_id"], "tail": True, "limit": 500}),
+        "main discovery trace.history result",
+    )
+    if result.get("has_more_before") is True:
+        raise FollowupStop("main discovery trace is truncated; refusing to infer a run")
+    trace_items = [item for item in require_list(result.get("items"), "main discovery trace.items") if isinstance(item, dict)]
+    run_ids = {
+        item.get("run_id")
+        for item in trace_items
+        if item.get("type") == "run.start"
+        and isinstance(item.get("run_id"), str)
+        and _RUN_ID_RE.fullmatch(item["run_id"])
+    }
+    run_requests: dict[str, dict[str, Any]] = {}
+    for run_id in sorted(run_ids):
+        try:
+            run_requests[run_id] = exact_main_run_request(run_id)
+        except FollowupStop:
+            # A trace can precede durable run_request materialization.  It is
+            # not evidence of identity and remains a not-ready candidate.
+            continue
+    candidates = select_main_run_candidates(
+        trace_items,
+        run_requests,
+        project_id=project["project_id"],
+        chat_id=project["chat_id"],
+        main_id=main_id,
+        instruction=instruction,
+    )
+    return candidates[0] if candidates else None
+
+
+def auto_bind_main_runs(
+    client: Any,
+    *,
+    journal: dict[str, Any],
+    journal_path: Path,
+    projects: list[dict[str, Any]],
+    request_by_project: dict[str, dict[str, Any]],
+    role_ids: dict[str, str],
+    main_id: str,
+) -> None:
+    """Resume-safe discovery/binding for journals without explicit run IDs."""
+
+    bindings_by_project = {
+        item.get("project_id"): item
+        for item in journal.get("main_run_bindings", [])
+        if isinstance(item, dict) and isinstance(item.get("project_id"), str)
+    }
+    discovery_by_project = {
+        item.get("project_id"): item
+        for item in journal.get("main_run_discoveries", [])
+        if isinstance(item, dict) and isinstance(item.get("project_id"), str)
+    }
+    for project in projects:
+        project_id = project["project_id"]
+        binding = bindings_by_project.get(project_id)
+        if isinstance(binding, dict) and isinstance(binding.get("root_assignment_id"), str):
+            project["main_root_assignment_ids"] = {binding["root_assignment_id"]}
+            continue
+        candidate = discover_main_run_id(
+            client,
+            project=project,
+            request=request_by_project[project_id],
+            main_id=main_id,
+        )
+        if candidate is None:
+            discovery_by_project[project_id] = {
+                "project_id": project_id,
+                "status": "not_ready",
+                "candidate_count": 0,
+            }
+            journal["main_run_discoveries"] = list(discovery_by_project.values())
+            persist(journal, journal_path)
+            continue
+        discovery_by_project[project_id] = {
+            "project_id": project_id,
+            "run_id": candidate,
+            "status": "candidate",
+        }
+        journal["main_run_discoveries"] = list(discovery_by_project.values())
+        persist(journal, journal_path)
+        try:
+            binding = bind_main_run(
+                client,
+                project=project,
+                request=request_by_project[project_id],
+                run_id=candidate,
+                role_ids=role_ids,
+            )
+        except MainRunNotReady as exc:
+            discovery_by_project[project_id]["status"] = "not_ready"
+            discovery_by_project[project_id]["error_type"] = type(exc).__name__
+            journal["main_run_discoveries"] = list(discovery_by_project.values())
+            persist(journal, journal_path)
+            continue
+        bindings_by_project[project_id] = binding
+        project["main_root_assignment_ids"] = {binding["root_assignment_id"]}
+        journal["main_run_bindings"] = [
+            bindings_by_project[item["project_id"]]
+            for item in projects
+            if item["project_id"] in bindings_by_project
+        ]
+        journal["main_root_assignment_ids"] = {
+            item["project_id"]: [item["root_assignment_id"]]
+            for item in journal["main_run_bindings"]
+        }
+        discovery_by_project[project_id]["status"] = "bound"
+        discovery_by_project[project_id]["root_assignment_id"] = binding["root_assignment_id"]
+        journal["main_run_discoveries"] = list(discovery_by_project.values())
+        persist(journal, journal_path)
+    if len(bindings_by_project) == len(projects):
+        ordered = [bindings_by_project[item["project_id"]]["run_id"] for item in projects]
+        if len(set(ordered)) != len(ordered):
+            raise FollowupStop("auto-discovered Main run IDs are not distinct")
+        journal["main_run_ids"] = ordered
         persist(journal, journal_path)
 
 
@@ -545,12 +758,15 @@ def send_chat(
 
 def request_text(marker: str, project: dict[str, Any], role_ids: dict[str, str]) -> str:
     goal = project.get("goal") if isinstance(project.get("goal"), str) and project.get("goal") else "项目已有目标"
+    home = str(Path(os.path.expanduser(project["home_path"])).resolve())
     return (
         f"{marker}：这是既有项目的继续执行请求，请以服务端记录的原目标为准：{goal}。"
-        f"不要只发 PRD 或口头完成；请主 Bot 通过 send_msg 在群内派发给编码 Bot（{role_ids['编码']}），在本项目 Home 内生成原目标对应的本地演示产物，"
+        f"正确目标群 chat_id={project['chat_id']}；项目 ID={project['project_id']} 不是 chat_id。"
+        f"只允许直接在本项目绝对 Home={home}（namespace={project['scope_marker']}）内读写演示产物，不探索全局 projects 目录。"
+        f"不要只发 PRD 或口头完成；请主 Bot 先 send_msg 在正确群内说明开场计划（mentions=[]），再调用 assign 将本项目任务派给编码 Bot（{role_ids['编码']}），不要自派发同 Bot 子任务，"
         f"再让测试 Bot（{role_ids['测试']}）实际验证并写入测试报告；完成交接时使用 intent=done 并 @下一角色，且必须引用真实 assignment 和结果。"
-        "只允许本机项目 Home 内的静态/本地演示与测试，不启动网络服务，不访问外部网站或生产系统，不执行 git commit/push 或部署。"
-        f"目标项目 ID={project['project_id']}，本次 marker={marker}；沿用历史决定，不回答旧 Question。"
+        "使用本项目绝对路径直接 read/write/edit 产物；不要调用 Bash、sleep 或探索全局目录。产物须包含本项目 namespace 和本次 marker，便于核验。只允许本机静态/本地演示与测试，不启动网络服务，不访问外部网站或生产系统，不执行 git commit/push 或部署。"
+        f"本次 marker={marker}；沿用历史决定，不回答旧 Question，不调用 project.create 或 project.confirm_done。"
     )
 
 
@@ -618,6 +834,121 @@ def pending_question(client: Any, assignment_ids: set[str]) -> list[dict[str, An
         item for item in require_list(pending.get("questions"), "bootstrap.pending.questions")
         if isinstance(item, dict) and item.get("assignment_id") in assignment_ids and item.get("state") == "pending"
     ]
+
+
+def run_fake_tests() -> dict[str, Any]:
+    """Exercise discovery gates without a network, Host, credentials, or writes."""
+
+    def request(run_id: str, instruction: str, *, project: str = "p1", chat: str = "c1") -> dict[str, Any]:
+        return {
+            "run_id": run_id,
+            "bot_id": "main",
+            "assignment_id": None,
+            "project_id": project,
+            "chat_id": chat,
+            "instruction": instruction,
+        }
+
+    def start(run_id: str) -> dict[str, Any]:
+        return {"type": "run.start", "run_id": run_id}
+
+    checks: list[str] = []
+    assert select_main_run_candidates(
+        [start("run_not_ready")], {}, project_id="p1", chat_id="c1", main_id="main", instruction="m"
+    ) == []
+    checks.append("not_ready")
+    assert select_main_run_candidates(
+        [start("run_wrong")], {"run_wrong": request("run_wrong", "other")},
+        project_id="p1", chat_id="c1", main_id="main", instruction="m",
+    ) == []
+    checks.append("wrong_request")
+    child = request("run_child", "m")
+    child.update(bot_id="coder", assignment_id="child")
+    assert select_main_run_candidates(
+        [start("run_old"), start("run_child"), start("run_main")],
+        {"run_old": request("run_old", "old", project="old"), "run_child": child, "run_main": request("run_main", "m")},
+        project_id="p1", chat_id="c1", main_id="main", instruction="m",
+    ) == ["run_main"]
+    checks.append("unrelated_history_and_child_excluded")
+    try:
+        select_main_run_candidates(
+            [start("run_conflict")], {"run_conflict": request("run_conflict", "m", chat="wrong")},
+            project_id="p1", chat_id="c1", main_id="main", instruction="m",
+        )
+    except FollowupStop:
+        checks.append("exact_instruction_identity_conflict")
+    else:
+        raise AssertionError("conflicting Main identity was accepted")
+    try:
+        select_main_run_candidates(
+            [start("run_a"), start("run_b")],
+            {"run_a": request("run_a", "m"), "run_b": request("run_b", "m")},
+            project_id="p1", chat_id="c1", main_id="main", instruction="m",
+        )
+    except FollowupStop:
+        checks.append("duplicate_candidates")
+    else:
+        raise AssertionError("duplicate exact candidates were accepted")
+    run_items = [
+        {"type": "run.start", "run_id": "run_real"},
+        {"type": "tool.start", "run_id": "run_real", "aseq": 2, "data": {"name": "assign", "call_id": "call_1"}},
+        {"type": "tool.end", "run_id": "run_real", "aseq": 3, "data": {"call_id": "call_1", "details": {"id": "asg_real"}}},
+    ]
+    begin, finish = assign_trace_result(run_items, "run_real")
+    assert begin["data"]["call_id"] == "call_1" and finish["data"]["details"]["id"] == "asg_real"
+    checks.append("unique_assign")
+    explicit = argparse.Namespace(main_run_id=["run_a", "run_b"])
+    assert resolve_main_run_ids(explicit, {"main_run_ids": ["run_a", "run_b"]}, True) == ["run_a", "run_b"]
+    try:
+        resolve_main_run_ids(argparse.Namespace(main_run_id=["run_a", "run_c"]), {"main_run_ids": ["run_a", "run_b"]}, True)
+    except FollowupStop:
+        checks.append("explicit_immutable")
+    else:
+        raise AssertionError("explicit resume IDs were changed")
+    class FakeClient:
+        def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            chat_id = params.get("chat_id")
+            if method == "chat.history":
+                return {"messages": [{
+                    "id": "m1" if chat_id == "c1" else "m2", "seq": 1,
+                    "chat_id": chat_id, "sender": {"kind": "user"},
+                    "fallback_text": "m", "blocks": [{"type": "text", "markdown": "m"}],
+                }], "has_more": False}
+            if method == "trace.history":
+                if chat_id == "c1":
+                    return {"items": [
+                        {"type": "run.start", "run_id": "run_real"},
+                        {"type": "tool.start", "run_id": "run_real", "data": {"name": "assign", "call_id": "call_1"}},
+                        {"type": "tool.end", "run_id": "run_real", "data": {"call_id": "call_1", "details": {"id": "asg_real", "project_id": "p1", "bot_id": "coder"}}},
+                    ], "has_more_before": False}
+                return {"items": [], "has_more_before": False}
+            if method == "assignment.get":
+                return {"assignment": {
+                    "id": "asg_real", "project_id": "p1", "origin_chat_id": "c1", "bot_id": "coder",
+                    "parent_assignment_id": None, "trigger_message_id": None, "from": {"kind": "bot", "bot_id": "main"},
+                }}
+            raise AssertionError(f"unexpected fake RPC: {method}")
+
+    original_exact = globals()["exact_main_run_request"]
+    globals()["exact_main_run_request"] = lambda run_id: request(run_id, "m", project="p1", chat="c1")
+    try:
+        partial = {"main_run_bindings": []}
+        projects = [
+            {"project_id": "p1", "chat_id": "c1", "baseline_assignment_ids": set()},
+            {"project_id": "p2", "chat_id": "c2", "baseline_assignment_ids": set()},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            auto_bind_main_runs(
+                FakeClient(), journal=partial, journal_path=Path(temporary) / "journal.json",
+                projects=projects, request_by_project={"p1": {"message_id": "m1", "seq": 1}, "p2": {"message_id": "m2", "seq": 1}},
+                role_ids={"编码": "coder"}, main_id="main",
+            )
+        assert len(partial["main_run_bindings"]) == 1
+        assert partial["main_run_bindings"][0]["root_assignment_id"] == "asg_real"
+    finally:
+        globals()["exact_main_run_request"] = original_exact
+    checks.append("partial_preserved")
+    return {"scenario": "project_followup discovery fake tests", "status": "PASS", "checks": checks, "network": False}
 
 
 def handle_approvals(
@@ -985,6 +1316,14 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             for item in projects
         ]
         persist(journal, journal_path)
+    # Preserve already verified roots when resuming a partially bound journal.
+    for binding in journal.get("main_run_bindings", []):
+        if not isinstance(binding, dict):
+            continue
+        project = next((item for item in projects if item["project_id"] == binding.get("project_id")), None)
+        root_id = binding.get("root_assignment_id")
+        if project is not None and isinstance(root_id, str):
+            project["main_root_assignment_ids"] = {root_id}
     ensure_requests(client, journal, journal_path, projects, role_ids)
     request_by_project = {
         item.get("project_id"): item
@@ -1004,11 +1343,31 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             main_run_ids=main_run_ids,
             role_ids=role_ids,
         )
+    else:
+        auto_bind_main_runs(
+            client,
+            journal=journal,
+            journal_path=journal_path,
+            projects=projects,
+            request_by_project=request_by_project,
+            role_ids=role_ids,
+            main_id=main_id,
+        )
     deadline = dt.datetime.now(dt.timezone.utc).timestamp() + args.timeout
     observations = []
     while True:
         observations = []
         all_done = True
+        if main_run_ids is None and journal.get("main_run_ids") is None:
+            auto_bind_main_runs(
+                client,
+                journal=journal,
+                journal_path=journal_path,
+                projects=projects,
+                request_by_project=request_by_project,
+                role_ids=role_ids,
+                main_id=main_id,
+            )
         for project in projects:
             request = request_by_project[project["project_id"]]
             assignments = tracked_assignments(
@@ -1054,7 +1413,7 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
         "url": client.base_url,
         "health_version": health.get("version"),
         "project_ids": args.project_id,
-        "main_run_ids": main_run_ids,
+        "main_run_ids": journal.get("main_run_ids", main_run_ids),
         "main_run_bindings": journal.get("main_run_bindings", []),
         "journal": str(journal_path),
         "observations": observations,
@@ -1064,4 +1423,8 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    raise SystemExit(run_main(scenario, parser().parse_args()))
+    if "--self-test" in sys.argv[1:]:
+        print(json.dumps(run_fake_tests(), ensure_ascii=False, sort_keys=True))
+        raise SystemExit(0)
+    parsed = parser().parse_args()
+    raise SystemExit(run_main(scenario, parsed))

@@ -49,10 +49,13 @@ python3 scripts/e2e/s2/project_followup.py --project-id <project1> --project-id 
   --main-run-id <main_run_for_project1> --main-run-id <main_run_for_project2> \
   --resume-journal docs/progress/S2/<unique-followup>.json --json
 
+# 本地严格回归（不连接 Host、不读密码、不写业务状态）
+python3 scripts/e2e/s2/project_followup.py --self-test
+
 ```
 
 `--main-run-id` 是可选的严格绑定增强；提供时必须是两个项目各自已验证的精确本机 `run_requests/run_*.json` ID。未提供时保留 canonical request 的严格 trigger/parent 图，后续可在 resume 时补入 run ID。脚本只接受
-`bot_id=main`、`assignment_id=null` 且 request instruction 与唯一 canonical user fallback/knownText 完全相等的 run；再由同 chat trace 的 `assign` tool.end 精确绑定新 root assignment。缺少 assign（例如并行项目没有新派发）会 STOP/PARTIAL，不按时间或邻接消息猜测归属。
+`bot_id=main`、`assignment_id=null` 且 request instruction 与唯一 canonical user fallback/knownText 完全相等的 run。未提供时，脚本从该项目 chat 的完整 trace 中筛选安全格式的 `run.start`，读取精确对应的本机 `run_requests/run_*.json`，匹配必须唯一，再由同 chat trace 的 `assign` tool.end 精确绑定新 root assignment；缺少候选会继续等待，候选歧义、身份冲突、trace 截断或 assign 配对不完整会 STOP/PARTIAL。它不按时间、sender 邻接、marker 或 assignment 邻近关系猜测归属；已成功绑定的项目会先持久化，另一项目未就绪时不会丢失部分证据。显式 `--main-run-id` 始终优先且 resume 时不可被自动发现覆盖。
 
 ```sh
 python3 scripts/e2e/s3/skills_usage_search.py --bot-id <non_main_bot_id>
