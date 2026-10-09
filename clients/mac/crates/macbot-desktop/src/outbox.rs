@@ -18,8 +18,6 @@ use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const OUTBOX_DIR: &str = "Library/Application Support/MacBot/outbox";
-
 pub type PendingMessages = BTreeMap<String, Value>;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -31,8 +29,7 @@ struct OutboxEnvelope {
 
 /// Return the default outbox root without creating it.
 pub fn default_root() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(OUTBOX_DIR))
+    crate::storage_paths::data_subdir("outbox")
 }
 
 /// Return the host-scoped outbox file below `root`.

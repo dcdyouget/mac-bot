@@ -114,3 +114,14 @@ MACBOT_TEST_UPDATE_DMG="$PWD/dist/MacBot.dmg" \
 消息与轨迹使用虚拟列表并测量可见行高度；Host 缓存按捕获顺序异步写入，断线待发消息保存稳定请求 ID。`macbot-client-core/examples/state_bench.rs` 提供大状态合并基准（`cargo run -p macbot-client-core --example state_bench --release`）；结果是状态层基准，不代表 GUI 帧率。
 
 常用快捷键：`⌘0` 总管，`⌘1…9` 已固定会话，`⌘N` 新建，`⌘K` 搜索，`⌘,` 设置，`⌘⇧W/U/S` 工作台/仪表盘/技能，`⌘\` 侧栏，`⌘⇧\` 上下文，`Esc` 返回，`⌘Q` 退出。
+
+独立 QA 必须同时使用独立 Bundle ID 和客户端数据目录：
+
+```sh
+MACBOT_CLIENT_DATA_DIR=/tmp/macbot-client-qa-data \
+MACBOT_SECRET_BACKEND=file \
+MACBOT_HOST=127.0.0.1:7790 MACBOT_PASSWORD=dev \
+  dist/MacBotQA.app/Contents/MacOS/macbot-desktop
+```
+
+`MACBOT_CLIENT_DATA_DIR` 必须为绝对路径，覆盖 Host 列表与当前 Host 恢复所用记录、file 后端凭据、会话状态缓存、待发 outbox、本机偏好、更新配置和更新缓存。未设置时仍使用正常 Application Support 路径；`MACBOT_UPDATE_CACHE` 显式覆盖更新缓存时优先。QA 使用 `file` 后端，避免与安装版共享 Keychain；开机启动等系统设置仍由系统管理，QA 不应启用。仅修改测试 bundle 的 `CFBundleIdentifier` 为 `bot.mac.desktop.qa`，正式产物继续使用 `bot.mac.desktop`。

@@ -122,6 +122,24 @@ impl Computer {
         }
     }
 
+    pub fn reset_connection(&mut self, cx: &mut Context<Self>) {
+        self.state = Value::Object(Default::default());
+        self.frame = None;
+        self.image = None;
+        self.render_image = None;
+        self.image_error = None;
+        self.pending_render_ack = None;
+        self.acked_render_seq = None;
+        self.frame_received_at = None;
+        self.last_frame_received = None;
+        self.frame_count = 0;
+        self.frames_per_second = 0.0;
+        self.paint_latency_ms = None;
+        self.frame_window_started = Instant::now();
+        *self.canvas_bounds.borrow_mut() = None;
+        cx.notify();
+    }
+
     pub fn quality(&self) -> &str {
         &self.quality
     }

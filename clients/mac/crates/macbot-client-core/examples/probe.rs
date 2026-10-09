@@ -134,7 +134,9 @@ async fn screen_probe(config: ClientConfig, bot_id: &str) -> Value {
     let receive = timeout(Duration::from_secs(5), async {
         while let Some(event) = events.recv().await {
             match event {
-                ScreenEvent::State(value) => state_seen = value.get("state").is_some(),
+                ScreenEvent::State(value) => {
+                    state_seen = value.get("driver").is_some() && value.get("tabs").is_some()
+                }
                 ScreenEvent::Frame(frame) => {
                     frame_seq = Some(frame.header.seq);
                     break;

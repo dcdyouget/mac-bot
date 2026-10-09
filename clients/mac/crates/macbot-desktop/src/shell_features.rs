@@ -36,7 +36,9 @@ impl MacBot {
             data["selected"] = bot.clone();
         }
         if self.page.starts_with("routine")
+            && data.get("bot_id").is_none()
             && let Some(chat) = self.state.chats.get(&self.selected_chat)
+            && chat["bot_id"].is_string()
         {
             data["bot_id"] = chat["bot_id"].clone();
         }
@@ -141,7 +143,8 @@ impl MacBot {
     ) {
         match method {
             "workbench.get" => {
-                for (k, v) in value.as_object().into_iter().flatten() {
+                let workbench = value.get("workbench").unwrap_or(value);
+                for (k, v) in workbench.as_object().into_iter().flatten() {
                     self.feature_data[k] = v.clone();
                 }
             }
@@ -334,14 +337,12 @@ impl MacBot {
                             self.rpc("assignment.stop", json!({"assignment_id":id}), cx);
                         } else if action == "retry" {
                             self.select_chat(s(&assignment, "origin_chat_id").into(), window, cx);
-                            self.composer.update(cx, |input, cx| {
-                                input.set_value(
-                                    s(&assignment, "instruction").to_string(),
-                                    window,
-                                    cx,
-                                )
-                            });
-                            self.composer.focus_handle(cx).focus(window, cx);
+                            self.rpc("chat.send", json!({
+                                "chat_id":self.selected_chat,
+                                "text":s(&assignment,"instruction"),
+                                "mentions":[{"kind":"bot","bot_id":assignment["bot_id"],"instruction":null}],
+                                "attachments":[]
+                            }), cx);
                         } else {
                             self.open_trace(Some(id.into()), cx);
                         }

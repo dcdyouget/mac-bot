@@ -14,7 +14,6 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
-const STORE_DIR: &str = "Library/Application Support/MacBot";
 const STORE_FILE: &str = "local-settings.json";
 const LAUNCH_AGENT_DIR: &str = "Library/LaunchAgents";
 const LAUNCH_AGENT_FILE: &str = "bot.mac.desktop.plist";
@@ -52,8 +51,7 @@ pub fn set_launch_at_login(enabled: bool) -> Result<()> {
 }
 
 fn default_store_path() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(STORE_DIR).join(STORE_FILE))
+    crate::storage_paths::data_file(STORE_FILE)
 }
 
 fn load_from_path(path: &Path) -> Result<LocalSettings> {

@@ -41,7 +41,6 @@ unsafe extern "C" {
 const KEYCHAIN_SERVICE: &str = "bot.mac.desktop.host-password";
 const SECRET_BACKEND_ENV: &str = "MACBOT_SECRET_BACKEND";
 const DEVELOPMENT_SECRET_FILE: &str = "development-secrets.json";
-const STORE_DIR: &str = "Library/Application Support/MacBot";
 const STORE_FILE: &str = "hosts.json";
 const LOCK_FILE: &str = "hosts.lock";
 
@@ -293,8 +292,7 @@ impl HostStore {
 }
 
 fn default_store_path() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(STORE_DIR).join(STORE_FILE))
+    crate::storage_paths::data_file(STORE_FILE)
 }
 
 fn default_secret_path() -> Result<PathBuf> {

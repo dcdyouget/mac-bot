@@ -10,6 +10,7 @@ mod outbox;
 mod settings_i18n;
 mod settings_view;
 mod state_cache;
+mod storage_paths;
 mod tokens;
 mod trace_i18n;
 mod trace_view;

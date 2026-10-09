@@ -1696,8 +1696,15 @@ async fn run_screen(
                 },
                 message = socket.next() => match message {
                     Some(Ok(Message::Text(text))) => {
-                        let state = serde_json::from_str(&text)?;
-                        let _ = events.send(ScreenEvent::State(state)).await;
+                        let envelope: Value = serde_json::from_str(&text)?;
+                        if envelope.get("type").and_then(Value::as_str) != Some("state") {
+                            continue;
+                        }
+                        let Some(state) = envelope.get("state").filter(|value| value.is_object())
+                        else {
+                            continue;
+                        };
+                        let _ = events.send(ScreenEvent::State(state.clone())).await;
                     }
                     Some(Ok(Message::Binary(bytes))) => {
                         let frame = parse_screen_frame(&bytes)?;
@@ -2691,6 +2698,27 @@ mod tests {
         tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut socket = accept_async(stream).await.unwrap();
+            socket
+                .send(Message::Text(
+                    json!({"type":"future_state","ignored":true}).to_string(),
+                ))
+                .await
+                .unwrap();
+            socket
+                .send(Message::Text(
+                    json!({
+                        "type":"state",
+                        "state": {
+                            "driver":"user",
+                            "tabs":[{"tab_id":"tab","title":"App","url":"https://example.com","active":true}],
+                            "width":2,
+                            "height":2
+                        }
+                    })
+                    .to_string(),
+                ))
+                .await
+                .unwrap();
             let header =
                 json!({"seq":42,"tab_id":"tab","w":2,"h":2,"ts":1,"url":"https://example.com"})
                     .to_string();
@@ -2714,6 +2742,15 @@ mod tests {
         let config = ClientConfig::new(&endpoint, "dev");
         let handle = ScreenHandle::spawn(config, "bot_a", "auto", None);
         let mut events = handle.events;
+        let event = timeout(Duration::from_secs(1), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let ScreenEvent::State(state) = event else {
+            panic!("expected normalized screen state");
+        };
+        assert_eq!(state["driver"], "user");
+        assert_eq!(state["tabs"][0]["tab_id"], "tab");
         let event = timeout(Duration::from_secs(1), events.recv())
             .await
             .unwrap()

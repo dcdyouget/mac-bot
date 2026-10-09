@@ -17,8 +17,6 @@ use macbot_client_core::AppState;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const CACHE_DIR: &str = "Library/Application Support/MacBot/cache";
-
 #[derive(Clone, Debug)]
 pub struct CachedState {
     pub host_id: String,
@@ -39,8 +37,7 @@ struct CacheEnvelope {
 
 /// Return the default cache root without creating it.
 pub fn default_root() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(CACHE_DIR))
+    crate::storage_paths::data_subdir("cache")
 }
 
 /// Return the cache file for a stable HostStore ID. IDs are deliberately

@@ -327,10 +327,7 @@ pub fn save_update_url(raw: &str) -> Result<()> {
 }
 
 fn update_config_path() -> Result<PathBuf> {
-    let home = env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home)
-        .join("Library/Application Support/MacBot")
-        .join(UPDATE_CONFIG_FILE))
+    crate::storage_paths::data_file(UPDATE_CONFIG_FILE)
 }
 
 /// Resolve the currently running bundle. `None` means the app was launched as
@@ -588,8 +585,7 @@ fn default_cache_dir() -> Result<PathBuf> {
     if let Some(path) = env::var_os("MACBOT_UPDATE_CACHE") {
         return Ok(PathBuf::from(path));
     }
-    let home = env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home).join("Library/Caches/MacBot/updates"))
+    crate::storage_paths::data_subdir("updates")
 }
 
 fn unique_suffix() -> String {

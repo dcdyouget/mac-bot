@@ -473,6 +473,9 @@ impl MacBot {
                 self.rpc("bot.templates", json!({}), cx);
                 self.refresh(cx);
                 self.retry_outbox(cx);
+                if self.page == "computer" && !self.screen_bot.is_empty() {
+                    self.open_computer(self.screen_bot.clone(), cx);
+                }
                 if self.selected_chat.is_empty() {
                     self.select_main(cx);
                 }
@@ -895,6 +898,8 @@ impl MacBot {
     }
     fn open_computer(&mut self, bot: String, cx: &mut Context<Self>) {
         self.close_screen();
+        self.computer
+            .update(cx, |screen, cx| screen.reset_connection(cx));
         self.screen_bot = bot.clone();
         self.sync_screen_request(cx);
         self.page = "computer".into();

@@ -288,14 +288,7 @@ impl Render for FeaturePage {
 
 fn input_fields(page: &str) -> &'static [&'static str] {
     match page {
-        "skills" | "skill" => &[
-            "name",
-            "query",
-            "path",
-            "git_url",
-            "git_subdir",
-            "upload_id",
-        ],
+        "skills" | "skill" => &["name", "query", "path", "git_url", "git_subdir"],
         "bot" | "bot_settings" => &[
             "name",
             "label",
@@ -331,6 +324,47 @@ fn textarea_fields(page: &str) -> &'static [&'static str] {
         "routine" | "routines" => &["instructions"],
         _ => &[],
     }
+}
+
+fn input_placeholder(page: &str, field: &str) -> Option<&'static str> {
+    match (page, field) {
+        ("skills" | "skill", "name") => Some("skills.placeholder_name"),
+        ("skills" | "skill", "query") => Some("skills.placeholder_query"),
+        ("skills" | "skill", "path") => Some("skills.placeholder_path"),
+        ("skills" | "skill", "git_url") => Some("skills.placeholder_git_url"),
+        ("skills" | "skill", "git_subdir") => Some("skills.placeholder_git_subdir"),
+        ("bot" | "bot_settings", "name") => Some("bot.placeholder_name"),
+        ("bot" | "bot_settings", "label") => Some("bot.placeholder_label"),
+        ("bot" | "bot_settings", "model") => Some("bot.placeholder_model"),
+        ("bot" | "bot_settings", "max_parallel") => Some("bot.placeholder_parallel"),
+        ("bot" | "bot_settings", "browser_mode") => Some("bot.placeholder_browser"),
+        ("group" | "new_group", "name") => Some("group.placeholder_name"),
+        ("routine" | "routines", "name") => Some("routine.placeholder_name"),
+        ("routine" | "routines", "bot_id") => Some("routine.placeholder_bot"),
+        ("routine" | "routines", "project_id") => Some("routine.placeholder_project"),
+        ("routine" | "routines", "timezone") => Some("routine.placeholder_timezone"),
+        _ => None,
+    }
+}
+
+fn textarea_placeholder(page: &str, field: &str) -> Option<&'static str> {
+    match (page, field) {
+        ("skills" | "skill", "content") => Some("skills.placeholder_content"),
+        ("bot" | "bot_settings", "description") => Some("bot.placeholder_description"),
+        ("group" | "new_group", "goal") => Some("group.placeholder_goal"),
+        ("routine" | "routines", "instructions") => Some("routine.placeholder_instructions"),
+        _ => None,
+    }
+}
+
+fn labeled_field<L: Into<String>, T: IntoElement>(label: L, field: T) -> gpui_kit::Div {
+    let label = label.into();
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(div().text_sm().child(label))
+        .child(field)
 }
 
 fn build_inputs(
@@ -379,7 +413,15 @@ fn build_inputs(
                     String::new()
                 }
             });
-            let state = cx.new(|cx| InputState::new(window, cx).default_value(initial));
+            let placeholder = input_placeholder(page, field).map(t);
+            let state = cx.new(|cx| {
+                let state = InputState::new(window, cx);
+                let state = match placeholder {
+                    Some(key) => state.placeholder(key),
+                    None => state,
+                };
+                state.default_value(initial)
+            });
             (field.to_string(), state)
         })
         .collect()
@@ -395,12 +437,20 @@ fn build_textareas(
         .iter()
         .copied()
         .map(|field| {
+            let placeholder = textarea_placeholder(page, field).map(t);
             let initial = data
                 .get(field)
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            let state = cx.new(|cx| TextareaState::new(window, cx).default_value(initial));
+            let state = cx.new(|cx| {
+                let state = TextareaState::new(window, cx);
+                let state = match placeholder {
+                    Some(key) => state.placeholder(key),
+                    None => state,
+                };
+                state.default_value(initial)
+            });
             (field.to_string(), state)
         })
         .collect()
@@ -457,6 +507,12 @@ fn render_page(
         "search" => search(data, inputs, &tokens, cx).into_any_element(),
         _ => empty_page(page, &tokens).into_any_element(),
     };
+    let scroll = div()
+        .id(format!("feature-scroll-{page}"))
+        .size_full()
+        .min_h_0()
+        .overflow_y_scroll()
+        .child(div().w_full().min_w_0().flex_none().child(content));
     div()
         .id(page.to_string())
         .flex()
@@ -464,7 +520,7 @@ fn render_page(
         .size_full()
         .bg(tokens.window)
         .text_color(tokens.primary)
-        .child(content)
+        .child(scroll)
         .into_any_element()
 }
 
@@ -649,22 +705,13 @@ fn skill_import_git_button(
         }))
 }
 
-fn skill_upload_button(
-    label: &str,
-    inputs: &BTreeMap<String, Entity<InputState>>,
-    cx: &mut Context<FeaturePage>,
-) -> impl IntoElement + use<> {
+fn skill_upload_button(label: &str, cx: &mut Context<FeaturePage>) -> impl IntoElement + use<> {
     let label = label.to_string();
-    let upload_id = input_state(inputs, "upload_id").clone();
     Button::new(format!("skill-upload-{label}"))
         .label(label)
         .primary()
         .on_click(cx.listener(move |this, _, _, cx| {
-            let upload_id = upload_id.read(cx).value().to_string();
-            this.emit_action(
-                FeatureAction::Navigate(format!("skill/import/upload/{upload_id}")),
-                cx,
-            );
+            this.emit_action(FeatureAction::Navigate("skill/import/upload/".into()), cx);
         }))
 }
 
@@ -2514,6 +2561,12 @@ fn skills(
         .filter(|skill| skill_matches_filter(skill, filter.as_deref(), &query))
         .collect::<Vec<_>>();
     let selected = data.get("selected").unwrap_or(&Value::Null);
+    let selected_name = selected
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let selected_builtin = !selected_name.is_empty() && skill_source_kind(selected) == "builtin";
     let list = div()
         .flex()
         .flex_col()
@@ -2582,16 +2635,43 @@ fn skills(
         .flex()
         .flex_col()
         .gap_2()
-        .child(Input::new(input_state(inputs, "name")).id("skill-name-input"))
-        .child(Textarea::new(textarea_state(textareas, "content")))
-        .child(Input::new(input_state(inputs, "path")).id("skill-import-path-input"))
-        .child(Input::new(input_state(inputs, "git_url")).id("skill-import-git-url-input"))
-        .child(Input::new(input_state(inputs, "git_subdir")).id("skill-import-git-subdir-input"))
-        .child(Input::new(input_state(inputs, "upload_id")).id("skill-upload-id-input"))
+        .child(labeled_field(
+            t("skills.field_name"),
+            Input::new(input_state(inputs, "name"))
+                .id("skill-name-input")
+                .disabled(selected_builtin),
+        ))
+        .child(labeled_field(
+            t("skills.field_content"),
+            Textarea::new(textarea_state(textareas, "content"))
+                .h(px(240.))
+                .disabled(selected_builtin),
+        ))
         .child(skill_create_button(t("skills.new"), inputs, textareas, cx))
-        .child(skill_import_button(t("skills.import"), inputs, cx))
-        .child(skill_import_git_button(t("skills.import_git"), inputs, cx))
-        .child(skill_upload_button(t("skills.import_upload"), inputs, cx))
+        .child(card(
+            t("skills.import_group"),
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(labeled_field(
+                    t("skills.field_path"),
+                    Input::new(input_state(inputs, "path")).id("skill-import-path-input"),
+                ))
+                .child(skill_import_button(t("skills.import"), inputs, cx))
+                .child(labeled_field(
+                    t("skills.field_git_url"),
+                    Input::new(input_state(inputs, "git_url")).id("skill-import-git-url-input"),
+                ))
+                .child(labeled_field(
+                    t("skills.field_git_subdir"),
+                    Input::new(input_state(inputs, "git_subdir"))
+                        .id("skill-import-git-subdir-input"),
+                ))
+                .child(skill_import_git_button(t("skills.import_git"), inputs, cx))
+                .child(skill_upload_button(t("skills.import_upload"), cx)),
+            tokens,
+        ))
         .child(card(
             t("skills.description"),
             div().child(string(selected, "description", t("skills.select_hint"))),
@@ -2622,21 +2702,17 @@ fn skills(
             tokens,
         ))
         .child({
-            let selected_name = selected
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
             let mut actions = div().flex().gap_2().child(action_button(
                 t("skills.preview"),
                 FeatureAction::Toast(t("skills.preview_ready").to_string()),
                 cx,
             ));
-            if !selected_name.is_empty() {
+            if !selected_name.is_empty() && !selected_builtin {
                 actions = actions
                     .child(textarea_rpc_button(
                         t("settings.save"),
                         "skill.update",
-                        skill_update_params(selected_name, ""),
+                        skill_update_params(&selected_name, ""),
                         "content",
                         textareas,
                         None,
@@ -2646,7 +2722,7 @@ fn skills(
                         t("skills.delete"),
                         FeatureAction::Rpc {
                             method: "skill.delete".into(),
-                            params: skill_delete_params(selected_name),
+                            params: skill_delete_params(&selected_name),
                         },
                         cx,
                     ));
@@ -2663,7 +2739,10 @@ fn skills(
             div()
                 .flex()
                 .gap_2()
-                .child(Input::new(input_state(inputs, "query")).id("skill-search-input"))
+                .child(labeled_field(
+                    t("skills.field_search"),
+                    Input::new(input_state(inputs, "query")).id("skill-search-input"),
+                ))
                 .child(skill_search_button(inputs, cx))
                 .child(skill_filter_button(t("skills.all"), None, cx))
                 .child(skill_filter_button(
@@ -2683,8 +2762,12 @@ fn skills(
             div()
                 .flex()
                 .gap_4()
-                .child(card(t("skills.title"), list, tokens))
-                .child(editor),
+                .child(div().w(px(280.)).flex_shrink_0().child(card(
+                    t("skills.title"),
+                    list,
+                    tokens,
+                )))
+                .child(editor.flex_1().min_w_0()),
         )
 }
 
@@ -2898,15 +2981,36 @@ fn bot_editor(
         .gap_4()
         .p_6()
         .child(page_header(title, t("bot.subtitle"), tokens))
-        .child(Input::new(input_state(inputs, "name")).id("bot-name-input"))
-        .child(Input::new(input_state(inputs, "label")).id("bot-label-input"))
-        .child(Textarea::new(textarea_state(textareas, "description")))
-        .child(Input::new(input_state(inputs, "model")).id("bot-model-input"))
-        .child(Input::new(input_state(inputs, "max_parallel")).id("bot-parallel-input"))
-        .child(Input::new(input_state(inputs, "browser_mode")).id("bot-browser-input"))
-        .child(model_picker)
-        .child(bot_browser_picker(inputs, cx))
-        .child(tool_picker)
+        .child(labeled_field(
+            t("bot.name"),
+            Input::new(input_state(inputs, "name")).id("bot-name-input"),
+        ))
+        .child(labeled_field(
+            t("bot.label"),
+            Input::new(input_state(inputs, "label")).id("bot-label-input"),
+        ))
+        .child(labeled_field(
+            t("bot.description"),
+            Textarea::new(textarea_state(textareas, "description")).h(px(120.)),
+        ))
+        .child(labeled_field(
+            t("settings.model"),
+            Input::new(input_state(inputs, "model")).id("bot-model-input"),
+        ))
+        .child(labeled_field(
+            t("bot.parallel"),
+            Input::new(input_state(inputs, "max_parallel")).id("bot-parallel-input"),
+        ))
+        .child(labeled_field(
+            t("bot.browser"),
+            Input::new(input_state(inputs, "browser_mode")).id("bot-browser-input"),
+        ))
+        .child(labeled_field(t("bot.model_options"), model_picker))
+        .child(labeled_field(
+            t("bot.browser"),
+            bot_browser_picker(inputs, cx),
+        ))
+        .child(labeled_field(t("settings.tools"), tool_picker))
         .child(bot_notification_toggle(data, cx))
         .child(avatar_picker)
         .child(card(title, body, tokens))
@@ -3250,8 +3354,15 @@ fn group_editor(
         .gap_4()
         .p_6()
         .child(page_header(t("group.new"), t("group.subtitle"), tokens))
-        .child(Input::new(input_state(inputs, "name")).id("group-name-input"))
-        .child(Textarea::new(textarea_state(textareas, "goal")))
+        .child(labeled_field(
+            t("group.name"),
+            Input::new(input_state(inputs, "name")).id("group-name-input"),
+        ))
+        .child(labeled_field(
+            t("group.goal"),
+            Textarea::new(textarea_state(textareas, "goal")).h(px(120.)),
+        ))
+        .child(div().text_sm().child(t("group.members")))
         .child(member_checks)
         .child(card(t("group.new"), body, tokens))
         .child(group_create_button(
@@ -3352,14 +3463,29 @@ fn routine_editor(
             tokens,
         ))
         .child(routine_list)
-        .child(Input::new(input_state(inputs, "name")).id("routine-name-input"))
-        .child(Input::new(input_state(inputs, "bot_id")).id("routine-bot-input"))
-        .child(Input::new(input_state(inputs, "project_id")).id("routine-project-input"))
+        .child(labeled_field(
+            t("routine.title"),
+            Input::new(input_state(inputs, "name")).id("routine-name-input"),
+        ))
+        .child(labeled_field(
+            t("routine.bot"),
+            Input::new(input_state(inputs, "bot_id")).id("routine-bot-input"),
+        ))
+        .child(labeled_field(
+            t("routine.project"),
+            Input::new(input_state(inputs, "project_id")).id("routine-project-input"),
+        ))
         .child(routine_selectors(data, inputs, cx))
-        .child(Textarea::new(textarea_state(textareas, "instructions")))
+        .child(labeled_field(
+            t("routine.instruction"),
+            Textarea::new(textarea_state(textareas, "instructions")).h(px(180.)),
+        ))
         .child(routine_schedule_inputs(data, inputs, cx))
         .child(routine_add_schedule_button(cx))
-        .child(Input::new(input_state(inputs, "timezone")).id("routine-timezone-input"))
+        .child(labeled_field(
+            t("routine.timezone"),
+            Input::new(input_state(inputs, "timezone")).id("routine-timezone-input"),
+        ))
         .child(card(t("routine.title"), body, tokens))
         .child(card(
             t("routine.history"),
@@ -3395,11 +3521,22 @@ fn routine_schedule_inputs(
         })
         .clamp(1, 6);
     let fields = ["cron", "cron_1", "cron_2", "cron_3", "cron_4", "cron_5"];
-    div().flex().flex_col().gap_1().children(
-        fields.iter().take(slots as usize).map(|field| {
-            Input::new(input_state(inputs, field)).id(format!("routine-{field}-input"))
-        }),
-    )
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .children(
+            fields
+                .iter()
+                .take(slots as usize)
+                .enumerate()
+                .map(|(index, field)| {
+                    labeled_field(
+                        format!("{} {}", t("routine.schedule_slot"), index + 1),
+                        Input::new(input_state(inputs, field)).id(format!("routine-{field}-input")),
+                    )
+                }),
+        )
 }
 
 fn routine_add_schedule_button(cx: &mut Context<FeaturePage>) -> impl IntoElement + use<> {
