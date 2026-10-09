@@ -95,7 +95,7 @@
 
 【工作方式】
 - git worktree add ../mac-bot-client-android -b dev/client-android。小步提交，频繁 rebase 到 origin/main 并合入 main，提交前缀用 mobile-core:、android: 或 mobile-<feature>:。
-- 环境：JDK 21、Android SDK 36（ANDROID_HOME 已经配置）、Gradle 9.8（项目内使用 wrapper）。真机是小米 17（adb），没有装模拟器。手机通过 192.168.31.162 连接这台 Mac mini 上的服务端（mock 是 7789，正式服务是 7788）。
+- 环境：JDK 21、Android SDK 36（ANDROID_HOME 已经配置）、Gradle 9.8（项目内使用 wrapper）。没有真机，用本机的 Android 模拟器（AVD `macbot_api36`：Android 16 / API 36、arm64，已经在这台 Mac mini 上装好）。模拟器里访问 Mac 本机要用 `10.0.2.2`：mock 是 `10.0.2.2:7789`，正式服务是 `10.0.2.2:7788`。启动模拟器：$ANDROID_HOME/emulator/emulator -avd macbot_api36 &，然后 adb wait-for-device。
 - 目标是一次做完全部功能：按 S0 → S5 推进。每完成一个阶段，在 COORDINATION.md 打卡「client-android Sx 完成」并附上验证方式，然后直接进入下一个阶段，不要停下来等确认。需要别的开发线配合时写进 COORDINATION.md，在等待的时候先做不依赖它的部分；只有完全被阻塞时才停下来汇报。
 
 【S0 的顺序】
@@ -107,12 +107,12 @@
 3. 协议模型：优先在 protocol/kotlin 写从 protocol/schema 生成 kotlinx.serialization 数据类的脚本；如果带标签的联合类型生成起来代价太大，就手写模型，但必须有契约测试：protocol/fixtures 下所有 fixture 都能反序列化再序列化而不丢字段，不认识的块落到 Unknown。
 4. androidApp：前台服务保持主连接；三类通知渠道（需要你、完成、消息）。
 5. feature/connect：Host 列表，添加 Host 时填多个地址（任意 IP、域名、ws 或 wss）和密码，显示连接状态。
-6. 在 server 的 mock 合入 main 之前，用 protocol/fixtures 开发；mock 可用后，连接 192.168.31.162:7789（密码 dev）。
-7. 在 clients/mobile/README.md 写清楚编译、安装（adb install）、运行的命令，集成线会据此部署到小米 17。
+6. 在 server 的 mock 合入 main 之前，用 protocol/fixtures 开发；mock 可用后，在模拟器里连接 10.0.2.2:7789（密码 dev）。
+7. 在 clients/mobile/README.md 写清楚编译、安装（adb install）、运行的命令，集成线会据此部署到 Android 模拟器。
 
 【S1–S5】按 PLAN 第 6 章 client-android 那一列推进。每个功能的界面以 DESIGN.md 对应章节为准：私聊和消息块（4.3）、运行轨迹（4.6）、群（4.5）、工作台（4.8）、Bot（4.7）、仪表盘（4.9，图表用 Compose Canvas 自己画）、技能（4.10）、Agent Computer（4.11，支持触摸接管）、设置（4.13）、移动端的整体布局（第 5 章）。
 
-【质量要求】commonTest 和 androidUnitTest 都要通过；核心逻辑（重连、补发、状态合并、游标合并、画面 ack）要有单元测试；每个阶段打卡时附上真机截图（adb exec-out screencap -p）。
+【质量要求】commonTest 和 androidUnitTest 都要通过；核心逻辑（重连、补发、状态合并、游标合并、画面 ack）要有单元测试；每个阶段打卡时附上模拟器截图（adb exec-out screencap -p > xxx.png）。
 
 【全部完成后】汇报：每个阶段完成了什么、截图、遗留问题。
 ```
@@ -124,7 +124,7 @@
 ```text
 你是 Mac Bot 项目的集成负责人。另外三条开发线（server-mac、client-mac、client-android）在并行写代码，你**不写业务代码**，只负责一件事：让用户随时能在这台 Mac mini 上看到最新的效果，并验证每个阶段真的做到了。
 
-这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。小米 17 通过 adb 连接。v1 不做 iOS。
+这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。Android 客户端跑在本机的 Android 模拟器（AVD `macbot_api36`：Android 16 / API 36、arm64，已经在这台 Mac mini 上装好）。模拟器里访问 Mac 本机要用 `10.0.2.2`：mock 是 `10.0.2.2:7789`，正式服务是 `10.0.2.2:7788`。v1 不做 iOS。
 
 【必读，按顺序】
 1. AGENTS.md：你负责 scripts/ 和 docs/progress/，并负责整理 COORDINATION.md。
@@ -141,13 +141,13 @@
 1. scripts/dev/deploy.sh：从 main 分支一键部署到这台 Mac mini。
    a. 编译 macbotd，安装或更新 LaunchAgent（端口 7788，数据目录 ~/MacBot），重启服务。
    b. 编译并打包桌面客户端 .app，放到 ~/Applications/MacBot.app。
-   c. 如果小米 17 已连接，就编译 APK 并 adb install。
+   c. 如果 Android 模拟器没在运行就启动它（$ANDROID_HOME/emulator/emulator -avd macbot_api36 &，再 adb wait-for-device 并等到 sys.boot_completed=1），然后编译 APK 并 adb install。
    哪一部分还没有代码就跳过，并打印提示。
 2. scripts/dev/status.sh（各组件的版本、进程、端口、最近的日志）和 scripts/dev/mock.sh（启动 macbotd --mock --port 7789 --password dev）。
 3. scripts/e2e/：用 Python 3 标准库（urllib 调用 /api/v1/rpc，轮询状态）编写各阶段的端到端场景，不引入第三方依赖。先写 S0 的场景（连接 mock，检查 bootstrap 能返回会话列表）。
 4. docs/progress/README.md：写给用户的「怎么看效果」说明，包括：
    - 在 Mac mini 上怎么打开桌面客户端，填 127.0.0.1:7788 和密码。
-   - 手机怎么连接 192.168.31.162:7788。
+   - Android 模拟器怎么启动，App 里填 10.0.2.2:7788；以后换真机时填 192.168.31.162:7788。
    - 当前每个阶段的进度。
    部署用的访问密码存在 ~/.macbot-dev-password（不提交），说明里只写这个文件的位置。
 
@@ -155,7 +155,7 @@
 - 持续关注 COORDINATION.md。每当某条线合入了能运行的成果，就运行 deploy.sh 部署到这台机器，截图存到 docs/progress/<阶段>/。
 - 三条开发线都打卡某个阶段后：
   1. 运行该阶段的端到端场景（PLAN 第 6 章「联调验收」一栏）。
-  2. 截下桌面客户端（screencapture）和小米 17（adb exec-out screencap -p）的画面。
+  2. 截下桌面客户端（screencapture）和 Android 模拟器（adb exec-out screencap -p）的画面。
   3. 在 COORDINATION.md 写上「Sx 联调：通过 / 不通过」以及问题清单，并更新 docs/progress/README.md。
 - 真实模型：用户会提供 API Key 和 base_url。拿到之后，通过 /api/v1/rpc 的 provider.create 配置到部署好的服务端（密钥只放在本机的环境变量或钥匙串里，不提交）。在此之前，端到端场景用服务端的 mock provider。
 - S5：用 server-mac 和 client-mac 提供的打包产物（.pkg、.dmg）做一次「全新安装」演练：卸载 → 安装 pkg → 管理页设置密码 → 桌面和手机连接 → 跑完完整场景。
@@ -168,5 +168,5 @@
 ## 启动后用户需要做的事
 
 1. **提供模型的 API Key 和 base_url**：发给集成线的会话，由它配置到部署好的服务端。
-2. **小米 17 保持 USB 调试打开**，并在提示时允许这台电脑调试。
+2. Android 客户端跑在本机的模拟器里，不需要真机；模拟器窗口会出现在 Mac mini 的桌面上，可以直接看、直接操作。
 3. 随时查看 `docs/progress/README.md`，按里面的说明在 Mac mini 上打开桌面客户端看效果。

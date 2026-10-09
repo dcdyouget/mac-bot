@@ -519,11 +519,11 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 
 **目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。**三条开发线加一条集成线**同时推进，归属见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
 
-**开发机就是目标机**：这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。**每个阶段的成果都要能在这台机器上直接运行和查看**：服务端以 LaunchAgent 方式常驻，桌面客户端打包成 .app 打开使用，小米 17 连接 `192.168.31.162:7788`。
+**开发机就是目标机**：这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。**每个阶段的成果都要能在这台机器上直接运行和查看**：服务端以 LaunchAgent 方式常驻，桌面客户端打包成 .app 打开使用，Android 客户端跑在本机的 Android 模拟器里（连接 `10.0.2.2:7788`）。以后换成真机时，手机连接 `192.168.31.162:7788`。
 
 | 阶段 | server-mac | client-mac | client-android（Android 全部功能） | 联调验收 |
 |------|-----------|-----------|----------------|---------|
-| **S0 契约与骨架** | protocol crate（PROTOCOL 全部类型）+ schema + fixtures + 场景；server workspace；`--mock` 实现全部方法 | 工程、client-core（连接、补发、状态）、设计 token、三栏布局、连接页；可以双击打开的 .app | KMP 工程（只有 Android target）、core（连接、补发、状态、画面连接）、设计系统、导航、androidApp 外壳、feature/connect | 桌面和小米 17 都连上 mock，看到会话列表 |
+| **S0 契约与骨架** | protocol crate（PROTOCOL 全部类型）+ schema + fixtures + 场景；server workspace；`--mock` 实现全部方法 | 工程、client-core（连接、补发、状态）、设计 token、三栏布局、连接页；可以双击打开的 .app | KMP 工程（只有 Android target）、core（连接、补发、状态、画面连接）、设计系统、导航、androidApp 外壳、feature/connect | 桌面和 Android 模拟器都连上 mock，看到会话列表 |
 | **S1 单 Bot 闭环** | 存储、durable、模型接入、工具（文件、bash）、技能加载、私聊对话、基础压缩、运行轨迹、用量记账、鉴权、/admin、CLI、LaunchAgent | 私聊（流式）、消息块、运行轨迹（实时 + 回放）、模型与服务商设置 | feature/chat（私聊、消息块、送达状态）、feature/trace（运行轨迹、历史任务）、feature/settings | 真实服务端：桌面和手机都能和一个 Bot 私聊，Bot 能读写文件、跑命令；轨迹实时可看、可回放；kill -9 重启后能恢复 |
 | **S2 主 Bot 与群协作** | 主 Bot、群和公告、任务派发与交接、`send_msg`、插话、子代理、并发调度、审批、提问、防循环、工作台、Bot 增删改、团队模板 | 群（状态条、公告、任务卡片、送达状态、待验收）、新建群和 Bot、Bot 设置、工作台、审批 | feature/group、feature/mainbot、feature/approval、feature/workbench、feature/bots | 「登录功能」完整场景两端都能操作；两个群并行；运行中插话生效 |
 | **S3 技能、仪表盘、记忆** | 三种记忆、记忆提取与整理、`project_find`、技能管理接口（含草稿发布）和导入、仪表盘接口、搜索 | 仪表盘、技能页、搜索 | feature/dashboard、feature/skills、feature/search | 仪表盘两端数据一致；技能增删改；Bot 跨会话记住用户偏好 |
@@ -533,7 +533,7 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 **执行规则**
 - 每条线完成一个阶段后，在 `COORDINATION.md` 里打卡「Sx 完成」，然后**直接进入下一阶段**，不停下来等待。
 - **集成线（integrator）** 负责：
-  - 在这台 Mac mini 上持续部署 main 分支的最新版本：`scripts/dev/deploy.sh` 编译并安装 macbotd 的 LaunchAgent、编译桌面客户端 `.app`、给小米 17 安装 APK。
+  - 在这台 Mac mini 上持续部署 main 分支的最新版本：`scripts/dev/deploy.sh` 编译并安装 macbotd 的 LaunchAgent、编译桌面客户端 `.app`、启动 Android 模拟器并安装 APK。
   - 编写并运行每个阶段的端到端场景（`scripts/e2e/<阶段>/`）。
   - 截图存档到 `docs/progress/<阶段>/`。
   - 把问题记录到 COORDINATION.md，交给对应的开发线。
@@ -546,7 +546,7 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 |------|------|
 | Rust | stable（rustfmt、clippy），crates.io 走清华 tuna 镜像，`cargo search` 需要加 `--registry crates-io` |
 | GPUI | 只依赖 `gpui-kit` 0.7；需要 Xcode 26 和 Metal 工具链（已经安装） |
-| Android | JDK 21、Gradle 9.8（项目内使用 wrapper）、Android SDK 36、build-tools 36.1、adb；真机是小米 17 |
+| Android | JDK 21、Gradle 9.8（项目内使用 wrapper）、Android SDK 36、build-tools 36.1、adb、Android 模拟器（AVD `macbot_api36`：Android 16 / API 36、arm64，已经在这台 Mac mini 上装好）。模拟器里访问 Mac 本机要用 `10.0.2.2`：mock 是 `10.0.2.2:7789`，正式服务是 `10.0.2.2:7788`。启动命令：`$ANDROID_HOME/emulator/emulator -avd macbot_api36`（需要无窗口运行时加 `-no-window -no-audio`） |
 | 浏览器 | Chrome（S4 使用） |
 | 机器 | 这台 Mac mini（M4，16 GB，192.168.31.162）就是开发机和目标 Host；数据目录开发时可以用 `MACBOT_HOME` 指到别处，部署时用 `~/MacBot` |
 

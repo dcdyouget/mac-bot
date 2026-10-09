@@ -57,7 +57,7 @@
 - **开发环境**（这台 Mac 上已经装好）：
   - Rust stable，crates.io 走清华 tuna 镜像；`cargo search` 需要加 `--registry crates-io`。
   - Xcode 26.6 + Metal 工具链（GPUI 需要）。
-  - JDK 21、Android SDK 36、Gradle 9.8。
+  - JDK 21、Android SDK 36、Gradle 9.8；Android 模拟器（AVD `macbot_api36`：Android 16 / API 36、arm64，已经在这台 Mac mini 上装好）。模拟器里访问 Mac 本机要用 `10.0.2.2`：mock 是 `10.0.2.2:7789`，正式服务是 `10.0.2.2:7788`（已经验证可以连通；模拟器里没有 curl，测试连通性用 `adb shell toybox nc`）。
 - **在 Mac mini 上能看到效果**：这台 Mac mini（M4，192.168.31.162）就是目标 Host。每个阶段的成果都要能部署到这台机器上运行和查看（集成线负责部署）。
 - **mock 优先**：客户端先基于 `protocol/fixtures` 开发；server-mac 提供 `macbotd --mock` 之后，切换到 mock；最后再连接真实服务端。
 - **测试**：
