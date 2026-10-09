@@ -5479,6 +5479,10 @@ impl ExecutionSink for OrchestratorSink {
         self.inner.send_group_message(message).await
     }
 
+    async fn validate_send_msg_target(&self, message: &Value) -> Result<(), String> {
+        self.inner.validate_send_msg_target(message).await
+    }
+
     async fn approval_required(&self, data: Value) {
         let Some(approval) = data.get("approval") else {
             tracing::error!("execution emitted malformed approval request");
@@ -5550,6 +5554,12 @@ impl ExecutionSink for OrchestratorSink {
 
 #[async_trait]
 impl GroupMessageBridge for OrchestratorGroupBridge {
+    async fn validate_send_msg_target(&self, message: &Value) -> Result<(), String> {
+        self.backend
+            .execution_validate_send_msg_target(message)
+            .map_err(|error| error.to_string())
+    }
+
     async fn send_msg(&self, message: Value) -> Result<Value, String> {
         let result = self
             .backend

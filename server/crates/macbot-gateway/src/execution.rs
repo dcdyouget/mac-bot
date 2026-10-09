@@ -197,6 +197,8 @@ pub trait ExecutionSink: Send + Sync {
     /// The request payload contains the durable receipt, whose logical ID is
     /// intentionally separate from the canonical message ID returned here.
     async fn send_group_message(&self, message: Value) -> Result<Value, String>;
+    /// Validate the resolved target before writing a durable send receipt.
+    async fn validate_send_msg_target(&self, message: &Value) -> Result<(), String>;
     async fn approval_required(&self, data: Value);
     /// Publish the protocol's temporary workbench usage tick. Implementations
     /// may also update their durable assignment snapshot in this hook.
@@ -240,6 +242,7 @@ pub trait ProviderResolver: Send + Sync {
 /// side effect an executor may perform: admitting a `send_msg` tool result.
 #[async_trait]
 pub trait GroupMessageBridge: Send + Sync {
+    async fn validate_send_msg_target(&self, message: &Value) -> Result<(), String>;
     /// Return the canonical persisted Message created (or found on replay).
     async fn send_msg(&self, message: Value) -> Result<Value, String>;
 }
@@ -292,6 +295,10 @@ impl ExecutionSink for GatewayStateSink {
         self.group.send_msg(message).await
     }
 
+    async fn validate_send_msg_target(&self, message: &Value) -> Result<(), String> {
+        self.group.validate_send_msg_target(message).await
+    }
+
     async fn approval_required(&self, data: Value) {
         self.emit(ExecutionEvent {
             event: "approval.requested".into(),
@@ -308,6 +315,9 @@ pub struct NullExecutionSink;
 #[async_trait]
 impl ExecutionSink for NullExecutionSink {
     async fn emit(&self, _: ExecutionEvent) {}
+    async fn validate_send_msg_target(&self, _: &Value) -> Result<(), String> {
+        Ok(())
+    }
     async fn send_group_message(&self, message: Value) -> Result<Value, String> {
         Ok(message.get("message").cloned().unwrap_or(message))
     }
@@ -1533,6 +1543,19 @@ impl ExecutionEngine {
                             );
                             object.insert("intent".into(), json!(intent));
                         }
+                        if let Err(error) = self.sink.validate_send_msg_target(&payload).await {
+                            messages.push(tool_message(
+                                &call.call_id,
+                                &ToolResult::error(error.clone()),
+                            ));
+                            self.trace(
+                                &request,
+                                "tool.end",
+                                json!({"call_id":call.call_id,"is_error":true,"preview":error,"details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                            )
+                            .await?;
+                            continue;
+                        }
                         let (receipt, _created) = self.state.durable.lock().await.send_msg_once(
                             &request.run_id,
                             &call.call_id,
@@ -2217,6 +2240,19 @@ impl ExecutionEngine {
                     object.insert("assignment_id".into(), json!(request.assignment_id.clone()));
                     object.insert("intent".into(), json!(intent));
                 }
+                if let Err(error) = self.sink.validate_send_msg_target(&payload).await {
+                    messages.push(tool_message(
+                        &call.call_id,
+                        &ToolResult::error(error.clone()),
+                    ));
+                    self.trace(
+                        request,
+                        "tool.end",
+                        json!({"call_id":call.call_id,"is_error":true,"preview":error,"details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                    )
+                    .await?;
+                    continue;
+                }
                 let (receipt, _) = self.state.durable.lock().await.send_msg_once(
                     &request.run_id,
                     &call.call_id,
@@ -2489,7 +2525,7 @@ impl ExecutionEngine {
                                 "mentions":{"type":"array","items":{}},
                                 "artifacts":{"type":"array","items":{"type":"object"}},
                                 "options":{"type":"array","items":{"type":"string"}},
-                            "chat_id":{"type":"string"},
+                            "chat_id":{"type":"string","description":"An existing Chat.id, not a Project.id. Omit to use the current chat; use an explicit existing chat ID for cross-chat delivery."},
                             "message_id":{"type":"string"},
                             "reply_to":{"type":"string"}
                         }
@@ -3068,6 +3104,14 @@ fn tool_allowed(request: &ExecutionRequest, name: &str) -> bool {
 }
 
 fn send_msg_intent(args: &Value) -> Result<&str, String> {
+    if let Some(target) = args.get("chat_id") {
+        if target
+            .as_str()
+            .is_none_or(|target| target.trim().is_empty())
+        {
+            return Err("send_msg.chat_id must be a nonempty existing Chat.id".into());
+        }
+    }
     let intent = args
         .get("intent")
         .and_then(Value::as_str)
@@ -3669,6 +3713,9 @@ mod tests {
     }
     #[async_trait]
     impl ExecutionSink for RecordingSink {
+        async fn validate_send_msg_target(&self, _: &Value) -> Result<(), String> {
+            Ok(())
+        }
         async fn emit(&self, event: ExecutionEvent) {
             self.events.lock().unwrap().push(event);
         }
@@ -3705,6 +3752,41 @@ mod tests {
                 None => Ok(None),
             }
         }
+    }
+
+    #[derive(Default)]
+    struct TargetRecordingSink {
+        events: StdMutex<Vec<ExecutionEvent>>,
+        groups: StdMutex<Vec<Value>>,
+        rejected: StdMutex<Vec<Value>>,
+    }
+
+    #[async_trait]
+    impl ExecutionSink for TargetRecordingSink {
+        async fn emit(&self, event: ExecutionEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+
+        async fn validate_send_msg_target(&self, message: &Value) -> Result<(), String> {
+            if message.get("chat_id").and_then(Value::as_str) == Some("chat_bad") {
+                self.rejected.lock().unwrap().push(message.clone());
+                return Err("invalid send_msg target".into());
+            }
+            Ok(())
+        }
+
+        async fn send_group_message(&self, envelope: Value) -> Result<Value, String> {
+            self.groups.lock().unwrap().push(envelope.clone());
+            let mut message = envelope.get("message").cloned().unwrap_or(Value::Null);
+            if message.get("id").and_then(Value::as_str).is_none() {
+                if let Some(message_id) = message.get("message_id").cloned() {
+                    message["id"] = message_id;
+                }
+            }
+            Ok(message)
+        }
+
+        async fn approval_required(&self, _: Value) {}
     }
 
     struct FixedResolver(Arc<dyn ModelProvider>);
@@ -4287,6 +4369,183 @@ mod tests {
                     .and_then(Value::as_str)
                     == Some("missing_intent")
                 && event.data.pointer("/item/data/is_error") == Some(&json!(true))
+        }));
+    }
+
+    #[tokio::test]
+    async fn send_msg_invalid_target_is_feedback_then_corrected_without_submission() {
+        let dir = tempdir().unwrap();
+        let sink = Arc::new(TargetRecordingSink::default());
+        let provider = Arc::new(MockProvider::new(vec![
+            Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "send_invalid_target".into(),
+                    name: "send_msg".into(),
+                    args: json!({
+                        "intent":"ack",
+                        "text":"错误目标",
+                        "chat_id":"chat_bad",
+                        "message_id":"invalid-message"
+                    }),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+            Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "send_correct_target".into(),
+                    name: "send_msg".into(),
+                    args: json!({
+                        "intent":"done",
+                        "text":"正确目标",
+                        "chat_id":"chat_mock",
+                        "message_id":"valid-message"
+                    }),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+        ]));
+        let engine = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            provider,
+            Vec::<Arc<dyn Tool>>::new(),
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+        let outcome = engine.run(request(false)).await.unwrap();
+        assert_eq!(outcome.status, "done");
+        assert_eq!(sink.rejected.lock().unwrap().len(), 1);
+        assert_eq!(sink.groups.lock().unwrap().len(), 1);
+        let submissions = engine
+            .store
+            .read_jsonl::<Value>("data/submissions.jsonl")
+            .unwrap();
+        assert_eq!(submissions.len(), 1);
+        assert_eq!(submissions[0]["receipt"]["message_id"], "valid-message");
+        assert!(!submissions
+            .iter()
+            .any(|row| { row.pointer("/message/chat_id") == Some(&json!("chat_bad")) }));
+        let events = sink.events.lock().unwrap();
+        assert!(events.iter().any(|event| {
+            event.event == "trace.item"
+                && event.data.pointer("/item/type").and_then(Value::as_str) == Some("tool.end")
+                && event
+                    .data
+                    .pointer("/item/data/call_id")
+                    .and_then(Value::as_str)
+                    == Some("send_invalid_target")
+                && event.data.pointer("/item/data/is_error") == Some(&json!(true))
+        }));
+        assert!(events.iter().any(|event| {
+            event.event == "trace.item"
+                && event.data.pointer("/item/type").and_then(Value::as_str) == Some("send_msg")
+                && event
+                    .data
+                    .pointer("/item/data/message_id")
+                    .and_then(Value::as_str)
+                    == Some("valid-message")
+        }));
+    }
+
+    #[tokio::test]
+    async fn approved_write_followup_rejects_invalid_send_msg_then_retries_correct_target() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store
+            .write_snapshot(
+                "data/settings.json",
+                &json!({"approvals":{"mode":"require","rules":[]}}),
+            )
+            .unwrap();
+        let sink = Arc::new(TargetRecordingSink::default());
+        let provider = Arc::new(MockProvider::new(vec![
+            Completion {
+                tool_calls: vec![
+                    ToolCall {
+                        call_id: "approved_write".into(),
+                        name: "write".into(),
+                        args: json!({"path":"approved.txt","content":"ok"}),
+                    },
+                    ToolCall {
+                        call_id: "followup_invalid_target".into(),
+                        name: "send_msg".into(),
+                        args: json!({
+                            "intent":"ack",
+                            "text":"错误目标",
+                            "chat_id":"chat_bad",
+                            "message_id":"invalid-followup"
+                        }),
+                    },
+                ],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+            Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "followup_correct_target".into(),
+                    name: "send_msg".into(),
+                    args: json!({
+                        "intent":"done",
+                        "text":"正确目标",
+                        "chat_id":"chat_mock",
+                        "message_id":"valid-followup"
+                    }),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+        ]));
+        let engine = ExecutionEngine::new(
+            store,
+            provider,
+            vec![Arc::new(WriteTool::default()) as Arc<dyn Tool>],
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+        let mut request = request(false);
+        request.run_id = "send_msg_target_approved".into();
+        request.allow_unsafe = false;
+        assert_eq!(
+            engine.run(request.clone()).await.unwrap().status,
+            "suspended"
+        );
+        assert_eq!(sink.rejected.lock().unwrap().len(), 0);
+        let outcome = engine.continue_approved(request).await.unwrap();
+        assert_eq!(outcome.status, "done");
+        assert_eq!(sink.rejected.lock().unwrap().len(), 1);
+        assert_eq!(sink.groups.lock().unwrap().len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("approved.txt")).unwrap(),
+            "ok"
+        );
+        let submissions = engine
+            .store
+            .read_jsonl::<Value>("data/submissions.jsonl")
+            .unwrap();
+        assert_eq!(submissions.len(), 1);
+        assert_eq!(submissions[0]["receipt"]["message_id"], "valid-followup");
+        let events = sink.events.lock().unwrap();
+        assert!(events.iter().any(|event| {
+            event.event == "trace.item"
+                && event.data.pointer("/item/type").and_then(Value::as_str) == Some("tool.end")
+                && event
+                    .data
+                    .pointer("/item/data/call_id")
+                    .and_then(Value::as_str)
+                    == Some("followup_invalid_target")
+                && event.data.pointer("/item/data/is_error") == Some(&json!(true))
+        }));
+        assert!(events.iter().any(|event| {
+            event.event == "trace.item"
+                && event.data.pointer("/item/type").and_then(Value::as_str) == Some("send_msg")
+                && event
+                    .data
+                    .pointer("/item/data/message_id")
+                    .and_then(Value::as_str)
+                    == Some("valid-followup")
         }));
     }
 

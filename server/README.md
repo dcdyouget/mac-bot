@@ -142,6 +142,16 @@ python3 server/macbotd/tests/smoke_screen_input.py \
 
 生产协作路径会生成项目、任务、委派和待验收卡片。项目任务投递到该项目群；不建群的委派在主 Bot 私聊报告结果。Bot 间私信写入独立的只读 `bot_dm` 会话，在源群显示引用。worker 完成后通知主 Bot，由主 Bot 汇总产物请求验收；用户提出修改意见后重新唤醒主 Bot。确认完成会保存群总结及项目记忆。
 
+`send_msg.chat_id` 必须是已存在的聊天 ID，项目 ID 不能代替项目群的 `chat_id`。省略时使用当前聊天；显式错误目标不自动改写，模型收到工具错误后可在同一 run 用正确 ID 重试。校验在 durable send receipt、消息、事件和派发之前执行，合法 Bot 私聊、`to: {bot}` 和明确跨群目标保持。旧版已落盘的错误目标消息、任务、参数及审批不迁移、不重放。
+
+`smoke_chat_targets.py` 使用独立 production runtime 与本机 fake provider，验证无 assignment 的 Main 群请求传错项目 ID 后零发送副作用、同 run 正确重试，以及 Bot DM 和跨群路由。每次使用新的隔离 home：
+
+```sh
+python3 server/macbotd/tests/smoke_chat_targets.py \
+  --daemon-command '/path/to/macbotd --port 7864 --password dev' \
+  --home /tmp/macbot-chat-target-check
+```
+
 阻塞、失败、完成但未汇报，以及两小时没有新 `ack/progress` 的项目任务会生成系统提醒并唤醒主 Bot。提醒标记随 orchestrator 恢复，取消任务不会触发提醒。公告、产物、任务晋升和待验收状态均通过持久事件补发。
 
 旧版 decision 等待的启动迁移只接受 durable Waiting/Suspended checkpoint 与 canonical Message、run request 的一致映射。消息已保存非空 options 时可以重建丢失的 Question，保留原消息 ID/seq/时间；不从正文推断选项、不调用模型或重复派发。已有 Question 用 `question.answer {question_id, option_index}` 或 `{question_id, text}` 回答；旧无 options 的等待用 `chat.send {chat_id, text, mentions:[], reply_to:<原 decision 消息 ID>}` 明确回复。

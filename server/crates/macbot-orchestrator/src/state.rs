@@ -154,6 +154,13 @@ fn private_question_scope(chat_id: &str) -> Id {
     format!("dm_{component}")
 }
 
+/// Stable identifier for the read-only conversation between two Bots.
+fn canonical_bot_dm_chat_id(first: &str, second: &str) -> Id {
+    let mut ids = [first, second];
+    ids.sort_unstable();
+    format!("bot_dm_{}_{}", ids[0], ids[1])
+}
+
 fn same_bot_id(left: &str, right: &str) -> bool {
     left == right || (matches!(left, "main" | "bot_main") && matches!(right, "main" | "bot_main"))
 }
@@ -390,6 +397,12 @@ impl Orchestrator {
     pub fn send_msg(&self, request: SendMessageRequest) -> Result<Message> {
         let mut i = self.lock()?;
         i.send_msg(request)
+    }
+
+    /// Validate a message target before any durable send mutation.
+    pub fn validate_send_msg_target(&self, chat_id: &str, bot_id: &str) -> Result<()> {
+        let inner = self.lock()?;
+        inner.validate_send_msg_target(chat_id, bot_id)
     }
 
     pub fn queue_steer(&self, request: SteerRequest) -> Result<SteerDelivery> {
@@ -931,6 +944,30 @@ impl Inner {
             .values()
             .find(|project| project.chat_id == chat_id)
             .map(|project| project.id.clone())
+    }
+
+    fn validate_send_msg_target(&self, chat_id: &str, bot_id: &str) -> Result<()> {
+        if chat_id == "chat_main"
+            || self.bots.values().any(|bot| bot.dm_chat_id == chat_id)
+            || self
+                .projects
+                .values()
+                .any(|project| project.chat_id == chat_id)
+        {
+            return Ok(());
+        }
+        let source = self.bots.get(bot_id);
+        if source.is_some_and(|source| {
+            self.bots.values().any(|target| {
+                target.id != source.id
+                    && canonical_bot_dm_chat_id(&source.id, &target.id) == chat_id
+            })
+        }) {
+            return Ok(());
+        }
+        Err(OrchestratorError::NotFound(format!(
+            "unknown chat target {chat_id}"
+        )))
     }
 
     fn rpc(&mut self, method: &str, p: Value) -> Result<Value> {
@@ -2182,6 +2219,7 @@ impl Inner {
     }
 
     fn send_msg(&mut self, req: SendMessageRequest) -> Result<Message> {
+        self.validate_send_msg_target(&req.chat_id, &req.bot_id)?;
         if !matches!(
             req.intent.as_str(),
             "ack" | "progress" | "decision" | "done" | "blocked"
@@ -3869,7 +3907,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id: "main".into(),
-                chat_id: "dm_main".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: None,
                 run_id: None,
                 call_id: None,
@@ -3944,7 +3982,7 @@ mod tests {
         let a = o
             .create_assignment(AssignmentRequest {
                 project_id: Some(pid),
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: b.clone(),
                 title: "实现".into(),
                 instruction: "做事".into(),
@@ -3958,7 +3996,7 @@ mod tests {
             .unwrap();
         let req = SendMessageRequest {
             bot_id: b.clone(),
-            chat_id: "chat".into(),
+            chat_id: "chat_main".into(),
             assignment_id: Some(a.id.clone()),
             run_id: Some("r".into()),
             call_id: Some("c".into()),
@@ -3972,6 +4010,92 @@ mod tests {
         let m2 = o.send_msg(req).unwrap();
         assert_eq!(m1.id, m2.id);
         assert_eq!(o.finish_assignment(&a.id, "done").unwrap().status, "done");
+    }
+
+    #[test]
+    fn send_msg_rejects_unknown_target_before_mutation() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "target worker");
+        let peer = bot(&o, "target peer");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let project = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({
+                    "name": "target project",
+                    "goal": "known chats only",
+                    "member_bot_ids": [worker.clone(), peer.clone()]
+                }),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let project_chat = project["chat"]["id"].as_str().unwrap().to_owned();
+        let before = o.snapshot().unwrap();
+        let rejected = o.send_msg(SendMessageRequest {
+            bot_id: worker.clone(),
+            chat_id: project_id,
+            assignment_id: None,
+            run_id: None,
+            call_id: None,
+            text: "must not persist".into(),
+            intent: "decision".into(),
+            mentions: vec![MentionInput::User("user".into())],
+            artifacts: vec![ArtifactRef {
+                title: "must not persist".into(),
+                path_or_url: "missing.txt".into(),
+            }],
+            options: vec!["continue".into()],
+        });
+        assert!(matches!(rejected, Err(OrchestratorError::NotFound(_))));
+        let after = o.snapshot().unwrap();
+        assert_eq!(before["messages"], after["messages"]);
+        assert_eq!(before["artifacts"], after["artifacts"]);
+        assert_eq!(before["assignments"], after["assignments"]);
+        assert_eq!(before["questions"], after["questions"]);
+
+        let group = o
+            .send_msg(SendMessageRequest {
+                bot_id: worker.clone(),
+                chat_id: project_chat.clone(),
+                assignment_id: None,
+                run_id: None,
+                call_id: None,
+                text: "group".into(),
+                intent: "ack".into(),
+                mentions: vec![],
+                artifacts: vec![],
+                options: vec![],
+            })
+            .unwrap();
+        assert_eq!(group.chat_id, project_chat);
+        let worker_dm = o.snapshot().unwrap()["bots"][&worker]["dm_chat_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let dm = o
+            .send_msg(SendMessageRequest {
+                bot_id: worker.clone(),
+                chat_id: worker_dm.clone(),
+                assignment_id: None,
+                run_id: None,
+                call_id: None,
+                text: "dm".into(),
+                intent: "ack".into(),
+                mentions: vec![],
+                artifacts: vec![],
+                options: vec![],
+            })
+            .unwrap();
+        assert_eq!(dm.chat_id, worker_dm);
+        let bot_dm = canonical_bot_dm_chat_id(&worker, &peer);
+        assert!(o.validate_send_msg_target(&bot_dm, &worker).is_ok());
+        assert!(o
+            .validate_send_msg_target("bot_dm_unknown_target", &worker)
+            .is_err());
+        let route_before = o.snapshot().unwrap();
+        let route = o.bot_dm_route(&worker, &peer).unwrap();
+        assert_eq!(route.chat_id, bot_dm);
+        assert_eq!(o.snapshot().unwrap(), route_before);
     }
 
     #[test]
@@ -4025,7 +4149,7 @@ mod tests {
         let a = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: b.clone(),
                 title: "x".into(),
                 instruction: "x".into(),
@@ -4041,7 +4165,7 @@ mod tests {
             .queue_steer(SteerRequest {
                 bot_id: b,
                 project_id: None,
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 text: "调整".into(),
                 message_id: None,
             })
@@ -4077,10 +4201,11 @@ mod tests {
                 json!({"name":"登录","goal":"邮箱","member_bot_ids":[from,to]}),
             ))
             .unwrap();
+        let project_chat = project["chat"]["id"].as_str().unwrap().to_owned();
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: Some(project["project"]["id"].as_str().unwrap().into()),
-                origin_chat_id: "project-chat".into(),
+                origin_chat_id: project_chat.clone(),
                 bot_id: from.clone(),
                 title: "PRD".into(),
                 instruction: "写 PRD".into(),
@@ -4094,7 +4219,7 @@ mod tests {
             .unwrap();
         o.send_msg(SendMessageRequest {
             bot_id: from,
-            chat_id: "project-chat".into(),
+            chat_id: project_chat.clone(),
             assignment_id: Some(assignment.id),
             run_id: None,
             call_id: None,
@@ -4395,7 +4520,7 @@ mod tests {
         let a = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: b.clone(),
                 title: "决策".into(),
                 instruction: "询问".into(),
@@ -4410,7 +4535,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id: b.clone(),
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(a.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -4437,7 +4562,7 @@ mod tests {
             .queue_steer(SteerRequest {
                 bot_id: b,
                 project_id: None,
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 text: "选 A".into(),
                 message_id: None,
             })
@@ -4457,7 +4582,7 @@ mod tests {
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: bot_id.clone(),
                 title: "决策".into(),
                 instruction: "等待选择".into(),
@@ -4473,7 +4598,7 @@ mod tests {
         let error = o
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -4521,7 +4646,7 @@ mod tests {
         let first = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: source.clone(),
                 title: "用户决策".into(),
                 instruction: "等待用户".into(),
@@ -4539,7 +4664,7 @@ mod tests {
                 "send_msg",
                 json!({
                     "bot_id":source,
-                    "chat_id":"chat",
+                    "chat_id":"chat_main",
                     "assignment_id":first.id.clone(),
                     "text":"请用户选择",
                     "intent":"decision",
@@ -4556,7 +4681,7 @@ mod tests {
         let second = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: user_message["sender"].as_str().unwrap().into(),
                 title: "Bot 决策".into(),
                 instruction: "等待 Bot".into(),
@@ -4573,7 +4698,7 @@ mod tests {
                 "send_msg",
                 json!({
                     "bot_id":user_message["sender"],
-                    "chat_id":"chat",
+                    "chat_id":"chat_main",
                     "assignment_id":second.id.clone(),
                     "text":"请目标 Bot 回答",
                     "intent":"decision",
@@ -4602,7 +4727,7 @@ mod tests {
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: source.clone(),
                 title: "自提及".into(),
                 instruction: "拒绝".into(),
@@ -4621,7 +4746,7 @@ mod tests {
                 "send_msg",
                 json!({
                     "bot_id":source.clone(),
-                    "chat_id":"chat",
+                    "chat_id":"chat_main",
                     "assignment_id":assignment.id.clone(),
                     "text":"不能自提及",
                     "intent":"decision",
@@ -4705,7 +4830,7 @@ mod tests {
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: source.clone(),
                 title: "需要回答".into(),
                 instruction: "请询问回答方".into(),
@@ -4720,7 +4845,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id: source,
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -4772,7 +4897,7 @@ mod tests {
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: bot_id.clone(),
                 title: "恢复".into(),
                 instruction: "恢复问题".into(),
@@ -4787,7 +4912,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id,
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -4824,7 +4949,7 @@ mod tests {
         let assignment = source
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: bot_id.clone(),
                 title: "迁移".into(),
                 instruction: "恢复旧等待".into(),
@@ -4839,7 +4964,7 @@ mod tests {
         let message = source
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -4863,7 +4988,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(snapshot).unwrap();
         assert!(restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat",)
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main",)
             .unwrap());
         let after = restored.snapshot().unwrap();
         let question_id = format!("decision:{}", message.id);
@@ -4881,7 +5006,7 @@ mod tests {
             message.id
         );
         assert!(!restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat",)
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main",)
             .unwrap());
         assert_eq!(restored.snapshot().unwrap(), after);
     }
@@ -4893,7 +5018,7 @@ mod tests {
         let assignment = source
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: bot_id.clone(),
                 title: "已回答".into(),
                 instruction: "恢复已回答问题".into(),
@@ -4908,7 +5033,7 @@ mod tests {
         let message = source
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -4940,7 +5065,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(legacy).unwrap();
         assert!(restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
             .unwrap());
         let after = restored.snapshot().unwrap();
         assert_eq!(after["messages"][&message.id]["question_id"], question_id);
@@ -4952,7 +5077,7 @@ mod tests {
             message.id
         );
         assert!(!restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
             .unwrap());
         assert_eq!(restored.snapshot().unwrap(), after);
     }
@@ -4964,7 +5089,7 @@ mod tests {
         let assignment = source
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: bot_id.clone(),
                 title: "迁移".into(),
                 instruction: "拒绝终态".into(),
@@ -4979,7 +5104,7 @@ mod tests {
         let message = source
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -5002,7 +5127,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(terminal).unwrap();
         assert!(restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
             .is_err());
         assert!(restored.snapshot().unwrap()["questions"]
             .as_object()
@@ -5022,7 +5147,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(no_options).unwrap();
         assert!(restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
             .unwrap());
         let after = restored.snapshot().unwrap();
         assert!(after["questions"].as_object().unwrap().is_empty());
@@ -5044,7 +5169,7 @@ mod tests {
         let assignment = source
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: bot_id.clone(),
                 title: "Bot 决策".into(),
                 instruction: "恢复".into(),
@@ -5059,7 +5184,7 @@ mod tests {
         let message = source
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -5085,7 +5210,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(snapshot).unwrap();
         assert!(restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
             .unwrap());
         assert_eq!(
             restored.snapshot().unwrap()["assignments"][&assignment.id]["status"],
@@ -5097,7 +5222,7 @@ mod tests {
         let assignment = source
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: bot_id.clone(),
                 title: "歧义".into(),
                 instruction: "不猜".into(),
@@ -5112,7 +5237,7 @@ mod tests {
         let message = source
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -5127,7 +5252,7 @@ mod tests {
             .create_question(QuestionRequest {
                 bot_id: bot_id.clone(),
                 assignment_id: Some(assignment.id.clone()),
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 text: message.text.clone(),
                 options: message.options.clone(),
                 allow_free_text: true,
@@ -5144,7 +5269,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(snapshot).unwrap();
         assert!(!restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
             .unwrap());
         assert_eq!(
             restored.snapshot().unwrap()["assignments"][&assignment.id]["wait"],
@@ -5159,7 +5284,7 @@ mod tests {
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: bot_id.clone(),
                 title: "恢复".into(),
                 instruction: "恢复问题".into(),
@@ -5174,7 +5299,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -5190,7 +5315,7 @@ mod tests {
             .create_question(QuestionRequest {
                 bot_id,
                 assignment_id: Some(assignment.id),
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 text: "重复选项".into(),
                 options: vec!["A".into(), "B".into()],
                 allow_free_text: true,
@@ -5216,7 +5341,7 @@ mod tests {
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: bot_id.clone(),
                 title: "恢复".into(),
                 instruction: "恢复问题".into(),
@@ -5231,7 +5356,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id,
-                chat_id: "chat".into(),
+                chat_id: "chat_main".into(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -5271,7 +5396,7 @@ mod tests {
         let a = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: b,
                 title: "工作".into(),
                 instruction: "工作".into(),
@@ -5326,7 +5451,7 @@ mod tests {
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
-                origin_chat_id: "chat".into(),
+                origin_chat_id: "chat_main".into(),
                 bot_id: from.clone(),
                 title: "A→B→A".into(),
                 instruction: "循环起点".into(),
@@ -5344,7 +5469,7 @@ mod tests {
                 "send_msg",
                 json!({
                     "bot_id": from,
-                    "chat_id": "chat",
+                    "chat_id": "chat_main",
                     "assignment_id": assignment.id,
                     "text": "继续交接",
                     "intent": "done",
@@ -5684,7 +5809,9 @@ mod tests {
 
         o.send_msg(SendMessageRequest {
             bot_id: worker.clone(),
-            chat_id: format!("routine:{routine_id}"),
+            // Build a valid message, then emulate the legacy persisted target
+            // below; new sends must never admit virtual routine chats.
+            chat_id: project_chat.to_owned(),
             assignment_id: Some(assignment_id.into()),
             run_id: None,
             call_id: None,

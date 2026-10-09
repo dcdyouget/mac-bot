@@ -1969,6 +1969,9 @@ impl RpcBackend for ProductionBackend {
         }
         let _guard = self.write_lock.lock().await;
         let mut params = params;
+        if method == "send_msg" {
+            self.execution_validate_send_msg_target(&params)?;
+        }
         let bot_dm_context = if method == "send_msg" {
             self.prepare_bot_dm_send(&mut params)?
         } else {
@@ -3351,6 +3354,45 @@ impl ProductionBackend {
             .orchestrator
             .rpc("bot.delete", json!({"bot_id":target_bot_id}))
             .await;
+    }
+
+    /// Pure target validation, also used before the executor's durable receipt.
+    /// Resolve explicit Bot DM routes without creating their metadata or events.
+    pub fn execution_validate_send_msg_target(&self, params: &Value) -> Result<(), RpcError> {
+        let mut resolved = params.clone();
+        if params.get("to").is_some() {
+            let source_chat = match params.get("chat_id") {
+                None => "chat_main",
+                Some(Value::String(target)) if !target.trim().is_empty() => target.as_str(),
+                Some(_) => {
+                    return Err(crate::rpc_error(
+                        "invalid_params",
+                        "send_msg.chat_id must be a nonempty Chat.id",
+                        None,
+                    ))
+                }
+            };
+            let source_bot = params.get("bot_id").and_then(Value::as_str).unwrap_or("");
+            self.orchestrator
+                .validate_send_msg_target(source_chat, source_bot)
+                .map_err(Self::error)?;
+        }
+        self.prepare_bot_dm_send(&mut resolved)?;
+        let chat_id = resolved
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                crate::rpc_error("invalid_params", "send_msg.chat_id is required", None)
+            })?;
+        let bot_id = resolved
+            .get("bot_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                crate::rpc_error("invalid_params", "send_msg.bot_id is required", None)
+            })?;
+        self.orchestrator
+            .validate_send_msg_target(chat_id, bot_id)
+            .map_err(Self::error)
     }
 
     fn prepare_bot_dm_send(&self, params: &mut Value) -> Result<Option<BotDmContext>, RpcError> {
@@ -7505,6 +7547,117 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unknown_send_target_has_no_rpc_message_assignment_or_event_side_effects() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Target worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"Target project", "goal":"Validate explicit routing",
+                    "member_bot_ids":[bot_id]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let chat_id = project["project"]["chat_id"].as_str().unwrap();
+        let before = backend.orchestrator.snapshot().unwrap();
+        let events = backend.store.events_since(0).unwrap();
+        let operations = backend
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+            .unwrap();
+        let params = json!({"chat_id":project_id,"bot_id":"main","intent":"progress",
+            "text":"Do not create an orphan handoff", "mentions":[bot_id]});
+        // A valid `to` may create a Bot DM later, but its preflight is pure.
+        backend
+            .execution_validate_send_msg_target(&json!({
+                "chat_id":chat_id,"bot_id":"main","to":{"bot":bot_id}
+            }))
+            .unwrap();
+        for invalid_source in [json!(project_id), json!(42), Value::Null, json!("")] {
+            let invalid = json!({"chat_id":invalid_source,"bot_id":"main",
+                "to":{"bot":bot_id},"intent":"progress","text":"No invalid source ref"});
+            assert!(backend
+                .execution_validate_send_msg_target(&invalid)
+                .is_err());
+            assert!(backend
+                .call("send_msg", invalid, &gateway.state)
+                .await
+                .is_err());
+        }
+        assert!(backend.execution_validate_send_msg_target(&params).is_err());
+        assert!(backend
+            .call("send_msg", params.clone(), &gateway.state)
+            .await
+            .is_err());
+        assert!(backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":"invalid-target","call_id":"invalid-call"},"message":params
+                })
+            )
+            .await
+            .is_err());
+        assert_eq!(backend.orchestrator.snapshot().unwrap(), before);
+        assert_eq!(backend.store.events_since(0).unwrap().len(), events.len());
+        assert_eq!(
+            backend
+                .store
+                .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+                .unwrap(),
+            operations
+        );
+        assert!(!home
+            .path()
+            .join(format!("data/chats/{project_id}"))
+            .exists());
+
+        let corrected = backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":"invalid-target","call_id":"corrected-call"},
+                    "message":{"chat_id":chat_id,"bot_id":"main","intent":"progress",
+                        "text":"Explicit corrected target", "mentions":[bot_id]}
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(corrected["chat_id"], chat_id);
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        let handoff = snapshot["assignments"]
+            .as_object()
+            .unwrap()
+            .values()
+            .find(|assignment| assignment["trigger_message_id"] == corrected["id"])
+            .unwrap();
+        assert_eq!(handoff["project_id"], project_id);
+        assert_eq!(handoff["origin_chat_id"], chat_id);
+        backend
+            .execution_validate_send_msg_target(&json!({
+                "bot_id":"main","chat_id":bot["bot"]["dm_chat_id"]
+            }))
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn execution_send_msg_preserves_receipt_idempotency() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
@@ -9127,6 +9280,20 @@ mod tests {
                 .code,
             "forbidden"
         );
+        // The prefix does not imply read-only, but this must be an actual
+        // registered direct chat rather than arbitrary metadata for a new ID.
+        let named_bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Named direct chat"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let mut snapshot = backend.orchestrator.snapshot().unwrap();
+        snapshot["bots"][named_bot["bot"]["id"].as_str().unwrap()]["dm_chat_id"] =
+            json!("bot_dm_named");
+        backend.orchestrator.restore(snapshot).unwrap();
         fs::create_dir_all(home.path().join("data/chats/bot_dm_named")).unwrap();
         fs::write(
             home.path().join("data/chats/bot_dm_named/metadata.json"),

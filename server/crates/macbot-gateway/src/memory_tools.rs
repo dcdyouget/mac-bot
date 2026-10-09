@@ -329,6 +329,10 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
         self.delegate.send_group_message(message).await
     }
 
+    async fn validate_send_msg_target(&self, message: &Value) -> Result<(), String> {
+        self.delegate.validate_send_msg_target(message).await
+    }
+
     async fn approval_required(&self, data: Value) {
         self.delegate.approval_required(data).await;
     }
