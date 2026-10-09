@@ -1,0 +1,40 @@
+{
+  "checked_at": "2026-10-09T17:28:23.327280+08:00",
+  "source_commit": "0e882aca0c09b538c6764da177a09cf0d7254443",
+  "component": "mock",
+  "port": 7789,
+  "listener_pid": 29622,
+  "result": "mock RPC precheck passed; not S3 acceptance",
+  "preserved": [
+    "~/MacBot-mock",
+    "installed desktop eb088fa",
+    "signed Android Release/AVD user data"
+  ],
+  "bootstrap": {
+    "bots": 4,
+    "chats": 6
+  },
+  "search_checks": {
+    "PRD_artifact_count": 1,
+    "email_message_limit1_count": 1,
+    "limit0_clamped_count": 1,
+    "missing_query": "invalid_params",
+    "required_fields": [
+      "kind",
+      "id",
+      "chat_id",
+      "title",
+      "snippet",
+      "at"
+    ]
+  },
+  "deployment_log": "~/Library/Caches/MacBot/integrator/watch/mock-refresh-0e882ac.log",
+  "capture_log": "~/Library/Caches/MacBot/integrator/watch/mock-0e882ac-capture.log",
+  "desktop_capture": "failed: installed PID86980 has no visible on-screen window; did not Raise during QA hold",
+  "android_capture": {
+    "screenshot": "mock-0e882ac-android-reconnecting.png",
+    "observed": "reconnecting banner plus cached sessions/Bots; owner recovering emulator exit139 and final Release QA",
+    "scope": "read-only current state, not live search or S0/S3 acceptance"
+  },
+  "stage_acceptance": "S3 production/dual UI/skills/memory unaccepted; S1-S5 remain pending"
+}

@@ -1,0 +1,29 @@
+{
+  "checked_at": "2026-10-09T17:28:23.327280+08:00",
+  "source_commit": "fb0da7cf9475c2936aa2e84f2736b6a7a393d510",
+  "result": "clean archive App packaging passed; awaiting QA GUI handback",
+  "app": "/Users/gongshaojie/Library/Caches/MacBot/integrator/source/fb0da7cf9475c2936aa2e84f2736b6a7a393d510/clients/mac/dist/MacBot.app",
+  "source_marker": "fb0da7cf9475c2936aa2e84f2736b6a7a393d510",
+  "binary_bytes": 111408128,
+  "binary_sha256": "7945d2d80110638a30d6b88be73eb8479b0c020098c717a6a7e17aba022074ad",
+  "bundle_id": "bot.mac.desktop",
+  "fixtures_present": true,
+  "source_dirty": false,
+  "log": "~/Library/Caches/MacBot/integrator/watch/desktop-stage-fb0da7c.log",
+  "installed": false,
+  "supersedes": "checkpoint-2633ff9-build.json packaging blocker",
+  "qa_isolation_review": {
+    "env": "MACBOT_CLIENT_DATA_DIR",
+    "covers": [
+      "hosts",
+      "active host",
+      "file secrets",
+      "cache",
+      "outbox",
+      "preferences",
+      "updates"
+    ],
+    "keychain": "QA must also use MACBOT_SECRET_BACKEND=file"
+  },
+  "remaining": "Native selected-chat history/skills regression and S1-S5 full integration remain pending"
+}
