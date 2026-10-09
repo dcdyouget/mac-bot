@@ -48,6 +48,12 @@ import bot.mac.mobile.resources.routines_pause
 import bot.mac.mobile.resources.routines_resume
 import bot.mac.mobile.resources.routines_title
 import bot.mac.mobile.resources.routines_trigger
+import bot.mac.mobile.resources.routines_status_running
+import bot.mac.mobile.resources.routines_status_done
+import bot.mac.mobile.resources.routines_status_failed
+import bot.mac.mobile.resources.routines_status_skipped
+import bot.mac.mobile.resources.routines_trigger_schedule
+import bot.mac.mobile.resources.routines_trigger_test
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -109,9 +115,9 @@ fun RoutinesScreen(repository: MobileRepository, onOpenAssignment: (String) -> U
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(history, key = { it.str("id") ?: it.hashCode() }) { run ->
                     Column {
-                        Text(run.str("status") ?: "", style = MaterialTheme.typography.titleSmall)
+                        Text(routineStatusLabel(run.str("status")), style = MaterialTheme.typography.titleSmall)
                         Text(run.str("started_at") ?: "", style = MaterialTheme.typography.labelSmall)
-                        run.str("trigger").takeIf { it.isNotBlank() }?.let { Text(stringResource(Res.string.routines_trigger, it), style = MaterialTheme.typography.labelSmall) }
+                        run.str("trigger").takeIf { it.isNotBlank() }?.let { Text(stringResource(Res.string.routines_trigger, routineTriggerLabel(it)), style = MaterialTheme.typography.labelSmall) }
                         run.str("finished_at").takeIf { it.isNotBlank() }?.let { Text(stringResource(Res.string.routines_finished, it), style = MaterialTheme.typography.labelSmall) }
                         run.str("assignment_id").takeIf { it.isNotBlank() }?.let { assignmentId ->
                             TextButton(onClick = { onOpenAssignment(assignmentId) }) { Text(stringResource(Res.string.routines_details)) }
@@ -145,7 +151,7 @@ private fun RoutineCard(routine: JsonObject, onToggle: (Boolean) -> Unit, onHist
             (routine["last_run"] as? JsonObject)?.let { last ->
                 val status = last.str("status")
                 val started = last.str("started_at")
-                if (status.isNotBlank() || started.isNotBlank()) Text("${stringResource(Res.string.routines_last_run)}: $status $started", style = MaterialTheme.typography.labelSmall)
+                if (status.isNotBlank() || started.isNotBlank()) Text("${stringResource(Res.string.routines_last_run)}: ${routineStatusLabel(status)} $started", style = MaterialTheme.typography.labelSmall)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TextButton(onClick = onHistory) { Text(stringResource(Res.string.routines_history)) }
@@ -156,3 +162,19 @@ private fun RoutineCard(routine: JsonObject, onToggle: (Boolean) -> Unit, onHist
 }
 
 internal fun toggleRoutineEnabled(enabled: Boolean): Boolean = !enabled
+
+@Composable
+private fun routineStatusLabel(status: String): String = when (status.lowercase()) {
+    "running" -> stringResource(Res.string.routines_status_running)
+    "done" -> stringResource(Res.string.routines_status_done)
+    "failed" -> stringResource(Res.string.routines_status_failed)
+    "skipped" -> stringResource(Res.string.routines_status_skipped)
+    else -> status
+}
+
+@Composable
+private fun routineTriggerLabel(trigger: String): String = when (trigger.lowercase()) {
+    "schedule" -> stringResource(Res.string.routines_trigger_schedule)
+    "test" -> stringResource(Res.string.routines_trigger_test)
+    else -> trigger
+}

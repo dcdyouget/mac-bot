@@ -130,4 +130,10 @@
     <string name="routines_error">定时任务操作失败：%1$s</string>
     <string name="routines_trigger">触发：%1$s</string>
     <string name="routines_finished">结束：%1$s</string>
+    <string name="routines_status_running">运行中</string>
+    <string name="routines_status_done">已完成</string>
+    <string name="routines_status_failed">失败</string>
+    <string name="routines_status_skipped">已跳过</string>
+    <string name="routines_trigger_schedule">定时触发</string>
+    <string name="routines_trigger_test">测试触发</string>
 </resources>
