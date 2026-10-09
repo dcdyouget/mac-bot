@@ -1,0 +1,30 @@
+{
+  "connection_count": 1,
+  "full_s1_pass": false,
+  "http_server_time": "2026-10-09T20:19:05.884Z",
+  "node_id": "01a11fa3-345e-77a7-8e00-b6585c090f37",
+  "note": "No model/tool calls; independent transport probe, not installed Android notification or UI acceptance.",
+  "reconnects": 0,
+  "samples": [
+    {
+      "elapsed_seconds": 0.009,
+      "server_time": "2026-10-09T20:19:06.812Z"
+    },
+    {
+      "elapsed_seconds": 20.046,
+      "server_time": "2026-10-09T20:19:26.828Z"
+    },
+    {
+      "elapsed_seconds": 40.08,
+      "server_time": "2026-10-09T20:19:46.869Z"
+    },
+    {
+      "elapsed_seconds": 60.039,
+      "server_time": "2026-10-09T20:20:06.823Z"
+    }
+  ],
+  "scenario": "production-rpc-heartbeat",
+  "status": "PASS_API_TRANSPORT",
+  "source_commit": "907a05cbfbeca5e2edb1d60bf1cd3214ac9ca614",
+  "captured_at": "2026-10-09T20:20:26.028073+00:00"
+}

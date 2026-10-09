@@ -1,0 +1,61 @@
+{
+  "scenario": "S4 scheduled routine API checks",
+  "status": "PASS",
+  "source_commit": "907a05cbfbeca5e2edb1d60bf1cd3214ac9ca614",
+  "url": "http://127.0.0.1:7788",
+  "health_version": "0.1.0",
+  "bot_id": "01a12227-e6b9-7276-96cb-98ab5185e1a5",
+  "marker": "macbot-e2e-s4-schedule-3e32c249dd22",
+  "routine": {
+    "id": "01a12253-24ca-703a-94e7-58b22ff03fa0",
+    "cron": "22 4 10 10 *",
+    "timezone": "Asia/Shanghai",
+    "target_local": "2026-10-10T04:22:00+08:00",
+    "next_run_at": "2026-10-09T20:22:00+00:00",
+    "deleted_after_run": true,
+    "remaining_after_cleanup": 0
+  },
+  "run": {
+    "id": "01a12254-900e-704b-ae89-7fbc45bd66cf",
+    "routine_id": "01a12253-24ca-703a-94e7-58b22ff03fa0",
+    "assignment_id": "01a12254-900e-704b-ae89-7fbb92b9d877",
+    "trigger": "schedule",
+    "status": "done",
+    "started_at": "2026-10-09T20:22:07.674417+00:00",
+    "finished_at": "2026-10-09T20:22:33.024288+00:00",
+    "error": null
+  },
+  "assignment": {
+    "id": "01a12254-900e-704b-ae89-7fbb92b9d877",
+    "status": "done"
+  },
+  "trace": {
+    "trace_items": 6,
+    "run_ids": [
+      "01a12254-900e-704b-ae89-7fbc45bd66cf"
+    ],
+    "marker_in_response": true,
+    "send_msg": {
+      "chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+      "intent": "done",
+      "message_id": "01a12254-cd92-773a-a4e6-6b5a54835f54"
+    },
+    "delivered_message_id": "01a12254-cd92-773a-a4e6-6b5a54835f54"
+  },
+  "assertions": {
+    "no_test_run_trigger": true,
+    "only_send_msg_tool": true,
+    "single_done_report": true,
+    "no_mentions_or_artifacts": true,
+    "full_s4_pass": false
+  },
+  "verification_scope": {
+    "api_only": true,
+    "installed_source": "907a05cbfbeca5e2edb1d60bf1cd3214ac9ca614",
+    "notifications_observed_by_integrator": false,
+    "desktop_android_ui_verified": false,
+    "browser_login_or_screen_takeover_verified": false,
+    "native_input_verified": false
+  },
+  "note": "Only the self-created near-future routine was scheduled and deleted in finally. No routine.test_run, tool approval, unknown mutation, GUI, ADB, or notification operation was used. Scheduled notification and the remaining S4 UI/input checks are outside this API-only pass."
+}

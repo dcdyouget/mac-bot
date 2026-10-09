@@ -209,8 +209,6 @@
     "main_requests_resent": false,
     "note": "Three exact new project-scoped calls were allowed once; the next memory approval used a marker string instead of the verified project UUID and remained pending."
   },
-  "status": "FAIL",
-  "error": "macbot-e2e-s2-login-522c6b619b92 pending approval is outside this test project scope: memory project ID does not match the verified project",
   "resume_diagnosis": {
     "prior_failure": "detail_args_mismatch",
     "prior_failure_approval_id": "01a12236-e58e-761d-8616-558d8cc1296c",
@@ -230,5 +228,7 @@
     "01a12236-e58e-761d-8616-558d8cc1296c",
     "01a12237-088b-76b0-a897-d66d6813a350",
     "01a1223a-b0a5-70a0-b22b-afd52955286c"
-  ]
+  ],
+  "status": "FAIL",
+  "error": "timed out waiting for S2 coding assignment working"
 }

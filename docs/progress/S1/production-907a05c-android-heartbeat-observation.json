@@ -1,0 +1,52 @@
+{
+  "source_commit": "907a05cbfbeca5e2edb1d60bf1cd3214ac9ca614",
+  "samples": [
+    {
+      "at_utc": "2026-10-09T20:19:57.770439+00:00",
+      "connections": [
+        "tcp6       0      0 ::ffff:10.0.2.16:34572  ::ffff:10.0.2.2:7788    ESTABLISHED",
+        "tcp6       0      0 ::ffff:10.0.2.16:39530  ::ffff:10.0.2.2:7789    ESTABLISHED"
+      ],
+      "app_pid": "14036"
+    },
+    {
+      "at_utc": "2026-10-09T20:20:10.747858+00:00",
+      "connections": [
+        "tcp6       0      0 ::ffff:10.0.2.16:34572  ::ffff:10.0.2.2:7788    ESTABLISHED",
+        "tcp6       0      0 ::ffff:10.0.2.16:39530  ::ffff:10.0.2.2:7789    ESTABLISHED"
+      ],
+      "app_pid": "14036"
+    },
+    {
+      "at_utc": "2026-10-09T20:20:54.559765+00:00",
+      "connections": [
+        "tcp6       0      0 ::ffff:10.0.2.16:34572  ::ffff:10.0.2.2:7788    ESTABLISHED",
+        "tcp6       0      0 ::ffff:10.0.2.16:39530  ::ffff:10.0.2.2:7789    ESTABLISHED"
+      ],
+      "app_pid": "14036"
+    },
+    {
+      "at_utc": "2026-10-09T20:21:41.182115+00:00",
+      "connections": [
+        "tcp6       0      0 ::ffff:10.0.2.16:34572  ::ffff:10.0.2.2:7788    ESTABLISHED",
+        "tcp6       0      0 ::ffff:10.0.2.16:39530  ::ffff:10.0.2.2:7789    ESTABLISHED"
+      ],
+      "app_pid": "14036"
+    },
+    {
+      "at_utc": "2026-10-09T20:25:22.096300+00:00",
+      "connections": [
+        "tcp6       0      0 ::ffff:10.0.2.16:34572  ::ffff:10.0.2.2:7788    ESTABLISHED",
+        "tcp6       0      0 ::ffff:10.0.2.16:39530  ::ffff:10.0.2.2:7789    ESTABLISHED"
+      ],
+      "app_pid": "14036"
+    }
+  ],
+  "screen_closed_by_native_back": true,
+  "full_s1_pass": false,
+  "elapsed_seconds": 324.325861,
+  "status": "PASS_OBSERVED_SOCKET_CONTINUITY",
+  "scope": "Native Computer closed using Back; one formal socket and one mock socket remained at observed sample times. No wire capture, cannot rule out gaps between samples. Independent 60-second WS probe also passed.",
+  "app_pid_unchanged": true,
+  "formal_endpoints_unchanged": true
+}

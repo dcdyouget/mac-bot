@@ -1,0 +1,27 @@
+{
+  "source_commit": "907a05cbfbeca5e2edb1d60bf1cd3214ac9ca614",
+  "captured_at": "2026-10-09T20:23:25.603493+00:00",
+  "marker": "macbot-e2e-s4-schedule-3e32c249dd22",
+  "read_only": true,
+  "new_keys": [],
+  "all_app_keys_queried": 50,
+  "query_errors": [],
+  "matching_notifications": [],
+  "status": "NOT_OBSERVED",
+  "full_s4_pass": false,
+  "query_note": "Notification keys with shell metacharacter pipes explicitly quoted in remote adb shell. Initial unquoted queries failed and were discarded, not used as absence evidence.",
+  "app_global_toggle_verified": true,
+  "app_global_toggle_enabled": true,
+  "native_toggle_evidence": {
+    "screenshot": "production-907a05c-android-notifications-enabled.png",
+    "notification_label_bounds": "[42,592][901,648]",
+    "toggle_bounds": "[901,557][1038,683]",
+    "checkable": true,
+    "checked": true,
+    "read_only_ui": true
+  },
+  "bot_notifications": true,
+  "chat_muted": false,
+  "routine_result_evidence": "production-907a05c-scheduled-routine.json",
+  "native_notification_action_verified": false
+}

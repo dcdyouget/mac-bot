@@ -1,0 +1,416 @@
+{
+  "source_commit": "907a05cbfbeca5e2edb1d60bf1cd3214ac9ca614",
+  "read_only": true,
+  "health": {
+    "ok": true,
+    "version": "0.1.0",
+    "setup_required": false
+  },
+  "identity": {
+    "approval_id": "01a1223a-c5ad-767d-99db-94c6778f1a37",
+    "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+    "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+    "old_call_id": "call_function_x1zegdtsdz09_1"
+  },
+  "assignment": {
+    "id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+    "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "status": "done"
+  },
+  "approval_states": [
+    {
+      "id": "01a1223a-c5ad-767d-99db-94c6778f1a37",
+      "state": "expired",
+      "tool": "memory",
+      "risk": "write",
+      "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "call_id": "call_function_x1zegdtsdz09_1",
+      "detail": {
+        "valid_json": true,
+        "keys": [
+          "action",
+          "content",
+          "project_id",
+          "scope"
+        ],
+        "args_sha256": "da9715c8dc42b6550c3ab630f8dc8198da5fcc4439b37c2a762672c3cfec16db",
+        "project_id": "macbot-e2e-s2-login-522c6b619b92"
+      },
+      "scope": {
+        "authorized": false,
+        "reason": "approval is not pending",
+        "tool": "memory"
+      }
+    },
+    {
+      "id": "01a12236-e58e-761d-8616-558d8cc1296c",
+      "state": "allowed_once",
+      "tool": "write",
+      "risk": "write",
+      "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "call_id": "call_function_46nmh5xb5zgm_1",
+      "detail": {
+        "valid_json": true,
+        "keys": [
+          "content",
+          "path",
+          "path_resolution",
+          "resolved_path"
+        ],
+        "args_sha256": "65cb59f790d0357622499d8f34c1b2a1394966659657b98e14794fed996ef94d",
+        "path_resolution": "home-v1"
+      },
+      "scope": {
+        "authorized": false,
+        "reason": "approval is not pending",
+        "tool": "write"
+      }
+    }
+  ],
+  "run_request": {
+    "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+    "assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+    "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92"
+  },
+  "job_checkpoints": [
+    {
+      "file": "job_01a12236-9aba-708c-a922-f974cf37dc5b.json",
+      "id": "job_01a12236-9aba-708c-a922-f974cf37dc5b",
+      "status": "done",
+      "unsafe_replay": false,
+      "commit_seq": 694,
+      "checkpoint": {
+        "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+        "head_call_id": null,
+        "head_tool": null,
+        "pending_tools_count": null,
+        "head_args_sha256": null
+      }
+    }
+  ],
+  "trace": [
+    {
+      "aseq": 1,
+      "type": "run.start",
+      "at": "2026-10-09T19:49:26.366Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60"
+    },
+    {
+      "aseq": 2,
+      "type": "llm.request",
+      "at": "2026-10-09T19:49:28.471Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:0"
+    },
+    {
+      "aseq": 3,
+      "type": "llm.response",
+      "at": "2026-10-09T19:49:33.327Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:0"
+    },
+    {
+      "aseq": 4,
+      "type": "tool.start",
+      "at": "2026-10-09T19:49:33.337Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_86ud1c7juuy4_1",
+      "tool": "ls"
+    },
+    {
+      "aseq": 5,
+      "type": "tool.end",
+      "at": "2026-10-09T19:49:33.348Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_86ud1c7juuy4_1",
+      "is_error": false
+    },
+    {
+      "aseq": 6,
+      "type": "llm.request",
+      "at": "2026-10-09T19:49:33.397Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:1"
+    },
+    {
+      "aseq": 7,
+      "type": "llm.response",
+      "at": "2026-10-09T19:49:43.023Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:1"
+    },
+    {
+      "aseq": 8,
+      "type": "tool.start",
+      "at": "2026-10-09T19:49:43.035Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_46nmh5xb5zgm_1",
+      "tool": "write"
+    },
+    {
+      "aseq": 9,
+      "type": "run.wait",
+      "at": "2026-10-09T19:49:43.082Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60"
+    },
+    {
+      "aseq": 10,
+      "type": "run.resume",
+      "at": "2026-10-09T19:53:30.028Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60"
+    },
+    {
+      "aseq": 11,
+      "type": "tool.start",
+      "at": "2026-10-09T19:53:32.100Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_46nmh5xb5zgm_1",
+      "tool": "write"
+    },
+    {
+      "aseq": 12,
+      "type": "tool.end",
+      "at": "2026-10-09T19:53:32.113Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_46nmh5xb5zgm_1",
+      "is_error": false
+    },
+    {
+      "aseq": 13,
+      "type": "llm.request",
+      "at": "2026-10-09T19:53:32.196Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:2"
+    },
+    {
+      "aseq": 14,
+      "type": "llm.response",
+      "at": "2026-10-09T19:53:37.536Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:2"
+    },
+    {
+      "aseq": 15,
+      "type": "tool.start",
+      "at": "2026-10-09T19:53:37.547Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_w3rf9nlxng1y_1",
+      "tool": "send_msg"
+    },
+    {
+      "aseq": 16,
+      "type": "send_msg",
+      "at": "2026-10-09T19:53:39.340Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_w3rf9nlxng1y_1"
+    },
+    {
+      "aseq": 17,
+      "type": "run.wait",
+      "at": "2026-10-09T19:53:39.389Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60"
+    },
+    {
+      "aseq": 18,
+      "type": "run.resume",
+      "at": "2026-10-09T19:53:48.912Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60"
+    },
+    {
+      "aseq": 19,
+      "type": "llm.request",
+      "at": "2026-10-09T19:53:51.423Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:2"
+    },
+    {
+      "aseq": 20,
+      "type": "llm.response",
+      "at": "2026-10-09T19:53:57.532Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:2"
+    },
+    {
+      "aseq": 21,
+      "type": "tool.start",
+      "at": "2026-10-09T19:53:57.543Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_x1zegdtsdz09_1",
+      "tool": "memory"
+    },
+    {
+      "aseq": 22,
+      "type": "run.wait",
+      "at": "2026-10-09T19:53:57.592Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60"
+    },
+    {
+      "aseq": 23,
+      "type": "tool.end",
+      "at": "2026-10-09T20:18:38.739Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_x1zegdtsdz09_1",
+      "is_error": true
+    },
+    {
+      "aseq": 24,
+      "type": "run.resume",
+      "at": "2026-10-09T20:18:38.749Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60"
+    },
+    {
+      "aseq": 25,
+      "type": "llm.request",
+      "at": "2026-10-09T20:18:41.848Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:2"
+    },
+    {
+      "aseq": 26,
+      "type": "llm.response",
+      "at": "2026-10-09T20:18:48.230Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:2"
+    },
+    {
+      "aseq": 27,
+      "type": "tool.start",
+      "at": "2026-10-09T20:18:48.242Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_2vd2ek14jis9_1",
+      "tool": "send_msg"
+    },
+    {
+      "aseq": 28,
+      "type": "send_msg",
+      "at": "2026-10-09T20:18:48.784Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "call_id": "call_function_2vd2ek14jis9_1"
+    },
+    {
+      "aseq": 29,
+      "type": "run.end",
+      "at": "2026-10-09T20:18:48.837Z",
+      "run_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60",
+      "status": "done"
+    }
+  ],
+  "prd": {
+    "exists": true,
+    "size": 1501,
+    "sha256": "b4bcf15559dc21021998ce9c2cb4729641de421796097196cc329e6052391455"
+  },
+  "assessment": {
+    "old_approval_expired": true,
+    "same_run_observed": true,
+    "full_s2_pass": false,
+    "old_call_tool_end_is_error": true,
+    "same_run_new_memory_call_observed": false,
+    "same_run_followup_send_msg_observed": true,
+    "new_pending_approval_count": 0,
+    "conclusion": "Old invalid memory approval expired and same run recovered with tool.end.is_error=true; no corrected memory retry/new approval is present yet, so migration correction remains incomplete."
+  },
+  "llm_response_metadata": [
+    {
+      "aseq": 3,
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:0",
+      "stop_reason": "tool_use",
+      "text_length": 42,
+      "tool_calls": [
+        {
+          "call_id": "call_function_86ud1c7juuy4_1",
+          "name": "ls",
+          "args_keys": [
+            "path"
+          ],
+          "project_id": null
+        }
+      ]
+    },
+    {
+      "aseq": 7,
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:1",
+      "stop_reason": "tool_use",
+      "text_length": 20,
+      "tool_calls": [
+        {
+          "call_id": "call_function_46nmh5xb5zgm_1",
+          "name": "write",
+          "args_keys": [
+            "content",
+            "path"
+          ],
+          "project_id": null
+        }
+      ]
+    },
+    {
+      "aseq": 14,
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:2",
+      "stop_reason": "tool_use",
+      "text_length": 34,
+      "tool_calls": [
+        {
+          "call_id": "call_function_w3rf9nlxng1y_1",
+          "name": "send_msg",
+          "args_keys": [
+            "intent",
+            "mentions",
+            "options",
+            "text"
+          ],
+          "project_id": null
+        }
+      ]
+    },
+    {
+      "aseq": 20,
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:2",
+      "stop_reason": "tool_use",
+      "text_length": 25,
+      "tool_calls": [
+        {
+          "call_id": "call_function_x1zegdtsdz09_1",
+          "name": "memory",
+          "args_keys": [
+            "action",
+            "content",
+            "project_id",
+            "scope"
+          ],
+          "project_id": "macbot-e2e-s2-login-522c6b619b92"
+        }
+      ]
+    },
+    {
+      "aseq": 26,
+      "request_id": "run_01a12236-9689-7737-b4fe-3abf79fd6f60:llm:2",
+      "stop_reason": "tool_use",
+      "text_length": 0,
+      "tool_calls": [
+        {
+          "call_id": "call_function_2vd2ek14jis9_1",
+          "name": "send_msg",
+          "args_keys": [
+            "intent",
+            "mentions",
+            "text"
+          ],
+          "project_id": null
+        }
+      ]
+    }
+  ]
+}
