@@ -1,0 +1,38 @@
+{
+  "desktop_source_commit": "3f7c0463deccf8a4a3d4ac93c957d476007e4df9",
+  "server_source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "params": {
+    "from": "2026-09-09T13:08:17.708134+00:00",
+    "to": "2026-10-09T13:08:17.708134+00:00"
+  },
+  "rpc": {
+    "current": {
+      "cache_read_tokens": 21887,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 119131,
+      "output_tokens": 5934,
+      "requests": 42,
+      "tasks_done": 0
+    },
+    "previous": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "requests": 0,
+      "tasks_done": 0
+    }
+  },
+  "native_visible": {
+    "tokens": 125065,
+    "requests": 42,
+    "tasks_completed": 0,
+    "cache_hit_rate_percent": 16,
+    "cost": "未知"
+  },
+  "scope": "desktop visible summary versus same RPC range only; Android parity pending",
+  "rpc_summary_matches_native": true,
+  "cache_rate_note": "16% rounded display; not treated as independently validated formula"
+}
