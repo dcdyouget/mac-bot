@@ -433,3 +433,12 @@
 
 - 保持cac5b12 APK/PID20943、094 formal PID43528、AVD与mock；原生日期输入为2026-10-09→2026-10-09，源码对应UTC00:00:00→23:59:59。摘要4,357,642 tokens/490 requests/未定价与同range RPC一致；明细输入4,208,766、输出148,876、缓存读2,847,087、490 requests一致，native趋势峰值1,404,101与RPC一致，series/heatmap合计均4,357,642。docs/progress/S3/production-094b7c5-cac5b12-android-dashboard-summary.json及summary/breakdown PNG。
 - 初次0值是加载中；Gboard首次stylus教程曾接管输入，原生Cancel后正确录入日期，未归客户端缺陷。全程无模型新请求/重装/服务或AVD重启。CSV导出未验；Mac锁屏下不能做双方同窗口比较，不计整S3通过。根协调文件单独提交理由：记录新增Android原生用量证据及联合验收边界。
+
+
+## server-mac：用户 chat.send 插话与 memory 纯参数校验（2026-10-10）
+
+- 根因：用户 send_msg 分支对 @worker 总是创建 assignment；memory 审批前只校验 owner，未覆盖 action/kind/id/content。修复提交 21346b5、463d91c：真实 chat.send 按 Bot/project/chat 查找 working/waiting/blocked 任务并进入原 run inbox，canonical delivery 经 message.updated 推进 queued→delivered→read；保留 Message id/seq/time/mentions/reply_to，同 client_request_id 不重复送达，多 Bot delivery 独立更新。新私聊保持流式上下文；审批等待不自动批准。
+- memory 与 memory_search 复用纯参数解析，项目 kind 只接受 project；action/id/content/query 与显式 scope owner 在审批前校验，合法省略 action=add/user 默认 owner 保持。旧无效 pending 仅在唯一 approval/map/head/run 匹配后 expired，并向同原 run 返回 tool.error；旧参数/授权不改，同 batch 剩余调用不执行，显式纠正后需全新审批。
+- 验证：workspace 341 tests、严格 clippy 全 targets、fmt 通过；完整 production+fake provider 协作 26 assignments/29 jobs 全 done，证据 /tmp/macbot-steer-memory-collaboration-20261010b.evidence.log。真实用户 RPC 回归不调用 assignment.steer、不传内部 assignment_id/reply_to，覆盖工作中和 decision 等待时同 run 插话/重放/Provider body 文本一次；实际旧094 binary→新版隔离升级验证原 approval expired、call/tool.error、原 run done、旧 args 不变及 deferred write 不执行。证据 /tmp/macbot-user-steer-memory-20261010h.evidence.log；脚本 server/macbotd/tests/smoke_user_steer_memory.py，命令见 server/README.md。
+- 边界：未触正式094/7788、mock7789、旧错误插话 siblings、客户端或原项目；不迁移/取消/重放旧 siblings。无协议字段变更，无客户端生成要求。源码固定 SHA 对应包完成后由集成 server-only 消费；隔离 fake/包载荷测试不替代 S2 联合/native 或 S5 fresh，通过范围仍按集成证据记录。
+- 根协调单独提交理由：交付两项正式阻断的根因、真实入口测试和旧审批安全恢复边界。
