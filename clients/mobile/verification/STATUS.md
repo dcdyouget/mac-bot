@@ -2,7 +2,7 @@
 
 2026-10-09: Debug APK built and installed on `macbot_api36` / `emulator-5554` (Android 16, API 36).
 
-- `:shared:commonTest :shared:androidUnitTest`: 46 tests passed, including all 163 fixture values, bootstrap/replay ordering, request ID matching, reconnect idempotency, multi-Host isolation, screen render-before-ack, state/trace merge and Android persistence.
+- `:shared:commonTest :shared:androidUnitTest`: 46 tests passed, including all 165 fixture values, bootstrap/replay ordering, request ID matching, reconnect idempotency, multi-Host isolation, screen render-before-ack, state/trace merge and Android persistence.
 - `:androidApp:connectedDebugAndroidTest`: Keystore round-trip passed (1 test).
 - Emulator connected to the server-mac test mock at `10.0.2.2:7789` using `dev`; sessions are visible. Evidence: `S0-mock-sessions.png`.
 - Foreground remote messaging service is running; notification permission granted.

@@ -293,6 +293,13 @@ def generate_models(objects: dict[str, dict], registry: dict[str, dict]) -> str:
         lines.append(f"@Serializable(with = {name}Serializer::class)")
         lines.append(f"data class {name}(override val raw: JsonObject) : RawProtocolModel {{")
         properties = schema.get("properties", {})
+        # HeatmapResult is an untagged object union. Keep the historical raw
+        # accessors for callers that receive a wrapped calendar/weekhour value;
+        # the serializer still preserves the complete raw object for the direct
+        # wire shapes used by the result fixtures.
+        if name == "HeatmapResult" and not properties:
+            lines.append("    val calendar: CalendarHeatmap? get() = raw[\"calendar\"]?.jsonObject?.let(::CalendarHeatmap)")
+            lines.append("    val weekhour: WeekhourHeatmap? get() = raw[\"weekhour\"]?.jsonObject?.let(::WeekhourHeatmap)")
         required = set(schema.get("required", []))
         for key, property in properties.items():
             if not isinstance(property, dict):

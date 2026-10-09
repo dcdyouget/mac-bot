@@ -79,6 +79,7 @@ class FixtureContractTest {
         path == "frames/screen-header.json" -> ScreenFrameHeaderSerializer
         path == "frames/screen-state.json" -> ScreenStateSerializer
         path == "frames/screen-input.json" || path == "frames/screen-ack.json" -> ScreenClientFrameSerializer
+        path == "results/usage_heatmap_calendar.json" || path == "results/usage_heatmap_weekhour.json" -> HeatmapResultSerializer
         path.startsWith("blocks/") -> BlockSerializer
         else -> null
         }

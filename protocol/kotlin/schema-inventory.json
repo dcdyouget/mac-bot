@@ -32,10 +32,11 @@
     "protocol/schema/skill_detail.json",
     "protocol/schema/trace_data.json",
     "protocol/schema/trace_item.json",
+    "protocol/schema/usage_heatmap.json",
     "protocol/schema/usage_totals.json",
     "protocol/schema/workbench.json",
     "protocol/schema/write_meta.json"
   ],
-  "fixtures": 163,
+  "fixtures": 165,
   "generated_models": "clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/protocol/generated/SchemaModels.kt"
 }
