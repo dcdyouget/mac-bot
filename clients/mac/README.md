@@ -43,8 +43,11 @@ cd clients/mac
 packaging/package.sh release       # 编译、生成 .app 和 .dmg
 packaging/package.sh debug app     # 只生成 debug .app
 SKIP_BUILD=1 packaging/package.sh release all  # 复用已有 target/release 二进制
+MACBOT_SOURCE_COMMIT=<完整源码SHA> packaging/package.sh debug app  # 干净 git archive 构建
 open dist/MacBot.app
 ```
+
+打包支持无 `.git` 的干净 archive；集成线用 `MACBOT_SOURCE_COMMIT` 显式传入快照 SHA，写入 `Contents/Resources/source-commit`。普通 worktree 自动记录 HEAD 与未提交源码标记；没有 SHA 时写 `unknown`，不会阻断打包。
 
 可选签名：`CODESIGN_IDENTITY="Developer ID Application: ..." packaging/package.sh release all`；本地临时签名使用 `MACBOT_ADHOC_SIGN=1`。未设置签名变量时保留未签名 bundle，便于开发机直接查看。`Info.plist` 的 Bundle ID 是 `bot.mac.desktop`，可执行文件名是 `macbot-desktop`。
 

@@ -21,6 +21,7 @@ usage() {
   print "  SKIP_BUILD=1             Reuse target output instead of running cargo build"
   print "  CODESIGN_IDENTITY=...    Sign the app with this codesign identity"
   print "  MACBOT_VERSION=...       Override CFBundle version (default: 0.1.0)"
+  print "  MACBOT_SOURCE_COMMIT=... Stamp source SHA when building a git archive"
   exit 2
 }
 
@@ -62,9 +63,15 @@ make_app() {
     cp -R "$MAC_ROOT/../../protocol/fixtures" "$APP_DIR/Contents/Resources/fixtures"
   fi
   chmod 755 "$APP_DIR/Contents/MacOS/$BINARY_NAME"
-  git -C "$MAC_ROOT" rev-parse HEAD > "$APP_DIR/Contents/Resources/source-commit"
-  if [[ -n "$(git -C "$MAC_ROOT" status --porcelain -- crates packaging Cargo.toml Cargo.lock)" ]]; then
-    print "uncommitted-client-source" > "$APP_DIR/Contents/Resources/source-dirty"
+  local source_commit="${MACBOT_SOURCE_COMMIT:-}"
+  if [[ -z "$source_commit" ]]; then
+    source_commit="$(git -C "$MAC_ROOT" rev-parse HEAD 2>/dev/null || true)"
+  fi
+  print -r -- "${source_commit:-unknown}" > "$APP_DIR/Contents/Resources/source-commit"
+  if git -C "$MAC_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if [[ -n "$(git -C "$MAC_ROOT" status --porcelain -- crates packaging Cargo.toml Cargo.lock)" ]]; then
+      print "uncommitted-client-source" > "$APP_DIR/Contents/Resources/source-dirty"
+    fi
   fi
 
   # Keep the source plist reviewable while allowing release automation to stamp
