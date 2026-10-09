@@ -652,14 +652,19 @@ impl ProductionBackend {
         event_name: &str,
         data: Value,
     ) -> Result<Option<macbot_store::Event>, RpcError> {
-        // Adopt unkeyed events written by older versions before adding a
-        // private operation receipt to the event record.
-        if self
-            .store
-            .events_since(0)
-            .map_err(store_error)?
-            .iter()
-            .any(|event| event.event == event_name && event.data == data)
+        // New keyed events can be deduplicated from the in-memory receipt
+        // index. Older releases wrote unkeyed events, so only a fingerprint
+        // hit takes the expensive exact event-log compatibility path.
+        if self.store.has_event_key(key) {
+            return Ok(None);
+        }
+        if self.store.event_payload_might_contain(event_name, &data)
+            && self
+                .store
+                .events_since(0)
+                .map_err(store_error)?
+                .iter()
+                .any(|event| event.event == event_name && event.data == data)
         {
             return Ok(None);
         }
@@ -8482,6 +8487,34 @@ mod tests {
             _backend.store.events_since(0).unwrap().len(),
             repaired_count
         );
+    }
+
+    #[test]
+    fn repaired_events_deduplicate_new_keys_and_legacy_payloads() {
+        let home = tempdir().unwrap();
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let fresh = json!({"message":{"id":"fresh"}});
+        assert!(backend
+            .append_repaired_event("repair:fresh", "message.created", fresh.clone())
+            .unwrap()
+            .is_some());
+        assert!(backend.store.has_event_key("repair:fresh"));
+        assert!(backend
+            .append_repaired_event("repair:fresh", "message.created", fresh)
+            .unwrap()
+            .is_none());
+
+        let legacy = json!({"message":{"id":"legacy"}});
+        backend
+            .store
+            .append_event("message.created", legacy.clone())
+            .unwrap();
+        let before = backend.store.events_since(0).unwrap().len();
+        assert!(backend
+            .append_repaired_event("repair:legacy", "message.created", legacy)
+            .unwrap()
+            .is_none());
+        assert_eq!(backend.store.events_since(0).unwrap().len(), before);
     }
 
     #[tokio::test]

@@ -13,6 +13,7 @@ use std::os::fd::AsRawFd;
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
+    hash::{Hash, Hasher},
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
@@ -48,6 +49,7 @@ pub struct Store {
     files: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>>,
     event_seq: Arc<Mutex<u64>>,
     event_keys: Arc<Mutex<HashSet<String>>>,
+    event_payload_fingerprints: Arc<Mutex<HashSet<u64>>>,
     chat_sequences: Arc<Mutex<()>>,
 }
 
@@ -86,6 +88,7 @@ impl Store {
             files: Arc::new(Mutex::new(HashMap::new())),
             event_seq: Arc::new(Mutex::new(0)),
             event_keys: Arc::new(Mutex::new(HashSet::new())),
+            event_payload_fingerprints: Arc::new(Mutex::new(HashSet::new())),
             chat_sequences: Arc::new(Mutex::new(())),
         };
         store.repair_jsonl_files()?;
@@ -99,11 +102,18 @@ impl Store {
             .event_seq
             .lock()
             .expect("event sequence lock poisoned") = seq;
-        *store.event_keys.lock().expect("event key lock poisoned") = store
-            .read_jsonl::<Value>("data/events/events.jsonl")?
+        let events = store.read_jsonl::<Value>("data/events/events.jsonl")?;
+        *store.event_keys.lock().expect("event key lock poisoned") = events
             .iter()
             .filter_map(|event| event.get("_operation_key").and_then(Value::as_str))
             .map(str::to_owned)
+            .collect();
+        *store
+            .event_payload_fingerprints
+            .lock()
+            .expect("event payload fingerprint lock poisoned") = events
+            .iter()
+            .filter_map(event_payload_fingerprint_from_wire)
             .collect();
         Ok(store)
     }
@@ -330,8 +340,8 @@ impl Store {
         if !path.exists() {
             return Ok(None);
         }
-        let file = File::open(&path)?;
-        serde_json::from_reader(file)
+        let bytes = fs::read(&path)?;
+        serde_json::from_slice(&bytes)
             .map(Some)
             .map_err(|source| StoreError::Snapshot { path, source })
     }
@@ -358,6 +368,24 @@ impl Store {
         data: Value,
     ) -> Result<Option<Event>, StoreError> {
         self.append_event_inner(Some(key), event.into(), data)
+    }
+
+    /// Fast in-memory receipt lookup. The event log remains authoritative.
+    pub fn has_event_key(&self, key: &str) -> bool {
+        self.event_keys
+            .lock()
+            .expect("event key lock poisoned")
+            .contains(key)
+    }
+
+    /// Conservative payload lookup. A hit only means that an exact durable
+    /// comparison may be useful; callers must verify the event log before
+    /// suppressing an append.
+    pub fn event_payload_might_contain(&self, event: &str, data: &Value) -> bool {
+        self.event_payload_fingerprints
+            .lock()
+            .expect("event payload fingerprint lock poisoned")
+            .contains(&event_payload_fingerprint(event, data))
     }
 
     fn append_event_inner(
@@ -405,6 +433,10 @@ impl Store {
         if let Some(key) = key {
             keys.insert(key.to_owned());
         }
+        self.event_payload_fingerprints
+            .lock()
+            .expect("event payload fingerprint lock poisoned")
+            .insert(event_payload_fingerprint(&record.event, &record.data));
         Ok(Some(record))
     }
 
@@ -436,6 +468,55 @@ impl Store {
     pub fn is_locked(&self) -> bool {
         self.lock.metadata().is_ok()
     }
+}
+
+fn event_payload_fingerprint(event: &str, data: &Value) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    event.hash(&mut hasher);
+    hash_event_value(data, &mut hasher);
+    hasher.finish()
+}
+
+fn hash_event_value(value: &Value, hasher: &mut impl Hasher) {
+    match value {
+        Value::Null => 0u8.hash(hasher),
+        Value::Bool(value) => {
+            1u8.hash(hasher);
+            value.hash(hasher);
+        }
+        Value::Number(value) => {
+            2u8.hash(hasher);
+            value.to_string().hash(hasher);
+        }
+        Value::String(value) => {
+            3u8.hash(hasher);
+            value.hash(hasher);
+        }
+        Value::Array(values) => {
+            4u8.hash(hasher);
+            values.len().hash(hasher);
+            for value in values {
+                hash_event_value(value, hasher);
+            }
+        }
+        Value::Object(values) => {
+            5u8.hash(hasher);
+            values.len().hash(hasher);
+            let mut keys = values.keys().collect::<Vec<_>>();
+            keys.sort();
+            for key in keys {
+                key.hash(hasher);
+                hash_event_value(&values[key], hasher);
+            }
+        }
+    }
+}
+
+fn event_payload_fingerprint_from_wire(value: &Value) -> Option<u64> {
+    Some(event_payload_fingerprint(
+        value.get("event")?.as_str()?,
+        value.get("data")?,
+    ))
 }
 
 /// Canonicalize the existing ancestor of a path and append the missing tail.
@@ -549,6 +630,34 @@ mod tests {
     }
 
     #[test]
+    fn event_indexes_distinguish_new_payloads_and_rebuild_after_reopen() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let data = serde_json::json!({"message":{"id":"m1"}});
+        store.append_event("message.created", data.clone()).unwrap();
+        assert!(store.event_payload_might_contain("message.created", &data));
+        assert!(store.event_payload_might_contain(
+            "message.created",
+            &serde_json::json!({"message":{"id":"m1"}})
+        ));
+        assert!(!store.event_payload_might_contain(
+            "message.created",
+            &serde_json::json!({"message":{"id":"m2"}})
+        ));
+        assert!(!store.has_event_key("repair:m1"));
+        store
+            .append_event_once("repair:m1", "message.created", serde_json::json!({"x":1}))
+            .unwrap();
+        assert!(store.has_event_key("repair:m1"));
+        drop(store);
+
+        let store = Store::open(dir.path()).unwrap();
+        assert!(store.has_event_key("repair:m1"));
+        assert!(store.event_payload_might_contain("message.created", &data));
+        assert!(store.event_payload_might_contain("message.created", &serde_json::json!({"x":1})));
+    }
+
+    #[test]
     fn torn_event_does_not_restore_an_uncommitted_operation_receipt() {
         let dir = tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
@@ -565,6 +674,7 @@ mod tests {
         drop(file);
         drop(store);
         let store = Store::open(dir.path()).unwrap();
+        assert!(!store.has_event_key("torn"));
         assert_eq!(
             store
                 .append_event_once("torn", "message.created", Value::Null)
@@ -712,6 +822,22 @@ mod tests {
             store.read_snapshot::<Value>("data/state.json").unwrap(),
             Some(serde_json::json!({"version": 2}))
         );
+    }
+
+    #[test]
+    fn large_snapshot_round_trips_from_complete_file() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let values = (0..4096)
+            .map(|index| serde_json::json!({"index":index,"text":"snapshot"}))
+            .collect::<Vec<_>>();
+        store.write_snapshot("data/large.json", &values).unwrap();
+        let restored = store
+            .read_snapshot::<Vec<Value>>("data/large.json")
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.len(), values.len());
+        assert_eq!(restored[4095], values[4095]);
     }
 
     #[test]
