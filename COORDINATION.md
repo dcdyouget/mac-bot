@@ -376,3 +376,13 @@
 - 331 workspace tests、all-targets clippy -D warnings、fmt/build PASS：/tmp/macbot-screen-geometry-workspace-20261010b.log、/tmp/macbot-screen-geometry-{clippy,build}-20261010.log。单测覆盖设备高度差、low缩放取整、metadata缺失与offset/pageScale不进入内容坐标。rebase origin/main177747f只整合集成脚本，server/protocol逐字未变。
 - 最终binary真实headless严格输入：/tmp/macbot-screen-input-20261010d/evidence/（low640×316）和/tmp/macbot-screen-input-20261010e/evidence/（high1280×633）；DOM rect/innerWidth/innerHeight独立计算输入，不复用sidecar公式，touchStart→touchEnd([])及mouse均实际BUTTON#submit/submit。元数据、DOM事件、前后JPEG留存。入口server/macbotd/tests/smoke_screen_input.py及README，诊断模式不算通过。
 - 完整画面回归 /tmp/macbot-screen-geometry-general-20261010a.evidence.log：URL/JPEG/ACK/latest、同WS bot→user→bot、点击/键盘、交还拒绝输入、重启/关闭sidecar后无新provider run恢复全部PASS。仅使用自有隔离端口/home/headless会话，已清理；未触正式907a05c/7788、共享mock、b5/t2、GUI/AVD或真实keys。独立固定SHA交集成按原窗口复验原页面/native输入，不把server隔离或pkg载荷通过记为双端/fresh整体PASS。
+
+
+## client-android：通知容量 P0 候选 ready（2026-10-10）
+
+- 已发布实现 `cac5b12d68fbe409b41e763231c28f2e7baaff37`：通知总量预算40（包含FGS），按旧消息→普通完成→需要你/验收回收，保护FGS100/foreground/group summary；消息按Host/chat合并，审批/验收保留Host深链和动作。prepare在回收前完成资源与PendingIntent构建。
+- 待投递payload先持久化，再推进事件cursor；仅系统active list精确匹配Host/tag/业务key/marker后写去重标记。静默拒绝、临时权限/渠道关闭保留pending，1–30秒退避；pending非空worker持续复查，无新事件也可恢复，启动initialize后resume。旧seen不自动清除或重放，原NOT_OBSERVED不改记成功、不回填ping因果。
+- 独立验证：Android shell 26条JUnit/Robolectric API36（4 suites）、shared54条（17 suites）、生成器5条全部通过；schema220/fixtures168/94文件check通过；signedRelease/R8/resourceShrink/lint/apksigner通过。覆盖满50新needs/completed/message、同/多Host重放、seq不倒退、静默/异常恢复、实际SharedPreferences/渠道恢复、protected-only容量、准备失败不回收、FGS与动作/Host路由。
+- 同既有distribution key候选：`clients/mobile/androidApp/build/outputs/apk/candidates/android-notification-cac5b12d68fbe409b41e763231c28f2e7baaff37.apk`（client-android worktree），2111890 bytes，SHA256 `c1b2e2fbbe3b305f0ac2f643311188265a50c08042da3438fb47e6c382872f2a`；signer cert SHA256 `f0e092d192020efd8c41c351f8c7d62f7df10ee2c9806f8611b564c18073b161`。README与`verification/S4-notification-candidate.json`记录来源、命令和边界；APK/密钥不提交。
+- 未安装候选、未清正式现存50条、未操作GUI/AVD/共享服务或更改keys；仅Host隔离测试，不宣称原生S4/双端S1–S5通过。交integrator按统一窗口`adb install -r`后，以新定时事件receipt与系统通知可见性验收。
+- 独立既有健壮性边界：BroadcastReceiver等待readiness/Host调用失败时暂无durable动作重试；本候选保留行为，不宣称已修复该问题，不拖住容量更新。根协调单独提交理由：归档client-android容量P0固定候选与现场验收边界。
