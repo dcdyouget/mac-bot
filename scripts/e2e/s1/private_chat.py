@@ -47,13 +47,26 @@ def trace_evidence(client: Any, chat_id: str, marker: str, args: argparse.Namesp
             "trace.history result",
         )
         items = require_list(result.get("items"), "trace.history.items")
-        types = {item.get("type") for item in items if isinstance(item, dict)}
+        marker_run_ids = {
+            item.get("run_id")
+            for item in items
+            if isinstance(item, dict)
+            and item.get("type") == "tool.start"
+            and isinstance(item.get("run_id"), str)
+            and isinstance(item.get("data"), dict)
+            and marker in json.dumps(item["data"].get("args", {}), ensure_ascii=False)
+        }
+        if len(marker_run_ids) != 1:
+            return None
+        marker_run_id = next(iter(marker_run_ids))
+        run_items = [item for item in items if isinstance(item, dict) and item.get("run_id") == marker_run_id]
+        types = {item.get("type") for item in run_items}
         if not {"run.start", "llm.request", "llm.response", "tool.start", "tool.end", "run.end"} <= types:
             return None
         starts: dict[str, dict[str, Any]] = {}
         ends: dict[str, dict[str, Any]] = {}
         successful: set[str] = set()
-        for item in items:
+        for item in run_items:
             if not isinstance(item, dict) or not isinstance(item.get("data"), dict):
                 continue
             data = item["data"]
@@ -63,13 +76,10 @@ def trace_evidence(client: Any, chat_id: str, marker: str, args: argparse.Namesp
                 successful.add(data["call_id"])
                 ends[data["call_id"]] = data
         names: set[str] = set()
-        marker_in_tool_args = False
         for call_id, data in starts.items():
             if call_id in successful and isinstance(data.get("name"), str):
                 names.add(data["name"])
-            if marker in json.dumps(data.get("args", {}), ensure_ascii=False):
-                marker_in_tool_args = True
-        if not {"read", "write", "bash"} <= names or not marker_in_tool_args:
+        if not {"read", "write", "bash"} <= names:
             return None
         # `read` and `bash` must have returned the marker, proving the tool
         # calls actually observed the file content rather than only receiving
@@ -83,10 +93,16 @@ def trace_evidence(client: Any, chat_id: str, marker: str, args: argparse.Namesp
             and item.get("type") == "run.end"
             and isinstance(item.get("data"), dict)
             and item["data"].get("status") == "done"
-            for item in items
+            for item in run_items
         ):
             return None
-        return {"items": len(items), "types": sorted(types), "successful_tools": sorted(names), "live": result.get("live")}
+        return {
+            "run_id": marker_run_id,
+            "items": len(run_items),
+            "types": sorted(types),
+            "successful_tools": sorted(names),
+            "live": result.get("live"),
+        }
 
     return wait_until(check, timeout=args.timeout, interval=args.interval, description="S1 trace evidence")
 

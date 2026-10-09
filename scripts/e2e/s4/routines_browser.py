@@ -70,6 +70,41 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
     bot_id = bot["id"]
     marker = unique_marker("macbot-e2e-s4")
     routine_id: str | None = None
+    cleanup_assignment_id: str | None = None
+    scenario_succeeded = False
+
+    def cleanup_own_state() -> list[str]:
+        """Stop only this run's non-terminal assignment, then delete this routine."""
+
+        errors: list[str] = []
+        if routine_id and not scenario_succeeded and cleanup_assignment_id:
+            try:
+                assignment_result = require_dict(
+                    client.call("assignment.get", {"assignment_id": cleanup_assignment_id}),
+                    "cleanup assignment.get result",
+                )
+                assignment = require_dict(assignment_result.get("assignment"), "cleanup assignment.get.assignment")
+                terminal = {"done", "failed", "cancelled"}
+                if (
+                    assignment.get("id") == cleanup_assignment_id
+                    and assignment.get("bot_id") == bot_id
+                    and assignment.get("status") not in terminal
+                ):
+                    client.call(
+                        "assignment.stop",
+                        {
+                            "assignment_id": cleanup_assignment_id,
+                            "client_request_id": f"{marker}-stop",
+                        },
+                    )
+            except Exception as exc:
+                errors.append(f"assignment cleanup failed: {exc}")
+        if routine_id:
+            try:
+                client.call("routine.delete", {"routine_id": routine_id, "client_request_id": f"{marker}-cleanup"})
+            except Exception as exc:
+                errors.append(f"routine cleanup failed: {exc}")
+        return errors
 
     try:
         created = require_dict(
@@ -117,12 +152,14 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError("routine.test_run returned the wrong routine or trigger")
 
         def actual_assignment() -> dict[str, Any] | None:
+            nonlocal cleanup_assignment_id
             run = run_for_id(routine_runs(client, routine_id), run_id)
             if not isinstance(run, dict):
                 return None
             assignment_id = run.get("assignment_id")
             if not isinstance(assignment_id, str) or not assignment_id:
                 return None
+            cleanup_assignment_id = assignment_id
             try:
                 assignment_result = require_dict(
                     client.call("assignment.get", {"assignment_id": assignment_id}),
@@ -177,6 +214,7 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             interval=args.interval,
             description="S4 routine assignment completion",
         )
+        scenario_succeeded = True
         return {
             "scenario": "S4 routine API checks",
             "status": "PASS",
@@ -199,8 +237,16 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             "note": "API checks only; Chrome login state, screen JPEG/takeover, Android notification, and desktop/mobile evidence remain manual.",
         }
     finally:
-        if routine_id:
-            client.call("routine.delete", {"routine_id": routine_id, "client_request_id": f"{marker}-cleanup"})
+        active_exception = sys.exc_info()[1]
+        cleanup_errors = cleanup_own_state()
+        if cleanup_errors:
+            message = "; ".join(cleanup_errors)
+            if active_exception is None:
+                raise ValueError(message)
+            if hasattr(active_exception, "add_note"):
+                active_exception.add_note(message)
+            else:
+                print(f"Cleanup also failed: {message}", file=sys.stderr)
 
 
 if __name__ == "__main__":
