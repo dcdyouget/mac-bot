@@ -1,0 +1,36 @@
+{
+  "server_source": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "params": {
+    "from": "2026-09-09T15:45:44.608395Z",
+    "to": "2026-10-09T15:45:44.608395Z"
+  },
+  "result": {
+    "ok": true,
+    "result": {
+      "current": {
+        "cache_read_tokens": 46945,
+        "cache_write_tokens": 0,
+        "cost": null,
+        "input_tokens": 218481,
+        "output_tokens": 12715,
+        "requests": 66,
+        "tasks_done": 0
+      },
+      "previous": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost": null,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "requests": 0,
+        "tasks_done": 0
+      }
+    }
+  },
+  "native_summary": {
+    "total_tokens": 231196,
+    "requests": 66,
+    "cost": "unpriced"
+  },
+  "scope": "Android last-30-days summary versus RPC sampled moments later; not simultaneous two-client parity."
+}
