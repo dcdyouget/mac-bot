@@ -9,4 +9,6 @@ mod model;
 mod state;
 
 pub use model::*;
-pub use state::{Orchestrator, OrchestratorError, OrchestratorSettings};
+pub use state::{
+    AttentionNotice, BotDmRoute, Orchestrator, OrchestratorError, OrchestratorSettings,
+};
