@@ -47,6 +47,7 @@ pub struct Store {
     write_lock: Arc<Mutex<()>>,
     files: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>>,
     event_seq: Arc<Mutex<u64>>,
+    chat_sequences: Arc<Mutex<()>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -83,6 +84,7 @@ impl Store {
             write_lock: Arc::new(Mutex::new(())),
             files: Arc::new(Mutex::new(HashMap::new())),
             event_seq: Arc::new(Mutex::new(0)),
+            chat_sequences: Arc::new(Mutex::new(())),
         };
         store.repair_jsonl_files()?;
         let seq = store
@@ -100,6 +102,78 @@ impl Store {
 
     pub fn root(&self) -> &Path {
         self.root.as_ref()
+    }
+
+    /// Allocate durable message positions shared by every writer of a chat.
+    /// An update to an existing message keeps its original position, including
+    /// a streaming placeholder replaced by its final response. A caller may
+    /// supply ordered legacy history to initialize a chat during migration.
+    pub fn sequence_chat_messages(
+        &self,
+        chat_id: &str,
+        messages: &[Value],
+    ) -> Result<Vec<Value>, StoreError> {
+        let component = chat_component(chat_id)?;
+        let relative = format!("data/chats/{component}/sequences.jsonl");
+        let _guard = self
+            .chat_sequences
+            .lock()
+            .expect("chat sequence lock poisoned");
+        let records = self.read_jsonl::<Value>(&relative)?;
+        let mut positions = HashMap::new();
+        let mut maximum = 0u64;
+        for record in records {
+            if let (Some(id), Some(seq)) = (
+                record.get("message_id").and_then(Value::as_str),
+                record.get("seq").and_then(Value::as_u64),
+            ) {
+                maximum = maximum.max(seq);
+                positions.entry(id.to_owned()).or_insert(seq);
+            }
+        }
+        let mut output = Vec::with_capacity(messages.len());
+        for message in messages {
+            let id = message
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "message id is required")
+                })?;
+            let seq = match positions.get(id).copied() {
+                Some(seq) => seq,
+                None => {
+                    maximum = maximum.checked_add(1).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "chat sequence exhausted")
+                    })?;
+                    self.append_jsonl(
+                        &relative,
+                        &serde_json::json!({"message_id":id,"seq":maximum}),
+                    )?;
+                    positions.insert(id.to_owned(), maximum);
+                    maximum
+                }
+            };
+            let mut message = message.clone();
+            message
+                .as_object_mut()
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "message must be an object")
+                })?
+                .insert("seq".into(), Value::from(seq));
+            output.push(message);
+        }
+        Ok(output)
+    }
+
+    pub fn last_chat_sequence(&self, chat_id: &str) -> Result<u64, StoreError> {
+        let component = chat_component(chat_id)?;
+        Ok(self
+            .read_jsonl::<Value>(format!("data/chats/{component}/sequences.jsonl"))?
+            .iter()
+            .filter_map(|record| record.get("seq").and_then(Value::as_u64))
+            .max()
+            .unwrap_or(0))
     }
 
     fn resolve(&self, relative: impl AsRef<Path>) -> Result<PathBuf, StoreError> {
@@ -323,6 +397,22 @@ impl Store {
 
 /// Canonicalize the existing ancestor of a path and append the missing tail.
 /// This catches symlink escapes even when the final file has not been created.
+fn chat_component(chat_id: &str) -> Result<String, StoreError> {
+    if chat_id.is_empty() || chat_id == "." || chat_id == ".." || chat_id.contains(['/', '\\']) {
+        return Err(StoreError::PathEscape(PathBuf::from(chat_id)));
+    }
+    Ok(chat_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect())
+}
+
 fn canonicalize_with_missing_tail(path: &Path) -> io::Result<PathBuf> {
     let mut probe = path.to_path_buf();
     let mut tail = Vec::new();
@@ -364,6 +454,112 @@ fn canonicalize_with_missing_tail(path: &Path) -> io::Result<PathBuf> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn chat_sequences_are_shared_and_updates_keep_their_position_after_recovery() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let rows = store
+            .sequence_chat_messages(
+                "chat",
+                &[
+                    serde_json::json!({"id":"user-1","seq":1}),
+                    serde_json::json!({"id":"bot-1","seq":1,"streaming":true}),
+                ],
+            )
+            .unwrap();
+        assert_eq!(rows[0]["seq"], 1);
+        assert_eq!(rows[1]["seq"], 2);
+        let updated = store
+            .clone()
+            .sequence_chat_messages(
+                "chat",
+                &[
+                    serde_json::json!({"id":"bot-1","seq":1,"streaming":false}),
+                    serde_json::json!({"id":"user-2"}),
+                ],
+            )
+            .unwrap();
+        assert_eq!(updated[0]["seq"], 2);
+        assert_eq!(updated[1]["seq"], 3);
+        drop(store);
+        let store = Store::open(dir.path()).unwrap();
+        let rows = store
+            .sequence_chat_messages(
+                "chat",
+                &[
+                    serde_json::json!({"id":"bot-1"}),
+                    serde_json::json!({"id":"bot-2"}),
+                ],
+            )
+            .unwrap();
+        assert_eq!(rows[0]["seq"], 2);
+        assert_eq!(rows[1]["seq"], 4);
+        assert_eq!(store.last_chat_sequence("chat").unwrap(), 4);
+    }
+
+    #[test]
+    fn chat_sequence_recovery_repairs_a_torn_reservation_without_reusing_committed_positions() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store
+            .sequence_chat_messages("chat", &[serde_json::json!({"id":"reserved"})])
+            .unwrap();
+        let path = dir.path().join("data/chats/chat/sequences.jsonl");
+        let mut log = OpenOptions::new().append(true).open(&path).unwrap();
+        log.write_all(br#"{"message_id":"torn","seq":2"#).unwrap();
+        log.sync_all().unwrap();
+        drop(log);
+        drop(store);
+
+        let store = Store::open(dir.path()).unwrap();
+        let messages = store
+            .sequence_chat_messages(
+                "chat",
+                &[
+                    serde_json::json!({"id":"reserved"}),
+                    serde_json::json!({"id":"next"}),
+                ],
+            )
+            .unwrap();
+        assert_eq!(messages[0]["seq"], 1);
+        assert_eq!(messages[1]["seq"], 2);
+        assert_eq!(store.last_chat_sequence("chat").unwrap(), 2);
+        assert_eq!(
+            store
+                .read_jsonl::<Value>("data/chats/chat/sequences.jsonl")
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn concurrent_chat_sequence_allocations_are_unique() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let threads = (0..12)
+            .map(|index| {
+                let store = store.clone();
+                std::thread::spawn(move || {
+                    store
+                        .sequence_chat_messages(
+                            "chat",
+                            &[serde_json::json!({"id":format!("message-{index}")})],
+                        )
+                        .unwrap()[0]["seq"]
+                        .as_u64()
+                        .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut sequences = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect::<Vec<_>>();
+        sequences.sort_unstable();
+        assert_eq!(sequences, (1..=12).collect::<Vec<_>>());
+    }
 
     #[test]
     fn truncates_incomplete_last_line_and_keeps_previous_records() {
