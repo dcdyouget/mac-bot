@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.16
+# Mac Bot 规划 v0.17
 
 > 状态：规划中，尚未开始编码。
+> v0.17 变更：`send_msg` 的 mentions 统一为「@ 谁，谁就行动」：@ 下一个 Bot 即交接，全部完成时 @主 Bot 由它通知用户；去掉单独的 handoff 参数。
 > v0.16 变更：去掉「发言模型」和群里的流式发言。Bot 收到任务后按 durable 流程干活，只通过 `send_msg` 工具（ack / progress / decision / done / blocked）往群里发完整消息；插话改为 durable steer（带送达状态，不额外调用模型）；详细过程只在用户点开 Bot 时推送（执行中流式，结束后回放）。私聊仍是对话模式，可以流式回复。
 > v0.15 变更：服务端只做 macOS（不做 Linux）；存储改为 JSON 文件（JSONL 日志 + 快照）；连接方案改为主连接 + 按需的画面连接 + HTTP，详见新增的 PROTOCOL.md；新增「运行轨迹」（干活过程的流式查看和回放）；仓库结构按四条开发线划分；新增多 agent 并行开发计划。
 > v0.14 变更：明确平台矩阵（Server：macOS，Linux 以后支持；Client：macOS / Android / iOS，Windows 以后支持）和 Linux 的适配点；许可证为 MIT。
@@ -384,9 +385,12 @@ send_msg(
   intent: "ack" | "progress" | "decision" | "done" | "blocked",
   to?: "task_chat" | "user" | {bot: id},   // 默认是任务所在的会话（群，或者转交小事时的主 Bot 私聊）；
                                             // "user" = 发到和用户的私聊；{bot} = Bot 间私信
-  mentions?: [bot_id | "user" | "everyone"],
+  mentions?: [                              // @ 谁，谁就行动（见下方「@ 的规则」）
+    bot_id | {bot: bot_id, instruction?: string}  // @ 某个 Bot：让它接着干；instruction 不填就用 text
+    | "main"                                // @ 主 Bot：例如全部完成后，让它汇总并通知用户
+    | "user"                                // @ 用户：推送提醒（decision / blocked 时）
+  ],
   artifacts?: [{title, path_or_url}],       // done 时登记产物
-  handoff?: [{bot, instruction}],           // done 时交给下一个 Bot
   options?: [string]                        // decision 时给出选项
 ) -> { message_id, then: "continue" | "wait" | "end" }
 ```
@@ -395,9 +399,19 @@ send_msg(
 |--------|-----------|-----------|----------------|
 | `ack` | 开工后的第一步：一句话说明收到了，打算怎么做（L0 规则要求） | 发消息 | 继续 |
 | `progress` | 到了一个阶段，有值得同步的进展（每个任务最多 3 条，超出会被拒绝并提示） | 发消息 | 继续 |
-| `decision` | 需要别人决策才能往下走 | 发消息；有 `options` 时渲染成提问卡片；`mentions` 里有 user 时状态变为 `waiting_user` 并通知用户，有 Bot 时变为 `waiting_bot` | **挂起等待**：对应的回复到达后作为新输入恢复 |
-| `done` | 任务完成 | 发完成消息并附产物卡片；产物登记到公告；状态变为 `done`；为 `handoff` 里的每个 Bot 创建新任务（交接） | 结束 |
-| `blocked` | 卡住了，自己解决不了 | 发卡住消息；状态变为 `blocked`；唤醒主 Bot 跟进（有 user 时同时通知用户） | 挂起等待 |
+| `decision` | 需要别人决策才能往下走 | 发消息；有 `options` 时渲染成提问卡片；@ 了用户时状态变为 `waiting_user` 并推送；@ 了 Bot 时那个 Bot 收到一个「回答问题」的任务，状态变为 `waiting_bot` | **挂起等待**：对应的回复到达后作为新输入恢复 |
+| `done` | 任务完成 | 发完成消息并附产物卡片；产物登记到公告；状态变为 `done`；**@ 下一个 Bot 就是交接**（它收到新任务）；**全部完成时 @主 Bot**（主 Bot 汇总并提醒用户验收） | 结束 |
+| `blocked` | 卡住了，自己解决不了 | 发卡住消息；状态变为 `blocked`；主 Bot 总会被唤醒跟进；@ 了用户时同时推送；@ 了某个 Bot 时它收到一个「帮忙解决」的任务 | 挂起等待 |
+
+**@ 的规则**（`send_msg` 的 `mentions`，在消息里显示为 @名字）：
+- **@ 某个 Bot = 让它行动**：系统为它在这个会话里创建一个任务（指令是 `instruction`，不填就用整条消息），它的状态变为工作中或排队。如果它在这个群里已经有进行中或挂起的任务，这条消息就作为插话或回复送进去。
+- 最常见的两种用法：
+  1. **自己的活干完了，交给下一个流程**：`send_msg(done, "✓ PRD 和原型完成 …", artifacts, mentions: [{bot: 编码, instruction: "按 PRD 实现，密码规则见 3.2"}])`。
+  2. **全部完成，让主 Bot 通知用户**：最后一个 Bot `send_msg(done, "✓ 测试 20/20 通过 …", mentions: ["main"])`，主 Bot 被唤醒，汇总产物、把群改为待验收、提醒用户。
+- **@主 Bot** 会唤醒它的协调流程（不是干活任务）：它判断是要通知用户验收、转派，还是回答问题。
+- **@用户** 只是推送提醒，用在 decision / blocked。
+- 可以同时 @ 多个 Bot（并行分派），每个都会收到任务。
+- 一条用户消息引发的 Bot 之间自动派发链，最多 8 次（防循环，见 5.4）。
 
 - **状态由系统维护**：派发时状态变为 `queued` 或 `working`，之后根据 `send_msg` 的 intent 变化。状态不依赖模型怎么措辞，所以群头部的状态条始终准确。
 - **兜底**：如果 run 结束时既没有 `done` 也没有 `blocked`，系统追加一轮提示「你还没有汇报结果，请用 send_msg 汇报」；仍然没有汇报，就由系统发一条「编码 的任务已结束，但没有汇报结果 · 查看过程」，并唤醒主 Bot。
@@ -405,12 +419,12 @@ send_msg(
 
 #### 5.3.3 一个任务的生命周期
 
-1. **派发**：被 @、被交接（上一个 Bot `done` 时的 `handoff`），或者主 Bot `assign` / `delegate` → 创建 assignment。
+1. **派发**：被用户 @、被其他 Bot 在 `send_msg` 里 @（交接），或者主 Bot `assign` / `delegate` → 创建 assignment。
 2. **排队或开工**：Scheduler 判断是否有并发名额。有名额就进入 `working`，开始 durable run；没有就是 `queued`，并记录 `queue_reason`（界面显示「… 排队」）。状态变化本身就会更新群里的状态条和任务卡片，不需要 Bot 说话。
 3. **干活**：在 (Bot, 群) 的执行线程里运行，上下文见 5.5。第一步按规则 `send_msg(ack)`；之后按需调用工具和子代理；到阶段节点时 `send_msg(progress)`；需要决策时 `send_msg(decision)` 并挂起。
-4. **完成**：`send_msg(done, artifacts, handoff)` → 产物登记到公告，交接给下一个 Bot（回到第 1 步）。
+4. **完成**：`send_msg(done, artifacts, mentions: [下一个 Bot])` → 产物登记到公告，@ 到的 Bot 收到任务（回到第 1 步）。
 5. **卡住**：`send_msg(blocked)` → 主 Bot 跟进（重试、换人或问用户）。
-6. **待验收**：流程中最后一个 Bot 在 `done` 时 @主 Bot（或者 `handoff` 给主 Bot）。主 Bot **不检查产物内容**，只根据公告里的产物清单汇总，把群状态改为 `review`，在主 Bot 私聊里发**待验收卡片**并推送。
+6. **待验收**：流程中最后一个 Bot 在 `send_msg(done)` 里 @主 Bot。主 Bot **不检查产物内容**，只根据公告里的产物清单汇总，把群状态改为 `review`，在主 Bot 私聊里发**待验收卡片**并推送。
 7. **验收**：用户点「确认完成」→ 群变为 `done`，主 Bot 在群里发总结、写项目记忆。用户点「提修改意见」→ 主 Bot 把意见拆分后 `assign` 给对应的 Bot，回到第 1 步。
 
 #### 5.3.4 插话（用户 @ 一个正在干活的 Bot）
@@ -467,7 +481,7 @@ send_msg(
 1. 用户消息 **@ 了某些 Bot** → 投递给被 @ 的 Bot。对方在本群有进行中或挂起的任务，就当作**插话**或回复（见 5.3.4）；没有就**创建新任务**。
 2. 用户**回复了**某条 Bot 消息 → 投递给那个 Bot，规则同上。
 3. **没有 @ 也没有回复** → 交给**主 Bot**，由它回答，或者用 `assign` 转派（转派时在群里 @ 对方，让用户看到）。不再设单独的路由模型。
-4. Bot 在 `send_msg(done)` 的 `handoff` 里指定了其他 Bot → 为它们创建任务，也就是交接。`send_msg` 里普通的 `mentions` 只是提醒，不创建任务（`decision` 时除外：被 @ 的 Bot 会收到一个回答问题的任务）。
+4. Bot 在 `send_msg` 里 @ 了其他 Bot → 为它们创建任务（交接或请求帮忙）；@主 Bot → 唤醒主 Bot 的协调流程。
 5. **防循环**：一条用户消息引发的 Bot 之间自动派发链，默认最多 8 次，超过后暂停，等用户在横幅上选择；同一个 Bot 对同一个触发只响应一次。
 6. Bot 私信（`send_msg(to: {bot})`）走 `bot_dm` 会话，用户可以查看，在群里以「✉」卡片的形式出现。
 

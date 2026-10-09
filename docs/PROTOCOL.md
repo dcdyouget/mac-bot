@@ -147,7 +147,7 @@
 | `text` | Markdown 正文 | `markdown` |
 | `image` / `file` | 附件 | `url`（HTTP 路径）、`name`、`size`、`mime` |
 | `task_card` | 任务卡片（实时更新） | `assignment_id` |
-| `completion` | 完成报告（`send_msg` intent=done） | `summary`、`artifacts[]`、`handoff: [{bot_id, instruction}]` |
+| `completion` | 完成报告（`send_msg` intent=done） | `summary`、`artifacts[]`、`next: [{bot_id, instruction}]`（由 `mentions` 生成，@主 Bot 时 `bot_id` 为主 Bot） |
 | `blocked` | 卡住报告（intent=blocked） | `reason`、`mentions[]` |
 | `progress` | 阶段进展（intent=progress） | `text` |
 | `project_card` | 新群卡片 | `project_id` |
@@ -164,14 +164,14 @@
 
 ### 3.2 `send_msg` 与消息的对应关系
 
-Bot 在干活过程中调用 `send_msg(text, intent, to?, mentions?, artifacts?, handoff?, options?)`（定义见 PLAN 5.3.2），服务端据此生成一条 Message：
+Bot 在干活过程中调用 `send_msg(text, intent, to?, mentions?, artifacts?, options?)`（定义见 PLAN 5.3.2），服务端据此生成一条 Message，`Message.mentions` 就是 `send_msg` 的 mentions。**@ 某个 Bot 等于让它行动**：服务端为它创建任务，或者把这条消息作为插话送进它已有的任务；@主 Bot 会唤醒主 Bot 的协调流程。
 
 | intent | 生成的 Message | 任务状态变化 |
 |--------|---------------|--------------|
 | `ack` | `text` 块 | 不变（派发时已经是 `working`） |
 | `progress` | `progress` 块 | 不变 |
 | `decision` | `text` 块；有 options 时为 `question` 块 | `waiting_user` 或 `waiting_bot`（run 挂起） |
-| `done` | `completion` 块（含产物和交接） | `done`；为每个交接对象创建新任务 |
+| `done` | `completion` 块（含产物和 @ 的下一个 Bot） | `done`；@ 到的每个 Bot 收到新任务；@主 Bot 时主 Bot 汇总并提醒用户验收 |
 | `blocked` | `blocked` 块 | `blocked`（run 挂起） |
 
 客户端根据 `Message.intent` 渲染不同样式；任务状态以 `assignment.updated` 为准。
