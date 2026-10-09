@@ -2947,9 +2947,13 @@ pub(crate) fn invalid_memory_tool_args(name: &str, args: &Value) -> Option<Strin
         return Some("memory arguments must be an object".into());
     };
     let Some(scope) = object.get("scope").and_then(Value::as_str) else {
-        return (name == "memory").then(|| "memory scope is required".into());
+        return if name == "memory" {
+            Some("memory scope is required".into())
+        } else {
+            crate::memory_tools::validate_memory_search_tool_args(args).err()
+        };
     };
-    match scope {
+    let owner_error = match scope {
         "user" => None,
         "bot"
             if object
@@ -2970,7 +2974,14 @@ pub(crate) fn invalid_memory_tool_args(name: &str, args: &Value) -> Option<Strin
         }
         "project" => Some("memory project scope requires project_id".into()),
         other => Some(format!("unknown memory scope: {other}")),
-    }
+    };
+    owner_error.or_else(|| {
+        if name == "memory" {
+            crate::memory_tools::validate_memory_tool_args(args).err()
+        } else {
+            crate::memory_tools::validate_memory_search_tool_args(args).err()
+        }
+    })
 }
 
 /// Validate target references against the authoritative orchestrator snapshot.
@@ -3542,14 +3553,17 @@ mod tests {
             Some("unknown memory scope: team".into())
         );
         assert_eq!(
-            invalid_memory_tool_args("memory", &json!({"scope":"user"})),
+            invalid_memory_tool_args("memory", &json!({"scope":"user","content":"preference"})),
             None
         );
         assert_eq!(
             invalid_memory_tool_args("memory", &json!({})),
             Some("memory scope is required".into())
         );
-        assert_eq!(invalid_memory_tool_args("memory_search", &json!({})), None);
+        assert_eq!(
+            invalid_memory_tool_args("memory_search", &json!({"query":"lookup"})),
+            None
+        );
     }
 
     #[test]
@@ -3592,28 +3606,28 @@ mod tests {
             .invalid_memory_args_for_request(
                 &request,
                 "memory",
-                &json!({"scope":"project","project_id":"project-a"})
+                &json!({"scope":"project","project_id":"project-a","content":"project note"})
             )
             .is_none());
         assert!(engine
             .invalid_memory_args_for_request(
                 &request,
                 "memory",
-                &json!({"scope":"bot","bot_id":"bot-a"})
+                &json!({"scope":"bot","bot_id":"bot-a","content":"bot note"})
             )
             .is_none());
         assert!(engine
             .invalid_memory_args_for_request(
                 &request,
                 "memory_search",
-                &json!({"scope":"project","project_id":"missing"})
+                &json!({"scope":"project","project_id":"missing","query":"lookup"})
             )
             .is_some_and(|error| error.contains("does not exist")));
         assert!(engine
             .invalid_memory_args_for_request(
                 &request,
                 "memory_search",
-                &json!({"scope":"project","project_id":"project-a"})
+                &json!({"scope":"project","project_id":"project-a","query":"lookup"})
             )
             .is_none());
     }
@@ -3632,10 +3646,14 @@ mod tests {
         .unwrap();
         let request = request(false);
         assert!(engine
-            .invalid_memory_args_for_request(&request, "memory", &json!({"scope":"user"}))
+            .invalid_memory_args_for_request(
+                &request,
+                "memory",
+                &json!({"scope":"user","content":"preference"})
+            )
             .is_none());
         assert!(engine
-            .invalid_memory_args_for_request(&request, "memory_search", &json!({}))
+            .invalid_memory_args_for_request(&request, "memory_search", &json!({"query":"lookup"}))
             .is_none());
     }
 

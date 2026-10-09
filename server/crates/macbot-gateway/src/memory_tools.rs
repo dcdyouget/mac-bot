@@ -512,15 +512,17 @@ impl Tool for MemoryTool {
         json!({
             "type":"object",
             "description":"Project and Bot targets require explicit non-empty project_id or bot_id; never infer target IDs from context.",
-            "required":["scope","action","content"],
+            "required":["scope"],
             "properties":{
-                "scope":{"enum":["user","bot","project"]},"action":{"enum":["add","replace","remove"]},
-                "content":{"type":"string"},"id":{"type":"string"},"user_id":{"type":"string"},
-                "bot_id":{"type":"string","minLength":1},"project_id":{"type":"string","minLength":1},"kind":{"type":"string"}
+                "scope":{"enum":["user","bot","project"]},"action":{"enum":["add","replace","remove"],"description":"Defaults to add when omitted."},
+                "content":{"type":"string"},"id":{"type":"string","minLength":1},"user_id":{"type":"string","minLength":1},
+                "bot_id":{"type":"string","minLength":1},"project_id":{"type":"string","minLength":1},"kind":{"type":"string","enum":["user_preference","bot_experience","bot_worklog","project"]}
             },
             "allOf":[
-                {"if":{"properties":{"scope":{"const":"bot"}}},"then":{"required":["bot_id"]}},
-                {"if":{"properties":{"scope":{"const":"project"}}},"then":{"required":["project_id"]}}
+                {"if":{"required":["scope"],"properties":{"scope":{"const":"bot"}}},"then":{"required":["bot_id"]}},
+                {"if":{"required":["scope"],"properties":{"scope":{"const":"project"}}},"then":{"required":["project_id"]}},
+                {"if":{"required":["action"],"properties":{"action":{"enum":["add","replace"]}}},"then":{"required":["content"]}},
+                {"if":{"required":["action"],"properties":{"action":{"enum":["replace","remove"]}}},"then":{"required":["id"]}}
             ]
         })
     }
@@ -532,6 +534,9 @@ impl Tool for MemoryTool {
     async fn call(&self, ctx: &ToolContext, args: Value) -> ToolResult {
         if !self.runtime.run.allow_memory {
             return ToolResult::error("memory tools are unavailable in this run");
+        }
+        if let Err(error) = validate_memory_tool_args(&args) {
+            return ToolResult::error(error);
         }
         into_result(self.runtime.service.memory_rpc_with_access(
             &self.runtime.run.actor,
@@ -558,10 +563,10 @@ impl Tool for MemorySearchTool {
             "type":"object",
             "description":"When scope is project or bot, provide an explicit non-empty project_id or bot_id; never infer target IDs from context.",
             "required":["query"],
-            "properties":{"query":{"type":"string"},"scope":{"enum":["user","bot","project"]},"user_id":{"type":"string"},"bot_id":{"type":"string","minLength":1},"project_id":{"type":"string","minLength":1}},
+            "properties":{"query":{"type":"string"},"scope":{"enum":["user","bot","project"]},"user_id":{"type":"string","minLength":1},"bot_id":{"type":"string","minLength":1},"project_id":{"type":"string","minLength":1}},
             "allOf":[
-                {"if":{"properties":{"scope":{"const":"bot"}}},"then":{"required":["bot_id"]}},
-                {"if":{"properties":{"scope":{"const":"project"}}},"then":{"required":["project_id"]}}
+                {"if":{"required":["scope"],"properties":{"scope":{"const":"bot"}}},"then":{"required":["bot_id"]}},
+                {"if":{"required":["scope"],"properties":{"scope":{"const":"project"}}},"then":{"required":["project_id"]}}
             ]
         })
     }
@@ -571,6 +576,9 @@ impl Tool for MemorySearchTool {
     async fn call(&self, _ctx: &ToolContext, args: Value) -> ToolResult {
         if !self.runtime.run.allow_memory {
             return ToolResult::error("memory tools are unavailable in this run");
+        }
+        if let Err(error) = validate_memory_search_tool_args(&args) {
+            return ToolResult::error(error);
         }
         let result = (|| -> Result<Value, FeatureError> {
             let object = object(&args)?;
@@ -754,6 +762,115 @@ fn target_from_object(object: &Map<String, Value>) -> Result<Option<MemoryTarget
     Ok(Some(target))
 }
 
+/// Validate model-facing memory arguments before the execution engine creates
+/// an approval or opens a durable staging request.  This is deliberately a
+/// pure shape/enum check: ownership and membership remain the authenticated
+/// `FeatureService` decision, and target IDs are never filled from context.
+pub fn validate_memory_tool_args(args: &Value) -> Result<(), String> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| "tool arguments must be an object".to_owned())?;
+    let scope = object
+        .get("scope")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "scope is required".to_owned())?;
+    for key in ["user_id", "owner_id", "bot_id", "project_id"] {
+        if object.contains_key(key) {
+            required(object, key).map_err(|error| error.to_string())?;
+        }
+    }
+    match scope {
+        // `features::memory_target` intentionally defaults an omitted user
+        // owner to the authenticated user; do not reject that legacy shape.
+        "user" => {}
+        "bot" => {
+            required(object, "bot_id").map_err(|error| error.to_string())?;
+        }
+        "project" => {
+            required(object, "project_id").map_err(|error| error.to_string())?;
+        }
+        other => return Err(format!("unknown memory scope: {other}")),
+    }
+
+    let action = object
+        .get("action")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("add");
+    if !matches!(action, "add" | "replace" | "remove") {
+        return Err(format!("unknown memory action: {action}"));
+    }
+    if matches!(action, "replace" | "remove") {
+        required(object, "id").map_err(|error| error.to_string())?;
+    }
+    if action != "remove" {
+        let content = object
+            .get("content")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty());
+        if content.is_none() {
+            return Err("content is required for add/replace".into());
+        }
+    }
+
+    if let Some(kind) = object.get("kind") {
+        let kind = kind
+            .as_str()
+            .ok_or_else(|| "kind must be a string".to_owned())?;
+        let valid = match scope {
+            "user" => kind == "user_preference",
+            "bot" => matches!(kind, "bot_experience" | "bot_worklog"),
+            "project" => kind == "project",
+            _ => false,
+        };
+        if !valid {
+            return Err(format!("memory kind {kind} is not valid for scope {scope}"));
+        }
+    }
+    Ok(())
+}
+
+/// Pure validation for the read-only memory search tool.  Unlike writes,
+/// search has no action; an omitted scope means the authenticated visible
+/// set.  An explicit scope must carry its own owner ID and is never inferred.
+pub fn validate_memory_search_tool_args(args: &Value) -> Result<(), String> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| "tool arguments must be an object".to_owned())?;
+    required(object, "query").map_err(|error| error.to_string())?;
+    for key in ["user_id", "owner_id", "bot_id", "project_id"] {
+        if object.contains_key(key) {
+            required(object, key).map_err(|error| error.to_string())?;
+        }
+    }
+    let Some(scope) = object.get("scope") else {
+        return Ok(());
+    };
+    let scope = scope
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "scope must be a non-empty string".to_owned())?;
+    match scope {
+        "user" => {
+            object
+                .get("user_id")
+                .or_else(|| object.get("owner_id"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "user_id is required for scoped search".to_owned())?;
+        }
+        "bot" => {
+            required(object, "bot_id").map_err(|error| error.to_string())?;
+        }
+        "project" => {
+            required(object, "project_id").map_err(|error| error.to_string())?;
+        }
+        other => return Err(format!("unknown memory scope: {other}")),
+    }
+    Ok(())
+}
+
 fn into_result<T: serde::Serialize>(result: Result<T, FeatureError>) -> ToolResult {
     match result {
         Ok(value) => {
@@ -808,6 +925,95 @@ mod tests {
                     && condition["then"]["required"] == json!(["project_id"])
             }));
         }
+    }
+
+    #[test]
+    fn memory_argument_validator_rejects_invalid_kind_before_authorization() {
+        let error = validate_memory_tool_args(&json!({
+            "scope": "project",
+            "project_id": "project-a",
+            "action": "replace",
+            "id": "marker",
+            "kind": "project_status",
+            "content": "done"
+        }))
+        .unwrap_err();
+        assert!(error.contains("not valid for scope project"), "{error}");
+    }
+
+    #[test]
+    fn memory_argument_validator_matches_supported_actions_and_kinds() {
+        assert!(validate_memory_tool_args(&json!({
+            "scope": "user",
+            "content": "defaults to authenticated user and add"
+        }))
+        .is_ok());
+        assert!(validate_memory_tool_args(&json!({
+            "scope": "bot",
+            "bot_id": "bot-a",
+            "action": "add",
+            "kind": "bot_worklog",
+            "content": "worked"
+        }))
+        .is_ok());
+        assert!(validate_memory_tool_args(&json!({
+            "scope": "project",
+            "project_id": "project-a",
+            "action": "remove",
+            "id": "entry-a"
+        }))
+        .is_ok());
+        assert_eq!(
+            validate_memory_tool_args(&json!({
+                "scope": "project",
+                "project_id": "project-a",
+                "action": "replace",
+                "content": "new"
+            }))
+            .unwrap_err(),
+            "invalid feature request: id is required"
+        );
+        assert_eq!(
+            validate_memory_tool_args(&json!({
+                "scope": "user",
+                "user_id": "user-a",
+                "action": "add",
+                "kind": "bot_experience",
+                "content": "wrong"
+            }))
+            .unwrap_err(),
+            "memory kind bot_experience is not valid for scope user"
+        );
+    }
+
+    #[test]
+    fn memory_search_argument_validator_requires_explicit_scoped_owner() {
+        assert!(validate_memory_search_tool_args(&json!({
+            "query": "visible"
+        }))
+        .is_ok());
+        assert!(validate_memory_search_tool_args(&json!({
+            "scope": "project",
+            "project_id": "project-a",
+            "query": "visible"
+        }))
+        .is_ok());
+        assert_eq!(
+            validate_memory_search_tool_args(&json!({
+                "scope": "project",
+                "query": "visible"
+            }))
+            .unwrap_err(),
+            "invalid feature request: project_id is required"
+        );
+        assert_eq!(
+            validate_memory_search_tool_args(&json!({
+                "scope": "project",
+                "project_id": "project-a"
+            }))
+            .unwrap_err(),
+            "invalid feature request: query is required"
+        );
     }
 
     #[test]
