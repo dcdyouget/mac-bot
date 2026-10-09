@@ -96,5 +96,77 @@
       0.0
     ]
   },
-  "scope": "production API subset only; no cross-chat memory or UI acceptance"
+  "scope": "production API subset only; no cross-chat memory or UI acceptance",
+  "search_bot": {
+    "results": [
+      {
+        "at": "2026-10-09T10:58:19.223526+00:00",
+        "chat_id": null,
+        "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "bot",
+        "snippet": "{\"avatar\":{\"color\":0,\"kind\":\"bean\"},\"browser_mode\":\"headless\",\"created_at\":\"2026-10-09T10:58:19.223526+00:00\",\"description\":\"\",\"dm_chat_id\":\"dm_01a12050-59d7-7669-98d5-eab07352b9d9\",\"hidden\":false,\"id\":\"01a12050-59d7-7669-98d5-eab07352b9d9\"",
+        "title": "集成复现-私聊契约"
+      },
+      {
+        "at": "2026-10-09T10:58:19.223526+00:00",
+        "chat_id": null,
+        "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "bot",
+        "snippet": "{\"avatar\":null,\"browser_mode\":\"headless\",\"created_at\":\"2026-10-09T10:58:19.223526+00:00\",\"description\":\"\",\"dm_chat_id\":\"dm_01a12050-59d7-7669-98d5-eab07352b9d9\",\"hidden\":false,\"id\":\"01a12050-59d7-7669-98d5-eab07352b9d9\",\"is_main\":false,\"lab",
+        "title": "集成复现-私聊契约"
+      },
+      {
+        "at": "2026-10-09T10:58:19.223526+00:00",
+        "chat_id": null,
+        "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "bot",
+        "snippet": "{\"avatar\":{\"color\":0,\"kind\":\"bean\"},\"browser_mode\":\"headless\",\"created_at\":\"2026-10-09T10:58:19.223526+00:00\",\"description\":\"\",\"dm_chat_id\":\"dm_01a12050-59d7-7669-98d5-eab07352b9d9\",\"hidden\":false,\"id\":\"01a12050-59d7-7669-98d5-eab07352b9d9\"",
+        "title": "集成复现-私聊契约"
+      },
+      {
+        "at": "2026-10-09T10:58:19.223526+00:00",
+        "chat_id": null,
+        "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "bot",
+        "snippet": "{\"avatar\":null,\"browser_mode\":\"headless\",\"created_at\":\"2026-10-09T10:58:19.223526+00:00\",\"description\":\"\",\"dm_chat_id\":\"dm_01a12050-59d7-7669-98d5-eab07352b9d9\",\"hidden\":false,\"id\":\"01a12050-59d7-7669-98d5-eab07352b9d9\",\"is_main\":false,\"lab",
+        "title": "集成复现-私聊契约"
+      },
+      {
+        "at": "2026-10-09T10:58:19.223526+00:00",
+        "chat_id": null,
+        "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "bot",
+        "snippet": "{\"avatar\":null,\"browser_mode\":\"headless\",\"created_at\":\"2026-10-09T10:58:19.223526+00:00\",\"description\":\"\",\"dm_chat_id\":\"dm_01a12050-59d7-7669-98d5-eab07352b9d9\",\"hidden\":false,\"id\":\"01a12050-59d7-7669-98d5-eab07352b9d9\",\"is_main\":false,\"lab",
+        "title": "集成复现-私聊契约"
+      },
+      {
+        "at": "2026-10-09T10:58:19.223526+00:00",
+        "chat_id": null,
+        "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "bot",
+        "snippet": "{\"avatar\":null,\"browser_mode\":\"headless\",\"created_at\":\"2026-10-09T10:58:19.223526+00:00\",\"description\":\"\",\"dm_chat_id\":\"dm_01a12050-59d7-7669-98d5-eab07352b9d9\",\"hidden\":false,\"id\":\"01a12050-59d7-7669-98d5-eab07352b9d9\",\"is_main\":false,\"lab",
+        "title": "集成复现-私聊契约"
+      },
+      {
+        "at": "2026-10-09T10:58:19.223526+00:00",
+        "chat_id": null,
+        "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "bot",
+        "snippet": "{\"avatar\":null,\"browser_mode\":\"headless\",\"created_at\":\"2026-10-09T10:58:19.223526+00:00\",\"description\":\"\",\"dm_chat_id\":\"dm_01a12050-59d7-7669-98d5-eab07352b9d9\",\"hidden\":false,\"id\":\"01a12050-59d7-7669-98d5-eab07352b9d9\",\"is_main\":false,\"lab",
+        "title": "集成复现-私聊契约"
+      },
+      {
+        "at": "2026-10-09T10:58:19.223526+00:00",
+        "chat_id": null,
+        "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "bot",
+        "snippet": "{\"avatar\":null,\"browser_mode\":\"headless\",\"created_at\":\"2026-10-09T10:58:19.223526+00:00\",\"description\":\"\",\"dm_chat_id\":\"dm_01a12050-59d7-7669-98d5-eab07352b9d9\",\"hidden\":false,\"id\":\"01a12050-59d7-7669-98d5-eab07352b9d9\",\"is_main\":false,\"lab",
+        "title": "集成复现-私聊契约"
+      }
+    ]
+  },
+  "search_bot_verified": true,
+  "search_bot_unique": false,
+  "search_bot_result_count": 8,
+  "search_issue": "same (kind,id) appears 8 times; snippets expose raw snapshot JSON"
 }
