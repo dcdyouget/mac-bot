@@ -9,10 +9,10 @@
 
 use crate::{features::FeatureService, now, GatewayState, RpcBackend, RpcError, RpcResult};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use macbot_browser::BrowserError;
 use macbot_durable::DurableRuntime;
-use macbot_orchestrator::{Orchestrator, UsageTotals};
+use macbot_orchestrator::{BotDmRoute, Orchestrator, OrchestratorSettings, UsageTotals};
 use macbot_protocol::{
     Announcement, Approval, Assignment, Bot, BotDuplicateResult, Chat, Device, HeatmapResult,
     Hello, Message, PendingItems, Project, Question, Routine, Settings, UsageBreakdownResult,
@@ -23,7 +23,12 @@ use macbot_skills::BotSkillSettingsSnapshot;
 use macbot_store::Store;
 use macbot_usage::UsageLedger;
 use serde_json::{json, Map, Value};
-use std::{collections::HashMap, fs, path::Path, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+    sync::Arc,
+};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -51,7 +56,15 @@ pub struct ProductionBackend {
     pub providers: Arc<Mutex<ProviderRegistry>>,
     write_lock: Arc<Mutex<()>>,
     persist_lock: Arc<Mutex<()>>,
+    event_lock: Arc<Mutex<()>>,
     idempotency: Arc<Mutex<HashMap<String, Value>>>,
+}
+
+#[derive(Clone)]
+struct BotDmContext {
+    source_chat_id: String,
+    source_bot_id: String,
+    route: BotDmRoute,
 }
 
 impl ProductionBackend {
@@ -102,9 +115,16 @@ impl ProductionBackend {
                 .restore(snapshot)
                 .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
         }
+        if let Some(settings) = store.read_snapshot::<Value>("data/settings.json")? {
+            let limits = scheduler_limits(&settings)
+                .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+            orchestrator
+                .configure(limits)
+                .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+        }
         Self::migrate_legacy_chat_sequences(&store, &orchestrator)?;
         let mut idempotency = HashMap::new();
-        for op in operations {
+        for op in &operations {
             let Some(id) = op.get("client_request_id").and_then(Value::as_str) else {
                 continue;
             };
@@ -124,7 +144,7 @@ impl ProductionBackend {
             .map_err(RegistryError::from)
             .map_err(AdapterError::Registry)?;
         let registry = ProviderRegistry::from_store(store.clone(), secrets)?;
-        Ok(Self {
+        let backend = Self {
             orchestrator,
             store,
             durable: Arc::new(Mutex::new(durable)),
@@ -132,8 +152,11 @@ impl ProductionBackend {
             providers: Arc::new(Mutex::new(registry)),
             write_lock: Arc::new(Mutex::new(())),
             persist_lock: Arc::new(Mutex::new(())),
+            event_lock: Arc::new(Mutex::new(())),
             idempotency: Arc::new(Mutex::new(idempotency)),
-        })
+        };
+        backend.repair_completed_operation_events(&operations)?;
+        Ok(backend)
     }
 
     fn migrate_legacy_chat_sequences(
@@ -237,6 +260,7 @@ impl ProductionBackend {
                 | "chat.list"
                 | "chat.get"
                 | "chat.history"
+                | "chat.thread"
                 | "settings.get"
                 | "bot.list"
                 | "bot.get"
@@ -299,6 +323,590 @@ impl ProductionBackend {
         Ok(result)
     }
 
+    fn repair_completed_operation_events(&self, operations: &[Value]) -> Result<(), AdapterError> {
+        for operation in operations {
+            if operation.get("status").and_then(Value::as_str) != Some("done") {
+                continue;
+            }
+            self.repair_operation_events(operation)
+                .map_err(|error| AdapterError::OrchestratorSnapshot(error.message))?;
+        }
+        self.repair_persisted_message_events()
+            .map_err(|error| AdapterError::OrchestratorSnapshot(error.message))?;
+        Ok(())
+    }
+
+    fn repair_persisted_message_events(&self) -> Result<(), RpcError> {
+        let root = self.store.root().join("data/chats");
+        let mut persisted_message_ids = HashSet::new();
+        let entries = match fs::read_dir(&root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(RpcError {
+                    code: "internal".into(),
+                    message: error.to_string(),
+                    details: None,
+                })
+            }
+        };
+        for entry in entries {
+            let entry = entry.map_err(|error| RpcError {
+                code: "internal".into(),
+                message: error.to_string(),
+                details: None,
+            })?;
+            if !entry
+                .file_type()
+                .map_err(|error| RpcError {
+                    code: "internal".into(),
+                    message: error.to_string(),
+                    details: None,
+                })?
+                .is_dir()
+            {
+                continue;
+            }
+            let path = entry.path().join("messages.jsonl");
+            let relative = path.strip_prefix(self.store.root()).unwrap_or(&path);
+            let rows = self
+                .store
+                .read_jsonl::<Value>(relative)
+                .map_err(store_error)?;
+            let mut latest = HashMap::new();
+            for mut row in rows {
+                normalize_message(&mut row);
+                if let Some(id) = row.get("id").and_then(Value::as_str) {
+                    latest.insert(id.to_owned(), row);
+                }
+            }
+            let events = self.store.events_since(0).map_err(store_error)?;
+            for message in latest.into_values() {
+                let Some(id) = message.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                persisted_message_ids.insert(id.to_owned());
+                let data = json!({"message":message});
+                if events.iter().any(|event| {
+                    matches!(event.event.as_str(), "message.created" | "message.updated")
+                        && event.data == data
+                }) {
+                    continue;
+                }
+                let event_name = if events.iter().any(|event| {
+                    matches!(event.event.as_str(), "message.created" | "message.updated")
+                        && event.data["message"]["id"] == id
+                }) {
+                    "message.updated"
+                } else {
+                    "message.created"
+                };
+                let key = format!(
+                    "repair:message:{id}:{}",
+                    serde_json::to_string(&data).map_err(|error| RpcError {
+                        code: "internal".into(),
+                        message: error.to_string(),
+                        details: None,
+                    })?
+                );
+                let _ = self.append_repaired_event(&key, event_name, data)?;
+            }
+        }
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        if let Some(assignments) = snapshot.get("assignments").and_then(Value::as_object) {
+            for assignment in assignments.values() {
+                let Some(trigger_id) = assignment.get("trigger_message_id").and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                if !persisted_message_ids.contains(trigger_id) {
+                    continue;
+                }
+                let Some(id) = assignment.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let mut assignment = assignment.clone();
+                normalize_assignment(&mut assignment);
+                let data = json!({"assignment":assignment});
+                let key = format!(
+                    "repair:assignment:{id}:{}",
+                    serde_json::to_string(&data).map_err(|error| RpcError {
+                        code: "internal".into(),
+                        message: error.to_string(),
+                        details: None,
+                    })?
+                );
+                let _ = self.append_repaired_event(&key, "assignment.created", data)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn repair_card_event(
+        &self,
+        key: &str,
+        mut card: Value,
+    ) -> Result<Option<macbot_store::Event>, RpcError> {
+        let message_id = card
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "derived card has no id".into(),
+                details: None,
+            })?
+            .to_owned();
+        let target_chat_id = card
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .unwrap_or("chat_main");
+        let existing = self
+            .load_chat_messages(target_chat_id)?
+            .into_iter()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id.as_str()));
+        let had_existing = existing.is_some();
+        if let Some(existing) = existing {
+            // A persisted message is the canonical card.  A retried older
+            // operation must never move a confirmed/changed card backwards.
+            card = existing;
+        }
+        normalize_message(&mut card);
+        let canonical = self.persist_client_message(&card)?;
+        let event_name = if had_existing {
+            "message.updated"
+        } else {
+            "message.created"
+        };
+        self.append_repaired_event(key, event_name, json!({"message":canonical}))
+    }
+
+    fn repair_operation_cards(
+        &self,
+        method: &str,
+        base_key: &str,
+        params: &Value,
+        canonical: &Value,
+    ) -> Result<Vec<macbot_store::Event>, RpcError> {
+        let mut events = Vec::new();
+        if method == "project.create" {
+            if let Some(project) = canonical.get("project").filter(|value| value.is_object()) {
+                let project_id = project.get("id").and_then(Value::as_str).unwrap_or("");
+                let card = json!({
+                    "id":format!("msg_project_card_{project_id}"),
+                    "chat_id":"chat_main",
+                    "seq":0,
+                    "sender":{"kind":"bot","bot_id":"main"},
+                    "created_at":project.get("created_at").cloned().unwrap_or_else(|| json!(now())),
+                    "edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,
+                    "mentions":[],"blocks":[{"type":"project_card","project_id":project_id}],
+                    "fallback_text":format!("项目「{}」已创建", project.get("name").and_then(Value::as_str).unwrap_or(project_id)),
+                    "intent":null,"assignment_id":null,"streaming":false,"delivery":[],"reactions":[]
+                });
+                if let Some(event) =
+                    self.repair_card_event(&format!("{base_key}:project-card"), card)?
+                {
+                    events.push(event);
+                }
+            }
+        }
+        if matches!(method, "assignment.create" | "assign" | "delegate") {
+            let assignment = if canonical.get("assignment").is_some_and(Value::is_object) {
+                canonical.get("assignment")
+            } else if canonical.is_object() {
+                Some(canonical)
+            } else {
+                None
+            };
+            if let Some(assignment) = assignment {
+                let id = assignment.get("id").and_then(Value::as_str).unwrap_or("");
+                let raw_chat_id = assignment
+                    .get("origin_chat_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("chat_main");
+                if !raw_chat_id.starts_with("dm_") {
+                    let chat_id = if raw_chat_id == "main-dm" {
+                        "chat_main"
+                    } else {
+                        raw_chat_id
+                    };
+                    let delegation = method == "delegate"
+                        && assignment.get("project_id").is_none_or(Value::is_null);
+                    let card = json!({
+                        "id":if delegation { format!("msg_delegation_{id}") } else { format!("msg_task_card_{id}") },
+                        "chat_id":chat_id,"seq":0,"sender":{"kind":"system"},
+                        "created_at":assignment.get("created_at").cloned().unwrap_or_else(|| json!(now())),
+                        "edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,
+                        "mentions":[],
+                        "blocks":if delegation {
+                            json!([{"type":"delegation","bot_id":assignment.get("bot_id").and_then(Value::as_str).unwrap_or(""),"assignment_id":id}])
+                        } else {
+                            json!([{"type":"task_card","assignment_id":id}])
+                        },
+                        "fallback_text":if delegation {
+                            format!("已委派给 {}：{}", assignment.get("bot_id").and_then(Value::as_str).unwrap_or("Bot"), assignment.get("title").and_then(Value::as_str).unwrap_or("待处理任务"))
+                        } else {
+                            format!("任务：{}", assignment.get("title").and_then(Value::as_str).unwrap_or("待处理任务"))
+                        },
+                        "intent":null,"assignment_id":id,"streaming":false,"delivery":[],"reactions":[]
+                    });
+                    if let Some(event) =
+                        self.repair_card_event(&format!("{base_key}:assignment-card"), card)?
+                    {
+                        events.push(event);
+                    }
+                }
+            }
+        }
+        if matches!(
+            method,
+            "project.request_review" | "project.request_changes" | "project.confirm_done"
+        ) {
+            let project_id = params
+                .get("project_id")
+                .and_then(Value::as_str)
+                .or_else(|| canonical.get("project").and_then(|p| p["id"].as_str()));
+            let Some(project_id) = project_id else {
+                return Ok(events);
+            };
+            if !canonical.get("project").is_some_and(Value::is_object) {
+                return Ok(events);
+            }
+            let state = match method {
+                "project.request_review" => "pending",
+                "project.request_changes" => "changes_requested",
+                _ => "confirmed",
+            };
+            let fallback = params
+                .get("summary")
+                .or_else(|| params.get("text"))
+                .and_then(Value::as_str)
+                .unwrap_or(if state == "confirmed" {
+                    "项目已确认完成"
+                } else {
+                    "项目待审阅"
+                });
+            let card = json!({
+                "id":format!("msg_project_review_{project_id}"),
+                "chat_id":"chat_main","seq":0,
+                "sender":{"kind":"bot","bot_id":"main"},
+                "created_at":now(),"edited_at":null,"deleted":false,"reply_to":null,
+                "thread_count":0,"mentions":[{"kind":"user"}],
+                "blocks":[{"type":"review_card","project_id":project_id,"artifacts":[],"state":state}],
+                "fallback_text":fallback,"intent":null,"assignment_id":null,
+                "streaming":false,"delivery":[],"reactions":[]
+            });
+            if let Some(event) = self.repair_card_event(&format!("{base_key}:review-card"), card)? {
+                events.push(event);
+            }
+            if method == "project.confirm_done" {
+                let project = canonical.get("project").expect("checked above");
+                let name = canonical
+                    .get("project")
+                    .and_then(|project| project.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(project_id);
+                let completion_chat_id = project
+                    .get("chat_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("chat_main");
+                let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+                let artifacts = snapshot
+                    .get("artifacts")
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flat_map(|items| items.values())
+                    .filter(|artifact| {
+                        artifact.get("project_id").and_then(Value::as_str) == Some(project_id)
+                    })
+                    .filter_map(|artifact| {
+                        Some(json!({
+                            "artifact_id":artifact.get("id")?.clone(),
+                            "title":artifact.get("title")?.clone(),
+                            "path_or_url":artifact.get("path_or_url")?.clone()
+                        }))
+                    })
+                    .collect::<Vec<_>>();
+                let card = json!({
+                    "id":format!("msg_project_completion_{project_id}"),
+                    "chat_id":completion_chat_id,"seq":0,
+                    "sender":{"kind":"bot","bot_id":"main"},
+                    "created_at":now(),"edited_at":null,"deleted":false,"reply_to":null,
+                    "thread_count":0,"mentions":[{"kind":"user"}],
+                    "blocks":[{"type":"completion","summary":format!("项目「{name}」已完成"),"artifacts":artifacts,"next":[],"notify_main":true}],
+                    "fallback_text":format!("项目「{name}」已完成"),"intent":null,
+                    "assignment_id":null,"streaming":false,"delivery":[],"reactions":[]
+                });
+                if let Some(event) =
+                    self.repair_card_event(&format!("{base_key}:completion-card"), card)?
+                {
+                    events.push(event);
+                }
+            }
+        }
+        Ok(events)
+    }
+
+    fn append_repaired_event(
+        &self,
+        key: &str,
+        event_name: &str,
+        data: Value,
+    ) -> Result<Option<macbot_store::Event>, RpcError> {
+        // Adopt unkeyed events written by older versions before adding a
+        // private operation receipt to the event record.
+        if self
+            .store
+            .events_since(0)
+            .map_err(store_error)?
+            .iter()
+            .any(|event| event.event == event_name && event.data == data)
+        {
+            return Ok(None);
+        }
+        self.store
+            .append_event_once(key, event_name, data)
+            .map_err(store_error)
+    }
+
+    fn canonical_operation_result(
+        &self,
+        method: &str,
+        params: &Value,
+        result: &Value,
+    ) -> Result<Value, RpcError> {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let mut canonical = result.clone();
+        let current = |collection: &str, id: Option<&str>| {
+            id.and_then(|id| {
+                snapshot
+                    .get(collection)
+                    .and_then(Value::as_object)
+                    .and_then(|items| items.get(id))
+                    .cloned()
+            })
+        };
+        match method {
+            "bot.create" | "bot.update" | "bot.duplicate" => {
+                let id = result
+                    .get("bot")
+                    .and_then(|value| value.get("id"))
+                    .and_then(Value::as_str)
+                    .or_else(|| params.get("bot_id").and_then(Value::as_str));
+                if let Some(mut bot) = current("bots", id) {
+                    normalize_bot(&mut bot);
+                    canonical["bot"] = bot;
+                } else {
+                    canonical["bot"] = Value::Null;
+                }
+            }
+            "bot.create_from_template" => {
+                if let Some(items) = canonical.get_mut("bots").and_then(Value::as_array_mut) {
+                    let mut retained = Vec::with_capacity(items.len());
+                    for item in items.iter() {
+                        if let Some(id) = item.get("id").and_then(Value::as_str) {
+                            if let Some(mut bot) = current("bots", Some(id)) {
+                                normalize_bot(&mut bot);
+                                retained.push(bot);
+                            }
+                        }
+                    }
+                    *items = retained;
+                }
+                let known_chat_ids = canonical
+                    .get("bots")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|bot| {
+                        bot.get("dm_chat_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    })
+                    .collect::<HashSet<_>>();
+                if let Some(chats) = canonical.get_mut("dm_chats").and_then(Value::as_array_mut) {
+                    chats.retain(|chat| {
+                        chat.get("id")
+                            .and_then(Value::as_str)
+                            .is_some_and(|id| known_chat_ids.contains(id))
+                    });
+                }
+            }
+            "project.create"
+            | "project.update"
+            | "project.add_member"
+            | "project.remove_member"
+            | "project.confirm_done"
+            | "project.request_review"
+            | "project.archive"
+            | "project.reopen"
+            | "project.request_changes" => {
+                let id = result
+                    .get("project")
+                    .and_then(|value| value.get("id"))
+                    .and_then(Value::as_str)
+                    .or_else(|| params.get("project_id").and_then(Value::as_str));
+                if let Some(mut project) = current("projects", id) {
+                    normalize_project(&mut project);
+                    canonical["project"] = project;
+                } else {
+                    canonical["project"] = Value::Null;
+                }
+                if method == "project.request_changes" {
+                    if let Some(id) = result
+                        .get("message")
+                        .and_then(|value| value.get("id"))
+                        .and_then(Value::as_str)
+                    {
+                        if let Ok((_, mut message)) = self.find_chat_message(id) {
+                            normalize_message(&mut message);
+                            canonical["message"] = message;
+                        }
+                    }
+                }
+            }
+            "assignment.create" | "assign" | "delegate" | "assignment.stop"
+            | "assignment.steer" | "steer" => {
+                let id = result
+                    .get("assignment")
+                    .and_then(|value| value.get("id"))
+                    .and_then(Value::as_str)
+                    .or_else(|| result.get("id").and_then(Value::as_str))
+                    .or_else(|| params.get("assignment_id").and_then(Value::as_str));
+                if let Some(mut assignment) = current("assignments", id) {
+                    normalize_assignment(&mut assignment);
+                    if result.get("assignment").is_some() {
+                        canonical["assignment"] = assignment;
+                    } else {
+                        canonical = assignment;
+                    }
+                } else if result.get("assignment").is_some() {
+                    canonical["assignment"] = Value::Null;
+                } else {
+                    canonical = Value::Null;
+                }
+            }
+            "send_msg" | "chat.send" | "chat.react" => {
+                let id = result
+                    .get("message")
+                    .and_then(|value| value.get("id"))
+                    .and_then(Value::as_str)
+                    .or_else(|| result.get("id").and_then(Value::as_str))
+                    .or_else(|| params.get("message_id").and_then(Value::as_str));
+                if let Some(id) = id {
+                    if let Ok((_, mut message)) = self.find_chat_message(id) {
+                        normalize_message(&mut message);
+                        if result.get("message").is_some() {
+                            canonical["message"] = message;
+                        } else {
+                            canonical = message;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(canonical)
+    }
+
+    fn repair_operation_events(
+        &self,
+        operation: &Value,
+    ) -> Result<Vec<macbot_store::Event>, RpcError> {
+        let method = operation
+            .get("method")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "completed operation has no method".into(),
+                details: None,
+            })?;
+        let params = operation
+            .get("params")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let result = operation.get("result").cloned().unwrap_or(Value::Null);
+        let canonical = self.canonical_operation_result(method, &params, &result)?;
+        let base_key = operation
+            .get("event_key")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| legacy_event_key(method, &params, &canonical));
+        let mut events = Vec::new();
+        if operation_event_entity_present(method, &canonical) {
+            if let Some(event_name) = Self::event_name(method) {
+                let data = event_data(method, &params, &canonical);
+                if let Some(event) = self.append_repaired_event(&base_key, event_name, data)? {
+                    events.push(event);
+                }
+            }
+        }
+        if matches!(method, "bot.create" | "bot.duplicate") {
+            if let Some(chat) = canonical.get("dm_chat").filter(|value| value.is_object()) {
+                if let Some(event) = self.append_repaired_event(
+                    &format!("{base_key}:chat"),
+                    "chat.created",
+                    json!({"chat":chat}),
+                )? {
+                    events.push(event);
+                }
+            }
+        }
+        if method == "project.create" {
+            if let Some(project) = canonical.get("project") {
+                let chat = project_chat(project);
+                if let Some(event) = self.append_repaired_event(
+                    &format!("{base_key}:chat"),
+                    "chat.created",
+                    json!({"chat":chat}),
+                )? {
+                    events.push(event);
+                }
+            }
+        }
+        if method == "bot.create_from_template" {
+            let bots = canonical
+                .get("bots")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let chats = canonical
+                .get("dm_chats")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for (index, bot) in bots.iter().enumerate() {
+                let id = bot
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("index-{index}"));
+                if let Some(event) = self.append_repaired_event(
+                    &format!("{base_key}:bot:{id}"),
+                    "bot.created",
+                    json!({"bot":bot}),
+                )? {
+                    events.push(event);
+                }
+            }
+            for (index, chat) in chats.iter().enumerate() {
+                let id = chat
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("index-{index}"));
+                if let Some(event) = self.append_repaired_event(
+                    &format!("{base_key}:chat:{id}"),
+                    "chat.created",
+                    json!({"chat":chat}),
+                )? {
+                    events.push(event);
+                }
+            }
+        }
+        events.extend(self.repair_operation_cards(method, &base_key, &params, &canonical)?);
+        Ok(events)
+    }
+
     /// Internal runtime action.  See [`Self::execution_takeover_start`].
     pub async fn execution_takeover_release(
         &self,
@@ -342,12 +950,13 @@ impl ProductionBackend {
             | "project.remove_member"
             | "project.confirm_done"
             | "project.request_review"
-            | "project.request_changes"
             | "project.archive"
             | "project.reopen" => "project.updated",
             "assignment.create" | "assign" | "delegate" => "assignment.created",
             "assignment.stop" | "assignment.steer" | "steer" => "assignment.updated",
             "send_msg" | "chat.send" => "message.created",
+            "chat.react" => "message.updated",
+            "chat.set_pinned" | "chat.set_muted" => "chat.updated",
             "approval.request" => "approval.requested",
             "approval.decide" => "approval.resolved",
             "question.ask" => "question.asked",
@@ -358,7 +967,6 @@ impl ProductionBackend {
             "routine.test_run" => "routine.run",
             "routine.execution" => "routine.run",
             "chat.mark_read" => "read.updated",
-            "loop.resolve" => "assignment.updated",
             "settings.update" => "settings.updated",
             _ => return None,
         })
@@ -424,68 +1032,122 @@ impl ProductionBackend {
         result: &Value,
     ) -> RpcResult {
         let request_id = params.get("client_request_id").and_then(Value::as_str);
+        let event_key = mutation_event_key(method, request_id);
         let audit_params = if method == "settings.update" {
             redact_settings_params(params)
         } else {
             params.clone()
         };
-        self.persist_orchestrator(json!({
+        let operation = json!({
             "method":method,
             "params":audit_params,
             "client_request_id":request_id,
             "result":result,
+            "event_key":event_key,
             "status":"done",
             "at":now()
-        }))
-        .await?;
-        if let Some(event_name) = Self::event_name(method) {
-            let data = event_data(method, params, result);
+        });
+        self.persist_orchestrator(operation.clone()).await?;
+        for event in self.repair_operation_events(&operation)? {
+            state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
+        let project_id = params
+            .get("project_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                result
+                    .get("project")
+                    .and_then(|project| project.get("id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .or_else(|| {
+                let assignment_id = params.get("assignment_id").and_then(Value::as_str)?;
+                self.orchestrator
+                    .snapshot()
+                    .ok()?
+                    .get("assignments")
+                    .and_then(Value::as_object)
+                    .and_then(|assignments| assignments.get(assignment_id))
+                    .and_then(|assignment| assignment.get("project_id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
+        if let Some(project_id) = project_id {
+            self.refresh_project_events(state, &project_id).await?;
+        }
+        Ok(result.clone())
+    }
+
+    /// Reconcile the public project announcement after an operation changes
+    /// project membership, assignment state, highlights, or artifacts.
+    /// Canonical payload comparison makes retries and runtime callbacks
+    /// idempotent while still repairing an event lost after a JSONL write.
+    pub async fn refresh_project_events(
+        &self,
+        state: &GatewayState,
+        project_id: &str,
+    ) -> Result<(), RpcError> {
+        let _event_guard = self.event_lock.lock().await;
+        let mut result = self
+            .orchestrator
+            .rpc("project.get", json!({"project_id":project_id}))
+            .await
+            .map_err(Self::error)?;
+        let mut announcement = result
+            .get_mut("announcement")
+            .cloned()
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "project.get did not return announcement".into(),
+                details: None,
+            })?;
+        normalize_announcement(&mut announcement);
+        serde_json::from_value::<Announcement>(announcement.clone()).map_err(|error| RpcError {
+            code: "internal".into(),
+            message: format!("invalid announcement: {error}"),
+            details: None,
+        })?;
+        let events = self.store.events_since(0).map_err(store_error)?;
+        let announcement_changed = events
+            .iter()
+            .rev()
+            .find(|event| {
+                event.event == "announcement.updated"
+                    && event.data["announcement"]["project_id"] == project_id
+            })
+            .is_none_or(|event| event.data["announcement"] != announcement);
+        if announcement_changed {
+            let data = json!({"announcement":announcement});
             let event = self
                 .store
-                .append_event(event_name, data.clone())
+                .append_event("announcement.updated", data.clone())
                 .map_err(store_error)?;
             state.publish_event(event.seq, &event.event, data).await;
         }
-        if matches!(method, "bot.create" | "bot.duplicate") {
-            if let Some(chat) = result.get("dm_chat").filter(|chat| chat.is_object()) {
-                let data = json!({"chat":chat});
+        if let Some(artifacts) = announcement.get("artifacts").and_then(Value::as_array) {
+            for artifact in artifacts {
+                let artifact_id = artifact.get("id").and_then(Value::as_str).unwrap_or("");
+                let known = events.iter().rev().any(|event| {
+                    event.event == "artifact.registered"
+                        && event.data["artifact"]["id"] == artifact_id
+                        && event.data["artifact"] == *artifact
+                });
+                if known {
+                    continue;
+                }
+                let data = json!({"artifact":artifact});
                 let event = self
                     .store
-                    .append_event("chat.created", data.clone())
+                    .append_event("artifact.registered", data.clone())
                     .map_err(store_error)?;
                 state.publish_event(event.seq, &event.event, data).await;
             }
-        } else if method == "bot.create_from_template" {
-            let bots = result
-                .get("bots")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            let chats = result
-                .get("dm_chats")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            for index in 0..bots.len().max(chats.len()) {
-                if let Some(bot) = bots.get(index) {
-                    let data = json!({"bot":bot});
-                    let event = self
-                        .store
-                        .append_event("bot.created", data.clone())
-                        .map_err(store_error)?;
-                    state.publish_event(event.seq, &event.event, data).await;
-                }
-                if let Some(chat) = chats.get(index) {
-                    let data = json!({"chat":chat});
-                    let event = self
-                        .store
-                        .append_event("chat.created", data.clone())
-                        .map_err(store_error)?;
-                    state.publish_event(event.seq, &event.event, data).await;
-                }
-            }
         }
-        Ok(result.clone())
+        Ok(())
     }
 
     /// Advance due routines from the durable orchestrator state. This is kept
@@ -537,6 +1199,8 @@ impl ProductionBackend {
                             assignment_data,
                         )
                         .await;
+                    self.ensure_assignment_cards(state, &assignment, "assignment.create")
+                        .await?;
                 }
             }
             let data = json!({"run": run});
@@ -552,6 +1216,251 @@ impl ProductionBackend {
             Some(json!({"run_id":run["id"],"assignment_id":assignment_id,"bot_id":assignment["bot_id"],"chat_id":assignment["origin_chat_id"],"instruction":assignment["instruction"],"model":assignment["model"]}))
         }).collect::<Vec<_>>();
         Ok(json!({"runs": values, "dispatch": dispatch}))
+    }
+
+    /// Poll durable project attention markers and expose them as canonical
+    /// system messages.  The orchestrator owns notice deduplication; this
+    /// bridge owns wire normalization, chat sequencing, and replay events.
+    fn canonical_attention_message(message: &Value, code: &str) -> Result<Value, RpcError> {
+        let mut message = message.clone();
+        let code = if code == "task_no_report" {
+            "task_no_report"
+        } else {
+            "info"
+        };
+        let text = message
+            .get("fallback_text")
+            .and_then(Value::as_str)
+            .or_else(|| message.get("text").and_then(Value::as_str))
+            .unwrap_or("主 Bot 需要跟进任务")
+            .to_owned();
+        message["sender"] = json!({"kind":"system"});
+        message["intent"] = Value::Null;
+        message["blocks"] = json!([{"type":"system","code":code,"text":text}]);
+        message["fallback_text"] = json!(text);
+        normalize_message(&mut message);
+        serde_json::from_value::<Message>(message.clone()).map_err(|error| RpcError {
+            code: "internal".into(),
+            message: format!("invalid attention message: {error}"),
+            details: None,
+        })?;
+        Ok(message)
+    }
+
+    pub async fn refresh_project_attention(
+        &self,
+        state: &GatewayState,
+        at: DateTime<Utc>,
+    ) -> RpcResult {
+        let _guard = self.write_lock.lock().await;
+        let before = self.orchestrator.snapshot().map_err(Self::error)?;
+        let notices = self
+            .orchestrator
+            .poll_project_attention(at)
+            .map_err(Self::error)?;
+        let mut canonical_messages = Vec::new();
+        let mut seen_message_ids = HashSet::new();
+        for notice in &notices {
+            let message = serde_json::to_value(&notice.message).map_err(|error| RpcError {
+                code: "internal".into(),
+                message: error.to_string(),
+                details: None,
+            })?;
+            let message_id = message.get("id").and_then(Value::as_str).unwrap_or("");
+            let message = Self::canonical_attention_message(&message, &notice.code)?;
+            seen_message_ids.insert(message_id.to_owned());
+            let canonical = self.persist_client_message(&message)?;
+            canonical_messages.push(canonical);
+        }
+        let after = self.orchestrator.snapshot().map_err(Self::error)?;
+        if let Some(messages) = after.get("messages").and_then(Value::as_object) {
+            for message in messages.values() {
+                let Some(message_id) = message.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let mut parts = message_id.split(':');
+                if parts.next() != Some("task_attention") || seen_message_ids.contains(message_id) {
+                    continue;
+                }
+                let Some(code) = parts.next() else {
+                    continue;
+                };
+                let canonical = Self::canonical_attention_message(message, code)?;
+                seen_message_ids.insert(message_id.to_owned());
+                let canonical = self.persist_client_message(&canonical)?;
+                canonical_messages.push(canonical);
+            }
+        }
+        let previous_ids = before
+            .get("assignments")
+            .and_then(Value::as_object)
+            .map(|items| items.keys().collect::<HashSet<_>>())
+            .unwrap_or_default();
+        let mut created_assignments = Vec::new();
+        if let Some(assignments) = after.get("assignments").and_then(Value::as_object) {
+            for (id, value) in assignments {
+                if previous_ids.contains(id) {
+                    continue;
+                }
+                let mut assignment = value.clone();
+                normalize_assignment(&mut assignment);
+                created_assignments.push(assignment);
+            }
+        }
+        let attention_message_ids = canonical_messages
+            .iter()
+            .filter_map(|message| message.get("id").and_then(Value::as_str).map(str::to_owned))
+            .collect::<HashSet<_>>();
+        if let Some(assignments) = after.get("assignments").and_then(Value::as_object) {
+            let known_assignment_ids = created_assignments
+                .iter()
+                .filter_map(|assignment| {
+                    assignment
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .collect::<HashSet<_>>();
+            for assignment in assignments.values() {
+                if assignment
+                    .get("trigger_message_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| attention_message_ids.contains(id))
+                    && assignment
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| !known_assignment_ids.contains(id))
+                {
+                    let mut assignment = assignment.clone();
+                    normalize_assignment(&mut assignment);
+                    created_assignments.push(assignment);
+                }
+            }
+        }
+        let project_by_chat = after
+            .get("projects")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|projects| projects.values())
+            .filter_map(|project| {
+                Some((
+                    project.get("chat_id")?.as_str()?.to_owned(),
+                    project.get("id")?.as_str()?.to_owned(),
+                ))
+            })
+            .collect::<HashMap<_, _>>();
+        let mut assignment_triggers = after
+            .get("assignments")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|assignments| assignments.values())
+            .filter_map(|assignment| {
+                Some(assignment.get("trigger_message_id")?.as_str()?.to_owned())
+            })
+            .collect::<HashSet<_>>();
+        let mut derived_assignment = false;
+        for message in &canonical_messages {
+            let Some(message_id) = message.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if assignment_triggers.contains(message_id) {
+                continue;
+            }
+            let Some(project_id) = message
+                .get("chat_id")
+                .and_then(Value::as_str)
+                .and_then(|chat_id| project_by_chat.get(chat_id))
+            else {
+                continue;
+            };
+            let assignment = self
+                .orchestrator
+                .rpc(
+                    "assignment.create",
+                    json!({
+                        "project_id":project_id,
+                        "origin_chat_id":message["chat_id"],
+                        "bot_id":"main",
+                        "title":"主 Bot 跟进任务",
+                        "instruction":message["fallback_text"],
+                        "from":"system",
+                        "trigger_message_id":message_id,
+                        "parent_assignment_id":message.get("assignment_id").cloned().unwrap_or(Value::Null),
+                        "root_message_id":message_id
+                    }),
+                )
+                .await
+                .map_err(Self::error)?;
+            let mut assignment =
+                normalize_result("assignment.create", assignment).map_err(|message| RpcError {
+                    code: "internal".into(),
+                    message,
+                    details: None,
+                })?;
+            normalize_assignment(&mut assignment);
+            created_assignments.push(assignment);
+            assignment_triggers.insert(message_id.to_owned());
+            derived_assignment = true;
+        }
+        if canonical_messages.is_empty() && created_assignments.is_empty() {
+            return Ok(json!({"notices":[]}));
+        }
+        if !notices.is_empty() || derived_assignment {
+            self.persist_orchestrator(json!({
+            "method":"attention.poll",
+            "params":{"at":at.to_rfc3339()},
+            "result":{"notice_ids":canonical_messages.iter().filter_map(|message| message.get("id")).collect::<Vec<_>>()},
+            "status":"done",
+            "at":now()
+            }))
+            .await?;
+        }
+        for assignment in created_assignments {
+            let assignment_id = assignment.get("id").and_then(Value::as_str).unwrap_or("");
+            let event_exists = self
+                .store
+                .events_since(0)
+                .map_err(store_error)?
+                .into_iter()
+                .any(|event| {
+                    event.event == "assignment.created"
+                        && event.data["assignment"]["id"] == assignment_id
+                });
+            if !event_exists {
+                let data = json!({"assignment":assignment});
+                let event = self
+                    .store
+                    .append_event("assignment.created", data.clone())
+                    .map_err(store_error)?;
+                state.publish_event(event.seq, &event.event, data).await;
+            }
+            self.ensure_assignment_cards(state, &assignment, "assignment.create")
+                .await?;
+        }
+        let mut emitted_messages = Vec::new();
+        for message in canonical_messages.iter() {
+            let message_id = message.get("id").and_then(Value::as_str).unwrap_or("");
+            let event_exists = self
+                .store
+                .events_since(0)
+                .map_err(store_error)?
+                .into_iter()
+                .any(|event| {
+                    matches!(event.event.as_str(), "message.created" | "message.updated")
+                        && event.data["message"]["id"] == message_id
+                });
+            if event_exists {
+                continue;
+            }
+            let data = json!({"message":message});
+            let event = self
+                .store
+                .append_event("message.created", data.clone())
+                .map_err(store_error)?;
+            state.publish_event(event.seq, &event.event, data).await;
+            emitted_messages.push(message.clone());
+        }
+        Ok(json!({"notices":emitted_messages}))
     }
 
     /// Commit a runtime routine result through the same durable operation and
@@ -656,6 +1565,17 @@ impl RpcBackend for ProductionBackend {
                 .await;
         }
         let _guard = self.write_lock.lock().await;
+        let mut params = params;
+        let bot_dm_context = if method == "send_msg" {
+            self.prepare_bot_dm_send(&mut params)?
+        } else {
+            None
+        };
+        if let Some(context) = bot_dm_context.as_ref() {
+            if self.ensure_bot_dm_chat(&context.route)? {
+                self.publish_bot_dm_chat(state, &context.route).await?;
+            }
+        }
         if method.starts_with("provider.") || method.starts_with("model.") {
             let in_use_models = self.in_use_models();
             let mut registry = self.providers.lock().await;
@@ -672,6 +1592,45 @@ impl RpcBackend for ProductionBackend {
         }
         if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
             if let Some(value) = self.idempotency.lock().await.get(request_id).cloned() {
+                let operation = self
+                    .store
+                    .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+                    .map_err(store_error)?
+                    .into_iter()
+                    .rev()
+                    .find(|operation| {
+                        operation.get("status").and_then(Value::as_str) == Some("done")
+                            && operation.get("method").and_then(Value::as_str) == Some(method)
+                            && operation.get("client_request_id").and_then(Value::as_str)
+                                == Some(request_id)
+                    })
+                    .unwrap_or_else(|| {
+                        json!({
+                            "method":method,
+                            "params":params,
+                            "result":value,
+                            "event_key":format!("rpc:{method}:{request_id}"),
+                            "status":"done"
+                        })
+                    });
+                for event in self.repair_operation_events(&operation)? {
+                    state
+                        .publish_event(event.seq, &event.event, event.data)
+                        .await;
+                }
+                match method {
+                    "project.create" => self.ensure_project_card(state, &value).await?,
+                    "assignment.create" | "assign" | "delegate" => {
+                        self.ensure_assignment_cards(state, &value, method).await?
+                    }
+                    "send_msg" => {
+                        if let Some(context) = bot_dm_context.as_ref() {
+                            self.ensure_bot_dm_ref(state, context, &value, &params)
+                                .await?;
+                        }
+                    }
+                    _ => {}
+                }
                 return Ok(value);
             }
         }
@@ -694,7 +1653,11 @@ impl RpcBackend for ProductionBackend {
             "bot.duplicate" => self.duplicate_bot_with_skills(&params).await?,
             "chat.send" => self.chat_send(params.clone()).await?,
             "chat.history" => self.chat_history(&params).await?,
+            "chat.thread" => self.chat_thread(&params).await?,
             "chat.mark_read" => self.chat_mark_read(&params).await?,
+            "chat.react" => self.chat_react(&params).await?,
+            "chat.set_pinned" => self.chat_set_flag(&params, "pinned").await?,
+            "chat.set_muted" => self.chat_set_flag(&params, "muted").await?,
             "chat.list" => self.chat_list().await?,
             "chat.get" => self.chat_get(&params).await?,
             "settings.get" => json!({"settings": self.settings(state).await?}),
@@ -720,7 +1683,9 @@ impl RpcBackend for ProductionBackend {
                 json!({})
             }
             "assignment.stop" => self.assignment_stop(state, &params).await?,
-            "project.request_review" => project_request_review(self, &params).await?,
+            "loop.resolve" => self.loop_resolve(state, &params).await?,
+            "project.request_review" => project_request_review(self, &params, state).await?,
+            "project.request_changes" => project_request_changes(self, &params, state).await?,
             "propose_bot" => {
                 let proposal = self
                     .orchestrator
@@ -735,14 +1700,70 @@ impl RpcBackend for ProductionBackend {
                         message: "proposal did not return proposal_id".into(),
                         details: None,
                     })?;
+                let chat_id = params
+                    .get("chat_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("chat_main");
+                let bot_id = params
+                    .get("bot_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("main");
+                // A model run supplies its real assignment through
+                // CollaborationIdentity.  Client callers may also provide
+                // it explicitly.  For a standalone proposal, create a real
+                // main-Bot assignment so the protocol Question remains
+                // referentially valid instead of using proposal_id as a
+                // fabricated assignment.
+                let assignment_id = if let Some(id) = params
+                    .get("assignment_id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                {
+                    id.to_owned()
+                } else {
+                    let assignment_params = json!({
+                        "origin_chat_id": chat_id,
+                        "bot_id": bot_id,
+                        "title": format!("确认创建 Bot「{}」", proposal.get("name").and_then(Value::as_str).unwrap_or("新 Bot")),
+                        "instruction": "等待用户确认创建 Bot",
+                        "from": "main"
+                    });
+                    let assignment = self
+                        .orchestrator
+                        .rpc("assignment.create", assignment_params.clone())
+                        .await
+                        .map_err(Self::error)?;
+                    let assignment =
+                        normalize_result("assignment.create", assignment).map_err(|message| {
+                            RpcError {
+                                code: "internal".into(),
+                                message,
+                                details: None,
+                            }
+                        })?;
+                    let assignment_id = assignment
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| RpcError {
+                            code: "internal".into(),
+                            message: "assignment.create did not return id".into(),
+                            details: None,
+                        })?
+                        .to_owned();
+                    self.persist(state, "assignment.create", &assignment_params, &assignment)
+                        .await?;
+                    self.ensure_assignment_cards(state, &assignment, "assignment.create")
+                        .await?;
+                    assignment_id
+                };
                 let question = self
                     .orchestrator
                     .rpc(
                         "question.ask",
                         json!({
-                            "bot_id": params.get("bot_id").and_then(Value::as_str).unwrap_or("main"),
-                            "assignment_id": proposal_id,
-                            "chat_id": params.get("chat_id").and_then(Value::as_str).unwrap_or("chat_main"),
+                            "bot_id": bot_id,
+                            "assignment_id": assignment_id,
+                            "chat_id": chat_id,
                             "text": format!("批准创建 Bot「{}」？", proposal.get("name").and_then(Value::as_str).unwrap_or("新 Bot")),
                             "options": ["批准", "拒绝"],
                             "allow_free_text": true
@@ -750,8 +1771,28 @@ impl RpcBackend for ProductionBackend {
                     )
                     .await
                     .map_err(Self::error)?;
+                let question_id =
+                    question
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| RpcError {
+                            code: "internal".into(),
+                            message: "question.ask did not return id".into(),
+                            details: None,
+                        })?;
+                self.write_proposal(
+                    question_id,
+                    &json!({
+                        "question_id": question_id,
+                        "proposal_id": proposal_id,
+                        "assignment_id": assignment_id,
+                        "state": "pending",
+                        "params": params
+                    }),
+                )?;
                 json!({"proposal":proposal,"question":question})
             }
+            "question.answer" => self.answer_proposal(state, &params).await?,
             "project.confirm_done" => {
                 let project_id = params
                     .get("project_id")
@@ -776,10 +1817,21 @@ impl RpcBackend for ProductionBackend {
                         details: None,
                     });
                 }
-                self.orchestrator
+                let result = self
+                    .orchestrator
                     .rpc(method, params.clone())
                     .await
-                    .map_err(Self::error)?
+                    .map_err(Self::error)?;
+                self.set_review_card(
+                    state,
+                    project_id,
+                    "confirmed",
+                    &Value::Null,
+                    "项目已确认完成",
+                )
+                .await?;
+                self.set_completion_card(state, project_id).await?;
+                result
             }
             _ => self
                 .orchestrator
@@ -787,6 +1839,9 @@ impl RpcBackend for ProductionBackend {
                 .await
                 .map_err(Self::error)?,
         };
+        if method == "approval.decide" {
+            self.sync_approval_rule(state, &result).await?;
+        }
         let result = normalize_result(method, result).map_err(|message| RpcError {
             code: "internal".into(),
             message,
@@ -811,7 +1866,24 @@ impl RpcBackend for ProductionBackend {
             details: None,
         })?;
         if Self::is_mutation(method) {
-            self.persist(state, method, &params, &result).await
+            let persisted = self.persist(state, method, &params, &result).await?;
+            if method == "project.create" {
+                self.ensure_project_card(state, &result).await?;
+            }
+            if matches!(method, "assignment.create" | "assign" | "delegate") {
+                self.ensure_assignment_cards(state, &result, method).await?;
+            } else if method == "send_msg" {
+                self.ensure_trigger_assignment_cards(
+                    state,
+                    result.get("id").and_then(Value::as_str),
+                )
+                .await?;
+                if let Some(context) = bot_dm_context.as_ref() {
+                    self.ensure_bot_dm_ref(state, context, &result, &params)
+                        .await?;
+                }
+            }
+            Ok(persisted)
         } else {
             Ok(result)
         }
@@ -822,7 +1894,11 @@ impl RpcBackend for ProductionBackend {
 /// one user-visible message.  The orchestrator deliberately keeps this
 /// composition out of its compact RPC model; the gateway adapter owns the
 /// wire-level project/message event shape.
-async fn project_request_review(backend: &ProductionBackend, params: &Value) -> RpcResult {
+async fn project_request_review(
+    backend: &ProductionBackend,
+    params: &Value,
+    state: &GatewayState,
+) -> RpcResult {
     let project_id = params
         .get("project_id")
         .and_then(Value::as_str)
@@ -839,71 +1915,127 @@ async fn project_request_review(backend: &ProductionBackend, params: &Value) -> 
             message: "summary is required".into(),
             details: None,
         })?;
+    let project = backend
+        .orchestrator
+        .mark_project_review(project_id)
+        .map_err(ProductionBackend::error)?;
+    let project = serde_json::to_value(project).map_err(|error| RpcError {
+        code: "internal".into(),
+        message: error.to_string(),
+        details: None,
+    })?;
     let project_result = backend
         .orchestrator
         .rpc("project.get", json!({"project_id":project_id}))
         .await
         .map_err(ProductionBackend::error)?;
-    let project = project_result
-        .get("project")
+    let artifacts = project_result
+        .get("announcement")
+        .and_then(|announcement| announcement.get("artifacts"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|artifact| {
+                    json!({
+                        "artifact_id":artifact.get("id").cloned().unwrap_or(Value::Null),
+                        "title":artifact.get("title").cloned().unwrap_or_else(|| json!("")),
+                        "path_or_url":artifact.get("path_or_url").cloned().unwrap_or_else(|| json!(""))
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .map(Value::Array)
+        .unwrap_or_else(|| json!([]));
+    backend
+        .set_review_card(state, project_id, "pending", &artifacts, summary)
+        .await?;
+    Ok(json!({"project":project}))
+}
+
+async fn project_request_changes(
+    backend: &ProductionBackend,
+    params: &Value,
+    state: &GatewayState,
+) -> RpcResult {
+    if params.get("text").and_then(Value::as_str).is_none() {
+        return Err(RpcError {
+            code: "invalid_params".into(),
+            message: "text is required".into(),
+            details: None,
+        });
+    }
+    let project_result = backend
+        .orchestrator
+        .rpc("project.request_changes", params.clone())
+        .await
+        .map_err(ProductionBackend::error)?;
+    let raw_message = project_result
+        .get("message")
         .cloned()
-        .unwrap_or(Value::Null);
-    let chat_id = project
-        .get("chat_id")
-        .and_then(Value::as_str)
         .ok_or_else(|| RpcError {
             code: "internal".into(),
-            message: "project has no chat_id".into(),
+            message: "project.request_changes returned no message".into(),
             details: None,
         })?;
-    let assignments = backend
-        .orchestrator
-        .rpc("assignment.list", json!({}))
-        .await
-        .map_err(ProductionBackend::error)?;
-    let assignment = assignments
-        .get("items")
-        .and_then(Value::as_array)
-        .and_then(|items| {
-            items.iter().find(|item| {
-                item.get("project_id").and_then(Value::as_str) == Some(project_id)
-                    && matches!(
-                        item.get("status").and_then(Value::as_str),
-                        Some("working") | Some("waiting_bot") | Some("done")
-                    )
-            })
-        })
-        .cloned()
-        .ok_or_else(|| RpcError {
-            code: "conflict".into(),
-            message: "project has no worker assignment ready for review".into(),
-            details: None,
-        })?;
-    let message = backend
+    let project = backend
         .orchestrator
         .rpc(
-            "send_msg",
-            json!({
-                "bot_id": assignment.get("bot_id").cloned().unwrap_or_else(|| json!("main")),
-                "chat_id": chat_id,
-                "assignment_id": assignment.get("id"),
-                "text": summary,
-                "intent": "done",
-                "mentions": ["main"]
-            }),
+            "project.get",
+            json!({"project_id": params.get("project_id").cloned().unwrap_or(Value::Null)}),
         )
         .await
-        .map_err(ProductionBackend::error)?;
-    let updated = backend
-        .orchestrator
-        .rpc("project.get", json!({"project_id":project_id}))
-        .await
-        .map_err(ProductionBackend::error)?;
-    Ok(json!({
-        "project": updated.get("project").cloned().unwrap_or(project),
-        "message": message
-    }))
+        .map_err(ProductionBackend::error)?
+        .get("project")
+        .cloned()
+        .ok_or_else(|| RpcError {
+            code: "internal".into(),
+            message: "project.request_changes project lookup returned no project".into(),
+            details: None,
+        })?;
+    let mut raw_message = raw_message;
+    normalize_message(&mut raw_message);
+    let message = backend.persist_client_message(&raw_message)?;
+    let mut project = project;
+    normalize_project(&mut project);
+    let project_data = json!({"project":project});
+    let project_event = backend
+        .store
+        .append_event("project.updated", project_data.clone())
+        .map_err(store_error)?;
+    state
+        .publish_event(project_event.seq, &project_event.event, project_data)
+        .await;
+    let message_data = json!({"message":message.clone()});
+    let message_event = backend
+        .store
+        .append_event("message.created", message_data.clone())
+        .map_err(store_error)?;
+    state
+        .publish_event(message_event.seq, &message_event.event, message_data)
+        .await;
+    backend
+        .set_review_card(
+            state,
+            params
+                .get("project_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError {
+                    code: "invalid_params".into(),
+                    message: "project_id is required".into(),
+                    details: None,
+                })?,
+            "changes_requested",
+            &Value::Null,
+            params
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or("已请求修改"),
+        )
+        .await?;
+    Ok(json!({"message":message}))
 }
+
 impl ProductionBackend {
     async fn settings(&self, state: &GatewayState) -> Result<Value, RpcError> {
         let path = "data/settings.json";
@@ -994,12 +2126,67 @@ impl ProductionBackend {
         self.store
             .write_snapshot("data/settings.json", &value)
             .map_err(store_error)?;
+        self.orchestrator
+            .configure(scheduler_limits(&value).map_err(|error| RpcError {
+                code: "invalid_params".into(),
+                message: error.to_string(),
+                details: None,
+            })?)
+            .map_err(Self::error)?;
         *state.host_name.write().await = value
             .get("host_name")
             .and_then(Value::as_str)
             .unwrap_or("Mac Bot")
             .into();
         Ok(json!({"settings": self.settings(state).await?}))
+    }
+
+    async fn sync_approval_rule(
+        &self,
+        state: &GatewayState,
+        result: &Value,
+    ) -> Result<(), RpcError> {
+        let Some(approval) = result.get("approval") else {
+            return Ok(());
+        };
+        if approval.get("state").and_then(Value::as_str) != Some("always_allowed") {
+            return Ok(());
+        }
+        let mut settings = self.settings(state).await?;
+        let approvals = settings
+            .get_mut("approvals")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "settings.approvals is missing".into(),
+                details: None,
+            })?;
+        let rules = approvals
+            .entry("rules")
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "settings.approvals.rules must be an array".into(),
+                details: None,
+            })?;
+        let id = approval.get("id").cloned().unwrap_or(Value::Null);
+        if !rules.iter().any(|rule| rule.get("id") == Some(&id)) {
+            rules.push(json!({
+                "id": id,
+                "kind": "auto_allow",
+                "text": approval.get("summary").cloned().unwrap_or(Value::String(String::new())),
+                "created_at": approval.get("decided_at").cloned().unwrap_or_else(|| json!(now()))
+            }));
+        }
+        serde_json::from_value::<Settings>(settings.clone()).map_err(|error| RpcError {
+            code: "internal".into(),
+            message: error.to_string(),
+            details: None,
+        })?;
+        self.store
+            .write_snapshot("data/settings.json", &settings)
+            .map_err(store_error)
     }
 
     async fn usage_query(&self, state: &GatewayState, method: &str, params: &Value) -> RpcResult {
@@ -1263,6 +2450,135 @@ impl ProductionBackend {
             .map_err(store_error)
     }
 
+    fn read_proposal(&self, question_id: &str) -> Result<Option<Value>, RpcError> {
+        self.store
+            .read_snapshot(format!(
+                "data/proposals/{}.json",
+                takeover_component(question_id)
+            ))
+            .map_err(store_error)
+    }
+
+    fn write_proposal(&self, question_id: &str, value: &Value) -> Result<(), RpcError> {
+        self.store
+            .write_snapshot(
+                format!("data/proposals/{}.json", takeover_component(question_id)),
+                value,
+            )
+            .map_err(store_error)
+    }
+
+    async fn answer_proposal(&self, state: &GatewayState, params: &Value) -> RpcResult {
+        let result = self
+            .orchestrator
+            .rpc("question.answer", params.clone())
+            .await
+            .map_err(Self::error)?;
+        let question_id = params
+            .get("question_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: "question_id is required".into(),
+                details: None,
+            })?;
+        let Some(mut proposal) = self.read_proposal(question_id)? else {
+            return Ok(result);
+        };
+        if proposal.get("state").and_then(Value::as_str) != Some("pending") {
+            return Ok(result);
+        }
+        let answer = result
+            .get("question")
+            .and_then(|question| question.get("answer"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let approved = answer.get("option_index").and_then(Value::as_u64) == Some(0)
+            || answer.get("text").and_then(Value::as_str) == Some("批准");
+        let proposal_assignment_id = proposal
+            .get("assignment_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        if !approved {
+            if let Some(object) = proposal.as_object_mut() {
+                object.insert("state".into(), json!("rejected"));
+            }
+            self.write_proposal(question_id, &proposal)?;
+            if let Some(assignment_id) = proposal_assignment_id.as_deref() {
+                self.orchestrator
+                    .finish_assignment(assignment_id, "cancelled")
+                    .map_err(Self::error)?;
+            }
+            return Ok(result);
+        }
+
+        let source = proposal
+            .get("params")
+            .and_then(Value::as_object)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "proposal parameters are missing".into(),
+                details: None,
+            })?;
+        let mut create_params = Map::new();
+        for key in [
+            "name",
+            "label",
+            "description",
+            "avatar",
+            "model",
+            "max_parallel",
+            "tools",
+            "browser_mode",
+        ] {
+            if let Some(value) = source.get(key) {
+                create_params.insert(key.into(), value.clone());
+            }
+        }
+        create_params.insert(
+            "client_request_id".into(),
+            json!(format!("proposal:{question_id}")),
+        );
+        let create_params = Value::Object(create_params);
+        let mut created = self
+            .orchestrator
+            .rpc("bot.create", create_params.clone())
+            .await
+            .map_err(Self::error)?;
+        created = normalize_result("bot.create", created).map_err(|message| RpcError {
+            code: "internal".into(),
+            message,
+            details: None,
+        })?;
+        self.enrich_bot_status(&mut created)
+            .map_err(|message| RpcError {
+                code: "internal".into(),
+                message,
+                details: None,
+            })?;
+        validate_result("bot.create", &created).map_err(|message| RpcError {
+            code: "internal".into(),
+            message,
+            details: None,
+        })?;
+        self.persist(state, "bot.create", &create_params, &created)
+            .await?;
+        if let Some(assignment_id) = proposal_assignment_id.as_deref() {
+            self.orchestrator
+                .finish_assignment(assignment_id, "done")
+                .map_err(Self::error)?;
+        }
+        if let Some(object) = proposal.as_object_mut() {
+            object.insert("state".into(), json!("approved"));
+            object.insert(
+                "bot".into(),
+                created.get("bot").cloned().unwrap_or(Value::Null),
+            );
+        }
+        self.write_proposal(question_id, &proposal)?;
+        Ok(result)
+    }
+
     async fn device_register(&self, params: &Value) -> RpcResult {
         let device: macbot_protocol::DeviceRegisterParams = serde_json::from_value(params.clone())
             .map_err(|error| RpcError {
@@ -1287,6 +2603,111 @@ impl ProductionBackend {
             details: None,
         })?;
         Ok(json!({"device": row}))
+    }
+
+    async fn loop_resolve(&self, state: &GatewayState, params: &Value) -> RpcResult {
+        let root_message_id = required_text(params, "root_message_id")?;
+        let action = required_text(params, "action")?;
+        if !matches!(action.as_str(), "continue" | "end") {
+            return Err(RpcError {
+                code: "invalid_params".into(),
+                message: "action must be continue or end".into(),
+                details: None,
+            });
+        }
+        let before = self.orchestrator.snapshot().map_err(Self::error)?;
+        self.orchestrator
+            .rpc("loop.resolve", params.clone())
+            .await
+            .map_err(Self::error)?;
+        let after = self.orchestrator.snapshot().map_err(Self::error)?;
+        let state_name = if action == "continue" {
+            "continued"
+        } else {
+            "ended"
+        };
+
+        // The loop block is attached to the wire message returned by send_msg;
+        // the compact orchestrator snapshot only retains the pre-normalized
+        // message. Recover the durable wire row from the event log so the
+        // update keeps the original message id and sequence.
+        let event_message = self
+            .store
+            .events_since(0)
+            .map_err(store_error)?
+            .into_iter()
+            .rev()
+            .find_map(|event| {
+                let message = event.data.get("message")?;
+                let has_pause =
+                    message
+                        .get("blocks")
+                        .and_then(Value::as_array)
+                        .is_some_and(|blocks| {
+                            blocks.iter().any(|block| {
+                                block.get("type").and_then(Value::as_str) == Some("loop_paused")
+                                    && block.get("root_message_id").and_then(Value::as_str)
+                                        == Some(root_message_id.as_str())
+                            })
+                        });
+                has_pause.then(|| message.clone())
+            });
+        let previous_message = event_message.or_else(|| {
+            before
+                .get("messages")
+                .and_then(Value::as_object)
+                .and_then(|messages| messages.get(&root_message_id))
+                .cloned()
+        });
+        if let Some(mut message) = previous_message {
+            let mut changed = false;
+            if let Some(blocks) = message.get_mut("blocks").and_then(Value::as_array_mut) {
+                for block in blocks {
+                    if block.get("type").and_then(Value::as_str) == Some("loop_paused")
+                        && block.get("root_message_id").and_then(Value::as_str)
+                            == Some(root_message_id.as_str())
+                        && block.get("state").and_then(Value::as_str) != Some(state_name)
+                    {
+                        block["state"] = json!(state_name);
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                normalize_message(&mut message);
+                let canonical = self.persist_client_message(&message)?;
+                let data = json!({"message": canonical});
+                let event = self
+                    .store
+                    .append_event("message.updated", data.clone())
+                    .map_err(store_error)?;
+                state.publish_event(event.seq, &event.event, data).await;
+            }
+        }
+
+        let previous_ids = before
+            .get("assignments")
+            .and_then(Value::as_object)
+            .map(|items| items.keys().collect::<std::collections::HashSet<_>>())
+            .unwrap_or_default();
+        if let Some(assignments) = after.get("assignments").and_then(Value::as_object) {
+            for (id, value) in assignments {
+                if previous_ids.contains(id) {
+                    continue;
+                }
+                let mut assignment = value.clone();
+                normalize_assignment(&mut assignment);
+                let data = json!({"assignment": assignment});
+                let event = self
+                    .store
+                    .append_event("assignment.created", data.clone())
+                    .map_err(store_error)?;
+                state.publish_event(event.seq, &event.event, data).await;
+                self.ensure_assignment_cards(state, &assignment, "assignment.create")
+                    .await?;
+            }
+        }
+        Ok(json!({}))
     }
 
     async fn assignment_stop(&self, state: &GatewayState, params: &Value) -> RpcResult {
@@ -1529,6 +2950,193 @@ impl ProductionBackend {
             .await;
     }
 
+    fn prepare_bot_dm_send(&self, params: &mut Value) -> Result<Option<BotDmContext>, RpcError> {
+        let Some(to) = params.get("to") else {
+            return Ok(None);
+        };
+        let target_bot_id = to
+            .as_str()
+            .or_else(|| to.get("bot").and_then(Value::as_str))
+            .or_else(|| to.get("bot_id").and_then(Value::as_str))
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: "send_msg.to must identify a bot".into(),
+                details: None,
+            })?;
+        let source_bot_id = params
+            .get("bot_id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: "send_msg.bot_id is required for Bot DM".into(),
+                details: None,
+            })?
+            .to_owned();
+        let source_chat_id = params
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .unwrap_or("chat_main")
+            .to_owned();
+        let route = self
+            .orchestrator
+            .bot_dm_route(&source_bot_id, target_bot_id)
+            .map_err(Self::error)?;
+        params["chat_id"] = json!(route.chat_id.clone());
+        if let Some(object) = params.as_object_mut() {
+            object.remove("to");
+        }
+        Ok(Some(BotDmContext {
+            source_chat_id,
+            source_bot_id,
+            route,
+        }))
+    }
+
+    fn ensure_bot_dm_chat(&self, route: &BotDmRoute) -> Result<bool, RpcError> {
+        let path = format!(
+            "data/chats/{}/metadata.json",
+            takeover_component(&route.chat_id)
+        );
+        if let Some(existing) = self
+            .store
+            .read_snapshot::<Value>(&path)
+            .map_err(store_error)?
+        {
+            if existing.get("kind").and_then(Value::as_str) != Some("bot_dm") {
+                return Err(RpcError {
+                    code: "conflict".into(),
+                    message: format!("chat {} is not a bot_dm route", route.chat_id),
+                    details: None,
+                });
+            }
+            let event_exists = self
+                .store
+                .events_since(0)
+                .map_err(store_error)?
+                .into_iter()
+                .any(|event| {
+                    event.event == "chat.created" && event.data["chat"]["id"] == route.chat_id
+                });
+            return Ok(!event_exists);
+        }
+        self.store
+            .write_snapshot(
+                path,
+                &json!({
+                    "id":route.chat_id,
+                    "kind":"bot_dm",
+                    "title":route.title,
+                    "bot_id":null,
+                    "project_id":null,
+                    "member_bot_ids":route.member_bot_ids,
+                    "read_only":route.read_only,
+                    "created_at":now()
+                }),
+            )
+            .map_err(store_error)?;
+        Ok(true)
+    }
+
+    async fn publish_bot_dm_chat(
+        &self,
+        state: &GatewayState,
+        route: &BotDmRoute,
+    ) -> Result<(), RpcError> {
+        let chats = self.chat_list().await?;
+        let chat = chats["chats"]
+            .as_array()
+            .and_then(|items| {
+                items.iter().find(|item| {
+                    item.get("id").and_then(Value::as_str) == Some(route.chat_id.as_str())
+                })
+            })
+            .cloned()
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "new bot_dm chat is missing from chat.list".into(),
+                details: None,
+            })?;
+        let data = json!({"chat":chat});
+        let event = self
+            .store
+            .append_event("chat.created", data.clone())
+            .map_err(store_error)?;
+        state.publish_event(event.seq, &event.event, data).await;
+        Ok(())
+    }
+
+    async fn ensure_bot_dm_ref(
+        &self,
+        state: &GatewayState,
+        context: &BotDmContext,
+        message: &Value,
+        params: &Value,
+    ) -> Result<(), RpcError> {
+        let target_message = message.get("message").unwrap_or(message);
+        let message_id = target_message
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "Bot DM message has no id".into(),
+                details: None,
+            })?;
+        let count = self.load_chat_messages(&context.route.chat_id)?.len() as u64;
+        let ref_id = format!("msg_bot_dm_ref_{message_id}");
+        let existing = self
+            .load_chat_messages(&context.source_chat_id)?
+            .into_iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some(ref_id.as_str()));
+        let event_name = if existing.is_some() {
+            "message.updated"
+        } else {
+            "message.created"
+        };
+        let card = json!({
+            "id":ref_id,
+            "chat_id":context.source_chat_id,
+            "seq":0,
+            "sender":{"kind":"bot","bot_id":context.source_bot_id},
+            "created_at":target_message.get("created_at").cloned().unwrap_or_else(|| json!(now())),
+            "edited_at":null,
+            "deleted":false,
+            "reply_to":null,
+            "thread_count":0,
+            "mentions":[],
+            "blocks":[{"type":"bot_dm_ref","chat_id":context.route.chat_id,"count":count}],
+            "fallback_text":format!("✉ Bot 私信了 {}", context.route.title),
+            "intent":null,
+            "assignment_id":params.get("assignment_id").cloned().unwrap_or(Value::Null),
+            "streaming":false,
+            "delivery":[],
+            "reactions":[]
+        });
+        let canonical = self.persist_client_message(&card)?;
+        let event_exists = self
+            .store
+            .events_since(0)
+            .map_err(store_error)?
+            .into_iter()
+            .rev()
+            .find(|event| {
+                matches!(event.event.as_str(), "message.created" | "message.updated")
+                    && event.data["message"]["id"] == ref_id
+            })
+            .is_some_and(|event| event.data["message"]["blocks"] == canonical["blocks"]);
+        if event_exists {
+            return Ok(());
+        }
+        let data = json!({"message":canonical});
+        let event = self
+            .store
+            .append_event(event_name, data.clone())
+            .map_err(store_error)?;
+        state.publish_event(event.seq, &event.event, data).await;
+        Ok(())
+    }
+
     async fn chat_send(&self, params: Value) -> RpcResult {
         let chat_id = params
             .get("chat_id")
@@ -1538,6 +3146,13 @@ impl ProductionBackend {
                 message: "chat_id is required".into(),
                 details: None,
             })?;
+        if self.is_read_only_bot_dm(chat_id)? {
+            return Err(RpcError {
+                code: "forbidden".into(),
+                message: "bot_dm chats are read-only".into(),
+                details: None,
+            });
+        }
         let text = params
             .get("text")
             .and_then(Value::as_str)
@@ -1546,7 +3161,8 @@ impl ProductionBackend {
                 message: "text is required".into(),
                 details: None,
             })?;
-        let mentions = params.get("mentions").and_then(Value::as_array).map(|items| items.iter().filter_map(|item| match item.get("kind").and_then(Value::as_str) { Some("bot") => Some(json!({"bot_id":item.get("bot_id"),"instruction":item.get("instruction")})), Some("main") => Some(json!("main")), Some("user") => Some(json!("user")), _ => None }).collect::<Vec<_>>()).unwrap_or_default();
+        let attachment_blocks = self.attachment_blocks(&params)?;
+        let mentions = self.expand_chat_mentions(chat_id, &params).await?;
         let mut send = json!({"bot_id":"user","chat_id":chat_id,"text":text,"intent":"ack","mentions":mentions});
         if let Some(id) = params.get("client_request_id") {
             send["client_request_id"] = id.clone();
@@ -1560,7 +3176,97 @@ impl ProductionBackend {
         if let Some(reply_to) = params.get("reply_to") {
             result["message"]["reply_to"] = reply_to.clone();
         }
+        if !attachment_blocks.is_empty() {
+            let mut blocks = vec![json!({"type":"text","markdown":text})];
+            blocks.extend(attachment_blocks);
+            result["message"]["blocks"] = Value::Array(blocks);
+        }
         Ok(result)
+    }
+
+    async fn expand_chat_mentions(
+        &self,
+        chat_id: &str,
+        params: &Value,
+    ) -> Result<Vec<Value>, RpcError> {
+        let Some(items) = params.get("mentions").and_then(Value::as_array) else {
+            return Ok(Vec::new());
+        };
+        let mut mentions = Vec::new();
+        for item in items {
+            let kind = item
+                .get("kind")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError {
+                    code: "invalid_params".into(),
+                    message: "mention.kind is required".into(),
+                    details: None,
+                })?;
+            match kind {
+                "bot" => {
+                    let bot_id = item
+                        .get("bot_id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.is_empty())
+                        .ok_or_else(|| RpcError {
+                            code: "invalid_params".into(),
+                            message: "bot mention requires bot_id".into(),
+                            details: None,
+                        })?;
+                    mentions.push(json!({
+                        "bot_id": bot_id,
+                        "instruction": item.get("instruction").cloned().unwrap_or(Value::Null)
+                    }));
+                }
+                "main" => mentions.push(json!("main")),
+                "everyone" => {
+                    let chat = self
+                        .chat_list()
+                        .await?
+                        .get("chats")
+                        .and_then(Value::as_array)
+                        .and_then(|chats| {
+                            chats.iter().find(|chat| {
+                                chat.get("id").and_then(Value::as_str) == Some(chat_id)
+                            })
+                        })
+                        .cloned()
+                        .ok_or_else(|| RpcError {
+                            code: "not_found".into(),
+                            message: format!("chat {chat_id} not found"),
+                            details: None,
+                        })?;
+                    for member in chat
+                        .get("member_bot_ids")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                    {
+                        if member == "main" {
+                            mentions.push(json!("main"));
+                        } else {
+                            mentions.push(json!({"bot_id":member,"instruction":null}));
+                        }
+                    }
+                }
+                "user" => {
+                    return Err(RpcError {
+                        code: "invalid_params".into(),
+                        message: "user mentions are not allowed by the protocol".into(),
+                        details: None,
+                    });
+                }
+                other => {
+                    return Err(RpcError {
+                        code: "invalid_params".into(),
+                        message: format!("unsupported mention kind {other}"),
+                        details: None,
+                    });
+                }
+            }
+        }
+        Ok(mentions)
     }
 
     fn load_chat_messages(&self, chat_id: &str) -> Result<Vec<Value>, RpcError> {
@@ -1618,6 +3324,54 @@ impl ProductionBackend {
         Ok(messages)
     }
 
+    fn attachment_blocks(&self, params: &Value) -> Result<Vec<Value>, RpcError> {
+        let Some(attachments) = params.get("attachments") else {
+            return Ok(Vec::new());
+        };
+        let attachments = attachments.as_array().ok_or_else(|| RpcError {
+            code: "invalid_params".into(),
+            message: "attachments must be an array".into(),
+            details: None,
+        })?;
+        attachments
+            .iter()
+            .map(|attachment| {
+                let id = attachment.as_str().ok_or_else(|| RpcError {
+                    code: "invalid_params".into(),
+                    message: "attachment ids must be strings".into(),
+                    details: None,
+                })?;
+                let metadata = self
+                    .store
+                    .read_snapshot::<Value>(format!(
+                        "data/uploads/{}.json",
+                        takeover_component(id)
+                    ))
+                    .map_err(store_error)?;
+                let file = metadata
+                    .as_ref()
+                    .and_then(|value| value.get("file").or(Some(value)))
+                    .cloned()
+                    .ok_or_else(|| RpcError {
+                        code: "not_found".into(),
+                        message: format!("upload {id} metadata not found"),
+                        details: None,
+                    })?;
+                Ok(json!({
+                    "type":"file",
+                    "file": {
+                        "root":"upload",
+                        "root_id":id,
+                        "path":"",
+                        "name":file.get("name").and_then(Value::as_str).unwrap_or(id),
+                        "size":file.get("size").and_then(Value::as_u64).unwrap_or(0),
+                        "mime":file.get("mime").and_then(Value::as_str).unwrap_or("application/octet-stream")
+                    }
+                }))
+            })
+            .collect()
+    }
+
     fn persist_client_message(&self, message: &Value) -> Result<Value, RpcError> {
         let chat_id = message
             .get("chat_id")
@@ -1648,6 +3402,488 @@ impl ProductionBackend {
                 message: "sequenced chat message disappeared".into(),
                 details: None,
             })
+    }
+
+    /// Ensure every newly-created project is represented by one durable card
+    /// in the main conversation.  The project id is the message id key, so a
+    /// retry or restart updates the same row and never consumes another chat
+    /// sequence.
+    async fn ensure_project_card(
+        &self,
+        state: &GatewayState,
+        result: &Value,
+    ) -> Result<(), RpcError> {
+        let project = result.get("project").ok_or_else(|| RpcError {
+            code: "internal".into(),
+            message: "project.create result has no project".into(),
+            details: None,
+        })?;
+        let project_id = project
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "project.create result has no project id".into(),
+                details: None,
+            })?;
+        let message_id = format!("msg_project_card_{project_id}");
+        // The chat row and the global event are separate durable writes. A
+        // crash between them leaves the row present but makes resume blind to
+        // it, so deduplicate against the event log independently.
+        let event_exists = self
+            .store
+            .events_since(0)
+            .map_err(store_error)?
+            .into_iter()
+            .any(|event| {
+                event.event == "message.created" && event.data["message"]["id"] == message_id
+            });
+        let card = json!({
+            "id": message_id,
+            "chat_id": "chat_main",
+            "seq": 0,
+            "sender": {"kind":"bot", "bot_id":"main"},
+            "created_at": project.get("created_at").cloned().unwrap_or_else(|| json!(now())),
+            "edited_at": null,
+            "deleted": false,
+            "reply_to": null,
+            "thread_count": 0,
+            "mentions": [],
+            "blocks": [{"type":"project_card", "project_id":project_id}],
+            "fallback_text": format!("项目「{}」已创建", project.get("name").and_then(Value::as_str).unwrap_or(project_id)),
+            "intent": null,
+            "assignment_id": null,
+            "streaming": false,
+            "delivery": [],
+            "reactions": []
+        });
+        let canonical = self.persist_client_message(&card)?;
+        if !event_exists {
+            let data = json!({"message":canonical});
+            let event = self
+                .store
+                .append_event("message.created", data.clone())
+                .map_err(store_error)?;
+            state.publish_event(event.seq, &event.event, data).await;
+        }
+        Ok(())
+    }
+
+    /// Publish the durable system card associated with an assignment.  Cards
+    /// are ordinary messages in the assignment's origin conversation, so they
+    /// use the same per-chat sequence allocator and JSONL recovery path as
+    /// user and bot messages.  The message id is derived solely from the
+    /// assignment id; retrying an operation therefore repairs a missing
+    /// event without allocating another row or sequence.
+    async fn ensure_assignment_cards(
+        &self,
+        state: &GatewayState,
+        assignment: &Value,
+        method: &str,
+    ) -> Result<(), RpcError> {
+        assignment
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "assignment result has no id".into(),
+                details: None,
+            })?;
+        let is_delegation =
+            method == "delegate" && assignment.get("project_id").is_none_or(Value::is_null);
+        if is_delegation {
+            self.ensure_assignment_card(state, assignment, true).await?;
+        } else if assignment
+            .get("origin_chat_id")
+            .and_then(Value::as_str)
+            .is_some_and(|chat_id| !chat_id.starts_with("dm_"))
+        {
+            self.ensure_assignment_card(state, assignment, false)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn ensure_assignment_card(
+        &self,
+        state: &GatewayState,
+        assignment: &Value,
+        delegation: bool,
+    ) -> Result<(), RpcError> {
+        let assignment_id = assignment
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "assignment result has no id".into(),
+                details: None,
+            })?;
+        let raw_chat_id = assignment
+            .get("origin_chat_id")
+            .and_then(Value::as_str)
+            .unwrap_or("chat_main");
+        let chat_id = if raw_chat_id == "main-dm" {
+            "chat_main"
+        } else {
+            raw_chat_id
+        };
+        let message_id = if delegation {
+            format!("msg_delegation_{assignment_id}")
+        } else {
+            format!("msg_task_card_{assignment_id}")
+        };
+        let messages = self.load_chat_messages(chat_id)?;
+        let existing = messages
+            .iter()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id.as_str()))
+            .cloned();
+        let event_name = if existing.is_some() {
+            "message.updated"
+        } else {
+            "message.created"
+        };
+        let fallback = if delegation {
+            format!(
+                "已委派给 {}：{}",
+                assignment
+                    .get("bot_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Bot"),
+                assignment
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("待处理任务")
+            )
+        } else {
+            format!(
+                "任务：{}",
+                assignment
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("待处理任务")
+            )
+        };
+        let mut card = existing.unwrap_or_else(|| {
+            json!({
+                "id":message_id,
+                "chat_id":chat_id,
+                "seq":0,
+                "sender":{"kind":"system"},
+                "created_at":assignment.get("created_at").cloned().unwrap_or_else(|| json!(now())),
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[],
+                "fallback_text":"",
+                "intent":null,
+                "assignment_id":assignment_id,
+                "streaming":false,
+                "delivery":[],
+                "reactions":[]
+            })
+        });
+        card["chat_id"] = json!(chat_id);
+        card["sender"] = json!({"kind":"system"});
+        card["assignment_id"] = json!(assignment_id);
+        card["blocks"] = if delegation {
+            json!([{"type":"delegation","bot_id":assignment.get("bot_id").and_then(Value::as_str).unwrap_or(""),"assignment_id":assignment_id}])
+        } else {
+            json!([{"type":"task_card","assignment_id":assignment_id}])
+        };
+        card["fallback_text"] = json!(fallback);
+        normalize_message(&mut card);
+        let canonical = self.persist_client_message(&card)?;
+        let event_exists = self
+            .store
+            .events_since(0)
+            .map_err(store_error)?
+            .into_iter()
+            .rev()
+            .find(|event| {
+                matches!(event.event.as_str(), "message.created" | "message.updated")
+                    && event.data["message"]["id"] == message_id
+            })
+            .is_some_and(|event| event.data["message"]["blocks"] == canonical["blocks"]);
+        if event_exists {
+            return Ok(());
+        }
+        let data = json!({"message":canonical});
+        let event = self
+            .store
+            .append_event(event_name, data.clone())
+            .map_err(store_error)?;
+        state.publish_event(event.seq, &event.event, data).await;
+        Ok(())
+    }
+
+    /// `send_msg` can create assignments as a side effect of a bot mention.
+    /// The message id is the durable trigger key, which lets us discover only
+    /// the assignments created by this dispatch instead of replaying every
+    /// historical card on each send.
+    async fn ensure_trigger_assignment_cards(
+        &self,
+        state: &GatewayState,
+        trigger_message_id: Option<&str>,
+    ) -> Result<(), RpcError> {
+        let Some(trigger_message_id) = trigger_message_id else {
+            return Ok(());
+        };
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let assignments = snapshot
+            .get("assignments")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|items| items.values())
+            .filter(|assignment| {
+                assignment.get("trigger_message_id").and_then(Value::as_str)
+                    == Some(trigger_message_id)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        for assignment in assignments {
+            let assignment_id = assignment.get("id").and_then(Value::as_str).unwrap_or("");
+            let event_exists = self
+                .store
+                .events_since(0)
+                .map_err(store_error)?
+                .into_iter()
+                .any(|event| {
+                    event.event == "assignment.created"
+                        && event.data["assignment"]["id"] == assignment_id
+                });
+            if !event_exists {
+                let mut wire = assignment.clone();
+                normalize_assignment(&mut wire);
+                let data = json!({"assignment":wire});
+                let event = self
+                    .store
+                    .append_event("assignment.created", data.clone())
+                    .map_err(store_error)?;
+                state.publish_event(event.seq, &event.event, data).await;
+            }
+            self.ensure_assignment_cards(state, &assignment, "assign")
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn set_review_card(
+        &self,
+        state: &GatewayState,
+        project_id: &str,
+        review_state: &str,
+        artifacts: &Value,
+        fallback_text: &str,
+    ) -> Result<(), RpcError> {
+        let message_id = format!("msg_project_review_{project_id}");
+        let existing = self
+            .load_chat_messages("chat_main")?
+            .into_iter()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id.as_str()));
+        let event_name = if existing.is_some() {
+            "message.updated"
+        } else {
+            "message.created"
+        };
+        let mut card = existing.unwrap_or_else(|| {
+            json!({
+                "id":message_id,
+                "chat_id":"chat_main",
+                "seq":0,
+                "sender":{"kind":"bot","bot_id":"main"},
+                "created_at":now(),
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[{"kind":"user"}],
+                "blocks":[],
+                "fallback_text":"",
+                "intent":null,
+                "assignment_id":null,
+                "streaming":false,
+                "delivery":[],
+                "reactions":[]
+            })
+        });
+        let artifacts = if artifacts.is_null() {
+            card["blocks"][0]
+                .get("artifacts")
+                .filter(|value| value.is_array())
+                .cloned()
+                .unwrap_or_else(|| json!([]))
+        } else {
+            artifacts.clone()
+        };
+        card["sender"] = json!({"kind":"bot","bot_id":"main"});
+        card["mentions"] = json!([{"kind":"user"}]);
+        card["blocks"] = json!([{
+            "type":"review_card",
+            "project_id":project_id,
+            "artifacts":artifacts,
+            "state":review_state
+        }]);
+        card["fallback_text"] = json!(fallback_text);
+        let canonical = self.persist_client_message(&card)?;
+        let event_exists = self
+            .store
+            .events_since(0)
+            .map_err(store_error)?
+            .into_iter()
+            .rev()
+            .find(|event| {
+                matches!(event.event.as_str(), "message.created" | "message.updated")
+                    && event.data["message"]["id"] == message_id
+            })
+            .is_some_and(|event| {
+                event.data["message"]["blocks"][0]["state"] == review_state
+                    && event.data["message"]["blocks"][0]["artifacts"] == artifacts
+            });
+        if event_exists {
+            return Ok(());
+        }
+        let data = json!({"message":canonical});
+        let event = self
+            .store
+            .append_event(event_name, data.clone())
+            .map_err(store_error)?;
+        state.publish_event(event.seq, &event.event, data).await;
+        Ok(())
+    }
+
+    async fn set_completion_card(
+        &self,
+        state: &GatewayState,
+        project_id: &str,
+    ) -> Result<(), RpcError> {
+        let project_result = self
+            .orchestrator
+            .rpc("project.get", json!({"project_id":project_id}))
+            .await
+            .map_err(Self::error)?;
+        let project = project_result
+            .get("project")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let announcement = project_result
+            .get("announcement")
+            .cloned()
+            .unwrap_or_else(|| json!({"artifacts":[]}));
+        let artifacts = announcement
+            .get("artifacts")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|artifact| {
+                let artifact_id = artifact
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| RpcError {
+                        code: "internal".into(),
+                        message: "announcement artifact has no id".into(),
+                        details: None,
+                    })?;
+                let title = artifact
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| RpcError {
+                        code: "internal".into(),
+                        message: format!("artifact {artifact_id} has no title"),
+                        details: None,
+                    })?;
+                let path_or_url = artifact
+                    .get("path_or_url")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| RpcError {
+                        code: "internal".into(),
+                        message: format!("artifact {artifact_id} has no path_or_url"),
+                        details: None,
+                    })?;
+                Ok(json!({
+                    "artifact_id":artifact_id,
+                    "title":title,
+                    "path_or_url":path_or_url
+                }))
+            })
+            .collect::<Result<Vec<_>, RpcError>>()?;
+        let message_id = format!("msg_project_completion_{project_id}");
+        let completion_chat_id = project
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .filter(|chat_id| !chat_id.is_empty())
+            .unwrap_or("chat_main");
+        let existing = self
+            .load_chat_messages(completion_chat_id)?
+            .into_iter()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id.as_str()));
+        let event_name = if existing.is_some() {
+            "message.updated"
+        } else {
+            "message.created"
+        };
+        let mut card = existing.unwrap_or_else(|| {
+            json!({
+                "id":message_id,
+                "chat_id":completion_chat_id,
+                "seq":0,
+                "sender":{"kind":"bot","bot_id":"main"},
+                "created_at":project.get("updated_at").cloned().unwrap_or_else(|| json!(now())),
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[{"kind":"user"}],
+                "blocks":[],
+                "fallback_text":"",
+                "intent":null,
+                "assignment_id":null,
+                "streaming":false,
+                "delivery":[],
+                "reactions":[]
+            })
+        });
+        card["blocks"] = json!([{
+            "type":"completion",
+            "summary":format!("项目「{}」已完成", project.get("name").and_then(Value::as_str).unwrap_or(project_id)),
+            "artifacts":artifacts,
+            "next":[],
+            "notify_main":true
+        }]);
+        card["fallback_text"] = json!(format!(
+            "项目「{}」已完成",
+            project
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(project_id)
+        ));
+        normalize_message(&mut card);
+        let canonical = self.persist_client_message(&card)?;
+        let event_exists = self
+            .store
+            .events_since(0)
+            .map_err(store_error)?
+            .into_iter()
+            .rev()
+            .find(|event| {
+                matches!(event.event.as_str(), "message.created" | "message.updated")
+                    && event.data["message"]["id"] == message_id
+            })
+            .is_some_and(|event| event.data["message"]["blocks"] == canonical["blocks"]);
+        if event_exists {
+            return Ok(());
+        }
+        let data = json!({"message":canonical});
+        let event = self
+            .store
+            .append_event(event_name, data.clone())
+            .map_err(store_error)?;
+        state.publish_event(event.seq, &event.event, data).await;
+        Ok(())
     }
 
     fn sequence_chat_messages(
@@ -1726,15 +3962,32 @@ impl ProductionBackend {
         Ok(json!({"messages":messages,"has_more":has_more}))
     }
 
-    async fn chat_mark_read(&self, params: &Value) -> RpcResult {
-        let chat_id = params
-            .get("chat_id")
-            .and_then(Value::as_str)
+    async fn chat_thread(&self, params: &Value) -> RpcResult {
+        let chat_id = required_text(params, "chat_id")?;
+        let root_id = required_text(params, "root_message_id")?;
+        let mut messages =
+            self.sequence_chat_messages(&chat_id, self.load_chat_messages(&chat_id)?)?;
+        messages.sort_by_key(|message| message.get("seq").and_then(Value::as_u64).unwrap_or(0));
+        let root = messages
+            .iter()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(root_id.as_str()))
+            .cloned()
             .ok_or_else(|| RpcError {
-                code: "invalid_params".into(),
-                message: "chat_id is required".into(),
+                code: "not_found".into(),
+                message: format!("message {root_id} not found"),
                 details: None,
             })?;
+        let replies = messages
+            .into_iter()
+            .filter(|message| {
+                message.get("reply_to").and_then(Value::as_str) == Some(root_id.as_str())
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({"root":root,"replies":replies}))
+    }
+
+    async fn chat_mark_read(&self, params: &Value) -> RpcResult {
+        let chat_id = required_text(params, "chat_id")?;
         let seq = params
             .get("seq")
             .and_then(Value::as_u64)
@@ -1743,22 +3996,173 @@ impl ProductionBackend {
                 message: "seq is required".into(),
                 details: None,
             })?;
-        let _ = self.chat_get(&json!({"chat_id":chat_id})).await?;
-        let path = format!("data/chats/{}/metadata.json", takeover_component(chat_id));
-        let mut metadata = self
-            .store
-            .read_snapshot::<Value>(&path)
-            .map_err(store_error)?
-            .unwrap_or_else(|| json!({}));
-        let current = metadata
+        let mut overlay = self.read_chat_overlay(&chat_id)?;
+        let current = overlay
             .get("last_read_seq")
             .and_then(Value::as_u64)
             .unwrap_or(0);
-        metadata["last_read_seq"] = json!(current.max(seq));
-        self.store
-            .write_snapshot(path, &metadata)
-            .map_err(store_error)?;
+        overlay["last_read_seq"] = json!(current.max(seq));
+        self.write_chat_overlay(&chat_id, &overlay)?;
         Ok(json!({}))
+    }
+
+    async fn chat_react(&self, params: &Value) -> RpcResult {
+        let message_id = required_text(params, "message_id")?;
+        let emoji = required_text(params, "emoji")?;
+        let on = params
+            .get("on")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: "on is required".into(),
+                details: None,
+            })?;
+        let (_, mut message) = self.find_chat_message(&message_id)?;
+        normalize_message(&mut message);
+        let reactions = message
+            .get_mut("reactions")
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "message reactions are not an array".into(),
+                details: None,
+            })?;
+        if on {
+            if !reactions.iter().any(|reaction| {
+                reaction.get("emoji").and_then(Value::as_str) == Some(emoji.as_str())
+            }) {
+                reactions.push(json!({"emoji":emoji,"by":[{"kind":"user"}]}));
+            }
+        } else {
+            reactions.retain(|reaction| {
+                reaction.get("emoji").and_then(Value::as_str) != Some(emoji.as_str())
+            });
+        }
+        let message = self.persist_client_message(&message)?;
+        Ok(json!({"message":message}))
+    }
+
+    async fn chat_set_flag(&self, params: &Value, flag: &str) -> RpcResult {
+        let chat_id = required_text(params, "chat_id")?;
+        let value = params
+            .get(flag)
+            .and_then(Value::as_bool)
+            .ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: format!("{flag} is required"),
+                details: None,
+            })?;
+        let mut overlay = self.read_chat_overlay(&chat_id)?;
+        overlay[flag] = json!(value);
+        self.write_chat_overlay(&chat_id, &overlay)?;
+        let mut chat = self.chat_list().await?["chats"]
+            .as_array()
+            .and_then(|items| items.iter().find(|item| item["id"] == chat_id))
+            .cloned()
+            .ok_or_else(|| RpcError {
+                code: "not_found".into(),
+                message: format!("chat {chat_id} not found"),
+                details: None,
+            })?;
+        apply_chat_overlay(&mut chat, &overlay);
+        Ok(json!({"chat":chat}))
+    }
+
+    fn read_chat_overlay(&self, chat_id: &str) -> Result<Value, RpcError> {
+        self.store
+            .read_snapshot(format!(
+                "data/chats/{}/metadata.json",
+                takeover_component(chat_id)
+            ))
+            .map_err(store_error)
+            .map(|value| value.unwrap_or_else(|| json!({})))
+    }
+
+    fn is_read_only_bot_dm(&self, chat_id: &str) -> Result<bool, RpcError> {
+        let overlay = self.read_chat_overlay(chat_id)?;
+        Ok(overlay.get("kind").and_then(Value::as_str) == Some("bot_dm"))
+    }
+
+    fn write_chat_overlay(&self, chat_id: &str, overlay: &Value) -> Result<(), RpcError> {
+        self.store
+            .write_snapshot(
+                format!("data/chats/{}/metadata.json", takeover_component(chat_id)),
+                overlay,
+            )
+            .map_err(store_error)
+    }
+
+    fn find_chat_message(&self, message_id: &str) -> Result<(String, Value), RpcError> {
+        let chats = self.store.root().join("data/chats");
+        if chats.exists() {
+            for entry in fs::read_dir(chats).map_err(|error| RpcError {
+                code: "internal".into(),
+                message: error.to_string(),
+                details: None,
+            })? {
+                let entry = entry.map_err(|error| RpcError {
+                    code: "internal".into(),
+                    message: error.to_string(),
+                    details: None,
+                })?;
+                if !entry
+                    .file_type()
+                    .map_err(|error| RpcError {
+                        code: "internal".into(),
+                        message: error.to_string(),
+                        details: None,
+                    })?
+                    .is_dir()
+                {
+                    continue;
+                }
+                let relative = entry.path().join("messages.jsonl");
+                let records = self
+                    .store
+                    .read_jsonl::<Value>(
+                        relative
+                            .strip_prefix(self.store.root())
+                            .unwrap_or(&relative),
+                    )
+                    .map_err(store_error)?;
+                if let Some(message) = records
+                    .into_iter()
+                    .rev()
+                    .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+                {
+                    let chat_id = message
+                        .get("chat_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or(entry.file_name().to_string_lossy().as_ref())
+                        .to_owned();
+                    return Ok((chat_id, message));
+                }
+            }
+        }
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        if let Some(message) = snapshot
+            .get("messages")
+            .and_then(Value::as_object)
+            .and_then(|messages| {
+                messages
+                    .values()
+                    .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+            })
+        {
+            return Ok((
+                message
+                    .get("chat_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                message.clone(),
+            ));
+        }
+        Err(RpcError {
+            code: "not_found".into(),
+            message: format!("message {message_id} not found"),
+            details: None,
+        })
     }
 
     async fn chat_list(&self) -> RpcResult {
@@ -1775,6 +4179,54 @@ impl ProductionBackend {
         if let Some(projects) = snapshot.get("projects").and_then(Value::as_object) {
             for project in projects.values() {
                 chats.push(project_chat(project));
+            }
+        }
+        let known_chat_ids = chats
+            .iter()
+            .filter_map(|chat| chat.get("id").and_then(Value::as_str).map(str::to_owned))
+            .collect::<HashSet<_>>();
+        let chats_dir = self.store.root().join("data/chats");
+        if chats_dir.exists() {
+            for entry in fs::read_dir(&chats_dir).map_err(|error| RpcError {
+                code: "internal".into(),
+                message: error.to_string(),
+                details: None,
+            })? {
+                let entry = entry.map_err(|error| RpcError {
+                    code: "internal".into(),
+                    message: error.to_string(),
+                    details: None,
+                })?;
+                let id = entry.file_name().to_string_lossy().into_owned();
+                if known_chat_ids.contains(&id) {
+                    continue;
+                }
+                let Some(metadata) = self
+                    .store
+                    .read_snapshot::<Value>(format!("data/chats/{id}/metadata.json"))
+                    .map_err(store_error)?
+                else {
+                    continue;
+                };
+                if metadata.get("kind").and_then(Value::as_str) != Some("bot_dm") {
+                    continue;
+                }
+                chats.push(json!({
+                    "id":id,
+                    "kind":"bot_dm",
+                    "title":metadata.get("title").cloned().unwrap_or_else(|| json!("Bot DM")),
+                    "bot_id":null,
+                    "project_id":null,
+                    "member_bot_ids":metadata.get("member_bot_ids").cloned().unwrap_or_else(|| json!([])),
+                    "last_message":null,
+                    "last_seq":0,
+                    "last_read_seq":0,
+                    "unread":0,
+                    "attention":"none",
+                    "pinned":false,
+                    "muted":false,
+                    "updated_at":metadata.get("created_at").cloned().unwrap_or_else(|| json!(now()))
+                }));
             }
         }
         for chat in &mut chats {
@@ -1869,12 +4321,19 @@ impl ProductionBackend {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let reviews = projects
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|project| project.get("status").and_then(Value::as_str) == Some("review"))
+            .filter_map(|project| project.get("id").and_then(Value::as_str).map(str::to_owned))
+            .collect::<Vec<_>>();
         let seq = self.store.last_event_seq().map_err(store_error)?;
         let host_name = state.host_name.read().await.clone();
         let node_id = state.node_id.read().await.clone();
         let hello = json!({"protocol":1,"server_version":"0.1.0","node_id":node_id,"host_name":host_name,"server_time":now(),"last_seq":seq,"timezone":settings["timezone"],"currency":settings["currency"],"features":["browser"]});
         Ok(
-            json!({"seq":seq,"hello":hello,"bots":bots,"chats":chats,"projects":projects,"settings":settings,"pending":{"approvals":approvals,"questions":questions,"reviews":[]}}),
+            json!({"seq":seq,"hello":hello,"bots":bots,"chats":chats,"projects":projects,"settings":settings,"pending":{"approvals":approvals,"questions":questions,"reviews":reviews}}),
         )
     }
 
@@ -1958,6 +4417,26 @@ impl ProductionBackend {
                 }
             }
         }
+        if let Some(items) = snapshot.get("questions").and_then(Value::as_object) {
+            for question in items
+                .values()
+                .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
+            {
+                let already_waiting = question
+                    .get("assignment_id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| assignment_status.get(id))
+                    .is_some_and(|status| {
+                        matches!(status.as_str(), "waiting_user" | "waiting_bot")
+                    });
+                if !already_waiting {
+                    if let Some(bot_id) = question.get("bot_id").and_then(Value::as_str) {
+                        counts.entry(bot_id.into()).or_default().2 += 1;
+                    }
+                }
+            }
+        }
+        self.add_private_durable_counts(&snapshot, &mut counts)?;
         let set = |bot: &mut Value| {
             let Some(id) = bot.get("id").and_then(Value::as_str) else {
                 return;
@@ -1990,6 +4469,131 @@ impl ProductionBackend {
         Ok(())
     }
 
+    /// Private chat runs have no orchestrator Assignment. Their durable job
+    /// and request snapshot are the authoritative source for Bot status.
+    /// Assignment-owned jobs are deliberately skipped because their
+    /// orchestrator status is already included above.
+    fn add_private_durable_counts(
+        &self,
+        snapshot: &Value,
+        counts: &mut HashMap<String, (u32, u32, u32, bool)>,
+    ) -> Result<(), String> {
+        let pending_waits = snapshot
+            .get("approvals")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|items| items.values())
+            .chain(
+                snapshot
+                    .get("questions")
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flat_map(|items| items.values()),
+            )
+            .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
+            .filter_map(|item| {
+                Some((
+                    item.get("bot_id")?.as_str()?.to_owned(),
+                    item.get("chat_id")?.as_str()?.to_owned(),
+                ))
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let jobs_dir = self.store.root().join("data/jobs");
+        let entries = match fs::read_dir(&jobs_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.to_string()),
+        };
+        for entry in entries {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let file = fs::File::open(entry.path()).map_err(|error| error.to_string())?;
+            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
+                format!("invalid durable job {}: {error}", entry.path().display())
+            })?;
+            let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let request = self
+                .store
+                .read_snapshot::<crate::execution::ExecutionRequest>(format!(
+                    "data/run_requests/{run_id}.json"
+                ))
+                .map_err(|error| error.to_string())?;
+            let Some(request) = request else {
+                continue;
+            };
+            if request.assignment_id.is_some() {
+                continue;
+            }
+            if request.phase.as_deref() == Some("subagent") || request.parent_run_id.is_some() {
+                // Child runs are represented by Workbench.subagents_running;
+                // they must not inflate the parent Bot's ordinary active count.
+                continue;
+            }
+            if matches!(
+                job.status,
+                macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
+            ) && pending_waits.contains(&(request.bot_id.clone(), request.chat_id.clone()))
+            {
+                continue;
+            }
+            let entry = counts.entry(request.bot_id).or_default();
+            match job.status {
+                macbot_durable::JobStatus::Queued => entry.1 += 1,
+                macbot_durable::JobStatus::Running => entry.0 += 1,
+                macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended => {
+                    entry.2 += 1
+                }
+                macbot_durable::JobStatus::Done
+                | macbot_durable::JobStatus::Failed
+                | macbot_durable::JobStatus::Cancelled => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn private_subagent_count(&self) -> Result<u32, String> {
+        let jobs_dir = self.store.root().join("data/jobs");
+        let entries = match fs::read_dir(&jobs_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(error) => return Err(error.to_string()),
+        };
+        let mut count = 0;
+        for entry in entries {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let file = fs::File::open(entry.path()).map_err(|error| error.to_string())?;
+            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
+                format!("invalid durable job {}: {error}", entry.path().display())
+            })?;
+            if job.status != macbot_durable::JobStatus::Running {
+                continue;
+            }
+            let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let request = self
+                .store
+                .read_snapshot::<crate::execution::ExecutionRequest>(format!(
+                    "data/run_requests/{run_id}.json"
+                ))
+                .map_err(|error| error.to_string())?;
+            let Some(request) = request else { continue };
+            if request.assignment_id.is_none()
+                && (request.phase.as_deref() == Some("subagent") || request.parent_run_id.is_some())
+            {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     fn workbench(&self) -> Result<Value, String> {
         let snapshot = self
             .orchestrator
@@ -2009,13 +4613,96 @@ impl ProductionBackend {
                 waiting.push(json!({"kind":"approval","approval":approval}));
             }
         }
-        if let Some(items) = snapshot.get("questions").and_then(Value::as_object) {
-            for question in items
+        let pending_question_ids =
+            if let Some(items) = snapshot.get("questions").and_then(Value::as_object) {
+                let mut ids = std::collections::HashSet::new();
+                for question in items
+                    .values()
+                    .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
+                {
+                    if let Some(id) = question.get("id").and_then(Value::as_str) {
+                        ids.insert(id.to_owned());
+                    }
+                    waiting.push(json!({"kind":"question","question":question}));
+                }
+                ids
+            } else {
+                std::collections::HashSet::new()
+            };
+        if let Some(items) = snapshot.get("projects").and_then(Value::as_object) {
+            for project in items
                 .values()
-                .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
+                .filter(|item| item.get("status").and_then(Value::as_str) == Some("review"))
             {
-                waiting.push(json!({"kind":"question","question":question}));
+                let Some(project_id) = project.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let since = project
+                    .get("updated_at")
+                    .and_then(Value::as_str)
+                    .unwrap_or_else(|| {
+                        project
+                            .get("created_at")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                    });
+                if !since.is_empty() {
+                    waiting.push(json!({"kind":"review","project_id":project_id,"since":since}));
+                }
             }
+        }
+        let takeover_dir = self.store.root().join("data/takeovers");
+        if let Ok(entries) = fs::read_dir(&takeover_dir) {
+            for entry in entries {
+                let entry = entry.map_err(|error| error.to_string())?;
+                if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                    continue;
+                }
+                let entry_path = entry.path();
+                let stem = entry_path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or_default()
+                    .to_owned();
+                let Some(request) = self
+                    .store
+                    .read_snapshot::<Value>(format!("data/takeovers/{stem}.json"))
+                    .map_err(|error| error.to_string())?
+                else {
+                    continue;
+                };
+                let state = request.get("state").and_then(Value::as_str).unwrap_or("");
+                if !matches!(state, "pending" | "active") {
+                    continue;
+                }
+                let question_id = request.get("question_id").and_then(Value::as_str);
+                // A pending takeover request is already represented by its
+                // decision Question. Active takeovers remain visible.
+                if state == "pending"
+                    && question_id.is_some_and(|id| pending_question_ids.contains(id))
+                {
+                    continue;
+                }
+                let Some(bot_id) = request.get("bot_id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let assignment_id = request
+                    .get("assignment_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or(stem.as_str());
+                let reason = request
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("用户接管浏览器");
+                waiting.push(json!({
+                    "kind":"takeover",
+                    "bot_id":bot_id,
+                    "assignment_id":assignment_id,
+                    "reason":reason
+                }));
+            }
+        } else if takeover_dir.exists() {
+            return Err(format!("cannot read {}", takeover_dir.display()));
         }
         let mut counts = HashMap::new();
         for assignment in assignments.values() {
@@ -2062,33 +4749,133 @@ impl ProductionBackend {
                 }
             }
         }
+        if let Some(items) = snapshot.get("questions").and_then(Value::as_object) {
+            for question in items
+                .values()
+                .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
+            {
+                let already_waiting = question
+                    .get("assignment_id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| assignment_status.get(id))
+                    .is_some_and(|status| {
+                        matches!(status.as_str(), "waiting_user" | "waiting_bot")
+                    });
+                if !already_waiting {
+                    if let Some(bot_id) = question.get("bot_id").and_then(Value::as_str) {
+                        counts.entry(bot_id.into()).or_default().2 += 1;
+                    }
+                }
+            }
+        }
+        self.add_private_durable_counts(&snapshot, &mut counts)?;
         let bots = snapshot.get("bots").and_then(Value::as_object).map(|items| items.values().filter(|bot| !bot_is_main(bot)).map(|bot| {
             let bot_id = bot.get("id").and_then(Value::as_str).unwrap_or("");
             let (active, _, _, _) = counts.get(bot_id).copied().unwrap_or_default();
-            let assignments = assignments.values().filter(|item| item.get("bot_id").and_then(Value::as_str) == Some(bot_id)).cloned().map(|mut item| { normalize_assignment(&mut item); item }).collect::<Vec<_>>();
+            let assignments = assignments.values().filter(|item| item.get("bot_id").and_then(Value::as_str) == Some(bot_id) && matches!(item.get("status").and_then(Value::as_str), Some("working" | "queued" | "waiting_user" | "waiting_bot" | "blocked"))).cloned().map(|mut item| { normalize_assignment(&mut item); item }).collect::<Vec<_>>();
             json!({"bot_id":bot_id,"active":active,"max_parallel":bot.get("max_parallel").and_then(Value::as_u64).unwrap_or(1),"assignments":assignments})
         }).collect::<Vec<_>>()).unwrap_or_default();
+        let today = Local::now().date_naive();
         let done_today = assignments
             .values()
             .filter(|item| item.get("status").and_then(Value::as_str) == Some("done"))
+            .filter(|item| {
+                item.get("finished_at")
+                    .and_then(Value::as_str)
+                    .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                    .is_some_and(|value| value.with_timezone(&Local).date_naive() == today)
+            })
             .cloned()
             .map(|mut item| {
                 normalize_assignment(&mut item);
                 item
             })
             .collect::<Vec<_>>();
+        let main_bot_ids = snapshot
+            .get("bots")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|bots| bots.values())
+            .filter(|bot| bot_is_main(bot))
+            .filter_map(|bot| bot.get("id").and_then(Value::as_str))
+            .collect::<std::collections::HashSet<_>>();
         let running = assignments
             .values()
-            .filter(|item| item.get("status").and_then(Value::as_str) == Some("working"))
-            .count();
+            .filter(|assignment| {
+                assignment.get("status").and_then(Value::as_str) == Some("working")
+                    && assignment
+                        .get("bot_id")
+                        .and_then(Value::as_str)
+                        .is_some_and(|bot_id| !main_bot_ids.contains(bot_id))
+            })
+            .count() as u32;
         let global_limit = snapshot
             .get("settings")
             .and_then(|settings| settings.get("global_limit"))
             .and_then(Value::as_u64)
             .unwrap_or(8);
         Ok(
-            json!({"running":running,"global_limit":global_limit,"subagents_running":0,"waiting":waiting,"bots":bots,"done_today":done_today}),
+            json!({"running":running,"global_limit":global_limit,"subagents_running":assignments.values().map(|item| item.get("subagents_active").and_then(Value::as_u64).unwrap_or(0) as u32).sum::<u32>() + self.private_subagent_count()?,"waiting":waiting,"bots":bots,"done_today":done_today}),
         )
+    }
+
+    /// Read-only status bridge for runtime's ephemeral host/bot status events.
+    /// It deliberately reuses the same durable and Workbench accounting path
+    /// as the public RPC so status events cannot drift from `workbench.get`.
+    pub fn live_status(&self) -> Result<Value, String> {
+        let snapshot = self
+            .orchestrator
+            .snapshot()
+            .map_err(|error| error.to_string())?;
+        let mut result = json!({
+            "bots": snapshot
+                .get("bots")
+                .and_then(Value::as_object)
+                .map(|items| items.values().cloned().collect::<Vec<_>>())
+                .unwrap_or_default()
+        });
+        self.enrich_bot_status(&mut result)?;
+        let workbench = self.workbench()?;
+        let queued = snapshot
+            .get("assignments")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|assignments| assignments.values())
+            .filter(|assignment| assignment.get("status").and_then(Value::as_str) == Some("queued"))
+            .filter(|assignment| {
+                assignment
+                    .get("bot_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|bot_id| {
+                        snapshot
+                            .get("bots")
+                            .and_then(Value::as_object)
+                            .and_then(|bots| bots.get(bot_id))
+                            .is_none_or(|bot| !bot_is_main(bot))
+                    })
+            })
+            .count() as u32;
+        let (_, waiting, _) = result
+            .get("bots")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flat_map(|bots| bots.iter())
+            .filter(|bot| !bot_is_main(bot))
+            .fold((0_u32, 0_u32, 0_u32), |(queued, waiting, running), bot| {
+                (
+                    queued,
+                    waiting + bot["status"]["waiting"].as_u64().unwrap_or(0) as u32,
+                    running + bot["status"]["active"].as_u64().unwrap_or(0) as u32,
+                )
+            });
+        Ok(json!({
+            "running": workbench["running"],
+            "queued": queued,
+            "waiting": waiting,
+            "global_limit": workbench["global_limit"],
+            "subagents_running": workbench["subagents_running"],
+            "bots": result["bots"]
+        }))
     }
 }
 
@@ -2199,31 +4986,81 @@ fn browser_error(error: BrowserError) -> RpcError {
     }
 }
 
+fn mutation_event_key(method: &str, request_id: Option<&str>) -> String {
+    match request_id {
+        Some(request_id) => format!("rpc:{method}:{request_id}"),
+        None => format!("op:{method}:{}", Uuid::new_v4()),
+    }
+}
+
+fn legacy_event_key(method: &str, params: &Value, result: &Value) -> String {
+    let id = result
+        .get("bot")
+        .or_else(|| result.get("project"))
+        .or_else(|| result.get("assignment"))
+        .or_else(|| result.get("message"))
+        .and_then(|value| value.get("id"))
+        .and_then(Value::as_str)
+        .or_else(|| params.get("bot_id").and_then(Value::as_str))
+        .or_else(|| params.get("project_id").and_then(Value::as_str))
+        .or_else(|| params.get("assignment_id").and_then(Value::as_str))
+        .or_else(|| params.get("message_id").and_then(Value::as_str))
+        .unwrap_or("unknown");
+    format!("legacy:{method}:{id}")
+}
+
+fn operation_event_entity_present(method: &str, result: &Value) -> bool {
+    match method {
+        "bot.create" | "bot.update" | "bot.duplicate" => result["bot"].is_object(),
+        "project.create"
+        | "project.update"
+        | "project.add_member"
+        | "project.remove_member"
+        | "project.confirm_done"
+        | "project.request_review"
+        | "project.archive"
+        | "project.reopen"
+        | "project.request_changes" => result["project"].is_object(),
+        "assignment.create" | "assign" | "delegate" | "assignment.stop" | "assignment.steer"
+        | "steer" => result["assignment"].is_object() || result["id"].is_string(),
+        "send_msg" | "chat.send" | "chat.react" => {
+            result["message"].is_object() || result["id"].is_string()
+        }
+        _ => true,
+    }
+}
+
 fn event_data(method: &str, params: &Value, result: &Value) -> Value {
     match method {
         "bot.delete" => json!({ "bot_id": params.get("bot_id").cloned().unwrap_or(Value::Null) }),
         "bot.create" | "bot.update" | "bot.duplicate" => {
             json!({ "bot": result.get("bot").cloned().unwrap_or(Value::Null) })
         }
+        "project.create"
+        | "project.update"
+        | "project.add_member"
+        | "project.remove_member"
+        | "project.confirm_done"
+        | "project.request_review"
+        | "project.archive"
+        | "project.reopen" => {
+            json!({ "project": result.get("project").cloned().unwrap_or(Value::Null) })
+        }
         "project.request_changes" => {
-            json!({ "project": result.get("project").cloned().unwrap_or(Value::Null), "message": { "fallback_text": result.get("text").cloned().unwrap_or(Value::Null) } })
+            json!({ "message": result.get("message").cloned().unwrap_or(Value::Null) })
         }
-        "project.request_review" => {
-            json!({
-                "project": result.get("project").cloned().unwrap_or(Value::Null),
-                "message": result.get("message").cloned().unwrap_or(Value::Null)
-            })
+        "question.ask" | "propose_bot" => {
+            json!({ "question": result.get("question").cloned().unwrap_or(Value::Null) })
         }
-        "propose_bot" => json!({
-            "question": result.get("question").cloned().unwrap_or(Value::Null),
-            "proposal": result.get("proposal").cloned().unwrap_or(Value::Null)
-        }),
         "assignment.create" | "assign" | "delegate" | "assignment.stop" | "assignment.steer"
-        | "steer" | "loop.resolve" => {
+        | "steer" => {
             json!({ "assignment": result.get("assignment").cloned().unwrap_or_else(|| result.clone()) })
         }
-        "send_msg" | "chat.send" => {
+        "send_msg" | "chat.send" | "chat.react" => {
             json!({ "message": result.get("message").cloned().unwrap_or_else(|| result.clone()) })
+        }
+        "chat.set_pinned" | "chat.set_muted" => {
+            json!({ "chat": result.get("chat").cloned().unwrap_or_else(|| result.clone()) })
         }
         "settings.update" => result.clone(),
         "chat.mark_read" => json!({
@@ -2292,17 +5129,26 @@ fn normalize_result(method: &str, mut result: Value) -> Result<Value, String> {
                 }
             }
         }
-        "project.create"
-        | "project.add_member"
+        "project.create" => {
+            if let Some(item) = result.get_mut("project") {
+                normalize_project(item);
+                result["chat"] = project_chat(item);
+            }
+        }
+        "project.add_member"
         | "project.remove_member"
         | "project.confirm_done"
-        | "project.request_changes"
         | "project.archive"
         | "project.reopen"
         | "project.status"
         | "project_status" => {
             if let Some(item) = result.get_mut("project") {
                 normalize_project(item);
+            }
+        }
+        "project.request_changes" => {
+            if let Some(item) = result.get_mut("message") {
+                normalize_message(item);
             }
         }
         "assignment.create" | "assign" | "delegate" => normalize_assignment(&mut result),
@@ -2323,18 +5169,43 @@ fn normalize_result(method: &str, mut result: Value) -> Result<Value, String> {
             if let Some(item) = result.get_mut("project") {
                 normalize_project(item);
             }
-            if let Some(item) = result.get_mut("message") {
-                normalize_message(item);
-            }
         }
         "propose_bot" => {
             if let Some(item) = result.get_mut("question") {
                 normalize_question(item);
             }
         }
+        "question.ask" => {
+            let mut question = result
+                .get("question")
+                .cloned()
+                .unwrap_or_else(|| result.clone());
+            normalize_question(&mut question);
+            result = json!({"question": question});
+        }
         "chat.send" => {
             if let Some(item) = result.get_mut("message") {
                 normalize_message(item);
+            }
+        }
+        "chat.thread" => {
+            if let Some(item) = result.get_mut("root") {
+                normalize_message(item);
+            }
+            if let Some(items) = result.get_mut("replies").and_then(Value::as_array_mut) {
+                for item in items {
+                    normalize_message(item);
+                }
+            }
+        }
+        "chat.react" => {
+            if let Some(item) = result.get_mut("message") {
+                normalize_message(item);
+            }
+        }
+        "chat.set_pinned" | "chat.set_muted" => {
+            if let Some(item) = result.get_mut("chat") {
+                normalize_chat(item);
             }
         }
         "chat.history" => {
@@ -2512,6 +5383,12 @@ fn complete_bot_chat(chat: &mut Map<String, Value>, bot: &Value, id: &str, kind:
 }
 
 fn apply_chat_overlay(chat: &mut Value, overlay: &Value) {
+    if let Some(value) = overlay.get("pinned").and_then(Value::as_bool) {
+        chat["pinned"] = json!(value);
+    }
+    if let Some(value) = overlay.get("muted").and_then(Value::as_bool) {
+        chat["muted"] = json!(value);
+    }
     if let Some(value) = overlay.get("last_read_seq").and_then(Value::as_u64) {
         chat["last_read_seq"] = json!(value);
     }
@@ -2549,6 +5426,10 @@ fn normalize_assignment(value: &mut Value) {
         obj(usage).entry("requests").or_insert(json!(0));
     }
 }
+fn normalize_chat(value: &mut Value) {
+    let _ = obj(value);
+}
+
 fn normalize_message(value: &mut Value) {
     let o = obj(value);
     o.entry("seq").or_insert(json!(0));
@@ -2640,6 +5521,22 @@ fn merge_json(target: &mut Map<String, Value>, patch: &Map<String, Value>) {
     }
 }
 
+fn scheduler_limits(settings: &Value) -> Result<OrchestratorSettings, serde_json::Error> {
+    let concurrency: macbot_protocol::Concurrency =
+        serde_json::from_value(settings.get("concurrency").cloned().unwrap_or_else(|| {
+            json!({
+                "global":8,"bot_default":3,"subagent_per_run":4,"subagent_global":12,"loop_hops":8
+            })
+        }))?;
+    Ok(OrchestratorSettings {
+        global_limit: concurrency.global.max(1) as usize,
+        bot_default_limit: concurrency.bot_default.max(1) as usize,
+        subagent_per_run: concurrency.subagent_per_run.max(1) as usize,
+        subagent_global: concurrency.subagent_global.max(1) as usize,
+        loop_hops: concurrency.loop_hops as usize,
+    })
+}
+
 fn default_settings(host_name: &str) -> Value {
     json!({
         "host_name":host_name,"timezone":"Asia/Shanghai","currency":"CNY",
@@ -2715,26 +5612,39 @@ fn validate_json_shape(method: &str, value: &Value) -> Result<(), String> {
             parse!(Project, value["project"]);
             parse!(Announcement, value["announcement"]);
         }
-        "project.create"
-        | "project.add_member"
+        "project.create" => {
+            parse!(Project, value["project"]);
+            parse!(Chat, value["chat"]);
+        }
+        "project.add_member"
         | "project.remove_member"
         | "project.confirm_done"
-        | "project.request_changes"
         | "project.archive"
         | "project.reopen"
         | "project.status"
         | "project_status" => parse!(Project, value["project"]),
+        "project.request_changes" => parse!(Message, value["message"]),
+        "bot.create_from_template" => {
+            parse!(Vec<Bot>, value["bots"]);
+            parse!(Vec<Chat>, value["dm_chats"]);
+        }
         "assignment.create" | "assign" | "delegate" => parse!(Assignment, value),
         "assignment.get" | "assignment.stop" => parse!(Assignment, value["assignment"]),
         "assignment.list" => parse!(Vec<Assignment>, value["items"]),
         "send_msg" => parse!(Message, value),
         "project.request_review" => {
             parse!(Project, value["project"]);
-            parse!(Message, value["message"]);
         }
         "propose_bot" => parse!(Question, value["question"]),
+        "question.ask" => parse!(Question, value["question"]),
         "chat.send" => parse!(Message, value["message"]),
         "chat.history" => parse!(Vec<Message>, value["messages"]),
+        "chat.thread" => {
+            parse!(Message, value["root"]);
+            parse!(Vec<Message>, value["replies"]);
+        }
+        "chat.react" => parse!(Message, value["message"]),
+        "chat.set_pinned" | "chat.set_muted" => parse!(Chat, value["chat"]),
         "chat.list" => parse!(Vec<Chat>, value["chats"]),
         "chat.get" => parse!(Chat, value["chat"]),
         "settings.get" | "settings.update" => parse!(Settings, value["settings"]),
@@ -2772,6 +5682,38 @@ mod tests {
     };
     use macbot_usage::{Totals, UsageRecord};
     use tempfile::tempdir;
+
+    #[test]
+    fn project_create_result_and_events_use_the_protocol_shapes() {
+        let project = json!({
+            "id":"project-shape",
+            "chat_id":"chat_project-shape",
+            "name":"Shape",
+            "slug":"shape",
+            "goal":"check wire shape",
+            "flow":[],
+            "deadline":null,
+            "home_path":"~/MacBot/projects/shape/",
+            "status":"active",
+            "lead_bot_id":"main",
+            "members":[{"bot_id":"main","role_note":"","joined_at":"2026-10-09T00:00:00Z"}],
+            "created_by":{"kind":"user"},
+            "created_at":"2026-10-09T00:00:00Z",
+            "updated_at":"2026-10-09T00:00:00Z",
+            "done_at":null
+        });
+        let result = json!({"project":project,"chat":project_chat(&project)});
+
+        validate_json_shape("project.create", &result).unwrap();
+        assert_eq!(
+            event_data("project.create", &json!({}), &result),
+            json!({"project":project})
+        );
+
+        let mut incomplete = result.clone();
+        incomplete.as_object_mut().unwrap().remove("chat");
+        assert!(validate_json_shape("project.create", &incomplete).is_err());
+    }
 
     #[tokio::test]
     async fn production_chat_mark_read_persists_overlay_and_event() {
@@ -2852,6 +5794,153 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(bots["bots"][0]["status"]["waiting"], 0);
+    }
+
+    #[tokio::test]
+    async fn execution_question_is_wrapped_and_emits_typed_event() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "origin_chat_id":"chat_main",
+                    "bot_id":"main",
+                    "title":"question",
+                    "instruction":"wait for user",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment_id = assignment["id"].as_str().unwrap();
+        let result = backend
+            .call(
+                "question.ask",
+                json!({
+                    "bot_id":"main",
+                    "assignment_id":assignment_id,
+                    "chat_id":"chat_main",
+                    "text":"继续吗？",
+                    "options":["继续","停止"],
+                    "allow_free_text":false
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        serde_json::from_value::<macbot_protocol::Question>(result["question"].clone()).unwrap();
+        let event = backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .into_iter()
+            .rev()
+            .find(|event| event.event == "question.asked")
+            .expect("question event");
+        assert_eq!(
+            event.data.as_object().unwrap().keys().collect::<Vec<_>>(),
+            vec!["question"]
+        );
+        serde_json::from_value::<macbot_protocol::Question>(event.data["question"].clone())
+            .unwrap();
+        macbot_protocol::EventData::decode(&macbot_protocol::EventName::QuestionAsked, event.data)
+            .unwrap();
+
+        let private = backend
+            .call(
+                "question.ask",
+                json!({
+                    "bot_id":"main",
+                    "assignment_id":null,
+                    "chat_id":"chat_main",
+                    "text":"私聊继续吗？",
+                    "options":["继续"],
+                    "allow_free_text":false
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(private["question"]["assignment_id"], "dm_chat_main");
+        backend
+            .call(
+                "question.answer",
+                json!({"question_id":private["question"]["id"],"option_index":0}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn private_durable_jobs_are_reflected_in_bot_status() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        fs::create_dir_all(home.path().join("data/jobs")).unwrap();
+        fs::create_dir_all(home.path().join("data/run_requests")).unwrap();
+        fs::write(
+            home.path().join("data/run_requests/private-status.json"),
+            json!({
+                "run_id":"private-status",
+                "assignment_id":null,
+                "chat_id":"chat_main",
+                "bot_id":"main",
+                "model":"mock/model",
+                "instruction":"private status",
+                "private":true
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let job_path = home.path().join("data/jobs/private-status.json");
+        let mut job = json!({
+            "id":"private-status-job",
+            "owner":"private-status",
+            "kind":"model",
+            "status":"running",
+            "checkpoint":{"run_id":"private-status"},
+            "unsafe_replay":false,
+            "updated_at":0,
+            "commit_seq":1
+        });
+        fs::write(&job_path, job.to_string()).unwrap();
+        let bots = backend
+            .call("bot.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        let main = bots["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|bot| bot["id"] == "main")
+            .unwrap();
+        assert_eq!(main["status"]["summary"], "working");
+        assert_eq!(main["status"]["active"], 1);
+
+        job["status"] = json!("waiting");
+        fs::write(&job_path, job.to_string()).unwrap();
+        let bots = backend
+            .call("bot.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        let main = bots["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|bot| bot["id"] == "main")
+            .unwrap();
+        assert_eq!(main["status"]["summary"], "waiting_user");
+        assert_eq!(main["status"]["waiting"], 1);
     }
 
     #[tokio::test]
@@ -2999,6 +6088,160 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn project_create_persists_one_typed_main_project_card_across_retry_and_restart() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"项目卡测试 Bot","client_request_id":"project-card-bot"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let params = json!({
+            "name":"项目卡测试",
+            "goal":"验证主会话项目卡",
+            "member_bot_ids":[bot_id],
+            "flow":["build"],
+            "client_request_id":"project-card-create"
+        });
+        let created = backend
+            .call("project.create", params.clone(), &gateway.state)
+            .await
+            .unwrap();
+        assert!(created.get("chat").is_some());
+        let project_id = created["project"]["id"].as_str().unwrap().to_owned();
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let cards = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| {
+                message["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "project_card" && block["project_id"] == project_id
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(cards.len(), 1);
+        serde_json::from_value::<Message>(cards[0].clone()).unwrap();
+        assert_eq!(cards[0]["sender"]["kind"], "bot");
+        assert_eq!(cards[0]["sender"]["bot_id"], "main");
+        assert!(!cards[0]["fallback_text"].as_str().unwrap_or("").is_empty());
+        let card_id = cards[0]["id"].as_str().unwrap().to_owned();
+        let after_card = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","after_seq":cards[0]["seq"].as_u64().unwrap().saturating_sub(1),"limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(after_card["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["id"] == card_id));
+        let event_count = backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .into_iter()
+            .filter(|event| {
+                event.event == "message.created" && event.data["message"]["id"] == card_id
+            })
+            .count();
+        assert_eq!(event_count, 1);
+        let event_path = home.path().join("data/events/events.jsonl");
+        let retained = backend
+            .store
+            .read_jsonl::<Value>("data/events/events.jsonl")
+            .unwrap()
+            .into_iter()
+            .filter(|event| {
+                !(event["event"] == "message.created" && event["data"]["message"]["id"] == card_id)
+            })
+            .map(|event| serde_json::to_string(&event).unwrap())
+            .collect::<Vec<_>>();
+        fs::write(
+            event_path,
+            retained.join("\n") + if retained.is_empty() { "" } else { "\n" },
+        )
+        .unwrap();
+        let retried = backend
+            .call("project.create", params, &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(retried["project"]["id"], project_id);
+        assert_eq!(
+            backend
+                .store
+                .events_since(0)
+                .unwrap()
+                .into_iter()
+                .filter(|event| {
+                    event.event == "message.created" && event.data["message"]["id"] == card_id
+                })
+                .count(),
+            1
+        );
+        let retried_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            retried_history["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["id"] == card_id)
+                .count(),
+            1
+        );
+        drop(backend);
+        let restarted_gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let restarted = ProductionBackend::open(home.path()).unwrap();
+        let after_restart = restarted
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &restarted_gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            after_restart["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["id"] == card_id)
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
     async fn production_rpc_returns_complete_protocol_objects_and_durable_event() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
@@ -3029,13 +6272,16 @@ mod tests {
         let events = backend.store.events_since(0).unwrap();
         let message_event = events
             .iter()
+            .rev()
             .find(|event| event.event == "message.created")
             .unwrap();
         let live = gateway.state.inner.read().await.events.back().cloned();
+        let last_seq = backend.store.last_event_seq().unwrap();
         assert_eq!(
             live.as_ref().and_then(|event| event["seq"].as_u64()),
-            Some(message_event.seq)
+            Some(last_seq)
         );
+        assert!(message_event.seq <= last_seq);
         assert!(message_event.data.get("message").is_some());
         let provider_value = backend
             .call("provider.create", json!({"name":"Mock","api_kind":"openai-completions","base_url":"https://example.com","client_request_id":"provider-1"}), &gateway.state)
@@ -3356,6 +6602,126 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn loop_resolve_updates_pause_message_and_emits_new_assignment() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let from = backend
+            .call("bot.create", json!({"name":"loop-from"}), &gateway.state)
+            .await
+            .unwrap()["bot"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let to = backend
+            .call("bot.create", json!({"name":"loop-to"}), &gateway.state)
+            .await
+            .unwrap()["bot"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let assignment = backend.call("assignment.create", json!({"origin_chat_id":"chat_main","bot_id":from,"title":"loop root","instruction":"handoff","from":"main","root_message_id":"root-loop","loop_hops":8}), &gateway.state).await.unwrap();
+        let assignment_id = assignment["id"].as_str().unwrap();
+        let sent = backend.call("send_msg", json!({"bot_id":from,"chat_id":"chat_main","assignment_id":assignment_id,"text":"继续交接","intent":"done","mentions":[{"kind":"bot","bot_id":to,"instruction":"下一跳"}]}), &gateway.state).await.unwrap();
+        let sent_message: Message = serde_json::from_value(sent.clone()).unwrap();
+        assert_eq!(sent["blocks"][0]["type"], "loop_paused");
+        let resolved = backend
+            .call(
+                "loop.resolve",
+                json!({"root_message_id":"root-loop","action":"continue"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resolved, json!({}));
+        let events = backend.store.events_since(0).unwrap();
+        let update = events
+            .iter()
+            .find(|event| event.event == "message.updated")
+            .expect("message.updated");
+        let updated: Message = serde_json::from_value(update.data["message"].clone()).unwrap();
+        assert_eq!(updated.id, sent_message.id);
+        assert_eq!(updated.seq, sent_message.seq);
+        assert!(matches!(
+            updated.blocks[0],
+            macbot_protocol::Block::LoopPaused {
+                state: macbot_protocol::LoopState::Continued,
+                ..
+            }
+        ));
+        let created = events
+            .iter()
+            .find(|event| {
+                event.event == "assignment.created"
+                    && event.data["assignment"]["parent_assignment_id"] == assignment_id
+            })
+            .expect("continued assignment");
+        let _: Assignment = serde_json::from_value(created.data["assignment"].clone()).unwrap();
+        assert_eq!(created.data["assignment"]["loop_hops"], 0);
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":20}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let history_message: Message = serde_json::from_value(
+            history["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["id"] == sent_message.id)
+                .cloned()
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            history_message.blocks[0],
+            macbot_protocol::Block::LoopPaused {
+                state: macbot_protocol::LoopState::Continued,
+                ..
+            }
+        ));
+        drop(backend);
+        drop(gateway);
+        let restarted_gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let restarted = ProductionBackend::open(home.path()).unwrap();
+        let replay = restarted
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":20}),
+                &restarted_gateway.state,
+            )
+            .await
+            .unwrap();
+        let replay_message: Message = serde_json::from_value(
+            replay["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["id"] == sent_message.id)
+                .cloned()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(replay_message.seq, sent_message.seq);
+        assert!(matches!(
+            replay_message.blocks[0],
+            macbot_protocol::Block::LoopPaused {
+                state: macbot_protocol::LoopState::Continued,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
     async fn execution_send_msg_preserves_receipt_idempotency() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
@@ -3389,6 +6755,130 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn assignment_cards_are_typed_sequenced_and_idempotent() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"卡片测试 Bot","client_request_id":"card-bot"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"任务卡测试项目",
+                    "goal":"验证 task_card",
+                    "member_bot_ids":[bot_id],
+                    "client_request_id":"card-project"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let project_chat = project["project"]["chat_id"].as_str().unwrap();
+        let assignment_params = json!({
+            "project_id":project_id,
+            "origin_chat_id":project_chat,
+            "bot_id":bot_id,
+            "title":"实现卡片测试",
+            "instruction":"完成卡片测试",
+            "from":"main",
+            "client_request_id":"card-assignment"
+        });
+        let assignment = backend
+            .call(
+                "assignment.create",
+                assignment_params.clone(),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let _retry = backend
+            .call("assignment.create", assignment_params, &gateway.state)
+            .await
+            .unwrap();
+        let assignment_id = assignment["id"].as_str().unwrap();
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":project_chat,"limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let task_cards = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| {
+                message["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "task_card" && block["assignment_id"] == assignment_id
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(task_cards.len(), 1);
+        let task_message: Message = serde_json::from_value(task_cards[0].clone()).unwrap();
+        assert_eq!(task_message.chat_id, project_chat);
+        assert!(task_message.seq > 0);
+        assert_eq!(task_message.assignment_id.as_deref(), Some(assignment_id));
+
+        let delegated = backend
+            .call(
+                "delegate",
+                json!({
+                    "origin_chat_id":"chat_main",
+                    "bot_id":bot_id,
+                    "title":"主 Bot 委派",
+                    "instruction":"执行委派任务",
+                    "from":"main",
+                    "client_request_id":"card-delegate"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let delegated_id = delegated["id"].as_str().unwrap();
+        let main_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let delegation = main_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| {
+                message["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "delegation" && block["assignment_id"] == delegated_id
+                    })
+                })
+            })
+            .unwrap();
+        let delegation_message: Message = serde_json::from_value(delegation.clone()).unwrap();
+        assert!(delegation_message.seq > 0);
+        assert_eq!(
+            delegation_message.assignment_id.as_deref(),
+            Some(delegated_id)
+        );
+    }
+
+    #[tokio::test]
     async fn routine_tick_returns_execution_dispatch_and_assignment_event() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
@@ -3412,6 +6902,28 @@ mod tests {
             .unwrap();
         let _: macbot_protocol::Assignment =
             serde_json::from_value(event.data["assignment"].clone()).unwrap();
+        let assignment_id = event.data["assignment"]["id"].as_str().unwrap();
+        let main_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let task_card = main_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| {
+                message["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "task_card" && block["assignment_id"] == assignment_id
+                    })
+                })
+            })
+            .unwrap();
+        let _: Message = serde_json::from_value(task_card.clone()).unwrap();
         let routine_id = result["runs"][0]["routine_id"].as_str().unwrap();
         backend
             .call(
@@ -3429,6 +6941,268 @@ mod tests {
                     serde_json::from_value(event.data["run"].clone()).unwrap();
             }
         }
+    }
+
+    #[tokio::test]
+    async fn project_attention_refresh_emits_typed_system_notice_once() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call("bot.create", json!({"name":"阻塞 Bot"}), &gateway.state)
+            .await
+            .unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"关注测试","goal":"attention","member_bot_ids":[bot["bot"]["id"]]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project["project"]["id"],
+                    "origin_chat_id":project["project"]["chat_id"],
+                    "bot_id":bot["bot"]["id"],
+                    "title":"阻塞任务",
+                    "instruction":"等待",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .orchestrator
+            .finish_assignment(assignment["id"].as_str().unwrap(), "blocked")
+            .unwrap();
+        let refreshed = backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        let notice: Message = serde_json::from_value(refreshed["notices"][0].clone()).unwrap();
+        assert_eq!(notice.sender, macbot_protocol::Sender::System);
+        assert!(matches!(
+            notice.blocks[0],
+            macbot_protocol::Block::System {
+                code: macbot_protocol::SystemCode::Info,
+                ..
+            }
+        ));
+        let second = backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        assert!(second["notices"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn project_attention_repairs_missing_events_after_restart() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call("bot.create", json!({"name":"崩溃恢复 Bot"}), &gateway.state)
+            .await
+            .unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"恢复关注","goal":"attention recovery","member_bot_ids":[bot["bot"]["id"]]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project["project"]["id"],
+                    "origin_chat_id":project["project"]["chat_id"],
+                    "bot_id":bot["bot"]["id"],
+                    "title":"恢复任务",
+                    "instruction":"等待",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .orchestrator
+            .finish_assignment(assignment["id"].as_str().unwrap(), "blocked")
+            .unwrap();
+        let first = backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        let notice_id = first["notices"][0]["id"].as_str().unwrap().to_owned();
+        let main_assignment_id = backend.orchestrator.snapshot().unwrap()["assignments"]
+            .as_object()
+            .unwrap()
+            .values()
+            .find(|item| item["trigger_message_id"] == notice_id)
+            .and_then(|item| item["id"].as_str())
+            .unwrap()
+            .to_owned();
+        let retained = backend
+            .store
+            .read_jsonl::<Value>("data/events/events.jsonl")
+            .unwrap()
+            .into_iter()
+            .filter(|event| {
+                !((event["event"] == "message.created"
+                    && event["data"]["message"]["id"] == notice_id)
+                    || (event["event"] == "assignment.created"
+                        && event["data"]["assignment"]["id"] == main_assignment_id))
+            })
+            .map(|event| serde_json::to_string(&event).unwrap())
+            .collect::<Vec<_>>();
+        fs::write(
+            home.path().join("data/events/events.jsonl"),
+            retained.join("\n") + if retained.is_empty() { "" } else { "\n" },
+        )
+        .unwrap();
+        drop(backend);
+        drop(gateway);
+        let restarted_gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let restarted = ProductionBackend::open(home.path()).unwrap();
+        let events_before_poll = restarted.store.events_since(0).unwrap();
+        assert_eq!(
+            events_before_poll
+                .iter()
+                .filter(|event| event.event == "message.created"
+                    && event.data["message"]["id"] == notice_id)
+                .count(),
+            1
+        );
+        assert_eq!(
+            events_before_poll
+                .iter()
+                .filter(|event| event.event == "assignment.created"
+                    && event.data["assignment"]["id"] == main_assignment_id)
+                .count(),
+            1
+        );
+        let seq_before_poll = restarted.store.last_event_seq().unwrap();
+        let repaired = restarted
+            .refresh_project_attention(&restarted_gateway.state, Utc::now())
+            .await
+            .unwrap();
+        assert!(repaired["notices"].as_array().unwrap().is_empty());
+        let events = restarted.store.events_since(0).unwrap();
+        assert_eq!(restarted.store.last_event_seq().unwrap(), seq_before_poll);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "message.created"
+                    && event.data["message"]["id"] == notice_id)
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "assignment.created"
+                    && event.data["assignment"]["id"] == main_assignment_id)
+                .count(),
+            1
+        );
+        let second = restarted
+            .refresh_project_attention(&restarted_gateway.state, Utc::now())
+            .await
+            .unwrap();
+        assert!(second["notices"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn bot_dm_route_creates_read_only_chat_and_group_reference() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let from = backend
+            .call("bot.create", json!({"name":"发送者"}), &gateway.state)
+            .await
+            .unwrap();
+        let to = backend
+            .call("bot.create", json!({"name":"接收者"}), &gateway.state)
+            .await
+            .unwrap();
+        let from_id = from["bot"]["id"].as_str().unwrap();
+        let to_id = to["bot"]["id"].as_str().unwrap();
+        let sent = backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":from_id,
+                    "chat_id":"chat_main",
+                    "to":{"bot":to_id},
+                    "text":"私信",
+                    "intent":"ack",
+                    "mentions":[]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let sent_message: Message = serde_json::from_value(sent.clone()).unwrap();
+        assert!(sent_message.chat_id.starts_with("bot_dm_"));
+        let chats = backend
+            .call("chat.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        let bot_dm = chats["chats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|chat| chat["id"] == sent_message.chat_id)
+            .unwrap();
+        let _: Chat = serde_json::from_value(bot_dm.clone()).unwrap();
+        assert_eq!(bot_dm["kind"], "bot_dm");
+        let main_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(main_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "bot_dm_ref"
+                            && block["chat_id"] == sent_message.chat_id
+                            && block["count"] == 1
+                    })
+                })
+            }));
+        let denied = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":sent_message.chat_id,"text":"禁止","mentions":[]}),
+                &gateway.state,
+            )
+            .await;
+        assert_eq!(denied.unwrap_err().code, "forbidden");
     }
 
     #[tokio::test]
@@ -3839,11 +7613,14 @@ mod tests {
                 .iter()
                 .filter(|event| event.event == "message.created")
                 .count(),
-            1
+            2
         );
         let message = events
             .iter()
-            .find(|event| event.event == "message.created")
+            .find(|event| {
+                event.event == "message.created"
+                    && event.data["message"]["blocks"][0]["code"] == "task_stopped"
+            })
             .unwrap();
         let _: Message = serde_json::from_value(message.data["message"].clone()).unwrap();
         assert_eq!(message.data["message"]["blocks"][0]["type"], "system");
@@ -3869,7 +7646,7 @@ mod tests {
                 .iter()
                 .filter(|event| event.event == "message.created")
                 .count(),
-            1
+            2
         );
     }
 
@@ -3913,6 +7690,187 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn project_request_changes_returns_canonical_message_and_survives_restart() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"changes-worker","client_request_id":"changes-bot"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"changes-project",
+                    "goal":"verify request changes",
+                    "member_bot_ids":[bot_id]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let chat_id = project["project"]["chat_id"].as_str().unwrap();
+        backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":chat_id,
+                    "bot_id":bot_id,
+                    "title":"review",
+                    "instruction":"prepare review",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .call(
+                "project.request_review",
+                json!({"project_id":project_id,"summary":"ready for review"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+
+        let response = backend
+            .call(
+                "project.request_changes",
+                json!({
+                    "project_id":project_id,
+                    "text":"请补充回归测试",
+                    "client_request_id":"changes-1"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.as_object().unwrap().len(), 1);
+        let message: WireMessage = serde_json::from_value(response["message"].clone()).unwrap();
+        assert_eq!(message.chat_id, chat_id);
+        assert_eq!(message.fallback_text, "请补充回归测试");
+        assert!(message
+            .mentions
+            .iter()
+            .any(|mention| { matches!(mention, macbot_protocol::Mention::Main) }));
+        assert!(message.seq > 0);
+        let main_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(main_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|card| {
+                card["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "review_card"
+                            && block["project_id"] == project_id
+                            && block["state"] == "changes_requested"
+                    })
+                })
+            }));
+        let message_id = message.id.clone();
+        let message_seq = message.seq;
+
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":chat_id,"after_seq":message_seq - 1,"limit":20}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            history["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["id"] == message_id)
+                .count(),
+            1
+        );
+        assert_eq!(history["messages"][0]["seq"], message_seq);
+        assert_eq!(history["messages"][0]["fallback_text"], "请补充回归测试");
+
+        let events = backend.store.events_since(0).unwrap();
+        let project_event = events
+            .iter()
+            .rev()
+            .find(|event| {
+                event.event == "project.updated"
+                    && event.data["project"]["id"] == project_id
+                    && event.data["project"]["status"] == "active"
+            })
+            .unwrap();
+        let updated_project: WireProject =
+            serde_json::from_value(project_event.data["project"].clone()).unwrap();
+        assert_eq!(
+            updated_project.status,
+            macbot_protocol::ProjectStatus::Active
+        );
+        let message_events = events
+            .iter()
+            .filter(|event| {
+                event.event == "message.created" && event.data["message"]["id"] == message_id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(message_events.len(), 1);
+        let event_message: WireMessage =
+            serde_json::from_value(message_events[0].data["message"].clone()).unwrap();
+        assert_eq!(event_message.seq, message_seq);
+        assert!(event_message
+            .mentions
+            .iter()
+            .any(|mention| { matches!(mention, macbot_protocol::Mention::Main) }));
+
+        drop(backend);
+        drop(gateway);
+        let restarted_gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let restarted = ProductionBackend::open(home.path()).unwrap();
+        let replay = restarted
+            .call(
+                "chat.history",
+                json!({"chat_id":chat_id,"after_seq":message_seq - 1,"limit":20}),
+                &restarted_gateway.state,
+            )
+            .await
+            .unwrap();
+        let replay_messages = replay["messages"].as_array().unwrap();
+        assert_eq!(
+            replay_messages
+                .iter()
+                .filter(|item| item["id"] == message_id)
+                .count(),
+            1
+        );
+        assert_eq!(replay_messages[0]["seq"], message_seq);
+        assert_eq!(
+            restarted.store.last_chat_sequence(chat_id).unwrap(),
+            message_seq
+        );
+    }
+
+    #[tokio::test]
     async fn project_review_requires_confirmation_and_propose_returns_question() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
@@ -3936,6 +7894,7 @@ mod tests {
             )
             .await
             .unwrap();
+        let project_chat_id = project["project"]["chat_id"].as_str().unwrap().to_owned();
         let assignment = backend
             .call(
                 "assignment.create",
@@ -3951,16 +7910,154 @@ mod tests {
             )
             .await
             .unwrap();
+        backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":bot["bot"]["id"],
+                    "chat_id":project["project"]["chat_id"],
+                    "assignment_id":assignment["id"],
+                    "text":"产物已生成",
+                    "intent":"ack",
+                    "artifacts":[{"title":"报告","path_or_url":"runs/report.md"}]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
         let review = backend
             .call(
                 "project.request_review",
-                json!({"project_id":project["project"]["id"],"summary":"ready"}),
+                json!({"project_id":project["project"]["id"],"summary":"ready","client_request_id":"review-card-1"}),
                 &gateway.state,
             )
             .await
             .unwrap();
         assert_eq!(review["project"]["status"], "review");
-        serde_json::from_value::<Message>(review["message"].clone()).unwrap();
+        let bootstrap = backend
+            .call("bootstrap", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        assert!(bootstrap["pending"]["reviews"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|id| id == &project["project"]["id"]));
+        let retry = backend
+            .call(
+                "project.request_review",
+                json!({"project_id":project["project"]["id"],"summary":"ready","client_request_id":"review-card-1"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(retry["project"]["id"], project["project"]["id"]);
+        let main_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let review_message: Message = main_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| {
+                message["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "review_card"
+                            && block["project_id"] == project["project"]["id"]
+                            && block["state"] == "pending"
+                    })
+                })
+            })
+            .cloned()
+            .map(|message| serde_json::from_value(message).unwrap())
+            .unwrap();
+        assert!(review_message.seq > 0);
+        let review_block = &review_message.blocks[0];
+        let review_block = serde_json::to_value(review_block).unwrap();
+        assert_eq!(review_block["type"], "review_card");
+        assert_eq!(review_block["artifacts"][0]["title"], "报告");
+        assert_eq!(
+            review_block["artifacts"][0]["path_or_url"],
+            "runs/report.md"
+        );
+        assert!(review_block["artifacts"][0]["artifact_id"]
+            .as_str()
+            .is_some());
+        let events = backend.store.events_since(0).unwrap();
+        let project_event = events
+            .iter()
+            .rev()
+            .find(|event| event.event == "project.updated")
+            .unwrap();
+        assert_eq!(
+            project_event
+                .data
+                .as_object()
+                .unwrap()
+                .keys()
+                .collect::<Vec<_>>(),
+            vec!["project"]
+        );
+        serde_json::from_value::<Project>(project_event.data["project"].clone()).unwrap();
+        let message_event = events
+            .iter()
+            .rev()
+            .find(|event| {
+                event.event == "message.created" && event.data["message"]["id"] == review_message.id
+            })
+            .unwrap();
+        serde_json::from_value::<Message>(message_event.data["message"].clone()).unwrap();
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","after_seq":review_message.seq - 1}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["id"] == review_message.id
+                && message["seq"] == review_message.seq));
+        backend
+            .call(
+                "project.request_changes",
+                json!({"project_id":project["project"]["id"],"text":"请补充证据","client_request_id":"review-changes-1"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .call(
+                "project.request_review",
+                json!({"project_id":project["project"]["id"],"summary":"再次 ready","client_request_id":"review-card-2"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let review_again = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let review_again_card = review_again["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == review_message.id)
+            .unwrap();
+        assert_eq!(review_again_card["seq"], review_message.seq);
+        assert_eq!(review_again_card["blocks"][0]["state"], "pending");
         let done = backend
             .call(
                 "project.confirm_done",
@@ -3970,6 +8067,47 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(done["project"]["status"], "done");
+        let confirmed = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let confirmed_card = confirmed["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == review_message.id)
+            .unwrap();
+        assert_eq!(confirmed_card["seq"], review_message.seq);
+        assert_eq!(confirmed_card["blocks"][0]["state"], "confirmed");
+        let project_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":project_chat_id,"limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let completion = project_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| {
+                message["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "completion"
+                            && block["summary"]
+                                .as_str()
+                                .is_some_and(|text| !text.is_empty())
+                    })
+                })
+            })
+            .unwrap();
+        assert_eq!(completion["chat_id"], project_chat_id);
+        let _: Message = serde_json::from_value(completion.clone()).unwrap();
         let denied = backend
             .call(
                 "project.confirm_done",
@@ -3989,5 +8127,573 @@ mod tests {
         serde_json::from_value::<Question>(proposal["question"].clone()).unwrap();
         assert_eq!(proposal["proposal"]["state"], "pending_user");
         assert_eq!(assignment["bot_id"], bot["bot"]["id"]);
+        let proposal_event = backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .into_iter()
+            .rev()
+            .find(|event| {
+                event.event == "question.asked"
+                    && event.data["question"]["id"] == proposal["question"]["id"]
+            })
+            .unwrap();
+        assert_eq!(
+            proposal_event
+                .data
+                .as_object()
+                .unwrap()
+                .keys()
+                .collect::<Vec<_>>(),
+            vec!["question"]
+        );
+        let proposal_assignment_id = proposal["question"]["assignment_id"].as_str().unwrap();
+        backend
+            .call(
+                "question.answer",
+                json!({"question_id":proposal["question"]["id"],"option_index":1}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let proposal_assignment = backend
+            .call(
+                "assignment.get",
+                json!({"assignment_id":proposal_assignment_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(proposal_assignment["assignment"]["status"], "cancelled");
+    }
+    #[tokio::test]
+    async fn production_chat_send_persists_reply_and_attachments_through_restart() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        fs::create_dir_all(home.path().join("uploads")).unwrap();
+        fs::create_dir_all(home.path().join("data/uploads")).unwrap();
+        fs::write(home.path().join("uploads/upload-chat-1"), b"attachment").unwrap();
+        fs::write(
+            home.path().join("data/uploads/upload-chat-1.json"),
+            json!({"file":{"root":"upload","root_id":"upload-chat-1","path":"","name":"note.txt","size":10,"mime":"text/plain"}}).to_string(),
+        )
+        .unwrap();
+        let created = backend
+            .call("bot.create", json!({"name":"附件回归 Bot"}), &gateway.state)
+            .await
+            .unwrap();
+        let chat_id = created["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        let sent = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":chat_id,
+                    "text":"带附件的回复",
+                    "mentions":[],
+                    "reply_to":"msg-root",
+                    "attachments":["upload-chat-1"],
+                    "client_request_id":"chat-attachment-1"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(sent["message"]["reply_to"], "msg-root");
+        assert_eq!(sent["message"]["blocks"][1]["type"], "file");
+        assert_eq!(
+            sent["message"]["blocks"][1]["file"]["root_id"],
+            "upload-chat-1"
+        );
+        assert_eq!(sent["message"]["blocks"][1]["file"]["name"], "note.txt");
+
+        let history = backend
+            .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
+            .await
+            .unwrap();
+        let message = &history["messages"][0];
+        assert_eq!(message["reply_to"], "msg-root");
+        assert_eq!(message["blocks"][1]["file"]["root_id"], "upload-chat-1");
+        drop(backend);
+        drop(gateway);
+
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let history = backend
+            .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
+            .await
+            .unwrap();
+        let message = &history["messages"][0];
+        assert_eq!(message["reply_to"], "msg-root");
+        assert_eq!(message["blocks"][1]["file"]["root_id"], "upload-chat-1");
+    }
+
+    #[tokio::test]
+    async fn production_chat_thread_reactions_read_flags_and_cursor_survive_restart() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let created = backend
+            .call(
+                "bot.create",
+                json!({"name":"聊天方法回归 Bot"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let chat_id = created["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        let root = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":chat_id,"text":"根消息","mentions":[],"client_request_id":"chat-root"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let root_id = root["message"]["id"].as_str().unwrap().to_owned();
+        let reply = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":chat_id,"text":"回复","mentions":[],"reply_to":root_id,"client_request_id":"chat-reply"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let reply_id = reply["message"]["id"].as_str().unwrap().to_owned();
+        let thread = backend
+            .call(
+                "chat.thread",
+                json!({"chat_id":chat_id,"root_message_id":root_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(thread["root"]["id"], root_id);
+        assert_eq!(thread["replies"][0]["id"], reply_id);
+
+        let reacted = backend
+            .call(
+                "chat.react",
+                json!({"message_id":root_id,"emoji":"👍","on":true,"client_request_id":"react-1"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(reacted["message"]["reactions"][0]["emoji"], "👍");
+        backend
+            .call(
+                "chat.mark_read",
+                json!({"chat_id":chat_id,"seq":2,"client_request_id":"read-1"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let pinned = backend
+            .call(
+                "chat.set_pinned",
+                json!({"chat_id":chat_id,"pinned":true,"client_request_id":"pin-1"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(pinned["chat"]["pinned"], true);
+        let muted = backend
+            .call(
+                "chat.set_muted",
+                json!({"chat_id":chat_id,"muted":true,"client_request_id":"mute-1"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(muted["chat"]["muted"], true);
+        let before = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":chat_id,"before_seq":2}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(before["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(before["messages"][0]["id"], root_id);
+        fs::create_dir_all(home.path().join("data/chats/bot_dm_read_only")).unwrap();
+        fs::write(
+            home.path()
+                .join("data/chats/bot_dm_read_only/metadata.json"),
+            json!({"kind":"bot_dm"}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            backend
+                .call(
+                    "chat.send",
+                    json!({"chat_id":"bot_dm_read_only","text":"拒绝","mentions":[]}),
+                    &gateway.state
+                )
+                .await
+                .unwrap_err()
+                .code,
+            "forbidden"
+        );
+        fs::create_dir_all(home.path().join("data/chats/bot_dm_named")).unwrap();
+        fs::write(
+            home.path().join("data/chats/bot_dm_named/metadata.json"),
+            json!({"kind":"direct"}).to_string(),
+        )
+        .unwrap();
+        assert!(backend
+            .call(
+                "chat.send",
+                json!({"chat_id":"bot_dm_named","text":"名称不代表类型","mentions":[]}),
+                &gateway.state
+            )
+            .await
+            .is_ok());
+
+        drop(backend);
+        drop(gateway);
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let chat = backend
+            .call("chat.get", json!({"chat_id":chat_id}), &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(chat["chat"]["last_read_seq"], 2);
+        assert_eq!(chat["chat"]["pinned"], true);
+        assert_eq!(chat["chat"]["muted"], true);
+        let history = backend
+            .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
+            .await
+            .unwrap();
+        let restored_root = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == root_id)
+            .unwrap();
+        assert_eq!(restored_root["reactions"][0]["emoji"], "👍");
+    }
+
+    #[tokio::test]
+    async fn completed_operations_repair_missing_events_after_restart() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"事件恢复 Bot","client_request_id":"repair-bot"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"事件恢复项目",
+                    "goal":"恢复缺失事件",
+                    "member_bot_ids":[bot_id],
+                    "client_request_id":"repair-project"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":project["project"]["chat_id"],
+                    "bot_id":bot_id,
+                    "title":"恢复任务",
+                    "instruction":"恢复",
+                    "from":"main",
+                    "client_request_id":"repair-assignment"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":bot_id,
+                    "chat_id":project["project"]["chat_id"],
+                    "assignment_id":assignment["id"],
+                    "text":"恢复消息",
+                    "intent":"ack",
+                    "client_request_id":"repair-message"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        drop(backend);
+        drop(gateway);
+        fs::write(home.path().join("data/events/events.jsonl"), b"").unwrap();
+
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let events = backend.store.events_since(0).unwrap();
+        assert!(events
+            .iter()
+            .any(|event| { event.event == "bot.created" && event.data["bot"]["id"] == bot_id }));
+        assert!(events.iter().any(|event| {
+            event.event == "project.created" && event.data["project"]["id"] == project_id
+        }));
+        assert!(events.iter().any(|event| {
+            event.event == "assignment.created"
+                && event.data["assignment"]["id"] == assignment["id"]
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(event.event.as_str(), "message.created" | "message.updated")
+                && event.data["message"]["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("msg_task_card_"))
+        }));
+        let repaired_count = events.len();
+        drop(backend);
+        drop(gateway);
+        let _backend = ProductionBackend::open(home.path()).unwrap();
+        assert_eq!(
+            _backend.store.events_since(0).unwrap().len(),
+            repaired_count
+        );
+    }
+
+    #[tokio::test]
+    async fn deleted_entities_are_not_resurrected_by_startup_repair() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let created = backend
+            .call(
+                "bot.create",
+                json!({"name":"待删除","client_request_id":"delete-repair-create"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = created["bot"]["id"].as_str().unwrap().to_owned();
+        backend
+            .call(
+                "bot.delete",
+                json!({"bot_id":bot_id,"client_request_id":"delete-repair-delete"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        drop(backend);
+        drop(gateway);
+        fs::write(home.path().join("data/events/events.jsonl"), b"").unwrap();
+        let restarted = ProductionBackend::open(home.path()).unwrap();
+        let events = restarted.store.events_since(0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "bot.created" && event.data["bot"]["id"] == bot_id)
+                .count(),
+            0
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "bot.deleted" && event.data["bot_id"] == bot_id)
+                .count(),
+            1
+        );
+        let bots = restarted
+            .orchestrator
+            .rpc("bot.list", json!({}))
+            .await
+            .unwrap();
+        assert!(!bots["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|bot| bot["id"] == bot_id));
+    }
+
+    #[tokio::test]
+    async fn confirmed_review_retry_keeps_one_card_after_restart() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"确认卡 Bot","client_request_id":"confirmed-card-bot"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"确认卡项目",
+                    "goal":"确认",
+                    "member_bot_ids":[bot["bot"]["id"]],
+                    "client_request_id":"confirmed-card-project"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let project_chat_id = project["project"]["chat_id"].as_str().unwrap().to_owned();
+        let review_params = json!({
+            "project_id":project_id,
+            "summary":"ready",
+            "client_request_id":"confirmed-card-review"
+        });
+        backend
+            .call(
+                "project.request_review",
+                review_params.clone(),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .call(
+                "project.confirm_done",
+                json!({"project_id":project_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .call("project.request_review", review_params, &gateway.state)
+            .await
+            .unwrap();
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let review_cards = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| {
+                message["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "review_card" && block["project_id"] == project_id
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(review_cards.len(), 1);
+        assert_eq!(review_cards[0]["blocks"][0]["state"], "confirmed");
+        let project_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":project_chat_id,"limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let completion_count = project_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| {
+                message["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "completion"
+                            && block["summary"]
+                                .as_str()
+                                .is_some_and(|text| !text.is_empty())
+                    })
+                })
+            })
+            .count();
+        assert_eq!(completion_count, 1);
+        drop(backend);
+        drop(gateway);
+        let restarted_gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let restarted = ProductionBackend::open(home.path()).unwrap();
+        let history = restarted
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &restarted_gateway.state,
+            )
+            .await
+            .unwrap();
+        let restarted_project_history = restarted
+            .call(
+                "chat.history",
+                json!({"chat_id":project_chat_id,"limit":100}),
+                &restarted_gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            history["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| {
+                    message["blocks"].as_array().is_some_and(|blocks| {
+                        blocks.iter().any(|block| {
+                            block["type"] == "review_card"
+                                && block["project_id"] == project_id
+                                && block["state"] == "confirmed"
+                        })
+                    })
+                })
+                .count(),
+            1
+        );
+        assert_eq!(
+            restarted_project_history["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| {
+                    message["blocks"].as_array().is_some_and(|blocks| {
+                        blocks.iter().any(|block| block["type"] == "completion")
+                    })
+                })
+                .count(),
+            1
+        );
     }
 }
