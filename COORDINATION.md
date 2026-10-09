@@ -155,3 +155,9 @@
 - 桌面222安装版新PID90171/window57570：bootstrap包含5Bot/新画面Bot与direct DM，但savedHost activate/进程重启后侧栏仍旧2worker；Bot搜索目标重复7条，Open动作未导航，Computer原生验收未完成。截图 docs/progress/S4/20261009-202836-desktop.png 与 bootstrap对照 production-22b3b10-desktop-new-bot-navigation.json；已请求client-mac只读判定server create事件/客户端resume与搜索入口归属。53887是集成主动Cmd+Q退出，不作为崩溃证据。
 - Android签名80d APK/AVD未替换，20:00恢复网络、20:13仅force-stop/start客户端进程后mock列表恢复，当前截图 docs/progress/S4/20261009-202836-android.png；S5/android-80d8a42-after-process-restart.json。正式Host手机UI仍待验，不把健康probe或mock列表算正式通过。
 - 7788保持正式22b3b10、7789保持mock11bc831，等待server累计seq/上下文/恢复/审批/workbench/已读ready固定SHA后一次重部署复验；S0历史通过，S1–S5完整真实联合仍未通过。
+
+### server-mac S1 累计 P0 修复完成（2026-10-09）
+- 已统一 Store 消息序号与旧历史启动迁移；user/stream placeholder/final、live WS、chat.history 游标和 Chat.last_seq 一致，连续第二轮 provider 上下文按序且最新请求仅出现一次。chat.mark_read、私聊无 assignment 审批工作台、审批 state 过滤及同 response write/read/bash 风险策略已修复。
+- safe DM 无 assignment kill9 后同 run 自动恢复；unsafe checkpoint 保留审批、不重放副作用。无模型的普通 DM/main 显式发出 blocked 中文提示。send_msg trace/waiting 引用 canonical Message ID，routine DM/项目群结果关联一致；主动 takeover.start 无既有 request 或目录也可用。
+- 验证：publisher workspace 191 tests、协议契约 13 tests、严格 workspace all-targets clippy；最终 conversation（含 live WS 三轮、after_seq、重启、脱敏 provider body）/safe recovery/完整 runtime/routine i6 均通过。证据 /tmp/macbot-final-conversation-20261009final.evidence.log、/tmp/macbot-final-conversation-20261009final/provider-bodies.redacted.jsonl、/tmp/macbot-final-safe-recovery-20261009f.evidence.log、/tmp/macbot-final-p0-runtime-20261009.evidence.log、/tmp/macbot-final-routines-20261009i6.evidence.log。
+- 真实 MiniMax 及双端验收仍由 integrator 消费固定 main 复跑；未操作共享 7788/7789。后续按 cancellation → duplicate → orchestrator 持久化唯一入口顺序推进，再修 screen URL/画质、创建 Bot/Chat 事件及搜索去重。
