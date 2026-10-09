@@ -12,8 +12,9 @@ use crate::{
         SubagentDispatchRequest, WebCredentialStore, WebSearchConfig,
     },
     execution::{
-        ExecutionEngine, ExecutionError, ExecutionEvent, ExecutionOutcome, ExecutionRequest,
-        ExecutionSink, ExecutionState, GatewayStateSink, GroupMessageBridge, ProviderResolver,
+        invalid_pending_tool_args, ExecutionEngine, ExecutionError, ExecutionEvent,
+        ExecutionOutcome, ExecutionRequest, ExecutionSink, ExecutionState, GatewayStateSink,
+        GroupMessageBridge, ProviderResolver,
     },
     features::{
         FeatureService, MaintenanceUsageContext, MaintenanceUsageSink, ModelMaintenanceAdapter,
@@ -158,10 +159,205 @@ impl ComposedBackend {
                 }
                 Err(error) => tracing::error!(%error, "durable execution recovery failed"),
             }
+            recovery_backend.recover_invalid_tool_approvals().await;
             recovery_backend.recover_answered_decisions().await;
             recovery_backend.dispatch_ready_assignments().await;
         });
         Ok(backend)
+    }
+
+    /// Invalid target arguments cannot authorize a side effect. Retire only
+    /// the exactly mapped old approval, then return a tool error to its run.
+    async fn recover_invalid_tool_approvals(&self) {
+        let Ok(snapshot) = self.inner.orchestrator.snapshot() else {
+            return;
+        };
+        let Some(approvals) = snapshot.get("approvals").and_then(Value::as_object) else {
+            return;
+        };
+        let Ok(entries) = fs::read_dir(self.inner.store.root().join("data/jobs")) else {
+            return;
+        };
+        let jobs = entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                (entry.path().extension().and_then(|x| x.to_str()) == Some("json"))
+                    .then(|| {
+                        fs::File::open(entry.path()).ok().and_then(|file| {
+                            serde_json::from_reader::<_, macbot_durable::Job>(file).ok()
+                        })
+                    })
+                    .flatten()
+            })
+            .collect::<Vec<_>>();
+        if let Err(error) = self.runtime.configure_feature_runtime().await {
+            tracing::warn!(%error, "cannot configure invalid memory recovery");
+            return;
+        }
+        let mut claimed_runs = HashSet::new();
+        for (approval_id, approval) in approvals {
+            if !matches!(
+                approval.get("tool").and_then(Value::as_str),
+                Some("memory" | "write" | "edit")
+            ) || !matches!(
+                approval.get("state").and_then(Value::as_str),
+                Some("pending" | "expired")
+            ) {
+                continue;
+            }
+            let Some(args) = approval
+                .get("detail")
+                .and_then(Value::as_str)
+                .and_then(|detail| serde_json::from_str::<Value>(detail).ok())
+            else {
+                continue;
+            };
+            if invalid_pending_tool_args(approval["tool"].as_str().unwrap_or_default(), &args, None)
+                .is_none()
+                || args.get("resolved_path").is_some()
+            {
+                continue;
+            }
+            let mapped = self
+                .inner
+                .store
+                .read_snapshot::<Value>(format!(
+                    "data/approval-map/{}.json",
+                    safe_component(approval_id)
+                ))
+                .ok()
+                .flatten();
+            let Some(mapped_call) = mapped
+                .as_ref()
+                .and_then(|value| value.get("call_id"))
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            let mut candidates = Vec::new();
+            for job in &jobs {
+                if !matches!(
+                    job.status,
+                    macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
+                ) {
+                    continue;
+                }
+                let Some(call) = job.checkpoint.get("pending_tool") else {
+                    continue;
+                };
+                let Some(call_id) = call.get("call_id").and_then(Value::as_str) else {
+                    continue;
+                };
+                if normalize_call_id(mapped_call) != normalize_call_id(call_id)
+                    || call.get("name") != approval.get("tool")
+                    || call.get("args") != Some(&args)
+                    || job
+                        .checkpoint
+                        .get("pending_tools")
+                        .and_then(Value::as_array)
+                        .is_some_and(|pending| !pending.is_empty() && pending.first() != Some(call))
+                {
+                    continue;
+                }
+                let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Ok(Some(request)) = self
+                    .inner
+                    .store
+                    .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+                else {
+                    continue;
+                };
+                if request.run_id != run_id
+                    || !invalid_tool_approval_request_matches(&snapshot, approval, &request)
+                {
+                    continue;
+                }
+                candidates.push((request, call_id.to_owned()));
+            }
+            if candidates.len() != 1 {
+                continue;
+            }
+            let (request, call_id) = candidates.pop().expect("candidate length checked");
+            if !claimed_runs.insert(request.run_id.clone()) {
+                continue;
+            }
+            let Ok(engine) = self.runtime.engine_for(&request) else {
+                continue;
+            };
+            let Some(active_key) = self.reserve_run(&request) else {
+                continue;
+            };
+            let receipt = json!({"approval_id":approval_id,"run_id":request.run_id,
+                "call_id":call_id,"tool":approval["tool"],"args":args,"bot_id":request.bot_id,
+                "chat_id":request.chat_id,"assignment_id":request.assignment_id});
+            let expired = self
+                .inner
+                .expire_invalid_tool_approval(&self.state, approval_id, &receipt)
+                .await;
+            if !matches!(expired, Ok(true)) {
+                if let Ok(mut active) = self.active_runs.lock() {
+                    active.remove(&active_key);
+                }
+                continue;
+            }
+            let assignment_id = request.assignment_id.clone();
+            let run_id = request.run_id.clone();
+            self.mark_waiting(assignment_id.as_deref(), &request.run_id, true);
+            let _ = self.feature_service.begin_memory_run(&request.run_id);
+            let continuation = engine.reject_invalid_pending_tool(request, &call_id).await;
+            if let Ok(mut active) = self.active_runs.lock() {
+                active.remove(&active_key);
+            }
+            match continuation {
+                Ok(Some(outcome)) => {
+                    self.mark_waiting(
+                        assignment_id.as_deref(),
+                        &outcome.run_id,
+                        matches!(outcome.status.as_str(), "waiting" | "blocked" | "suspended"),
+                    );
+                    if let Some(assignment_id) = assignment_id {
+                        if outcome.status == "done" {
+                            self.finish_assignment_and_resume_parent(assignment_id, outcome.text)
+                                .await;
+                        } else if matches!(outcome.status.as_str(), "failed" | "cancelled") {
+                            fail_assignment(
+                                self.inner.clone(),
+                                self.state.clone(),
+                                assignment_id,
+                                &outcome.status,
+                            )
+                            .await;
+                        }
+                    }
+                }
+                Ok(None) => {
+                    self.mark_waiting(assignment_id.as_deref(), &run_id, false);
+                    tracing::warn!(%approval_id, "invalid tool checkpoint changed before recovery");
+                }
+                Err(error) => {
+                    self.mark_waiting(assignment_id.as_deref(), &run_id, false);
+                    tracing::warn!(%approval_id, %error, "invalid tool continuation failed");
+                    if let Some(assignment_id) = assignment_id {
+                        if assignment_status(self, &assignment_id)
+                            .ok()
+                            .is_some_and(|status| {
+                                matches!(status.as_str(), "working" | "waiting_user")
+                            })
+                        {
+                            fail_assignment(
+                                self.inner.clone(),
+                                self.state.clone(),
+                                assignment_id,
+                                "failed",
+                            )
+                            .await;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Continue decisions which were answered before a crash but whose durable
@@ -2121,6 +2317,45 @@ fn answered_decision_answer(question: &Value) -> Option<String> {
         .and_then(Value::as_str)
         .filter(|text| !text.trim().is_empty())
         .map(str::to_owned)
+}
+
+pub(crate) fn invalid_tool_approval_request_matches(
+    snapshot: &Value,
+    approval: &Value,
+    request: &ExecutionRequest,
+) -> bool {
+    if approval.get("bot_id").and_then(Value::as_str) != Some(request.bot_id.as_str())
+        || approval.get("chat_id").and_then(Value::as_str) != Some(request.chat_id.as_str())
+        || approval.get("assignment_id").and_then(Value::as_str) != request.assignment_id.as_deref()
+    {
+        return false;
+    }
+    match request.assignment_id.as_deref() {
+        Some(id) => snapshot
+            .get("assignments")
+            .and_then(|items| items.get(id))
+            .is_some_and(|assignment| {
+                assignment.get("bot_id").and_then(Value::as_str) == Some(request.bot_id.as_str())
+                    && assignment.get("origin_chat_id").and_then(Value::as_str)
+                        == Some(request.chat_id.as_str())
+                    && matches!(
+                        assignment.get("status").and_then(Value::as_str),
+                        Some("working" | "waiting_user")
+                    )
+                    && (assignment.get("wait").is_none_or(Value::is_null)
+                        || assignment.pointer("/wait/reason").and_then(Value::as_str)
+                            == Some("approval"))
+            }),
+        None => {
+            request.private
+                && snapshot
+                    .get("bots")
+                    .and_then(|items| items.get(&request.bot_id))
+                    .and_then(|bot| bot.get("dm_chat_id"))
+                    .and_then(Value::as_str)
+                    == Some(request.chat_id.as_str())
+        }
+    }
 }
 
 fn answered_decision_checkpoint_is_safe(

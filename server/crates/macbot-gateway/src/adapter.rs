@@ -526,6 +526,141 @@ impl ProductionBackend {
         self.call("question.ask", params, state).await
     }
 
+    /// Retire an invalid model request without granting permission or stopping
+    /// its assignment. The receipt makes expiry-before-continuation restartable.
+    pub async fn expire_invalid_tool_approval(
+        &self,
+        state: &GatewayState,
+        approval_id: &str,
+        receipt: &Value,
+    ) -> Result<bool, RpcError> {
+        let _guard = self.write_lock.lock().await;
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let Some(approval) = snapshot
+            .get("approvals")
+            .and_then(|items| items.get(approval_id))
+        else {
+            return Ok(false);
+        };
+        if approval.get("tool") != receipt.get("tool")
+            || approval.get("bot_id") != receipt.get("bot_id")
+            || approval.get("chat_id") != receipt.get("chat_id")
+            || approval.get("assignment_id") != receipt.get("assignment_id")
+            || approval
+                .get("detail")
+                .and_then(Value::as_str)
+                .and_then(|detail| serde_json::from_str::<Value>(detail).ok())
+                .as_ref()
+                != receipt.get("args")
+            || crate::execution::invalid_pending_tool_args(
+                receipt["tool"].as_str().unwrap_or_default(),
+                &receipt["args"],
+                None,
+            )
+            .is_none()
+        {
+            return Ok(false);
+        }
+        let Some(run_id) = receipt
+            .get("run_id")
+            .and_then(Value::as_str)
+            .filter(|id| takeover_component(id) == *id)
+        else {
+            return Ok(false);
+        };
+        let Some(request) = self
+            .store
+            .read_snapshot::<crate::execution::ExecutionRequest>(format!(
+                "data/run_requests/{run_id}.json"
+            ))
+            .map_err(store_error)?
+        else {
+            return Ok(false);
+        };
+        if request.run_id != run_id
+            || !crate::backend::invalid_tool_approval_request_matches(&snapshot, approval, &request)
+        {
+            return Ok(false);
+        }
+        let Ok(entries) = std::fs::read_dir(self.store.root().join("data/jobs")) else {
+            return Ok(false);
+        };
+        let matching_jobs = entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                std::fs::File::open(entry.path())
+                    .ok()
+                    .and_then(|file| serde_json::from_reader::<_, macbot_durable::Job>(file).ok())
+            })
+            .filter(|job| {
+                matches!(
+                    job.status,
+                    macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
+                ) && job.checkpoint.get("run_id").and_then(Value::as_str) == Some(run_id)
+                    && job.checkpoint.pointer("/pending_tool/call_id") == receipt.get("call_id")
+                    && job.checkpoint.pointer("/pending_tool/name") == receipt.get("tool")
+                    && job.checkpoint.pointer("/pending_tool/args") == receipt.get("args")
+                    && job
+                        .checkpoint
+                        .get("pending_tools")
+                        .and_then(Value::as_array)
+                        .is_none_or(|pending| {
+                            pending.is_empty()
+                                || pending.first() == job.checkpoint.get("pending_tool")
+                        })
+            })
+            .count();
+        if matching_jobs != 1 {
+            return Ok(false);
+        }
+        let path = format!(
+            "data/invalid-tool-recovery/{}.json",
+            takeover_component(approval_id)
+        );
+        match approval.get("state").and_then(Value::as_str) {
+            Some("pending") => {
+                self.store
+                    .write_snapshot(&path, receipt)
+                    .map_err(store_error)?;
+                if self
+                    .orchestrator
+                    .expire_invalid_approval(approval_id)
+                    .map_err(Self::error)?
+                    .is_none()
+                {
+                    return Ok(false);
+                }
+            }
+            Some("expired") => {
+                if self
+                    .store
+                    .read_snapshot::<Value>(&path)
+                    .map_err(store_error)?
+                    .as_ref()
+                    != Some(receipt)
+                {
+                    return Ok(false);
+                }
+            }
+            _ => return Ok(false),
+        }
+        let current = self.orchestrator.snapshot().map_err(Self::error)?;
+        self.persist(
+            state,
+            "approval.invalid",
+            &json!({
+                "approval_id":approval_id,
+                "run_id":receipt["run_id"],
+                "call_id":receipt["call_id"],
+                "reason":"invalid tool arguments",
+                "client_request_id":format!("invalid-tool:{approval_id}")
+            }),
+            &json!({"approval":current["approvals"][approval_id]}),
+        )
+        .await?;
+        Ok(true)
+    }
+
     /// Internal runtime action.  The returned snapshot is intentionally kept
     /// out of the public RPC response; the composed runtime backend uses it
     /// only to resume the waiting run after the user releases the browser.
@@ -1216,7 +1351,7 @@ impl ProductionBackend {
             "chat.react" => "message.updated",
             "chat.set_pinned" | "chat.set_muted" => "chat.updated",
             "approval.request" => "approval.requested",
-            "approval.decide" => "approval.resolved",
+            "approval.decide" | "approval.invalid" => "approval.resolved",
             "question.ask" => "question.asked",
             "propose_bot" => "question.asked",
             "question.answer" => "question.answered",
