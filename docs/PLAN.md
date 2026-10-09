@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.6
+# Mac Bot 规划 v0.7
 
 > 状态：规划中，尚未开始编码。
+> v0.7 变更：安全部分精简为「每次连接带上密码」；浏览器操控改用 vercel-labs/agent-browser（三种模式评估、实时画面代理）；记忆增加项目级共享层。
 > v0.6 变更：鉴权改为「访问密码」，去掉配对；密码换会话令牌，管理页也需要密码；首次设置向导；防暴力破解。
 > v0.5 变更：服务端改为无界面守护进程 macbotd（.pkg 安装、LaunchAgent），只带极简的本机 Web 管理页和 CLI；所有业务配置都通过客户端走 API；桌面 App 改为纯客户端。
 > v0.4 变更：确定部署形态为中心 Host + 客户端（支持多 Host，预留节点和联邦扩展）；v1 不做 Windows，只做 macOS、Android、iOS；当前阶段只做设计和规划。
@@ -18,7 +19,7 @@
 | 部署形态 | **无界面服务端 + 客户端**（详见 5.0）：服务端 `macbotd` 是守护进程，只带一个极简的本机 Web 管理页（`/admin`）和 CLI；Bot、模型、记忆等所有配置都通过客户端走 API；客户端可以连接多台 Host |
 | 部署 | 服务端运行在 M 系列 Mac 上，16 GB 内存；**不用虚拟机，不做沙箱**（沙箱作为远期可选项） |
 | 网络 | 服务端监听一个固定端口，客户端填 `host:port` 直连。公网代理由用户自行解决，不在本项目范围内 |
-| 安全 | v1 只用**访问密码**：密码换会话令牌、argon2id 哈希、登录限速；管理页也用同一个密码；TLS 由代理层负责（详见 5.0.1） |
+| 安全 | v1 **只做访问密码**：客户端每次连接都带上密码，管理页用同一个密码；其他安全措施全部放到以后（详见 5.0.1） |
 | Bot | 支持多个 Bot，**每个 Bot 有独立工作间**（目录、记忆、会话、定时任务）；支持**群聊和 Bot 间消息** |
 | 电脑操控 | 以网页任务为主，**使用系统浏览器**（复用已有的登录凭证）；放到后续阶段，先把 Bot 形态跑通 |
 | 系统权限 | 屏幕录制和辅助功能权限**不强制**；没授权时提示「部分功能不可用」 |
@@ -42,7 +43,8 @@
 | **OpenClaw**（[多 Agent 文档](https://docs.openclaw.ai/multi-agent)） | 每个 agent 一套独立的 workspace 和会话存储；默认隔离，显式开启跨 agent 通信；设备配对 |
 | **LobeHub Agent Groups**（[RFC 130](https://lobehub.com/blog/rfc-130)） | 群聊编排：supervisor 决定下一个发言者，以及公开发言还是私信 |
 | **AutoGen GroupChat** | Selector 模式：由 LLM 选下一个发言者，并设置终止条件 |
-| **Playwright MCP 扩展模式**、**mcp-chrome**、**Browser MCP**、**real-browser-mcp** | 通过 **Chrome 扩展**控制用户日常使用的浏览器，直接复用登录态（Chrome 136 起，默认 profile 不再允许 `--remote-debugging-port`，扩展是正路） |
+| **vercel-labs/agent-browser**（Rust，Apache-2.0） | **浏览器操控主力**：无头/有头、复用 Chrome profile、每个 Bot 独立会话、WebSocket 推送实时画面并接收输入（见 5.8） |
+| Playwright MCP 扩展模式、mcp-chrome | 远期备选：通过 Chrome 扩展控制用户正在使用的浏览器 |
 | **cua-driver**（trycua/cua，MIT） | 后台控制原生 Mac App，**不抢鼠标、不抢焦点**（可选，需要系统权限） |
 | **Peekaboo**（openclaw/peekaboo，MIT） | macOS 截图和 GUI 自动化 CLI/MCP（可选） |
 | **gpui-kit**（[longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)，原名 gpui-component，Apache-2.0，约 1.6 万 star） | 桌面端组件库：75+ 组件，包括 Markdown/HTML 渲染、不等高虚拟列表（消息流）、Dock 和可拖拽面板、表单、浮层、菜单、主题；Longbridge Pro 在生产环境使用；自带给 AI 编程助手用的 skills |
@@ -88,7 +90,7 @@
 - 管理入口：Bot → **View conversation details** → **Routines**，可以启用/暂停、**Test run**、编辑、查看历史、删除。
 
 ### 4.7 电脑（后期阶段）
-- **每个 Bot 有自己的「屏幕」**：在 Mac Bot 里就是一个独立的 Chrome 窗口或标签组。同一块屏幕同一时间只跑一个电脑操作任务，不同 Bot 之间可以并行。
+- **每个 Bot 有自己的「屏幕」**：在 Mac Bot 里就是一个独立的 agent-browser 会话（`--session <bot_id>`）。同一块屏幕同一时间只跑一个电脑操作任务，不同 Bot 之间可以并行。
 - 在会话中打开 **Agent Computer** 可以看实时画面；关掉预览后任务继续执行。
 - **接管**：遇到密码、2FA、验证码、支付时，Bot 暂停，用户接管完成后告诉 Bot 继续。
 - 登录态在所有 Bot 之间共享（因为用的是同一个系统浏览器），这一点和 Grok Bot 一致。
@@ -126,15 +128,13 @@
    - **为什么必须是用户级 LaunchAgent，而不是 root 级 LaunchDaemon**：只有在用户会话里运行，才能访问该用户的钥匙串、用户的 Chrome（后期电脑操控要用），以及将来可能用到的屏幕录制和辅助功能权限。
    - 打包形式：二进制放在一个**没有界面的 `.app` 包**里（`LSUIElement`）。好处是签名、公证和系统权限都有一个稳定的身份，升级后不用重新授权。
 2. **所有管理操作都走同一个端口的 API。** Bot 的增删改、模型和 provider、记忆、定时任务、审批规则、设备管理，**全部在客户端里完成**；服务端本身不提供业务界面。
-3. **鉴权：只用一个访问密码，不做配对**（详见 5.0.1）。
-   - 安装后先设置密码。客户端添加 Host 时填 `host:port` 和密码就能连上。
-   - 管理页也用同一个密码登录。
+3. **鉴权：只用一个访问密码，不做配对**（详见 5.0.1）。客户端填 `host:port` 和密码就能连上；管理页也用这个密码。
 4. **服务端只提供一个极简的 Web 管理页**（`/admin`，需要密码）。它只负责客户端连上之前的那些事：
    - 运行状态（版本、端口、node_id、运行时长、已连接的设备）
-   - 已登录设备列表、踢下线、修改密码
+   - 修改密码
    - 修改端口和 Host 名称、查看日志、重启服务
    - 页面是嵌入二进制的单个 HTML 文件加少量原生 JS，**不引入前端构建链**
-5. **命令行 `macbot`**（与 `macbotd` 是同一个二进制的子命令）：`macbot status`、`macbot passwd`（设置或重置密码，适合通过 SSH 远程配置 Mac mini，也是忘记密码时的唯一找回方式）、`macbot devices`、`macbot logs`、`macbot restart`。CLI 通过本地 Unix socket 和守护进程通信，靠文件权限鉴权，不需要密码。
+5. **命令行 `macbot`**（与 `macbotd` 是同一个二进制的子命令）：`macbot status`、`macbot passwd`（设置或重置密码，适合通过 SSH 远程配置 Mac mini）、`macbot logs`、`macbot restart`。CLI 通过本地 Unix socket 和守护进程通信，靠文件权限鉴权，不需要密码。
 6. **桌面 App（GPUI）和手机 App 都只是客户端**，不再内置 Host，也不管理服务端的生命周期。
 7. **Client 支持多个 Host**：侧栏顶部有一个 Host 切换器，类似 Slack 切换工作区，可以同时连接家里的 Mac mini 和办公室的另一台 Mac。「操控另一台机器上的 Bot」就是靠这个实现的。
 8. **全局唯一标识**：每台 Host 有一个 `node_id`（UUID）和名字；Bot、会话、消息的 ID 都用 UUIDv7，并记录所属的 `node_id`。Bot 的完整地址写作 `bot_id@node_id`。
@@ -152,44 +152,24 @@
 
 | 路径 | 用途 | 访问范围 |
 |------|------|----------|
-| `/login` | 用密码换会话令牌 | 公开（有频率限制，见 5.0.1） |
-| `/ws` | 客户端协议：请求、响应、事件推送 | 会话令牌 |
-| `/api/v1/*` | HTTP JSON，和 `/ws` 能力一致，方便脚本和第三方集成 | 会话令牌 |
-| `/admin` | 极简管理页 | 密码登录（Cookie 会话）；**未设置密码前只允许 localhost 访问** |
-| `/ext` | 后期：Chrome 扩展连接 | 只允许 localhost |
+| `/ws` | 客户端协议：请求、响应、事件推送 | 密码 |
+| `/api/v1/*` | HTTP JSON，和 `/ws` 能力一致，方便脚本和第三方集成 | 密码 |
+| `/admin` | 极简管理页 | 密码（HTTP Basic Auth）；**未设置密码前只允许 localhost 访问** |
 
-#### 5.0.1 密码鉴权
+#### 5.0.1 密码鉴权（v1 精简版：先跑通）
 
-**结论：可以只用密码，不做配对。** 这是单用户自托管软件的常见做法（Jellyfin、Home Assistant 都是这样），体验也最简单。但要守住下面几条，不然「只有密码」会比配对弱很多：
-
-1. **密码只在登录时发送一次。** 客户端用密码换一个**会话令牌**（随机 256 位），本地只保存令牌，放进 iOS Keychain / Android Keystore / macOS 钥匙串，不保存密码。之后连接 `/ws` 只带令牌。
-   - 这样就算令牌泄露，也只影响一台设备，可以单独踢下线。
-   - **修改密码后，所有设备的令牌自动失效**，相当于一键全部下线。
-   - 客户端「添加 Host」的体验仍然是填 `host:port` 加密码。
-2. **服务端只存密码的 argon2id 哈希**，不存明文。
-3. **防暴力破解**（因为端口会通过 frp 暴露到公网）：
-   - 按来源 IP 限速，例如每分钟最多 5 次失败
-   - 连续失败后指数退避
-   - 密码最短 8 位
-   - 登录失败记入日志，管理页可以查看
-4. **首次设置的安全窗口**：在设置密码之前，`/admin` 和 `/login` **只接受来自 localhost 的请求**，避免局域网里有人抢先把密码设掉。
-5. **忘记密码**：只能在 Mac 本机执行 `macbot passwd` 重置。能登录这台 Mac，就视为主人。
-6. **明文传输的风险**：v1 不做 TLS。登录那一次如果走的是公网明文 `ws://`，密码可能被截获。
-   - 建议：走公网时由代理层加 TLS，客户端填 `wss://域名`。
-   - 客户端同时支持 `ws://` 和 `wss://`。
-   - 以后可以升级为不传输密码本身的登录协议（如 OPAQUE/SRP）。
-
-设备列表（`sessions` 表）保留，用来查看「哪些设备登录过、最后在线时间」，以及踢掉单个设备。
-
-**后续扩展路径（按价值排序）：**
-- **v2 Computer Node**：在 Windows 上运行同一个守护进程，以 `macbotd node` 模式启动，把本机的浏览器和 shell 借给 Mac 上的 Bot 使用。Bot 和记忆仍然集中在 Mac 上，没有数据同步问题。**这比在 Windows 上另起一套 Bot 更实用。**
-- **v3 Host 联邦（可选）**：两台 Host 之间配对以后，Bot 可以通过 `send_message(to: bot@node)` 跨机器发消息。跨机群聊由发起方所在的 Host 担任「主节点」保存记录，远端的 Bot 以「远程成员」身份参与，消息投递到它所在 Host 的 inbox。协议上预留了这些字段，等真有需要再做。
+- 首次设置密码有两种方式：本机打开 `localhost:7788/admin`，或者执行 `macbot passwd`。服务端只存密码的 argon2 哈希。
+- **客户端每次连接都直接带上密码**：`/ws` 和 `/api/v1` 在 `Authorization: Bearer <密码>` 头里传。客户端把密码存进系统钥匙串（iOS Keychain、Android Keystore、macOS 钥匙串）。
+- 管理页 `/admin` 用 HTTP Basic Auth 登录，密码相同。
+- 唯一保留的防护：**设置密码之前，只接受 localhost 的请求**（只是一行判断，用来防止局域网里有人抢先设密码）。
+- 忘记密码：在本机执行 `macbot passwd` 重置。
+- 以后再做：会话令牌和设备管理、登录限速、TLS（目前走公网时可以由代理层加 TLS，客户端填 `wss://`）。
 
 ```
 ┌──────────── Mac（macbotd，无界面守护进程，LaunchAgent）──────────────┐
-│ Gateway  axum，固定端口（默认 7788）：/login /ws /api/v1 /admin /ext   │
-│   密码登录→会话令牌 / 协议版本 / 事件流（按 seq 断线续传）           │
-│ Local CLI  Unix socket ← `macbot status|passwd|devices|logs`       │
+│ Gateway  axum，固定端口（默认 7788）：/ws /api/v1 /admin               │
+│   密码鉴权 / 协议版本 / 事件流（按 seq 断线续传）                    │
+│ Local CLI  Unix socket ← `macbot status|passwd|logs`               │
 │                                                                   │
 │ Orchestrator（群聊路由、Bot 间消息、handoff、防循环）                 │
 │   │                                                               │
@@ -210,7 +190,7 @@
  │ v1 macOS（纯客户端）│          │ Android + iOS，Ktor WS    │
  └─────────────────┘            │ iOS 后台通知走 APNs        │
                                 └──────────────────────────┘
-        ▲ 后期：Chrome 扩展「Mac Bot Connector」通过 localhost 连接服务端
+        macbotd ⇄ agent-browser（sidecar，每个 Bot 一个会话；画面流只监听 localhost，由 macbotd 代理）
 ```
 
 ### 5.1 仓库结构
@@ -229,11 +209,10 @@ mac-bot/
 │   └── macbot-client        # 桌面端用的协议客户端（重连、本地缓存）
 ├── apps/
 │   ├── desktop/             # gpui-kit（只依赖这一个 crate，它会固定匹配的 GPUI 版本）
-│   ├── mobile/              # Kotlin Multiplatform + Compose Multiplatform
-│   │   ├── shared/          #   共享代码：UI、ViewModel、Ktor WebSocket、kotlinx.serialization、本地缓存
-│   │   ├── androidApp/      #   Android 外壳（前台服务、通知）
-│   │   └── iosApp/          #   Xcode 工程外壳（APNs 注册）
-│   └── chrome-extension/    # 后期
+│   └── mobile/              # Kotlin Multiplatform + Compose Multiplatform
+│       ├── shared/          #   共享代码：UI、ViewModel、Ktor WebSocket、kotlinx.serialization、本地缓存
+│       ├── androidApp/      #   Android 外壳（前台服务、通知）
+│       └── iosApp/          #   Xcode 工程外壳（APNs 注册）
 └── docs/
 ```
 
@@ -251,7 +230,7 @@ mac-bot/
 
 ```
 bots(id, node_id, name, label, description, avatar, model_ref, pinned, hidden, created_at)
-chats(id, node_id, kind[direct|group|bot_dm], title, created_at)
+chats(id, node_id, kind[direct|group|bot_dm], title, project_id, created_at)   -- 群聊可绑定项目
 chat_members(chat_id, member_kind[user|bot], member_id)
 messages(id, chat_id, seq, sender_kind, sender_id, reply_to, mentions, content_json, created_at)   -- FTS5
 runs(id, bot_id, chat_id, trigger_message_id, status, owner_task_id, started_at, ended_at)
@@ -259,16 +238,16 @@ entries(id, run_id|conversation_id, seq, kind, json)       -- 不可变，参照
 tasks(id, owner, kind, status, checkpoint_json, updated_at) -- 可恢复的状态机
 submissions(id, bot_id, request_id UNIQUE, status)          -- 幂等
 approvals(id, bot_id, run_id, tool, args_json, status, decision, rule_id)
-memories(id, scope[user|bot], bot_id, kind[profile|notes], content, updated_at)
+projects(id, name, description, is_global, created_at)
+bot_projects(bot_id, project_id)
+memories(id, scope[user|project|bot], project_id, bot_id, content, updated_at)
 skills(id, name, description, body_md, updated_at)
 routines(id, bot_id, name, schedule, tz, instructions, enabled, next_run_at)
 routine_runs(id, routine_id, run_id, status, started_at)   -- 每个 Routine 只保留 20 条
 files(id, bot_id, chat_id, path, mime, size, created_at)
 providers(id, name, api_kind, base_url, secret_ref)
 models(id, provider_id, model_id, caps_json, context_window, cost_json)
-auth(id=1, password_hash, password_changed_at)               -- 单行；修改密码后所有 sessions 失效
-sessions(id, device_name, platform, token_hash, created_at, last_seen_at, last_ip, revoked)
-login_attempts(ip, failed_count, locked_until)
+auth(id=1, password_hash)                                   -- 单行
 node(node_id, name, created_at)                             -- 本机 Host 的身份（单行）
 usage(id, bot_id, run_id, model_id, input_tokens, output_tokens, cost)
 events(seq, chat_id, type, payload_json)                    -- 推送和断线补发
@@ -292,12 +271,25 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 
 Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话。用户可以查看，但默认不显示在主列表，而是在双方会话里以「交接」卡片的形式出现。
 
-### 5.5 记忆（hermes 风格）
-- **用户画像**（`scope=user`，所有 Bot 共享，有字数上限）：用户是谁、有什么偏好。
-- **Bot 笔记**（`scope=bot`，每个 Bot 独立，有字数上限）：这个 Bot 在自己职责范围内学到的东西。
-- 会话开始时把两者以快照形式注入（保证 prompt cache 稳定）；运行中通过 `memory` 工具增删改，下次会话生效。
-- `session_search`：对 messages 做 FTS5 检索，用于回答「我之前说过什么」，默认只搜本 Bot 参与过的会话。
-- 客户端在 Bot 详情 → Memory 页里可以查看、编辑、删除。
+### 5.5 记忆（hermes 风格，三层作用域）
+
+| 作用域 | 谁能看到 | 内容 | 例子 |
+|--------|----------|------|------|
+| **用户画像**（`scope=user`） | 所有 Bot | 用户是谁、有什么偏好 | 「我在上海，回复用中文，周报周五交」 |
+| **项目记忆**（`scope=project`） | 关联了该项目的 Bot | 某个项目或主题的共享事实、约定、进展 | 「mac-bot 项目用 Rust + gpui-kit，仓库在 …；当前在做 P2」 |
+| **Bot 笔记**（`scope=bot`） | 只有这个 Bot | 它在自己职责范围内学到的东西 | 「X 时间线总结时跳过广告和转推」 |
+
+- **项目（Project）** 是一个共享记忆空间，由 `projects` 表加 `bot_projects` 关联表组成。
+  - 内置一个「**全局**」项目，所有 Bot 默认关联，用来放团队级的共享事实。
+  - 其他项目由用户或 Bot 创建，然后把相关 Bot 拉进来。
+  - **群聊可以绑定一个项目**：群里的 Bot 在这个群里工作时，自动读写这个项目的记忆，即使它平时没有关联该项目。群聊协作的上下文就是这样共享的。
+- **注入方式**：会话开始时以快照形式注入，各层有自己的字数上限。顺序是用户画像、关联项目（全局项目在前，当前群绑定的项目优先）、Bot 笔记。运行中通过 `memory(scope, project?, action, content)` 工具增删改，下次会话生效。
+- **写入权限**：Bot 可以写自己的笔记，也可以写它关联的项目记忆；用户画像也允许 Bot 写，但客户端会给出「Bot 更新了你的画像」提示，方便用户审查。
+- `session_search`：对 messages 做 FTS5 检索，用于回答「我之前说过什么」。默认搜索本 Bot 参与过的会话，加上它关联项目所绑定的群聊。
+- 客户端入口：
+  - Bot 详情 → Memory 页：编辑这个 Bot 的笔记，查看它关联了哪些项目
+  - 侧栏 → Projects 页：管理项目、项目记忆和成员
+  - Settings → Profile 页：编辑用户画像
 
 ### 5.6 Provider
 - API 类型：`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative`。
@@ -308,28 +300,55 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 ### 5.7 协议
 - WebSocket，JSON 帧 `{v, id, type, payload}`，请求/响应和服务端推送并存。
 - 重连时带上 `last_seq`，服务端从 `events` 表补发。
-- 登录流程：客户端 `POST /login {password, device_name, platform}` → 服务端返回 `session_token` 和 `node_id` → 之后连接 `/ws` 时在 `Authorization` 头里带令牌。令牌失效时，客户端提示重新输入密码。设备可以在客户端的 Settings → Devices 或管理页里踢下线。
+- 鉴权：每次连接都在 `Authorization: Bearer <密码>` 里带上密码，服务端校验通过后返回 `node_id`。密码错误时，客户端提示重新输入。
 - 多 Host：客户端为每台 Host 分别保存 `{node_id, name, host:port, device_token}`。握手时服务端返回自己的 `node_id`，客户端据此识别同一台 Host 地址变化的情况（例如局域网 IP 和公网域名是同一台）。
 
-### 5.8 电脑操控（后期阶段，先定方向）
-- **浏览器（主线）**：自研 Chrome 扩展 **Mac Bot Connector**，装进用户日常使用的 Chrome（或其他 Chromium 系浏览器），通过 localhost WebSocket 连接 macbot-server。实现参考 Playwright MCP 扩展模式和 mcp-chrome。
-  - 每个 Bot 一个独立窗口或标签组，作为它的「屏幕」。
-  - 观察网页：精简后的 DOM / 无障碍树快照（参考 browser-use 的元素编号），截图作为补充。
-  - 动作：navigate、click、type、scroll、extract。
-  - 实时画面和接管：用 `chrome.debugger` 的 `Page.startScreencast` 推帧给客户端；客户端的点击和输入通过 `Input.dispatch*` 回放到页面。**不需要屏幕录制权限。**
-  - 待验证：锁屏后被遮挡的 Chrome 窗口会被节流，影响截图和 screencast（DOM 操作一般不受影响）。
-  - 过渡方案：先通过 MCP 客户端接入现成的 Playwright MCP（`--extension`），然后再换成自研扩展。
-- **原生桌面（可选）**：接入 cua-driver 或 Peekaboo（MCP 子进程）。没有辅助功能或屏幕录制权限时自动禁用，并在 Settings → Computer 里说明原因。
+### 5.8 电脑操控：浏览器使用 vercel-labs/agent-browser
+
+**选型：[vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser)**（Apache-2.0，约 4.4 万 star，纯 Rust 编写，直接用 CDP 控制浏览器，不依赖 Node）。
+- 它只发布可执行程序，不提供 Rust 库，所以以 **sidecar 进程**的方式集成：放进 .pkg 一起分发，由 macbotd 调用它的 CLI（`--json` 输出），或者使用它的 MCP 模式（`agent-browser mcp`）。
+- 原先自研 Chrome 扩展的方案降级为远期备选。
+
+**三种模式评估**
+
+| 模式 | agent-browser 用法 | 能拿到登录态吗 | 锁屏和无人值守 | 结论 |
+|------|---------------------|----------------|----------------|------|
+| ① 无头、不带 profile | 默认 | ❌ 干净的浏览器 | ✅ | 适合查公开网页、做调研，**作为不需要登录的任务的默认模式** |
+| ② 无头、带 profile | `--profile Default`：把本机 Chrome 的 profile 复制一份只读快照来启动；或 `--profile <目录>`：使用一个持久的独立 profile | ✅ 能拿到本机 Chrome 的 cookie 和登录状态 | ✅ 不依赖屏幕，锁屏也能跑 | **主力模式**：例如「登录 X 刷帖总结」 |
+| ③ 有头、连接本机正在运行的 Chrome | `--auto-connect`（Chrome 144 以上，需要在 `chrome://inspect` 里开启远程调试） | ✅ 直接用你正在使用的那个 Chrome | ❌ 会占用你自己的浏览器和标签页；连接时 Chrome 可能弹出授权确认，需要人点击 | 只用于「需要人在旁边」的场景，例如导入登录状态；**不作为 Bot 日常模式** |
+
+**落地方案**
+- **每个 Bot 一个独立的浏览器会话**（`--session <bot_id>`），对应 Grok Bot 里「每个 Bot 有自己的屏幕」，Bot 之间可以并行。
+- **登录态**：默认用模式②的 `--profile Default`，即复用本机 Chrome 的登录状态，零配置。再加上 `--session <bot_id> --restore`，让 Bot 自己在使用过程中刷新的 cookie 和 localStorage 能保存下来。
+  - 注意：快照是只读的，Bot 里的改动不会写回你的 Chrome。
+  - 如果某个网站在 Bot 里掉了登录，有两种处理：用户在实时画面里接管、手动登录一次（之后由 `--restore` 保存）；或者在本机 Chrome 里重新登录，下次启动时会重新拿快照。
+- **内存**：每个会话是一个独立的 Chrome 进程，大约占 300–500 MB。16 GB 内存同时跑 3–5 个没问题。agent-browser 默认空闲 1 小时自动关闭浏览器，我们可以设得更短。
+- **观察和动作**：使用 agent-browser 的无障碍树快照（每个元素有 `@e1` 这样的编号），按编号 click、fill、scroll；截图作为补充。它自带的 skills 文档可以改写成 Bot 的浏览器工具说明。
+
+**实时画面和接管（agent-browser 原生支持）**
+- 每个会话自带一个 **WebSocket 流服务**，同时提供两个方向：
+  - 下行：JPEG 帧（附带视口尺寸、滚动位置、时间戳）和 URL 变化
+  - 上行：鼠标、键盘、**触摸**事件（手机上可以直接点和滑）
+  - 可调参数：画质、最大宽高、每个连接的 `maxFps`、**ack 节流**（慢网络下不会堆积旧帧）
+  - 体积参考：1280×720、画质 80 约 54 KB/帧；640×360、画质 20 约 9 KB/帧
+- **macbotd 做代理**：agent-browser 的流端口只监听 localhost，不对外暴露。客户端在 `/ws` 上订阅「某个 Bot 的屏幕」，macbotd 把帧转发过去，并把客户端的输入回放到浏览器。这样只需要一个端口、一个密码。
+- 档位：手机默认 720 宽、画质 50、10 fps；桌面默认 1280 宽、画质 70、15 fps；网络慢时自动切到 ack 节流。
+- 无头模式下的画面来自 CDP screencast，**和屏幕是否锁定无关**。
+
+**原生桌面（可选，远期）**：接入 cua-driver 或 Peekaboo（MCP 子进程）。没有辅助功能或屏幕录制权限时自动禁用，并在 Settings → Computer 里说明原因。
+
+**P6 开工时需要先确认**：`--profile Default` 读取 Chrome cookie 时是否会触发钥匙串弹窗（Chrome 的 cookie 由钥匙串里的 "Chrome Safe Storage" 加密）；`--profile` 与 `--restore` 组合使用时的行为。
 
 ## 6. 页面清单（桌面端）
 
 | 区域 | 内容 |
 |------|------|
-| 侧栏 | 顶部是 Host 切换器（显示在线状态，可添加新 Host：填 host:port 和密码）；下面是 New（`Cmd+N`）、Search、置顶的 Bot、Bot 列表、群聊列表、Hidden Bots、Skills、Settings；每项显示状态点（空闲 / 运行中 / 等待你） |
+| 侧栏 | 顶部是 Host 切换器（显示在线状态，可添加新 Host：填 host:port 和密码）；下面是 New（`Cmd+N`）、Search、置顶的 Bot、Bot 列表、群聊列表、Projects、Hidden Bots、Skills、Settings；每项显示状态点（空闲 / 运行中 / 等待你） |
 | 会话主区 | 头部（头像、名字、Label，以及后期的 Agent Computer 按钮、详情按钮）；消息流；输入框 |
 | 会话详情抽屉 | Profile、Routines、Files、Memory、Members（群聊） |
 | New chat 面板 | Create new Bot / 选 2 到 6 个 Bot 建群 |
 | Skills 页 | 列表、编辑、新建 |
+| Projects 页 | 项目列表；项目记忆的查看和编辑；成员 Bot；绑定的群聊 |
 | Settings | Models & Providers、Agent（Auto Review 档位与允许/拒绝规则）、Devices、Computer（后期）、Appearance、Language、Usage、Host（当前 Host 的名称、版本、node_id；添加和切换 Host） |
 | Agent Computer | 后期：右侧面板，显示实时画面，提供接管按钮 |
 
@@ -337,12 +356,12 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 
 | 阶段 | 内容 | 验收 |
 |------|------|------|
-| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、单个 Bot 私聊流式对话、durable resume、密码登录（会话令牌、限速）、`/admin` 管理页（含首次设置向导）、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 和密码后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
+| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、单个 Bot 私聊流式对话、durable resume、密码鉴权、`/admin` 管理页（含首次设置密码）、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 和密码后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
 | **P2 多 Bot 与群聊** | Bot 增删改、Pin/Hide/Duplicate、独立 workspace 和基础工具、审批卡片、群聊路由、@ 和 Reply、Bot 间消息与 handoff、防循环 | 3 个 Bot 在群里分工完成一个任务，中间有交接；审批只出现在私聊里 |
-| **P3 记忆与技能** | 用户画像和 Bot 笔记、session_search、Memory 页、Skills 和 `/` 引用 | 跨会话记住用户偏好，能回答「我上周说过什么」 |
+| **P3 记忆与技能** | 用户画像、项目记忆（含全局项目、群聊绑定项目）、Bot 笔记、session_search、Memory 页、Skills 和 `/` 引用 | 跨会话记住用户偏好，能回答「我上周说过什么」 |
 | **P4 移动端** | Compose Multiplatform 客户端：会话列表、聊天、群聊、审批、通知、搜索；Android 前台服务；iOS 接入 APNs | 在小米 17 和 iPhone 上都能完成 P2 的场景 |
 | **P5 Routines** | 调度器、通过对话创建、Test run、运行历史 | 「每天 9 点总结 xxx」按时执行并推送结果 |
-| **P6 电脑操控** | 先用 Playwright MCP 扩展模式过渡，再上 Mac Bot Connector 扩展；Agent Computer 实时画面和接管；可选接入 cua-driver | 用系统 Chrome 已有的 X 登录态刷帖并总结 |
+| **P6 电脑操控** | 以 sidecar 方式集成 agent-browser（每个 Bot 一个会话，复用 Chrome profile）；macbotd 代理实时画面和输入；Agent Computer 面板和接管 | 用系统 Chrome 已有的 X 登录态刷帖并总结 |
 | **P7 打磨** | 语音、文件页、全局搜索、用量统计；客户端和服务端的自动更新（服务端通过 `/admin` 或 `macbot update` 更新）；签名的 .pkg 和 .dmg | 双击 .pkg 安装后，到客户端登录、开始对话，全程不需要碰终端 |
 | **v2** | Windows 客户端；Computer Node（在 Windows 上以 `macbotd node` 运行）| Mac 上的 Bot 能操作 Windows 上的浏览器 |
 | **v3（可选）** | Host 联邦：跨 Host 的 Bot 消息和群聊 | |
@@ -362,5 +381,4 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 断电重启后自动恢复、TLS 和审计、公网代理、虚拟机或沙箱、示范一次生成技能、小米厂商推送、多用户。
 
 ## 10. 待确认
-1. 日常使用的浏览器是 **Chrome**（或其他 Chromium 系）吗？如果是 Safari，第 5.8 节的方案需要重新设计。
-2. 用户画像默认所有 Bot 共享、Bot 笔记各自独立，这样可以吗？
+（暂无。已确认：浏览器是 Chrome；记忆分为用户画像、项目记忆、Bot 笔记三层。）
