@@ -2,11 +2,14 @@ package bot.mac.mobile.feature.computer
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -17,7 +20,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -200,15 +202,21 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
 
     val tabs = screenState?.tabs.orEmpty()
     Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Text("‹", color = Color.White, style = MaterialTheme.typography.headlineSmall) }
+        Row(Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(32.dp).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
+                Text("‹", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+            }
             Text(stringResource(Res.string.computer_title), Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium)
             Text(statusLabel(takeover, screenState?.driver), color = if (takeover) MaterialTheme.colorScheme.primary else Color.White, style = MaterialTheme.typography.labelMedium)
         }
         HorizontalDivider(color = Color.DarkGray)
         if (tabs.isNotEmpty()) {
-            Text(stringResource(Res.string.computer_tabs), color = Color.LightGray, modifier = Modifier.padding(start = 12.dp, top = 6.dp))
-            LazyRow(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyRow(
+                Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                item { Text(stringResource(Res.string.computer_tabs), color = Color.LightGray, style = MaterialTheme.typography.labelSmall) }
                 items(tabs, key = { it.tabId }) { tab ->
                     FilterChip(selectedTab == tab.tabId, onClick = {
                         if (canInput) {
@@ -295,43 +303,47 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                 else -> Text(stringResource(Res.string.computer_no_frame), color = Color.LightGray)
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(Res.string.computer_quality), color = Color.LightGray, modifier = Modifier.padding(end = 6.dp))
-            Quality.entries.forEach { candidate -> FilterChip(quality == candidate, { if (!takeover) quality = candidate }, enabled = !takeover, label = { Text(candidate.label()) }) }
-            Text("×${zoom.toString().take(4)}", color = Color.LightGray, modifier = Modifier.padding(start = 8.dp))
-            Text(
-                stringResource(Res.string.computer_fps, fps.toInt(), frameAgeMs),
-                color = Color.LightGray,
-                modifier = Modifier.padding(start = 8.dp),
-                style = MaterialTheme.typography.labelSmall,
-            )
-        }
-        if (canInput) OutlinedTextField(value = textInput, onValueChange = { next ->
-            val previous = textInput
-            textInput = next
-            if (next != previous) scope.launch {
-                keyboardMutex.withLock {
-                    when {
-                        next.startsWith(previous) -> enqueueText(inputQueue, activeConnection, next.removePrefix(previous))
-                        previous.startsWith(next) -> repeat(previous.length - next.length) { enqueueKey(inputQueue, activeConnection, "Backspace") }
-                        else -> {
-                            repeat(previous.length) { enqueueKey(inputQueue, activeConnection, "Backspace") }
-                            enqueueText(inputQueue, activeConnection, next)
+        if (canInput) {
+            Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(value = textInput, onValueChange = { next ->
+                    val previous = textInput
+                    textInput = next
+                    if (next != previous) scope.launch {
+                        keyboardMutex.withLock {
+                            when {
+                                next.startsWith(previous) -> enqueueText(inputQueue, activeConnection, next.removePrefix(previous))
+                                previous.startsWith(next) -> repeat(previous.length - next.length) { enqueueKey(inputQueue, activeConnection, "Backspace") }
+                                else -> {
+                                    repeat(previous.length) { enqueueKey(inputQueue, activeConnection, "Backspace") }
+                                    enqueueText(inputQueue, activeConnection, next)
+                                }
+                            }
                         }
                     }
-                }
+                }, modifier = Modifier.weight(1f).onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown) {
+                        composeKeyDescriptor(event.key)?.let { (key, code) ->
+                            scope.launch { keyboardMutex.withLock { enqueueKey(inputQueue, activeConnection, key, code) } }
+                            true
+                        } ?: false
+                    } else false
+                }, placeholder = { Text(stringResource(Res.string.computer_keyboard_hint)) }, singleLine = true)
             }
-        }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).onPreviewKeyEvent { event ->
-            if (event.type == KeyEventType.KeyDown) {
-                composeKeyDescriptor(event.key)?.let { (key, code) ->
-                    scope.launch { keyboardMutex.withLock { enqueueKey(inputQueue, activeConnection, key, code) } }
-                    true
-                } ?: false
-            } else false
-        }, placeholder = { Text(stringResource(Res.string.computer_keyboard_hint)) }, singleLine = true)
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(if (takeover) Res.string.computer_takeover_active else Res.string.computer_touch_hint), color = Color.Gray, modifier = Modifier.weight(1f))
-            if (takeover) Text(stringResource(Res.string.computer_scroll_hint), color = Color.Gray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 8.dp))
+        }
+        Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(Res.string.computer_quality), color = Color.LightGray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 4.dp))
+            Quality.entries.forEach { candidate ->
+                FilterChip(quality == candidate, { if (!takeover) quality = candidate }, enabled = !takeover, label = { Text(candidate.label()) })
+            }
+            Text("×${zoom.toString().take(4)}", color = Color.LightGray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 4.dp))
+            Text(stringResource(Res.string.computer_fps, fps.toInt(), frameAgeMs), color = Color.LightGray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 4.dp))
+            Text(
+                takeoverError ?: statusLabel(takeover, screenState?.driver),
+                color = if (takeoverError != null) MaterialTheme.colorScheme.error else Color.Gray,
+                maxLines = 1,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.weight(1f).padding(start = 4.dp),
+            )
             Button(onClick = {
                 if (!takeover) scope.launch {
                     takeoverError = captureError(requestError) { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
@@ -339,11 +351,9 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                         takeoverHostId = activeHost?.id
                         takeover = true
                     }
-                }
-                else releaseDialog = true
-            }) { Text(if (takeover) stringResource(Res.string.computer_release) else stringResource(Res.string.computer_takeover)) }
+                } else releaseDialog = true
+            }, modifier = Modifier.height(36.dp)) { Text(if (takeover) stringResource(Res.string.computer_release) else stringResource(Res.string.computer_takeover)) }
         }
-        takeoverError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp).align(Alignment.CenterHorizontally)) }
     }
     if (releaseDialog) AlertDialog(onDismissRequest = { releaseDialog = false }, title = { Text(stringResource(Res.string.computer_release)) }, text = { OutlinedTextField(releaseNote, { releaseNote = it }, label = { Text(stringResource(Res.string.computer_release_note)) }) }, confirmButton = { Button(onClick = {
         scope.launch {

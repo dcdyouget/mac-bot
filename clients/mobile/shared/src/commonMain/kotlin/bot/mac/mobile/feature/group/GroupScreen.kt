@@ -214,7 +214,7 @@ fun GroupCreateScreen(
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val createFailed = stringResource(Res.string.feature_create_failed)
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(stringResource(Res.string.feature_create_group), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) }
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_group_name)) })
         OutlinedTextField(goal, { goal = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text(stringResource(Res.string.feature_goal)) })
@@ -224,7 +224,6 @@ fun GroupCreateScreen(
             FilterChip(selected = selected.contains(id), onClick = { selected = if (selected.contains(id)) selected - id else selected + id }, label = { Text(bot.str("name").ifBlank { id }) })
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Spacer(Modifier.weight(1f))
         Button(enabled = name.isNotBlank() && goal.isNotBlank() && selected.isNotEmpty(), onClick = {
             scope.launch {
                 runCatching {

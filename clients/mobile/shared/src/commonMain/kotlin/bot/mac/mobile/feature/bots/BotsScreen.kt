@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -63,7 +64,7 @@ fun BotsScreen(
         Row(Modifier.fillMaxWidth()) {
             Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
             Text(stringResource(Res.string.feature_bot_management), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
-            Button(onClick = onCreate) { Text("＋ ${stringResource(Res.string.feature_create)}") }
+            Button(onClick = onCreate) { Text("＋ ${stringResource(Res.string.feature_new_bot)}") }
         }
         listError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -172,7 +173,7 @@ fun BotEditorScreen(
         }
         return
     }
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(if (botId == null) stringResource(Res.string.feature_new_bot) else stringResource(Res.string.feature_edit), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) }
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_name)) })
         OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_label)) })
@@ -212,7 +213,6 @@ fun BotEditorScreen(
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.feature_hidden), Modifier.weight(1f)); Switch(checked = hidden, onCheckedChange = { hidden = it }) }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Spacer(Modifier.weight(1f))
         Button(enabled = name.isNotBlank(), onClick = {
             scope.launch {
                 runCatching {
