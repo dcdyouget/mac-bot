@@ -29,7 +29,7 @@ The fixture contract test fails if the corpus is missing; no-fixture builds are 
 ## Emulator deploy
 
 ```sh
-"$ANDROID_HOME/emulator/emulator" -avd macbot_api36 &
+"$ANDROID_HOME/emulator/emulator" -avd macbot_api36 -gpu host &
 "$ANDROID_HOME/platform-tools/adb" wait-for-device
 "$ANDROID_HOME/platform-tools/adb" install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
 "$ANDROID_HOME/platform-tools/adb" shell am start -n bot.mac.mobile/.MainActivity
@@ -55,5 +55,18 @@ Android notifications use channels `needs-you`, `completed`, `messages`. Grant n
 ## Verification
 
 Phase evidence and emulator screenshots are stored under `verification/`. The integrator can archive them in `docs/progress/`. See `verification/STATUS.md` for completed checks and remaining integration dependencies.
+
+For repeatable performance checks on this M4 Mac, use `-gpu host`. The AVD default has GPU acceleration disabled and uses SwiftShader; keep software-rendered measurements separate. Verified hardware backend: Android Emulator OpenGL ES Translator (Apple M4).
+
+```sh
+adb shell am force-stop bot.mac.mobile
+adb shell am start -W -n bot.mac.mobile/.MainActivity
+adb shell dumpsys gfxinfo bot.mac.mobile reset
+# Navigate/scroll the scenario, then:
+adb shell dumpsys gfxinfo bot.mac.mobile
+adb shell dumpsys meminfo bot.mac.mobile
+```
+
+Measured release samples and their limitations are in `verification/S5-performance.json`.
 
 Co-Authored-By: Codex <noreply@openai.com>

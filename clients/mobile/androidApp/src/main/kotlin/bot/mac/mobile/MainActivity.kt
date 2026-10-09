@@ -9,8 +9,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
             val systemDark = (configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
             val dark = theme == "dark" || theme == "system" && systemDark
-            SideEffect {
+            DisposableEffect(dark) {
                 val barColor = if (dark) Color(0xFF1C1C1E) else Color(0xFFF7F7FA)
                 window.statusBarColor = barColor.toArgb()
                 window.navigationBarColor = barColor.toArgb()
@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
                     isAppearanceLightStatusBars = !dark
                     isAppearanceLightNavigationBars = !dark
                 }
+                onDispose { }
             }
             App()
         }
