@@ -4,13 +4,13 @@
 
 ## 现在的状态
 
-正式服务 `9e70d88` 已从干净 archive 部署到 `7788`（当前 PID `5282`），MiniMax-M2.5 provider 已通过实际执行验证。桌面固定 archive `3f7c046` 已安装（PID `24332`，窗口 `57694`）；真实 Computer localhost 动画绘制路径已通过，现场截图见 `S4/20261009-210338-desktop.png`，但不计为 S4 联合验收。Android 签名 Release `80d8a42` 和共享 mock 保持可用；正式 Host 的 Android UI 仍等待替代操作确认，不能计为通过。持续部署仍受本机 UI 验证 hold 保护。
+正式服务 `9e70d88` 已从干净 archive 部署到 `7788`（当前 PID `5282`），MiniMax-M2.5 provider 已通过实际执行验证。桌面固定 archive `3f7c046` 已安装（PID `24332`，窗口 `57694`）；搜索 Open→真实 Computer localhost 动画绘制路径已通过，现场截图见 `S4/20261009-210338-desktop.png`，但不计为 S4 联合验收。Android 签名 Release `80d8a42` 和共享 mock 保持可用；正式 Host 的 Android UI 仍等待替代操作确认，不能计为通过。持续部署仍受本机 UI 验证 hold 保护。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
 | S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 通过：两端连接 mock 并看到会话列表 | `docs/progress/S0/` |
-| S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未通过：9e70 API 工具、序号、恢复、审批和 Workbench 通过，双端联合待验 | `docs/progress/S1/` |
-| S2 | 主 Bot、群协作、插话和待验收 | 未验收 | `docs/progress/S2/` |
+| S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未通过：9e70 API 工具、序号、恢复、审批和 Workbench 通过，已知Text空块导致桌面空气泡，双端联合待验 | `docs/progress/S1/` |
+| S2 | 主 Bot、群协作、插话和待验收 | 不通过：主 Bot 建群停在审批，项目卡未到达 | `docs/progress/S2/` |
 | S3 | 技能、仪表盘、搜索和记忆 | 未通过：9e70 API CRUD、用量、搜索、跨 DM 偏好通过，双端联合待验 | `docs/progress/S3/` |
 | S4 | 浏览器画面、接管、定时任务和通知 | 未通过：到点任务和 canonical result ID API 通过；生产 screen 不广播 `driver=user`，low 宽度、URL/CreateBotChat 事件待 server 修复 | `docs/progress/S4/` |
 | S5 | pkg 全新安装、两端连接和完整场景 | 未验收 | `docs/progress/S5/` |
@@ -19,12 +19,14 @@
 
 Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/性能资料清单](S5/android-80d8a42-artifact-manifest.json)已归档至各阶段目录，文件名带 `android-owner-80d8a42-`。这些是客户端 mock/专项证据，包含历史截图，不代表由集成线在最终 APK 上重新完成场景。Release 为 2,111,878 bytes；集成线拉取已安装 `base.apk` 的 SHA-256 与归属线一致，未重复安装或重启。性能 JSON 保留不同源码修订及软件/硬件模拟器限制；QEMU 曾 exit139，不能据样本认定真机性能或稳定性通过。
 
-当前阻断：生产 screen 在 takeover RPC 成功后不持续广播 `driver=user`；low 画质仍返回过宽画面；URL 与 CreateBotChat 事件待 server-mac 修复。S2 场景脚本当前直接 `project.create`，不会自动派发，正在由 e2e 归属线修复。Android 正式 Host UI 等待替代操作确认；S5 尚未做 pkg 全新安装。`22b3` 的安全 DM 恢复、风险、Workbench、已读、上下文和重复 seq 仅保留为历史失败，当前正式 provider 执行已不再受这些旧记录阻塞。
+当前新增 P0：正式消息的已知 `text.markdown` 为空而 `fallback_text` 非空，桌面空气泡；[API/trace取证](S1/production-3f7c046-empty-text-blocks.json)与[原生截图](S1/20261009-211349-desktop.png)已交服务端修复。此前 S1 API 脚本仅读 fallback，现在增加实际渲染块验收。其他阻断：生产 screen 在 takeover RPC 成功后不持续广播 `driver=user`；low 画质仍返回过宽画面；URL 与 CreateBotChat 事件待 server-mac 修复。S2 脚本已改为主 Bot 串行驱动，首次运行停在 `create_project` 通用 write 审批，未生成项目卡；错误成员 ID 的候选调用未批准。Android 正式 Host UI 等待替代操作确认；S5 尚未做 pkg 全新安装。`22b3` 的安全 DM 恢复、风险、Workbench、已读、上下文和重复 seq 仅保留为历史失败，当前正式 provider 执行已不再受这些旧记录阻塞。
 
 `9e70`最新证据：[write/read/bash、seq1→2和 after_seq](S1/production-9e70d88-private-chat.json)、[2178→5282 同 run 恢复](S1/production-9e70d88-recovery.json)、[pending 与 Workbench 一致](S1/production-9e70d88-workbench.json)、[技能/用量/搜索/跨 DM 偏好](S3/production-9e70d88-api.json)、[偏好实际落盘](S3/production-9e70d88-memory-persisted.json)、[真实 schedule 与 canonical 结果 ID](S4/production-9e70d88-scheduled-routine.json)、[接管 RPC 成功但 driver 广播超时](S4/production-9e70d88-takeover-api.json)。这些是 API 或专项证据，均不替代双端 UI 和完整场景。
 
 历史专项证据仍保留：[22b3 同 run 工具](S1/production-22b3b10-tools.json)、[断线补发](S1/production-bd6e7c2-connection-replay.json)、[浏览器 transport](S4/production-22b3b10-screen-transport.json)、[low 画质限制](S4/production-22b3b10-screen-low-contract-failed.json)、[旧接管 OS2](S4/production-22b3b10-screen-takeover-failed.json)、[22b3 pkg 载荷校验](S5/server-pkg-22b3b10-verified.json)。这些不改变当前 9e70 状态，也不计联合验收。
 
+
+桌面 [正式摘要数值](S3/production-3f7c046-dashboard-summary.json)与[截图](S3/20261009-210958-desktop.png)独立核对一致，Android 用量一致性待验。S2 [首次场景失败与待审批](S2/production-9e70d88-login-scene-partial.json)已保留，未误记通过。
 
 桌面归属线的 mock 专项证据仍在：[历史截图](S1/main-222fda9-desktop-history.png)、[技能修改](S3/main-222fda9-skill-edited.png)、[接管](S4/main-222fda9-computer-takeover.png)、[窗口重开](S5/main-222fda9-window-reopened.png)及[清单](S5/desktop-222fda9-owner-manifest.json)。正式桌面当前现场为 [3f7c046 Computer 画面](S4/20261009-210338-desktop.png) 与[窗口元数据](S4/20261009-210338-desktop.txt)及[搜索与绘制断言](S4/production-3f7c046-native-search-computer.json)；DMG 仍只计候选，S5 [9e70 pkg 来源与载荷校验](S5/server-pkg-9e70d88-verified.json)已通过，尚未全新安装。
 
@@ -43,7 +45,7 @@ cd /Users/gongshaojie/Project/mac-bot
 `deploy.sh` 会按当前代码可用性编译并部署 `macbotd`、桌面 `.app` 和 Android APK；缺少某条开发线产物时会跳过并打印提示。正式服务使用端口 `7788`，数据目录为 `~/MacBot`，访问密码只从本机文件 `~/.macbot-dev-password` 读取或由部署流程设置，密码内容不写入仓库。
 
 S0 两端会话列表验收已归档：[记录](S0/main-s0-current.json)、[桌面](S0/main-eb088fa-desktop-sessions.png)、[Android](S0/main-08462a4-android.png)。当前 formal 服务和桌面均已部署；Android mock 列表可恢复，正式 7788 UI 仍待替代操作验收。
-桌面端：双击打开 `~/Applications/MacBot.app`，Host 填 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`；当前可看到真实模型工具回复。需要 mock 时填 `127.0.0.1:7789`，密码 `dev`。
+桌面端：双击打开 `~/Applications/MacBot.app`，Host 填 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`；当前可查看真实工具轨迹；消息空气泡正在修复。需要 mock 时填 `127.0.0.1:7789`，密码 `dev`。
 
 Android 模拟器：需要时先执行：
 

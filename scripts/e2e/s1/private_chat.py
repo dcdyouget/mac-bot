@@ -181,6 +181,49 @@ def validate_canonical_history(messages: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
+def known_text_markdown(message: dict[str, Any]) -> list[str]:
+    """Return markdown from protocol-known text blocks, including placeholders."""
+
+    blocks = message.get("blocks")
+    if not isinstance(blocks, list):
+        return []
+    return [
+        block["markdown"]
+        for block in blocks
+        if isinstance(block, dict)
+        and block.get("type") == "text"
+        and isinstance(block.get("markdown"), str)
+    ]
+
+
+def validate_user_rendering(message: dict[str, Any], marker: str, path: str) -> dict[str, Any]:
+    """Require this scenario's user request in a rendered, known text block."""
+
+    rendered = known_text_markdown(message)
+    if not rendered or not any(marker in text and path in text for text in rendered):
+        raise ValueError(
+            "user request is missing its marker/path from a known text block; "
+            "fallback_text alone is not rendered evidence"
+        )
+    return {"mode": "known_text", "blocks": len(rendered), "markdown_nonempty": True}
+
+
+def validate_bot_rendering(message: dict[str, Any], marker: str, path: str) -> dict[str, Any]:
+    """Validate final Bot rendering while retaining unknown-block fallback support."""
+
+    rendered = known_text_markdown(message)
+    if rendered:
+        if not any(text.strip() for text in rendered):
+            raise ValueError("final Bot reply has only empty known text placeholders")
+        if not any(marker in text and path in text for text in rendered):
+            raise ValueError("final Bot marker/path is absent from known rendered text")
+        return {"mode": "known_text", "blocks": len(rendered), "markdown_nonempty": True}
+    fallback = message.get("fallback_text")
+    if isinstance(fallback, str) and marker in fallback and path in fallback:
+        return {"mode": "fallback", "blocks": 0, "markdown_nonempty": False}
+    raise ValueError("final Bot reply has neither matching known text nor compatible fallback_text")
+
+
 def trace_evidence(client: Any, chat_id: str, marker: str, args: argparse.Namespace) -> dict[str, Any] | None:
     def check() -> dict[str, Any] | None:
         result = require_dict(
@@ -347,6 +390,7 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
                 and isinstance(message.get("seq"), int)
                 and message["seq"] > sent_seq
                 and sender_is(message, kind="bot", bot_id=bot_id)
+                and message.get("streaming") is False
                 and marker in message_text(message)
                 and path in message_text(message)
             )
@@ -360,6 +404,11 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
                 raise ValueError("matching Bot reply has no canonical id")
             if not isinstance(reply_seq, int) or isinstance(reply_seq, bool) or reply_seq <= sent_seq:
                 raise ValueError("matching Bot reply seq is not greater than sent_seq")
+            sent_history = [message for message in complete if message.get("id") == sent_id]
+            if not sent_history:
+                return None
+            user_rendering = validate_user_rendering(sent_history[-1], marker, path)
+            bot_rendering = validate_bot_rendering(after_matches[0], marker, path)
             return {
                 "history_messages": len(complete),
                 "reply_id": reply_id,
@@ -367,6 +416,8 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
                 "sent_id": sent_id,
                 "sent_seq": sent_seq,
                 "history_order": history_order,
+                "user_rendering": user_rendering,
+                "bot_rendering": bot_rendering,
             }
         return None
 

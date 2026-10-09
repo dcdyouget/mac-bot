@@ -1,0 +1,9 @@
+{
+  "scenario": "S2 main driven login",
+  "status": "FAIL",
+  "error": "main project card timeout; investigation found create_project waiting risk=write approval; incorrect name-valued member IDs not approved",
+  "source_commit": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "partial_evidence": "production-9e70d88-login-scene-partial.json",
+  "script_followup": "prompt now explicit IDs, serial requests, pre-project approval diagnostic; not yet rerun",
+  "stage_acceptance": "not passed"
+}

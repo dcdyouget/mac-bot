@@ -156,6 +156,54 @@ def find_project_card(messages: list[dict[str, Any]], *, main_id: str) -> list[d
     return cards
 
 
+def fail_on_pre_project_approval(client: Any, *, main_id: str, marker: str) -> None:
+    """Stop before the card timeout when main's project creation is awaiting approval.
+
+    A project-creation approval is attached to the main Bot's private approval
+    chat, so it cannot be identified by ``chat_main``.  The Bot/tool pair is
+    the narrowest protocol-supported scope; the first request is serialized,
+    therefore any pending create_project approval for this main Bot is
+    actionable evidence rather than something the scenario may approve or
+    ignore.
+    """
+
+    result = require_dict(
+        client.call("approval.list", {"state": ["pending"]}),
+        "approval.list result",
+    )
+    pending = [
+        item
+        for item in require_list(result.get("approvals"), "approval.list.approvals")
+        if isinstance(item, dict)
+        and item.get("state") == "pending"
+        and item.get("bot_id") == main_id
+        and item.get("assignment_id") is None
+        and item.get("tool") in {"create_project", "project.create"}
+    ]
+    if not pending:
+        return
+    details = [
+        {
+            "id": item.get("id"),
+            "bot_id": item.get("bot_id"),
+            "chat_id": item.get("chat_id"),
+            "tool": item.get("tool"),
+            "risk": item.get("risk"),
+            "summary": item.get("summary"),
+            "detail": item.get("detail"),
+            "state": item.get("state"),
+        }
+        for item in pending
+    ]
+    _PARTIAL_EVIDENCE.setdefault("pre_project_gates", []).append(
+        {"marker": marker, "kind": "create_project", "pending": details}
+    )
+    raise ValueError(
+        f"{marker} create_project awaiting approval: "
+        f"{json.dumps(details, ensure_ascii=False, sort_keys=True)}"
+    )
+
+
 def wait_project_card(
     client: Any,
     *,
@@ -168,6 +216,7 @@ def wait_project_card(
     interval: float,
 ) -> dict[str, Any]:
     def check() -> dict[str, Any] | None:
+        fail_on_pre_project_approval(client, main_id=main_id, marker=marker)
         history = chat_history(client, main_chat_id, after_seq=sent_seq)
         cards = find_project_card([item for item in history["messages"] if isinstance(item, dict)], main_id=main_id)
         matches: list[dict[str, Any]] = []
@@ -669,11 +718,15 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
     names = [f"{markers[0]}-登录功能", f"{markers[1]}-并行官网改版"]
     _PARTIAL_EVIDENCE = {"partial_id": _PARTIAL_EVIDENCE["partial_id"], "markers": markers, "requests": [], "projects": []}
     requests: list[dict[str, Any]] = []
+    projects: list[dict[str, Any]] = []
     for marker, name in zip(markers, names):
         text = (
             f"{marker}：请完成本地邮箱登录 demo‘{name}’，只在新项目 Home（服务端返回的 project.home_path）内操作，"
             "不要访问外部网站、生产系统或网络服务，不要 git commit/push，不要部署服务。请由主 Bot 建一个群，严格使用流程 产品→编码→测试，成员必须是"
-            f"产品 Bot {selected['产品'].get('name')}、编码 Bot {selected['编码'].get('name')}、测试 Bot {selected['测试'].get('name')}。"
+            f"产品 Bot id={role_ids['产品']} name={selected['产品'].get('name')}、"
+            f"编码 Bot id={role_ids['编码']} name={selected['编码'].get('name')}、"
+            f"测试 Bot id={role_ids['测试']} name={selected['测试'].get('name')}。"
+            f"调用 create_project 时 member_bot_ids 必须逐字使用这三个真实 ID（不要把 name 放入 member_bot_ids）。"
             f"群名必须是‘{name}’，目标必须包含‘{marker}’和‘邮箱登录’。产品写本地 PRD，编码实现本地 demo，测试验证；"
             "每个交接必须用 send_msg(done) @ 下一位，最后 @ 主 Bot。"
             f"本次集成必须启动至少一个 subagent，并提出包含‘{marker}’的 decision question，选项必须严格为："
@@ -683,22 +736,20 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
         sent = send_main_request(client, main_chat_id, text)
         requests.append({"marker": marker, "name": name, "sent": sent})
         _PARTIAL_EVIDENCE["requests"].append({"marker": marker, "name": name, "message_id": sent["id"], "seq": sent["seq"]})
-    projects: list[dict[str, Any]] = []
-    for request in requests:
         detail = wait_project_card(
             client,
             main_chat_id=main_chat_id,
-            sent_seq=request["sent"]["seq"],
-            sent_id=request["sent"]["id"],
-            marker=request["marker"],
+            sent_seq=sent["seq"],
+            sent_id=sent["id"],
+            marker=marker,
             main_id=main_id,
             timeout=args.timeout,
             interval=args.interval,
         )
         _PARTIAL_EVIDENCE["projects"].append(
-            {"marker": request["marker"], "project_id": detail["project"].get("id"), "chat_id": detail["project"].get("chat_id"), "card_message_id": detail["card"].get("id")}
+            {"marker": marker, "project_id": detail["project"].get("id"), "chat_id": detail["project"].get("chat_id"), "card_message_id": detail["card"].get("id")}
         )
-        validate_project(detail, marker=request["marker"], main_id=main_id, role_ids=role_ids)
+        validate_project(detail, marker=marker, main_id=main_id, role_ids=role_ids)
         projects.append(detail)
     gate_poll, gate_states = make_gate_poll(client, projects, markers, args)
     first_dispatch = wait_until(
