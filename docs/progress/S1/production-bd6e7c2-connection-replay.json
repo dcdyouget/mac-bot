@@ -1,0 +1,15 @@
+{
+  "cursor_before_update": 15,
+  "device_id": "macbot-e2e-replay-2a9b937ea6bd",
+  "health_version": "0.1.0",
+  "mode": "replay",
+  "node_id": "01a11fa3-345e-77a7-8e00-b6585c090f37",
+  "note": "API/WebSocket transport evidence only; client UI reconnect rendering remains manual.",
+  "replayed_skill_updated_seq": 16,
+  "scenario": "S0 main connection replay",
+  "skill_name": "macbot-e2e-replay-6a76b6a35a5d",
+  "status": "PASS",
+  "sync_seq": 16,
+  "url": "http://127.0.0.1:7788",
+  "source": "bd6e7c243577508fb5005acb838de452ad58f732"
+}
