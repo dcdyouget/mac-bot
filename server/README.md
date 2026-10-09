@@ -148,9 +148,9 @@ Question 已为 `answered` 而 durable job 仍安全等待时，启动会补齐�
 
 ```sh
 python3 server/macbotd/tests/smoke_invalid_tool_recovery.py \
-  --url http://127.0.0.1:7858 --home /tmp/macbot-invalid-tools-smoke \
+  --url http://127.0.0.1:7858 --home "$HOME/Library/Caches/macbot-invalid-tools-smoke" \
   --legacy-command '/path/to/c6ffcfc/macbotd --port 7858 --password dev' \
   --new-command '/path/to/new/macbotd --port 7858 --password dev'
 ```
 
-覆盖旧缺目标审批、过期回执的重启恢复、旧 tilde 审批和新缺参调用；断言无未授权副作用、修正后必须新审批、原 run 完成、重复重启幂等。
+使用尚不存在、位于真实用户 HOME 下的隔离数据目录，以覆盖新合法 `~/` 写入；不改进程 HOME。覆盖旧缺目标审批、过期回执的重启恢复、旧 tilde 审批和新缺参调用；断言无未授权副作用、修正后必须新审批、原 run 完成、重复重启幂等。
