@@ -1327,6 +1327,241 @@ async fn reconcile_steers(
     }
 }
 
+/// Stop all non-terminal assignments affected by a project lifecycle
+/// mutation before the orchestrator changes the project/member state.
+/// Queued assignments have no engine job; working and waiting assignments
+/// must cancel their durable run first so a late model result cannot
+/// publish after the project has been closed or the Bot removed.
+async fn cancel_project_assignments(
+    backend: &ComposedBackend,
+    project_id: &str,
+    bot_id: Option<&str>,
+) -> crate::RpcResult {
+    let snapshot = backend
+        .inner
+        .orchestrator
+        .snapshot()
+        .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+    let assignments = project_assignment_targets(&snapshot, project_id, bot_id);
+
+    for (assignment_id, _initial_status) in assignments {
+        // Stopping queued work can pump the scheduler and promote another
+        // assignment. Re-read the durable status before cancelling so that a
+        // target captured as queued is cancelled if it is now running.
+        let status = match assignment_status(backend, &assignment_id) {
+            Ok(status)
+                if matches!(
+                    status.as_str(),
+                    "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
+                ) =>
+            {
+                status
+            }
+            Ok(_) => continue,
+            Err(error) if error.code.as_str() == "not_found" => continue,
+            Err(error) => return Err(error),
+        };
+        cancel_assignment_engine(backend, &assignment_id, &status).await?;
+        let stop_params = json!({
+            "assignment_id": assignment_id,
+            "client_request_id": format!("project-stop:{project_id}:{assignment_id}")
+        });
+        backend
+            .inner
+            .call("assignment.stop", stop_params, &backend.state)
+            .await?;
+    }
+    Ok(json!({}))
+}
+
+/// Cancel the engine job for one assignment before the orchestrator mutates
+/// its durable assignment state.  Queued work has no engine job and must go
+/// straight through the orchestrator; terminal work is already settled.
+async fn cancel_assignment_engine(
+    backend: &ComposedBackend,
+    assignment_id: &str,
+    status: &str,
+) -> crate::RpcResult {
+    if status == "queued" || matches!(status, "done" | "failed" | "cancelled") {
+        return Ok(json!({}));
+    }
+    let outcome = backend
+        .runtime
+        .cancel_assignment(assignment_id)
+        .await
+        .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+    if outcome.is_none() && status != "blocked" {
+        return Err(crate::rpc_error(
+            "conflict",
+            "assignment has no running execution to cancel",
+            Some(json!({"assignment_id": assignment_id})),
+        ));
+    }
+    if outcome.is_none() && status == "blocked" {
+        // A blocked assignment may be a persisted user-facing decision that
+        // never acquired an engine job; assignment.stop still settles it.
+        return Ok(json!({}));
+    }
+    Ok(json!({}))
+}
+
+fn project_assignment_targets(
+    snapshot: &Value,
+    project_id: &str,
+    bot_id: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut targets = snapshot
+        .get("assignments")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|items| items.values())
+        .filter(|assignment| {
+            assignment.get("project_id").and_then(Value::as_str) == Some(project_id)
+                && bot_id
+                    .is_none_or(|id| assignment.get("bot_id").and_then(Value::as_str) == Some(id))
+                && matches!(
+                    assignment.get("status").and_then(Value::as_str),
+                    Some("queued")
+                        | Some("working")
+                        | Some("waiting_user")
+                        | Some("waiting_bot")
+                        | Some("blocked")
+                )
+        })
+        .filter_map(|assignment| {
+            Some((
+                assignment.get("id")?.as_str()?.to_owned(),
+                assignment.get("status")?.as_str()?.to_owned(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    targets.sort_by(|(left_id, left_status), (right_id, right_status)| {
+        cancellation_priority(left_status)
+            .cmp(&cancellation_priority(right_status))
+            .then_with(|| left_id.cmp(right_id))
+    });
+    targets
+}
+
+fn cancellation_priority(status: &str) -> u8 {
+    match status {
+        "queued" => 0,
+        "working" => 1,
+        "waiting_user" | "waiting_bot" => 2,
+        "blocked" => 3,
+        _ => 4,
+    }
+}
+
+fn snapshot_value(backend: &ComposedBackend) -> Result<Value, crate::RpcError> {
+    backend
+        .inner
+        .orchestrator
+        .snapshot()
+        .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))
+}
+
+fn required_nonempty_param(params: &Value, key: &str) -> Result<String, crate::RpcError> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| crate::rpc_error("invalid_params", &format!("{key} is required"), None))
+}
+
+fn validate_project_lifecycle(
+    backend: &ComposedBackend,
+    method: &str,
+    params: &Value,
+) -> Result<(String, Option<String>), crate::RpcError> {
+    let project_id = required_nonempty_param(params, "project_id")?;
+    let snapshot = snapshot_value(backend)?;
+    let project = snapshot
+        .get("projects")
+        .and_then(Value::as_object)
+        .and_then(|projects| projects.get(&project_id))
+        .ok_or_else(|| {
+            crate::rpc_error(
+                "not_found",
+                "project not found",
+                Some(json!({"project_id": project_id})),
+            )
+        })?;
+    match method {
+        "project.remove_member" => {
+            let bot_id = required_nonempty_param(params, "bot_id")?;
+            let member = project
+                .get("members")
+                .and_then(Value::as_array)
+                .is_some_and(|members| {
+                    members.iter().any(|member| {
+                        member.get("bot_id").and_then(Value::as_str) == Some(bot_id.as_str())
+                    })
+                });
+            if !member {
+                return Err(crate::rpc_error(
+                    "conflict",
+                    "bot is not a project member",
+                    Some(json!({"project_id": project_id, "bot_id": bot_id})),
+                ));
+            }
+            Ok((project_id, Some(bot_id)))
+        }
+        "project.confirm_done" => {
+            let status = project.get("status").and_then(Value::as_str).unwrap_or("");
+            if !matches!(status, "active" | "review") {
+                return Err(crate::rpc_error(
+                    "conflict",
+                    "project must be active or in review",
+                    Some(json!({"project_id": project_id, "status": status})),
+                ));
+            }
+            Ok((project_id, None))
+        }
+        _ => Err(crate::rpc_error(
+            "internal",
+            "invalid project lifecycle method",
+            None,
+        )),
+    }
+}
+
+fn assignment_status(
+    backend: &ComposedBackend,
+    assignment_id: &str,
+) -> Result<String, crate::RpcError> {
+    let snapshot = snapshot_value(backend)?;
+    snapshot
+        .get("assignments")
+        .and_then(Value::as_object)
+        .and_then(|assignments| assignments.get(assignment_id))
+        .and_then(|assignment| assignment.get("status"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            crate::rpc_error(
+                "not_found",
+                "assignment not found",
+                Some(json!({"assignment_id": assignment_id})),
+            )
+        })
+}
+
+fn approval_assignment_id(
+    backend: &ComposedBackend,
+    approval_id: &str,
+) -> Result<Option<String>, crate::RpcError> {
+    let snapshot = snapshot_value(backend)?;
+    Ok(snapshot
+        .get("approvals")
+        .and_then(Value::as_object)
+        .and_then(|approvals| approvals.get(approval_id))
+        .and_then(|approval| approval.get("assignment_id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned))
+}
+
 #[async_trait]
 impl crate::RpcBackend for ComposedBackend {
     async fn export_usage_csv(
@@ -1412,11 +1647,50 @@ impl crate::RpcBackend for ComposedBackend {
         // and strip the private payload before returning to the client.
         let private_takeover_action = matches!(method, "takeover.start" | "takeover.release");
         if method == "assignment.stop" {
-            if let Some(assignment_id) = params.get("assignment_id").and_then(Value::as_str) {
-                self.runtime
-                    .cancel_assignment(assignment_id)
-                    .await
-                    .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+            let assignment_id = required_nonempty_param(&params, "assignment_id")?;
+            let status = assignment_status(self, &assignment_id)?;
+            if matches!(status.as_str(), "done" | "failed" | "cancelled") {
+                let snapshot = snapshot_value(self)?;
+                let assignment = snapshot
+                    .get("assignments")
+                    .and_then(Value::as_object)
+                    .and_then(|assignments| assignments.get(&assignment_id))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                return Ok(json!({"assignment": assignment}));
+            }
+            cancel_assignment_engine(self, &assignment_id, &status).await?;
+        }
+        if method == "project.remove_member" {
+            let (project_id, bot_id) = validate_project_lifecycle(self, method, &params)?;
+            cancel_project_assignments(self, &project_id, bot_id.as_deref()).await?;
+        } else if method == "project.confirm_done" {
+            let (project_id, _) = validate_project_lifecycle(self, method, &params)?;
+            cancel_project_assignments(self, &project_id, None).await?;
+        }
+        if method == "approval.decide"
+            && matches!(
+                params.get("decision").and_then(Value::as_str),
+                Some("deny" | "reject" | "decline")
+            )
+        {
+            if let Some(approval_id) = params.get("approval_id").and_then(Value::as_str) {
+                if let Some(assignment_id) = approval_assignment_id(self, approval_id)? {
+                    let status = assignment_status(self, &assignment_id)?;
+                    if !matches!(status.as_str(), "done" | "failed" | "cancelled") {
+                        cancel_assignment_engine(self, &assignment_id, &status).await?;
+                        self.inner
+                            .call(
+                                "assignment.stop",
+                                json!({
+                                    "assignment_id": assignment_id,
+                                    "client_request_id": format!("approval-deny:{approval_id}")
+                                }),
+                                &self.state,
+                            )
+                            .await?;
+                    }
+                }
             }
         }
         let inner_result = if method == "takeover.start" {
@@ -3762,8 +4036,8 @@ impl ModelProvider for UnavailableProvider {
 #[cfg(test)]
 mod model_resolution_tests {
     use super::{
-        missing_model_bot_from_snapshot, resolve_model, routable_missing_model_chat_from_snapshot,
-        ModelRole,
+        missing_model_bot_from_snapshot, project_assignment_targets, resolve_model,
+        routable_missing_model_chat_from_snapshot, ModelRole,
     };
     use serde_json::json;
 
@@ -3844,6 +4118,30 @@ mod model_resolution_tests {
         assert_eq!(
             missing_model_bot_from_snapshot(&snapshot, "chat_main", None),
             "main"
+        );
+    }
+
+    #[test]
+    fn project_cancellation_targets_queued_before_running_work() {
+        let snapshot = json!({
+            "assignments": {
+                "working": {"id":"working", "project_id":"project", "bot_id":"worker", "status":"working"},
+                "queued": {"id":"queued", "project_id":"project", "bot_id":"worker", "status":"queued"},
+                "waiting": {"id":"waiting", "project_id":"project", "bot_id":"worker", "status":"waiting_user"},
+                "blocked": {"id":"blocked", "project_id":"project", "bot_id":"worker", "status":"blocked"},
+                "done": {"id":"done", "project_id":"project", "bot_id":"worker", "status":"done"},
+                "other": {"id":"other", "project_id":"project", "bot_id":"other", "status":"working"}
+            }
+        });
+        let targets = project_assignment_targets(&snapshot, "project", Some("worker"));
+        assert_eq!(
+            targets,
+            vec![
+                ("queued".into(), "queued".into()),
+                ("working".into(), "working".into()),
+                ("waiting".into(), "waiting_user".into()),
+                ("blocked".into(), "blocked".into())
+            ]
         );
     }
 

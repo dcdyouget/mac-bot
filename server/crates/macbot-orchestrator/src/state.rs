@@ -281,6 +281,11 @@ impl Orchestrator {
         i.finish_assignment(assignment_id, status)
     }
 
+    pub fn create_task_stopped_message(&self, assignment_id: &str) -> Result<Message> {
+        let mut i = self.lock()?;
+        i.create_task_stopped_message(assignment_id)
+    }
+
     pub fn update_assignment_usage(
         &self,
         assignment_id: &str,
@@ -616,14 +621,9 @@ impl Inner {
                 self.remove_member(&id, str_param(&p, "bot_id")?)?;
                 Ok(json!({ "project": self.project(&id)? }))
             }
-            "project.confirm_done" => {
-                let id = str_param(&p, "project_id")?;
-                let project = self.project_mut(&id)?;
-                project.status = "done".into();
-                project.done_at = Some(now());
-                project.updated_at = now();
-                Ok(json!({ "project": project }))
-            }
+            "project.confirm_done" => Ok(json!({
+                "project": self.confirm_project_done(str_param(&p, "project_id")?)?
+            })),
             "project.request_changes" => {
                 let id = str_param(&p, "project_id")?;
                 let project = self.project_mut(&id)?;
@@ -1106,7 +1106,7 @@ impl Inner {
                     && a.bot_id == bot_id
                     && matches!(
                         a.status.as_str(),
-                        "queued" | "working" | "waiting_user" | "waiting_bot"
+                        "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
                     )
             })
             .map(|a| a.id.clone())
@@ -1118,6 +1118,36 @@ impl Inner {
         p.members.retain(|m| m.bot_id != bot_id);
         p.updated_at = now();
         Ok(())
+    }
+
+    fn confirm_project_done(&mut self, id: String) -> Result<Project> {
+        let current = self.project(&id)?.clone();
+        if !matches!(current.status.as_str(), "active" | "review") {
+            return Err(OrchestratorError::Conflict(
+                "project must be active or in review".into(),
+            ));
+        }
+        let ids = self
+            .assignments
+            .values()
+            .filter(|assignment| {
+                assignment.project_id.as_deref() == Some(id.as_str())
+                    && matches!(
+                        assignment.status.as_str(),
+                        "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
+                    )
+            })
+            .map(|assignment| assignment.id.clone())
+            .collect::<Vec<_>>();
+        for assignment_id in ids {
+            self.finish_assignment(&assignment_id, "cancelled")?;
+        }
+        let timestamp = now();
+        let project = self.project_mut(&id)?;
+        project.status = "done".into();
+        project.done_at = Some(timestamp);
+        project.updated_at = now();
+        Ok(project.clone())
     }
 
     fn announcement(&self, project_id: &str) -> Result<Announcement> {
@@ -1549,8 +1579,36 @@ impl Inner {
         a.finished_at = Some(now());
         a.wait = None;
         let out = a.clone();
+        if status == "cancelled" {
+            self.create_task_stopped_message(id)?;
+        }
         self.pump_queue();
         Ok(out)
+    }
+
+    fn create_task_stopped_message(&mut self, assignment_id: &str) -> Result<Message> {
+        let message_id = format!("task_stopped:{assignment_id}");
+        if let Some(message) = self.messages.get(&message_id) {
+            return Ok(message.clone());
+        }
+        let chat_id = self.assignment(assignment_id)?.origin_chat_id.clone();
+        let text = "任务已停止".to_string();
+        let message = Message {
+            id: message_id.clone(),
+            chat_id,
+            sender: "system".into(),
+            created_at: now(),
+            text: text.clone(),
+            intent: Some("task_stopped".into()),
+            assignment_id: Some(assignment_id.into()),
+            mentions: Vec::new(),
+            artifacts: Vec::new(),
+            options: Vec::new(),
+            delivery: Vec::new(),
+            fallback_text: text,
+        };
+        self.messages.insert(message_id, message.clone());
+        Ok(message)
     }
 
     fn queue_steer(&mut self, req: SteerRequest) -> Result<SteerDelivery> {
@@ -2818,6 +2876,54 @@ mod tests {
             (day_local.month(), day_local.day(), day_local.hour()),
             (3, 1, 9)
         );
+    }
+
+    #[test]
+    fn cancellation_emits_system_message_and_confirm_done_stops_active_work() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "取消测试");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let project = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"取消项目","goal":"验证","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(project_id.clone()),
+                origin_chat_id: project["chat"]["id"].as_str().unwrap().into(),
+                bot_id: worker,
+                title: "待取消".into(),
+                instruction: "x".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let done = rt
+            .block_on(o.rpc("project.confirm_done", json!({"project_id":project_id})))
+            .unwrap();
+        assert_eq!(done["project"]["status"], "done");
+        let snapshot = o.snapshot().unwrap();
+        assert_eq!(
+            snapshot["assignments"][&assignment.id]["status"],
+            "cancelled"
+        );
+        let message_id = format!("task_stopped:{}", assignment.id);
+        assert_eq!(snapshot["messages"][&message_id]["sender"], "system");
+        assert_eq!(snapshot["messages"][&message_id]["intent"], "task_stopped");
+        assert_eq!(
+            snapshot["messages"][&message_id]["assignment_id"],
+            assignment.id
+        );
+        assert!(rt
+            .block_on(o.rpc("project.confirm_done", json!({"project_id":project_id})))
+            .is_err());
     }
 
     #[test]

@@ -599,6 +599,7 @@ impl RpcBackend for ProductionBackend {
                 self.takeover_release(state, &params).await?;
                 json!({})
             }
+            "assignment.stop" => self.assignment_stop(state, &params).await?,
             "project.request_review" => project_request_review(self, &params).await?,
             "propose_bot" => {
                 let proposal = self
@@ -645,11 +646,13 @@ impl RpcBackend for ProductionBackend {
                     .rpc("project.get", json!({"project_id":project_id}))
                     .await
                     .map_err(Self::error)?;
-                if current["project"]["status"].as_str() != Some("review") {
+                if !matches!(
+                    current["project"]["status"].as_str(),
+                    Some("active") | Some("review")
+                ) {
                     return Err(RpcError {
                         code: "conflict".into(),
-                        message: "project can be finished only after user review confirmation"
-                            .into(),
+                        message: "only active or review projects can be finished".into(),
                         details: None,
                     });
                 }
@@ -1164,6 +1167,41 @@ impl ProductionBackend {
             details: None,
         })?;
         Ok(json!({"device": row}))
+    }
+
+    async fn assignment_stop(&self, state: &GatewayState, params: &Value) -> RpcResult {
+        let assignment_id = required_text(params, "assignment_id")?;
+        let before = self
+            .orchestrator
+            .rpc("assignment.get", json!({"assignment_id":assignment_id}))
+            .await
+            .map_err(Self::error)?;
+        let was_cancelled = before["assignment"]["status"].as_str() == Some("cancelled");
+        let assignment = self
+            .orchestrator
+            .finish_assignment(&assignment_id, "cancelled")
+            .map_err(Self::error)?;
+        if !was_cancelled {
+            let message = self
+                .orchestrator
+                .create_task_stopped_message(&assignment_id)
+                .map_err(Self::error)?;
+            let mut data = serde_json::to_value(message).map_err(|error| RpcError {
+                code: "internal".into(),
+                message: error.to_string(),
+                details: None,
+            })?;
+            normalize_message(&mut data);
+            let data = self.persist_client_message(&data)?;
+            let event = self
+                .store
+                .append_event("message.created", json!({"message":data.clone()}))
+                .map_err(store_error)?;
+            state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
+        Ok(json!({"assignment":assignment}))
     }
 
     async fn chat_send(&self, params: Value) -> RpcResult {
@@ -2197,12 +2235,21 @@ fn normalize_message(value: &mut Value) {
     let block = match intent {
         "progress" => json!({"type":"progress","text":text}),
         "blocked" => json!({"type":"blocked","reason":text}),
+        "task_stopped" => {
+            o.insert("intent".into(), Value::Null);
+            json!({"type":"system","code":"task_stopped","text":text})
+        }
         "done" => {
             json!({"type":"completion","summary":text,"artifacts":[],"next":[],"notify_main":true})
         }
         _ => json!({"type":"text","markdown":text}),
     };
-    o.insert("blocks".into(), json!([block]));
+    if o.get("blocks")
+        .and_then(Value::as_array)
+        .is_none_or(|blocks| blocks.is_empty())
+    {
+        o.insert("blocks".into(), json!([block]));
+    }
     o.remove("text");
     if let Some(delivery) = o.get_mut("delivery").and_then(Value::as_array_mut) {
         for d in delivery {
@@ -3005,6 +3052,113 @@ mod tests {
                     serde_json::from_value(event.data["run"].clone()).unwrap();
             }
         }
+    }
+
+    #[tokio::test]
+    async fn assignment_stop_emits_one_protocol_system_message_and_is_repeat_safe() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "origin_chat_id":"chat_main",
+                    "bot_id":"main",
+                    "title":"停止测试",
+                    "instruction":"停止",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment_id = assignment["id"].as_str().unwrap();
+        let stopped = backend
+            .call(
+                "assignment.stop",
+                json!({"assignment_id":assignment_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(stopped["assignment"]["status"], "cancelled");
+        let events = backend.store.events_since(0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "message.created")
+                .count(),
+            1
+        );
+        let message = events
+            .iter()
+            .find(|event| event.event == "message.created")
+            .unwrap();
+        let _: Message = serde_json::from_value(message.data["message"].clone()).unwrap();
+        assert_eq!(message.data["message"]["blocks"][0]["type"], "system");
+        assert_eq!(message.data["message"]["blocks"][0]["code"], "task_stopped");
+        assert_eq!(
+            message.data["message"]["id"],
+            format!("task_stopped:{assignment_id}")
+        );
+        assert!(message.data["message"]["seq"].as_u64().unwrap_or(0) > 0);
+        backend
+            .call(
+                "assignment.stop",
+                json!({"assignment_id":assignment_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            backend
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| event.event == "message.created")
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn project_confirm_done_accepts_active_project() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call("bot.create", json!({"name":"active-done-bot"}), &gateway.state)
+            .await
+            .unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"active-done-project",
+                    "goal":"finish active project",
+                    "member_bot_ids":[bot["bot"]["id"]]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let done = backend
+            .call(
+                "project.confirm_done",
+                json!({"project_id":project["project"]["id"]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(done["project"]["status"], "done");
     }
 
     #[tokio::test]
