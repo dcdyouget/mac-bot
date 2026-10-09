@@ -22,6 +22,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -327,7 +328,14 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                             true
                         } ?: false
                     } else false
-                }, placeholder = { Text(stringResource(Res.string.computer_keyboard_hint)) }, singleLine = true)
+                }, placeholder = { Text(stringResource(Res.string.computer_keyboard_hint)) }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    cursorColor = Color.White,
+                    focusedPlaceholderColor = Color.LightGray,
+                    unfocusedPlaceholderColor = Color.LightGray,
+                    unfocusedBorderColor = Color.Gray,
+                ))
             }
         }
         Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
