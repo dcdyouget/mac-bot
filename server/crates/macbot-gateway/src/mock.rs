@@ -212,10 +212,35 @@ fn takeover_bot_id(params: &Value) -> String {
 
 fn takeover_start(state: &mut MockState, params: &Value) -> RpcResult {
     let bot_id = takeover_bot_id(params);
+    let assignment_id = params
+        .get("assignment_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            state
+                .assignments
+                .iter()
+                .find(|assignment| {
+                    assignment.get("bot_id").and_then(Value::as_str) == Some(bot_id.as_str())
+                        && assignment.get("status").and_then(Value::as_str) == Some("working")
+                })
+                .and_then(|assignment| assignment.get("id").and_then(Value::as_str))
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "asgn_mock_1".to_owned());
+    let reason = params
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or("user takeover")
+        .to_owned();
+    let mut takeovers = extra_get(state, "takeovers");
+    takeovers.retain(|item| item.get("bot_id").and_then(Value::as_str) != Some(bot_id.as_str()));
+    takeovers.push(json!({"bot_id":bot_id,"assignment_id":assignment_id,"reason":reason,"state":"active","at":now()}));
+    extra_set(state, "takeovers", takeovers);
     let tabs = vec![
-        json!({"bot_id":bot_id,"tab_id":"tab_mock_1","assignment_id":"asgn_mock_1",
+        json!({"bot_id":bot_id,"tab_id":"tab_mock_1","assignment_id":assignment_id,
             "title":"Mock 登录页","url":"https://example.test/login","active":true}),
-        json!({"bot_id":bot_id,"tab_id":"tab_mock_2","assignment_id":"asgn_mock_2",
+        json!({"bot_id":bot_id,"tab_id":"tab_mock_2","assignment_id":assignment_id,
             "title":"Mock 工作台","url":"https://example.test/workbench","active":false}),
     ];
     extra_set(state, &format!("screen_tabs:{bot_id}"), tabs);
@@ -230,8 +255,18 @@ fn takeover_start(state: &mut MockState, params: &Value) -> RpcResult {
 fn takeover_release(state: &mut MockState, params: &Value) -> RpcResult {
     let bot_id = takeover_bot_id(params);
     if extra_get(state, &format!("screen_tabs:{bot_id}")).is_empty() {
-        let _ = takeover_start(state, params)?;
+        takeover_start(state, params)?;
     }
+    let note = params.get("note").cloned().unwrap_or(Value::Null);
+    let mut takeovers = extra_get(state, "takeovers");
+    for item in &mut takeovers {
+        if item.get("bot_id").and_then(Value::as_str) == Some(bot_id.as_str()) {
+            item["state"] = json!("done");
+            item["note"] = note.clone();
+            item["released_at"] = json!(now());
+        }
+    }
+    extra_set(state, "takeovers", takeovers);
     extra_set(
         state,
         &format!("screen_driver:{bot_id}"),
@@ -309,6 +344,42 @@ fn ensure_mock_defaults(state: &mut MockState) {
                 "caps":{"vision":false,"tools":true,"reasoning":false},
                 "price":null,
                 "enabled":true
+            })],
+        );
+    }
+    if extra_get(state, "approvals").is_empty() {
+        extra_set(
+            state,
+            "approvals",
+            vec![json!({
+                "id":"apr_mock_pending",
+                "bot_id":"bot_main",
+                "assignment_id":"asgn_mock_1",
+                "chat_id":"chat_main",
+                "tool":"bash",
+                "risk":"exec",
+                "summary":"Run the mock verification command",
+                "detail":"The deterministic mock keeps one pending approval for the workbench.",
+                "state":"pending",
+                "created_at":now(),
+                "decided_at":null
+            })],
+        );
+    }
+    if extra_get(state, "questions").is_empty() {
+        extra_set(
+            state,
+            "questions",
+            vec![json!({
+                "id":"q_mock_pending",
+                "bot_id":"bot_main",
+                "assignment_id":"asgn_mock_1",
+                "chat_id":"chat_main",
+                "text":"Which deterministic mock path should continue?",
+                "options":["safe","fast"],
+                "allow_free_text":true,
+                "state":"pending",
+                "answer":null
             })],
         );
     }
@@ -1332,9 +1403,115 @@ fn question_answer(state: &mut MockState, params: &Value) -> RpcResult {
     Ok(json!({"question":item}))
 }
 fn workbench(state: &MockState) -> RpcResult {
-    Ok(
-        json!({"running":0,"global_limit":state.settings.pointer("/concurrency/global").and_then(Value::as_u64).unwrap_or(4),"subagents_running":0,"waiting":[],"bots":state.bots.iter().map(|b|json!({"bot_id":b["id"],"active":0,"max_parallel":b["max_parallel"],"assignments":[]})).collect::<Vec<_>>(),"done_today":[]}),
-    )
+    let active_status = |status: &str| {
+        matches!(
+            status,
+            "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
+        )
+    };
+    let running = state
+        .assignments
+        .iter()
+        .filter(|assignment| assignment.get("status").and_then(Value::as_str) == Some("working"))
+        .count() as u64;
+    let subagents_running = state
+        .assignments
+        .iter()
+        .map(|assignment| {
+            assignment
+                .get("subagents_active")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        })
+        .sum::<u64>();
+    let mut waiting = Vec::new();
+    for approval in extra_get(state, "approvals")
+        .into_iter()
+        .filter(|approval| approval.get("state").and_then(Value::as_str) == Some("pending"))
+    {
+        waiting.push(json!({"kind":"approval","approval":approval}));
+    }
+    for question in extra_get(state, "questions")
+        .into_iter()
+        .filter(|question| question.get("state").and_then(Value::as_str) == Some("pending"))
+    {
+        waiting.push(json!({"kind":"question","question":question}));
+    }
+    for project in state
+        .projects
+        .iter()
+        .filter(|project| project.get("status").and_then(Value::as_str) == Some("review"))
+    {
+        waiting.push(json!({
+            "kind":"review",
+            "project_id":project.get("id").cloned().unwrap_or(Value::Null),
+            "since":project.get("updated_at").cloned().unwrap_or_else(|| json!(now()))
+        }));
+    }
+    for takeover in extra_get(state, "takeovers")
+        .into_iter()
+        .filter(|takeover| takeover.get("state").and_then(Value::as_str) == Some("active"))
+    {
+        waiting.push(json!({
+            "kind":"takeover",
+            "bot_id":takeover.get("bot_id").cloned().unwrap_or(Value::Null),
+            "assignment_id":takeover.get("assignment_id").cloned().unwrap_or(Value::Null),
+            "reason":takeover.get("reason").cloned().unwrap_or_else(|| json!("user takeover"))
+        }));
+    }
+    let today = Utc::now().date_naive().to_string();
+    let done_today = state
+        .assignments
+        .iter()
+        .filter(|assignment| assignment.get("status").and_then(Value::as_str) == Some("done"))
+        .filter(|assignment| {
+            assignment
+                .get("finished_at")
+                .and_then(Value::as_str)
+                .is_some_and(|finished| finished.starts_with(&today))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let bots = state
+        .bots
+        .iter()
+        .map(|bot| {
+            let bot_id = bot.get("id").and_then(Value::as_str).unwrap_or_default();
+            let assignments = state
+                .assignments
+                .iter()
+                .filter(|assignment| {
+                    assignment.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                        && assignment
+                            .get("status")
+                            .and_then(Value::as_str)
+                            .is_some_and(active_status)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let active = assignments
+                .iter()
+                .filter(|assignment| {
+                    assignment.get("status").and_then(Value::as_str) == Some("working")
+                })
+                .count() as u64;
+            json!({
+                "bot_id":bot_id,
+                "active":active,
+                "max_parallel":bot.get("max_parallel").and_then(Value::as_u64).unwrap_or(2),
+                "assignments":assignments
+            })
+        })
+        .collect::<Vec<_>>();
+    let workbench = json!({
+        "running":running,
+        "global_limit":state.settings.pointer("/concurrency/global").and_then(Value::as_u64).unwrap_or(4),
+        "subagents_running":subagents_running,
+        "waiting":waiting,
+        "bots":bots,
+        "done_today":done_today
+    });
+    Ok(json!({"workbench":workbench}))
 }
 
 fn skill_default(name: &str, description: &str, source: &str, content: Option<&str>) -> Value {
@@ -1735,7 +1912,7 @@ mod contract_tests {
     use macbot_protocol::{
         Announcement, Assignment, Bot, Chat, Device, Message, Model, Project, Provider, Routine,
         RoutineRun, Settings, Skill, SkillDetail, UsageBreakdownResult, UsageSummaryResult,
-        UsageTimeseriesResult,
+        UsageTimeseriesResult, WorkbenchResult,
     };
     use serde_json::{json, Value};
 
@@ -1915,6 +2092,65 @@ mod contract_tests {
         for item in assignments["items"].as_array().unwrap() {
             let _: Assignment = serde_json::from_value(item.clone()).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn workbench_aggregates_assignments_waiting_and_takeover_typed() {
+        let gateway = gateway().await;
+        let assignments = call(&gateway, "assignment.list", json!({})).await;
+        let items = assignments["items"].as_array().unwrap();
+        let expected_running = items
+            .iter()
+            .filter(|item| item["status"] == "working")
+            .count();
+        let workbench = call(&gateway, "workbench.get", json!({})).await;
+        let typed: WorkbenchResult = serde_json::from_value(workbench).unwrap();
+        assert_eq!(typed.workbench.running as usize, expected_running);
+        assert!(typed
+            .workbench
+            .waiting
+            .iter()
+            .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Approval { .. }) }));
+        assert!(typed
+            .workbench
+            .waiting
+            .iter()
+            .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Question { .. }) }));
+        assert!(typed
+            .workbench
+            .bots
+            .iter()
+            .any(|bot| !bot.assignments.is_empty()));
+        assert!(typed
+            .workbench
+            .done_today
+            .iter()
+            .all(|assignment| assignment.status == macbot_protocol::AssignmentStatus::Done));
+
+        call(
+            &gateway,
+            "takeover.start",
+            json!({"bot_id":"bot_main","assignment_id":"asg_code_web"}),
+        )
+        .await;
+        let active = call(&gateway, "workbench.get", json!({})).await;
+        let active: WorkbenchResult = serde_json::from_value(active).unwrap();
+        assert!(active.workbench.waiting.iter().any(|item| {
+            matches!(item, macbot_protocol::WorkbenchWaiting::Takeover { bot_id, .. } if bot_id == "bot_main")
+        }));
+        call(
+            &gateway,
+            "takeover.release",
+            json!({"bot_id":"bot_main","note":"done"}),
+        )
+        .await;
+        let released = call(&gateway, "workbench.get", json!({})).await;
+        let released: WorkbenchResult = serde_json::from_value(released).unwrap();
+        assert!(!released
+            .workbench
+            .waiting
+            .iter()
+            .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Takeover { .. }) }));
     }
 
     #[tokio::test]
