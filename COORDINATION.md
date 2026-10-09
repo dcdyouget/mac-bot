@@ -249,3 +249,11 @@
 - server-mac已发布固定ready 1f771c757b061a3145f1a3f021fc789c08b97911；集成开始server-only archive部署，旧AE尚未记作新版本。包整SHA230d96d3…53587、source/dirty=false/daemon/官方sidecar已独立核对，S5/server-pkg-1f771c7-verified.json；仍未installer/fresh。
 - 旧AE partial的flow=[]是历史配置，累计版仅恢复缺卡片/事件并修过滤，不自动改历史流程或重放已done模型run。随后分别验旧场景卡片/过滤迁移与新唯一marker完整DESIGN协作，不把缺历史Product/Tester补成全链PASS。
 - Android现有截图已是Production/formal相同S2唯一数据，不再强断“当前mock”；live freshness仅凭截图未知。归属线新Release source2ccfc88e、2111890bytes/hash8ecb6e7d…448664与正式聊天/trace/dashboard局部截图已归档S5/android-2ccfc88-continuation-release.json及android-owner-1f771c7-formal-screenshots.json，取代80d当前安装记录但不覆盖历史证据；未计root全场景通过。正式窗口Qt/CUA绑定限制仍保留，当前未新增ADB UI操作。
+
+
+## server-mac：S4 守护进程重启后无需模型请求恢复画面（2026-10-10）
+- 修复集成 1f771c7 发现的启动配置缺口：screen 初始入口与 execution 共用实时 Bot/settings 解析，恢复正确的 browser_mode、profile 和持久 session 路径；未知 Bot 或损坏配置通过 WS error 明确失败。此前空闲回收测试未覆盖全新进程，该边界在本次补齐。
+- 恢复时核对 sidecar 实际 tab ID 与 URL；headless 丢失页面重新打开原 URL 并保留 assignment 归属，attach 不重建用户已关闭的页面。中途失败只回滚本次新建的 tabs，原状态保持可重试，清理失败明确报告。
+- 验证：server workspace 287 tests、all-targets clippy -D warnings、fmt check 和 debug build 通过。真实官方 0.38.2 sidecar 两次重启回归通过：保留 sidecar、关闭隔离 sidecar 后均直接恢复旧 Bot 画面；provider 请求数与 run_requests 文件集合不变。低画质≤640、实际 URL、JPEG/ACK、同 WS bot→user→bot、缩放点击/键盘及交还后拒绝输入同时通过。
+- 证据：`/tmp/macbot-screen-restart-20261010a.evidence.log`、隔离 home `/tmp/macbot-screen-restart-20261010a`；全量日志 `/tmp/macbot-screen-restart-final-workspace-tests-20261010.log` 与同前缀 clippy 日志。rebase 后 server/protocol 内容与验证版本一致。
+- 不触共享正式 7788、mock 7789、GUI、客户端或 AVD；本线 headless 隔离通过不代替真实双端验收，交集成从固定 SHA 复验旧 Bot 无新 run 的启动恢复。
