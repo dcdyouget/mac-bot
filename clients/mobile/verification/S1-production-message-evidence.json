@@ -1,0 +1,60 @@
+{
+  "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+  "messages": [
+    {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "Please only reply android-heartbeat-608c653",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "created_at": "2026-10-09T15:36:59.864382+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "Please only reply android-heartbeat-608c653",
+      "id": "01a1214f-7cd8-7336-af68-338bc8df8fa4",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 4,
+      "streaming": false,
+      "thread_count": 0
+    },
+    {
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "android-heartbeat-608c653",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "created_at": "2026-10-09T15:37:00.055Z",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": "2026-10-09T15:37:02.140Z",
+      "fallback_text": "android-heartbeat-608c653",
+      "id": "msg_run_chat_01a1214f_7cd8_7336_af68_338bc8df8fa4",
+      "intent": null,
+      "mentions": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+        "kind": "bot"
+      },
+      "seq": 5,
+      "streaming": false,
+      "thread_count": 0
+    }
+  ]
+}
