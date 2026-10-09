@@ -187,6 +187,13 @@ impl MacBot {
                 self.feature_data["content"] = value["skill"]["content"].clone();
             }
             "routine.runs" => self.feature_data["runs"] = value["runs"].clone(),
+            "routine.test_run" => {
+                self.rpc(
+                    "routine.runs",
+                    json!({"routine_id":params["routine_id"]}),
+                    cx,
+                );
+            }
             "provider.test" => {
                 self.notice = if value["ok"] == true {
                     format!(

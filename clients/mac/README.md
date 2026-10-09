@@ -78,7 +78,7 @@ packaging/screenshot-window.sh progress/S5/connect.png "Mac Bot" 12345
 
 更新清单使用下面的 JSON 结构，`sha256` 必须是下载文件的完整 SHA-256。更新地址和 artifact 地址默认只允许 HTTPS；本机联调允许 `http://localhost`、`http://127.0.0.1` 或 `http://[::1]`。没有设置 `MACBOT_UPDATE_URL` 时检查状态为 `disabled`，这是预期的未配置状态。
 
-设置页保存的更新源写入 `~/Library/Application Support/MacBot/update.json`（权限 0600）；`MACBOT_UPDATE_URL` 存在时优先使用环境变量，适合集成线临时覆盖。远程 HTTP、无效 JSON、非 64 位十六进制摘要都会被拒绝。
+设置页保存的更新源写入 `~/Library/Application Support/MacBot/update.json`（权限 0600）；独立 QA 设置 `MACBOT_CLIENT_DATA_DIR` 时改用该目录下的 `update.json`。`MACBOT_UPDATE_URL` 存在时优先使用环境变量，适合集成线临时覆盖。远程 HTTP、无效 JSON、非 64 位十六进制摘要都会被拒绝。
 
 ```json
 {
@@ -118,10 +118,10 @@ MACBOT_TEST_UPDATE_DMG="$PWD/dist/MacBot.dmg" \
 独立 QA 必须同时使用独立 Bundle ID 和客户端数据目录：
 
 ```sh
-MACBOT_CLIENT_DATA_DIR=/tmp/macbot-client-qa-data \
-MACBOT_SECRET_BACKEND=file \
-MACBOT_HOST=127.0.0.1:7790 MACBOT_PASSWORD=dev \
-  dist/MacBotQA.app/Contents/MacOS/macbot-desktop
+open -n --env MACBOT_CLIENT_DATA_DIR=/tmp/macbot-client-qa-data \
+  --env MACBOT_SECRET_BACKEND=file \
+  --env MACBOT_HOST=127.0.0.1:7790 --env MACBOT_PASSWORD=dev \
+  dist/MacBotQA.app
 ```
 
 `MACBOT_CLIENT_DATA_DIR` 必须为绝对路径，覆盖 Host 列表与当前 Host 恢复所用记录、file 后端凭据、会话状态缓存、待发 outbox、本机偏好、更新配置和更新缓存。未设置时仍使用正常 Application Support 路径；`MACBOT_UPDATE_CACHE` 显式覆盖更新缓存时优先。QA 使用 `file` 后端，避免与安装版共享 Keychain；开机启动等系统设置仍由系统管理，QA 不应启用。仅修改测试 bundle 的 `CFBundleIdentifier` 为 `bot.mac.desktop.qa`，正式产物继续使用 `bot.mac.desktop`。

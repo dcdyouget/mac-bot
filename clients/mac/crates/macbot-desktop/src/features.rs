@@ -3529,26 +3529,35 @@ fn routine_editor(
             )
         })
         .collect::<Vec<_>>();
-    let body = rows(
-        [
-            format!(
-                "{}   {}",
-                t("routine.instruction"),
-                string(data, "instructions", t("routine.default_instruction"))
+    let summary = if routine_id.is_empty() {
+        div().into_any_element()
+    } else {
+        card(
+            t("routine.title"),
+            rows(
+                [
+                    format!(
+                        "{}   {}",
+                        t("routine.instruction"),
+                        string(data, "instructions", t("routine.default_instruction"))
+                    ),
+                    format!("{}   {}", t("routine.schedule"), routine_schedule(data)),
+                    format!(
+                        "{}   {}",
+                        t("routine.active"),
+                        if data.get("enabled").and_then(Value::as_bool).unwrap_or(true) {
+                            t("common.confirm")
+                        } else {
+                            t("common.cancel")
+                        }
+                    ),
+                ],
+                tokens,
             ),
-            format!("{}   {}", t("routine.schedule"), routine_schedule(data)),
-            format!(
-                "{}   {}",
-                t("routine.active"),
-                if data.get("enabled").and_then(Value::as_bool).unwrap_or(true) {
-                    t("common.confirm")
-                } else {
-                    t("common.cancel")
-                }
-            ),
-        ],
-        tokens,
-    );
+            tokens,
+        )
+        .into_any_element()
+    };
     let routine_actions = if routine_id.is_empty() {
         div()
     } else {
@@ -3617,7 +3626,7 @@ fn routine_editor(
             t("routine.timezone"),
             Input::new(input_state(inputs, "timezone")).id("routine-timezone-input"),
         ))
-        .child(card(t("routine.title"), body, tokens))
+        .child(summary)
         .child(card(
             t("routine.history"),
             rows(history.iter().cloned(), tokens),
@@ -3755,6 +3764,7 @@ fn routines_list(
             .unwrap_or(true);
         let label = format!("{}{}", if enabled { "● " } else { "○ " }, name);
         let selected_routine = routine.clone();
+        let route = format!("routine/{id}");
         list = list.child(
             div()
                 .flex()
@@ -3772,6 +3782,7 @@ fn routines_list(
                         .label(label)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.load_selected(selected_routine.clone(), window, cx);
+                            this.emit_action(FeatureAction::Navigate(route.clone()), cx);
                         })),
                 ),
         );

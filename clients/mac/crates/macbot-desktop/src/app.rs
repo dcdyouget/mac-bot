@@ -522,6 +522,16 @@ impl MacBot {
                             view.update_data(json!({"tool_output":d}), cx)
                         });
                     }
+                    "routine.run"
+                        if self.page == "routine"
+                            && s(&d["run"], "routine_id") == s(&self.feature_data, "id") =>
+                    {
+                        self.rpc(
+                            "routine.runs",
+                            json!({"routine_id":d["run"]["routine_id"]}),
+                            cx,
+                        );
+                    }
                     _ => {}
                 }
                 let notification = event.event == "message.created"
@@ -917,6 +927,15 @@ impl MacBot {
         let mut events = handle.events;
         self.screen_task = Some(cx.spawn(async move |this, cx| {
             while let Some(event) = events.recv().await {
+                if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
+                    let kind = match &event {
+                        ScreenEvent::State(_) => "state",
+                        ScreenEvent::Frame(_) => "frame",
+                        ScreenEvent::Error(_) => "error",
+                        ScreenEvent::Closed => "closed",
+                    };
+                    eprintln!("client: screen bridge received {kind}");
+                }
                 if this
                     .update(cx, |view, cx| {
                         match event {
@@ -949,6 +968,9 @@ impl MacBot {
                     })
                     .is_err()
                 {
+                    if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
+                        eprintln!("client: screen bridge entity released");
+                    }
                     break;
                 }
             }
