@@ -2086,7 +2086,7 @@ fn dashboard(
             ),
         ]))
         .child(card(t("dashboard.heatmap"), heat, tokens))
-        .child(card(t("dashboard.trend"), trend, tokens))
+        .child(card(dashboard_trend_title(data), trend, tokens))
         .child(card(
             t("dashboard.breakdown"),
             div()
@@ -2563,6 +2563,26 @@ fn usage_day_timeseries_params(data: &Value, day: &str) -> Value {
     params["from"] = json!(format!("{day}T00:00:00Z"));
     params["to"] = json!(format!("{day}T23:59:59Z"));
     params
+}
+
+fn dashboard_trend_title(data: &Value) -> &'static str {
+    let granularity = data
+        .get("timeseries")
+        .and_then(|timeseries| {
+            timeseries.get("granularity").or_else(|| {
+                timeseries
+                    .get("result")
+                    .and_then(|result| result.get("granularity"))
+            })
+        })
+        .and_then(Value::as_str)
+        .or_else(|| data.get("granularity").and_then(Value::as_str))
+        .unwrap_or("day");
+    match granularity {
+        "hour" => t("dashboard.trend_hour"),
+        "week" => t("dashboard.trend_week"),
+        _ => t("dashboard.trend_day"),
+    }
 }
 
 fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> AnyElement {

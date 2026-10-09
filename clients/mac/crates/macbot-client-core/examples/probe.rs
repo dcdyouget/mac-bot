@@ -46,7 +46,7 @@ async fn wait_connected(
     timeout(Duration::from_secs(5), async {
         while let Some(event) = events.recv().await {
             match event {
-                ClientEvent::Connected { hello, resumed } => {
+                ClientEvent::Connected { hello, resumed, .. } => {
                     return Ok(json!({"hello":hello,"resumed":resumed}));
                 }
                 ClientEvent::Disconnected { error } => {
@@ -109,7 +109,7 @@ fn drain_events(events: &mut tokio::sync::mpsc::Receiver<ClientEvent>) -> Vec<Va
     let mut rows = Vec::new();
     while let Ok(event) = events.try_recv() {
         rows.push(match event {
-            ClientEvent::Connected { hello, resumed } => {
+            ClientEvent::Connected { hello, resumed, .. } => {
                 json!({"kind":"connected","hello":hello,"resumed":resumed})
             }
             ClientEvent::Bootstrap(value) => json!({"kind":"bootstrap","data":value}),

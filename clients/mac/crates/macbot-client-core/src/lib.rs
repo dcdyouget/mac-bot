@@ -230,10 +230,19 @@ fn path_prefix_index(url: &str) -> usize {
 
 #[derive(Debug, Clone)]
 pub enum ClientEvent {
-    Connected { hello: Value, resumed: bool },
+    Connected {
+        hello: Value,
+        resumed: bool,
+        /// The address that completed the main websocket handshake. This is
+        /// useful when `ClientConfig::addresses` contains fallbacks: the UI
+        /// must open auxiliary connections against the same reachable host.
+        endpoint: String,
+    },
     Bootstrap(Value),
     Protocol(ProtocolEvent),
-    Disconnected { error: Option<String> },
+    Disconnected {
+        error: Option<String>,
+    },
     TransportError(String),
 }
 
@@ -428,8 +437,8 @@ async fn run_worker(
             let mut connected = None;
             for endpoint in endpoints {
                 match connect_main(&config, &endpoint).await {
-                    Ok(value) => {
-                        connected = Some(value);
+                    Ok((socket, hello)) => {
+                        connected = Some((socket, hello, endpoint));
                         break;
                     }
                     Err(error) => last_error = Some(error),
@@ -437,7 +446,7 @@ async fn run_worker(
             }
             connected.ok_or_else(|| last_error.unwrap_or(CoreError::Closed))
         };
-        let (mut socket, hello) = match connected {
+        let (mut socket, hello, endpoint) = match connected {
             Ok(value) => {
                 attempt = 0;
                 value
@@ -510,7 +519,13 @@ async fn run_worker(
                 .and_then(Value::as_str)
                 == Some("replay");
 
-        let _ = events.send(ClientEvent::Connected { hello, resumed }).await;
+        let _ = events
+            .send(ClientEvent::Connected {
+                hello,
+                resumed,
+                endpoint,
+            })
+            .await;
         if !resumed {
             let bootstrap_id = Uuid::now_v7().to_string();
             if let Err(error) = socket
@@ -2550,6 +2565,38 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(bootstrap["seq"], 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn connected_event_reports_successful_fallback_endpoint() {
+        let endpoint = loopback_server("node_fallback", "reset", true).await;
+        let mut config = ClientConfig::new("127.0.0.1:1", "dev");
+        config.addresses = vec!["127.0.0.1:1".into(), endpoint.clone()];
+        config.request_timeout = Duration::from_secs(1);
+        config.reconnect.initial_delay = Duration::from_millis(5);
+        config.reconnect.max_delay = Duration::from_millis(5);
+        config.reconnect.jitter = 0.0;
+
+        let handle = ClientHandle::spawn(config);
+        let client = handle.client.clone();
+        let mut events = handle.events;
+        let mut connected_endpoint = None;
+        let mut saw_bootstrap = false;
+        while !saw_bootstrap {
+            let event = timeout(Duration::from_secs(2), events.recv())
+                .await
+                .unwrap()
+                .expect("client event stream closed");
+            match event {
+                ClientEvent::Connected { endpoint, .. } => {
+                    connected_endpoint = Some(endpoint);
+                }
+                ClientEvent::Bootstrap(_) => saw_bootstrap = true,
+                _ => {}
+            }
+        }
+        assert_eq!(connected_endpoint.as_deref(), Some(endpoint.as_str()));
+        client.close().await;
     }
 
     async fn assert_resume_watermark_rollback(hello_seq: u64, sync_seq: u64) {

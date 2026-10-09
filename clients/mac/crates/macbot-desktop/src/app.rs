@@ -67,6 +67,9 @@ pub struct MacBot {
     screen_client: Option<ScreenClient>,
     screen_task: Option<Task<()>>,
     screen_bot: String,
+    active_endpoint: Option<String>,
+    active_node_id: Option<String>,
+    active_device_id: Option<String>,
     hosts: Option<HostStore>,
     active_host: Option<String>,
     runtime: tokio::runtime::Runtime,
@@ -179,6 +182,9 @@ impl MacBot {
             screen_client: None,
             screen_task: None,
             screen_bot: String::new(),
+            active_endpoint: None,
+            active_node_id: None,
+            active_device_id: None,
             hosts: HostStore::load().ok(),
             active_host: None,
             runtime: tokio::runtime::Builder::new_multi_thread()
@@ -304,6 +310,9 @@ impl MacBot {
         }
         self.connected = false;
         self.connecting = true;
+        self.active_endpoint = None;
+        self.active_node_id = None;
+        self.active_device_id = None;
         self.fixture = false;
         self.notice.clear();
         let addresses: Vec<String> = endpoint
@@ -329,6 +338,8 @@ impl MacBot {
                 config.node_id = host.node_id.clone();
             }
         }
+        self.active_node_id = config.node_id.clone();
+        self.active_device_id = Some(config.device_id.clone());
         self.state.messages.clear();
         self.state.assignments.clear();
         self.state.announcements.clear();
@@ -470,8 +481,19 @@ impl MacBot {
                 | ClientEvent::Disconnected { .. }
         );
         match event {
-            ClientEvent::Connected { hello, .. } => {
+            ClientEvent::Connected {
+                hello, endpoint, ..
+            } => {
                 self.state.hello = Some(hello);
+                self.active_endpoint = Some(endpoint);
+                self.active_node_id = self
+                    .state
+                    .hello
+                    .as_ref()
+                    .and_then(|value| value.get("node_id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or_else(|| self.active_node_id.clone());
                 self.connected = true;
                 self.connecting = false;
                 if self.page == "connect" {
@@ -932,9 +954,26 @@ impl MacBot {
         self.screen_bot = bot.clone();
         self.sync_screen_request(cx);
         self.page = "computer".into();
-        let addresses = self.address.read(cx).value().to_string();
-        let endpoint = addresses.split(',').next().unwrap_or("");
-        let config = ClientConfig::new(endpoint, self.password.read(cx).value().to_string());
+        let addresses = self
+            .address
+            .read(cx)
+            .value()
+            .split(',')
+            .map(str::trim)
+            .filter(|address| !address.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let endpoint = self
+            .active_endpoint
+            .clone()
+            .or_else(|| addresses.first().cloned())
+            .unwrap_or_default();
+        let mut config = ClientConfig::new(endpoint, self.password.read(cx).value().to_string());
+        config.addresses = addresses;
+        config.node_id = self.active_node_id.clone();
+        if let Some(device_id) = self.active_device_id.clone() {
+            config.device_id = device_id;
+        }
         let quality = self.computer.read(cx).quality().to_string();
         let _guard = self.runtime.enter();
         let handle = ScreenHandle::spawn(config, bot, quality, None);

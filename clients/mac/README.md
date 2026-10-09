@@ -32,7 +32,7 @@ MACBOT_HOST=127.0.0.1:7789 MACBOT_PASSWORD=dev cargo run -p macbot-desktop
 macbotd --mock --port 7789 --password dev
 ```
 
-开发期凭据后端：默认使用 macOS Keychain。若本机开发环境无法使用 Keychain，可显式设置 `MACBOT_SECRET_BACKEND=file`；此时密码写入仓库外的 `~/Library/Application Support/MacBot/development-secrets.json`，文件权限 0600、父目录权限 0700，并通过原子替换更新。该开关只用于开发联调，日志、截图和 Git 产物都不得包含密码；未设置开关时不会写入该文件。
+开发期凭据后端：默认使用 macOS Keychain。若本机开发环境无法使用 Keychain，可显式设置 `MACBOT_SECRET_BACKEND=file`；此时密码写入仓库外的 `~/Library/Application Support/MacBot/development-secrets.json`，若设置 `MACBOT_CLIENT_DATA_DIR` 则改写入该目录下的 `development-secrets.json`；文件权限 0600、父目录权限 0700，并通过原子替换更新。该开关只用于开发联调，日志、截图和 Git 产物都不得包含密码；未设置开关时不会写入该文件。
 
 ## 打包和运行
 
