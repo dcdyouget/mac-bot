@@ -1,0 +1,1032 @@
+{
+  "version": 1,
+  "created_at": "2026-10-09T21:25:51.977823Z",
+  "project_ids": [
+    "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "01a12236-b308-7080-9877-6fc078239999"
+  ],
+  "markers": [
+    "macbot-e2e-s2-followup-98de2a801a30",
+    "macbot-e2e-s2-followup-b74f5aff98d5"
+  ],
+  "requests": [
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "marker": "macbot-e2e-s2-followup-98de2a801a30",
+      "kind": "followup_request",
+      "client_request_id": "8963d2d5-bde5-4652-a29c-fc1d9440701d",
+      "status": "sent",
+      "created_at": "2026-10-09T21:25:57.894952Z",
+      "message_id": "01a1228e-fa21-747b-bb8d-a32fb137197b",
+      "seq": 61,
+      "message_created_at": "2026-10-09T21:25:57.921972+00:00"
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "marker": "macbot-e2e-s2-followup-b74f5aff98d5",
+      "kind": "followup_request",
+      "client_request_id": "0ddaf624-b619-4217-95e7-540258876029",
+      "status": "sent",
+      "created_at": "2026-10-09T21:25:59.365498Z",
+      "message_id": "01a1228e-fffe-7420-96f5-5939e7c0503b",
+      "seq": 6,
+      "message_created_at": "2026-10-09T21:25:59.422814+00:00"
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "marker": "macbot-e2e-s2-followup-b74f5aff98d5",
+      "kind": "steer",
+      "client_request_id": "a4d3520f-f7ca-4df2-a6b4-ad836d46a9c0",
+      "status": "sent",
+      "created_at": "2026-10-09T21:27:22.562911Z",
+      "assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+      "message_id": "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+      "seq": 10,
+      "message_created_at": "2026-10-09T21:27:22.592358+00:00"
+    },
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "marker": "macbot-e2e-s2-followup-98de2a801a30",
+      "kind": "steer",
+      "client_request_id": "543df7a0-e25a-4477-976c-4eababb84c0d",
+      "status": "sent",
+      "created_at": "2026-10-09T21:29:15.384478Z",
+      "assignment_id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+      "message_id": "01a12291-fd95-7080-bd23-554789aab420",
+      "seq": 67,
+      "message_created_at": "2026-10-09T21:29:15.413607+00:00"
+    }
+  ],
+  "steers": [
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+      "message_id": "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+      "seq": 10,
+      "client_request_id": "a4d3520f-f7ca-4df2-a6b4-ad836d46a9c0",
+      "status": "sent"
+    },
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "assignment_id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+      "message_id": "01a12291-fd95-7080-bd23-554789aab420",
+      "seq": 67,
+      "client_request_id": "543df7a0-e25a-4477-976c-4eababb84c0d",
+      "status": "sent"
+    }
+  ],
+  "approval_observations": [
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "marker": "macbot-e2e-s2-followup-b74f5aff98d5",
+      "scope_marker": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+      "approval_id": "01a12290-83a6-723a-b1c7-e431a6702372",
+      "tool": "write",
+      "risk": "write",
+      "assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "checkpoint": {
+        "approval_id": "01a12290-83a6-723a-b1c7-e431a6702372",
+        "assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+        "project_id": "01a12236-b308-7080-9877-6fc078239999",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+        "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+        "job_id": "job_01a1228f-aaa3-7164-aca3-56d55a5889dc",
+        "call_id": "call_function_lzpw83a81kgj_1",
+        "job_status": "waiting",
+        "checkpoint_head_match": true,
+        "pending_tools_count": 1,
+        "run_request_match": true,
+        "detail_args_match": true,
+        "detail_metadata_keys": [
+          "path_resolution",
+          "resolved_path"
+        ],
+        "args_keys": [
+          "content",
+          "path"
+        ]
+      },
+      "decision": "allowed_once"
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "marker": "macbot-e2e-s2-followup-b74f5aff98d5",
+      "scope_marker": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+      "approval_id": "01a12290-83a6-723a-b1c7-e431a6702372",
+      "tool": "write",
+      "risk": "write",
+      "assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+      "scope": {
+        "authorized": true,
+        "reason": "scenario-owned and path-scoped",
+        "tool": "write",
+        "operation": "project_home_file_mutation"
+      },
+      "checkpoint": {
+        "approval_id": "01a12290-83a6-723a-b1c7-e431a6702372",
+        "assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+        "project_id": "01a12236-b308-7080-9877-6fc078239999",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+        "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+        "job_id": "job_01a1228f-aaa3-7164-aca3-56d55a5889dc",
+        "call_id": "call_function_lzpw83a81kgj_1",
+        "job_status": "waiting",
+        "checkpoint_head_match": true,
+        "pending_tools_count": 1,
+        "run_request_match": true,
+        "detail_args_match": true,
+        "detail_metadata_keys": [
+          "path_resolution",
+          "resolved_path"
+        ],
+        "args_keys": [
+          "content",
+          "path"
+        ]
+      },
+      "decision": "allowed_once"
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "marker": "macbot-e2e-s2-followup-b74f5aff98d5",
+      "scope_marker": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+      "approval_id": "01a12292-7d4c-7085-9cd8-3d680692ae6d",
+      "tool": "memory",
+      "risk": "write",
+      "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+      "scope": {
+        "authorized": false,
+        "reason": "memory arguments contain unexpected fields",
+        "tool": "memory"
+      },
+      "checkpoint": {
+        "approval_id": "01a12292-7d4c-7085-9cd8-3d680692ae6d",
+        "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+        "project_id": "01a12236-b308-7080-9877-6fc078239999",
+        "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+        "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+        "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+        "job_id": "job_01a12291-548e-73e1-a0d2-a4234da6ee4c",
+        "call_id": "call_function_kst63ertoctf_1",
+        "job_status": "waiting",
+        "checkpoint_head_match": true,
+        "pending_tools_count": 1,
+        "run_request_match": true,
+        "detail_args_match": true,
+        "detail_metadata_keys": [],
+        "args_keys": [
+          "action",
+          "content",
+          "id",
+          "kind",
+          "project_id",
+          "scope"
+        ]
+      }
+    }
+  ],
+  "observations": [
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "marker": "macbot-e2e-s2-followup-98de2a801a30",
+      "status": "active",
+      "assignments": [
+        {
+          "id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "status": "working",
+          "parent_assignment_id": null,
+          "trigger_message_id": null,
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "started_at": "2026-10-09T21:28:29.781845+00:00",
+          "finished_at": null,
+          "result_message_id": null
+        }
+      ],
+      "main_marker_messages": [
+        "01a1228f-576d-76d1-af7e-691c93dd31e1",
+        "01a1228f-ce5e-7554-9719-4445858b99a4",
+        "01a12290-295d-7583-95ef-250b58438900"
+      ],
+      "coding_assignments": [
+        {
+          "id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "status": "working",
+          "parent_assignment_id": null,
+          "trigger_message_id": null,
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "started_at": "2026-10-09T21:28:29.781845+00:00",
+          "finished_at": null,
+          "result_message_id": null
+        }
+      ],
+      "tester_assignments": [],
+      "question_message_ids": [],
+      "review_message_ids": [],
+      "completion_message_ids": [],
+      "trace": [
+        {
+          "assignment_id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+          "items": [
+            {
+              "type": "run.start",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:28:32.122Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:28:48.141Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:05.474Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:05.486Z",
+              "name": "ls",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:05.496Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:05.557Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:18.289Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:18.349Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            }
+          ]
+        }
+      ],
+      "steers": [
+        {
+          "message_id": "01a12291-fd95-7080-bd23-554789aab420",
+          "assignment_id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+          "delivery": null,
+          "applied_at": null,
+          "trace_steer": false,
+          "verified": false
+        }
+      ],
+      "home_files": [
+        {
+          "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/PRD.md",
+          "size": 1501,
+          "sha256": "b4bcf15559dc21021998ce9c2cb4729641de421796097196cc329e6052391455"
+        }
+      ]
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "marker": "macbot-e2e-s2-followup-b74f5aff98d5",
+      "status": "active",
+      "assignments": [
+        {
+          "id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "status": "done",
+          "parent_assignment_id": null,
+          "trigger_message_id": null,
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:26:40.390885+00:00",
+          "finished_at": "2026-10-09T21:28:45.065086+00:00",
+          "result_message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd"
+        },
+        {
+          "id": "01a12291-4b55-7243-bc26-be662b64a950",
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+          "status": "working",
+          "parent_assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "trigger_message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd",
+          "from": {
+            "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:28:29.781838+00:00",
+          "finished_at": null,
+          "result_message_id": null
+        }
+      ],
+      "main_marker_messages": [
+        "01a1228f-6f94-77b7-ac3f-937f3a559c0b",
+        "01a1228f-f908-777d-a7fe-3fdda1969b3d",
+        "01a12290-5d48-7379-86a6-99c2523a06ce"
+      ],
+      "coding_assignments": [
+        {
+          "id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "status": "done",
+          "parent_assignment_id": null,
+          "trigger_message_id": null,
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:26:40.390885+00:00",
+          "finished_at": "2026-10-09T21:28:45.065086+00:00",
+          "result_message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd"
+        }
+      ],
+      "tester_assignments": [
+        {
+          "id": "01a12291-4b55-7243-bc26-be662b64a950",
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+          "status": "working",
+          "parent_assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "trigger_message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd",
+          "from": {
+            "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:28:29.781838+00:00",
+          "finished_at": null,
+          "result_message_id": null
+        }
+      ],
+      "question_message_ids": [],
+      "review_message_ids": [],
+      "completion_message_ids": [
+        "01a12291-4b55-7243-bc26-be658fbd7ebd"
+      ],
+      "trace": [
+        {
+          "assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "items": [
+            {
+              "type": "run.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:43.156Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:47.341Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:54.121Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:54.133Z",
+              "name": "ls",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:54.142Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:54.201Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:34.271Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:34.283Z",
+              "name": "write",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "run.wait",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:34.343Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "run.resume",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:42.301Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:46.899Z",
+              "name": "write",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:46.911Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:47.019Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:53.721Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:53.733Z",
+              "name": "ls",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:53.743Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:53.804Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:04.028Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:04.038Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:04.632Z",
+              "name": null,
+              "message_id": null,
+              "is_error": true
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:04.693Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:13.292Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:13.302Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:13.643Z",
+              "name": null,
+              "message_id": null,
+              "is_error": true
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:13.702Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:20.003Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:20.015Z",
+              "name": "read",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:20.026Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:20.086Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:28.878Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:28.890Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "send_msg",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:30.677Z",
+              "name": null,
+              "message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd",
+              "is_error": null
+            },
+            {
+              "type": "run.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:30.738Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            }
+          ]
+        },
+        {
+          "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+          "items": [
+            {
+              "type": "run.start",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:28:32.192Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:28:48.617Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:05.266Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:05.283Z",
+              "name": "read",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:05.294Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:05.354Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:20.161Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:20.173Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:20.184Z",
+              "name": null,
+              "message_id": null,
+              "is_error": true
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:20.247Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:30.742Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:30.755Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            }
+          ]
+        }
+      ],
+      "steers": [
+        {
+          "message_id": "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+          "assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "delivery": null,
+          "applied_at": null,
+          "trace_steer": false,
+          "verified": false
+        }
+      ],
+      "home_files": [
+        {
+          "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/PRD.md",
+          "size": 1784,
+          "sha256": "4465e5e9d4e041ab9ae60f09e018a363e26033eac40b5c1aa959f61aed0544fa"
+        },
+        {
+          "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/login.html",
+          "size": 13940,
+          "sha256": "c29ab7473522d7d7bac14e12797f98893e9646be27300daa1e29d978bb433f4a"
+        }
+      ]
+    }
+  ],
+  "full_s2_pass": false,
+  "role_ids": {
+    "产品": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+    "编码": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+    "测试": "01a120c6-2f8b-7045-aeb6-621e949e22ac"
+  },
+  "main_bot_id": "main",
+  "project_snapshots": [
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "home_path": "~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/",
+      "scope_marker": "macbot-e2e-s2-login-522c6b619b92",
+      "name": "macbot-e2e-s2-login-522c6b619b92-登录功能",
+      "goal": "完成本地邮箱登录 demo，目标必须包含 macbot-e2e-s2-login-522c6b619b92 和邮箱登录",
+      "status": "active",
+      "flow": [
+        "产品",
+        "编码",
+        "测试"
+      ],
+      "member_bot_ids": [
+        "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+        "main"
+      ],
+      "marker": "macbot-e2e-s2-followup-98de2a801a30",
+      "baseline_assignment_ids": [
+        "01a12236-9689-7737-b4fe-3abf79fd6f60",
+        "01a1223a-741e-74e6-aad1-e9c7d6517f29",
+        "01a12251-7d46-72ed-97d5-0e4092402b53",
+        "01a12252-2197-7703-9bdd-087b0ff8b80f",
+        "01a12252-9dca-7352-b125-9388c4db5163",
+        "01a12253-b420-7785-963e-8107e6e3e8e3",
+        "01a12253-f129-721e-9189-e7b76229330c",
+        "01a12255-3ffe-7095-a8f7-a03d407d6dfe",
+        "01a1226e-a78d-712e-83af-c438d45163e2",
+        "01a1226f-17ac-73b4-8b13-a7e232791f44",
+        "01a1226f-f563-775f-83eb-1b0d7fc4fbd0",
+        "01a12270-28d5-71a6-a556-bceb50376cb9",
+        "01a12270-621c-70ff-a157-7972eb2f9ad7",
+        "01a1228b-5be7-71a6-b74c-eac711044256",
+        "01a1228b-de43-75ba-81f6-e92780923066",
+        "01a1228c-4d32-73f5-9885-4bc1b63a2793",
+        "01a1228c-8733-71ab-896e-48c420ed1b73"
+      ]
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+      "home_path": "~/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/",
+      "scope_marker": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+      "name": "macbot-e2e-s2-parallel-fc45ecd3b62c-并行官网改版",
+      "goal": "macbot-e2e-s2-parallel-fc45ecd3b62c 邮箱登录功能 - 本地 demo 实现",
+      "status": "active",
+      "flow": [
+        "产品: 编写本地 PRD",
+        "编码: 实现本地 demo",
+        "测试: 验证功能"
+      ],
+      "member_bot_ids": [
+        "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+        "main"
+      ],
+      "marker": "macbot-e2e-s2-followup-b74f5aff98d5",
+      "baseline_assignment_ids": [
+        "01a12236-d7c0-74a2-be96-206ca2f855a3"
+      ]
+    }
+  ],
+  "main_run_discoveries": [
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "run_id": "run_01a1228e-fced-77fb-93ea-42f8a75b1c01",
+      "status": "bound",
+      "root_assignment_id": "01a1228f-7dd2-7007-bece-67554eb540fd"
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "run_id": "run_01a1228f-049f-7502-94bd-d646fc1310ec",
+      "status": "bound",
+      "root_assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7"
+    }
+  ],
+  "updated_at": "2026-10-09T21:29:37.361758Z",
+  "main_run_bindings": [
+    {
+      "run_id": "run_01a1228e-fced-77fb-93ea-42f8a75b1c01",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "assignment_id": null,
+      "canonical_message_id": "01a1228e-fa21-747b-bb8d-a32fb137197b",
+      "canonical_seq": 61,
+      "instruction": {
+        "len": 889,
+        "sha256": "87fc7bf4a9bee9b41f0a36256f10aeaafb6925c821297c6a695eba9d51f17333"
+      },
+      "fallback_text": {
+        "len": 889,
+        "sha256": "87fc7bf4a9bee9b41f0a36256f10aeaafb6925c821297c6a695eba9d51f17333"
+      },
+      "knownText_markdown": {
+        "len": 889,
+        "sha256": "87fc7bf4a9bee9b41f0a36256f10aeaafb6925c821297c6a695eba9d51f17333"
+      },
+      "instruction_matches_fallback": true,
+      "instruction_matches_knownText": true,
+      "canonical_user_matches": true,
+      "trace_run_items": 10,
+      "assign_call_id": "call_function_b9214o340wi1_1",
+      "assign_start_aseq": 56,
+      "assign_end_aseq": 57,
+      "root_assignment_id": "01a1228f-7dd2-7007-bece-67554eb540fd"
+    },
+    {
+      "run_id": "run_01a1228f-049f-7502-94bd-d646fc1310ec",
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+      "assignment_id": null,
+      "canonical_message_id": "01a1228e-fffe-7420-96f5-5939e7c0503b",
+      "canonical_seq": 6,
+      "instruction": {
+        "len": 891,
+        "sha256": "a2382120ebbb6332dfcc499040f326459c1271dddb91dc042775f490778bcde8"
+      },
+      "fallback_text": {
+        "len": 891,
+        "sha256": "a2382120ebbb6332dfcc499040f326459c1271dddb91dc042775f490778bcde8"
+      },
+      "knownText_markdown": {
+        "len": 891,
+        "sha256": "a2382120ebbb6332dfcc499040f326459c1271dddb91dc042775f490778bcde8"
+      },
+      "instruction_matches_fallback": true,
+      "instruction_matches_knownText": true,
+      "canonical_user_matches": true,
+      "trace_run_items": 14,
+      "assign_call_id": "call_function_j0fpixkoyrv2_1",
+      "assign_start_aseq": 36,
+      "assign_end_aseq": 37,
+      "root_assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7"
+    }
+  ],
+  "main_root_assignment_ids": {
+    "01a12236-76c4-746c-a0e8-42ff0b8e79f5": [
+      "01a1228f-7dd2-7007-bece-67554eb540fd"
+    ],
+    "01a12236-b308-7080-9877-6fc078239999": [
+      "01a1228f-a006-7545-a6fc-3ed37e1b81e7"
+    ]
+  },
+  "main_run_ids": [
+    "run_01a1228e-fced-77fb-93ea-42f8a75b1c01",
+    "run_01a1228f-049f-7502-94bd-d646fc1310ec"
+  ],
+  "execution_result": {
+    "exit_code": 1,
+    "failure": "pending approval outside this project scope: memory arguments contain unexpected fields",
+    "resend_performed": false
+  },
+  "status": "BLOCKED_PENDING_UNAUTHORIZED_MEMORY"
+}

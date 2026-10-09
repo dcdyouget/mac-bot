@@ -1,0 +1,49 @@
+{
+  "status": "PASS_LOCAL_ANDROID_HISTORICAL_PRIVATE_AND_TRACE_RENDERING",
+  "android_source_commit": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "server_source_at_rpc_verification": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+  "original_model_execution_source": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "original_api_evidence": "docs/progress/S1/production-ae3009b-private-chat.json",
+  "bot_id": "01a120e8-567d-760c-ba81-534c4e309a69",
+  "chat_id": "dm_01a120e8-567d-760c-ba81-534c4e309a69",
+  "run_id": "run_chat_01a120e8_56c6_72ec_ba00_f554876f1b43",
+  "marker": "macbot-e2e-s1-e46a900c922c",
+  "successful_tools_verified": [
+    "write",
+    "read",
+    "bash"
+  ],
+  "artifact": {
+    "path": "/Users/gongshaojie/MacBot/bots/01a120e8-567d-760c-ba81-534c4e309a69/e2e/macbot-e2e-s1-e46a900c922c.txt",
+    "marker_exact": true,
+    "sha256": "a7f4e88aeec864e0766d5e328fca460f9d2737b9c8123e535c6a1d234fc7f9ba"
+  },
+  "native_private_user_and_final_reply_readable": true,
+  "native_tools_filter_write_read_bash_results_readable": true,
+  "screenshots": [
+    {
+      "path": "docs/progress/S1/production-7189395-cac5b12-android-private-replay.png",
+      "server_source_at_capture": "7189395",
+      "captured_at": "2026-10-09T21:14:08.933760+00:00",
+      "root_visual_review": true
+    },
+    {
+      "path": "docs/progress/S1/production-7189395-cac5b12-android-trace-replay.png",
+      "server_source_at_capture": "7189395",
+      "captured_at": "2026-10-09T21:14:42.479433+00:00",
+      "root_visual_review": true
+    },
+    {
+      "path": "docs/progress/S1/production-094b7c5-cac5b12-android-trace-tools-replay.png",
+      "server_source_at_capture": "094b7c5",
+      "captured_at": "2026-10-09T21:16:08.313915+00:00",
+      "root_visual_review": true
+    }
+  ],
+  "new_chat_or_model_requests": 0,
+  "approval_decisions": 0,
+  "streaming_live_verified": false,
+  "new_kill9_run_recovery_verified": false,
+  "full_s1_pass": false,
+  "note": "Existing real conversation rendered and historical trace replayed by native taps; transient reconnect banner during intentional server deployment was not treated as a defect."
+}

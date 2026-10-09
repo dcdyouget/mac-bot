@@ -1,0 +1,41 @@
+{
+  "artifact": "server unknown-chat-target package audit",
+  "checked_at": "2026-10-09T21:17:05.431336+00:00",
+  "package_path": "/tmp/MacBot-Server-chat-target-094b7c5-20261010.pkg",
+  "package_bytes": 16012131,
+  "package_sha256": {
+    "expected": "3c51ccc420b54aeb9014838e42ffa5237d88aea7e06598e357073ced0481c70c",
+    "actual": "3c51ccc420b54aeb9014838e42ffa5237d88aea7e06598e357073ced0481c70c",
+    "match": true
+  },
+  "expanded_path": "/tmp/macbot-integrator-094b7c5-expanded-20261010-0520",
+  "source": {
+    "expected_commit": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+    "source_commit_txt": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+    "build_info_commit": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+    "info_plist_commit": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+    "dirty": false,
+    "commit_match": true
+  },
+  "binaries": {
+    "macbotd": {
+      "expected_sha256": "528b3763b02b77fd75f9b1544923c2e58992d87a04ca052ea43efa023a7d7606",
+      "actual_sha256": "528b3763b02b77fd75f9b1544923c2e58992d87a04ca052ea43efa023a7d7606",
+      "match": true
+    },
+    "agent_browser": {
+      "expected_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "actual_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "match": true
+    }
+  },
+  "verification_scope": {
+    "read_only_package_audit": true,
+    "installed": false,
+    "payload_executed": false,
+    "fresh_install_passed": false,
+    "full_s5_pass": false,
+    "credentials_read": false,
+    "note": "Package source/hash audit; clean archive deployment was performed separately."
+  }
+}

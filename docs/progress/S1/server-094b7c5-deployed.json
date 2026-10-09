@@ -1,0 +1,37 @@
+{
+  "artifact": "production server deployment evidence",
+  "observed_at": "2026-10-09T21:16:28.084647+00:00",
+  "source_commit": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+  "deploy_log": "~/Library/Caches/MacBot/integrator/watch/server-deploy-094b7c5.log",
+  "deploy_result": {
+    "fixed_source_archive": true,
+    "exit_code": 0,
+    "authentication_probe": "passed; credential omitted"
+  },
+  "service": {
+    "label": "com.macbot.server",
+    "launchagent_pid": 43528,
+    "listener_pid": 43528,
+    "pid_match": true,
+    "executable": "/Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+    "installed_source_marker": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+    "secret_backend": "file",
+    "argv": "omitted"
+  },
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "node_id": "01a11fa3-345e-77a7-8e00-b6585c090f37",
+  "ping": {
+    "server_time": "2026-10-09T21:16:28.074Z"
+  },
+  "verification": {
+    "full_s1_pass": false,
+    "full_s2_pass": false,
+    "s5_fresh_install": false,
+    "desktop_android_mock_preserved": true
+  }
+}

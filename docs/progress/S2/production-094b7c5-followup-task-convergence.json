@@ -1,0 +1,169 @@
+{
+  "source_commit": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+  "created_at": "2026-10-09T21:21:33.610371+00:00",
+  "owned_followup_journal": "docs/progress/S2/production-7189395-existing-project-followup.json",
+  "scope": "Only this integration followup Main assign root and its child, plus exact wrong-chat canonical triggers from the recorded parallel Main run. Original projects, original main requests, previous tasks and artifacts preserved.",
+  "root_assignment_ids": [
+    "01a1226e-a78d-712e-83af-c438d45163e2",
+    "01a1226f-5349-75c2-8d01-4309dbfd8bba",
+    "01a1226e-b853-70de-b697-f728cc24eace"
+  ],
+  "selected_assignment_ids": [
+    "01a1226e-a78d-712e-83af-c438d45163e2",
+    "01a1226e-b853-70de-b697-f728cc24eace",
+    "01a1226f-17ac-73b4-8b13-a7e232791f44",
+    "01a1226f-5349-75c2-8d01-4309dbfd8bba",
+    "01a1226f-f563-775f-83eb-1b0d7fc4fbd0",
+    "01a12270-28d5-71a6-a556-bceb50376cb9",
+    "01a12270-621c-70ff-a157-7972eb2f9ad7"
+  ],
+  "before_assignments": [
+    {
+      "id": "01a12270-621c-70ff-a157-7972eb2f9ad7",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "parent_assignment_id": "01a1226f-17ac-73b4-8b13-a7e232791f44",
+      "trigger_message_id": "01a12270-621c-70ff-a157-79715b1d22db",
+      "status": "queued"
+    },
+    {
+      "id": "01a12270-28d5-71a6-a556-bceb50376cb9",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "parent_assignment_id": "01a1226f-17ac-73b4-8b13-a7e232791f44",
+      "trigger_message_id": "01a12270-28d5-71a6-a556-bcea6b3536dc",
+      "status": "queued"
+    },
+    {
+      "id": "01a1226f-f563-775f-83eb-1b0d7fc4fbd0",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "parent_assignment_id": "01a1226f-17ac-73b4-8b13-a7e232791f44",
+      "trigger_message_id": "01a1226f-f563-775f-83eb-1b0ceb7b85c4",
+      "status": "waiting_user"
+    },
+    {
+      "id": "01a1226f-5349-75c2-8d01-4309dbfd8bba",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": null,
+      "origin_chat_id": "01a12236-b308-7080-9877-6fc078239999",
+      "parent_assignment_id": null,
+      "trigger_message_id": "01a1226f-5349-75c2-8d01-4308c86caf6f",
+      "status": "waiting_user"
+    },
+    {
+      "id": "01a1226f-17ac-73b4-8b13-a7e232791f44",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "parent_assignment_id": "01a1226e-a78d-712e-83af-c438d45163e2",
+      "trigger_message_id": "01a1226f-17ac-73b4-8b13-a7e15e0cb5fc",
+      "status": "waiting_user"
+    },
+    {
+      "id": "01a1226e-b853-70de-b697-f728cc24eace",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": null,
+      "origin_chat_id": "01a12236-b308-7080-9877-6fc078239999",
+      "parent_assignment_id": null,
+      "trigger_message_id": "01a1226e-b853-70de-b697-f727456a65ca",
+      "status": "waiting_user"
+    },
+    {
+      "id": "01a1226e-a78d-712e-83af-c438d45163e2",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "parent_assignment_id": null,
+      "trigger_message_id": null,
+      "status": "waiting_user"
+    }
+  ],
+  "stop_requests": [
+    {
+      "assignment_id": "01a1226e-a78d-712e-83af-c438d45163e2",
+      "recorded_at": "2026-10-09T21:21:33.611016+00:00",
+      "status": "confirmed_cancelled"
+    },
+    {
+      "assignment_id": "01a1226f-5349-75c2-8d01-4309dbfd8bba",
+      "recorded_at": "2026-10-09T21:21:36.224925+00:00",
+      "status": "confirmed_cancelled"
+    },
+    {
+      "assignment_id": "01a1226e-b853-70de-b697-f728cc24eace",
+      "recorded_at": "2026-10-09T21:21:40.374302+00:00",
+      "status": "confirmed_cancelled"
+    },
+    {
+      "assignment_id": "01a1226f-17ac-73b4-8b13-a7e232791f44",
+      "recorded_at": "2026-10-09T21:23:07.762608+00:00",
+      "status": "confirmed_cancelled",
+      "status_before": "waiting_user"
+    },
+    {
+      "assignment_id": "01a1226f-f563-775f-83eb-1b0d7fc4fbd0",
+      "recorded_at": "2026-10-09T21:23:12.854711+00:00",
+      "status": "confirmed_cancelled",
+      "status_before": "waiting_user"
+    },
+    {
+      "assignment_id": "01a12270-621c-70ff-a157-7972eb2f9ad7",
+      "recorded_at": "2026-10-09T21:23:19.175070+00:00",
+      "status": "confirmed_cancelled",
+      "status_before": "waiting_user"
+    }
+  ],
+  "approval_decisions": 0,
+  "full_s2_pass": false,
+  "scope_note": "Root stop confirmed only the selected root assignments; remaining exact descendants require separate explicit stop calls. No recursive cancellation was assumed after the observed API result.",
+  "after_assignments": [
+    {
+      "id": "01a1226e-a78d-712e-83af-c438d45163e2",
+      "status": "cancelled",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+    },
+    {
+      "id": "01a1226e-b853-70de-b697-f728cc24eace",
+      "status": "cancelled",
+      "project_id": null,
+      "origin_chat_id": "01a12236-b308-7080-9877-6fc078239999"
+    },
+    {
+      "id": "01a1226f-17ac-73b4-8b13-a7e232791f44",
+      "status": "cancelled",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+    },
+    {
+      "id": "01a1226f-5349-75c2-8d01-4309dbfd8bba",
+      "status": "cancelled",
+      "project_id": null,
+      "origin_chat_id": "01a12236-b308-7080-9877-6fc078239999"
+    },
+    {
+      "id": "01a1226f-f563-775f-83eb-1b0d7fc4fbd0",
+      "status": "cancelled",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+    },
+    {
+      "id": "01a12270-28d5-71a6-a556-bceb50376cb9",
+      "status": "done",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+    },
+    {
+      "id": "01a12270-621c-70ff-a157-7972eb2f9ad7",
+      "status": "cancelled",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+    }
+  ],
+  "status": "PASS_LOCAL_OWN_TEST_TASKS_TERMINAL",
+  "all_selected_cancelled": false
+}

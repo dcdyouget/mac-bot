@@ -1,0 +1,1179 @@
+{
+  "at": "2026-10-09T21:34:18.786016+00:00",
+  "source_commit": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+  "status": "BLOCKED_LOCAL_API_SCENARIO",
+  "failure": "pending approval outside this project scope: memory arguments contain unexpected fields",
+  "full_s2_pass": false,
+  "observations": [
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "marker": "macbot-e2e-s2-followup-98de2a801a30",
+      "status": "active",
+      "assignments": [
+        {
+          "id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "status": "done",
+          "parent_assignment_id": null,
+          "trigger_message_id": null,
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "started_at": "2026-10-09T21:28:29.781845+00:00",
+          "finished_at": "2026-10-09T21:30:01.072921+00:00",
+          "result_message_id": null
+        },
+        {
+          "id": "01a12292-b013-724a-ae0b-2930e09aaadc",
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "bot_id": "main",
+          "status": "done",
+          "parent_assignment_id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+          "trigger_message_id": "task_attention:task_no_report:01a1228f-7dd2-7007-bece-67554eb540fd",
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "started_at": "2026-10-09T21:30:01.107274+00:00",
+          "finished_at": "2026-10-09T21:31:10.034165+00:00",
+          "result_message_id": null
+        }
+      ],
+      "main_marker_messages": [
+        "01a1228f-576d-76d1-af7e-691c93dd31e1",
+        "01a1228f-ce5e-7554-9719-4445858b99a4",
+        "01a12290-295d-7583-95ef-250b58438900",
+        "01a12293-3a98-75cb-b955-8b421610a959",
+        "01a12293-8421-7736-85ce-b9e65d511c10",
+        "01a12294-5180-7707-9ffd-d9f8f76cf46b",
+        "01a12294-a173-7731-b7c4-85d7c7bee746"
+      ],
+      "coding_assignments": [
+        {
+          "id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "status": "done",
+          "parent_assignment_id": null,
+          "trigger_message_id": null,
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "started_at": "2026-10-09T21:28:29.781845+00:00",
+          "finished_at": "2026-10-09T21:30:01.072921+00:00",
+          "result_message_id": null
+        }
+      ],
+      "tester_assignments": [],
+      "question_message_ids": [],
+      "review_message_ids": [],
+      "completion_message_ids": [],
+      "trace": [
+        {
+          "assignment_id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+          "items": [
+            {
+              "type": "run.start",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:28:32.122Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:28:48.141Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:05.474Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:05.486Z",
+              "name": "ls",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:05.496Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:05.557Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:18.289Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:18.349Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:27.757Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:27.768Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "send_msg",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:29.745Z",
+              "name": null,
+              "message_id": "01a12292-3207-7094-b82c-c6a8283dafaf",
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:29.808Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:36.100Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:36.162Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:46.728Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:46.740Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "send_msg",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:49.427Z",
+              "name": null,
+              "message_id": "01a12292-7d55-7508-99a7-6b38e8043e91",
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:49.487Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:58.278Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "run.end",
+              "seq": null,
+              "run_id": "run_01a1228f-7dd2-7007-bece-67554eb540fd",
+              "at": "2026-10-09T21:29:58.343Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            }
+          ]
+        },
+        {
+          "assignment_id": "01a12292-b013-724a-ae0b-2930e09aaadc",
+          "items": [
+            {
+              "type": "run.start",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:02.554Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:13.055Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:23.868Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:23.934Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:36.537Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:36.548Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "send_msg",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:37.615Z",
+              "name": null,
+              "message_id": "01a12293-3a98-75cb-b955-8b421610a959",
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:37.685Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:45.756Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:45.875Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:55.354Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:55.368Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "send_msg",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:56.847Z",
+              "name": null,
+              "message_id": "01a12293-8421-7736-85ce-b9e65d511c10",
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:30:56.917Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:31:05.342Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "run.end",
+              "seq": null,
+              "run_id": "run_01a12292-b013-724a-ae0b-2930e09aaadc",
+              "at": "2026-10-09T21:31:05.447Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            }
+          ]
+        }
+      ],
+      "steers": [
+        {
+          "message_id": "01a12291-fd95-7080-bd23-554789aab420",
+          "assignment_id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+          "delivery": null,
+          "applied_at": null,
+          "trace_steer": false,
+          "verified": false
+        }
+      ],
+      "home_files": [
+        {
+          "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/PRD.md",
+          "size": 1501,
+          "sha256": "b4bcf15559dc21021998ce9c2cb4729641de421796097196cc329e6052391455"
+        }
+      ]
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "marker": "macbot-e2e-s2-followup-b74f5aff98d5",
+      "status": "active",
+      "assignments": [
+        {
+          "id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "status": "done",
+          "parent_assignment_id": null,
+          "trigger_message_id": null,
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:26:40.390885+00:00",
+          "finished_at": "2026-10-09T21:28:45.065086+00:00",
+          "result_message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd"
+        },
+        {
+          "id": "01a12291-4b55-7243-bc26-be662b64a950",
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+          "status": "waiting_user",
+          "parent_assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "trigger_message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd",
+          "from": {
+            "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:28:29.781838+00:00",
+          "finished_at": null,
+          "result_message_id": null
+        },
+        {
+          "id": "01a12292-3ff1-7706-a75e-71ad089bb666",
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+          "status": "done",
+          "parent_assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+          "trigger_message_id": "01a12292-3ff1-7706-a75e-71ac0481a01a",
+          "from": {
+            "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:29:48.117568+00:00",
+          "finished_at": "2026-10-09T21:30:22.552073+00:00",
+          "result_message_id": "01a12292-f436-72af-ac09-f4800e02424f"
+        }
+      ],
+      "main_marker_messages": [
+        "01a1228f-6f94-77b7-ac3f-937f3a559c0b",
+        "01a1228f-f908-777d-a7fe-3fdda1969b3d",
+        "01a12290-5d48-7379-86a6-99c2523a06ce"
+      ],
+      "coding_assignments": [
+        {
+          "id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "status": "done",
+          "parent_assignment_id": null,
+          "trigger_message_id": null,
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:26:40.390885+00:00",
+          "finished_at": "2026-10-09T21:28:45.065086+00:00",
+          "result_message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd"
+        }
+      ],
+      "tester_assignments": [
+        {
+          "id": "01a12291-4b55-7243-bc26-be662b64a950",
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+          "status": "waiting_user",
+          "parent_assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "trigger_message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd",
+          "from": {
+            "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:28:29.781838+00:00",
+          "finished_at": null,
+          "result_message_id": null
+        },
+        {
+          "id": "01a12292-3ff1-7706-a75e-71ad089bb666",
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+          "status": "done",
+          "parent_assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+          "trigger_message_id": "01a12292-3ff1-7706-a75e-71ac0481a01a",
+          "from": {
+            "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+            "kind": "bot"
+          },
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:29:48.117568+00:00",
+          "finished_at": "2026-10-09T21:30:22.552073+00:00",
+          "result_message_id": "01a12292-f436-72af-ac09-f4800e02424f"
+        }
+      ],
+      "question_message_ids": [],
+      "review_message_ids": [],
+      "completion_message_ids": [
+        "01a12291-4b55-7243-bc26-be658fbd7ebd"
+      ],
+      "trace": [
+        {
+          "assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "items": [
+            {
+              "type": "run.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:43.156Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:47.341Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:54.121Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:54.133Z",
+              "name": "ls",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:54.142Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:26:54.201Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:34.271Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:34.283Z",
+              "name": "write",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "run.wait",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:34.343Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "run.resume",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:42.301Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:46.899Z",
+              "name": "write",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:46.911Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:47.019Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:53.721Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:53.733Z",
+              "name": "ls",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:53.743Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:27:53.804Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:04.028Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:04.038Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:04.632Z",
+              "name": null,
+              "message_id": null,
+              "is_error": true
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:04.693Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:13.292Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:13.302Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:13.643Z",
+              "name": null,
+              "message_id": null,
+              "is_error": true
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:13.702Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:20.003Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:20.015Z",
+              "name": "read",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:20.026Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:20.086Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:28.878Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:28.890Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "send_msg",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:30.677Z",
+              "name": null,
+              "message_id": "01a12291-4b55-7243-bc26-be658fbd7ebd",
+              "is_error": null
+            },
+            {
+              "type": "run.end",
+              "seq": null,
+              "run_id": "run_01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "at": "2026-10-09T21:28:30.738Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            }
+          ]
+        },
+        {
+          "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+          "items": [
+            {
+              "type": "run.start",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:28:32.192Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:28:48.617Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:05.266Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:05.283Z",
+              "name": "read",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:05.294Z",
+              "name": null,
+              "message_id": null,
+              "is_error": false
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:05.354Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:20.161Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:20.173Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.end",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:20.184Z",
+              "name": null,
+              "message_id": null,
+              "is_error": true
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:20.247Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:30.742Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:30.755Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "send_msg",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:33.800Z",
+              "name": null,
+              "message_id": "01a12292-3ff1-7706-a75e-71ac0481a01a",
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:33.863Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:43.870Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:43.881Z",
+              "name": "memory",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "run.wait",
+              "seq": null,
+              "run_id": "run_01a12291-4b55-7243-bc26-be662b64a950",
+              "at": "2026-10-09T21:29:43.944Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            }
+          ]
+        },
+        {
+          "assignment_id": "01a12292-3ff1-7706-a75e-71ad089bb666",
+          "items": [
+            {
+              "type": "run.start",
+              "seq": null,
+              "run_id": "run_01a12292-3ff1-7706-a75e-71ad089bb666",
+              "at": "2026-10-09T21:29:48.275Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12292-3ff1-7706-a75e-71ad089bb666",
+              "at": "2026-10-09T21:29:53.043Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12292-3ff1-7706-a75e-71ad089bb666",
+              "at": "2026-10-09T21:30:02.730Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.request",
+              "seq": null,
+              "run_id": "run_01a12292-3ff1-7706-a75e-71ad089bb666",
+              "at": "2026-10-09T21:30:02.793Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "llm.response",
+              "seq": null,
+              "run_id": "run_01a12292-3ff1-7706-a75e-71ad089bb666",
+              "at": "2026-10-09T21:30:18.473Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "tool.start",
+              "seq": null,
+              "run_id": "run_01a12292-3ff1-7706-a75e-71ad089bb666",
+              "at": "2026-10-09T21:30:18.487Z",
+              "name": "send_msg",
+              "message_id": null,
+              "is_error": null
+            },
+            {
+              "type": "send_msg",
+              "seq": null,
+              "run_id": "run_01a12292-3ff1-7706-a75e-71ad089bb666",
+              "at": "2026-10-09T21:30:19.566Z",
+              "name": null,
+              "message_id": "01a12292-f436-72af-ac09-f4800e02424f",
+              "is_error": null
+            },
+            {
+              "type": "run.end",
+              "seq": null,
+              "run_id": "run_01a12292-3ff1-7706-a75e-71ad089bb666",
+              "at": "2026-10-09T21:30:19.642Z",
+              "name": null,
+              "message_id": null,
+              "is_error": null
+            }
+          ]
+        }
+      ],
+      "steers": [
+        {
+          "message_id": "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+          "assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+          "delivery": null,
+          "applied_at": null,
+          "trace_steer": false,
+          "verified": false
+        }
+      ],
+      "home_files": [
+        {
+          "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/PRD.md",
+          "size": 1784,
+          "sha256": "4465e5e9d4e041ab9ae60f09e018a363e26033eac40b5c1aa959f61aed0544fa"
+        },
+        {
+          "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/login.html",
+          "size": 13940,
+          "sha256": "c29ab7473522d7d7bac14e12797f98893e9646be27300daa1e29d978bb433f4a"
+        }
+      ]
+    }
+  ],
+  "approvals": [
+    {
+      "id": "01a12292-7d4c-7085-9cd8-3d680692ae6d",
+      "tool": "memory",
+      "risk": "write",
+      "state": "pending",
+      "assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+      "args": {
+        "action": "replace",
+        "scope": "project",
+        "project_id": "01a12236-b308-7080-9877-6fc078239999",
+        "kind": "project_status",
+        "id": "macbot-e2e-s2-parallel-fc45ecd3b62c-status"
+      },
+      "content_length": 470,
+      "decision_sent": false
+    }
+  ],
+  "canonical_steer_metadata": [
+    {
+      "id": "01a12291-fd95-7080-bd23-554789aab420",
+      "seq": 67,
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "mentions": [
+        {
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "instruction": null,
+          "kind": "bot"
+        }
+      ],
+      "delivery": [],
+      "intent": "ack",
+      "sender": {
+        "kind": "user"
+      }
+    },
+    {
+      "id": "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+      "seq": 10,
+      "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+      "mentions": [
+        {
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "instruction": null,
+          "kind": "bot"
+        }
+      ],
+      "delivery": [],
+      "intent": "ack",
+      "sender": {
+        "kind": "user"
+      }
+    }
+  ],
+  "static_artifact_review": {
+    "first": {
+      "html_present": false,
+      "test_report_present": false
+    },
+    "parallel": {
+      "file": "login.html",
+      "email_validation_source_present": true,
+      "password_failure_source_present": true,
+      "max_width_480_css_present": true,
+      "test_report_present": false,
+      "actual_browser_test_performed": false
+    },
+    "full_s2_pass": false
+  }
+}

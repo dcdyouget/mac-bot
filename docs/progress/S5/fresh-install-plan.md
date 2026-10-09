@@ -2,11 +2,11 @@
 
 状态：**未执行，不能计 S5 通过**。这是可逆操作计划，不是验收记录。
 
-当前停止条件：正式服务为 `7189395`，Android 通知修复 `cac5b12` 已同签名更新；S2 产物链仍未闭环，第二群错误 chat_id 被接受的校验补丁待交付，相关未知审批保持不批准；Mac `screen_locked=1`，桌面原生截图和输入不可验收。先保留 S2 现场、完成参数纠错和用户解锁，再按最新固定 ready/pkg 开始本全新安装演练。脚本是否存在不是验收硬前置；可以人工执行并保存命令、输出、PID、哈希和截图。
+当前停止条件：正式服务为 `094b7c5`（PID `43528`），Android 通知修复 `cac5b12` 已同签名更新；S2 旧三项任务/pending 保持原样，718 followup 的选定任务已收敛，两个原群的纠正续办仍 running；新未知 project UUID 已返回 `not_found`，旧错误 chat 的两个 JSONL 保持不变，相关旧审批保持不批准。Mac `screen_locked=1`，桌面原生截图和输入不可验收。先保留 S2 现场、完成纠正续办和用户解锁，再按最新固定 ready/pkg 开始本全新安装演练。脚本是否存在不是验收硬前置；可以人工执行并保存命令、输出、PID、哈希和截图。
 
 ## 前置条件与路径
 
-- server 必须交付最新 ready 完整 SHA、`.pkg`、`source-commit.txt`、`build-info.json`、`dirty=false`、daemon/sidecar SHA。当前 `7189395802e38174dd3f2c7196eff3bc35751cf6` pkg 已完成候选审计，SHA-256 为 `fb3979483ceb8418ab5a60627e30cb8481da0c5ff83534c5185d9287bec57187`，见 [server-pkg-7189395-verified.json](server-pkg-7189395-verified.json)；后续 S2 未知 chat 目标校验补丁须从归属线取得固定 ready 和匹配包。
+- server 必须交付最新 ready 完整 SHA、`.pkg`、`source-commit.txt`、`build-info.json`、`dirty=false`、daemon/sidecar SHA。当前 `094b7c5ab98c872ef261b8474a284e17e1c49c6b` pkg 已完成候选审计，SHA-256 为 `3c51ccc420b54aeb9014838e42ffa5237d88aea7e06598e357073ced0481c70c`，见 [server-pkg-094b7c5-verified.json](server-pkg-094b7c5-verified.json)；S2 新未知 project UUID 的 RPC 已独立返回 `not_found`，旧错误 chat JSONL 保留，后续仍须在两个原群纠正续办完成后再验收。
 - client-mac 必须交付正式 `.dmg`，通过 source/binary SHA、DMG SHA、`codesign --verify --deep --strict` 和 `hdiutil` 校验。
 - client-android 必须交付签名 Release APK；只允许同签名 `adb install -r`，不卸载、不清空现有数据。
 - PLAN 第 6 章 S5 权威顺序是 `pkg → 设置密码 → 两端连接 → 完整场景`（`docs/PLAN.md:524-531`）；服务端安装见 `server/README.md:60-97`，桌面 DMG 见 `clients/mac/README.md:37-52`。
@@ -87,8 +87,8 @@ adb -s emulator-5554 shell pm path bot.mac.mobile
 
 ### D. 完整场景与恢复
 
-1. 运行现有 `scripts/e2e/s1/`，再按 PLAN/DESIGN 顺序运行 S2、S3、S4；当前 S2 的持久 pending 可以继续留在离线备份，但不能自动批准/取消，且 Tester 执行报告和历史 Main 开场证据仍需补齐。
+1. 运行现有 `scripts/e2e/s1/`，再按 PLAN/DESIGN 顺序运行 S2、S3、S4；当前 S2 的旧持久 pending 可以继续留在离线备份，但不能自动批准/取消；两个原群纠正续办仍须完成并提供 Tester 执行报告、历史 Main 开场和产物闭环证据。
 2. 每阶段保存桌面 `screencapture`、Android `adb exec-out screencap -p`、RPC/e2e JSON、source/PID 和实际断言；健康、API、mock 或单张 owner 图不能替代双端联合验收。
 3. S5 通过条件是 pkg 安装、管理页设密码、两端连接、完整场景和截图全部完成。失败时保留新现场和证据；停止新 LaunchAgent 后，从仓库外备份恢复 `~/MacBot`、plist、对应 App 路径和 CLI links，恢复原外部 file secret 目录，Keychain 不变，再核对 source/PID/health。不要清空 Android 数据或密钥，也不要混用新旧数据。
 
-当前状态：S5 fresh install 未执行，d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da server 仍只是当前运行部署；本计划文件本身不构成安装或验收通过。
+当前状态：S5 fresh install 未执行，094b7c5ab98c872ef261b8474a284e17e1c49c6b server 只是当前运行部署；本计划文件本身不构成安装或验收通过。

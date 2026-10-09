@@ -1,0 +1,79 @@
+{
+  "observed_at": "2026-10-09T21:16:30.565768+00:00",
+  "source_commit": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+  "baseline": "docs/progress/S2/production-7189395-chat-target-before-upgrade.json",
+  "assignments_unchanged": true,
+  "selected_pending_approvals_unchanged": true,
+  "assignments": [
+    {
+      "id": "01a1226e-a78d-712e-83af-c438d45163e2",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "parent_assignment_id": null,
+      "trigger_message_id": null,
+      "status": "waiting_user",
+      "started_at": "2026-10-09T20:50:39.629838+00:00",
+      "finished_at": null,
+      "result_message_id": null
+    },
+    {
+      "id": "01a1226f-17ac-73b4-8b13-a7e232791f44",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "parent_assignment_id": "01a1226e-a78d-712e-83af-c438d45163e2",
+      "trigger_message_id": "01a1226f-17ac-73b4-8b13-a7e15e0cb5fc",
+      "status": "waiting_user",
+      "started_at": "2026-10-09T20:51:23.593157+00:00",
+      "finished_at": null,
+      "result_message_id": null
+    },
+    {
+      "id": "01a1226e-b853-70de-b697-f728cc24eace",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "project_id": null,
+      "origin_chat_id": "01a12236-b308-7080-9877-6fc078239999",
+      "parent_assignment_id": null,
+      "trigger_message_id": "01a1226e-b853-70de-b697-f727456a65ca",
+      "status": "waiting_user",
+      "started_at": "2026-10-09T20:50:43.923701+00:00",
+      "finished_at": null,
+      "result_message_id": null
+    }
+  ],
+  "selected_pending_approvals": [
+    {
+      "id": "01a12270-e71a-7048-b52e-f4a22918269d",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "assignment_id": "01a1226f-17ac-73b4-8b13-a7e232791f44",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "tool": "bash",
+      "risk": "exec",
+      "state": "pending",
+      "detail_sha256": "42cb9e6a7de5ca8254c501fdc6a8ec6fcf4e321d3d6f0df56416a44eec3b59d2"
+    },
+    {
+      "id": "01a1226f-483a-763f-b149-c52075878d82",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "assignment_id": "01a1226e-a78d-712e-83af-c438d45163e2",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "tool": "bash",
+      "risk": "exec",
+      "state": "pending",
+      "detail_sha256": "dd057ba9ab11dac9d47f3d3ffb4ab98544a4fc9533b4341e6d29295de323ad52"
+    },
+    {
+      "id": "01a1226f-0ddd-7070-946b-313ed7d6d539",
+      "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+      "assignment_id": "01a1226e-b853-70de-b697-f728cc24eace",
+      "chat_id": "01a12236-b308-7080-9877-6fc078239999",
+      "tool": "bash",
+      "risk": "exec",
+      "state": "pending",
+      "detail_sha256": "a181f4224125e2518baea524cb04157d3f39381a4fe899cff09cc581658f95ed"
+    }
+  ],
+  "legacy_approved_or_migrated": false,
+  "full_s2_pass": false
+}

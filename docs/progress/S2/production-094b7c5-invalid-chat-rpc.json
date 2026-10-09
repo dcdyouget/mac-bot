@@ -1,0 +1,23 @@
+{
+  "status": "PASS_LOCAL_INVALID_CHAT_RPC_REJECTED",
+  "source_commit": "094b7c5ab98c872ef261b8474a284e17e1c49c6b",
+  "marker": "macbot-e2e-unknown-target-9a1e6f757417",
+  "wrong_chat_id": "01a12236-b308-7080-9877-6fc078239999",
+  "error": {
+    "code": "not_found",
+    "message": "RPC chat.send failed: not found: unknown chat target 01a12236-b308-7080-9877-6fc078239999"
+  },
+  "existing_wrong_chat_file_hashes_unchanged": true,
+  "method": "chat.send",
+  "calls": 1,
+  "model_tool_send_msg_verified_in_this_probe": false,
+  "legacy_approval_decisions": 0,
+  "full_s2_pass": false,
+  "note": "Public RPC validation only; owner isolated runtime covers model send_msg.",
+  "hashed_path": "/Users/gongshaojie/MacBot/data/chats/01a12236-b308-7080-9877-6fc078239999",
+  "existing_file_count": 2,
+  "unchanged_files": [
+    "messages.jsonl",
+    "sequences.jsonl"
+  ]
+}

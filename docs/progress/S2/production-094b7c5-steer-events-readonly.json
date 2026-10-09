@@ -1,0 +1,438 @@
+{
+  "status": "READONLY_SELECTED_EVENT_METADATA",
+  "full_s2_pass": false,
+  "message_ids": [
+    "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+    "01a12291-fd95-7080-bd23-554789aab420"
+  ],
+  "events": [
+    {
+      "seq": 3326,
+      "event": "message.created",
+      "message_id": "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+      "delivery": [],
+      "mentions": [
+        {
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "instruction": null,
+          "kind": "bot"
+        }
+      ],
+      "assignment": null,
+      "steers": []
+    },
+    {
+      "seq": 3382,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12290-44e0-7784-91b3-fd49b018b4b5",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3401,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12290-44e0-7784-91b3-fd49b018b4b5",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3406,
+      "event": "message.created",
+      "message_id": "01a12291-fd95-7080-bd23-554789aab420",
+      "delivery": [],
+      "mentions": [
+        {
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "instruction": null,
+          "kind": "bot"
+        }
+      ],
+      "assignment": null,
+      "steers": []
+    },
+    {
+      "seq": 3433,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12290-44e0-7784-91b3-fd49b018b4b5",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3466,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12291-fd95-7080-bd23-554828a70e87",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3488,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12291-fd95-7080-bd23-554828a70e87",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3493,
+      "event": "assignment.created",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-133d-71bd-92e7-f8cd863d5e2b",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "queued",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3502,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12291-fd95-7080-bd23-554828a70e87",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3513,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12291-fd95-7080-bd23-554828a70e87",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3524,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12291-fd95-7080-bd23-554828a70e87",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3535,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12291-fd95-7080-bd23-554828a70e87",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3545,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12291-fd95-7080-bd23-554828a70e87",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3548,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12291-fd95-7080-bd23-554828a70e87",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "done",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3550,
+      "event": "assignment.created",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-d87e-747a-96fc-78a3f82ad5de",
+        "bot_id": "main",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3554,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-133d-71bd-92e7-f8cd863d5e2b",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3559,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-133d-71bd-92e7-f8cd863d5e2b",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3564,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-d87e-747a-96fc-78a3f82ad5de",
+        "bot_id": "main",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3567,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-d87e-747a-96fc-78a3f82ad5de",
+        "bot_id": "main",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3575,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-d87e-747a-96fc-78a3f82ad5de",
+        "bot_id": "main",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3578,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-d87e-747a-96fc-78a3f82ad5de",
+        "bot_id": "main",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3581,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-133d-71bd-92e7-f8cd863d5e2b",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3591,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-d87e-747a-96fc-78a3f82ad5de",
+        "bot_id": "main",
+        "status": "working",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    },
+    {
+      "seq": 3594,
+      "event": "assignment.updated",
+      "message_id": null,
+      "delivery": null,
+      "mentions": null,
+      "assignment": {
+        "id": "01a12293-d87e-747a-96fc-78a3f82ad5de",
+        "bot_id": "main",
+        "status": "done",
+        "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679"
+      },
+      "steers": []
+    }
+  ],
+  "new_tasks_from_steer": [
+    {
+      "message_id": "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+      "message_created_at": "2026-10-09T21:27:22.592358+00:00",
+      "message_keys": [
+        "artifacts",
+        "assignment_id",
+        "blocks",
+        "chat_id",
+        "created_at",
+        "deleted",
+        "delivery",
+        "edited_at",
+        "fallback_text",
+        "id",
+        "intent",
+        "mentions",
+        "options",
+        "reactions",
+        "reply_to",
+        "sender",
+        "seq",
+        "streaming",
+        "thread_count"
+      ],
+      "expected_busy_assignment": {
+        "id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "done",
+        "started_at": "2026-10-09T21:26:40.390885+00:00",
+        "finished_at": "2026-10-09T21:28:45.065086+00:00"
+      },
+      "new_assignments": [
+        {
+          "id": "01a12290-44e0-7784-91b3-fd49b018b4b5",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "status": "waiting_user",
+          "trigger_message_id": "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+          "parent_assignment_id": null,
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "started_at": "2026-10-09T21:28:29.781844+00:00",
+          "finished_at": null
+        }
+      ]
+    },
+    {
+      "message_id": "01a12291-fd95-7080-bd23-554789aab420",
+      "message_created_at": "2026-10-09T21:29:15.413607+00:00",
+      "message_keys": [
+        "artifacts",
+        "assignment_id",
+        "blocks",
+        "chat_id",
+        "created_at",
+        "deleted",
+        "delivery",
+        "edited_at",
+        "fallback_text",
+        "id",
+        "intent",
+        "mentions",
+        "options",
+        "reactions",
+        "reply_to",
+        "sender",
+        "seq",
+        "streaming",
+        "thread_count"
+      ],
+      "expected_busy_assignment": {
+        "id": "01a1228f-7dd2-7007-bece-67554eb540fd",
+        "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "status": "done",
+        "started_at": "2026-10-09T21:28:29.781845+00:00",
+        "finished_at": "2026-10-09T21:30:01.072921+00:00"
+      },
+      "new_assignments": [
+        {
+          "id": "01a12291-fd95-7080-bd23-554828a70e87",
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "status": "done",
+          "trigger_message_id": "01a12291-fd95-7080-bd23-554789aab420",
+          "parent_assignment_id": null,
+          "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "started_at": "2026-10-09T21:30:01.072927+00:00",
+          "finished_at": "2026-10-09T21:31:16.955855+00:00"
+        }
+      ]
+    }
+  ]
+}
