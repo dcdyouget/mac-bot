@@ -12,8 +12,8 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants},
 };
 use gpui_kit::gpui::{
-    AnyElement, App, Bounds, Context, EventEmitter, FocusHandle, Focusable, Image, ImageFormat,
-    InteractiveElement, IntoElement, KeyDownEvent, KeyUpEvent, Modifiers, MouseButton,
+    AnyElement, App, Asset, Bounds, Context, EventEmitter, FocusHandle, Focusable, Image,
+    ImageFormat, InteractiveElement, IntoElement, KeyDownEvent, KeyUpEvent, Modifiers, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage,
     ScrollWheelEvent, SharedString, Styled, StyledImage, Window, div, img, px,
 };
@@ -21,6 +21,87 @@ use gpui_kit::prelude::FluentBuilder;
 use serde_json::{Value, json};
 
 use crate::tokens::Tokens;
+
+#[derive(Clone)]
+struct ScreenImageAsset;
+
+impl Asset for ScreenImageAsset {
+    type Source = Arc<Image>;
+    type Output = Result<Arc<RenderImage>, String>;
+
+    fn load(
+        source: Self::Source,
+        cx: &mut App,
+    ) -> impl std::future::Future<Output = Self::Output> + Send + 'static {
+        let svg_renderer = cx.svg_renderer();
+        async move { decode_screen_image(source, svg_renderer) }
+    }
+}
+
+fn decode_screen_image(
+    image: Arc<Image>,
+    renderer: gpui_kit::SvgRenderer,
+) -> Result<Arc<RenderImage>, String> {
+    image
+        .to_image_data(renderer)
+        .map_err(|error| error.to_string())
+}
+
+/// Decoding state is separate from the image already available for paint.
+struct FramePresentation<T> {
+    image: Option<T>,
+    seq: Option<u64>,
+    retired: Vec<T>,
+    error: Option<String>,
+    failed_seq: Option<u64>,
+}
+
+impl<T> Default for FramePresentation<T> {
+    fn default() -> Self {
+        Self {
+            image: None,
+            seq: None,
+            retired: Vec::new(),
+            error: None,
+            failed_seq: None,
+        }
+    }
+}
+
+impl<T> FramePresentation<T> {
+    fn receive(&mut self) {
+        self.error = None;
+        self.failed_seq = None;
+    }
+
+    /// A waiting or failed decode must keep the last usable image and its seq.
+    fn apply_decode(&mut self, seq: u64, result: Option<Result<T, String>>) -> bool {
+        match result {
+            None => return false,
+            Some(Ok(image)) => {
+                if let Some(previous) = self.image.replace(image) {
+                    self.retired.push(previous);
+                }
+                self.seq = Some(seq);
+                self.error = None;
+                self.failed_seq = None;
+            }
+            Some(Err(error)) => {
+                self.error = Some(error);
+                self.failed_seq = Some(seq);
+            }
+        }
+        true
+    }
+
+    fn reset(&mut self) {
+        if let Some(image) = self.image.take() {
+            self.retired.push(image);
+        }
+        self.seq = None;
+        self.receive();
+    }
+}
 
 /// A decoded screen frame supplied by the screen websocket transport.
 #[derive(Clone, Debug)]
@@ -77,10 +158,14 @@ pub struct Computer {
     state: Value,
     frame: Option<Frame>,
     image: Option<Arc<Image>>,
-    render_image: Option<Arc<RenderImage>>,
-    image_error: Option<String>,
-    pending_render_ack: Option<u64>,
+    /// The one image currently being decoded. New frames replace `image` and
+    /// remain queued until this decode completes, avoiding an unbounded set of
+    /// competing decoders at stream frame rate.
+    decoding_image: Option<(u64, Arc<Image>)>,
+    presentation: FramePresentation<Arc<RenderImage>>,
+    ack_scheduled_seq: Option<u64>,
     acked_render_seq: Option<u64>,
+    render_generation: u64,
     focus_handle: FocusHandle,
     viewport_width: f32,
     viewport_height: f32,
@@ -103,10 +188,11 @@ impl Computer {
             state: Value::Object(Default::default()),
             frame: None,
             image: None,
-            render_image: None,
-            image_error: None,
-            pending_render_ack: None,
+            decoding_image: None,
+            presentation: FramePresentation::default(),
+            ack_scheduled_seq: None,
             acked_render_seq: None,
+            render_generation: 0,
             focus_handle: cx.focus_handle(),
             viewport_width: 1.0,
             viewport_height: 1.0,
@@ -125,11 +211,16 @@ impl Computer {
     pub fn reset_connection(&mut self, cx: &mut Context<Self>) {
         self.state = Value::Object(Default::default());
         self.frame = None;
-        self.image = None;
-        self.render_image = None;
-        self.image_error = None;
-        self.pending_render_ack = None;
+        if let Some(image) = self.image.take() {
+            cx.remove_asset::<ScreenImageAsset>(&image);
+        }
+        if let Some((_, image)) = self.decoding_image.take() {
+            cx.remove_asset::<ScreenImageAsset>(&image);
+        }
+        self.presentation.reset();
+        self.ack_scheduled_seq = None;
         self.acked_render_seq = None;
+        self.render_generation = self.render_generation.wrapping_add(1);
         self.frame_received_at = None;
         self.last_frame_received = None;
         self.frame_count = 0;
@@ -187,6 +278,9 @@ impl Computer {
         jpeg: impl Into<Arc<[u8]>>,
         cx: &mut Context<Self>,
     ) {
+        if self.frame.as_ref().is_some_and(|frame| frame.seq == seq) {
+            return;
+        }
         let received_at = Instant::now();
         let elapsed = received_at.duration_since(self.frame_window_started);
         if elapsed.as_secs_f32() >= 1.0 {
@@ -203,9 +297,7 @@ impl Computer {
             ImageFormat::Jpeg,
             frame.jpeg.to_vec(),
         )));
-        self.render_image = None;
-        self.image_error = None;
-        self.pending_render_ack = (self.acked_render_seq != Some(seq)).then_some(seq);
+        self.presentation.receive();
         cx.notify();
     }
 
@@ -405,7 +497,7 @@ impl Computer {
     }
 
     fn map_window_point(&self, x: f32, y: f32) -> Option<(f32, f32)> {
-        let frame = self.frame.as_ref()?;
+        let size = self.presentation.image.as_ref()?.size(0);
         let (x, y, viewport_width, viewport_height) = self
             .canvas_bounds
             .borrow()
@@ -424,14 +516,19 @@ impl Computer {
             y,
             viewport_width,
             viewport_height,
-            frame.width as f32,
-            frame.height as f32,
+            size.width.0 as f32,
+            size.height.0 as f32,
         );
         Some((x, y))
     }
 
     fn render_frame(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
+        if self.presentation.image.is_none() {
+            for image in self.presentation.retired.drain(..) {
+                let _ = window.drop_image(image);
+            }
+        }
         let Some(frame) = self.frame.as_ref() else {
             return div()
                 .flex()
@@ -443,27 +540,54 @@ impl Computer {
         };
         let seq = frame.seq;
 
-        let ready = if self.render_image.is_some() {
-            true
-        } else if let Some(image) = self.image.clone()
-            && let Some(render_image) = image.get_render_image(window, cx)
-        {
-            self.render_image = Some(render_image);
-            true
-        } else {
-            false
-        };
+        if self.presentation.seq != Some(seq) {
+            // The custom asset keeps the Result so a malformed frame cannot
+            // remain in the single in-flight slot forever. `use_asset` also
+            // subscribes this entity for the redraw after decode completion.
+            if let Some((decoded_seq, decoding_image)) = self.decoding_image.clone() {
+                self.poll_decode(decoded_seq, decoding_image, window, cx);
+            }
 
-        if ready {
-            self.schedule_render_ack(seq, window, cx);
+            // A frame received while another is decoding is the latest queued
+            // frame. Start it only after the in-flight decode has completed.
+            if self.presentation.seq != Some(seq)
+                && self.decoding_image.is_none()
+                && self.presentation.failed_seq != Some(seq)
+                && let Some(image) = self.image.clone()
+            {
+                self.presentation.error = None;
+                self.decoding_image = Some((seq, image.clone()));
+                self.poll_decode(seq, image, window, cx);
+            }
         }
 
-        let content = if let Some(render_image) = self.render_image.clone() {
-            img(render_image)
+        if let Some(presented_seq) = self.presentation.seq {
+            self.schedule_render_ack(presented_seq, window, cx);
+        }
+
+        let content = if let Some(render_image) = self.presentation.image.clone() {
+            let content = div()
+                .relative()
                 .size_full()
-                .object_fit(ObjectFit::Contain)
-                .into_any_element()
-        } else if let Some(error) = self.image_error.as_deref() {
+                .child(img(render_image).size_full().object_fit(ObjectFit::Contain));
+            if let Some(error) = self.presentation.error.as_deref() {
+                content
+                    .child(
+                        div()
+                            .absolute()
+                            .bottom_0()
+                            .left_0()
+                            .right_0()
+                            .p_2()
+                            .bg(t.window)
+                            .text_color(t.secondary)
+                            .child(format!("{}: {}", tr("computer.decode_error"), error)),
+                    )
+                    .into_any_element()
+            } else {
+                content.into_any_element()
+            }
+        } else if let Some(error) = self.presentation.error.as_deref() {
             div()
                 .flex()
                 .items_center()
@@ -473,11 +597,6 @@ impl Computer {
                 .text_color(t.secondary)
                 .child(tr("computer.decode_error"))
                 .child(error.to_string())
-                .into_any_element()
-        } else if let Some(image) = self.image.clone() {
-            img(image)
-                .size_full()
-                .object_fit(ObjectFit::Contain)
                 .into_any_element()
         } else {
             div()
@@ -577,15 +696,24 @@ impl Computer {
     }
 
     fn schedule_render_ack(&mut self, seq: u64, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pending_render_ack != Some(seq) || self.acked_render_seq == Some(seq) {
+        if !should_schedule_render_ack(seq, self.acked_render_seq, self.ack_scheduled_seq) {
             return;
         }
-        self.pending_render_ack = None;
+        self.ack_scheduled_seq = Some(seq);
+        let generation = self.render_generation;
         cx.on_next_frame(window, move |this, _window, cx| {
-            if this.frame.as_ref().is_some_and(|frame| frame.seq == seq)
-                && this.acked_render_seq != Some(seq)
-            {
+            if can_complete_render_ack(
+                generation,
+                this.render_generation,
+                seq,
+                this.ack_scheduled_seq,
+                this.acked_render_seq,
+            ) {
+                this.ack_scheduled_seq = None;
                 this.acked_render_seq = Some(seq);
+                for image in this.presentation.retired.drain(..) {
+                    _window.drop_image(image).ok();
+                }
                 if let Some((received_seq, received_at)) = this.frame_received_at
                     && received_seq == seq
                 {
@@ -594,6 +722,20 @@ impl Computer {
                 this.emit(ComputerAction::Rendered(seq), cx);
             }
         });
+    }
+
+    fn poll_decode(
+        &mut self,
+        seq: u64,
+        image: Arc<Image>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let result = window.use_asset::<ScreenImageAsset>(&image, cx);
+        if self.presentation.apply_decode(seq, result) {
+            self.decoding_image = None;
+            cx.remove_asset::<ScreenImageAsset>(&image);
+        }
     }
 }
 
@@ -876,9 +1018,35 @@ fn quality_label(value: &str) -> &'static str {
     }
 }
 
+fn should_schedule_render_ack(
+    requested_seq: u64,
+    acked_seq: Option<u64>,
+    scheduled_seq: Option<u64>,
+) -> bool {
+    acked_seq.is_none_or(|acked| requested_seq > acked)
+        && scheduled_seq.is_none_or(|scheduled| requested_seq > scheduled)
+}
+
+fn can_complete_render_ack(
+    generation: u64,
+    current_generation: u64,
+    seq: u64,
+    scheduled_seq: Option<u64>,
+    acked_seq: Option<u64>,
+) -> bool {
+    generation == current_generation
+        && scheduled_seq == Some(seq)
+        && acked_seq.is_none_or(|acked| seq > acked)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::map_contain_point;
+    use super::{
+        FramePresentation, can_complete_render_ack, decode_screen_image, map_contain_point,
+        should_schedule_render_ack,
+    };
+    use gpui_kit::{Image, ImageFormat, SvgRenderer};
+    use std::sync::Arc;
 
     #[test]
     fn contain_mapping_preserves_aspect_ratio() {
@@ -893,6 +1061,76 @@ mod tests {
         assert_eq!(
             map_contain_point(500.0, 0.0, 1000.0, 1000.0, 2000.0, 1000.0),
             (1000.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn render_ack_waits_for_the_presented_image() {
+        // A newly received frame must not be acknowledged merely because the
+        // previous frame is still being displayed while this one decodes.
+        assert!(should_schedule_render_ack(12, None, None));
+        assert!(!should_schedule_render_ack(12, Some(12), None));
+        assert!(!should_schedule_render_ack(12, None, Some(12)));
+        assert!(!should_schedule_render_ack(11, Some(12), None));
+        assert!(!should_schedule_render_ack(11, None, Some(12)));
+    }
+    #[test]
+    fn incoming_and_failed_decodes_preserve_the_presented_frame_and_ack_sequence() {
+        let mut state = FramePresentation::default();
+        assert!(state.apply_decode(11, Some(Ok("visible-11"))));
+        state.receive();
+        assert!(!state.apply_decode(12, None));
+        assert_eq!(state.image, Some("visible-11"));
+        assert_eq!(state.seq, Some(11));
+        assert!(state.retired.is_empty());
+        assert!(state.apply_decode(12, Some(Err("invalid JPEG".into()))));
+        assert_eq!(state.image, Some("visible-11"));
+        assert_eq!(state.seq, Some(11));
+        assert_eq!(state.failed_seq, Some(12));
+        assert!(state.retired.is_empty());
+        state.receive();
+        assert!(state.apply_decode(13, Some(Ok("visible-13"))));
+        assert_eq!(state.image, Some("visible-13"));
+        assert_eq!(state.seq, Some(13));
+        assert_eq!(state.retired, vec!["visible-11"]);
+        assert!(state.error.is_none());
+        state.reset();
+        assert!(state.image.is_none());
+        assert!(state.seq.is_none());
+        assert_eq!(state.retired, vec!["visible-11", "visible-13"]);
+    }
+
+    #[test]
+    fn stale_render_callback_cannot_ack_a_reopened_connection_with_reused_sequences() {
+        assert!(!can_complete_render_ack(1, 2, 1, Some(1), None));
+        assert!(can_complete_render_ack(2, 2, 1, Some(1), None));
+        assert!(!can_complete_render_ack(2, 2, 1, Some(1), Some(2)));
+        assert!(!can_complete_render_ack(2, 2, 1, None, None));
+    }
+
+    #[test]
+    fn jpeg_decode_produces_gpui_pixels_and_rejects_corrupt_frames() {
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 100)
+            .encode(&[255, 0, 0], 1, 1, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let renderer = SvgRenderer::new(Arc::new(()));
+        let decoded = decode_screen_image(
+            Arc::new(Image::from_bytes(ImageFormat::Jpeg, jpeg)),
+            renderer.clone(),
+        )
+        .unwrap();
+        let size = decoded.size(0);
+        assert_eq!((size.width.0, size.height.0), (1, 1));
+        let bgra = decoded.as_bytes(0).unwrap();
+        assert!(bgra[2] > 240 && bgra[0] < 10 && bgra[1] < 10);
+        assert_eq!(bgra[3], 255);
+        assert!(
+            decode_screen_image(
+                Arc::new(Image::from_bytes(ImageFormat::Jpeg, vec![0xff, 0xd8, 0xff])),
+                renderer
+            )
+            .is_err()
         );
     }
 }
