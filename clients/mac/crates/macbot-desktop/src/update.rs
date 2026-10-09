@@ -513,7 +513,14 @@ cleanup
 if [[ "${{MACBOT_TEST_UPDATE_NO_OPEN:-0}}" == "1" ]]; then
   print "Test mode: installed MacBot $EXPECTED_VERSION without opening the app"
 else
-  open "$TARGET_APP"
+  open_args=()
+  if [[ -n "${{MACBOT_CLIENT_DATA_DIR:-}}" ]]; then
+    open_args+=(--env "MACBOT_CLIENT_DATA_DIR=$MACBOT_CLIENT_DATA_DIR")
+  fi
+  if [[ -n "${{MACBOT_SECRET_BACKEND:-}}" ]]; then
+    open_args+=(--env "MACBOT_SECRET_BACKEND=$MACBOT_SECRET_BACKEND")
+  fi
+  open "${{open_args[@]}}" "$TARGET_APP"
 fi
 print "Installed MacBot $EXPECTED_VERSION; backup retained at $BACKUP_APP"
 "#,
@@ -755,6 +762,16 @@ mod tests {
         assert!(script.contains("install_exit_code=$?"));
         assert!(!script.contains("status=$?"));
         assert!(script.contains("MACBOT_TEST_UPDATE_NO_OPEN"));
+        assert!(
+            script
+                .contains("open_args+=(--env \"MACBOT_CLIENT_DATA_DIR=$MACBOT_CLIENT_DATA_DIR\")")
+        );
+        assert!(
+            script.contains("open_args+=(--env \"MACBOT_SECRET_BACKEND=$MACBOT_SECRET_BACKEND\")")
+        );
+        assert!(script.contains("open \"${open_args[@]}\" \"$TARGET_APP\""));
+        assert!(!script.contains("MACBOT_PASSWORD"));
+        assert!(!script.contains("MACBOT_HOST"));
     }
 
     #[test]

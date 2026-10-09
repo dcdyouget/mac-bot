@@ -883,6 +883,10 @@ impl MacBot {
         .detach();
     }
     fn select_main(&mut self, cx: &mut Context<Self>) {
+        self.close_trace(cx);
+        self.close_screen();
+        self.context.clear();
+        self.focus_root(cx);
         if let Some(chat) = self.state.chats.values().find(|v| s(v, "kind") == "main") {
             let id = s(chat, "id").to_owned();
             self.selected_chat = id.clone();
@@ -894,6 +898,8 @@ impl MacBot {
     }
     fn select_chat(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         self.close_trace(cx);
+        self.close_screen();
+        self.focus.focus(window, cx);
         self.message_following = true;
         self.selected_chat = id.clone();
         self.page = "chat".into();

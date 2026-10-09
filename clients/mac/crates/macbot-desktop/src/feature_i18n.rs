@@ -46,6 +46,7 @@ pub fn text(key: &str) -> &'static str {
         "dashboard.cost" => "费用",
         "dashboard.tasks" => "完成任务",
         "dashboard.cache" => "缓存命中率",
+        "dashboard.cache_read" => "缓存读",
         "dashboard.top_bot" => "最活跃 Bot",
         "dashboard.input" => "输入",
         "dashboard.output" => "输出",

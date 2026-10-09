@@ -1688,7 +1688,8 @@ fn workbench_group_label(mode: &str) -> &'static str {
 }
 
 fn workbench_status_label(status: Option<&str>) -> String {
-    match status.unwrap_or_default() {
+    let raw = status.unwrap_or_default();
+    match raw {
         "queued" => t("workbench.status_queued").to_owned(),
         "working" | "running" => t("workbench.status_working").to_owned(),
         "waiting" => t("workbench.status_waiting").to_owned(),
@@ -1696,7 +1697,8 @@ fn workbench_status_label(status: Option<&str>) -> String {
         "failed" => t("workbench.status_failed").to_owned(),
         "done" => t("workbench.status_done").to_owned(),
         "cancelled" => t("workbench.status_cancelled").to_owned(),
-        _ => t("common.unknown").to_owned(),
+        "" => t("common.unknown").to_owned(),
+        _ => raw.to_owned(),
     }
 }
 
@@ -2022,12 +2024,6 @@ fn dashboard(
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
-    let days = data
-        .get("heatmap")
-        .and_then(|heatmap| heatmap.get("days"))
-        .and_then(Value::as_array)
-        .map(Vec::len)
-        .unwrap_or_else(|| array(data, "days").len());
     let details = dashboard_details(data);
     let heat = heatmap(data, inputs, tokens, cx);
     let trend = trend_chart(data, tokens, cx);
@@ -2168,12 +2164,7 @@ fn dashboard(
                     FeatureAction::Navigate("usage/export.csv".into()),
                     cx,
                 ))
-                .child(dashboard_detail_rows(&details, data, tokens, cx))
-                .child(div().text_sm().text_color(tokens.secondary).child(format!(
-                    "{} {}",
-                    days,
-                    t("dashboard.days")
-                ))),
+                .child(dashboard_detail_rows(&details, data, tokens, cx)),
             tokens,
         ))
 }
@@ -2207,7 +2198,7 @@ fn dashboard_detail_rows(
             let requests = usage.get("requests").and_then(Value::as_u64).unwrap_or(0);
             let cost = usage.get("cost").and_then(json_value_text);
             let key = string(item, "key", "");
-            let sparkline_values = usage
+            let sparkline_values = item
                 .get("sparkline")
                 .and_then(Value::as_array)
                 .cloned()
@@ -2236,7 +2227,7 @@ fn dashboard_detail_rows(
             } else {
                 div().w(px(96.)).h(px(28.)).into_any_element()
             };
-            let phase_text = usage
+            let phase_text = item
                 .get("phases")
                 .and_then(Value::as_object)
                 .map(|phases| {
@@ -2244,9 +2235,8 @@ fn dashboard_detail_rows(
                         .iter()
                         .filter_map(|(phase, value)| {
                             let value = value.as_f64()?;
-                            (value > 0.).then(|| {
-                                format!("{} {:.0}", dashboard_phase_label(phase), value)
-                            })
+                            (value > 0.)
+                                .then(|| format!("{} {:.0}", dashboard_phase_label(phase), value))
                         })
                         .collect::<Vec<_>>()
                         .join(" · ")
@@ -2291,7 +2281,15 @@ fn dashboard_detail_rows(
                         .flex_col()
                         .gap_1()
                         .child(format!(
-                            "{label}   in {input} · out {output} · cache {cached} · {requests} req{cost_label}"
+                            "{label}   {} {} · {} {} · {} {} · {} {}{cost_label}",
+                            t("dashboard.input"),
+                            input,
+                            t("dashboard.output"),
+                            output,
+                            t("dashboard.cache_read"),
+                            cached,
+                            t("dashboard.requests"),
+                            requests,
                         ))
                         .child(
                             div()
@@ -3796,7 +3794,7 @@ fn routine_editor(
                 "{} · {} · {}",
                 string(h, "started_at", t("common.unknown")),
                 routine_trigger(h),
-                string(h, "status", t("routine.done"))
+                workbench_status_label(h.get("status").and_then(Value::as_str))
             )
         })
         .collect::<Vec<_>>();
@@ -4157,6 +4155,18 @@ fn search(
         ))
 }
 
+fn search_kind_label(kind: &str) -> String {
+    match kind {
+        "message" => t("search.messages").to_owned(),
+        "chat" => t("search.groups").to_owned(),
+        "artifact" => t("search.artifacts").to_owned(),
+        "bot" => t("search.bots").to_owned(),
+        "routine" => t("search.routines").to_owned(),
+        "" => t("common.unknown").to_owned(),
+        _ => kind.to_owned(),
+    }
+}
+
 fn search_result_rows(
     results: &[Value],
     tokens: &Tokens,
@@ -4168,6 +4178,7 @@ fn search_result_rows(
         .gap_1()
         .children(results.iter().enumerate().map(|(index, result)| {
             let kind = string(result, "kind", "");
+            let kind_label = search_kind_label(&kind);
             let title = string(result, "title", t("common.unknown"));
             let snippet = string(result, "snippet", t("common.unknown"));
             let target = search_target(result, &kind);
@@ -4178,7 +4189,7 @@ fn search_result_rows(
                 .py_2()
                 .border_b_1()
                 .border_color(tokens.border)
-                .child(format!("{kind}   {title}\n{snippet}"));
+                .child(format!("{kind_label}   {title}\n{snippet}"));
             if let Some(target) = target {
                 row = row.child(action_button_with_id(
                     format!("search-open-{index}"),

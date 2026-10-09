@@ -94,7 +94,7 @@ packaging/screenshot-window.sh progress/S5/connect.png "Mac Bot" 12345
 MACBOT_UPDATE_URL=http://127.0.0.1:7789/update.json packaging/check-update.sh
 ```
 
-`UpdateClient::download_and_stage` 会先下载并校验 digest，再生成缓存目录中的可复核 `install-<version>.sh`。设置页的检查、下载和安装事件已由主应用接线；只有用户点击安装后才执行脚本。脚本会重新校验 SHA-256，以只读方式挂载 DMG，校验 `bot.mac.desktop` 和版本，使用 `ditto` 写入目标父目录，等待旧进程退出后原子替换，并在替换失败时恢复应用备份。备份只保留应用 bundle，不删除其他用户文件。若程序是直接运行的 Rust binary 而不是 `.app`，不会生成替换脚本；应打开已校验的 DMG 手动安装。当前尚未配置公开发布 URL；本机生成的实际 DMG 已完成独立目录内的替换验收。
+`UpdateClient::download_and_stage` 会先下载并校验 digest，再生成缓存目录中的可复核 `install-<version>.sh`。设置页的检查、下载和安装事件已由主应用接线；只有用户点击安装后才执行脚本。脚本会重新校验 SHA-256，以只读方式挂载 DMG，校验 `bot.mac.desktop` 和版本，使用 `ditto` 写入目标父目录，等待旧进程退出后原子替换，并在替换失败时恢复应用备份。备份只保留应用 bundle，不删除其他用户文件。重开 replacement 时只通过 `open --env` 透传已设置的 `MACBOT_CLIENT_DATA_DIR` 和 `MACBOT_SECRET_BACKEND`，因此 QA 数据根和显式 file 凭据后端会保留；不会透传密码、Host 或用户 API key。若程序是直接运行的 Rust binary 而不是 `.app`，不会生成替换脚本；应打开已校验的 DMG 手动安装。当前尚未配置公开发布 URL，正式签名/notarization 也未配置；本机生成的实际 DMG 已完成独立目录内的替换验收。
 
 更新比较使用运行中 `.app/Contents/Info.plist` 的 `CFBundleShortVersionString`；直接运行 target binary 时回退到 `CARGO_PKG_VERSION`。可对现有 DMG 做隔离替换验收（测试会在系统临时目录创建 `.app`、设置 `MACBOT_TEST_UPDATE_NO_OPEN=1`，不打开应用）：
 
@@ -125,3 +125,5 @@ open -n --env MACBOT_CLIENT_DATA_DIR=/tmp/macbot-client-qa-data \
 ```
 
 `MACBOT_CLIENT_DATA_DIR` 必须为绝对路径，覆盖 Host 列表与当前 Host 恢复所用记录、file 后端凭据、会话状态缓存、待发 outbox、本机偏好、更新配置和更新缓存。未设置时仍使用正常 Application Support 路径；`MACBOT_UPDATE_CACHE` 显式覆盖更新缓存时优先。QA 使用 `file` 后端，避免与安装版共享 Keychain；开机启动等系统设置仍由系统管理，QA 不应启用。仅修改测试 bundle 的 `CFBundleIdentifier` 为 `bot.mac.desktop.qa`，正式产物继续使用 `bot.mac.desktop`。
+
+独立 QA bundle 同时将 `CFBundleName` 和 `CFBundleDisplayName` 设为 `MacBotQA`，这样 CoreGraphics 窗口 owner 与正式安装版可区分；截图时使用 `packaging/screenshot-window.sh progress/S5/qa.png MacBotQA <PID>`，或通过 `MACBOT_WINDOW_PID=<PID>` 过滤该进程。
