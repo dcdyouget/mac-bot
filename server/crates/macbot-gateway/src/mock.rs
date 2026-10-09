@@ -6,6 +6,7 @@
 //! protocol event to the gateway event log.
 
 use super::{id, now, rpc_error, GatewayState, MockState, RpcResult};
+use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
 use serde_json::{json, Value};
 
 pub(crate) async fn mock_call(method: &str, params: Value, state: &GatewayState) -> RpcResult {
@@ -185,10 +186,10 @@ async fn dispatch(
         "model.delete" => model_delete(state, &params),
         "settings.get" => Ok(json!({"settings":state.settings})),
         "settings.update" => settings_update(state, &params),
-        "usage.summary" => Ok(json!({"current":usage_totals(),"previous":usage_totals()})),
-        "usage.heatmap" => Ok(json!({"days":[],"thresholds":[0,0,0]})),
-        "usage.timeseries" => Ok(json!({"granularity":"day","buckets":[],"series":[]})),
-        "usage.breakdown" => Ok(json!({"rows":[]})),
+        "usage.summary" => usage_summary(&params),
+        "usage.heatmap" => usage_heatmap(&params),
+        "usage.timeseries" => usage_timeseries(&params),
+        "usage.breakdown" => usage_breakdown(&params),
         "search" => Ok(json!({"results":[]})),
         _ => Err(rpc_error(
             "invalid_params",
@@ -274,8 +275,420 @@ fn ensure_mock_defaults(state: &mut MockState) {
 fn pending(state: &MockState) -> Value {
     json!({"approvals":extra_get(state,"approvals").iter().filter(|x| x.get("state").and_then(Value::as_str)==Some("pending")).cloned().collect::<Vec<_>>(),"questions":extra_get(state,"questions"),"reviews":[]})
 }
-fn usage_totals() -> Value {
-    json!({"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"requests":0,"cost":null,"tasks_done":0})
+#[derive(Clone)]
+struct UsageSample {
+    ts: DateTime<Utc>,
+    bot_id: &'static str,
+    project_id: Option<&'static str>,
+    model_id: &'static str,
+    phase: &'static str,
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_read_tokens: u64,
+    cache_write_tokens: u64,
+    cost: Option<f64>,
+    task_done: bool,
+}
+
+fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
+    vec![
+        UsageSample {
+            ts: now - Duration::hours(12),
+            bot_id: "bot_main",
+            project_id: Some("project_alpha"),
+            model_id: "mock-model",
+            phase: "work",
+            input_tokens: 1_000,
+            output_tokens: 400,
+            cache_read_tokens: 100,
+            cache_write_tokens: 20,
+            cost: Some(0.12),
+            task_done: true,
+        },
+        UsageSample {
+            ts: now - Duration::days(1) - Duration::hours(3),
+            bot_id: "bot_worker",
+            project_id: Some("project_alpha"),
+            model_id: "fast-model",
+            phase: "maintenance",
+            input_tokens: 600,
+            output_tokens: 200,
+            cache_read_tokens: 50,
+            cache_write_tokens: 5,
+            cost: None,
+            task_done: false,
+        },
+        UsageSample {
+            ts: now - Duration::days(2),
+            bot_id: "bot_main",
+            project_id: Some("project_beta"),
+            model_id: "mock-model",
+            phase: "compact",
+            input_tokens: 1_200,
+            output_tokens: 300,
+            cache_read_tokens: 0,
+            cache_write_tokens: 50,
+            cost: Some(0.20),
+            task_done: false,
+        },
+        UsageSample {
+            ts: now - Duration::days(3) - Duration::hours(4),
+            bot_id: "bot_worker",
+            project_id: Some("project_beta"),
+            model_id: "vision-model",
+            phase: "work",
+            input_tokens: 800,
+            output_tokens: 500,
+            cache_read_tokens: 80,
+            cache_write_tokens: 10,
+            cost: Some(0.35),
+            task_done: true,
+        },
+        UsageSample {
+            ts: now - Duration::days(4),
+            bot_id: "bot_main",
+            project_id: Some("project_alpha"),
+            model_id: "fast-model",
+            phase: "coordinate",
+            input_tokens: 450,
+            output_tokens: 180,
+            cache_read_tokens: 30,
+            cache_write_tokens: 0,
+            cost: Some(0.07),
+            task_done: true,
+        },
+        UsageSample {
+            ts: now - Duration::days(5) - Duration::hours(2),
+            bot_id: "bot_worker",
+            project_id: Some("project_beta"),
+            model_id: "mock-model",
+            phase: "work",
+            input_tokens: 700,
+            output_tokens: 250,
+            cache_read_tokens: 40,
+            cache_write_tokens: 15,
+            cost: Some(0.11),
+            task_done: false,
+        },
+        UsageSample {
+            ts: now - Duration::days(6),
+            bot_id: "bot_worker",
+            project_id: Some("project_alpha"),
+            model_id: "free-model",
+            phase: "memory",
+            input_tokens: 300,
+            output_tokens: 100,
+            cache_read_tokens: 25,
+            cache_write_tokens: 5,
+            cost: None,
+            task_done: false,
+        },
+        // Falls into the previous interval for the default seven-day window.
+        UsageSample {
+            ts: now - Duration::days(9),
+            bot_id: "bot_main",
+            project_id: Some("project_alpha"),
+            model_id: "mock-model",
+            phase: "work",
+            input_tokens: 500,
+            output_tokens: 160,
+            cache_read_tokens: 20,
+            cache_write_tokens: 0,
+            cost: Some(0.05),
+            task_done: true,
+        },
+    ]
+}
+
+fn usage_window(params: &Value) -> (DateTime<Utc>, DateTime<Utc>) {
+    let now = Utc::now();
+    let from = params
+        .get("from")
+        .and_then(Value::as_str)
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc))
+        .unwrap_or(now - Duration::days(7));
+    let to = params
+        .get("to")
+        .and_then(Value::as_str)
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc))
+        .unwrap_or(now);
+    (from, to.max(from + Duration::milliseconds(1)))
+}
+
+fn usage_samples(params: &Value) -> (Vec<UsageSample>, DateTime<Utc>, DateTime<Utc>) {
+    let (from, to) = usage_window(params);
+    let samples = usage_seed(Utc::now())
+        .into_iter()
+        .filter(|sample| sample.ts >= from && sample.ts < to)
+        .collect();
+    (samples, from, to)
+}
+
+fn usage_totals(samples: &[UsageSample]) -> Value {
+    let input_tokens = samples.iter().map(|x| x.input_tokens).sum::<u64>();
+    let output_tokens = samples.iter().map(|x| x.output_tokens).sum::<u64>();
+    let cache_read_tokens = samples.iter().map(|x| x.cache_read_tokens).sum::<u64>();
+    let cache_write_tokens = samples.iter().map(|x| x.cache_write_tokens).sum::<u64>();
+    let cost = samples.iter().filter_map(|x| x.cost).sum::<f64>();
+    json!({
+        "input_tokens":input_tokens,
+        "output_tokens":output_tokens,
+        "cache_read_tokens":cache_read_tokens,
+        "cache_write_tokens":cache_write_tokens,
+        "requests":samples.len() as u64,
+        "cost":if samples.iter().any(|x| x.cost.is_some()) { json!(cost) } else { Value::Null }
+    })
+}
+
+fn usage_metric(params: &Value) -> &'static str {
+    match params
+        .get("metric")
+        .and_then(Value::as_str)
+        .unwrap_or("tokens")
+    {
+        "cost" => "cost",
+        "requests" => "requests",
+        _ => "tokens",
+    }
+}
+
+fn metric_value(sample: &UsageSample, metric: &str) -> f64 {
+    match metric {
+        "cost" => sample.cost.unwrap_or(0.0),
+        "requests" => 1.0,
+        _ => (sample.input_tokens + sample.output_tokens) as f64,
+    }
+}
+
+fn usage_summary(params: &Value) -> RpcResult {
+    let (current, from, _) = usage_samples(params);
+    let span = usage_window(params).1 - from;
+    let previous_params = json!({"from":(from - span).to_rfc3339(),"to":from.to_rfc3339()});
+    let (previous, _, _) = usage_samples(&previous_params);
+    Ok(
+        json!({"current":usage_totals_with_tasks(&current),"previous":usage_totals_with_tasks(&previous)}),
+    )
+}
+
+fn usage_totals_with_tasks(samples: &[UsageSample]) -> Value {
+    let mut totals = usage_totals(samples);
+    totals["tasks_done"] = json!(samples.iter().filter(|x| x.task_done).count() as u64);
+    totals
+}
+
+fn usage_heatmap(params: &Value) -> RpcResult {
+    let (samples, from, to) = usage_samples(params);
+    let metric = usage_metric(params);
+    let mode = params
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("calendar");
+    if mode == "weekhour" {
+        let mut matrix = vec![vec![0.0; 24]; 7];
+        for sample in &samples {
+            let local = sample.ts;
+            matrix[local.weekday().num_days_from_monday() as usize][local.hour() as usize] +=
+                metric_value(sample, metric);
+        }
+        let values = matrix
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|x| *x > 0.0)
+            .collect::<Vec<_>>();
+        return Ok(json!({"matrix":matrix,"thresholds":thresholds(&values)}));
+    }
+    let mut days = Vec::new();
+    let mut day = from.date_naive();
+    while day <= to.date_naive() && days.len() < 370 {
+        let day_samples = samples
+            .iter()
+            .filter(|sample| sample.ts.date_naive() == day)
+            .collect::<Vec<_>>();
+        let value = day_samples
+            .iter()
+            .map(|sample| metric_value(sample, metric))
+            .sum::<f64>();
+        let top_bot_id = day_samples
+            .iter()
+            .max_by(|a, b| metric_value(a, metric).total_cmp(&metric_value(b, metric)))
+            .map(|sample| sample.bot_id);
+        days.push(json!({"date":day.to_string(),"value":value,"tokens":day_samples.iter().map(|x| x.input_tokens+x.output_tokens).sum::<u64>(),"cost":day_samples.iter().filter_map(|x| x.cost).sum::<f64>(),"requests":day_samples.len() as u64,"top_bot_id":top_bot_id}));
+        day = day.succ_opt().unwrap_or(day);
+    }
+    let values = days
+        .iter()
+        .filter_map(|day| day["value"].as_f64())
+        .filter(|x| *x > 0.0)
+        .collect::<Vec<_>>();
+    Ok(json!({"days":days,"thresholds":thresholds(&values)}))
+}
+
+fn thresholds(values: &[f64]) -> [f64; 3] {
+    if values.is_empty() {
+        return [0.0, 0.0, 0.0];
+    }
+    let mut values = values.to_vec();
+    values.sort_by(f64::total_cmp);
+    [
+        values[0],
+        values[values.len() / 2],
+        *values.last().unwrap_or(&0.0),
+    ]
+}
+
+fn usage_timeseries(params: &Value) -> RpcResult {
+    let (samples, from, to) = usage_samples(params);
+    let metric = usage_metric(params);
+    let requested = params
+        .get("granularity")
+        .and_then(Value::as_str)
+        .unwrap_or("day");
+    let granularity = if requested == "hour" && (to - from) <= Duration::days(14) {
+        "hour"
+    } else if requested == "week" {
+        "week"
+    } else {
+        "day"
+    };
+    let step = match granularity {
+        "hour" => Duration::hours(1),
+        "week" => Duration::weeks(1),
+        _ => Duration::days(1),
+    };
+    let mut buckets = Vec::new();
+    let mut cursor = if granularity == "hour" {
+        from.with_minute(0)
+            .and_then(|x| x.with_second(0))
+            .and_then(|x| x.with_nanosecond(0))
+            .unwrap_or(from)
+    } else {
+        from.date_naive()
+            .and_hms_opt(0, 0, 0)
+            .map(|x| DateTime::<Utc>::from_naive_utc_and_offset(x, Utc))
+            .unwrap_or(from)
+    };
+    while cursor < to && buckets.len() < 370 {
+        buckets.push(cursor);
+        cursor += step;
+    }
+    let dimension = params
+        .get("dimension")
+        .and_then(Value::as_str)
+        .unwrap_or("model");
+    let mut keys = std::collections::BTreeSet::new();
+    for sample in &samples {
+        keys.insert(sample_dimension(sample, dimension).to_string());
+    }
+    let mut keys = keys.into_iter().collect::<Vec<_>>();
+    let top = params
+        .get("top")
+        .and_then(Value::as_u64)
+        .unwrap_or(keys.len() as u64) as usize;
+    let mut ranked = keys
+        .iter()
+        .map(|key| {
+            (
+                key.clone(),
+                samples
+                    .iter()
+                    .filter(|sample| sample_dimension(sample, dimension) == key)
+                    .map(|sample| metric_value(sample, metric))
+                    .sum::<f64>(),
+            )
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    keys = ranked
+        .iter()
+        .take(top.max(1))
+        .map(|x| x.0.clone())
+        .collect();
+    if ranked.len() > keys.len() {
+        keys.push("other".into());
+    }
+    let split_io = params
+        .get("split_io")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let series = keys.into_iter().map(|key| {
+        let mut values = Vec::new(); let mut input = Vec::new(); let mut output = Vec::new();
+        for bucket in &buckets {
+            let end = *bucket + step;
+            let rows = samples.iter().filter(|sample| sample.ts >= *bucket && sample.ts < end && (key == "other" || sample_dimension(sample, dimension) == key)).collect::<Vec<_>>();
+            values.push(rows.iter().map(|x| metric_value(x, metric)).sum::<f64>());
+            input.push(rows.iter().map(|x| x.input_tokens as f64).sum::<f64>());
+            output.push(rows.iter().map(|x| x.output_tokens as f64).sum::<f64>());
+        }
+        json!({"key":key,"label":key,"values":values,"input_values":if split_io {json!(input)} else {Value::Null},"output_values":if split_io {json!(output)} else {Value::Null},"total":values.iter().sum::<f64>()})
+    }).collect::<Vec<_>>();
+    Ok(
+        json!({"granularity":granularity,"buckets":buckets.into_iter().map(|x|x.to_rfc3339()).collect::<Vec<_>>(),"series":series}),
+    )
+}
+
+fn sample_dimension(sample: &UsageSample, dimension: &str) -> &'static str {
+    match dimension {
+        "bot" => sample.bot_id,
+        "project" => sample.project_id.unwrap_or("unassigned"),
+        _ => sample.model_id,
+    }
+}
+
+fn usage_breakdown(params: &Value) -> RpcResult {
+    let (samples, from, to) = usage_samples(params);
+    let metric = usage_metric(params);
+    let dimension = params
+        .get("dimension")
+        .and_then(Value::as_str)
+        .unwrap_or("bot");
+    let drill = params.get("drill");
+    let samples = samples
+        .into_iter()
+        .filter(|sample| {
+            drill.is_none_or(|drill| {
+                drill
+                    .get("bot_id")
+                    .and_then(Value::as_str)
+                    .is_none_or(|id| sample.bot_id == id)
+                    && drill
+                        .get("project_id")
+                        .and_then(Value::as_str)
+                        .is_none_or(|id| sample.project_id == Some(id))
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut keys = std::collections::BTreeSet::new();
+    for sample in &samples {
+        keys.insert(sample_dimension(sample, dimension).to_string());
+    }
+    let mut rows = Vec::new();
+    for key in keys {
+        let group = samples
+            .iter()
+            .filter(|sample| sample_dimension(sample, dimension) == key)
+            .collect::<Vec<_>>();
+        let mut phases = std::collections::BTreeMap::new();
+        for sample in &group {
+            *phases.entry(sample.phase).or_insert(0.0) += metric_value(sample, metric);
+        }
+        let mut sparkline = Vec::new();
+        let mut day = from.date_naive();
+        while day <= to.date_naive() && sparkline.len() < 370 {
+            sparkline.push(
+                group
+                    .iter()
+                    .filter(|sample| sample.ts.date_naive() == day)
+                    .map(|sample| metric_value(sample, metric))
+                    .sum::<f64>(),
+            );
+            day = day.succ_opt().unwrap_or(day);
+        }
+        rows.push(json!({"key":key,"label":key,"usage":usage_totals(&group.iter().map(|x| (*x).clone()).collect::<Vec<_>>()),"sparkline":sparkline,"phases":phases}));
+    }
+    Ok(json!({"rows":rows}))
 }
 
 fn find_wrapped(items: &[Value], id_value: Option<&Value>, kind: &str) -> RpcResult {
@@ -1277,9 +1690,11 @@ impl<T> Pipe for T {}
 #[cfg(test)]
 mod contract_tests {
     use super::super::{Gateway, GatewayConfig};
+    use chrono::{Duration, Utc};
     use macbot_protocol::{
         Announcement, Assignment, Bot, Chat, Device, Message, Model, Project, Provider, Routine,
-        RoutineRun, Settings, Skill, SkillDetail,
+        RoutineRun, Settings, Skill, SkillDetail, UsageBreakdownResult, UsageSummaryResult,
+        UsageTimeseriesResult,
     };
     use serde_json::{json, Value};
 
@@ -1459,5 +1874,115 @@ mod contract_tests {
         for item in assignments["items"].as_array().unwrap() {
             let _: Assignment = serde_json::from_value(item.clone()).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn usage_mock_is_seeded_filtered_and_typed() {
+        let gateway = gateway().await;
+        let now = Utc::now();
+        let from = (now - Duration::days(7)).to_rfc3339();
+        let to = (now + Duration::hours(1)).to_rfc3339();
+
+        let summary = call(&gateway, "usage.summary", json!({"from":from,"to":to})).await;
+        let summary: UsageSummaryResult = serde_json::from_value(summary).unwrap();
+        assert!(summary.current.usage.requests >= 5);
+        assert!(summary.current.usage.input_tokens > 0);
+        assert!(summary.current.usage.cache_read_tokens > 0);
+        assert!(summary.current.usage.cache_write_tokens > 0);
+        assert!(summary.current.usage.cost.is_some());
+        assert!(summary.previous.usage.requests > 0);
+        assert!(summary.current.tasks_done > 0);
+
+        let outside = call(
+            &gateway,
+            "usage.summary",
+            json!({
+                "from":(now + Duration::days(1)).to_rfc3339(),
+                "to":(now + Duration::days(2)).to_rfc3339()
+            }),
+        )
+        .await;
+        let outside: UsageSummaryResult = serde_json::from_value(outside).unwrap();
+        assert_eq!(outside.current.usage.requests, 0);
+
+        let calendar = call(
+            &gateway,
+            "usage.heatmap",
+            json!({"mode":"calendar","from":from,"to":to,"metric":"tokens"}),
+        )
+        .await;
+        let calendar: macbot_protocol::HeatmapResult = serde_json::from_value(calendar).unwrap();
+        let macbot_protocol::HeatmapResult::Calendar(calendar) = calendar else {
+            panic!("calendar mode returned weekhour shape");
+        };
+        assert!(calendar.days.iter().any(|day| day.requests > 0));
+        assert!(
+            calendar.days.iter().map(|day| day.requests).sum::<u64>()
+                >= summary.current.usage.requests
+        );
+
+        let weekhour = call(
+            &gateway,
+            "usage.heatmap",
+            json!({"mode":"weekhour","from":from,"to":to,"metric":"requests"}),
+        )
+        .await;
+        let weekhour: macbot_protocol::HeatmapResult = serde_json::from_value(weekhour).unwrap();
+        let macbot_protocol::HeatmapResult::Weekhour(weekhour) = weekhour else {
+            panic!("weekhour mode returned calendar shape");
+        };
+        let matrix = weekhour.matrix;
+        assert_eq!(matrix.len(), 7);
+        assert!(matrix.iter().all(|row| row.len() == 24));
+        assert!(matrix.iter().flatten().any(|value| *value > 0.0));
+
+        let timeseries = call(
+            &gateway,
+            "usage.timeseries",
+            json!({"from":from,"to":to,"granularity":"day","dimension":"model","metric":"tokens","split_io":true,"top":2}),
+        )
+        .await;
+        let timeseries: UsageTimeseriesResult = serde_json::from_value(timeseries).unwrap();
+        assert!(!timeseries.buckets.is_empty());
+        assert!(timeseries.series.iter().any(|series| series.key == "other"));
+        assert!(timeseries
+            .series
+            .iter()
+            .all(|series| series.values.len() == timeseries.buckets.len()));
+
+        let breakdown = call(
+            &gateway,
+            "usage.breakdown",
+            json!({"from":from,"to":to,"dimension":"project"}),
+        )
+        .await;
+        let breakdown: UsageBreakdownResult = serde_json::from_value(breakdown).unwrap();
+        assert!(breakdown.rows.iter().any(|row| row.key == "project_alpha"));
+        assert!(breakdown.rows.iter().any(|row| row.key == "project_beta"));
+        assert_eq!(
+            breakdown
+                .rows
+                .iter()
+                .map(|row| row.usage.requests)
+                .sum::<u64>(),
+            summary.current.usage.requests
+        );
+        assert!(breakdown
+            .rows
+            .iter()
+            .any(|row| row.phases.contains_key("compact")));
+
+        let model_breakdown = call(
+            &gateway,
+            "usage.breakdown",
+            json!({"from":from,"to":to,"dimension":"model"}),
+        )
+        .await;
+        let model_breakdown: UsageBreakdownResult =
+            serde_json::from_value(model_breakdown).unwrap();
+        assert!(model_breakdown
+            .rows
+            .iter()
+            .any(|row| row.key == "free-model" && row.usage.cost.is_none()));
     }
 }
