@@ -288,3 +288,11 @@
 - 排除 unsafe_replay、待执行工具、终态/queued assignment、冲突 wait 与多 job 歧义；已回答 Question 不重新打开。构造阶段复用唯一持久化入口，在锁内取新 snapshot 并写 operation/state，重复启动事件增量为零。
 - 验证：309 workspace tests、strict all-targets clippy、fmt/build 通过；新 smoke_decision_migration.py 的任务及无 assignment 私聊 kill9/旧丢失边界/重启/答题同 run 完成通过，恢复期间 provider 调用不增加；完整协作再跑 24 assignments/27 jobs 全 done。
 - 证据：/tmp/macbot-decision-migration-20261010c.evidence.log（对应隔离 home 同名），/tmp/macbot-decision-migration-collaboration-20261010b.evidence.log；全量 /tmp/macbot-decision-migration-publish-workspace-20261010.log、同前缀 clippy/build。rebase 后 server/protocol 内容未变。只读核原测试 Message/Job 白名单，未修改正式 7788、mock 7789、GUI 或 AVD。交集成固定 SHA 复验原三个等待，不新建原项目；隔离证据不算双端整体通过。
+
+## integrator：7968e7e 旧决策复验与完整落盘归因纠正（2026-10-10）
+- 固定7968e7e2a1b6806f857b996ba561a4bfbbbff2da clean archive server-only deploy exit0，正式7788/PID24284，安装source/LaunchAgent-listener/health/auth通过；桌面7c/Android2cc/sharedmock未重启。S1/server-7968e7e-deployed.json；匹配pkg源码/dirty=false/hash/daemon/官方sidecar独立核对通过，S5/server-pkg-7968e7e-verified.json，不计fresh。
+- S2 联调：仍不通过。原消息ID/seq/created_at和3jobs Waiting/decision、unsafe=false、pending_tools=[]、canonical wait/run/asg映射保持。API的两个decision仍缺question block、pending/workbench无待回答Q；此观察不能证明Q对象缺失。S2/production-7968e7e-decision-migration.json=IDENTITY_PASS_MIGRATION_INCOMPLETE。
+- 完整snapshot白名单核对纠正此前715/7968“Question本体丢失”判断：Product Q01a12170-b386-776a-96da-513b6dc64bfd已answered/option0/16:13:19，parallel Q01a12174-9595-70d1-994f-657145f20584已answered/option0/16:17:33，分别匹配f6b1/f0bc canonical Message/asg/bot/chat。真实缺口是已持久答案未送达原等待run及wire关联；7968保护answered不重开是正确行为。S2/production-7968e7e-answered-decisions-undelivered.json；迁移event/operation metadata也已保留。唯一seq4是另一个旧Main answered ask_user，不计Product修复。
+- server-mac负责下一补丁：恢复原qid关联、保留answered及原答案，启动安全续接原run送达已存选项文本；不造新Q/run、模型child或自动批准工具，Main无options仍由明确reply_to用户答复处理。当前尚未question.answer、Main reply或重发项目，原现场保持；先前诊断由pending-only清单造成，已按完整对象更正。
+- S4旧b5 Bot在7968重启后直接两JPEG low640x316/原t2与URL/ACK/同WS bot→user→bot通过，rawJPEG已核图，无新模型/browser_open请求。S4/production-7968e7e-screen-restored.json、screen-7968e7e-restored/；只计transport，不计native/input或双端整阶段。
+- Android只读当前截图已归档S2/production-7968e7e-android-current.png/json：Production侧栏原两项目可见，名称未变不证明本轮新鲜事件/Question或协作完成；Mac重查screen_locked=1，桌面capture/CUA仍阻断。只有S0完整通过保持，S1–S5真实双端与S5fresh仍待验。
