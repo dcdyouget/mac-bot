@@ -10,19 +10,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
-    process::Stdio,
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
-    time::{Duration as StdDuration, Instant},
     net::TcpStream as StdTcpStream,
+    path::{Path, PathBuf},
     process::Command as StdCommand,
+    process::Stdio,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::{Duration as StdDuration, Instant},
 };
 use thiserror::Error;
 use tokio::{
     fs,
     io::{AsyncRead, AsyncReadExt},
     process::{Child, Command},
-    sync::{Mutex, Notify},
+    sync::{mpsc, Mutex, Notify},
     time::{timeout, Duration},
 };
 
@@ -41,6 +44,39 @@ pub enum Risk {
 pub enum Part {
     Text { text: String },
     Image { data: String, mime: String },
+}
+
+/// One bounded real-time chunk emitted by a running tool. The execution layer
+/// maps these chunks to temporary `trace.tool_output` items.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolOutputChunk {
+    pub call_id: String,
+    pub stream: ToolOutputStream,
+    pub chunk: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolOutputStream {
+    Stdout,
+    Stderr,
+}
+
+#[derive(Debug, Clone)]
+pub struct ToolOutputConfig {
+    pub call_id: String,
+    pub sender: mpsc::Sender<ToolOutputChunk>,
+}
+
+impl ToolOutputConfig {
+    async fn send(&self, stream: ToolOutputStream, bytes: &[u8]) {
+        let chunk = ToolOutputChunk {
+            call_id: self.call_id.clone(),
+            stream,
+            chunk: String::from_utf8_lossy(bytes).into_owned(),
+        };
+        let _ = self.sender.send(chunk).await;
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -75,6 +111,7 @@ pub struct ToolContext {
     pub output_dir: PathBuf,
     pub env: HashMap<String, String>,
     cancellation: Option<ToolCancellation>,
+    output: Option<ToolOutputConfig>,
 }
 impl ToolContext {
     pub fn new(
@@ -88,6 +125,7 @@ impl ToolContext {
             output_dir: output_dir.into(),
             env: HashMap::new(),
             cancellation: None,
+            output: None,
         }
     }
     pub fn with_cancellation(mut self, cancellation: ToolCancellation) -> Self {
@@ -96,6 +134,19 @@ impl ToolContext {
     }
     pub fn cancellation(&self) -> Option<&ToolCancellation> {
         self.cancellation.as_ref()
+    }
+    /// Route bounded stdout/stderr chunks to the execution layer while a tool
+    /// is still running. The sender is optional, preserving existing callers.
+    pub fn with_output_channel(
+        mut self,
+        call_id: impl Into<String>,
+        sender: mpsc::Sender<ToolOutputChunk>,
+    ) -> Self {
+        self.output = Some(ToolOutputConfig {
+            call_id: call_id.into(),
+            sender,
+        });
+        self
     }
     fn resolve(&self, path: &str) -> Result<PathBuf, ToolError> {
         let raw = Path::new(path);
@@ -588,13 +639,21 @@ pub struct BashDetails {
     pub full_output_path: Option<String>,
 }
 
-async fn pump_output<R: AsyncRead + Unpin>(mut reader: R, output: Arc<Mutex<Vec<u8>>>) {
+async fn pump_output<R: AsyncRead + Unpin>(
+    mut reader: R,
+    output: Arc<Mutex<Vec<u8>>>,
+    channel: Option<ToolOutputConfig>,
+    stream: ToolOutputStream,
+) {
     let mut chunk = [0_u8; 8 * 1024];
     while let Ok(read) = reader.read(&mut chunk).await {
         if read == 0 {
             break;
         }
         output.lock().await.extend_from_slice(&chunk[..read]);
+        if let Some(channel) = &channel {
+            channel.send(stream.clone(), &chunk[..read]).await;
+        }
     }
 }
 
@@ -620,6 +679,19 @@ impl BashJobManager {
         cwd: &Path,
         env: &HashMap<String, String>,
         persistent: bool,
+    ) -> Result<String, ToolError> {
+        self.start_for_with_output(run_id, command, cwd, env, persistent, None)
+            .await
+    }
+
+    pub async fn start_for_with_output(
+        &self,
+        run_id: &str,
+        command: &str,
+        cwd: &Path,
+        env: &HashMap<String, String>,
+        persistent: bool,
+        output_channel: Option<ToolOutputConfig>,
     ) -> Result<String, ToolError> {
         let mut child = shell_command(command, cwd, env).spawn()?;
         let pid = child
@@ -648,9 +720,20 @@ impl BashJobManager {
             status: status.clone(),
         };
         self.jobs.lock().await.insert(id.clone(), job);
+        let channel = output_channel;
         tokio::spawn(async move {
-            let stdout_task = tokio::spawn(pump_output(stdout, output.clone()));
-            let stderr_task = tokio::spawn(pump_output(stderr, output.clone()));
+            let stdout_task = tokio::spawn(pump_output(
+                stdout,
+                output.clone(),
+                channel.clone(),
+                ToolOutputStream::Stdout,
+            ));
+            let stderr_task = tokio::spawn(pump_output(
+                stderr,
+                output.clone(),
+                channel,
+                ToolOutputStream::Stderr,
+            ));
             let exit_code = child.wait().await.ok().and_then(|result| result.code());
             let _ = stdout_task.await;
             let _ = stderr_task.await;
@@ -903,12 +986,13 @@ impl Tool for BashTool {
             {
                 let job_id = self
                     .jobs
-                    .start_for(
+                    .start_for_with_output(
                         &ctx.run_id,
                         command,
                         &cwd,
                         &ctx.env,
                         false,
+                        ctx.output.clone(),
                     )
                     .await?;
                 return Ok(ToolResult {
@@ -921,7 +1005,13 @@ impl Tool for BashTool {
             }
             let secs = args.get("timeout").and_then(Value::as_f64).unwrap_or(300.0);
             let child = shell_command(command, &cwd, &ctx.env).spawn()?;
-            let output = run_child(child, Duration::from_secs_f64(secs), ctx.cancellation()).await?;
+            let output = run_child(
+                child,
+                Duration::from_secs_f64(secs),
+                ctx.cancellation(),
+                ctx.output.clone(),
+            )
+            .await?;
             let mut combined = output.stdout;
             combined.extend_from_slice(&output.stderr);
             let cut = truncate_tail(&combined);
@@ -995,12 +1085,35 @@ fn shell_command(command: &str, cwd: &Path, extra_env: &HashMap<String, String>)
 }
 
 async fn run_child(
-    child: Child,
+    mut child: Child,
     duration: Duration,
     cancellation: Option<&ToolCancellation>,
+    output_channel: Option<ToolOutputConfig>,
 ) -> Result<ChildOutput, ToolError> {
     let pid = child.id();
-    let wait = child.wait_with_output();
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| ToolError::Command("foreground stdout is unavailable".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| ToolError::Command("foreground stderr is unavailable".into()))?;
+    let stdout_output = Arc::new(Mutex::new(Vec::new()));
+    let stderr_output = Arc::new(Mutex::new(Vec::new()));
+    let stdout_task = tokio::spawn(pump_output(
+        stdout,
+        stdout_output.clone(),
+        output_channel.clone(),
+        ToolOutputStream::Stdout,
+    ));
+    let stderr_task = tokio::spawn(pump_output(
+        stderr,
+        stderr_output.clone(),
+        output_channel,
+        ToolOutputStream::Stderr,
+    ));
+    let wait = child.wait();
     tokio::pin!(wait);
     let result = if let Some(cancellation) = cancellation {
         tokio::select! {
@@ -1016,11 +1129,15 @@ async fn run_child(
         timeout(duration, &mut wait).await
     };
     match result {
-        Ok(Ok(output)) => Ok(ChildOutput {
-            stdout: output.stdout,
-            stderr: output.stderr,
-            status: output.status.code(),
-        }),
+        Ok(Ok(status)) => {
+            let _ = stdout_task.await;
+            let _ = stderr_task.await;
+            Ok(ChildOutput {
+                stdout: stdout_output.lock().await.clone(),
+                stderr: stderr_output.lock().await.clone(),
+                status: status.code(),
+            })
+        }
         Ok(Err(e)) => Err(ToolError::Io(e)),
         Err(_) => {
             #[cfg(unix)]
@@ -1069,7 +1186,12 @@ impl Tool for BashJobTool {
                 Ok(false) => ToolResult::error("job not found"),
                 Err(e) => ToolResult::error(e),
             },
-            Some("output") => match self.jobs.status_for(&ctx.run_id, id).await.map(|(_, output)| output) {
+            Some("output") => match self
+                .jobs
+                .status_for(&ctx.run_id, id)
+                .await
+                .map(|(_, output)| output)
+            {
                 Some(bytes) => bounded_text(ctx, &String::from_utf8_lossy(&bytes), true)
                     .await
                     .unwrap_or_else(ToolResult::error),
@@ -1417,11 +1539,23 @@ mod tests {
         let manager = BashJobManager::default();
         let dir = tempdir().unwrap();
         let run_a = manager
-            .start_for("run-a", "sleep 30 & wait", dir.path(), &HashMap::new(), false)
+            .start_for(
+                "run-a",
+                "sleep 30 & wait",
+                dir.path(),
+                &HashMap::new(),
+                false,
+            )
             .await
             .unwrap();
         let run_b = manager
-            .start_for("run-b", "sleep 30 & wait", dir.path(), &HashMap::new(), false)
+            .start_for(
+                "run-b",
+                "sleep 30 & wait",
+                dir.path(),
+                &HashMap::new(),
+                false,
+            )
             .await
             .unwrap();
         assert!(manager.status_for("run-a", &run_b).await.is_none());
@@ -1450,7 +1584,9 @@ mod tests {
             if manager
                 .status_for("run-live", &running)
                 .await
-                .is_some_and(|(status, output)| status.is_none() && output.starts_with(b"live-sentinel"))
+                .is_some_and(|(status, output)| {
+                    status.is_none() && output.starts_with(b"live-sentinel")
+                })
             {
                 observed = true;
                 break;
@@ -1474,7 +1610,9 @@ mod tests {
             if manager
                 .status_for("run-done", &completed)
                 .await
-                .is_some_and(|(status, output)| status.is_some() && output.starts_with(b"completed-sentinel"))
+                .is_some_and(|(status, output)| {
+                    status.is_some() && output.starts_with(b"completed-sentinel")
+                })
             {
                 break;
             }
@@ -1508,7 +1646,11 @@ mod tests {
             {
                 panic!("a service may not be retained by another run");
             }
-            if manager.register_service_for("run-service", &url).await.unwrap() {
+            if manager
+                .register_service_for("run-service", &url)
+                .await
+                .unwrap()
+            {
                 registered = true;
                 break;
             }
@@ -1537,8 +1679,42 @@ mod tests {
         });
         tokio::time::sleep(Duration::from_millis(100)).await;
         cancellation.cancel();
-        let result = timeout(Duration::from_secs(3), task).await.unwrap().unwrap();
+        let result = timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(result.is_error);
         assert!(matches!(&result.content[0], Part::Text { text } if text.contains("cancelled")));
+    }
+
+    #[tokio::test]
+    async fn foreground_bash_emits_partial_output_before_exit() {
+        let dir = tempdir().unwrap();
+        let (sender, mut receiver) = mpsc::channel(8);
+        let context = ToolContext::new(dir.path(), "run-output-stream", dir.path().join("runs"))
+            .with_output_channel("call-stream", sender);
+        let task = tokio::spawn(async move {
+            BashTool::default()
+                .call(
+                    &context,
+                    json!({"command":"printf first; sleep 1; printf second; exit 3"}),
+                )
+                .await
+        });
+        let chunk = timeout(Duration::from_millis(500), receiver.recv())
+            .await
+            .expect("partial output must arrive before exit")
+            .expect("output channel closed before first chunk");
+        assert_eq!(chunk.call_id, "call-stream");
+        assert_eq!(chunk.stream, ToolOutputStream::Stdout);
+        assert_eq!(chunk.chunk, "first");
+        let result = timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(result.is_error);
+        assert!(
+            matches!(&result.content[0], Part::Text { text } if text.contains("first") && text.contains("second"))
+        );
     }
 }

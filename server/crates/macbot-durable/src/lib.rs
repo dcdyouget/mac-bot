@@ -24,6 +24,8 @@ pub enum DurableError {
     Store(#[from] StoreError),
     #[error("job not found: {0}")]
     JobNotFound(String),
+    #[error("job is already terminal: {0}")]
+    TerminalJob(String),
     #[error("invalid durable record: {0}")]
     Invalid(String),
 }
@@ -167,6 +169,12 @@ impl DurableRuntime {
             .jobs
             .get(id)
             .ok_or_else(|| DurableError::JobNotFound(id.into()))?;
+        if matches!(
+            current.status,
+            JobStatus::Done | JobStatus::Failed | JobStatus::Cancelled
+        ) {
+            return Err(DurableError::TerminalJob(id.into()));
+        }
         let seq = self
             .store
             .read_jsonl::<JobCommit>("data/jobs/commits.jsonl")?
@@ -465,6 +473,22 @@ mod tests {
         let mut rt = DurableRuntime::open(dir.path()).unwrap();
         let changed = rt.resume_plan().unwrap();
         assert_eq!(changed[0].status, JobStatus::Suspended);
+    }
+
+    #[test]
+    fn terminal_job_cannot_be_overwritten_by_late_worker_commit() {
+        let dir = tempdir().unwrap();
+        let mut rt = DurableRuntime::open(dir.path()).unwrap();
+        let job = rt
+            .create_job("bot", "demo", serde_json::json!({"step": 0}))
+            .unwrap();
+        rt.commit(&job.id, JobStatus::Cancelled, job.checkpoint, false)
+            .unwrap();
+        assert!(matches!(
+            rt.commit(&job.id, JobStatus::Running, serde_json::json!({"step": 1}), true),
+            Err(DurableError::TerminalJob(id)) if id == job.id
+        ));
+        assert_eq!(rt.job(&job.id).unwrap().status, JobStatus::Cancelled);
     }
 
     #[test]
