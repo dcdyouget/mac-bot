@@ -32,11 +32,13 @@ S0 脚本默认连接 `127.0.0.1:7789`，固定使用 mock 约定的密码 `dev`
 python3 scripts/e2e/s1/private_chat.py --url http://127.0.0.1:7788 --bot-id <bot_id>
 # 全新生产 Host 只有主 Bot 时，先由场景创建一个独立 worker：
 python3 scripts/e2e/s1/private_chat.py --url http://127.0.0.1:7788 --create-worker
+# S1 重启恢复是破坏性检查，默认拒绝；确认要 kill -9 时才加显式开关：
+python3 scripts/e2e/s1/recovery.py --url http://127.0.0.1:7788 --bot-id <bot_id> --restart-service
 python3 scripts/e2e/s2/login_feature.py --product-bot-id <id> --coding-bot-id <id> --test-bot-id <id>
 python3 scripts/e2e/s3/skills_usage_search.py --bot-id <non_main_bot_id>
 python3 scripts/e2e/s4/routines_browser.py --url http://127.0.0.1:7788 --bot-id <bot_id>
 ```
 
-S1 要求 Bot 的私聊回复包含测试 marker，并从 `trace.history` 看到成功的 `write`、`read`、`bash` 调用及 `run.end=done`，同时确认 read/bash 的返回内容包含 marker。S2 创建两个带唯一 marker 的项目，等待两个项目的任务时间区间实际重叠，再等编码任务处于 `working` 后发送 steer；只有送达状态为 `read`、assignment 的 `steers[].applied_at` 非空且 trace 有 `steer`，才继续等待三个 Bot 的完成交接和项目 `review` 状态。脚本不会调用 `project.confirm_done` 伪造验收。S3 完整验证用户 skill 的 create/get/update/disable/enable/delete、usage 三种查询、带 marker 的 search，以及从非主 Bot 私聊写入偏好后在主 Bot 私聊读取偏好的跨会话行为。S4 API 脚本只创建并删除自己的 routine，验证 `routine.test_run` 产生的实际 assignment、运行完成和 `trace.history`；`/ws/screen` 画面、接管输入、Chrome 登录状态和 Android 通知仍需手动证据。
+S1 要求 Bot 的私聊回复包含测试 marker，并从 `trace.history` 看到成功的 `write`、`read`、`bash` 调用及 `run.end=done`，同时确认 read/bash 的返回内容包含 marker。`s1/recovery.py` 默认不连接、不创建任务、不杀进程；显式 `--restart-service` 后才会核对 `com.macbot.server` 与 7788 的同一 PID，确认 `$MACBOT_HOME/data/jobs/*.json` 中本次 run 的安全 checkpoint，再 kill -9，并等待 KeepAlive 新 PID、同一 `run_id` 的 `run.resume`、文件 marker 和 `run.end=done`。S2 创建两个带唯一 marker 的项目，等待两个项目的任务时间区间实际重叠，再等编码任务处于 `working` 后发送 steer；只有送达状态为 `read`、assignment 的 `steers[].applied_at` 非空且 trace 有 `steer`，才继续等待三个 Bot 的完成交接和项目 `review` 状态。脚本不会调用 `project.confirm_done` 伪造验收。S3 完整验证用户 skill 的 create/get/update/disable/enable/delete、usage 三种查询、带 marker 的 search，以及从非主 Bot 私聊写入偏好后在主 Bot 私聊读取偏好的跨会话行为。S4 API 脚本只创建并删除自己的 routine，验证 `routine.test_run` 产生的实际 assignment、运行完成和 `trace.history`；`/ws/screen` 画面、接管输入、Chrome 登录状态和 Android 通知仍需手动证据。
 
 这些命令会在 Host 上创建带 `macbot-e2e-*` 前缀的测试项目和消息；S3 的 skill 会在 CRUD 检查结束时删除。脚本的 PASS 只表示 API checks 通过，不能替代桌面/Android UI、流式显示、截图、通知、浏览器接管或全新安装演练。
