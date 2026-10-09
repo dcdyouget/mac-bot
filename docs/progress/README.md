@@ -8,17 +8,17 @@
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
 | S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 通过：两端连接 mock 并看到会话列表 | `docs/progress/S0/` |
-| S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未验收 | `docs/progress/S1/` |
+| S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未通过：生产 DM/default-model 阻断；主连接补发已通过 | `docs/progress/S1/` |
 | S2 | 主 Bot、群协作、插话和待验收 | 未验收 | `docs/progress/S2/` |
 | S3 | 技能、仪表盘、搜索和记忆 | 未验收 | `docs/progress/S3/` |
-| S4 | 浏览器画面、接管、定时任务和通知 | 未验收 | `docs/progress/S4/` |
+| S4 | 浏览器画面、接管、定时任务和通知 | 未通过：routine 默认模型/终态同步阻断；浏览器/通知待验 | `docs/progress/S4/` |
 | S5 | pkg 全新安装、两端连接和完整场景 | 未验收 | `docs/progress/S5/` |
 
 每个阶段只有在三条开发线都在 `COORDINATION.md` 打卡，并且集成线完成真实联调、保存两端截图后，才会标记为“通过”。
 
 Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/性能资料清单](S5/android-80d8a42-artifact-manifest.json)已归档至各阶段目录，文件名带 `android-owner-80d8a42-`。这些是客户端 mock/专项证据，包含历史截图，不代表由集成线在最终 APK 上重新完成场景。Release 为 2,111,878 bytes；集成线拉取已安装 `base.apk` 的 SHA-256 与归属线一致，未重复安装或重启。性能 JSON 保留不同源码修订及软件/硬件模拟器限制；QEMU 曾 exit139，不能据样本认定真机性能或稳定性通过。
 
-当前阻断：正式服务新建 Bot 的 dm_chat.id 与 Bot.dm_chat_id 不一致，bootstrap 又把用户私聊标为bot_dm；[复现](S1/production-bd6e7c2-dm-contract-failure.json)，S1未通过。routine.test_run也因默认模型读取遗漏停留working，180s超时；[失败与清理](S4/production-bd6e7c2-routine-pending.json)。真实服务[配置记录](S1/minimax-bd6e7c2-config.json)与[技能CRUD/用量API局部预检](S3/production-bd6e7c2-api-subset.json)已归档。Android 恢复网络后曾健康200/白屏；19:07已显示缓存列表，但再次无route、nc报Network is unreachable，交由 Android 线处理；[最新核查](S5/android-80d8a42-network-lost-again.json)，[初次核查](S5/android-80d8a42-network-precheck.json)。
+当前阻断：正式服务新建 Bot 的 dm_chat.id 与 Bot.dm_chat_id 不一致，bootstrap 又把用户私聊标为bot_dm；[复现](S1/production-bd6e7c2-dm-contract-failure.json)，S1未通过。routine.test_run也因默认模型读取遗漏停留working，180s超时；[失败与清理](S4/production-bd6e7c2-routine-pending.json)。正式服务主连接[断线补发](S1/production-bd6e7c2-connection-replay.json)实测PASS（mode=replay，15→16），不替代两端UI。累计修复尚未发布：服务端新测发现routine磁盘failed但运行中RPC仍running，正在补状态一致性。真实服务[配置记录](S1/minimax-bd6e7c2-config.json)与[技能CRUD/用量API局部预检](S3/production-bd6e7c2-api-subset.json)已归档。Android 恢复网络后曾健康200/白屏；19:07已显示缓存列表，但再次无route、nc报Network is unreachable，交由 Android 线处理；[最新核查](S5/android-80d8a42-network-lost-again.json)，[初次核查](S5/android-80d8a42-network-precheck.json)。
 
 桌面最终安装版证据：[历史](S1/main-222fda9-desktop-history.png)、[技能修改](S3/main-222fda9-skill-edited.png)、[接管](S4/main-222fda9-computer-takeover.png)、[窗口重开](S5/main-222fda9-window-reopened.png)及[重开记录](S5/main-222fda9-reopen.json)。技能内容由 RPC 独立读回验证，测试技能已删除；接管后已交还。以上使用共享 mock，不计真实阶段通过。14份桌面归属线截图的来源见[清单](S5/desktop-222fda9-owner-manifest.json)，同样不替代联合验收。Release DMG 已独立校验并只读挂载确认源码标记222；[DMG记录](S5/desktop-dmg-222fda9-candidate.json)。旧服务端 pkg689仅作载荷候选记录，正式 S5 将使用完整 composition 包。
 
@@ -37,7 +37,7 @@ cd /Users/gongshaojie/Project/mac-bot
 `deploy.sh` 会按当前代码可用性编译并部署 `macbotd`、桌面 `.app` 和 Android APK；缺少某条开发线产物时会跳过并打印提示。正式服务使用端口 `7788`，数据目录为 `~/MacBot`，访问密码只从本机文件 `~/.macbot-dev-password` 读取或由部署流程设置，密码内容不写入仓库。
 
 S0 两端会话列表验收已归档：[记录](S0/main-s0-current.json)、[桌面](S0/main-eb088fa-desktop-sessions.png)、[Android](S0/main-08462a4-android.png)。当前桌面222专项回归通过；Android 最新截图已显示缓存列表但仍在连接，网络再次无路由，不能认定当前连接通过。
-桌面端：双击打开 `~/Applications/MacBot.app`；当前 mock 地址为 `127.0.0.1:7789`，密码 `dev`，开发部署已启用文件凭据后端。正式服务 ready 后填写 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`。
+桌面端：双击打开 `~/Applications/MacBot.app`；已保存正式 Host `127.0.0.1:7788` 的连接凭据，保留 mock 为默认预览；正式任务当前受阻。当前 mock 地址为 `127.0.0.1:7789`，密码 `dev`，开发部署已启用文件凭据后端。正式服务 ready 后填写 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`。
 
 Android 模拟器：需要时先执行：
 
