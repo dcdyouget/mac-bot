@@ -27,7 +27,7 @@ actual fun LandscapeScreen(enabled: Boolean) {
             LandscapeOrientationState.original = null
         }
         onDispose {
-            if (enabled) {
+            if (enabled && !activity.isChangingConfigurations) {
                 activity.requestedOrientation = LandscapeOrientationState.original ?: originalOrientation
                 LandscapeOrientationState.original = null
             }

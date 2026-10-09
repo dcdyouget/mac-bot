@@ -150,13 +150,13 @@ private object NotificationEventRouter {
                 val chat = snapshot.chats.firstOrNull { it.str("id") == chatId }
                 val sender = message.obj("sender")
                 val isBot = sender.str("kind") == "bot"
-                val needsYou = message.arr("mentions").any { (it as? JsonObject)?.str("kind") == "user" } ||
-                    message.str("intent") == "blocked"
+                val needsYou = mentionsUser(message)
+                val isPrivateChat = chat?.str("kind") in setOf("main", "direct", "bot_dm")
                 if (needsYou) {
                     MacBotNotifications.postNeedsYouEvent(
                         context, hostId, id, "需要你处理", message.str("fallback_text"), "chat", chatId, seq,
                     )
-                } else if (isBot) {
+                } else if (isBot && isPrivateChat) {
                     val botId = sender.str("bot_id")
                     val notifications = snapshot.bots
                         .firstOrNull { it.str("id") == botId }?.boolean("notifications") ?: true
@@ -174,7 +174,9 @@ private object NotificationEventRouter {
                         context, hostId, id, "任务已完成", assignment.str("title").ifBlank { assignment.str("summary") },
                         seq, assignment.str("project_id").ifBlank { id },
                     )
-                } else if (assignment.str("status") == "blocked" || assignment.str("status") == "waiting_user") {
+                } else if ((assignment.str("status") == "blocked" || assignment.str("status") == "waiting_user") &&
+                    assignmentMentionsUser(assignment, snapshot)
+                ) {
                     val id = assignment.str("id").ifBlank { assignment.str("assignment_id") }
                     if (id.isNotBlank()) MacBotNotifications.postNeedsYouEvent(
                         context, hostId, id, "任务需要你处理", assignment.str("title").ifBlank { assignment.str("summary") },
@@ -199,5 +201,18 @@ private object NotificationEventRouter {
                 )
             }
         }
+    }
+
+    private fun mentionsUser(value: JsonObject): Boolean =
+        value.arr("mentions").any { (it as? JsonObject)?.str("kind") == "user" }
+
+    private fun assignmentMentionsUser(assignment: JsonObject, snapshot: MobileState): Boolean {
+        if (mentionsUser(assignment)) return true
+        val resultMessageId = assignment.str("result_message_id")
+        if (resultMessageId.isBlank()) return false
+        return snapshot.messages.values.asSequence()
+            .flatten()
+            .firstOrNull { it.str("id") == resultMessageId }
+            ?.let(::mentionsUser) == true
     }
 }

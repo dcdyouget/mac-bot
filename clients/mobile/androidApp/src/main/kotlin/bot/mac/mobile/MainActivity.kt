@@ -1,6 +1,7 @@
 package bot.mac.mobile
 
 import android.Manifest
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -8,12 +9,20 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.core.view.WindowCompat
 import bot.mac.mobile.core.platform.initializePlatform
 import bot.mac.mobile.core.platform.installFilePickerProvider
 import bot.mac.mobile.core.platform.installFileExporterProvider
 import bot.mac.mobile.core.platform.PickedFile
 import bot.mac.mobile.core.state.AppRuntime
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -25,35 +34,42 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private lateinit var fileLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var exportLauncher: ActivityResultLauncher<String>
-    private var fileContinuation: ((PickedFile?) -> Unit)? = null
+    private var fileContinuation: CancellableContinuation<PickedFile?>? = null
     private var exportFile: PickedFile? = null
-    private var exportContinuation: ((Boolean) -> Unit)? = null
+    private var exportContinuation: CancellableContinuation<Boolean>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         initializePlatform(applicationContext)
-        MacBotDeepLinks.publish(intent)
+        if (savedInstanceState == null) MacBotDeepLinks.publish(intent)
         fileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             val continuation = fileContinuation ?: return@registerForActivityResult
-            fileContinuation = null
             if (uri == null) {
-                continuation(null)
+                fileContinuation = null
+                continuation.resume(null)
             } else {
                 lifecycleScope.launch {
-                    continuation(readPickedFile(uri))
+                    val result = runCatching { readPickedFile(uri) }.getOrNull()
+                    if (continuation.isActive) continuation.resume(result)
+                    if (fileContinuation === continuation) fileContinuation = null
                 }
             }
         }
         exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
             val file = exportFile
             val continuation = exportContinuation
-            exportFile = null
-            exportContinuation = null
             if (file == null || uri == null) {
-                continuation?.invoke(false)
+                exportFile = null
+                exportContinuation = null
+                continuation?.resume(false)
             } else {
                 lifecycleScope.launch {
-                    continuation?.invoke(writeExportedFile(uri, file))
+                    val result = runCatching { writeExportedFile(uri, file) }.getOrDefault(false)
+                    if (continuation != null && continuation.isActive) continuation.resume(result)
+                    if (exportContinuation === continuation) {
+                        exportContinuation = null
+                        exportFile = null
+                    }
                 }
             }
         }
@@ -62,7 +78,23 @@ class MainActivity : ComponentActivity() {
         MacBotNotifications.ensureChannels(this)
         MainConnectionService.start(this)
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        setContent { App() }
+        setContent {
+            val theme by AppRuntime.repository.theme.collectAsState()
+            val configuration = LocalConfiguration.current
+            val systemDark = (configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+            val dark = theme == "dark" || theme == "system" && systemDark
+            SideEffect {
+                val barColor = if (dark) Color(0xFF1C1C1E) else Color(0xFFF7F7FA)
+                window.statusBarColor = barColor.toArgb()
+                window.navigationBarColor = barColor.toArgb()
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !dark
+                    isAppearanceLightNavigationBars = !dark
+                }
+            }
+            App()
+        }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -71,11 +103,29 @@ class MainActivity : ComponentActivity() {
         MacBotDeepLinks.publish(intent)
     }
 
-    private suspend fun pickFile(): PickedFile? = suspendCancellableCoroutine { continuation ->
-        fileContinuation = { result ->
-            if (continuation.isActive) continuation.resume(result)
+    override fun onDestroy() {
+        fileContinuation?.let { continuation ->
+            fileContinuation = null
+            if (continuation.isActive) continuation.resume(null)
         }
-        continuation.invokeOnCancellation { fileContinuation = null }
+        exportContinuation?.let { continuation ->
+            exportContinuation = null
+            exportFile = null
+            if (continuation.isActive) continuation.resume(false)
+        }
+        exportFile = null
+        super.onDestroy()
+    }
+
+    private suspend fun pickFile(): PickedFile? = suspendCancellableCoroutine { continuation ->
+        if (fileContinuation != null) {
+            continuation.resume(null)
+            return@suspendCancellableCoroutine
+        }
+        fileContinuation = continuation
+        continuation.invokeOnCancellation {
+            if (fileContinuation === continuation) fileContinuation = null
+        }
         lifecycleScope.launch(Dispatchers.Main.immediate) {
             if (continuation.isActive) fileLauncher.launch(arrayOf("*/*"))
         }
@@ -119,12 +169,12 @@ class MainActivity : ComponentActivity() {
             return@suspendCancellableCoroutine
         }
         exportFile = file
-        exportContinuation = { result ->
-            if (continuation.isActive) continuation.resume(result)
-        }
+        exportContinuation = continuation
         continuation.invokeOnCancellation {
-            exportFile = null
-            exportContinuation = null
+            if (exportContinuation === continuation) {
+                exportFile = null
+                exportContinuation = null
+            }
         }
         lifecycleScope.launch(Dispatchers.Main.immediate) {
             if (continuation.isActive) {
@@ -147,5 +197,6 @@ object MacBotDeepLinks {
     fun publish(intent: android.content.Intent?) {
         val uri = intent?.data ?: return
         AppRuntime.repository.deepLink.value = uri.toString()
+        intent.data = null
     }
 }
