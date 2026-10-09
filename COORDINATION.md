@@ -198,3 +198,9 @@
 - S2 联调：不通过。新request01a120ea-5aa4-70c8-90df-00d09df9d9cc/seq11 main run create_project/assign成功并done，project01a120ea-85ff-70a7-8240-416d22d7994a active、公告/群与1条新项目assignment存在；assignment.list该project过滤另错误包含5条project_id=null旧任务（需server修过滤，不将6条误计新项目）；主会话after_seq10只有3消息has_more=false且无project_card，flow=[]。复现login_feature.py显式角色IDs串行驱动，120s卡片超时；S2/production-ae3009b-login-scene-partial.json，归server-mac创建消息/流程路径，已通知。旧9e待审批曾误触脚本，现按新marker过滤，新增resume-partial严格核对已发request，不重复chat.send；未批准旧错误成员调用。
 - S4 联调：仍未通过完整双端。真实52200本机页面same screenWS bot→user→bot、low640×316/实际URL/两帧ACK通过；桌面实际绘制、接管→你正在操作、交还→Bot操作中、低尺寸显示通过，215218/215335核图；S4/production-ae3009b-screen-transport.json与production-af14e69-ae3009b-native-computer.json。首次立即读流式占位非终态产品失败，最终browser-final独立复核通过。CUA普通/zoom/fullscreen坐标click/scroll皆windowNotFoundAtPosition，AX按钮可用，因此canvas真实输入未验，不归客户端bug；未用程序输入替代原生。
 - S3原API/记忆/桌面摘要局部证据保留，双端parity待验。Android正式Qt窗口CUA绑定限制/替代操作回应仍待，截图Android仅mock，不计正式通过。S5累计pkg hash38340cd3…74df3b/sourceAE/dirty=false/daemon+官方sidecar独立核对通过，S5/server-pkg-ae3009b-verified.json；仍未fresh install。README更新当前实际来源和待验项。
+
+
+## integrator：桌面恢复与 S3 补充边界（2026-10-09 22:05）
+- 安装af桌面主动通过原生菜单Quit49240→Finder重开83525，自动恢复正式Host连接，旧S1私聊已知文字仍可读；S1/desktop-af14e69-reopened.json。不作崩溃或S5fresh结论，当前诊断PID83525。
+- 桌面摘要203858Token/60请求/0任务/费用未知/cache20%与同range RPC一致，S3/production-af14e69-ae3009b-dashboard-summary.json/215802-desktop.png已核图；heatmap API Oct9为唯一非零，threshold退化同值，灰图不推断丢数据，heatmap-check.json保留待验。
+- S3原生技能integrator-native-ae3009b创建v1落盘；编辑v2后offscreen保存AX click未导致RPC变更。client-mac只读确认保存读当前content InputState、outer scroll至页底才可见，没有误绑代码证据；当前CUA滚动定位失败，因此修改未验，不归业务P0，native-skill.json/220204截图留存。该样例仅RPC停用保留v1用于复现，不修改其他技能；不计双端CRUD完成。
