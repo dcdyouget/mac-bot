@@ -25,6 +25,7 @@ import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.feature.chat.ChatScreen
+import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -79,7 +80,7 @@ fun GroupScreen(
             Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(project?.str("name")?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.feature_group), style = MaterialTheme.typography.titleLarge)
-                Text(project?.str("status").orEmpty(), style = MaterialTheme.typography.labelSmall)
+                project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
             }
             Button(onClick = { showAnnouncement = !showAnnouncement }) { Text(stringResource(Res.string.feature_announcement)) }
             Button(onClick = { showEdit = !showEdit }) { Text(stringResource(Res.string.feature_edit_group)) }
@@ -104,11 +105,17 @@ fun GroupScreen(
             }
         }
         error?.let { Text(it, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
-        project?.arr("members")?.let { members ->
+        val announcementMembers = announcement?.arr("members").orEmpty()
+        (if (announcementMembers.isNotEmpty()) announcementMembers else project?.arr("members").orEmpty()).let { members ->
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 members.forEach { member ->
                     val m = member as? JsonObject
-                    Text("● ${m?.str("bot_id").orEmpty()}", style = MaterialTheme.typography.labelMedium)
+                    val botId = m?.str("bot_id").orEmpty()
+                    val botName = state.bots.firstOrNull { it.str("id") == botId }?.str("name").orEmpty().ifBlank { botId }
+                    Column {
+                        Text("● $botName", style = MaterialTheme.typography.labelMedium)
+                        m?.let { member -> member.str("state").takeIf { it.isNotBlank() }?.let { StatusLabel(it) } }
+                    }
                 }
             }
         }
@@ -227,7 +234,10 @@ private fun AnnouncementPanel(
     Surface(Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(stringResource(Res.string.feature_announcement_title, project?.str("name") ?: ""), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(Res.string.feature_status_value, project?.str("status") ?: ""))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(Res.string.feature_status_value, ""))
+                project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+            }
             Text(stringResource(Res.string.feature_goal_value, project?.str("goal") ?: ""))
             Text(stringResource(Res.string.feature_home_value, project?.str("home_path") ?: ""))
             announcement?.arr("highlights")?.forEach { item -> Text("· ${(item as? JsonObject)?.str("text") ?: item}") }

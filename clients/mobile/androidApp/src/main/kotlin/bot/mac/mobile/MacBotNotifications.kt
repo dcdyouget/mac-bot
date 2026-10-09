@@ -1,15 +1,19 @@
 package bot.mac.mobile
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,7 +30,6 @@ object MacBotNotifications {
     private const val ACTION_APPROVAL = "bot.mac.mobile.APPROVAL_ACTION"
 
     fun ensureChannels(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannels(
             listOf(
@@ -138,7 +141,14 @@ object MacBotNotifications {
         Build.VERSION.SDK_INT < 33 || NotificationManagerCompat.from(context).areNotificationsEnabled()
 
     private fun notify(context: Context, id: Int, builder: NotificationCompat.Builder) {
-        NotificationManagerCompat.from(context).notify(id, builder.build())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        try {
+            NotificationManagerCompat.from(context).notify(id, builder.build())
+        } catch (_: SecurityException) {
+            // Notification permission may be revoked after the explicit check.
+        }
     }
 
     private fun action(context: Context, hostId: String, approvalId: String, action: String, label: Int): NotificationCompat.Action {
@@ -226,6 +236,7 @@ class ApprovalActionReceiver : BroadcastReceiver() {
     }
 }
 
+@SuppressLint("ApplySharedPref", "UseKtx")
 internal object NotificationLedger {
     private const val LAST_SEQ_PREFIX = "_last_persistent_seq:"
 

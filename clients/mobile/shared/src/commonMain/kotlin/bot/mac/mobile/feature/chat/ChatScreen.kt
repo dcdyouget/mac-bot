@@ -116,7 +116,7 @@ fun ChatScreen(
                 IconButton(onClick = onBack) { Text(stringResource(Res.string.feature_back), style = MaterialTheme.typography.headlineSmall) }
                 Column(Modifier.weight(1f)) {
                     Text(chat?.str("title").orEmpty(), style = MaterialTheme.typography.titleLarge)
-                    Text(chat?.str("attention").orEmpty(), style = MaterialTheme.typography.labelSmall)
+                    chat?.str("attention")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
                 }
                 chat?.str("project_id")?.takeIf { it.isNotBlank() }?.let { projectId ->
                     Text("ⓘ", Modifier.padding(8.dp))
@@ -383,7 +383,8 @@ private fun BlockView(
             val assignment = state.assignments.firstOrNull { it.str("id") == assignmentId }
             val assignmentTitle = assignment?.str("title").orEmpty()
             val assignmentLabel = if (assignmentTitle.isBlank()) stringResource(Res.string.feature_task) else assignmentTitle
-            Text("⟳ $assignmentLabel · ${assignment?.str("status").orEmpty()}", style = MaterialTheme.typography.titleSmall)
+            Text("⟳ $assignmentLabel", style = MaterialTheme.typography.titleSmall)
+            assignment?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
             if (assignmentId.isNotBlank()) Button(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
         }
         "completion" -> {
@@ -416,7 +417,10 @@ private fun BlockView(
         }
         "review_card" -> {
             val projectId = block.str("project_id")
-            Text(stringResource(Res.string.feature_review_state, block.str("state")), style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(Res.string.feature_review_state, ""), style = MaterialTheme.typography.bodyMedium)
+                StatusLabel(block.str("state"))
+            }
             if (projectId.isNotBlank()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { onProjectAction(projectId, "confirm_done") }) { Text(stringResource(Res.string.feature_confirm_done)) }
                 Button(onClick = { onProjectAction(projectId, "request_changes") }) { Text(stringResource(Res.string.feature_request_changes)) }
@@ -468,7 +472,10 @@ private fun BlockView(
         "system" -> Text(block.str("text"), style = MaterialTheme.typography.bodyMedium)
         "loop_paused" -> {
             val root = block.str("root_message_id")
-            Text(stringResource(Res.string.feature_loop_paused, block.str("hops"), block.str("state")), style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(Res.string.feature_loop_paused_label, block.str("hops")), style = MaterialTheme.typography.bodyMedium)
+                StatusLabel(block.str("state"))
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { onLoopAction(root, "continue") }) { Text(stringResource(Res.string.feature_loop_continue)) }
                 Button(onClick = { onLoopAction(root, "end") }) { Text(stringResource(Res.string.feature_loop_end)) }

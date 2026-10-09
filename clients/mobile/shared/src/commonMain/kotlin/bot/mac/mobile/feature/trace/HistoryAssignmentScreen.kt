@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
+import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
@@ -110,7 +111,7 @@ fun HistoryAssignmentScreen(
                 val assignmentStatus = assignment.str("status")
                 Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp)) {
                     Text(title, style = MaterialTheme.typography.titleMedium)
-                    Text(assignmentStatus, style = MaterialTheme.typography.labelMedium)
+                    StatusLabel(assignmentStatus)
                     assignment.str("instruction").takeIf { it.isNotBlank() && it != title }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     if (assignmentId.isNotBlank()) {
                         OutlinedButton(onClick = { onOpenTrace(assignmentId) }) {

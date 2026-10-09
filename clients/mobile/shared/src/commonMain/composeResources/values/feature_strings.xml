@@ -8,6 +8,7 @@
     <string name="feature_takeover">接管</string>
     <string name="feature_bot_dm">私信（%1$s）</string>
     <string name="feature_loop_paused">循环已暂停 · %1$s 次 · %2$s</string>
+    <string name="feature_loop_paused_label">循环已暂停 · %1$s 次</string>
     <string name="feature_loop_continue">继续循环</string>
     <string name="feature_loop_end">结束循环</string>
     <string name="feature_delivery_queued">排队中</string>
@@ -109,6 +110,7 @@
     <string name="feature_submit">提交</string>
     <string name="feature_trace_start">开始运行 · %1$s</string>
     <string name="feature_trace_end">运行结束 · %1$s</string>
+    <string name="feature_trace_end_label">运行结束</string>
     <string name="feature_trace_request">模型请求 · %1$s</string>
     <string name="feature_trace_response">模型响应 · %1$s</string>
     <string name="feature_trace_tool_start">工具开始 · %1$s</string>
@@ -163,6 +165,18 @@
     <string name="feature_trace_thinking">显示思考</string>
     <string name="feature_trace_output">显示工具输出</string>
     <string name="feature_trace_full_output">查看完整输出</string>
+    <string name="feature_status_idle">待命</string>
+    <string name="feature_status_working">工作中</string>
+    <string name="feature_status_waiting_user">等待你</string>
+    <string name="feature_status_waiting_bot">等其他Bot</string>
+    <string name="feature_status_queued">排队</string>
+    <string name="feature_status_done">完成</string>
+    <string name="feature_status_stopped">停止</string>
+    <string name="feature_status_blocked">卡住</string>
+    <string name="feature_status_review">待验收</string>
+    <string name="feature_status_archived">已归档</string>
+    <string name="feature_status_unread">有新消息</string>
+    <string name="feature_status_unknown">状态未知</string>
     <string name="feature_history_title">历史任务</string>
     <string name="feature_history_all">全部</string>
     <string name="feature_history_queued">排队中</string>

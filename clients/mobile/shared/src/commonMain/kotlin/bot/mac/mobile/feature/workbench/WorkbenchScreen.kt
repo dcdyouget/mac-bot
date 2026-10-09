@@ -22,6 +22,7 @@ import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.state.MobileRepository
+import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -75,7 +76,13 @@ fun WorkbenchScreen(
                 }
             }
             groupedAssignments.forEach { (group, grouped) ->
-                item { Text(group.ifBlank { "—" }, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleSmall) }
+                item {
+                    if (grouping == WorkbenchGrouping.STATUS) {
+                        StatusLabel(group)
+                    } else {
+                        Text(group.ifBlank { "—" }, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleSmall)
+                    }
+                }
                 items(grouped, key = { it.str("id").ifBlank { "assignment:${it.hashCode()}" } }) { assignment ->
                     AssignmentCard(assignment, onOpenAssignment) { id -> scope.launch { runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", id) }) } } }
                 }
@@ -147,7 +154,7 @@ private fun AssignmentCard(assignment: JsonObject, onOpen: (String) -> Unit, onS
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp)) {
         Row(Modifier.fillMaxWidth()) {
             Text(assignment.str("title").takeIf { it.isNotBlank() } ?: stringResource(Res.string.feature_task), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            Text(assignment.str("status"), style = MaterialTheme.typography.labelMedium)
+            StatusLabel(assignment.str("status"))
         }
         Text(assignment.str("instruction"), maxLines = 2, style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

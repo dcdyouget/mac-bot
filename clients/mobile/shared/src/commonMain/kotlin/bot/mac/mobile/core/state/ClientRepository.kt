@@ -192,7 +192,7 @@ class ClientRepository(
             hostMutex.withLock {
                 if (hostSessions[hostId] !== session) return@withLock
                 mutex.withLock {
-                    val next = absorb(_hostStates.value[hostId] ?: MobileState(), method, params, result).copy(error = null)
+                    val next = RpcStateReducer.apply(_hostStates.value[hostId] ?: MobileState(), method, params, result).copy(error = null)
                     persist(hostId, next)
                     _hostStates.value = _hostStates.value + (hostId to next)
                     publishActiveState(hostId, next)
@@ -315,7 +315,7 @@ class ClientRepository(
         }
         session.refresh = scope.launch {
             connection.status.filter { it == ConnectionStatus.CONNECTED }.collect {
-                listOf("workbench.get", "skill.list", "routine.list", "provider.list").forEach { method -> runCatching { callOnHost(id, method) } }
+                listOf("chat.list", "bot.list", "project.list", "workbench.get", "skill.list", "routine.list", "provider.list").forEach { method -> runCatching { callOnHost(id, method, if(method == "bot.list") buildJsonObject { put("include_hidden",true) } else buildJsonObject {}) } }
             }
         }
         connection.start()
@@ -380,47 +380,6 @@ class ClientRepository(
     private suspend fun deviceId(): String =
         storage.read("device_id") ?: RandomIdGenerator.nextId().also { storage.write("device_id", it) }
 
-    private fun absorb(current: MobileState, method: String, params: JsonObject, result: JsonObject): MobileState {
-        var next = current
-        if (method == "bootstrap") return StateReducer.bootstrap(current, result)
-        val lists = mapOf("bots" to "bot", "chats" to "chat", "projects" to "project", "approvals" to "approval", "questions" to "question", "skills" to "skill", "routines" to "routine")
-        lists.forEach { (plural, singular) ->
-            if (result[plural] is JsonArray) {
-                val objects = result.objects(plural)
-                next = when (plural) {
-                    "bots" -> next.copy(bots = objects); "chats" -> next.copy(chats = objects); "projects" -> next.copy(projects = objects)
-                    "approvals" -> next.copy(approvals = objects); "questions" -> next.copy(questions = objects); "skills" -> next.copy(skills = objects); "routines" -> next.copy(routines = objects)
-                    else -> next
-                }
-            }
-            if (result[singular] is JsonObject) next = StateReducer.event(next, singular + ".updated", buildJsonObject { put(singular, result.getValue(singular)) })
-        }
-        if (result["dm_chat"] is JsonObject) next = StateReducer.event(next, "chat.created", buildJsonObject { put("chat", result.getValue("dm_chat")) })
-        result.objects("dm_chats").forEach { next = StateReducer.event(next, "chat.created", buildJsonObject { put("chat", it) }) }
-        if (result["message"] is JsonObject) next = StateReducer.event(next, "message.updated", buildJsonObject { put("message", result.getValue("message")) })
-        if (result["assignment"] is JsonObject) next = StateReducer.event(next, "assignment.updated", buildJsonObject { put("assignment", result.getValue("assignment")) })
-        if (result["announcement"] is JsonObject) next = StateReducer.event(next, "announcement.updated", buildJsonObject { put("announcement", result.getValue("announcement")) })
-        if (result["settings"] is JsonObject) next = next.copy(settings = result.obj("settings"))
-        if (result["providers"] is JsonArray) next = next.copy(providers = result.objects("providers"), models = result.objects("models"))
-        if (method == "chat.history") { val id = params.str("chat_id"); next = next.copy(messages = next.messages + (id to mergeMessages(next.messages[id].orEmpty(), result.objects("messages")))) }
-        if (method == "assignment.list") next = next.copy(assignments = mergeById(next.assignments, result.objects("items")))
-        if (method == "trace.history") result.objects("items").forEach { next = StateReducer.event(next, "trace.item", buildJsonObject { put("item", it) }) }
-        if (method == "trace.subscribe") result.objects("in_flight").forEach { flight ->
-            val prefix = result.str("stream") + ":" + flight.str("request_id") + ":"
-            next = next.copy(traceFragments = next.traceFragments + mapOf(prefix + "text" to flight.str("text"), prefix + "thinking" to flight.str("thinking")))
-        }
-        if (method == "workbench.get") {
-            val assignments = result.objects("bots").flatMap { it.objects("assignments") } + result.objects("done_today")
-            next = next.copy(workbench = result, assignments = mergeById(next.assignments, assignments))
-        }
-        if (method == "model.refresh") next = next.copy(models = mergeById(next.models, result.objects("models"), "ref"))
-        if (method.endsWith(".delete")) {
-            val type = method.substringBefore('.')
-            val key = if (type == "skill") "name" else type + "_id"
-            next = StateReducer.event(next, type + ".deleted", buildJsonObject { put(key, params.str(key)) })
-        }
-        return next
-    }
 
     companion object {
         val WRITE_METHODS = setOf("device.register", "chat.send", "chat.mark_read", "chat.react", "chat.set_pinned", "chat.set_muted", "bot.create", "bot.update", "bot.duplicate", "bot.delete", "bot.create_from_template", "project.create", "project.update", "project.add_member", "project.remove_member", "project.confirm_done", "project.request_changes", "project.archive", "project.reopen", "assignment.stop", "approval.decide", "question.answer", "loop.resolve", "takeover.start", "takeover.release", "skill.create", "skill.update", "skill.delete", "skill.set_enabled", "skill.publish", "skill.import", "routine.create", "routine.update", "routine.delete", "routine.set_enabled", "routine.test_run", "provider.create", "provider.update", "provider.delete", "provider.test", "model.refresh", "model.upsert", "model.delete", "settings.update")

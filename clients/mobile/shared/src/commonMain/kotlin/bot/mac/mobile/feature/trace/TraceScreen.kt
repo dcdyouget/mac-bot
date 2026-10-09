@@ -27,6 +27,7 @@ import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
+import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -110,6 +111,9 @@ fun TraceScreen(
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
             Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
             Text(stringResource(Res.string.feature_trace), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
+            assignmentId?.let { id ->
+                state.assignments.firstOrNull { it.str("id") == id }?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+            }
             if (live) Text(stringResource(Res.string.feature_realtime), color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(8.dp))
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -190,7 +194,7 @@ private fun TraceItemCard(
     val data = item.obj("data")
     val summary = when (type) {
         "run.start" -> stringResource(Res.string.feature_trace_start, data?.str("phase") ?: "")
-        "run.end" -> stringResource(Res.string.feature_trace_end, data?.str("status") ?: "")
+        "run.end" -> stringResource(Res.string.feature_trace_end_label)
         "llm.request" -> stringResource(Res.string.feature_trace_request, data?.str("model") ?: "")
         "llm.response" -> stringResource(Res.string.feature_trace_response, data?.str("stop_reason") ?: "")
         "tool.start" -> stringResource(Res.string.feature_trace_tool_start, data?.str("name") ?: "")
@@ -205,6 +209,7 @@ private fun TraceItemCard(
     Column(Modifier.fillMaxWidth().padding(start = if (parentRunId.isBlank()) 0.dp else 20.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp)) {
         Row(Modifier.fillMaxWidth()) {
             Text(summary, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+            if (type == "run.end") data.str("status").takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
             Text(item.str("at"), style = MaterialTheme.typography.labelSmall)
             if (type == "run.start" && item.str("run_id").isNotBlank()) Button(onClick = { onToggleRun(item.str("run_id")) }) { Text("▾") }
         }
