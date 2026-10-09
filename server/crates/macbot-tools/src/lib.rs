@@ -12,14 +12,17 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::Arc,
-    time::Instant,
+    sync::{Arc, atomic::{AtomicBool, Ordering}},
+    time::{Duration as StdDuration, Instant},
+    net::TcpStream as StdTcpStream,
+    process::Command as StdCommand,
 };
 use thiserror::Error;
 use tokio::{
     fs,
+    io::{AsyncRead, AsyncReadExt},
     process::{Child, Command},
-    sync::Mutex,
+    sync::{Mutex, Notify},
     time::{timeout, Duration},
 };
 
@@ -71,6 +74,7 @@ pub struct ToolContext {
     pub run_id: String,
     pub output_dir: PathBuf,
     pub env: HashMap<String, String>,
+    cancellation: Option<ToolCancellation>,
 }
 impl ToolContext {
     pub fn new(
@@ -83,7 +87,15 @@ impl ToolContext {
             run_id: run_id.into(),
             output_dir: output_dir.into(),
             env: HashMap::new(),
+            cancellation: None,
         }
+    }
+    pub fn with_cancellation(mut self, cancellation: ToolCancellation) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+    pub fn cancellation(&self) -> Option<&ToolCancellation> {
+        self.cancellation.as_ref()
     }
     fn resolve(&self, path: &str) -> Result<PathBuf, ToolError> {
         let raw = Path::new(path);
@@ -101,6 +113,32 @@ impl ToolContext {
             return Err(ToolError::PathEscape(candidate));
         }
         Ok(candidate)
+    }
+}
+
+/// A run-scoped cancellation handle shared by foreground processes and
+/// background jobs.  It deliberately carries no process-global state.
+#[derive(Debug, Clone, Default)]
+pub struct ToolCancellation {
+    cancelled: Arc<AtomicBool>,
+    notify: Arc<Notify>,
+}
+
+impl ToolCancellation {
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        self.notify.notify_waiters();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    async fn cancelled(&self) {
+        if self.is_cancelled() {
+            return;
+        }
+        self.notify.notified().await;
     }
 }
 
@@ -123,6 +161,7 @@ pub trait Tool: Send + Sync {
     fn schema(&self) -> Value;
     fn risk(&self, args: &Value) -> Risk;
     async fn call(&self, ctx: &ToolContext, args: Value) -> ToolResult;
+    async fn cleanup(&self, _ctx: &ToolContext) {}
 }
 
 #[derive(Clone, Default)]
@@ -549,6 +588,16 @@ pub struct BashDetails {
     pub full_output_path: Option<String>,
 }
 
+async fn pump_output<R: AsyncRead + Unpin>(mut reader: R, output: Arc<Mutex<Vec<u8>>>) {
+    let mut chunk = [0_u8; 8 * 1024];
+    while let Ok(read) = reader.read(&mut chunk).await {
+        if read == 0 {
+            break;
+        }
+        output.lock().await.extend_from_slice(&chunk[..read]);
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct BashJobManager {
     jobs: Arc<Mutex<HashMap<String, BackgroundJob>>>,
@@ -557,51 +606,80 @@ pub struct BashJobManager {
 #[derive(Clone)]
 struct BackgroundJob {
     pid: u32,
+    run_id: String,
+    persistent: bool,
     output: Arc<Mutex<Vec<u8>>>,
     status: Arc<Mutex<Option<i32>>>,
 }
 
 impl BashJobManager {
+    pub async fn start_for(
+        &self,
+        run_id: &str,
+        command: &str,
+        cwd: &Path,
+        env: &HashMap<String, String>,
+        persistent: bool,
+    ) -> Result<String, ToolError> {
+        let mut child = shell_command(command, cwd, env).spawn()?;
+        let pid = child
+            .id()
+            .ok_or_else(|| ToolError::Command("background process has no pid".into()))?;
+        #[cfg(unix)]
+        unsafe {
+            libc::setpgid(pid as libc::pid_t, pid as libc::pid_t);
+        }
+        let id = format!("bash_{}", uuid::Uuid::now_v7());
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let status = Arc::new(Mutex::new(None));
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ToolError::Command("background stdout is unavailable".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| ToolError::Command("background stderr is unavailable".into()))?;
+        let job = BackgroundJob {
+            pid,
+            run_id: run_id.to_owned(),
+            persistent,
+            output: output.clone(),
+            status: status.clone(),
+        };
+        self.jobs.lock().await.insert(id.clone(), job);
+        tokio::spawn(async move {
+            let stdout_task = tokio::spawn(pump_output(stdout, output.clone()));
+            let stderr_task = tokio::spawn(pump_output(stderr, output.clone()));
+            let exit_code = child.wait().await.ok().and_then(|result| result.code());
+            let _ = stdout_task.await;
+            let _ = stderr_task.await;
+            *status.lock().await = Some(exit_code.unwrap_or(-1));
+        });
+        Ok(id)
+    }
+
     pub async fn start(
         &self,
         command: &str,
         cwd: &Path,
         env: &HashMap<String, String>,
     ) -> Result<String, ToolError> {
-        let child = shell_command(command, cwd, env).spawn()?;
-        let pid = child
-            .id()
-            .ok_or_else(|| ToolError::Command("background process has no pid".into()))?;
-        #[cfg(unix)]
-        unsafe {
-            // Establish the group from the parent as well as in pre_exec;
-            // this closes the race before the shell creates descendants.
-            libc::setpgid(pid as libc::pid_t, pid as libc::pid_t);
-        }
-        let id = format!("bash_{}", uuid::Uuid::now_v7());
-        let output = Arc::new(Mutex::new(Vec::new()));
-        let status = Arc::new(Mutex::new(None));
-        let job = BackgroundJob {
-            pid,
-            output: output.clone(),
-            status: status.clone(),
-        };
-        self.jobs.lock().await.insert(id.clone(), job);
-        tokio::spawn(async move {
-            if let Ok(result) = child.wait_with_output().await {
-                let mut bytes = result.stdout;
-                bytes.extend_from_slice(&result.stderr);
-                *output.lock().await = bytes;
-                *status.lock().await = result.status.code();
-            } else {
-                *status.lock().await = Some(-1);
-            }
-        });
-        Ok(id)
+        self.start_for("", command, cwd, env, false).await
     }
 
     pub async fn status(&self, id: &str) -> Option<(Option<i32>, Vec<u8>)> {
         let job = self.jobs.lock().await.get(id).cloned()?;
+        let status = *job.status.lock().await;
+        let output = job.output.lock().await.clone();
+        Some((status, output))
+    }
+
+    pub async fn status_for(&self, run_id: &str, id: &str) -> Option<(Option<i32>, Vec<u8>)> {
+        let job = self.jobs.lock().await.get(id).cloned()?;
+        if job.run_id != run_id {
+            return None;
+        }
         let status = *job.status.lock().await;
         let output = job.output.lock().await.clone();
         Some((status, output))
@@ -615,15 +693,31 @@ impl BashJobManager {
         let Some(job) = self.jobs.lock().await.get(id).cloned() else {
             return Ok(false);
         };
+        self.kill_job(&job).await
+    }
+
+    pub async fn kill_for(&self, run_id: &str, id: &str) -> Result<bool, ToolError> {
+        let Some(job) = self.jobs.lock().await.get(id).cloned() else {
+            return Ok(false);
+        };
+        if job.run_id != run_id {
+            return Ok(false);
+        }
+        self.kill_job(&job).await
+    }
+
+    async fn kill_job(&self, job: &BackgroundJob) -> Result<bool, ToolError> {
+        if job.status.lock().await.is_some() {
+            return Ok(false);
+        }
         #[cfg(unix)]
         unsafe {
-            libc::kill(-(job.pid as i32), libc::SIGTERM);
             // Escalate in the same process group so a shell waiting on a
             // descendant cannot leave an orphaned background task.
+            libc::kill(-(job.pid as i32), libc::SIGTERM);
             libc::kill(-(job.pid as i32), libc::SIGKILL);
             libc::kill(job.pid as i32, libc::SIGKILL);
         }
-        *job.status.lock().await = Some(-libc::SIGKILL);
         Ok(true)
     }
 
@@ -639,6 +733,131 @@ impl BashJobManager {
             }
         }
         Ok(killed)
+    }
+
+    pub async fn cleanup_run(&self, run_id: &str) -> Result<usize, ToolError> {
+        let jobs = self
+            .jobs
+            .lock()
+            .await
+            .values()
+            .filter(|job| job.run_id == run_id && !job.persistent)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut killed = 0;
+        for job in jobs {
+            if self.kill_job(&job).await? {
+                killed += 1;
+            }
+        }
+        Ok(killed)
+    }
+
+    /// Retain a background process only after a successful `send_msg` has
+    /// registered its localhost URL as an Artifact. The listener PID must be
+    /// in the exact process group started by this run.
+    pub async fn register_service_for(&self, run_id: &str, url: &str) -> Result<bool, ToolError> {
+        let Some((host, port)) = local_service_endpoint(url) else {
+            return Ok(false);
+        };
+        let address = if host == "::1" {
+            format!("[::1]:{port}")
+        } else {
+            format!("{host}:{port}")
+        };
+        if StdTcpStream::connect_timeout(
+            &address
+                .parse()
+                .map_err(|_| ToolError::Command("invalid service address".into()))?,
+            StdDuration::from_millis(250),
+        )
+        .is_err()
+        {
+            return Ok(false);
+        }
+        let listener_pids = listener_pids(port);
+        let jobs = self.jobs.lock().await;
+        let candidates = jobs
+            .values()
+            .filter(|job| job.run_id == run_id)
+            .filter(|job| job.status.try_lock().is_ok_and(|status| status.is_none()))
+            .cloned()
+            .collect::<Vec<_>>();
+        drop(jobs);
+        let Some(pid) = candidates.into_iter().find_map(|job| {
+            listener_pids
+                .iter()
+                .any(|listener| process_group(*listener) == Some(job.pid as libc::pid_t))
+                .then_some(job.pid)
+        }) else {
+            return Ok(false);
+        };
+        let mut jobs = self.jobs.lock().await;
+        for job in jobs.values_mut() {
+            if job.run_id == run_id && job.pid == pid {
+                if job.status.lock().await.is_some() {
+                    return Ok(false);
+                }
+                job.persistent = true;
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+fn local_service_endpoint(url: &str) -> Option<(&str, u16)> {
+    let authority = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))?
+        .split('/')
+        .next()?;
+    if authority.contains('@') {
+        return None;
+    }
+    if let Some(rest) = authority.strip_prefix('[') {
+        let (host, port) = rest.split_once("]:")?;
+        if host != "::1" {
+            return None;
+        }
+        return Some((host, port.parse().ok()?));
+    }
+    let (host, port) = authority.rsplit_once(':')?;
+    if !matches!(host, "localhost" | "127.0.0.1") {
+        return None;
+    }
+    Some((host, port.parse().ok()?))
+}
+
+fn listener_pids(port: u16) -> Vec<u32> {
+    let port_arg = format!("-iTCP:{port}");
+    let output = StdCommand::new("/usr/sbin/lsof")
+        .args(["-nP", "-a", port_arg.as_str(), "-sTCP:LISTEN", "-Fp"])
+        .output()
+        .or_else(|_| {
+            StdCommand::new("lsof")
+                .args(["-nP", "-a", port_arg.as_str(), "-sTCP:LISTEN", "-Fp"])
+                .output()
+        });
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.strip_prefix('p')?.parse().ok())
+        .collect()
+}
+
+fn process_group(pid: u32) -> Option<libc::pid_t> {
+    #[cfg(unix)]
+    unsafe {
+        let group = libc::getpgid(pid as libc::pid_t);
+        (group > 0).then_some(group)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        None
     }
 }
 
@@ -682,7 +901,16 @@ impl Tool for BashTool {
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                let job_id = self.jobs.start(command, &cwd, &ctx.env).await?;
+                let job_id = self
+                    .jobs
+                    .start_for(
+                        &ctx.run_id,
+                        command,
+                        &cwd,
+                        &ctx.env,
+                        false,
+                    )
+                    .await?;
                 return Ok(ToolResult {
                     content: vec![Part::Text {
                         text: format!("started background job {job_id}"),
@@ -693,7 +921,7 @@ impl Tool for BashTool {
             }
             let secs = args.get("timeout").and_then(Value::as_f64).unwrap_or(300.0);
             let child = shell_command(command, &cwd, &ctx.env).spawn()?;
-            let output = run_child(child, Duration::from_secs_f64(secs)).await?;
+            let output = run_child(child, Duration::from_secs_f64(secs), ctx.cancellation()).await?;
             let mut combined = output.stdout;
             combined.extend_from_slice(&output.stderr);
             let cut = truncate_tail(&combined);
@@ -727,6 +955,10 @@ impl Tool for BashTool {
         }
         .await;
         result.unwrap_or_else(ToolResult::error)
+    }
+
+    async fn cleanup(&self, ctx: &ToolContext) {
+        let _ = self.jobs.cleanup_run(&ctx.run_id).await;
     }
 }
 
@@ -762,11 +994,28 @@ fn shell_command(command: &str, cwd: &Path, extra_env: &HashMap<String, String>)
     cmd
 }
 
-async fn run_child(child: Child, duration: Duration) -> Result<ChildOutput, ToolError> {
+async fn run_child(
+    child: Child,
+    duration: Duration,
+    cancellation: Option<&ToolCancellation>,
+) -> Result<ChildOutput, ToolError> {
     let pid = child.id();
     let wait = child.wait_with_output();
     tokio::pin!(wait);
-    match timeout(duration, &mut wait).await {
+    let result = if let Some(cancellation) = cancellation {
+        tokio::select! {
+            result = timeout(duration, &mut wait) => result,
+            _ = cancellation.cancelled() => {
+                #[cfg(unix)]
+                if let Some(pid) = pid { unsafe { libc::kill(-(pid as i32), libc::SIGTERM); libc::kill(-(pid as i32), libc::SIGKILL); } }
+                let _ = wait.await;
+                return Err(ToolError::Command("command cancelled".into()));
+            }
+        }
+    } else {
+        timeout(duration, &mut wait).await
+    };
+    match result {
         Ok(Ok(output)) => Ok(ChildOutput {
             stdout: output.stdout,
             stderr: output.stderr,
@@ -815,12 +1064,12 @@ impl Tool for BashJobTool {
             return ToolResult::error("job_id is required");
         };
         match args.get("action").and_then(Value::as_str) {
-            Some("kill") => match self.jobs.kill(id).await {
+            Some("kill") => match self.jobs.kill_for(&ctx.run_id, id).await {
                 Ok(true) => ToolResult::text("kill requested"),
                 Ok(false) => ToolResult::error("job not found"),
                 Err(e) => ToolResult::error(e),
             },
-            Some("output") => match self.jobs.output(id).await {
+            Some("output") => match self.jobs.status_for(&ctx.run_id, id).await.map(|(_, output)| output) {
                 Some(bytes) => bounded_text(ctx, &String::from_utf8_lossy(&bytes), true)
                     .await
                     .unwrap_or_else(ToolResult::error),
@@ -828,7 +1077,7 @@ impl Tool for BashJobTool {
             },
             Some("status") => self
                 .jobs
-                .status(id)
+                .status_for(&ctx.run_id, id)
                 .await
                 .map(|(status, _)| ToolResult {
                     content: vec![Part::Text {
@@ -843,6 +1092,10 @@ impl Tool for BashJobTool {
                 .unwrap_or_else(|| ToolResult::error("job not found")),
             _ => ToolResult::error("action must be status, output, or kill"),
         }
+    }
+
+    async fn cleanup(&self, ctx: &ToolContext) {
+        let _ = self.jobs.cleanup_run(&ctx.run_id).await;
     }
 }
 
@@ -1157,5 +1410,135 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
         panic!("process group did not terminate after kill");
+    }
+
+    #[tokio::test]
+    async fn bash_jobs_are_scoped_and_cleanup_only_owns_run() {
+        let manager = BashJobManager::default();
+        let dir = tempdir().unwrap();
+        let run_a = manager
+            .start_for("run-a", "sleep 30 & wait", dir.path(), &HashMap::new(), false)
+            .await
+            .unwrap();
+        let run_b = manager
+            .start_for("run-b", "sleep 30 & wait", dir.path(), &HashMap::new(), false)
+            .await
+            .unwrap();
+        assert!(manager.status_for("run-a", &run_b).await.is_none());
+        assert_eq!(manager.cleanup_run("run-a").await.unwrap(), 1);
+        assert!(manager.status_for("run-a", &run_a).await.is_some());
+        assert!(manager.status_for("run-b", &run_b).await.is_some());
+        assert_eq!(manager.cleanup_run("run-b").await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn bash_job_reports_live_output_and_does_not_kill_completed_jobs() {
+        let manager = BashJobManager::default();
+        let dir = tempdir().unwrap();
+        let running = manager
+            .start_for(
+                "run-live",
+                "printf live-sentinel; sleep 30",
+                dir.path(),
+                &HashMap::new(),
+                false,
+            )
+            .await
+            .unwrap();
+        let mut observed = false;
+        for _ in 0..40 {
+            if manager
+                .status_for("run-live", &running)
+                .await
+                .is_some_and(|(status, output)| status.is_none() && output.starts_with(b"live-sentinel"))
+            {
+                observed = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(observed, "running job output was not visible");
+        assert!(manager.kill_for("run-live", &running).await.unwrap());
+
+        let completed = manager
+            .start_for(
+                "run-done",
+                "printf completed-sentinel",
+                dir.path(),
+                &HashMap::new(),
+                false,
+            )
+            .await
+            .unwrap();
+        for _ in 0..40 {
+            if manager
+                .status_for("run-done", &completed)
+                .await
+                .is_some_and(|(status, output)| status.is_some() && output.starts_with(b"completed-sentinel"))
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(!manager.kill_for("run-done", &completed).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn registered_local_service_is_retained_only_for_its_run() {
+        let manager = BashJobManager::default();
+        let dir = tempdir().unwrap();
+        let port = 28_000 + (std::process::id() % 500);
+        let url = format!("http://127.0.0.1:{port}/");
+        let job = manager
+            .start_for(
+                "run-service",
+                &format!("python3 -m http.server {port}"),
+                dir.path(),
+                &HashMap::new(),
+                false,
+            )
+            .await
+            .unwrap();
+        let mut registered = false;
+        for _ in 0..80 {
+            if manager
+                .register_service_for("other-run", &url)
+                .await
+                .unwrap()
+            {
+                panic!("a service may not be retained by another run");
+            }
+            if manager.register_service_for("run-service", &url).await.unwrap() {
+                registered = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(registered, "the local service was not registered");
+        assert!(!manager
+            .register_service_for("run-service", "https://example.com/")
+            .await
+            .unwrap());
+        assert_eq!(manager.cleanup_run("run-service").await.unwrap(), 0);
+        assert!(manager.status_for("run-service", &job).await.is_some());
+        assert!(manager.kill_for("run-service", &job).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn foreground_bash_cancellation_kills_process_group() {
+        let dir = tempdir().unwrap();
+        let cancellation = ToolCancellation::default();
+        let context = ToolContext::new(dir.path(), "run-cancel", dir.path().join("runs"))
+            .with_cancellation(cancellation.clone());
+        let task = tokio::spawn(async move {
+            BashTool::default()
+                .call(&context, json!({"command":"sleep 30"}))
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        cancellation.cancel();
+        let result = timeout(Duration::from_secs(3), task).await.unwrap().unwrap();
+        assert!(result.is_error);
+        assert!(matches!(&result.content[0], Part::Text { text } if text.contains("cancelled")));
     }
 }
