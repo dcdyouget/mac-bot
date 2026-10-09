@@ -234,6 +234,7 @@ impl Orchestrator {
         restore_map(&mut i.loop_states, value.get("loop_states"))?;
         restore_map(&mut i.highlights, value.get("highlights"))?;
         migrate_legacy_main_chat_ids(&mut i);
+        migrate_legacy_routine_chat_ids(&mut i)?;
         Ok(())
     }
 
@@ -315,6 +316,16 @@ impl Orchestrator {
         let mut i = self.lock()?;
         i.tick_routines(at)
     }
+
+    pub fn finish_routine_run(
+        &self,
+        id: &str,
+        status: &str,
+        error: Option<String>,
+    ) -> Result<Option<RoutineRun>> {
+        let mut i = self.lock()?;
+        i.finish_routine_run(id, status, error)
+    }
 }
 
 impl Default for Orchestrator {
@@ -387,6 +398,63 @@ fn migrate_legacy_main_chat_ids(inner: &mut Inner) {
             question.chat_id = "chat_main".into();
         }
     }
+}
+
+fn migrate_legacy_routine_chat_ids(inner: &mut Inner) -> Result<()> {
+    let mut assignment_routines = HashMap::new();
+    for (routine_id, runs) in &inner.routine_runs {
+        for run in runs {
+            if let Some(assignment_id) = &run.assignment_id {
+                assignment_routines.insert(assignment_id.clone(), routine_id.clone());
+            }
+        }
+    }
+    let assignment_updates = inner
+        .assignments
+        .iter()
+        .filter_map(|(assignment_id, assignment)| {
+            let routine_id = assignment_routines.get(assignment_id)?;
+            if !assignment.origin_chat_id.starts_with("routine:") {
+                return None;
+            }
+            let routine = inner.routines.get(routine_id)?;
+            let chat_id = inner
+                .resolve_routine_delivery(&routine.bot_id, routine.project_id.as_deref())
+                .ok()?;
+            Some((assignment_id.clone(), chat_id))
+        })
+        .collect::<Vec<_>>();
+    for (assignment_id, chat_id) in assignment_updates {
+        if let Some(assignment) = inner.assignments.get_mut(&assignment_id) {
+            assignment.origin_chat_id = chat_id;
+        }
+    }
+    let message_updates = inner
+        .messages
+        .iter()
+        .filter_map(|(message_id, message)| {
+            if !message.chat_id.starts_with("routine:") {
+                return None;
+            }
+            let routine_id = message
+                .assignment_id
+                .as_ref()
+                .and_then(|assignment_id| assignment_routines.get(assignment_id))
+                .map(String::as_str)
+                .or_else(|| message.chat_id.strip_prefix("routine:"))?;
+            let routine = inner.routines.get(routine_id)?;
+            let chat_id = inner
+                .resolve_routine_delivery(&routine.bot_id, routine.project_id.as_deref())
+                .ok()?;
+            Some((message_id.clone(), chat_id))
+        })
+        .collect::<Vec<_>>();
+    for (message_id, chat_id) in message_updates {
+        if let Some(message) = inner.messages.get_mut(&message_id) {
+            message.chat_id = chat_id;
+        }
+    }
+    Ok(())
 }
 
 fn dm_chat_for_bot(bot: &Bot) -> Value {
@@ -473,6 +541,22 @@ pub struct SubagentHandle {
 }
 
 impl Inner {
+    fn resolve_routine_delivery(&self, bot_id: &str, project_id: Option<&str>) -> Result<Id> {
+        if let Some(project_id) = project_id {
+            if let Some(project) = self.projects.get(project_id) {
+                if project.status != "archived" {
+                    return Ok(project.chat_id.clone());
+                }
+            }
+        }
+        Ok(self
+            .bots
+            .get(bot_id)
+            .map(|bot| bot.dm_chat_id.clone())
+            .filter(|chat_id| !chat_id.trim().is_empty())
+            .unwrap_or_else(|| "chat_main".into()))
+    }
+
     fn project_id_for_chat(&self, chat_id: &str) -> Option<Id> {
         self.projects
             .values()
@@ -709,6 +793,21 @@ impl Inner {
                 Ok(
                     json!({ "runs": self.routine_runs.get(&id).cloned().unwrap_or_default().into_iter().rev().take(20).collect::<Vec<_>>() }),
                 )
+            }
+            "routine.execution" => {
+                let id = p
+                    .get("run_id")
+                    .or_else(|| p.get("assignment_id"))
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| OrchestratorError::Invalid("run_id is required".into()))?;
+                let status = str_param(&p, "status")?;
+                Ok(json!({
+                    "run": self.finish_routine_run(
+                        id,
+                        &status,
+                        p.get("error").and_then(Value::as_str).map(str::to_owned),
+                    )?
+                }))
             }
             "approval.request" => Self::json(self.create_approval(
                 serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
@@ -1059,8 +1158,10 @@ impl Inner {
     fn create_assignment(&mut self, request: AssignmentRequest) -> Result<Assignment> {
         let _ = self.bot(&request.bot_id)?;
         let bot_model = self.bot(&request.bot_id)?.model.clone();
-        if let Some(pid) = &request.project_id {
-            let _ = self.project(pid)?;
+        if request.from != "routine" {
+            if let Some(pid) = &request.project_id {
+                let _ = self.project(pid)?;
+            }
         }
         let active_global = self
             .assignments
@@ -1724,9 +1825,10 @@ impl Inner {
                 )
             })
             .ok_or_else(|| OrchestratorError::NotFound(format!("routine {id}")))?;
+        let origin_chat_id = self.resolve_routine_delivery(&bot_id, project_id.as_deref())?;
         let assignment = self.create_assignment(AssignmentRequest {
             project_id,
-            origin_chat_id: format!("routine:{id}"),
+            origin_chat_id,
             bot_id,
             title: name,
             instruction: instructions,
@@ -1787,9 +1889,10 @@ impl Inner {
                     r.instructions.clone(),
                 )
             };
+            let origin_chat_id = self.resolve_routine_delivery(&bot_id, project_id.as_deref())?;
             let assignment = self.create_assignment(AssignmentRequest {
                 project_id,
-                origin_chat_id: format!("routine:{id}"),
+                origin_chat_id,
                 bot_id,
                 title: name,
                 instruction: instructions,
@@ -1830,6 +1933,37 @@ impl Inner {
             runs.push(run);
         }
         Ok(runs)
+    }
+
+    fn finish_routine_run(
+        &mut self,
+        id: &str,
+        status: &str,
+        error: Option<String>,
+    ) -> Result<Option<RoutineRun>> {
+        let Some((routine_id, index)) = self.routine_runs.iter().find_map(|(routine_id, runs)| {
+            runs.iter()
+                .position(|run| run.id == id || run.assignment_id.as_deref() == Some(id))
+                .map(|index| (routine_id.clone(), index))
+        }) else {
+            return Ok(None);
+        };
+        let run = self
+            .routine_runs
+            .get_mut(&routine_id)
+            .and_then(|runs| runs.get_mut(index))
+            .ok_or_else(|| OrchestratorError::NotFound(format!("routine run {id}")))?;
+        if run.status != "running" {
+            return Ok(None);
+        }
+        run.status = status.into();
+        run.finished_at = Some(now());
+        run.error = error;
+        let output = run.clone();
+        if let Some(routine) = self.routines.get_mut(&routine_id) {
+            routine.last_run = Some(output.clone());
+        }
+        Ok(Some(output))
     }
 }
 
@@ -2624,5 +2758,153 @@ mod tests {
             .unwrap();
         assert_eq!(assignment["assignment"]["instruction"], "执行一次 fake");
         assert_eq!(assignment["assignment"]["status"], "working");
+    }
+
+    #[test]
+    fn finish_routine_run_updates_run_and_last_run_idempotently() {
+        let o = Orchestrator::default();
+        let bot_id = bot(&o, "完成定时");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let created = rt
+            .block_on(o.rpc(
+                "routine.create",
+                json!({"bot_id":bot_id,"name":"执行一次","instructions":"x","schedules":[{"cron":"*/5 * * * *","label":"five"}]}),
+            ))
+            .unwrap();
+        let routine_id = created["routine"]["id"].as_str().unwrap();
+        let started = rt
+            .block_on(o.rpc("routine.test_run", json!({"routine_id":routine_id})))
+            .unwrap();
+        let run_id = started["run"]["id"].as_str().unwrap();
+        let assignment_id = started["run"]["assignment_id"].as_str().unwrap();
+        let finished = o.finish_routine_run(run_id, "done", None).unwrap().unwrap();
+        assert_eq!(finished.status, "done");
+        let snapshot = o.snapshot().unwrap();
+        assert_eq!(snapshot["routines"][routine_id]["last_run"]["id"], run_id);
+        assert_eq!(
+            snapshot["routines"][routine_id]["last_run"]["status"],
+            "done"
+        );
+        assert_eq!(
+            snapshot["routine_runs"][routine_id][0]["assignment_id"],
+            assignment_id
+        );
+        assert!(o
+            .finish_routine_run(run_id, "failed", Some("late".into()))
+            .unwrap()
+            .is_none());
+        assert!(o
+            .finish_routine_run("non-routine-assignment", "done", None)
+            .unwrap()
+            .is_none());
+    }
+    #[test]
+    fn routine_delivery_uses_real_chat_and_migrates_legacy_origin() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "定时路由");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let project = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"路由项目","goal":"x","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let project_chat = project["chat"]["id"].as_str().unwrap();
+        let routine = rt
+            .block_on(o.rpc(
+                "routine.create",
+                json!({"bot_id":worker,"project_id":project_id,"name":"群定时","instructions":"x","schedules":[{"cron":"*/5 * * * *","label":"five"}]}),
+            ))
+            .unwrap();
+        let routine_id = routine["routine"]["id"].as_str().unwrap();
+        let run = rt
+            .block_on(o.rpc("routine.test_run", json!({"routine_id":routine_id})))
+            .unwrap();
+        let assignment_id = run["run"]["assignment_id"].as_str().unwrap();
+        let assignment = rt
+            .block_on(o.rpc("assignment.get", json!({"assignment_id":assignment_id})))
+            .unwrap();
+        assert_eq!(assignment["assignment"]["origin_chat_id"], project_chat);
+
+        let dm_routine = rt
+            .block_on(o.rpc(
+                "routine.create",
+                json!({"bot_id":worker,"name":"私聊定时","instructions":"x","schedules":[{"cron":"*/5 * * * *","label":"five"}]}),
+            ))
+            .unwrap();
+        let dm_run = rt
+            .block_on(o.rpc(
+                "routine.test_run",
+                json!({"routine_id":dm_routine["routine"]["id"]}),
+            ))
+            .unwrap();
+        let dm_chat = o.snapshot().unwrap()["bots"][&worker]["dm_chat_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let dm_assignment = rt
+            .block_on(o.rpc(
+                "assignment.get",
+                json!({"assignment_id":dm_run["run"]["assignment_id"]}),
+            ))
+            .unwrap();
+        assert_eq!(dm_assignment["assignment"]["origin_chat_id"], dm_chat);
+
+        o.send_msg(SendMessageRequest {
+            bot_id: worker.clone(),
+            chat_id: format!("routine:{routine_id}"),
+            assignment_id: Some(assignment_id.into()),
+            run_id: None,
+            call_id: None,
+            text: "旧消息".into(),
+            intent: "ack".into(),
+            mentions: vec![],
+            artifacts: vec![],
+            options: vec![],
+        })
+        .unwrap();
+        let mut snapshot = o.snapshot().unwrap();
+        snapshot["assignments"][assignment_id]["origin_chat_id"] =
+            json!(format!("routine:{routine_id}"));
+        for message in snapshot["messages"].as_object_mut().unwrap().values_mut() {
+            if message["assignment_id"].as_str() == Some(assignment_id) {
+                message["chat_id"] = json!(format!("routine:{routine_id}"));
+            }
+        }
+        let restored = Orchestrator::default();
+        restored.restore(snapshot).unwrap();
+        let restored_snapshot = restored.snapshot().unwrap();
+        assert_eq!(
+            restored_snapshot["assignments"][assignment_id]["origin_chat_id"],
+            project_chat
+        );
+        assert!(restored_snapshot["messages"]
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|message| {
+                message["assignment_id"].as_str() == Some(assignment_id)
+                    && message["chat_id"] == project_chat
+            }));
+
+        let mut deleted_project_snapshot = o.snapshot().unwrap();
+        deleted_project_snapshot["projects"]
+            .as_object_mut()
+            .unwrap()
+            .remove(project_id);
+        let deleted_project = Orchestrator::default();
+        deleted_project.restore(deleted_project_snapshot).unwrap();
+        let deleted_run = rt
+            .block_on(deleted_project.rpc("routine.test_run", json!({"routine_id":routine_id})))
+            .unwrap();
+        let deleted_assignment = rt
+            .block_on(deleted_project.rpc(
+                "assignment.get",
+                json!({"assignment_id":deleted_run["run"]["assignment_id"]}),
+            ))
+            .unwrap();
+        assert_eq!(deleted_assignment["assignment"]["origin_chat_id"], dm_chat);
+        assert_eq!(deleted_assignment["assignment"]["project_id"], project_id);
     }
 }

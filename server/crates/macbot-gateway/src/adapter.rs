@@ -272,6 +272,7 @@ impl ProductionBackend {
             "routine.create" | "routine.update" | "routine.set_enabled" => "routine.updated",
             "routine.delete" => "routine.deleted",
             "routine.test_run" => "routine.run",
+            "routine.execution" => "routine.run",
             "loop.resolve" => "assignment.updated",
             "settings.update" => "settings.updated",
             _ => return None,
@@ -376,6 +377,28 @@ impl ProductionBackend {
             Some(json!({"run_id":run["id"],"assignment_id":assignment_id,"bot_id":assignment["bot_id"],"chat_id":assignment["origin_chat_id"],"instruction":assignment["instruction"],"model":assignment["model"]}))
         }).collect::<Vec<_>>();
         Ok(json!({"runs": values, "dispatch": dispatch}))
+    }
+
+    /// Commit a runtime routine result through the same durable operation and
+    /// event path as ordinary RPC mutations.
+    pub async fn execution_finish_routine_run(
+        &self,
+        state: &GatewayState,
+        id: &str,
+        status: &str,
+        error: Option<String>,
+    ) -> RpcResult {
+        let _guard = self.write_lock.lock().await;
+        let params = json!({"run_id":id,"status":status,"error":error});
+        let run = self
+            .orchestrator
+            .finish_routine_run(id, status, error)
+            .map_err(Self::error)?;
+        let Some(run) = run else {
+            return Ok(json!({}));
+        };
+        self.persist(state, "routine.execution", &params, &json!({"run":run}))
+            .await
     }
 
     /// Admit a `send_msg` emitted by `ExecutionEngine` through the same
@@ -1418,6 +1441,9 @@ fn event_data(method: &str, params: &Value, result: &Value) -> Value {
         "routine.delete" => {
             json!({ "routine_id": params.get("routine_id").cloned().unwrap_or(Value::Null) })
         }
+        "routine.test_run" | "routine.execution" => {
+            json!({"run": result.get("run").cloned().unwrap_or(Value::Null)})
+        }
         _ => result.clone(),
     }
 }
@@ -2336,6 +2362,23 @@ mod tests {
             .unwrap();
         let _: macbot_protocol::Assignment =
             serde_json::from_value(event.data["assignment"].clone()).unwrap();
+        let routine_id = result["runs"][0]["routine_id"].as_str().unwrap();
+        backend
+            .call(
+                "routine.test_run",
+                json!({"routine_id":routine_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        for event in backend.store.events_since(0).unwrap() {
+            if event.event == "routine.run" {
+                assert_eq!(event.data.as_object().unwrap().len(), 1);
+                assert!(event.data.get("run").is_some());
+                let _: macbot_protocol::RoutineRun =
+                    serde_json::from_value(event.data["run"].clone()).unwrap();
+            }
+        }
     }
 
     #[tokio::test]

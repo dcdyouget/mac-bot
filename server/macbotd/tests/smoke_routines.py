@@ -154,16 +154,105 @@ def main() -> None:
                 "client_request_id": f"routine-model-{suffix}",
             },
         )["model"]["ref"]
+
+        # First exercise the negative default-model route.  A worker with no
+        # explicit model must not inherit the main Bot model.
+        settings = rpc(
+            base,
+            args.password,
+            "settings.update",
+            {"patch": {"models": {"bot_default": None, "main": model_ref}}},
+        )["settings"]
+        assert settings["models"]["bot_default"] is None
+        assert settings["models"]["main"] == model_ref
+        missing_bot = rpc(
+            base,
+            args.password,
+            "bot.create",
+            {
+                "name": f"无默认模型 Bot-{suffix}",
+                "model": None,
+                "tools": {"files": False, "bash": False, "browser": False, "subagent": False, "web": False, "mcp": False},
+            },
+        )["bot"]
+        assert missing_bot["model"] is None, missing_bot
+        missing_routine = rpc(
+            base,
+            args.password,
+            "routine.create",
+            {
+                "bot_id": missing_bot["id"],
+                "name": f"无默认模型巡检-{suffix}",
+                "instructions": f"missing-default-{suffix}",
+                "schedules": [{"cron": "*/5 * * * *", "label": "every five minutes"}],
+                "timezone": "Asia/Shanghai",
+                "client_request_id": f"routine-missing-{suffix}",
+            },
+        )["routine"]
+        missing_routine_id = missing_routine["id"]
+        missing_response = http_json(
+            f"{base}/api/v1/rpc",
+            {
+                "method": "routine.test_run",
+                "params": {"routine_id": missing_routine_id, "client_request_id": f"routine-missing-test-{suffix}"},
+            },
+            args.password,
+        )
+        assert missing_response.get("ok"), missing_response
+        missing_run = missing_response["result"]["run"]
+        assert missing_run["assignment_id"]
+
+        def missing_run_stopped() -> bool:
+            runs = rpc(base, args.password, "routine.runs", {"routine_id": missing_routine_id})["runs"]
+            return any(
+                item.get("id") == missing_run["id"]
+                and item.get("status") in {"failed", "blocked"}
+                for item in runs
+            )
+
+        wait_until(missing_run_stopped, "missing-model routine blocked", 30)
+        missing_runs = rpc(base, args.password, "routine.runs", {"routine_id": missing_routine_id})["runs"]
+        stopped = next(item for item in missing_runs if item.get("id") == missing_run["id"])
+        assert stopped["status"] in {"failed", "blocked"}
+        assert "未配置默认模型" in json.dumps(stopped, ensure_ascii=False) or "no model configured" in json.dumps(stopped, ensure_ascii=False)
+        missing_assignment = rpc(base, args.password, "assignment.list", {"limit": 100})["items"]
+        assignment = next(item for item in missing_assignment if item.get("id") == missing_run["assignment_id"])
+        assert assignment["status"] in {"failed", "blocked"}
+        assert assignment.get("result_message_id")
+        assert assignment["origin_chat_id"] == missing_bot["dm_chat_id"]
+        assert assignment.get("project_id") is None
+        missing_trace = rpc(base, args.password, "trace.history", {"assignment_id": missing_run["assignment_id"], "limit": 500})["items"]
+        assert all(
+            item.get("data", {}).get("model")
+            for item in missing_trace
+            if item.get("type") == "run.start"
+        ), missing_trace
+        missing_history = rpc(base, args.password, "chat.history", {"chat_id": missing_bot["dm_chat_id"], "limit": 50})["messages"]
+        assert any("未配置默认模型" in item.get("fallback_text", "") for item in missing_history), missing_history
+        rpc(base, args.password, "routine.set_enabled", {"routine_id": missing_routine_id, "enabled": False})
+
+        # Exercise the positive route without restarting the daemon.  The
+        # routine Bot still carries no explicit model; workers now use
+        # models.bot_default while the main Bot is independently configured.
+        settings = rpc(
+            base,
+            args.password,
+            "settings.update",
+            {"patch": {"models": {"bot_default": model_ref, "main": None}}},
+        )["settings"]
+        assert settings["models"]["bot_default"] == model_ref
+        assert settings["models"]["main"] is None
         bot = rpc(
             base,
             args.password,
             "bot.create",
             {
                 "name": f"定时 Bot-{suffix}",
-                "model": model_ref,
+                "model": None,
                 "tools": {"files": False, "bash": False, "browser": False, "subagent": False, "web": False, "mcp": False},
             },
         )["bot"]
+        assert bot["model"] is None, bot
         routine = rpc(
             base,
             args.password,
@@ -204,7 +293,39 @@ def main() -> None:
         wait_until(test_execution_finished, "routine test_run execution completion", 90)
         assert RoutineProviderHandler.calls > calls_before_test
         test_history = rpc(base, args.password, "routine.runs", {"routine_id": routine_id})["runs"]
-        assert any(item.get("id") == test_run["id"] and item.get("trigger") == "test" for item in test_history)
+
+        def test_run_finished() -> bool:
+            runs = rpc(base, args.password, "routine.runs", {"routine_id": routine_id})["runs"]
+            return any(item.get("id") == test_run["id"] and item.get("status") == "done" for item in runs)
+
+        wait_until(test_run_finished, "routine test_run durable completion", 30)
+        test_rpc_run = next(
+            item for item in rpc(base, args.password, "routine.runs", {"routine_id": routine_id})["runs"]
+            if item.get("id") == test_run["id"]
+        )
+        assert test_rpc_run["status"] == "done" and test_rpc_run.get("finished_at")
+        disk_state = json.loads((args.home / "data" / "orchestrator" / "state.json").read_text())
+        test_disk_run = next(item for item in disk_state["routine_runs"][routine_id] if item.get("id") == test_run["id"])
+        assert {
+            "status": test_disk_run.get("status"),
+            "finished_at": test_disk_run.get("finished_at"),
+        } == {
+            "status": test_rpc_run.get("status"),
+            "finished_at": test_rpc_run.get("finished_at"),
+        }
+        test_trace = rpc(base, args.password, "trace.history", {"assignment_id": test_assignment_id, "limit": 500})["items"]
+        test_assignment = next(
+            item for item in rpc(base, args.password, "assignment.list", {"limit": 100})["items"]
+            if item.get("id") == test_assignment_id
+        )
+        assert test_assignment["origin_chat_id"] == bot["dm_chat_id"]
+        assert test_assignment.get("project_id") is None
+        assert any(item.get("type") == "llm.request" and item.get("data", {}).get("model") == model_ref for item in test_trace), test_trace
+        assert any(
+            item.get("type") == "llm.response"
+            and item.get("data", {}).get("usage", {}).get("requests", 0) > 0
+            for item in test_trace
+        ), test_trace
 
         # The production create path intentionally enforces the five-minute
         # spacing. Move only this isolated snapshot's clock backwards while
@@ -232,11 +353,91 @@ def main() -> None:
 
         wait_until(execution_finished, "scheduled execution completion", 90)
         trace = rpc(base, args.password, "trace.history", {"assignment_id": assignment_id, "limit": 500})["items"]
+        def scheduled_run_finished() -> bool:
+            runs = rpc(base, args.password, "routine.runs", {"routine_id": routine_id})["runs"]
+            return any(item.get("id") == run["id"] and item.get("status") == "done" for item in runs)
+
+        wait_until(scheduled_run_finished, "scheduled routine durable completion", 30)
+        scheduled_rpc_run = next(
+            item for item in rpc(base, args.password, "routine.runs", {"routine_id": routine_id})["runs"]
+            if item.get("id") == run["id"]
+        )
+        assert scheduled_rpc_run["status"] == "done" and scheduled_rpc_run.get("finished_at")
+        disk_state = json.loads((args.home / "data" / "orchestrator" / "state.json").read_text())
+        scheduled_disk_run = next(item for item in disk_state["routine_runs"][routine_id] if item.get("id") == run["id"])
+        assert {
+            "status": scheduled_disk_run.get("status"),
+            "finished_at": scheduled_disk_run.get("finished_at"),
+        } == {
+            "status": scheduled_rpc_run.get("status"),
+            "finished_at": scheduled_rpc_run.get("finished_at"),
+        }
+        assert any(item.get("type") == "llm.request" and item.get("data", {}).get("model") == model_ref for item in trace), trace
+        assert any(
+            item.get("type") == "llm.response"
+            and item.get("data", {}).get("usage", {}).get("requests", 0) > 0
+            for item in trace
+        ), trace
         assert any(item.get("type") == "routine.run" or item.get("type") == "send_msg" for item in trace)
         assert any(item.get("type") == "send_msg" for item in trace), trace
-        routine_chat = f"routine:{routine_id}"
-        history = rpc(base, args.password, "chat.history", {"chat_id": routine_chat, "limit": 50})["messages"]
+        history = rpc(base, args.password, "chat.history", {"chat_id": bot["dm_chat_id"], "limit": 50})["messages"]
         assert any("定时任务已完成" in item.get("fallback_text", "") for item in history), history
+
+        # A project-bound routine must use the project group as its execution
+        # chat.  This covers the routing branch separately from the Bot DM
+        # branch above and ensures no routine:<id> pseudo-chat leaks out.
+        project = rpc(
+            base,
+            args.password,
+            "project.create",
+            {
+                "name": f"定时项目-{suffix}",
+                "goal": "验证项目定时任务路由",
+                "member_bot_ids": [bot["id"]],
+                "flow": ["验证"],
+                "client_request_id": f"routine-project-{suffix}",
+            },
+        )
+        project_id = project["project"]["id"]
+        project_chat = project["chat"]["id"]
+        project_routine = rpc(
+            base,
+            args.password,
+            "routine.create",
+            {
+                "bot_id": bot["id"],
+                "project_id": project_id,
+                "name": f"项目定时通知-{suffix}",
+                "instructions": marker,
+                "schedules": [{"cron": "*/5 * * * *", "label": "every five minutes"}],
+                "timezone": "Asia/Shanghai",
+                "client_request_id": f"routine-project-create-{suffix}",
+            },
+        )["routine"]
+        project_routine_id = project_routine["id"]
+        project_test = rpc(
+            base,
+            args.password,
+            "routine.test_run",
+            {"routine_id": project_routine_id, "client_request_id": f"routine-project-test-{suffix}"},
+        )
+        project_run = project_test["run"]
+        project_assignment_id = project_run["assignment_id"]
+
+        def project_execution_finished() -> bool:
+            trace_items = rpc(base, args.password, "trace.history", {"assignment_id": project_assignment_id, "limit": 500})["items"]
+            return any(item.get("type") == "run.end" and item.get("data", {}).get("status") == "done" for item in trace_items)
+
+        wait_until(project_execution_finished, "project routine execution completion", 90)
+        project_assignment = next(
+            item for item in rpc(base, args.password, "assignment.list", {"limit": 100})["items"]
+            if item.get("id") == project_assignment_id
+        )
+        assert project_assignment["origin_chat_id"] == project_chat
+        assert project_assignment.get("project_id") == project_id
+        project_history = rpc(base, args.password, "chat.history", {"chat_id": project_chat, "limit": 50})["messages"]
+        assert any("定时任务已完成" in item.get("fallback_text", "") for item in project_history), project_history
+        rpc(base, args.password, "routine.set_enabled", {"routine_id": project_routine_id, "enabled": False})
 
         # Paused routines remain due in the controlled clock, but the daemon
         # must not create another schedule run while enabled=false.
@@ -249,7 +450,12 @@ def main() -> None:
         assert len(after_runs) == before, after_runs
         current = rpc(base, args.password, "routine.list", {"bot_id": bot["id"]})["routines"]
         assert next(item for item in current if item["id"] == routine_id)["enabled"] is False
-        print(json.dumps({"ok": True, "routine_id": routine_id, "test_run_id": test_run["id"], "run_id": run["id"], "assignment_id": assignment_id, "provider_calls": RoutineProviderHandler.calls, "home": str(args.home)}, ensure_ascii=False))
+        events_path = args.home / "data" / "events" / "events.jsonl"
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            event = json.loads(line)
+            if event.get("event") == "routine.run":
+                assert set(event.get("data", {})) == {"run"}, event
+        print(json.dumps({"ok": True, "routine_id": routine_id, "project_routine_id": project_routine_id, "test_run_id": test_run["id"], "run_id": run["id"], "assignment_id": assignment_id, "provider_calls": RoutineProviderHandler.calls, "home": str(args.home)}, ensure_ascii=False))
     finally:
         daemon.close()
         server.shutdown()

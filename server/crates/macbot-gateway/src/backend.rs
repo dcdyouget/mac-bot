@@ -193,18 +193,32 @@ impl ComposedBackend {
             let model = dispatch
                 .get("model")
                 .and_then(Value::as_str)
+                .map(str::to_owned)
                 .or_else(|| {
                     snapshot
                         .as_ref()
-                        .and_then(|value| value.get("bots"))
-                        .and_then(|value| value.get(&bot_id))
-                        .and_then(|value| value.get("model"))
-                        .and_then(Value::as_str)
+                        .and_then(|value| self.configured_model(value, &bot_id))
                 })
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned);
+                .filter(|value| !value.is_empty());
             let Some(model) = model else {
-                tracing::warn!(%run_id, %bot_id, "routine has no configured model");
+                let reason = "no model configured for routine Bot";
+                tracing::error!(%run_id, %bot_id, "{reason}");
+                if let Some(assignment_id) = dispatch.get("assignment_id").and_then(Value::as_str) {
+                    block_missing_model(
+                        self.inner.clone(),
+                        self.state.clone(),
+                        bot_id.clone(),
+                        dispatch
+                            .get("chat_id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("chat_main")
+                            .to_owned(),
+                        assignment_id.to_owned(),
+                        run_id,
+                    )
+                    .await;
+                }
+                self.mark_routine_failed(run_id, reason).await;
                 continue;
             };
             // A scheduler tick may be retried after a transport failure.  The
@@ -286,6 +300,32 @@ impl ComposedBackend {
                 resume_message: None,
             };
             self.spawn_request(request);
+        }
+    }
+
+    /// Resolve a Bot's effective model from the live durable settings.  The
+    /// orchestrator snapshot intentionally contains only scheduling settings;
+    /// provider/model defaults belong to `data/settings.json` and are read
+    /// through the already-open Store handle so settings updates take effect
+    /// without reopening the process lock.
+    fn configured_model(&self, snapshot: &Value, bot_id: &str) -> Option<String> {
+        let settings = self
+            .inner
+            .store
+            .read_snapshot::<Value>("data/settings.json")
+            .ok()
+            .flatten()
+            .unwrap_or(Value::Null);
+        resolve_model(snapshot, &settings, bot_id, ModelRole::Bot)
+    }
+
+    async fn mark_routine_failed(&self, run_id: &str, reason: &str) {
+        if let Err(error) = self
+            .inner
+            .execution_finish_routine_run(&self.state, run_id, "failed", Some(reason.to_owned()))
+            .await
+        {
+            tracing::warn!(%error, %run_id, "failed to persist routine failure");
         }
     }
 
@@ -450,18 +490,7 @@ impl ComposedBackend {
         let bot_is_main = bot
             .and_then(|value| value.get("is_main").and_then(Value::as_bool))
             .unwrap_or(bot_id == "main");
-        let model = bot
-            .and_then(|bot| bot.get("model"))
-            .and_then(Value::as_str)
-            .filter(|model| !model.is_empty())
-            .or_else(|| {
-                snapshot
-                    .get("settings")
-                    .and_then(|settings| settings.pointer("/models/main"))
-                    .and_then(Value::as_str)
-                    .filter(|model| !model.is_empty())
-            })?
-            .to_owned();
+        let model = self.configured_model(&snapshot, &bot_id)?;
         let provider_id = model
             .split_once('/')
             .map(|(provider, _)| provider)
@@ -610,19 +639,8 @@ impl ComposedBackend {
             .get("model")
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
-            .or_else(|| {
-                bot.and_then(|value| value.get("model"))
-                    .and_then(Value::as_str)
-                    .filter(|value| !value.is_empty())
-            })
-            .or_else(|| {
-                snapshot
-                    .get("settings")
-                    .and_then(|settings| settings.pointer("/models/main"))
-                    .and_then(Value::as_str)
-                    .filter(|value| !value.is_empty())
-            })?
-            .to_owned();
+            .map(str::to_owned)
+            .or_else(|| self.configured_model(&snapshot, &bot_id))?;
         let provider_id = model
             .split_once('/')
             .map(|(provider, _)| provider)
@@ -700,6 +718,28 @@ impl ComposedBackend {
         };
         for assignment in assignments {
             let Some(request) = self.request_for_assignment(&assignment) else {
+                if assignment.get("status").and_then(Value::as_str) == Some("working") {
+                    if let Some(assignment_id) = assignment.get("id").and_then(Value::as_str) {
+                        tracing::error!(%assignment_id, "working assignment has no configured model; failing it");
+                        block_missing_model(
+                            self.inner.clone(),
+                            self.state.clone(),
+                            assignment
+                                .get("bot_id")
+                                .and_then(Value::as_str)
+                                .unwrap_or("main")
+                                .to_owned(),
+                            assignment
+                                .get("origin_chat_id")
+                                .and_then(Value::as_str)
+                                .unwrap_or("chat_main")
+                                .to_owned(),
+                            assignment_id.to_owned(),
+                            &format!("model-missing-{assignment_id}"),
+                        )
+                        .await;
+                    }
+                }
                 continue;
             };
             let key = request.assignment_id.as_deref().unwrap_or(&request.run_id);
@@ -933,6 +973,108 @@ async fn enqueue_steer_runtime(runtime: RuntimeExecution, result: &Value, params
     tracing::warn!(%assignment_id, %message_id, "steer could not find a durable execution job");
 }
 
+async fn block_missing_model(
+    inner: Arc<ProductionBackend>,
+    state: GatewayState,
+    bot_id: String,
+    chat_id: String,
+    assignment_id: String,
+    run_id: &str,
+) {
+    let chat_id = routable_missing_model_chat(&inner, &bot_id, &chat_id, &assignment_id);
+    let message = json!({
+        "bot_id": bot_id,
+        "chat_id": chat_id,
+        "assignment_id": assignment_id,
+        "text": "未配置默认模型",
+        "intent": "blocked",
+        "mentions": []
+    });
+    let envelope = json!({
+        "message": message,
+        "receipt": {"run_id": run_id, "call_id": "model-missing"}
+    });
+    if let Err(error) = inner.execution_send_msg(&state, envelope).await {
+        tracing::warn!(%error, %run_id, "failed to persist missing-model notification");
+    }
+}
+
+/// Routine dispatch uses a synthetic `routine:<id>` origin for its internal
+/// assignment.  That value is useful for routing execution, but it is not a
+/// client-visible chat.  Missing-model notices must land in a real chat so a
+/// user can see the terminal blocked state: a project assignment uses the
+/// project's chat, otherwise the Bot DM is the stable fallback.
+fn routable_missing_model_chat(
+    inner: &ProductionBackend,
+    bot_id: &str,
+    requested_chat_id: &str,
+    assignment_id: &str,
+) -> String {
+    let Ok(snapshot) = inner.orchestrator.snapshot() else {
+        return requested_chat_id.to_owned();
+    };
+    routable_missing_model_chat_from_snapshot(&snapshot, bot_id, requested_chat_id, assignment_id)
+}
+
+fn routable_missing_model_chat_from_snapshot(
+    snapshot: &Value,
+    bot_id: &str,
+    requested_chat_id: &str,
+    assignment_id: &str,
+) -> String {
+    let is_real_chat = requested_chat_id == "chat_main"
+        || snapshot
+            .get("bots")
+            .and_then(Value::as_object)
+            .is_some_and(|bots| {
+                bots.values().any(|bot| {
+                    bot.get("dm_chat_id").and_then(Value::as_str) == Some(requested_chat_id)
+                })
+            })
+        || snapshot
+            .get("projects")
+            .and_then(Value::as_object)
+            .is_some_and(|projects| {
+                projects.values().any(|project| {
+                    project.get("chat_id").and_then(Value::as_str) == Some(requested_chat_id)
+                })
+            });
+    if is_real_chat {
+        return requested_chat_id.to_owned();
+    }
+    let project_chat = snapshot
+        .get("assignments")
+        .and_then(Value::as_object)
+        .and_then(|assignments| assignments.get(assignment_id))
+        .and_then(|assignment| assignment.get("project_id"))
+        .and_then(Value::as_str)
+        .and_then(|project_id| snapshot.get("projects")?.get(project_id))
+        .and_then(|project| project.get("chat_id"))
+        .and_then(Value::as_str);
+    if let Some(chat_id) = project_chat {
+        return chat_id.to_owned();
+    }
+    snapshot
+        .get("bots")
+        .and_then(Value::as_object)
+        .and_then(|bots| bots.get(bot_id))
+        .and_then(|bot| bot.get("dm_chat_id"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            snapshot
+                .get("bots")
+                .and_then(Value::as_object)
+                .and_then(|bots| {
+                    bots.values()
+                        .find(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+                })
+                .and_then(|bot| bot.get("dm_chat_id"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("chat_main")
+        .to_owned()
+}
+
 async fn finish_assignment(
     inner: Arc<ProductionBackend>,
     state: GatewayState,
@@ -974,6 +1116,27 @@ async fn finish_assignment_with_status(
                 .publish_event(event.seq, &event.event, event.data)
                 .await;
         }
+        mark_routine_run_for_assignment(&inner, &state, &assignment_id, status).await;
+    }
+}
+
+async fn mark_routine_run_for_assignment(
+    inner: &Arc<ProductionBackend>,
+    state: &GatewayState,
+    assignment_id: &str,
+    assignment_status: &str,
+) {
+    let status = if assignment_status == "done" {
+        "done"
+    } else {
+        "failed"
+    };
+    let error = (status == "failed").then(|| "execution failed".to_owned());
+    if let Err(error) = inner
+        .execution_finish_routine_run(state, assignment_id, status, error)
+        .await
+    {
+        tracing::warn!(%error, %assignment_id, "failed to persist routine run completion");
     }
 }
 
@@ -1289,6 +1452,62 @@ impl crate::RpcBackend for ComposedBackend {
                         .is_none_or(|id| self.assignment_is_working(id))
                     {
                         self.spawn_request(request);
+                    }
+                } else if let Some(message_id) = result
+                    .get("message")
+                    .and_then(|message| message.get("id"))
+                    .and_then(Value::as_str)
+                {
+                    // chat.send has already admitted the assignment.  Do not
+                    // leave it permanently working when settings contain no
+                    // model for the selected Bot.
+                    let assignment_id =
+                        self.inner
+                            .orchestrator
+                            .snapshot()
+                            .ok()
+                            .and_then(|snapshot| {
+                                snapshot
+                                    .get("assignments")
+                                    .and_then(Value::as_object)
+                                    .and_then(|assignments| {
+                                        assignments.values().find_map(|assignment| {
+                                            let matches = assignment
+                                                .get("trigger_message_id")
+                                                .and_then(Value::as_str)
+                                                == Some(message_id)
+                                                && assignment.get("status").and_then(Value::as_str)
+                                                    == Some("working");
+                                            matches
+                                                .then(|| {
+                                                    assignment.get("id").and_then(Value::as_str)
+                                                })
+                                                .flatten()
+                                        })
+                                    })
+                                    .map(str::to_owned)
+                            });
+                    if let Some(assignment_id) = assignment_id {
+                        tracing::error!(%assignment_id, "chat assignment has no configured model; failing it");
+                        block_missing_model(
+                            self.inner.clone(),
+                            self.state.clone(),
+                            params
+                                .get("bot_id")
+                                .and_then(Value::as_str)
+                                .unwrap_or("main")
+                                .to_owned(),
+                            params
+                                .get("chat_id")
+                                .and_then(Value::as_str)
+                                .unwrap_or("chat_main")
+                                .to_owned(),
+                            assignment_id,
+                            &format!("model-missing-{message_id}"),
+                        )
+                        .await;
+                    } else {
+                        tracing::error!(%message_id, "chat request has no configured model");
                     }
                 }
             }
@@ -1706,44 +1925,10 @@ impl RuntimeExecution {
             .filter_map(Value::as_str)
             .map(PathBuf::from)
             .collect::<Vec<_>>();
-        let maintenance_model = settings
-            .pointer("/models/maintenance")
-            .and_then(Value::as_str)
-            .and_then(|value| (value != "inherit").then_some(value.to_owned()))
-            .or_else(|| {
-                settings
-                    .pointer("/models/maintenance")
-                    .and_then(Value::as_str)
-                    .filter(|value| *value == "inherit")
-                    .and_then(|_| {
-                        settings
-                            .pointer("/models/main")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                    })
-            })
-            .or_else(|| {
-                self.backend
-                    .orchestrator
-                    .snapshot()
-                    .ok()
-                    .and_then(|snapshot| {
-                        snapshot
-                            .get("bots")
-                            .and_then(Value::as_object)
-                            .and_then(|bots| {
-                                bots.values()
-                                    .find(|bot| {
-                                        bot.get("is_main").and_then(Value::as_bool) == Some(true)
-                                    })
-                                    .or_else(|| bots.values().next())
-                            })
-                            .and_then(|bot| bot.get("model"))
-                            .and_then(Value::as_str)
-                            .filter(|value| !value.is_empty())
-                            .map(str::to_owned)
-                    })
-            });
+        let snapshot = self.backend.orchestrator.snapshot().ok();
+        let maintenance_model = snapshot.as_ref().and_then(|snapshot| {
+            resolve_model(snapshot, &settings, "main", ModelRole::Maintenance)
+        });
         let provider = if let Some(model_ref) = maintenance_model {
             let providers = self.provider_resolver.providers.lock().await;
             let (catalog, provider) = providers
@@ -2650,14 +2835,24 @@ impl RuntimeExecution {
         self.usage.clone()
     }
 
-    fn model_for_bot(&self, bot_id: &str) -> Option<(String, String)> {
+    fn model_for_subagent(
+        &self,
+        bot_id: &str,
+        parent_model: Option<&str>,
+    ) -> Option<(String, String)> {
         let snapshot = self.backend.orchestrator.snapshot().ok()?;
-        let bot = snapshot.get("bots")?.get(bot_id)?;
-        let model = bot
-            .get("model")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())?
-            .to_owned();
+        let settings = self
+            .store
+            .read_snapshot::<Value>("data/settings.json")
+            .ok()
+            .flatten()
+            .unwrap_or(Value::Null);
+        let model = resolve_model(
+            &snapshot,
+            &settings,
+            bot_id,
+            ModelRole::Subagent { parent_model },
+        )?;
         let provider_id = model
             .split_once('/')
             .map(|(provider, _)| provider)
@@ -2796,9 +2991,15 @@ impl MaintenanceUsageSink for RuntimeMaintenanceUsage {
 #[async_trait]
 impl SubagentDispatchBridge for RuntimeSubagentDispatch {
     async fn dispatch(&self, request: SubagentDispatchRequest) -> Result<Value, String> {
+        let parent = self
+            .runtime
+            .find_request(|candidate| candidate.run_id == request.parent_run_id);
         let (model, provider_id) = self
             .runtime
-            .model_for_bot(&request.bot_id)
+            .model_for_subagent(
+                &request.bot_id,
+                parent.as_ref().map(|request| request.model.as_str()),
+            )
             .ok_or_else(|| "subagent bot has no configured model".to_owned())?;
         let price = self.runtime.price_for_model(&model);
         let cwd = self
@@ -2847,6 +3048,82 @@ impl SubagentDispatchBridge for RuntimeSubagentDispatch {
         Ok(
             json!({"subagent_id":request.subagent_id,"run_id":outcome.run_id,"status":outcome.status,"text":outcome.text,"turns":outcome.turns}),
         )
+    }
+}
+
+enum ModelRole<'a> {
+    Bot,
+    Subagent { parent_model: Option<&'a str> },
+    Maintenance,
+}
+
+/// Resolve every execution model from the live settings file.  Keeping the
+/// role rules in one function is important: a settings update must affect
+/// chat, routines, subagents, and maintenance in the same way.
+fn resolve_model(
+    snapshot: &Value,
+    settings: &Value,
+    bot_id: &str,
+    role: ModelRole<'_>,
+) -> Option<String> {
+    let models = settings.get("models");
+    match role {
+        ModelRole::Bot => {
+            let bot = snapshot.get("bots")?.get(bot_id)?;
+            let is_main = bot
+                .get("is_main")
+                .and_then(Value::as_bool)
+                .unwrap_or(bot_id == "main");
+            bot.get("model")
+                .and_then(Value::as_str)
+                .filter(|model| !model.trim().is_empty())
+                .or_else(|| {
+                    models
+                        .and_then(|models| models.get(if is_main { "main" } else { "bot_default" }))
+                        .and_then(Value::as_str)
+                        .filter(|model| !model.trim().is_empty())
+                })
+                .map(str::to_owned)
+        }
+        ModelRole::Subagent { parent_model } => models
+            .and_then(|models| models.get("subagent"))
+            .and_then(Value::as_str)
+            .filter(|model| !model.trim().is_empty() && *model != "inherit")
+            .map(str::to_owned)
+            .or_else(|| {
+                parent_model
+                    .filter(|model| !model.trim().is_empty())
+                    .map(str::to_owned)
+            }),
+        ModelRole::Maintenance => {
+            let configured = models
+                .and_then(|models| models.get("maintenance"))
+                .and_then(Value::as_str)
+                .filter(|model| !model.trim().is_empty());
+            if let Some(model) = configured.filter(|model| *model != "inherit") {
+                return Some(model.to_owned());
+            }
+            if configured == Some("inherit") {
+                if let Some(main_id) = snapshot
+                    .get("bots")
+                    .and_then(Value::as_object)
+                    .and_then(|bots| {
+                        bots.values()
+                            .find(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+                    })
+                    .and_then(|bot| bot.get("id").and_then(Value::as_str))
+                {
+                    return resolve_model(snapshot, settings, main_id, ModelRole::Bot);
+                }
+            }
+            // A missing/null maintenance model deliberately follows the
+            // worker default, never the main model.
+            models
+                .and_then(|models| models.get("bot_default"))
+                .and_then(Value::as_str)
+                .filter(|model| !model.trim().is_empty())
+                .map(str::to_owned)
+        }
     }
 }
 
@@ -3290,5 +3567,107 @@ impl ModelProvider for UnavailableProvider {
         Err(macbot_providers::Error::Response(
             "no enabled model is configured".into(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod model_resolution_tests {
+    use super::{resolve_model, routable_missing_model_chat_from_snapshot, ModelRole};
+    use serde_json::json;
+
+    #[test]
+    fn null_bot_models_use_live_role_defaults() {
+        let snapshot = json!({
+            "bots": {
+                "main": {"id":"main", "is_main":true, "model":null},
+                "worker": {"id":"worker", "is_main":false, "model":null}
+            }
+        });
+        let settings = json!({
+            "models": {
+                "main": "fake/main",
+                "bot_default": "fake/worker"
+            }
+        });
+        assert_eq!(
+            resolve_model(&snapshot, &settings, "main", ModelRole::Bot).as_deref(),
+            Some("fake/main")
+        );
+        assert_eq!(
+            resolve_model(&snapshot, &settings, "worker", ModelRole::Bot).as_deref(),
+            Some("fake/worker")
+        );
+    }
+
+    #[test]
+    fn explicit_bot_model_overrides_default_and_missing_is_none() {
+        let snapshot = json!({
+            "bots": {
+                "worker": {"id":"worker", "is_main":false, "model":"fake/special"},
+                "empty": {"id":"empty", "is_main":false, "model":null}
+            }
+        });
+        let settings = json!({"models":{"bot_default":null}});
+        assert_eq!(
+            resolve_model(&snapshot, &settings, "worker", ModelRole::Bot).as_deref(),
+            Some("fake/special")
+        );
+        assert_eq!(
+            resolve_model(&snapshot, &settings, "empty", ModelRole::Bot),
+            None
+        );
+    }
+
+    #[test]
+    fn maintenance_null_uses_bot_default_and_inherit_uses_main() {
+        let snapshot = json!({
+            "bots": {"main": {"id":"main", "is_main":true, "model":null}}
+        });
+        let mut settings = json!({
+            "models": {"main":"fake/main", "bot_default":"fake/worker", "maintenance":null}
+        });
+        assert_eq!(
+            resolve_model(&snapshot, &settings, "main", ModelRole::Maintenance).as_deref(),
+            Some("fake/worker")
+        );
+        settings["models"]["maintenance"] = json!("inherit");
+        assert_eq!(
+            resolve_model(&snapshot, &settings, "main", ModelRole::Maintenance).as_deref(),
+            Some("fake/main")
+        );
+    }
+
+    #[test]
+    fn missing_model_notice_uses_project_or_bot_chat() {
+        let snapshot = json!({
+            "bots": {
+                "worker": {"id":"worker", "dm_chat_id":"dm_worker"},
+                "main": {"id":"main", "is_main":true, "dm_chat_id":"chat_main"}
+            },
+            "projects": {
+                "project": {"id":"project", "chat_id":"chat_project"}
+            },
+            "assignments": {
+                "assignment": {"id":"assignment", "project_id":"project"}
+            }
+        });
+        assert_eq!(
+            routable_missing_model_chat_from_snapshot(
+                &snapshot,
+                "worker",
+                "routine:routine",
+                "assignment"
+            ),
+            "chat_project"
+        );
+        assert_eq!(
+            routable_missing_model_chat_from_snapshot(
+                &snapshot,
+                "worker",
+                "routine:routine",
+                "unknown"
+            ),
+            "dm_worker"
+        );
     }
 }
