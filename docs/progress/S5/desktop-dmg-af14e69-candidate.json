@@ -1,0 +1,16 @@
+{
+  "source_commit": "af14e6952aa8acdaf0ea943bc13e72340368da40",
+  "candidate_path": "/Users/gongshaojie/Project/mac-bot-client-mac/clients/mac/dist/releases/af14e695/MacBot.dmg",
+  "dmg_sha256": "7bdc90ad8e962e01a6740fd100cb331b3b262c39871e921a2b8dc2cf3d2f15ca",
+  "binary_sha256": "e5bc3c1a33bdefe1f3480724e6b532e72c5952d9bc4edd4b70ac7a2cfbe583d0",
+  "bytes": 13017512,
+  "source_dirty": false,
+  "integration_checks": "independent source marker and binary/DMG hashes; hdiutil verify",
+  "installation": "not performed; debug archive af currently installed, clean S5 pending",
+  "readonly_mount_verified": {
+    "source_commit": "af14e6952aa8acdaf0ea943bc13e72340368da40",
+    "binary_sha256": "e5bc3c1a33bdefe1f3480724e6b532e72c5952d9bc4edd4b70ac7a2cfbe583d0",
+    "Applications_link": "/Applications"
+  },
+  "mount_detached": true
+}

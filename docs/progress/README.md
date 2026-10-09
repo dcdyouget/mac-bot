@@ -4,7 +4,7 @@
 
 ## 现在的状态
 
-正式服务 `9e70d88` 已从干净 archive 部署到 `7788`（当前 PID `5282`），MiniMax-M2.5 provider 已通过实际执行验证。桌面固定 archive `3f7c046` 已安装（PID `24332`，窗口 `57694`）；搜索 Open→真实 Computer localhost 动画绘制路径已通过，现场截图见 `S4/20261009-210338-desktop.png`，但不计为 S4 联合验收。Android 签名 Release `80d8a42` 和共享 mock 保持可用；正式 Host 的 Android UI 仍等待替代操作确认，不能计为通过。持续部署仍受本机 UI 验证 hold 保护。
+正式服务 `9e70d88` 已从干净 archive 部署到 `7788`（当前 PID `5282`），MiniMax-M2.5 provider 已通过实际执行验证。桌面固定 archive `af14e69` 已安装（PID `49240`）；新增乐观文字字段与限页画面错误修复尚待与服务端组合复验。此前 `3f7c046`（PID `24332`、窗口 `57694`）的搜索 Open→真实 Computer localhost 动画绘制路径已通过，现场截图见 `S4/20261009-210338-desktop.png`，但不计为 S4 联合验收。Android 签名 Release `80d8a42` 保持，Wi-Fi重连后两端口 HTTP 200 已核实；临时 nc 探测的 EOF 时序误报与真实掉关联分开记录。共享 mock 保留；正式 Host 的 Android UI 仍等待替代操作确认，不能计为通过。持续部署仍受本机 UI 验证 hold 保护。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
@@ -28,7 +28,7 @@ Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/
 
 桌面 [正式摘要数值](S3/production-3f7c046-dashboard-summary.json)与[截图](S3/20261009-210958-desktop.png)独立核对一致，Android 用量一致性待验。S2 [首次场景失败与待审批](S2/production-9e70d88-login-scene-partial.json)已保留，未误记通过。
 
-桌面归属线的 mock 专项证据仍在：[历史截图](S1/main-222fda9-desktop-history.png)、[技能修改](S3/main-222fda9-skill-edited.png)、[接管](S4/main-222fda9-computer-takeover.png)、[窗口重开](S5/main-222fda9-window-reopened.png)及[清单](S5/desktop-222fda9-owner-manifest.json)。正式桌面当前现场为 [3f7c046 Computer 画面](S4/20261009-210338-desktop.png) 与[窗口元数据](S4/20261009-210338-desktop.txt)及[搜索与绘制断言](S4/production-3f7c046-native-search-computer.json)；DMG 仍只计候选，S5 [9e70 pkg 来源与载荷校验](S5/server-pkg-9e70d88-verified.json)已通过，尚未全新安装。
+桌面归属线的 mock 专项证据仍在：[历史截图](S1/main-222fda9-desktop-history.png)、[技能修改](S3/main-222fda9-skill-edited.png)、[接管](S4/main-222fda9-computer-takeover.png)、[窗口重开](S5/main-222fda9-window-reopened.png)及[清单](S5/desktop-222fda9-owner-manifest.json)。正式桌面已更新 af14e69；前版现场为 [3f7c046 Computer 画面](S4/20261009-210338-desktop.png) 与[窗口元数据](S4/20261009-210338-desktop.txt)及[搜索与绘制断言](S4/production-3f7c046-native-search-computer.json)；[最新 af14e69 Release DMG](S5/desktop-dmg-af14e69-candidate.json)已独立核对源码、哈希与 hdiutil，仍只计候选；S5 [9e70 pkg 来源与载荷校验](S5/server-pkg-9e70d88-verified.json)已通过，尚未全新安装。
 
 共享 mock `11bc831` 的[契约预检](S2/mock-11bc831-contract-precheck.json)通过：Workbench 扁平返回、登录群4成员、2个 pending 引用和PRD搜索。历史失败截图保留，最新结论以 `COORDINATION.md` 为准。
 

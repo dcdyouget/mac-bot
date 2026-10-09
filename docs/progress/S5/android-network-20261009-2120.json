@@ -1,0 +1,64 @@
+{
+  "timestamp": "2026-10-09T21:20:00+08:00",
+  "scope": "read-only non-UI Android emulator network diagnosis; the existing status.sh probe already used write/flush, 250ms delay, and EOF",
+  "avd": "macbot_api36",
+  "serial": "emulator-5554",
+  "network": {
+    "interface": "wlan0",
+    "state": "UP",
+    "ip": "10.0.2.16/24",
+    "gateway": "10.0.2.2",
+    "route": "0.0.0.0/0 -> 10.0.2.2",
+    "neighbor": "10.0.2.2 REACHABLE",
+    "ping_gateway": {
+      "received": 1,
+      "rtt_ms": 3
+    },
+    "wifi": "CONNECTED / AndroidWifi / Supplicant COMPLETED",
+    "initial_disruption": "At the 21:20 observation, WiFi was unassociated and no route was present; cmd wifi reconnect plus svc data enable restored association and routing before the post-recovery probes."
+  },
+  "host": {
+    "listeners": {
+      "7788": {
+        "pid": 5282,
+        "health": "HTTP 200"
+      },
+      "7789": {
+        "pid": 66750,
+        "health": "HTTP 200"
+      }
+    },
+    "qemu": {
+      "pid": 28038,
+      "cpu_percent_observed": 98.4
+    }
+  },
+  "probe": {
+    "tool": "toybox nc -n -w 3",
+    "request": "GET /api/v1/health HTTP/1.1 with Host and Connection: close",
+    "tcp_connect_zero_io": {
+      "7788": "rc 0",
+      "7789": "rc 0"
+    },
+    "immediate_stdin_close": {
+      "7788": "4/6 responses",
+      "7789": "2/6 responses"
+    },
+    "stdin_flush_then_wait_250ms": {
+      "7788": "6/6 HTTP 200",
+      "7789": "6/6 HTTP 200"
+    },
+    "interpretation": "The immediate-EOF comparison was an adhoc probe run after connectivity recovery; it demonstrates a probe timing race for that temporary command only and does not explain the original status.sh result or imply that status.sh lacked the 250ms delay."
+  },
+  "conclusion": "The 21:20 WiFi association/route loss was real. After reconnect, Android-to-host routing/NAT and both host listeners were healthy. The adhoc immediate-EOF probe also had a separate timing false negative; it must not be used as the cause of the earlier no-route status.",
+  "recommended_probe": "write request; flush; wait 250ms; close stdin; wait/read with bounded timeout; assert HTTP 200",
+  "restrictions_observed": [
+    "no UI input",
+    "no screenshot",
+    "no reboot/restart",
+    "no install",
+    "no AVD or business-code changes",
+    "no secrets collected"
+  ],
+  "status_script_change": "Layered no-route/TCP/HTTP diagnostics plus bounded process-group cleanup on HTTP probe timeout; the original status probe already had the 250ms flush/EOF sequence."
+}

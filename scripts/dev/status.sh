@@ -163,33 +163,74 @@ if macbot_find_android_sdk; then
 import subprocess
 import sys
 import time
+import os
+import signal
 adb, serial = sys.argv[1:]
+
+def run_adb_nc(*args, timeout=5):
+    return subprocess.run(
+        [adb, "-s", serial, "shell", "toybox", "nc", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+def kill_process_group(proc):
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        proc.kill()
+    proc.wait()
+
 try:
     route = subprocess.run([adb, "-s", serial, "shell", "ip", "route"],
                            capture_output=True, text=True, timeout=5)
-    print("network route:", "present" if route.returncode == 0 and route.stdout.strip() else "missing")
+    route_ok = route.returncode == 0 and any(
+        line.strip() for line in route.stdout.splitlines()
+    )
+    print("network route:", "present" if route_ok else "missing")
     request = "GET /api/v1/health HTTP/1.1\r\nHost: 10.0.2.2\r\nConnection: close\r\n\r\n"
     for port, label in ((7788, "formal"), (7789, "mock")):
-        proc = subprocess.Popen(
-            [adb, "-s", serial, "shell", "toybox", "nc", "-w", "3", "10.0.2.2", str(port)],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True)
-        proc.stdin.write(request)
-        proc.stdin.flush()
-        # Some toybox nc builds report EOF immediately if stdin is closed before
-        # the server has had a chance to write the HTTP response.
-        time.sleep(0.25)
-        proc.stdin.close()
+        if not route_ok:
+            print(label + " from emulator: no route")
+            continue
         try:
+            tcp = run_adb_nc("-n", "-z", "-w", "3", "10.0.2.2", str(port))
+        except subprocess.TimeoutExpired:
+            print(label + " from emulator: TCP probe timeout")
+            continue
+        if tcp.returncode != 0:
+            print(label + " from emulator: TCP unavailable")
+            continue
+        proc = subprocess.Popen(
+            [adb, "-s", serial, "shell", "toybox", "nc", "-n", "-w", "3", "10.0.2.2", str(port)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, start_new_session=True)
+        try:
+            proc.stdin.write(request)
+            proc.stdin.flush()
+            # Some toybox nc builds report EOF immediately if stdin is closed before
+            # the server has had a chance to write the HTTP response.
+            time.sleep(0.25)
+            proc.stdin.close()
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+            kill_process_group(proc)
+            print(label + " from emulator: HTTP probe timeout")
+            continue
+        except (BrokenPipeError, OSError):
+            kill_process_group(proc)
+            print(label + " from emulator: HTTP probe transport error")
+            continue
         stdout = proc.stdout.read()
         header = stdout.split("\r\n\r\n", 1)[0]
-        reachable = proc.returncode == 0 and "200 OK" in header
-        print(label + " from emulator:", "reachable" if reachable else "unreachable")
-except (subprocess.SubprocessError, OSError):
+        if proc.returncode != 0:
+            print(label + " from emulator: HTTP probe transport error")
+        elif "200 OK" in header:
+            print(label + " from emulator: HTTP 200")
+        else:
+            print(label + " from emulator: HTTP probe failed")
+except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
     print("emulator network probe: unavailable")
 PY
   else

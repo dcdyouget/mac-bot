@@ -1,0 +1,9 @@
+{
+  "source_commit": "af14e6952aa8acdaf0ea943bc13e72340368da40",
+  "pid": 49240,
+  "install_path": "/Users/gongshaojie/Applications/MacBot.app",
+  "source": "fixed clean git archive",
+  "production_server": "9e70d88947fd4fe4a2b16a5a21efa2fdfcbc541b",
+  "server_and_android_deployment": "skipped",
+  "scope": "installed; pending native combined verification after server empty-block repair"
+}
