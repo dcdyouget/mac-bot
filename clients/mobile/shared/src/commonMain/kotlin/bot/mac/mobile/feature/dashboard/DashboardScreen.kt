@@ -362,13 +362,13 @@ private fun TimeseriesChart(
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(176.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(
-                Modifier.width(36.dp).fillMaxSize().padding(vertical = 4.dp),
+                Modifier.width(56.dp).fillMaxSize().padding(vertical = 4.dp),
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.End,
             ) {
-                Text(formatAxis(max, metric), style = MaterialTheme.typography.labelSmall)
-                Text(formatAxis(max / 2.0, metric), style = MaterialTheme.typography.labelSmall)
-                Text(formatAxis(0.0, metric), style = MaterialTheme.typography.labelSmall)
+                Text(formatAxis(max, metric), style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
+                Text(formatAxis(max / 2.0, metric), style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
+                Text(formatAxis(0.0, metric), style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
             }
             Canvas(
                 Modifier.weight(1f).fillMaxSize().padding(start = 6.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
