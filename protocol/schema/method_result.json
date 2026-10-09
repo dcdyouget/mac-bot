@@ -3565,14 +3565,7 @@
       }
     },
     "SubagentModel": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": "string"
     },
     "SystemCode": {
       "type": "string",

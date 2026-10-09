@@ -14,6 +14,41 @@ type Value = serde_json::Value;
 type FixtureParser = fn(Value) -> Result<Value, Box<dyn std::error::Error>>;
 
 #[test]
+fn settings_secret_parameter_roundtrips_outside_the_settings_patch() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../fixtures/requests/settings_update_web_search.json");
+    roundtrip(&path, |value| {
+        let params = MethodParams::decode(&Method::SettingsUpdate, value)?;
+        let MethodParams::SettingsUpdate(settings) = params else {
+            unreachable!()
+        };
+        assert_eq!(settings.web_search_key.as_deref(), Some(""));
+        Ok(serde_json::to_value(settings)?)
+    });
+}
+
+#[test]
+fn nested_settings_patch_preserves_partial_and_nullable_fields() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../fixtures/requests/settings_update_partial.json");
+    roundtrip(&path, |value| {
+        let settings: SettingsUpdateParams = serde_json::from_value(value)?;
+        assert_eq!(settings.patch.models.as_ref().unwrap().main, Patch::Null);
+        assert_eq!(settings.patch.concurrency.as_ref().unwrap().global, Some(2));
+        assert_eq!(
+            settings.patch.models.as_ref().unwrap().subagent,
+            Some(SubagentModel::Inherit)
+        );
+        Ok(serde_json::to_value(settings)?)
+    });
+    assert_eq!(
+        serde_json::to_value(SubagentModel::Inherit).unwrap(),
+        "inherit"
+    );
+    assert!(serde_json::from_value::<SubagentModel>(Value::Null).is_err());
+}
+
+#[test]
 fn heatmap_result_decodes_flat_protocol_shapes_without_field_loss() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/results");
     for filename in ["usage_heatmap_calendar.json", "usage_heatmap_weekhour.json"] {

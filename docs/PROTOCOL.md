@@ -648,7 +648,7 @@ interface Workbench {
 | `model.upsert` | `{ ref?: ModelRef, provider_id, model_id, display_name?, context_window?, max_output?, caps?, price?, enabled? }` | `{ model: Model }` |
 | `model.delete` | `{ ref: ModelRef }` | `{}` |
 | `settings.get` | `{}` | `{ settings: Settings }` |
-| `settings.update` | `{ patch: DeepPartial<Settings> }` | `{ settings: Settings }`（`push` 字段只读；API Key 类字段用单独的 `*_key` 参数写入） |
+| `settings.update` | `{ patch: DeepPartial<Settings>, web_search_key?: string }` | `{ settings: Settings }`（`push`、`web_search.has_key` 只读；`web_search_key` 写入密钥后端，空串删除，以 `web_search.provider` 为引用；不进入设置、响应、事件或日志） |
 
 ### 5.11 仪表盘
 

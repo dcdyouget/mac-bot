@@ -1,0 +1,21 @@
+{
+  "patch": {
+    "concurrency": {
+      "global": 2
+    },
+    "models": {
+      "main": null,
+      "subagent": "inherit"
+    },
+    "browser": {
+      "stream": {
+        "mobile": {
+          "quality": 60
+        }
+      }
+    },
+    "web_search": {
+      "endpoint": null
+    }
+  }
+}

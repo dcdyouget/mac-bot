@@ -1,0 +1,10 @@
+{
+  "patch": {
+    "web_search": {
+      "provider": "brave",
+      "endpoint": "https://api.search.brave.com/res/v1/web/search"
+    }
+  },
+  "web_search_key": "",
+  "client_request_id": "fixture-clear-web-search-key"
+}

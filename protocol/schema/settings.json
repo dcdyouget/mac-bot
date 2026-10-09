@@ -280,14 +280,7 @@
       }
     },
     "SubagentModel": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": "string"
     },
     "TraceSettings": {
       "type": "object",

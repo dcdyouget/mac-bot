@@ -119,18 +119,24 @@
         "auto_allow"
       ]
     },
-    "ApprovalSettings": {
+    "ApprovalSettingsPatch": {
       "type": "object",
-      "required": [
-        "mode",
-        "rules"
-      ],
       "properties": {
         "mode": {
-          "$ref": "#/definitions/ApprovalMode"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ApprovalMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "rules": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "$ref": "#/definitions/ApprovalRule"
           }
@@ -520,22 +526,34 @@
         "attach"
       ]
     },
-    "BrowserSettings": {
+    "BrowserSettingsPatch": {
       "type": "object",
-      "required": [
-        "chrome_profile",
-        "default_mode",
-        "stream"
-      ],
       "properties": {
         "chrome_profile": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "default_mode": {
-          "$ref": "#/definitions/BrowserMode"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "stream": {
-          "$ref": "#/definitions/StreamSettings"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StreamSettingsPatch"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -761,38 +779,46 @@
         }
       }
     },
-    "Concurrency": {
+    "ConcurrencyPatch": {
       "type": "object",
-      "required": [
-        "bot_default",
-        "global",
-        "loop_hops",
-        "subagent_global",
-        "subagent_per_run"
-      ],
       "properties": {
         "bot_default": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint32",
           "minimum": 0.0
         },
         "global": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint32",
           "minimum": 0.0
         },
         "loop_hops": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint32",
           "minimum": 0.0
         },
         "subagent_global": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint32",
           "minimum": 0.0
         },
         "subagent_per_run": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint32",
           "minimum": 0.0
         }
@@ -952,14 +978,14 @@
         }
       }
     },
-    "MainBotSettings": {
+    "MainBotSettingsPatch": {
       "type": "object",
-      "required": [
-        "auto_create_project"
-      ],
       "properties": {
         "auto_create_project": {
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       }
     },
@@ -1357,32 +1383,27 @@
         }
       }
     },
-    "ModelDefaults": {
+    "ModelDefaultsPatch": {
       "type": "object",
-      "required": [
-        "subagent"
-      ],
       "properties": {
         "bot_default": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "$ref": "#/definitions/PatchString"
         },
         "main": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "$ref": "#/definitions/PatchString"
         },
         "maintenance": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "$ref": "#/definitions/PatchString"
         },
         "subagent": {
-          "$ref": "#/definitions/SubagentModel"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SubagentModel"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -1511,6 +1532,16 @@
       "type": [
         "string",
         "null"
+      ]
+    },
+    "PatchWebSearchProvider": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/WebSearchProvider"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "Platform": {
@@ -2137,7 +2168,7 @@
         "approvals": {
           "anyOf": [
             {
-              "$ref": "#/definitions/ApprovalSettings"
+              "$ref": "#/definitions/ApprovalSettingsPatch"
             },
             {
               "type": "null"
@@ -2147,7 +2178,7 @@
         "browser": {
           "anyOf": [
             {
-              "$ref": "#/definitions/BrowserSettings"
+              "$ref": "#/definitions/BrowserSettingsPatch"
             },
             {
               "type": "null"
@@ -2157,7 +2188,7 @@
         "concurrency": {
           "anyOf": [
             {
-              "$ref": "#/definitions/Concurrency"
+              "$ref": "#/definitions/ConcurrencyPatch"
             },
             {
               "type": "null"
@@ -2179,7 +2210,7 @@
         "main_bot": {
           "anyOf": [
             {
-              "$ref": "#/definitions/MainBotSettings"
+              "$ref": "#/definitions/MainBotSettingsPatch"
             },
             {
               "type": "null"
@@ -2189,7 +2220,7 @@
         "models": {
           "anyOf": [
             {
-              "$ref": "#/definitions/ModelDefaults"
+              "$ref": "#/definitions/ModelDefaultsPatch"
             },
             {
               "type": "null"
@@ -2199,7 +2230,7 @@
         "skills": {
           "anyOf": [
             {
-              "$ref": "#/definitions/SkillSettings"
+              "$ref": "#/definitions/SkillSettingsPatch"
             },
             {
               "type": "null"
@@ -2215,7 +2246,7 @@
         "trace": {
           "anyOf": [
             {
-              "$ref": "#/definitions/TraceSettings"
+              "$ref": "#/definitions/TraceSettingsPatch"
             },
             {
               "type": "null"
@@ -2225,7 +2256,7 @@
         "web_search": {
           "anyOf": [
             {
-              "$ref": "#/definitions/WebSearchSettings"
+              "$ref": "#/definitions/WebSearchSettingsPatch"
             },
             {
               "type": "null"
@@ -2249,6 +2280,13 @@
         },
         "patch": {
           "$ref": "#/definitions/SettingsPatch"
+        },
+        "web_search_key": {
+          "description": "Stored in the secret backend; an empty string removes the key.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
@@ -2402,69 +2440,76 @@
         }
       }
     },
-    "SkillSettings": {
+    "SkillSettingsPatch": {
       "type": "object",
-      "required": [
-        "extra_dirs"
-      ],
       "properties": {
         "extra_dirs": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           }
         }
       }
     },
-    "StreamQuality": {
+    "StreamQualityPatch": {
       "type": "object",
-      "required": [
-        "max_fps",
-        "max_width",
-        "quality"
-      ],
       "properties": {
         "max_fps": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint8",
           "minimum": 0.0
         },
         "max_width": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint32",
           "minimum": 0.0
         },
         "quality": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint8",
           "minimum": 0.0
         }
       }
     },
-    "StreamSettings": {
+    "StreamSettingsPatch": {
       "type": "object",
-      "required": [
-        "desktop",
-        "mobile"
-      ],
       "properties": {
         "desktop": {
-          "$ref": "#/definitions/StreamQuality"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StreamQualityPatch"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "mobile": {
-          "$ref": "#/definitions/StreamQuality"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StreamQualityPatch"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
     "SubagentModel": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": "string"
     },
     "TakeoverReleaseParams": {
       "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
@@ -2586,14 +2631,14 @@
         }
       }
     },
-    "TraceSettings": {
+    "TraceSettingsPatch": {
       "type": "object",
-      "required": [
-        "save_full_requests"
-      ],
       "properties": {
         "save_full_requests": {
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       }
     },
@@ -2805,30 +2850,14 @@
         "searxng"
       ]
     },
-    "WebSearchSettings": {
+    "WebSearchSettingsPatch": {
       "type": "object",
-      "required": [
-        "has_key"
-      ],
       "properties": {
         "endpoint": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "has_key": {
-          "type": "boolean"
+          "$ref": "#/definitions/PatchString"
         },
         "provider": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/WebSearchProvider"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "$ref": "#/definitions/PatchWebSearchProvider"
         }
       }
     }

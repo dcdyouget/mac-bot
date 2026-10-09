@@ -755,11 +755,37 @@ pub struct ModelDefaults {
     pub maintenance: Option<ModelRef>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SubagentModel {
     Ref(ModelRef),
     Inherit,
+}
+
+impl Serialize for SubagentModel {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(match self {
+            Self::Ref(value) => value,
+            Self::Inherit => "inherit",
+        })
+    }
+}
+impl<'de> Deserialize<'de> for SubagentModel {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        Ok(if value == "inherit" {
+            Self::Inherit
+        } else {
+            Self::Ref(value)
+        })
+    }
+}
+impl JsonSchema for SubagentModel {
+    fn schema_name() -> String {
+        "SubagentModel".into()
+    }
+    fn json_schema(generator: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        <String as JsonSchema>::json_schema(generator)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -1992,6 +2018,9 @@ pub struct ModelDeleteParams {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct SettingsUpdateParams {
     pub patch: SettingsPatch,
+    /// Stored in the secret backend; an empty string removes the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_search_key: Option<String>,
     #[serde(flatten)]
     pub meta: WriteMeta,
 }
@@ -2004,22 +2033,101 @@ pub struct SettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub concurrency: Option<Concurrency>,
+    pub concurrency: Option<ConcurrencyPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub models: Option<ModelDefaults>,
+    pub models: Option<ModelDefaultsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub main_bot: Option<MainBotSettings>,
+    pub main_bot: Option<MainBotSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approvals: Option<ApprovalSettings>,
+    pub approvals: Option<ApprovalSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub browser: Option<BrowserSettings>,
+    pub browser: Option<BrowserSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub skills: Option<SkillSettings>,
+    pub skills: Option<SkillSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trace: Option<TraceSettings>,
+    pub trace: Option<TraceSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub web_search: Option<WebSearchSettings>,
+    pub web_search: Option<WebSearchSettingsPatch>,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct ConcurrencyPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_default: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_per_run: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_global: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_hops: Option<u32>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct ModelDefaultsPatch {
+    #[serde(default, skip_serializing_if = "Patch::is_unset")]
+    pub bot_default: Patch<ModelRef>,
+    #[serde(default, skip_serializing_if = "Patch::is_unset")]
+    pub main: Patch<ModelRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<SubagentModel>,
+    #[serde(default, skip_serializing_if = "Patch::is_unset")]
+    pub maintenance: Patch<ModelRef>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct MainBotSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_create_project: Option<bool>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct ApprovalSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<ApprovalMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<Vec<ApprovalRule>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct BrowserSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_mode: Option<BrowserMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chrome_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<StreamSettingsPatch>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct StreamSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop: Option<StreamQualityPatch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mobile: Option<StreamQualityPatch>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct StreamQualityPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_fps: Option<u8>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct SkillSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_dirs: Option<Vec<String>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct TraceSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_full_requests: Option<bool>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct WebSearchSettingsPatch {
+    #[serde(default, skip_serializing_if = "Patch::is_unset")]
+    pub provider: Patch<WebSearchProvider>,
+    #[serde(default, skip_serializing_if = "Patch::is_unset")]
+    pub endpoint: Patch<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct SettingsResult {
     pub settings: Settings,
