@@ -172,3 +172,10 @@
 - S2完整脚本原direct project.create不保证自动派发，已修向chat_main驱动并补角色、同Bot双群并行、真实handoff/steer/subagent/question/approval/final-confirm断言，仍在运行前审查；本轮仅准备三个独立角色，未创建项目，setup证据S2/production-9e70d88-roles-setup.json。
 - Android当前mock可用，正式UI被CUA Qt绑定限制阻断；已提出adb input/UIAutomator替代方式并等待用户明确回应，不以probe/mock代替正式连接。S0历史通过，S1–S5真实完整联合均未通过。
 - S5 9e pkg独立展开、source/dirty=false/daemon+官方sidecar与整包SHA核对通过，S5/server-pkg-9e70d88-verified.json；未卸载/安装，不计fresh install通过。访问说明和现阶段状态已更新docs/progress/README.md。
+
+## integrator：正式消息空气泡与主 Bot 建群门禁（2026-10-09 21:18）
+- S1 联调：不通过。安装3f7c046、server9e70d88原生发送只读request 01a120cb-9618-7750-9296-158f65b3d05c，seq5→6，trace37read/38成功结果/41run.end已在原生轨迹看到；用户/回复气泡却为空。chat.history六条known text blocks的markdown全部空，fallback_text非空。证据 docs/progress/S1/production-3f7c046-empty-text-blocks.json、211349-desktop.png与211707-desktop.png（已核图），归server-mac。server已确认重复normalize移除text后又重建空blocks，正在修旧历史/流式/最终原ID和seq；不以API fallback或trace成功替代UI可读。
+- client-mac只读另确认乐观pending使用{type:text,text}而非markdown，已请求该线独立修字段/等待期间显示。离开Computer全局英文reset横幅的P2已由客户端ccc182d发布，仅Computer显示中文screen notice/限页generation；尚未部署，不覆盖3f固定证据。
+- E2E强化：S1现要求实际known text.markdown包含用户marker/path、最终回复非空并含marker/path，placeholder等待不提前失败、未知block仍兼容fallback。S2改串行main请求+显式角色IDs，预建群approval立即诊断并保留partial，避免等待120s误判模型无产物；未放宽断言或自动批准错误成员。
+- S2 联调：不通过。首次main-driven请求两run均停create_project/write approval，未project_card；DESIGN4.5A建群整个过程不需确认，已请求server核查coord工具门禁，保留明确auto_create_project=false设置例外，不动文件/Bash审批。证据 docs/progress/S2/production-9e70d88-login-scene-partial.json。模型member_bot_ids曾用名称是旧测试prompt未显式IDs，已修脚本，不归为server ID缺陷；第二并发main调用重复首project目标目前无provider-body证据，不推断上下文回退。审批39c0/43c2未准，三角色和无项目现场保留，后续从固定累计修复SHA复跑。
+- S3桌面真实摘要125065 Token/42请求/0完成任务/费用未知与同from/to RPC一致，S3/production-3f7c046-dashboard-summary.json与210958-desktop.png已核对；Android正式parity仍待验。S4真实绘制局部通过，driver/low/URL仍待server累计修复，S5fresh install未执行。
