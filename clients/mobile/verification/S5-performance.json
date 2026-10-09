@@ -54,7 +54,7 @@
   },
   "hardware_gpu_total_pss_kib": 40720,
   "apk_sha256": "ea869b9a7e0be638abcd9dd308194547fc322a8f6627a249343bd81c93faa978",
-  "build_source_revision": "d1e7e1a",
+  "build_source_revision": "74917ce",
   "performance_sample_source_revision": "f5223b8",
   "software_gpu_backend": "SwiftShader software Vulkan (original AVD GPU disabled)",
   "emulator_stability": "One QEMU process exited 139 after main/CPU thread hangs with -gpu host; restarted without wiping user data. Hardware samples are not physical device or stability certification.",
@@ -74,5 +74,10 @@
   ],
   "final_release_total_pss_kib": 30913,
   "final_release_total_rss_kib": 161476,
-  "final_release_cold_launch_source_revision": "e8f69bc"
+  "final_release_cold_launch_source_revision": "e8f69bc",
+  "source_trees": {
+    "clients/mobile/androidApp": "a9016bf3369dab0367f79a0a26c1de523d5fd0e2",
+    "clients/mobile/shared": "891bbe44e887847fd36c0c26f0969c22977374d7",
+    "protocol/kotlin": "a0306ee9d6fd43c87c141dff6e43b9824db3a645"
+  }
 }
