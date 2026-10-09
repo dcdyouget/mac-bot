@@ -30,6 +30,8 @@ S0 脚本默认连接 `127.0.0.1:7789`，固定使用 mock 约定的密码 `dev`
 
 ```sh
 python3 scripts/e2e/s1/private_chat.py --url http://127.0.0.1:7788 --bot-id <bot_id>
+# 协议fallback心跳：HTTP ping及同一主WS每20秒ping，持续至少60秒，不重连/不调用模型
+python3 scripts/e2e/s0/heartbeat.py --url http://127.0.0.1:7788 --json
 # 主连接断线补发：只创建自己的 skill，断线后更新并验证同一 cursor 的 skill.updated replay
 python3 scripts/e2e/s0/connection_replay.py --url http://127.0.0.1:7788
 # 全新生产 Host 只有主 Bot 时，先由场景创建一个独立 worker：
