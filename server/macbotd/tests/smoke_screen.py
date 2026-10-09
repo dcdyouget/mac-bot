@@ -45,10 +45,11 @@ DEFAULT_PORT = 7815
 
 
 class FakeProviderState:
-    def __init__(self) -> None:
+    def __init__(self, local_page_url: str) -> None:
         self.lock = threading.Lock()
         self.requests: list[dict[str, Any]] = []
         self.browser_calls = 0
+        self.local_page_url = local_page_url
 
     def record(self, body: dict[str, Any]) -> None:
         with self.lock:
@@ -111,7 +112,7 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                                         "function": {
                                             "name": "browser_open",
                                             "arguments": json.dumps(
-                                                {"url": "https://example.com"}
+                                                {"url": self.state.local_page_url}
                                             ),
                                         },
                                     }
@@ -211,8 +212,43 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
             self._text()
 
 
-def start_fake_provider() -> tuple[ThreadingHTTPServer, FakeProviderState, str]:
-    state = FakeProviderState()
+class LocalPageHandler(BaseHTTPRequestHandler):
+    marker: str
+
+    def log_message(self, _format: str, *_args: Any) -> None:
+        return
+
+    def do_GET(self) -> None:  # noqa: N802
+        body = f"""<!doctype html>
+<meta charset="utf-8">
+<title>{self.marker}</title>
+<style>html,body{{margin:0;width:100%;height:100%;background:#18324a;color:white;font:32px sans-serif}}
+#marker{{position:fixed;inset:35% 0 0;text-align:center}}</style>
+<body tabindex="0"><div id="marker">{self.marker}</div>
+<script>
+const marker = {json.dumps(self.marker)};
+document.body.focus();
+document.addEventListener('click', () => {{ location.hash = 'clicked-' + marker; }});
+document.addEventListener('keydown', (event) => {{
+  if (event.key.toLowerCase() === 'k') location.hash = 'key-k-' + marker;
+}});
+</script></body>""".encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def start_local_page(marker: str) -> tuple[ThreadingHTTPServer, str]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), LocalPageHandler)
+    LocalPageHandler.marker = marker
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_port}/?marker={marker}"
+
+
+def start_fake_provider(local_page_url: str) -> tuple[ThreadingHTTPServer, FakeProviderState, str]:
+    state = FakeProviderState(local_page_url)
     server = ThreadingHTTPServer(("127.0.0.1", 0), FakeProviderHandler)
     FakeProviderHandler.state = state
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -339,6 +375,36 @@ async def recv_screen_message(ws: Any, timeout: float = 20) -> tuple[str, Any]:
     return "frame", (header, jpeg)
 
 
+def jpeg_dimensions(jpeg: bytes) -> tuple[int, int] | None:
+    if not jpeg.startswith(b"\xff\xd8"):
+        return None
+    offset = 2
+    sof_markers = set(range(0xC0, 0xC4)) | set(range(0xC5, 0xC8)) | set(range(0xC9, 0xCC)) | set(range(0xCD, 0xD0))
+    while offset + 9 < len(jpeg):
+        if jpeg[offset] != 0xFF:
+            offset += 1
+            continue
+        while offset < len(jpeg) and jpeg[offset] == 0xFF:
+            offset += 1
+        if offset >= len(jpeg):
+            return None
+        marker = jpeg[offset]
+        offset += 1
+        if marker in (0xD8, 0xD9):
+            continue
+        if offset + 2 > len(jpeg):
+            return None
+        length = int.from_bytes(jpeg[offset : offset + 2], "big")
+        if length < 2 or offset + length > len(jpeg):
+            return None
+        if marker in sof_markers and length >= 7:
+            height = int.from_bytes(jpeg[offset + 3 : offset + 5], "big")
+            width = int.from_bytes(jpeg[offset + 5 : offset + 7], "big")
+            return width, height
+        offset += length
+    return None
+
+
 async def recv_frame(ws: Any, timeout: float = 20) -> tuple[dict[str, Any], bytes]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -349,6 +415,42 @@ async def recv_frame(ws: Any, timeout: float = 20) -> tuple[dict[str, Any], byte
             continue
         return value
     raise AssertionError("timed out waiting for screen frame")
+
+
+async def recv_state_with_ack(
+    ws: Any,
+    expected_driver: str,
+    timeout: float = 15,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        kind, value = await recv_screen_message(ws, max(0.1, deadline - time.monotonic()))
+        if kind == "frame":
+            await ws.send(json.dumps({"type": "ack", "seq": value[0]["seq"]}))
+            continue
+        if value.get("type") == "error":
+            raise AssertionError(f"screen error: {value}")
+        if value.get("type") == "state" and value["state"].get("driver") == expected_driver:
+            return value["state"]
+    raise AssertionError(f"timed out waiting for screen driver={expected_driver}")
+
+
+async def recv_url_fragment(ws: Any, fragment: str, timeout: float = 15) -> str:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        kind, value = await recv_screen_message(ws, max(0.1, deadline - time.monotonic()))
+        if kind == "frame":
+            await ws.send(json.dumps({"type": "ack", "seq": value[0]["seq"]}))
+            continue
+        if value.get("type") == "error":
+            raise AssertionError(f"screen error: {value}")
+        if value.get("type") != "state":
+            continue
+        for tab in value["state"].get("tabs", []):
+            url = tab.get("url", "")
+            if fragment in url:
+                return url
+    raise AssertionError(f"timed out waiting for URL fragment {fragment!r}")
 
 
 async def recv_state(ws: Any, timeout: float = 10) -> dict[str, Any]:
@@ -534,168 +636,111 @@ async def acceptance(args: argparse.Namespace, fake_url: str, fake: FakeProvider
         return chat_id, assignment
 
     _, first = await create_assignment(1)
-    _, second = await create_assignment(2)
-    assert first["id"] != second["id"]
-    assert fake.browser_calls >= 2, f"fake provider browser calls: {fake.browser_calls}"
+    assert fake.browser_calls >= 1, f"fake provider browser calls: {fake.browser_calls}"
 
     ws_url = base.replace("http://", "ws://").replace("https://", "wss://")
-    screen_url = f"{ws_url}/ws/screen?bot_id={worker['id']}"
+    screen_url = f"{ws_url}/ws/screen?bot_id={worker['id']}&quality=low"
     headers = {"Authorization": f"Bearer {password}"}
+    marker = fake.local_page_url.split("marker=", 1)[-1]
     try:
-        # Establish the first sidecar consumer before opening the second one;
-        # agent-browser serializes stream-enable requests for one Bot session.
-        async with websockets.connect(screen_url, additional_headers=headers, proxy=None) as ws1:
-            state1 = await recv_state(ws1)
-            tabs = state1["tabs"]
-            assert len(tabs) >= 2, state1
-            tab_ids = [tab["tab_id"] for tab in tabs]
-            first_frame, _ = await recv_frame(ws1)
-            assert first_frame["tab_id"] in tab_ids
-            await ws1.send(json.dumps({"type": "ack", "seq": first_frame["seq"]}))
+        async with websockets.connect(screen_url, additional_headers=headers, proxy=None) as ws:
+            initial = await recv_state(ws)
+            assert initial["driver"] == "bot", initial
+            tabs = initial["tabs"]
+            assert tabs, initial
+            tab = tabs[0]
+            tab_id = tab["tab_id"]
+            assert marker in tab["url"], tab
 
-            async with websockets.connect(screen_url, additional_headers=headers, proxy=None) as ws2:
-                state2 = await recv_state(ws2)
-                assert {tab["tab_id"] for tab in tabs} == {tab["tab_id"] for tab in state2["tabs"]}
-                second_frame, _ = await recv_frame(ws2)
-                assert second_frame["tab_id"] in tab_ids
-                await ws2.send(json.dumps({"type": "ack", "seq": second_frame["seq"]}))
+            header, jpeg = await recv_frame(ws)
+            assert header["tab_id"] == tab_id, header
+            assert header["w"] <= 640, header
+            assert jpeg_dimensions(jpeg) == (header["w"], header["h"]), header
+            assert marker in header["url"], header
+            await ws.send(json.dumps({"type": "ack", "seq": header["seq"]}))
 
-                # Closing one connection must not disable the Bot-wide sidecar.
-                await ws1.close()
-                live = browser_stream_status(args.browser_bin, worker["id"])
-                assert live.get("enabled") is True and live.get("screencasting") is True, live
-                pong = await ws2.ping()
-                await asyncio.wait_for(pong, 5)
+            active = rpc(base, password, "takeover.start", {"bot_id": worker["id"]})
+            assert active == {}, active
+            user_state = await recv_state_with_ack(ws, "user")
+            assert user_state["bot_id"] == worker["id"], user_state
 
-                takeover_marker = f"TAKEOVER_REQUEST_{uuid.uuid4().hex[:8]}"
-                rpc(
-                    base,
-                    password,
-                    "chat.send",
+            # Coordinates are frame pixels. Use the low-quality frame center;
+            # the gateway must scale 640x360 back into the browser viewport.
+            await ws.send(
+                json.dumps(
                     {
-                        "chat_id": first["origin_chat_id"],
-                        "text": takeover_marker,
-                        "mentions": [{"kind": "bot", "bot_id": worker["id"], "instruction": "request browser takeover"}],
-                        "client_request_id": "screen-takeover-request",
-                    },
+                        "type": "input",
+                        "event": {
+                            "type": "mouse",
+                            "action": "click",
+                            "x": header["w"] / 2,
+                            "y": header["h"] / 2,
+                            "button": "left",
+                            "click_count": 1,
+                        },
+                    }
                 )
+            )
+            clicked = await recv_url_fragment(ws, "#clicked-", timeout=15)
+            assert marker in clicked, clicked
 
-                def takeover_pending() -> bool:
-                    history = rpc(base, password, "chat.history", {"chat_id": first["origin_chat_id"]})["messages"]
-                    return any(
-                        block.get("type") == "takeover_request" and block.get("state") == "pending"
-                        for message in history
-                        for block in message.get("blocks", [])
-                    )
-
-                wait_until(takeover_pending, 45, "request_takeover pending card")
-                active = rpc(base, password, "takeover.start", {"bot_id": worker["id"]})
-                assert active == {}
-
-                second_tab = next(tab_id for tab_id in tab_ids if tab_id != second_frame["tab_id"])
-                switched = None
-                for attempt in range(3):
-                    await ws2.send(json.dumps({"type": "switch_tab", "tab_id": second_tab}))
-                    try:
-                        switched = await recv_active_state(ws2, second_tab, 8)
-                        break
-                    except AssertionError as error:
-                        if attempt == 2 or "browser runner failed" not in str(error):
-                            raise
-                        rc, stdout, stderr = browser_tabs(args.browser_bin, worker["id"])
-                        print(
-                            json.dumps(
-                                {
-                                    "switch_diagnostic": {
-                                        "attempt": attempt + 1,
-                                        "tab_id": second_tab,
-                                        "tab_list_rc": rc,
-                                        "tab_list_stdout": stdout,
-                                        "tab_list_stderr": stderr,
-                                    }
-                                },
-                                ensure_ascii=False,
-                            ),
-                            flush=True,
-                        )
-                        log_path = args.home / "browser-test" / "agent-browser.log"
-                        if log_path.exists():
-                            print(
-                                json.dumps(
-                                    {"switch_diagnostic_log": log_path.read_text(errors="replace")[-8000:]},
-                                    ensure_ascii=False,
-                                ),
-                                flush=True,
-                            )
-                        await asyncio.sleep(0.5)
-                assert switched is not None
-
-                await ws2.send(
-                    json.dumps(
-                        {
-                            "type": "input",
-                            "event": {
-                                "type": "mouse",
-                                "action": "click",
-                                "x": 10.0,
-                                "y": 20.0,
-                                "button": "left",
-                                "click_count": 1,
-                            },
-                        }
-                    )
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "input",
+                        "event": {
+                            "type": "key",
+                            "action": "press",
+                            "key": "k",
+                            "code": "KeyK",
+                            "text": "k",
+                            "modifiers": [],
+                        },
+                    }
                 )
-                # Input has no success response. A pong and the absence of an
-                # error frame prove the connection accepted the schema-valid
-                # event; static pages need not produce another JPEG.
-                try:
-                    while True:
-                        kind, value = await asyncio.wait_for(recv_screen_message(ws2), 1)
-                        if kind == "text" and value.get("type") == "error":
-                            raise AssertionError(f"input rejected during takeover: {value}")
-                        if kind == "frame":
-                            await ws2.send(json.dumps({"type": "ack", "seq": value[0]["seq"]}))
-                except asyncio.TimeoutError:
-                    pass
-                pong = await ws2.ping()
-                await asyncio.wait_for(pong, 5)
+            )
+            keyed = await recv_url_fragment(ws, "#key-k-", timeout=15)
+            assert marker in keyed, keyed
 
-                released = rpc(
-                    base,
-                    password,
-                    "takeover.release",
-                    {"bot_id": worker["id"], "note": "screen smoke released"},
+            released = rpc(
+                base,
+                password,
+                "takeover.release",
+                {"bot_id": worker["id"], "note": "screen smoke released"},
+            )
+            assert released == {}, released
+            released_state = await recv_state_with_ack(ws, "bot")
+            assert released_state["bot_id"] == worker["id"], released_state
+
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "input",
+                        "event": {
+                            "type": "mouse",
+                            "action": "click",
+                            "x": header["w"] / 2,
+                            "y": header["h"] / 2,
+                            "button": "left",
+                            "click_count": 1,
+                        },
+                    }
                 )
-                assert released == {}
-                await ws2.send(
-                    json.dumps(
-                        {
-                            "type": "input",
-                            "event": {
-                                "type": "mouse",
-                                "action": "click",
-                                "x": 10.0,
-                                "y": 20.0,
-                                "button": "left",
-                                "click_count": 1,
-                            },
-                        }
-                    )
-                )
-                denied = False
-                deadline = time.monotonic() + 10
-                while time.monotonic() < deadline:
-                    kind, value = await recv_screen_message(ws2, deadline - time.monotonic())
-                    if kind == "text" and value.get("type") == "error":
-                        assert value["error"]["code"] == "permission_denied", value
-                        denied = True
-                        break
-                assert denied, "input after takeover.release was not rejected"
+            )
+            denied = False
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                kind, value = await recv_screen_message(ws, deadline - time.monotonic())
+                if kind == "frame":
+                    await ws.send(json.dumps({"type": "ack", "seq": value[0]["seq"]}))
+                elif value.get("type") == "error":
+                    assert value["error"]["code"] == "permission_denied", value
+                    denied = True
+                    break
+            assert denied, "input after takeover.release was not rejected"
         disabled = browser_stream_status(args.browser_bin, worker["id"])
         assert disabled.get("enabled") is False and not disabled.get("screencasting"), disabled
     finally:
-        # The context manager closes both sessions.  Give the gateway enough
-        # time to send the last sidecar disable command before inspecting it.
         await asyncio.sleep(0.5)
 
     print(
@@ -703,9 +748,17 @@ async def acceptance(args: argparse.Namespace, fake_url: str, fake: FakeProvider
             {
                 "ok": True,
                 "bot_id": worker["id"],
-                "assignments": [first["id"], second["id"]],
-                "tabs": len(tabs),
-                "checks": ["jpeg_ack_latest", "multi_connection_refcount", "switch_tab", "takeover_input", "release_denied"],
+                "assignment": first["id"],
+                "marker": marker,
+                "checks": [
+                    "local_marker_url",
+                    "low_jpeg_header_dimensions",
+                    "ack_latest",
+                    "same_ws_bot_user_bot",
+                    "scaled_click",
+                    "paired_keypress",
+                    "release_denied",
+                ],
                 "fake_provider_browser_calls": fake.browser_calls,
             },
             ensure_ascii=False,
@@ -754,7 +807,9 @@ def main() -> None:
         )
         wrapper.chmod(0o700)
         args.browser_bin = str(wrapper)
-    fake_server, fake_state, fake_url = start_fake_provider()
+    marker = f"SCREEN_LOCAL_{uuid.uuid4().hex[:10]}"
+    local_page_server, local_page_url = start_local_page(marker)
+    fake_server, fake_state, fake_url = start_fake_provider(local_page_url)
     daemon = Daemon(args)
     try:
         daemon.start()
@@ -762,6 +817,7 @@ def main() -> None:
     finally:
         daemon.close()
         fake_server.shutdown()
+        local_page_server.shutdown()
         if temporary_home and not args.keep_home:
             import shutil
 

@@ -16,7 +16,8 @@ use axum::{
 use base64::Engine;
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use futures_util::{SinkExt, StreamExt};
-use macbot_browser::{BrowserError, BrowserManager, ProcessRunner};
+use image::GenericImageView;
+use macbot_browser::{BrowserError, BrowserManager, CliRunner, ProcessRunner};
 use password_hash::SaltString;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
@@ -1177,7 +1178,9 @@ async fn screen_handler(
     if let Err(response) = authorize(&gw, &headers, query.token.as_deref()).await {
         return response;
     }
-    ws.on_upgrade(move |socket| screen_session(socket, gw, query))
+    let mobile = screen_user_agent_is_mobile(&headers);
+    let quality = configured_screen_quality(&gw, mobile, query.quality.as_deref()).await;
+    ws.on_upgrade(move |socket| screen_session(socket, gw, query, quality))
         .into_response()
 }
 #[derive(Debug, Deserialize, Clone)]
@@ -1190,13 +1193,101 @@ struct ScreenQuery {
     token: Option<String>,
 }
 
+fn screen_user_agent_is_mobile(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|value| {
+            value.contains("android")
+                || value.contains("mobile")
+                || value.contains("iphone")
+                || value.contains("ipad")
+                || value.contains("ipod")
+        })
+}
+
+fn validate_screen_profile(value: Option<&Value>, fallback: ScreenQuality) -> ScreenQuality {
+    let Some(profile) = value.and_then(Value::as_object) else {
+        return fallback;
+    };
+    let Some(max_width) = profile
+        .get("max_width")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| (1..=8192).contains(value))
+    else {
+        return fallback;
+    };
+    let Some(jpeg_quality) = profile
+        .get("quality")
+        .and_then(Value::as_u64)
+        .and_then(|value| u8::try_from(value).ok())
+        .filter(|value| (1..=100).contains(value))
+    else {
+        return fallback;
+    };
+    let Some(max_fps) = profile
+        .get("max_fps")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| (1..=120).contains(value))
+    else {
+        return fallback;
+    };
+    ScreenQuality {
+        max_width,
+        jpeg_quality,
+        max_fps,
+    }
+}
+
+fn configured_screen_profile(settings: &Value, mobile: bool) -> Option<Value> {
+    let profile = if mobile { "mobile" } else { "desktop" };
+    settings
+        .pointer(&format!("/browser/stream/{profile}"))
+        .cloned()
+}
+
+async fn configured_screen_quality(
+    gw: &Gateway,
+    mobile: bool,
+    requested: Option<&str>,
+) -> ScreenQuality {
+    let fallback = if mobile {
+        ScreenQuality {
+            max_width: 720,
+            jpeg_quality: 50,
+            max_fps: 10,
+        }
+    } else {
+        ScreenQuality {
+            max_width: 1280,
+            jpeg_quality: 70,
+            max_fps: 15,
+        }
+    };
+    if matches!(requested, Some("high" | "low")) {
+        return screen_quality(requested);
+    }
+    let persisted = fs::read(gw.state.home.join("data/settings.json"))
+        .await
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+    let in_memory = gw.state.inner.read().await.settings.clone();
+    let profile = persisted
+        .as_ref()
+        .and_then(|settings| configured_screen_profile(settings, mobile))
+        .or_else(|| configured_screen_profile(&in_memory, mobile));
+    validate_screen_profile(profile.as_ref(), fallback)
+}
+
 const MOCK_SCREEN_FRAMES: [&[u8]; 3] = [
     include_bytes!("../assets/mock-screen-1.jpg"),
     include_bytes!("../assets/mock-screen-2.jpg"),
     include_bytes!("../assets/mock-screen-3.jpg"),
 ];
 
-#[cfg(test)]
 fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     if bytes.len() < 4 || bytes[0..2] != [0xff, 0xd8] {
         return None;
@@ -1236,8 +1327,67 @@ fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     None
 }
 
-fn screen_state(
-    manager: &mut BrowserManager<ProcessRunner>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ScreenQuality {
+    max_width: u32,
+    jpeg_quality: u8,
+    max_fps: u32,
+}
+
+fn screen_quality(quality: Option<&str>) -> ScreenQuality {
+    match quality {
+        Some("high") => ScreenQuality {
+            max_width: 1600,
+            jpeg_quality: 85,
+            max_fps: 20,
+        },
+        Some("low") => ScreenQuality {
+            max_width: 640,
+            jpeg_quality: 30,
+            max_fps: 8,
+        },
+        // The protocol's auto desktop profile is the server default. A
+        // mobile-specific profile is kept in the browser configuration and
+        // can be selected by a mobile gateway when that signal is available.
+        _ => ScreenQuality {
+            max_width: 1280,
+            jpeg_quality: 70,
+            max_fps: 15,
+        },
+    }
+}
+
+fn encode_screen_jpeg(jpeg: &[u8], quality: ScreenQuality) -> Option<(Vec<u8>, u32, u32)> {
+    let decoded = image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg).ok()?;
+    let (width, height) = decoded.dimensions();
+    let (target_width, target_height) = if width > quality.max_width {
+        let target_width = quality.max_width;
+        let target_height = ((height as u64 * target_width as u64) / width as u64)
+            .max(1)
+            .try_into()
+            .ok()?;
+        (target_width, target_height)
+    } else {
+        (width, height)
+    };
+    let image = if (target_width, target_height) == (width, height) {
+        decoded
+    } else {
+        decoded.resize_exact(
+            target_width,
+            target_height,
+            image::imageops::FilterType::Triangle,
+        )
+    };
+    let mut output = Vec::new();
+    let mut encoder =
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, quality.jpeg_quality);
+    encoder.encode_image(&image).ok()?;
+    Some((output, target_width, target_height))
+}
+
+fn screen_state<R: CliRunner>(
+    manager: &mut BrowserManager<R>,
     bot_id: &str,
     assignment_id: Option<&str>,
     requested_tab: Option<&str>,
@@ -1310,6 +1460,21 @@ fn screen_state(
     ))
 }
 
+fn screen_state_url(state: &Value, tab_id: &str) -> String {
+    state
+        .get("state")
+        .and_then(|value| value.get("tabs"))
+        .and_then(Value::as_array)
+        .and_then(|tabs| {
+            tabs.iter()
+                .find(|tab| tab.get("tab_id").and_then(Value::as_str) == Some(tab_id))
+        })
+        .and_then(|tab| tab.get("url").and_then(Value::as_str))
+        .filter(|url| !url.is_empty())
+        .unwrap_or("about:blank")
+        .to_owned()
+}
+
 fn screen_error(error: &str, message: impl Into<String>) -> axum::extract::ws::Message {
     text_frame(&json!({"type":"error","error":{"code":error,"message":message.into()}}))
 }
@@ -1320,6 +1485,8 @@ enum SidecarEvent {
         jpeg: Vec<u8>,
         width: u32,
         height: u32,
+        viewport_width: u32,
+        viewport_height: u32,
         timestamp: u64,
     },
     Url(String),
@@ -1327,12 +1494,15 @@ enum SidecarEvent {
         active_tab_id: Option<String>,
     },
     Ping(Vec<u8>),
+    InvalidFrame {
+        seq: u64,
+    },
     Closed,
 }
 
 async fn sidecar_connect(
     port: u16,
-    max_fps: u32,
+    quality: ScreenQuality,
 ) -> Result<
     (
         tokio::io::ReadHalf<TcpStream>,
@@ -1345,7 +1515,8 @@ async fn sidecar_connect(
         .map_err(|error| error.to_string())?;
     let key = base64::engine::general_purpose::STANDARD.encode(Uuid::now_v7().as_bytes());
     let request = format!(
-        "GET /?pacing=ack&maxFps={max_fps} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nOrigin: http://127.0.0.1\r\n\r\n"
+        "GET /?pacing=ack&maxFps={} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nOrigin: http://127.0.0.1\r\n\r\n",
+        quality.max_fps
     );
     socket
         .write_all(request.as_bytes())
@@ -1474,17 +1645,38 @@ async fn sidecar_reader(
                             continue;
                         };
                         let metadata = value.get("metadata").cloned().unwrap_or_default();
+                        let Some((width, height)) = jpeg_dimensions(&jpeg) else {
+                            // A bad JPEG must not become a fake frame. The
+                            // sidecar stream is ack-paced, so the session loop
+                            // acknowledges and discards it.
+                            let _ = events
+                                .send(SidecarEvent::InvalidFrame {
+                                    seq: value.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                                })
+                                .await;
+                            continue;
+                        };
+                        // The JPEG may be downscaled for the client. Keep the
+                        // browser's CDP viewport separately for input mapping.
+                        let viewport_width = metadata
+                                .get("deviceWidth")
+                                .and_then(Value::as_u64)
+                            .and_then(|value| u32::try_from(value).ok())
+                            .filter(|value| *value > 0)
+                            .unwrap_or(width.max(1));
+                        let viewport_height = metadata
+                                .get("deviceHeight")
+                                .and_then(Value::as_u64)
+                            .and_then(|value| u32::try_from(value).ok())
+                            .filter(|value| *value > 0)
+                            .unwrap_or(height.max(1));
                         let frame = SidecarEvent::Frame {
                             seq: value.get("seq").and_then(Value::as_u64).unwrap_or(0),
                             jpeg,
-                            width: metadata
-                                .get("deviceWidth")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(1280) as u32,
-                            height: metadata
-                                .get("deviceHeight")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(720) as u32,
+                            width,
+                            height,
+                            viewport_width,
+                            viewport_height,
                             timestamp: metadata
                                 .get("timestamp")
                                 .and_then(Value::as_u64)
@@ -1549,20 +1741,13 @@ fn sidecar_stream_port(value: &Value) -> Option<u16> {
         .and_then(|port| u16::try_from(port).ok())
 }
 
-fn sidecar_quality_fps(quality: Option<&str>) -> u32 {
-    match quality {
-        Some("high") => 20,
-        Some("low") => 8,
-        _ => 15,
-    }
-}
-
 fn sidecar_gateway_frame(
     seq: u64,
     frame: &SidecarEvent,
     tab_id: &str,
     url: &str,
-) -> Option<Vec<u8>> {
+    quality: ScreenQuality,
+) -> Option<(Vec<u8>, u32, u32)> {
     let SidecarEvent::Frame {
         jpeg,
         width,
@@ -1573,46 +1758,108 @@ fn sidecar_gateway_frame(
     else {
         return None;
     };
-    let header = json!({"seq":seq,"tab_id":tab_id,"w":width,"h":height,"ts":timestamp,"url":url})
+    let (jpeg, actual_width, actual_height) =
+        encode_screen_jpeg(jpeg, quality).unwrap_or_else(|| (jpeg.clone(), *width, *height));
+    let header = json!({"seq":seq,"tab_id":tab_id,"w":actual_width,"h":actual_height,"ts":timestamp,"url":url})
         .to_string();
     let mut bytes = Vec::with_capacity(4 + header.len() + jpeg.len());
     bytes.extend_from_slice(&(header.len() as u32).to_be_bytes());
     bytes.extend_from_slice(header.as_bytes());
-    bytes.extend_from_slice(jpeg);
-    Some(bytes)
+    bytes.extend_from_slice(&jpeg);
+    Some((bytes, actual_width, actual_height))
 }
 
-fn sidecar_input(event: &Value) -> Option<Value> {
+fn scale_screen_coordinate(value: f64, frame: u32, viewport: u32) -> f64 {
+    if frame == 0 || viewport == 0 {
+        value
+    } else {
+        value * f64::from(viewport) / f64::from(frame)
+    }
+}
+
+fn sidecar_input_point(point: &Value, dimensions: (u32, u32, u32, u32)) -> Value {
+    let (frame_width, frame_height, viewport_width, viewport_height) = dimensions;
+    let mut point = point.clone();
+    if let Some(object) = point.as_object_mut() {
+        let x = object.get("x").and_then(Value::as_f64).unwrap_or(0.0);
+        let y = object.get("y").and_then(Value::as_f64).unwrap_or(0.0);
+        object.insert(
+            "x".into(),
+            json!(scale_screen_coordinate(x, frame_width, viewport_width)),
+        );
+        object.insert(
+            "y".into(),
+            json!(scale_screen_coordinate(y, frame_height, viewport_height)),
+        );
+    }
+    point
+}
+
+fn sidecar_input(event: &Value, frame: Option<(u32, u32, u32, u32)>) -> Option<Vec<Value>> {
     let kind = event.get("type").and_then(Value::as_str)?;
+    let (frame_width, frame_height, viewport_width, viewport_height) =
+        frame.unwrap_or((0, 0, 0, 0));
+    let x = scale_screen_coordinate(
+        event.get("x").and_then(Value::as_f64).unwrap_or(0.0),
+        frame_width,
+        viewport_width,
+    );
+    let y = scale_screen_coordinate(
+        event.get("y").and_then(Value::as_f64).unwrap_or(0.0),
+        frame_height,
+        viewport_height,
+    );
     match kind {
-        "mouse" => Some(json!({
-            "type":"input_mouse",
-            "eventType": match event.get("action").and_then(Value::as_str).unwrap_or("move") {
-                "down" => "mousePressed", "up" => "mouseReleased", _ => "mouseMoved"
-            },
-            "x":event.get("x").and_then(Value::as_f64).unwrap_or(0.0),
-            "y":event.get("y").and_then(Value::as_f64).unwrap_or(0.0),
-            "button":event.get("button").and_then(Value::as_str).unwrap_or("left"),
-            "clickCount":event.get("click_count").and_then(Value::as_u64).unwrap_or(1)
-        })),
-        "wheel" => Some(json!({"type":"input_mouse","eventType":"mouseWheel",
-            "x":event.get("x").and_then(Value::as_f64).unwrap_or(0.0),
-            "y":event.get("y").and_then(Value::as_f64).unwrap_or(0.0),
-            "deltaX":event.get("dx").and_then(Value::as_f64).unwrap_or(0.0),
-            "deltaY":event.get("dy").and_then(Value::as_f64).unwrap_or(0.0)})),
-        "key" => Some(json!({
-            "type":"input_keyboard",
-            "eventType": match event.get("action").and_then(Value::as_str).unwrap_or("press") {
-                "down" => "keyDown", "up" => "keyUp", _ => "char"
-            },
-            "key":event.get("key").and_then(Value::as_str).unwrap_or(""),
-            "text":event.get("text").cloned().unwrap_or(Value::Null)
-        })),
-        "touch" => Some(json!({"type":"input_touch",
+        "mouse" => {
+            let button = event.get("button").and_then(Value::as_str).unwrap_or("left");
+            let click_count = event.get("click_count").and_then(Value::as_u64).unwrap_or(1);
+            let message = |event_type: &str| {
+                json!({
+                    "type":"input_mouse", "eventType":event_type,
+                    "x":x, "y":y, "button":button, "clickCount":click_count
+                })
+            };
+            match event.get("action").and_then(Value::as_str).unwrap_or("move") {
+                "click" => Some(vec![message("mousePressed"), message("mouseReleased")]),
+                "down" => Some(vec![message("mousePressed")]),
+                "up" => Some(vec![message("mouseReleased")]),
+                _ => Some(vec![message("mouseMoved")]),
+            }
+        }
+        "wheel" => Some(vec![json!({
+            "type":"input_mouse", "eventType":"mouseWheel", "x":x, "y":y,
+            "deltaX":scale_screen_coordinate(
+                event.get("dx").and_then(Value::as_f64).unwrap_or(0.0),
+                frame_width,
+                viewport_width,
+            ),
+            "deltaY":scale_screen_coordinate(
+                event.get("dy").and_then(Value::as_f64).unwrap_or(0.0),
+                frame_height,
+                viewport_height,
+            )
+        })]),
+        "key" => {
+            let key = event.get("key").and_then(Value::as_str).unwrap_or("");
+            let text = event.get("text").cloned().unwrap_or(Value::Null);
+            let message = |event_type: &str, text: Value| {
+                json!({"type":"input_keyboard","eventType":event_type,"key":key,"text":text})
+            };
+            match event.get("action").and_then(Value::as_str).unwrap_or("press") {
+                "down" => Some(vec![message("keyDown", text)]),
+                "up" => Some(vec![message("keyUp", Value::Null)]),
+                _ => Some(vec![message("keyDown", text), message("keyUp", Value::Null)]),
+            }
+        }
+        "touch" => Some(vec![json!({
+            "type":"input_touch",
             "eventType": match event.get("action").and_then(Value::as_str).unwrap_or("move") {
                 "start" => "touchStart", "end" => "touchEnd", _ => "touchMove"
             },
-            "touchPoints":event.get("points").cloned().unwrap_or_else(|| json!([]))})),
+            "touchPoints":event.get("points").and_then(Value::as_array)
+                .map(|points| points.iter().map(|point| sidecar_input_point(point, (frame_width, frame_height, viewport_width, viewport_height))).collect::<Vec<_>>())
+                .unwrap_or_default()
+        })]),
         _ => None,
     }
 }
@@ -1642,6 +1889,7 @@ async fn real_sidecar_screen_session(
     socket: axum::extract::ws::WebSocket,
     gw: Gateway,
     query: ScreenQuery,
+    quality: ScreenQuality,
 ) {
     let (mut sink, mut client) = socket.split();
     let bot_id = query.bot_id.unwrap_or_else(|| "bot_main".into());
@@ -1666,6 +1914,7 @@ async fn real_sidecar_screen_session(
             return;
         };
         tab_id = selected;
+        let current_url = screen_state_url(&screen, &tab_id);
         // The sidecar stream is Bot-wide. An explicit assignment scopes the
         // visible tabs; an omitted assignment lets an authenticated screen
         // client browse every tab owned by the Bot. We still use the selected
@@ -1695,9 +1944,9 @@ async fn real_sidecar_screen_session(
                 .ok()
                 .and_then(|value| sidecar_stream_port(&value))
         });
-        (screen, stream_scope, port)
+        (screen, stream_scope, port, current_url)
     };
-    let (state, stream_scope, port) = setup;
+    let (state, stream_scope, port, initial_url) = setup;
     let Some(port) = port else {
         let mut browser = gw.state.browser.lock().await;
         let _ = browser.stream_disable_for_assignment(&bot_id, &stream_scope);
@@ -1717,8 +1966,8 @@ async fn real_sidecar_screen_session(
         release_screen_stream(&gw, &bot_id, &stream_scope).await;
         return;
     }
-    let (reader_half, sidecar_writer) =
-        match sidecar_connect(port, sidecar_quality_fps(query.quality.as_deref())).await {
+    let mut last_published_state = state.clone();
+    let (reader_half, sidecar_writer) = match sidecar_connect(port, quality).await {
             Ok(parts) => parts,
             Err(error) => {
                 let _ = sink.send(screen_error("unavailable", error)).await;
@@ -1743,15 +1992,41 @@ async fn real_sidecar_screen_session(
     let mut gateway_seq = 0u64;
     let mut in_flight: Option<(u64, u64)> = None;
     let mut latest: Option<SidecarEvent> = None;
-    let mut current_url = String::from("about:blank");
+    let mut current_url = initial_url;
+    // (actual JPEG width/height, CDP viewport width/height) for translating
+    // client frame-pixel input into browser coordinates.
+    let mut last_frame_dimensions: Option<(u32, u32, u32, u32)> = None;
     let mut sidecar_tab_id: Option<String> = None;
     let mut awaiting_tab_confirmation = false;
+    let mut state_interval = tokio::time::interval(std::time::Duration::from_millis(100));
     'session: loop {
         tokio::select! {
+            _ = state_interval.tick() => {
+                // takeover.start/release is an RPC on the shared browser
+                // manager; it does not produce a sidecar frame. Poll the
+                // authoritative state so an already-open screen connection
+                // promptly changes bot -> user -> bot/idle.
+                let update = {
+                    let mut browser = gw.state.browser.lock().await;
+                    screen_state(
+                        &mut browser,
+                        &bot_id,
+                        access_scope.as_deref(),
+                        Some(&tab_id),
+                        false,
+                    ).ok()
+                };
+                if let Some((next_state, _, _)) = update {
+                    if next_state != last_published_state {
+                        last_published_state = next_state.clone();
+                        if sink.send(text_frame(&next_state)).await.is_err() { break 'session; }
+                    }
+                }
+            }
             incoming = events_rx.recv() => {
                 let Some(incoming) = incoming else { break; };
                 match incoming {
-                    SidecarEvent::Frame { seq, jpeg, width, height, timestamp } => {
+                    SidecarEvent::Frame { seq, jpeg, width, height, viewport_width, viewport_height, timestamp } => {
                         // A tab switch can leave one old frame in the sidecar
                         // queue. ACK and discard it until the active-tab event
                         // confirms that the pixels belong to the selected tab.
@@ -1769,10 +2044,11 @@ async fn real_sidecar_screen_session(
                                 .await;
                             continue;
                         }
-                        let frame = SidecarEvent::Frame { seq, jpeg, width, height, timestamp };
+                        let frame = SidecarEvent::Frame { seq, jpeg, width, height, viewport_width, viewport_height, timestamp };
                         if in_flight.is_some() { latest = Some(frame); continue; }
                         gateway_seq += 1;
-                        if let Some(frame) = sidecar_gateway_frame(gateway_seq, &frame, &tab_id, &current_url) {
+                        if let Some((frame, actual_width, actual_height)) = sidecar_gateway_frame(gateway_seq, &frame, &tab_id, &current_url, quality) {
+                            last_frame_dimensions = Some((actual_width, actual_height, viewport_width, viewport_height));
                             if sink.send(axum::extract::ws::Message::Binary(frame.into())).await.is_err() { break 'session; }
                             in_flight = Some((gateway_seq, seq));
                         }
@@ -1812,6 +2088,8 @@ async fn real_sidecar_screen_session(
                                             .ok()
                                         };
                                         if let Some((state, _, _)) = update {
+                                            last_published_state = state.clone();
+                                            current_url = screen_state_url(&state, &tab_id);
                                             if sink.send(text_frame(&state)).await.is_err() {
                                                 break 'session;
                                             }
@@ -1828,6 +2106,7 @@ async fn real_sidecar_screen_session(
                         // have to wait for (or decode) a frame to refresh tabs.
                         let update = {
                             let mut browser = gw.state.browser.lock().await;
+                            let _ = browser.update_tab_url(&bot_id, &tab_id, &url);
                             screen_state(
                                 &mut browser,
                                 &bot_id,
@@ -1836,30 +2115,20 @@ async fn real_sidecar_screen_session(
                                 false,
                             )
                             .ok()
-                            .map(|(mut state, _, _)| {
-                                if let Some(tabs) = state
-                                    .get_mut("state")
-                                    .and_then(|value| value.get_mut("tabs"))
-                                    .and_then(Value::as_array_mut)
-                                {
-                                    for tab in tabs {
-                                        if tab.get("tab_id").and_then(Value::as_str) == Some(&tab_id) {
-                                            if let Some(object) = tab.as_object_mut() {
-                                                object.insert("url".into(), json!(url));
-                                            }
-                                        }
-                                    }
-                                }
-                                state
-                            })
                         };
-                        if let Some(state) = update {
+                        if let Some((state, _, _)) = update {
+                            last_published_state = state.clone();
                             if sink.send(text_frame(&state)).await.is_err() {
                                 break 'session;
                             }
                         }
                     },
                     SidecarEvent::Ping(payload) => { let _ = out_tx.send((0xA, payload)).await; }
+                    SidecarEvent::InvalidFrame { seq } => {
+                        let _ = out_tx
+                            .send((1, serde_json::to_vec(&json!({"type":"ack","seq":seq})).unwrap_or_default()))
+                            .await;
+                    }
                     SidecarEvent::Closed => break,
                 }
             }
@@ -1876,7 +2145,10 @@ async fn real_sidecar_screen_session(
                                         in_flight = None;
                                         if let Some(frame) = latest.take() {
                                             gateway_seq += 1;
-                                            if let Some(bytes) = sidecar_gateway_frame(gateway_seq, &frame, &tab_id, &current_url) {
+                                            if let Some((bytes, actual_width, actual_height)) = sidecar_gateway_frame(gateway_seq, &frame, &tab_id, &current_url, quality) {
+                                                if let SidecarEvent::Frame { viewport_width, viewport_height, .. } = &frame {
+                                                    last_frame_dimensions = Some((actual_width, actual_height, *viewport_width, *viewport_height));
+                                                }
                                                 if sink.send(axum::extract::ws::Message::Binary(bytes.into())).await.is_err() { break 'session; }
                                                 if let SidecarEvent::Frame { seq, .. } = frame { in_flight = Some((gateway_seq, seq)); }
                                             }
@@ -1920,8 +2192,20 @@ async fn real_sidecar_screen_session(
                                         .await;
                                     continue;
                                 }
+                                let requested_url = browser
+                                    .state(&bot_id)
+                                    .ok()
+                                    .and_then(|state| {
+                                        state
+                                            .tabs
+                                            .iter()
+                                            .find(|tab| tab.tab_id == requested)
+                                            .map(|tab| tab.url.clone())
+                                    })
+                                    .filter(|url| !url.is_empty());
                                 drop(browser);
                                 tab_id = requested.to_owned();
+                                current_url = requested_url.unwrap_or_else(|| "about:blank".into());
                                 sidecar_tab_id = None;
                                 awaiting_tab_confirmation = true;
                                 let update = {
@@ -1936,6 +2220,7 @@ async fn real_sidecar_screen_session(
                                     .ok()
                                 };
                                 if let Some((state, _, _)) = update {
+                                    last_published_state = state.clone();
                                     if sink.send(text_frame(&state)).await.is_err() {
                                         break 'session;
                                     }
@@ -1947,9 +2232,11 @@ async fn real_sidecar_screen_session(
                                     let _ = sink.send(screen_error("invalid_request", "invalid screen event")).await; continue;
                                 }
                                 let allowed = gw.state.browser.lock().await.state(&bot_id).map(|state| state.takeover).unwrap_or(false);
-                                let Some(sidecar_event) = sidecar_input(event) else { continue; };
                                 if !allowed { let _ = sink.send(screen_error("permission_denied", "takeover is not active")).await; continue; }
+                                let Some(sidecar_events) = sidecar_input(event, last_frame_dimensions) else { continue; };
+                                for sidecar_event in sidecar_events {
                                 let _ = out_tx.send((1, serde_json::to_vec(&sidecar_event).unwrap_or_default())).await;
+                            }
                             }
                             _ => {}
                         }
@@ -2017,8 +2304,9 @@ fn mock_screen_frame(seq: u64, tab_id: &str, tabs: &[Value]) -> Vec<u8> {
         .and_then(|tab| tab.get("url").and_then(Value::as_str))
         .unwrap_or("about:blank");
     let jpeg = MOCK_SCREEN_FRAMES[(seq as usize) % MOCK_SCREEN_FRAMES.len()];
-    let header =
-        json!({"seq":seq,"tab_id":tab_id,"w":320,"h":180,"ts":unix_ms(),"url":url}).to_string();
+    let (width, height) = jpeg_dimensions(jpeg).unwrap_or((320, 180));
+    let header = json!({"seq":seq,"tab_id":tab_id,"w":width,"h":height,"ts":unix_ms(),"url":url})
+        .to_string();
     let mut bytes = Vec::with_capacity(4 + header.len() + jpeg.len());
     bytes.extend_from_slice(&(header.len() as u32).to_be_bytes());
     bytes.extend_from_slice(header.as_bytes());
@@ -2033,13 +2321,23 @@ async fn mock_screen_session(
 ) {
     let (mut sink, mut stream) = socket.split();
     let bot_id = query.bot_id.unwrap_or_else(|| "bot_main".into());
-    let mut selected = query.tab_id.unwrap_or_else(|| "tab_mock_1".into());
+    let requested_tab = query.tab_id;
+    let mut selected = requested_tab.unwrap_or_default();
     let assignment_id = query.assignment_id;
     let mut seq = 1u64;
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
     let view = gw.state.inner.read().await;
     let (mut driver, mut tabs) = mock_screen_view(&view, &bot_id, assignment_id.as_deref());
     drop(view);
+    if selected.is_empty() {
+        selected = tabs
+            .iter()
+            .find(|tab| tab.get("active").and_then(Value::as_bool) == Some(true))
+            .or_else(|| tabs.first())
+            .and_then(|tab| tab.get("tab_id").and_then(Value::as_str))
+            .unwrap_or("tab_mock_1")
+            .to_owned();
+    }
     let mut last_state = mock_screen_state(&bot_id, &driver, &tabs, &selected);
     if sink.send(text_frame(&last_state)).await.is_err() {
         return;
@@ -2120,12 +2418,17 @@ async fn mock_screen_session(
     }
 }
 
-async fn screen_session(socket: axum::extract::ws::WebSocket, gw: Gateway, query: ScreenQuery) {
+async fn screen_session(
+    socket: axum::extract::ws::WebSocket,
+    gw: Gateway,
+    query: ScreenQuery,
+    quality: ScreenQuality,
+) {
     if gw.mock {
         mock_screen_session(socket, gw, query).await;
         return;
     }
-    real_sidecar_screen_session(socket, gw, query).await;
+    real_sidecar_screen_session(socket, gw, query, quality).await;
 }
 
 fn unix_ms() -> u64 {
@@ -3339,6 +3642,269 @@ mod tests {
         for frame in MOCK_SCREEN_FRAMES {
             assert_eq!(jpeg_dimensions(frame), Some((320, 180)));
         }
+    }
+
+    #[test]
+    fn screen_quality_matches_protocol_profiles() {
+        assert_eq!(
+            screen_quality(Some("low")),
+            ScreenQuality {
+                max_width: 640,
+                jpeg_quality: 30,
+                max_fps: 8
+            }
+        );
+        assert_eq!(
+            screen_quality(Some("high")),
+            ScreenQuality {
+                max_width: 1600,
+                jpeg_quality: 85,
+                max_fps: 20
+            }
+        );
+        assert_eq!(
+            screen_quality(Some("auto")),
+            ScreenQuality {
+                max_width: 1280,
+                jpeg_quality: 70,
+                max_fps: 15
+            }
+        );
+    }
+
+    #[test]
+    fn screen_auto_selects_mobile_from_user_agent() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::USER_AGENT,
+            HeaderValue::from_static("Mozilla/5.0 (Linux; Android 16; Mobile)"),
+        );
+        assert!(screen_user_agent_is_mobile(&headers));
+        headers.insert(
+            header::USER_AGENT,
+            HeaderValue::from_static("Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0)"),
+        );
+        assert!(!screen_user_agent_is_mobile(&headers));
+    }
+
+    #[tokio::test]
+    async fn screen_auto_uses_configured_desktop_and_mobile_profiles() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            mock: true,
+            ..Default::default()
+        });
+        fs::create_dir_all(dir.path().join("data")).await.unwrap();
+        fs::write(
+            dir.path().join("data/settings.json"),
+            serde_json::to_vec(&json!({
+                "browser":{"stream":{
+                    "desktop":{"max_width":1024,"quality":61,"max_fps":12},
+                    "mobile":{"max_width":480,"quality":41,"max_fps":7}
+                }}
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            configured_screen_quality(&gw, false, Some("auto")).await,
+            ScreenQuality {
+                max_width: 1024,
+                jpeg_quality: 61,
+                max_fps: 12
+            }
+        );
+        assert_eq!(
+            configured_screen_quality(&gw, true, Some("auto")).await,
+            ScreenQuality {
+                max_width: 480,
+                jpeg_quality: 41,
+                max_fps: 7
+            }
+        );
+        assert_eq!(
+            configured_screen_quality(&gw, true, Some("high")).await,
+            screen_quality(Some("high"))
+        );
+    }
+
+    #[test]
+    fn screen_profile_rejects_out_of_range_values() {
+        let fallback = screen_quality(Some("auto"));
+        assert_eq!(
+            validate_screen_profile(
+                Some(&json!({"max_width":0,"quality":70,"max_fps":15})),
+                fallback
+            ),
+            fallback
+        );
+        assert_eq!(
+            validate_screen_profile(
+                Some(&json!({"max_width":1280,"quality":101,"max_fps":15})),
+                fallback
+            ),
+            fallback
+        );
+    }
+
+    #[test]
+    fn screen_frame_header_uses_encoded_jpeg_dimensions_and_url() {
+        let jpeg = MOCK_SCREEN_FRAMES[0].to_vec();
+        let dimensions = jpeg_dimensions(&jpeg).unwrap();
+        let event = SidecarEvent::Frame {
+            seq: 4,
+            jpeg,
+            width: 1,
+            height: 1,
+            viewport_width: 1280,
+            viewport_height: 720,
+            timestamp: 99,
+        };
+        let (bytes, actual_width, actual_height) = sidecar_gateway_frame(
+            7,
+            &event,
+            "tab-1",
+            "https://example.test/login",
+            screen_quality(Some("low")),
+        )
+        .unwrap();
+        assert_eq!((actual_width, actual_height), dimensions);
+        let header_len = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+        let header: Value = serde_json::from_slice(&bytes[4..4 + header_len]).unwrap();
+        assert_eq!(
+            (
+                header["w"].as_u64().unwrap() as u32,
+                header["h"].as_u64().unwrap() as u32
+            ),
+            dimensions
+        );
+        assert_eq!(header["url"], "https://example.test/login");
+        assert_eq!(jpeg_dimensions(&bytes[4 + header_len..]), Some(dimensions));
+    }
+
+    #[test]
+    fn sidecar_input_scales_frame_pixels_to_viewport_coordinates() {
+        let dimensions = Some((640, 360, 1280, 720));
+        let mouse = sidecar_input(
+            &json!({"type":"mouse","action":"move","x":320.0,"y":180.0,"button":"left","click_count":1}),
+            dimensions,
+        )
+        .unwrap();
+        assert_eq!(mouse.len(), 1);
+        assert_eq!(mouse[0]["x"], 640.0);
+        assert_eq!(mouse[0]["y"], 360.0);
+
+        let wheel = sidecar_input(
+            &json!({"type":"wheel","x":320.0,"y":180.0,"dx":10.0,"dy":20.0}),
+            dimensions,
+        )
+        .unwrap();
+        assert_eq!(wheel[0]["x"], 640.0);
+        assert_eq!(wheel[0]["y"], 360.0);
+        assert_eq!(wheel[0]["deltaX"], 20.0);
+        assert_eq!(wheel[0]["deltaY"], 40.0);
+    }
+
+    #[test]
+    fn sidecar_click_and_key_press_emit_physical_pairs() {
+        let click = sidecar_input(
+            &json!({"type":"mouse","action":"click","x":320.0,"y":180.0,"button":"left","click_count":1}),
+            Some((640, 360, 1280, 720)),
+        )
+        .unwrap();
+        assert_eq!(click.len(), 2);
+        assert_eq!(click[0]["eventType"], "mousePressed");
+        assert_eq!(click[1]["eventType"], "mouseReleased");
+        assert_eq!(click[0]["x"], 640.0);
+        assert_eq!(click[0]["y"], 360.0);
+
+        let key = sidecar_input(
+            &json!({"type":"key","action":"press","key":"Enter","code":"Enter","text":null,"modifiers":[]}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(key.len(), 2);
+        assert_eq!(key[0]["eventType"], "keyDown");
+        assert_eq!(key[1]["eventType"], "keyUp");
+    }
+
+    #[test]
+    fn sidecar_input_scales_touch_points() {
+        let touch = sidecar_input(
+            &json!({"type":"touch","action":"move","points":[{"x":0.0,"y":90.0},{"x":640.0,"y":360.0}]}),
+            Some((640, 360, 1280, 720)),
+        )
+        .unwrap();
+        assert_eq!(touch[0]["touchPoints"][0]["x"], 0.0);
+        assert_eq!(touch[0]["touchPoints"][0]["y"], 180.0);
+        assert_eq!(touch[0]["touchPoints"][1]["x"], 1280.0);
+        assert_eq!(touch[0]["touchPoints"][1]["y"], 720.0);
+    }
+
+    #[test]
+    fn mock_screen_frame_preserves_selected_tab_url() {
+        let tabs = vec![json!({"tab_id":"tab-1","url":"https://example.test"})];
+        let frame = mock_screen_frame(1, "tab-1", &tabs);
+        let header_len = u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+        let header: Value = serde_json::from_slice(&frame[4..4 + header_len]).unwrap();
+        assert_eq!(header["url"], "https://example.test");
+        assert_eq!(
+            (
+                header["w"].as_u64().unwrap() as u32,
+                header["h"].as_u64().unwrap() as u32
+            ),
+            jpeg_dimensions(&frame[4 + header_len..]).unwrap()
+        );
+    }
+
+    #[test]
+    fn screen_state_url_uses_selected_tab() {
+        let state = json!({
+            "type":"state",
+            "state":{"tabs":[
+                {"tab_id":"first","url":"https://first.test"},
+                {"tab_id":"active","url":"https://active.test"}
+            ]}
+        });
+        assert_eq!(screen_state_url(&state, "active"), "https://active.test");
+        assert_eq!(screen_state_url(&state, "missing"), "about:blank");
+    }
+
+    #[test]
+    fn screen_state_broadcast_driver_follows_takeover_lifecycle() {
+        struct ScreenFake;
+        impl macbot_browser::CliRunner for ScreenFake {
+            fn run(
+                &self,
+                _: &std::path::Path,
+                _: &[String],
+            ) -> Result<String, macbot_browser::BrowserError> {
+                Ok("{}".into())
+            }
+        }
+
+        let mut browser = BrowserManager::new(
+            macbot_browser::SessionConfig::default(),
+            Arc::new(ScreenFake),
+        );
+        let tab = browser
+            .open_tab("bot", "assignment", "https://example.test")
+            .unwrap();
+        let driver = |browser: &mut BrowserManager<ScreenFake>| {
+            screen_state(browser, "bot", Some("assignment"), Some(&tab.tab_id), false)
+                .unwrap()
+                .0["state"]["driver"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        assert_eq!(driver(&mut browser), "bot");
+        browser.takeover_start("bot").unwrap();
+        assert_eq!(driver(&mut browser), "user");
+        browser.takeover_release("bot").unwrap();
+        assert_eq!(driver(&mut browser), "bot");
     }
 
     #[tokio::test]

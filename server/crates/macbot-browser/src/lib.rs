@@ -616,6 +616,34 @@ impl<R: CliRunner> BrowserManager<R> {
         Ok(())
     }
 
+    /// Persist metadata observed from the screencast sidecar. The sidecar's
+    /// URL event is authoritative for the selected tab, and keeping it in the
+    /// session snapshot prevents the next screen state refresh from reverting
+    /// to the URL captured when the tab was opened.
+    pub fn update_tab_url(
+        &mut self,
+        bot_id: &str,
+        tab_id: &str,
+        url: &str,
+    ) -> Result<BrowserTab, BrowserError> {
+        let session = self
+            .sessions
+            .get_mut(bot_id)
+            .ok_or_else(|| BrowserError::SessionNotFound(bot_id.into()))?;
+        let tab = session
+            .state
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.tab_id == tab_id)
+            .ok_or_else(|| BrowserError::Invalid(format!("no browser tab {tab_id}")))?;
+        tab.url = url.to_owned();
+        let tab = tab.clone();
+        session.last_activity = SystemTime::now();
+        session.state.last_activity_ms = epoch_ms();
+        self.persist_session(bot_id)?;
+        Ok(tab)
+    }
+
     fn ensure_session(&mut self, bot_id: &str) -> Result<(), BrowserError> {
         if self.sessions.contains_key(bot_id) {
             return Ok(());
@@ -1115,6 +1143,43 @@ mod tests {
         assert_eq!(
             browser
                 .driver_for_assignment("bot", Some("assignment-a"))
+                .unwrap(),
+            "bot"
+        );
+    }
+
+    #[test]
+    fn takeover_and_sidecar_url_metadata_are_visible_and_persisted() {
+        let fake = Arc::new(Fake::default());
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake);
+        let tab = browser
+            .open_tab("bot", "assignment", "https://old.example")
+            .unwrap();
+        assert_eq!(
+            browser
+                .driver_for_assignment("bot", Some("assignment"))
+                .unwrap(),
+            "bot"
+        );
+        browser.takeover_start("bot").unwrap();
+        assert_eq!(
+            browser
+                .driver_for_assignment("bot", Some("assignment"))
+                .unwrap(),
+            "user"
+        );
+        let updated = browser
+            .update_tab_url("bot", &tab.tab_id, "https://new.example")
+            .unwrap();
+        assert_eq!(updated.url, "https://new.example");
+        assert_eq!(
+            browser.state("bot").unwrap().tabs[0].url,
+            "https://new.example"
+        );
+        browser.takeover_release("bot").unwrap();
+        assert_eq!(
+            browser
+                .driver_for_assignment("bot", Some("assignment"))
                 .unwrap(),
             "bot"
         );
