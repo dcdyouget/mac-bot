@@ -188,6 +188,10 @@ fn login_scenario_preserves_ordered_workflow_and_cursors() {
         }
 
         match event {
+            "chat.created" if raw["data"]["chat"]["id"] == "chat_main" => {
+                assert_eq!(raw["data"]["chat"]["kind"], "main");
+                assert_eq!(raw["data"]["chat"]["bot_id"], "bot_main");
+            }
             "message.created" | "message.updated" => {
                 let message = &raw["data"]["message"];
                 let chat = message["chat_id"].as_str().unwrap().to_owned();

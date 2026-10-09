@@ -446,7 +446,9 @@ fn chat_for(
     value["id"] = json!(id);
     value["kind"] = json!(kind);
     value["title"] = json!(title);
-    value["bot_id"] = if kind == "direct" {
+    value["bot_id"] = if kind == "main" {
+        json!("bot_main")
+    } else if kind == "direct" {
         members
             .first()
             .map_or_else(|| json!("bot_main"), |id| json!(id))
@@ -543,7 +545,7 @@ fn scenario(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
         &mut lines,
         &mut global_seq,
         "chat.created",
-        json!({"chat":chat_for("chat_main","direct","总管",None,&[],0)}),
+        json!({"chat":chat_for("chat_main","main","总管",None,&[],0)}),
     );
     push_frame(
         &mut lines,
