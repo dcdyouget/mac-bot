@@ -363,24 +363,33 @@ impl MacBot {
         let handle = Client::spawn(config);
         self.client = Some(handle.client);
         let mut events = handle.events;
+        let executor = cx.background_executor().clone();
         self.event_task = Some(cx.spawn(async move |this, cx| {
-            while let Some(event) = events.recv().await {
-                if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
-                    eprintln!("client: event bridge received");
-                }
-                if this
-                    .update(cx, |view, cx| {
-                        if view.connection_generation == generation {
-                            view.on_event(event, cx);
-                        }
-                    })
-                    .is_err()
-                {
+            loop {
+                for _ in 0..64 {
+                    let event = match events.try_recv() {
+                        Ok(event) => event,
+                        Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                        Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => return,
+                    };
                     if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
-                        eprintln!("client: event bridge entity released");
+                        eprintln!("client: event bridge received");
                     }
-                    break;
+                    if this
+                        .update(cx, |view, cx| {
+                            if view.connection_generation == generation {
+                                view.on_event(event, cx);
+                            }
+                        })
+                        .is_err()
+                    {
+                        if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
+                            eprintln!("client: event bridge entity released");
+                        }
+                        return;
+                    }
                 }
+                executor.timer(std::time::Duration::from_millis(50)).await;
             }
         }));
         cx.notify();
@@ -925,54 +934,65 @@ impl MacBot {
         let handle = ScreenHandle::spawn(config, bot, quality, None);
         self.screen_client = Some(handle.client);
         let mut events = handle.events;
+        let executor = cx.background_executor().clone();
         self.screen_task = Some(cx.spawn(async move |this, cx| {
-            while let Some(event) = events.recv().await {
-                if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
-                    let kind = match &event {
-                        ScreenEvent::State(_) => "state",
-                        ScreenEvent::Frame(_) => "frame",
-                        ScreenEvent::Error(_) => "error",
-                        ScreenEvent::Closed => "closed",
+            loop {
+                for _ in 0..64 {
+                    let event = match events.try_recv() {
+                        Ok(event) => event,
+                        Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                        Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => return,
                     };
-                    eprintln!("client: screen bridge received {kind}");
-                }
-                if this
-                    .update(cx, |view, cx| {
-                        match event {
-                            ScreenEvent::State(mut state) => {
-                                if let Some(bot) = view.state.bots.get(&view.screen_bot) {
-                                    state["title"] = json!(format!(
-                                        "{}{}",
-                                        s(bot, "name"),
-                                        tr("computer.browser")
-                                    ));
-                                }
-                                view.computer
-                                    .update(cx, |screen, cx| screen.set_state_in(state, cx));
-                            }
-                            ScreenEvent::Frame(frame) => view.computer.update(cx, |screen, cx| {
-                                screen.set_frame(
-                                    frame.header.seq,
-                                    frame.header.w,
-                                    frame.header.h,
-                                    frame.jpeg,
-                                    cx,
-                                )
-                            }),
-                            ScreenEvent::Error(error) => view.notice = error,
-                            ScreenEvent::Closed => {
-                                view.notice = tr("status.disconnected").to_string()
-                            }
-                        }
-                        cx.notify();
-                    })
-                    .is_err()
-                {
                     if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
-                        eprintln!("client: screen bridge entity released");
+                        let kind = match &event {
+                            ScreenEvent::State(_) => "state",
+                            ScreenEvent::Frame(_) => "frame",
+                            ScreenEvent::Error(_) => "error",
+                            ScreenEvent::Closed => "closed",
+                        };
+                        eprintln!("client: screen bridge received {kind}");
                     }
-                    break;
+                    if this
+                        .update(cx, |view, cx| {
+                            match event {
+                                ScreenEvent::State(mut state) => {
+                                    if let Some(bot) = view.state.bots.get(&view.screen_bot) {
+                                        state["title"] = json!(format!(
+                                            "{}{}",
+                                            s(bot, "name"),
+                                            tr("computer.browser")
+                                        ));
+                                    }
+                                    view.computer
+                                        .update(cx, |screen, cx| screen.set_state_in(state, cx));
+                                }
+                                ScreenEvent::Frame(frame) => {
+                                    view.computer.update(cx, |screen, cx| {
+                                        screen.set_frame(
+                                            frame.header.seq,
+                                            frame.header.w,
+                                            frame.header.h,
+                                            frame.jpeg,
+                                            cx,
+                                        )
+                                    })
+                                }
+                                ScreenEvent::Error(error) => view.notice = error,
+                                ScreenEvent::Closed => {
+                                    view.notice = tr("status.disconnected").to_string()
+                                }
+                            }
+                            cx.notify();
+                        })
+                        .is_err()
+                    {
+                        if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
+                            eprintln!("client: screen bridge entity released");
+                        }
+                        return;
+                    }
                 }
+                executor.timer(std::time::Duration::from_millis(50)).await;
             }
         }));
         cx.notify();

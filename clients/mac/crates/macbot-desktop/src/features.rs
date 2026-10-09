@@ -4,7 +4,7 @@
 //! This module owns the feature page presentation and emits intent-like
 //! actions so the shell can turn a click into an RPC or navigation event.
 
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::{Datelike, Duration as ChronoDuration, NaiveDate, Utc};
 use gpui_kit::StatefulInteractiveElement;
 use gpui_kit::component::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -14,8 +14,8 @@ use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::gpui::{
-    AnyElement, App, AppContext, Context, Entity, EventEmitter, InteractiveElement, IntoElement,
-    ParentElement, Render, Styled, Window, div, px,
+    AnyElement, App, AppContext, Bounds, Context, Entity, EventEmitter, Hsla, InteractiveElement,
+    IntoElement, ParentElement, PathBuilder, Render, Styled, Window, canvas, div, point, px,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -78,6 +78,7 @@ pub const FEATURE_DATA_CONTRACT: &[(&str, &[&str])] = &[
             "from",
             "to",
             "current",
+            "previous",
             "heatmap",
             "timeseries",
             "breakdown",
@@ -1226,7 +1227,7 @@ pub fn usage_timeseries_params(
     json!({
         "from": from,
         "to": to,
-        "granularity": data.get("granularity").and_then(Value::as_str).unwrap_or("day"),
+        "granularity": data.get("granularity").and_then(Value::as_str).unwrap_or("auto"),
         "dimension": dimension,
         "metric": metric,
         "split_io": split_io,
@@ -1343,6 +1344,7 @@ fn dashboard_period_rpc_button(
             this.data["from"] = json!(from_value.clone());
             this.data["to"] = json!(to_value.clone());
             let params = build(&from_value, &to_value);
+            let refresh_all = method == "usage.summary" || method == "usage.heatmap";
             this.emit_action(
                 FeatureAction::Rpc {
                     method: method.clone(),
@@ -1350,6 +1352,52 @@ fn dashboard_period_rpc_button(
                 },
                 cx,
             );
+            if refresh_all {
+                let snapshot = this.data.clone();
+                if method != "usage.summary" {
+                    this.emit_action(
+                        FeatureAction::Rpc {
+                            method: "usage.summary".into(),
+                            params: usage_summary_params(&snapshot),
+                        },
+                        cx,
+                    );
+                }
+                if method != "usage.heatmap" {
+                    this.emit_action(
+                        FeatureAction::Rpc {
+                            method: "usage.heatmap".into(),
+                            params: usage_heatmap_params(&snapshot, "calendar", "tokens"),
+                        },
+                        cx,
+                    );
+                }
+                this.emit_action(
+                    FeatureAction::Rpc {
+                        method: "usage.timeseries".into(),
+                        params: usage_timeseries_params(
+                            &snapshot,
+                            dashboard_dimension(&snapshot),
+                            snapshot
+                                .get("metric")
+                                .and_then(Value::as_str)
+                                .unwrap_or("tokens"),
+                            snapshot
+                                .get("split_io")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false),
+                        ),
+                    },
+                    cx,
+                );
+                this.emit_action(
+                    FeatureAction::Rpc {
+                        method: "usage.breakdown".into(),
+                        params: usage_breakdown_params(&snapshot, dashboard_dimension(&snapshot)),
+                    },
+                    cx,
+                );
+            }
         }))
 }
 
@@ -2159,6 +2207,51 @@ fn dashboard_detail_rows(
             let requests = usage.get("requests").and_then(Value::as_u64).unwrap_or(0);
             let cost = usage.get("cost").and_then(json_value_text);
             let key = string(item, "key", "");
+            let sparkline_values = usage
+                .get("sparkline")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let sparkline = if sparkline_values.len() >= 2 {
+                let points = sparkline_values
+                    .iter()
+                    .enumerate()
+                    .map(|(point, value)| (point, value.as_f64().unwrap_or(0.) as f32))
+                    .collect::<Vec<_>>();
+                div()
+                    .w(px(96.))
+                    .h(px(28.))
+                    .child(
+                        LineChart::new(points)
+                            .id(format!("dashboard-sparkline-{dimension}-{index}"))
+                            .x(|(point, _)| point.to_string())
+                            .y(|(_, value)| *value)
+                            .stroke(tokens.accent)
+                            .x_axis(false)
+                            .y_axis(false)
+                            .grid(false)
+                            .interactive(false),
+                    )
+                    .into_any_element()
+            } else {
+                div().w(px(96.)).h(px(28.)).into_any_element()
+            };
+            let phase_text = usage
+                .get("phases")
+                .and_then(Value::as_object)
+                .map(|phases| {
+                    phases
+                        .iter()
+                        .filter_map(|(phase, value)| {
+                            let value = value.as_f64()?;
+                            (value > 0.).then(|| {
+                                format!("{} {:.0}", dashboard_phase_label(phase), value)
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" · ")
+                })
+                .unwrap_or_default();
             let drill = if key.is_empty() {
                 None
             } else if dimension == "bot" {
@@ -2185,13 +2278,29 @@ fn dashboard_detail_rows(
             let mut row = div()
                 .flex()
                 .items_center()
+                .gap_2()
                 .justify_between()
                 .py_2()
                 .border_b_1()
                 .border_color(tokens.border)
-                .child(format!(
-                "{label}   in {input} · out {output} · cache {cached} · {requests} req{cost_label}"
-            ));
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(format!(
+                            "{label}   in {input} · out {output} · cache {cached} · {requests} req{cost_label}"
+                        ))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(tokens.secondary)
+                                .child(phase_text),
+                        ),
+                )
+                .child(sparkline);
             if let Some(drill_button) = drill_button {
                 row = row.child(drill_button);
             }
@@ -2229,14 +2338,27 @@ fn heatmap(
                 .text_color(tokens.secondary)
                 .child(t("dashboard.no_data"));
         }
-        let weeks = days.chunks(7).map(|week| week.to_vec()).collect::<Vec<_>>();
+        let mut aligned_days = Vec::with_capacity(days.len() + 6);
+        let offset = days
+            .first()
+            .and_then(|day| day.get("date"))
+            .and_then(Value::as_str)
+            .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+            .map(|date| date.weekday().num_days_from_monday() as usize)
+            .unwrap_or(0);
+        aligned_days.extend(std::iter::repeat_with(|| Value::Null).take(offset));
+        aligned_days.extend(days.iter().cloned());
+        let weeks = aligned_days
+            .chunks(7)
+            .map(|week| week.to_vec())
+            .collect::<Vec<_>>();
         let mut previous_month = String::new();
         let month_labels = weeks
             .iter()
             .map(|week| {
                 let month = week
-                    .first()
-                    .and_then(|day| day.get("date"))
+                    .iter()
+                    .find_map(|day| day.get("date"))
                     .and_then(Value::as_str)
                     .and_then(|date| date.get(5..7))
                     .unwrap_or_default()
@@ -2295,6 +2417,9 @@ fn heatmap(
                     .flex_col()
                     .gap_1()
                     .children(week.iter().map(|day| {
+                        if day.is_null() {
+                            return div().size(px(14.)).into_any_element();
+                        }
                         let from_input = from_input.clone();
                         let to_input = to_input.clone();
                         let value = day.get("value").and_then(Value::as_f64).unwrap_or(0.);
@@ -2310,8 +2435,8 @@ fn heatmap(
                         let top_bot = day
                             .get("top_bot_id")
                             .and_then(Value::as_str)
-                            .unwrap_or(t("common.unknown"))
-                            .to_owned();
+                            .map(|id| dashboard_bot_label(data, id))
+                            .unwrap_or_else(|| t("common.unknown").to_owned());
                         let color = heatmap_color(value, &thresholds, tokens);
                         let selected = date == selected_day;
                         div()
@@ -2374,6 +2499,7 @@ fn heatmap(
                                     cx,
                                 );
                             }))
+                            .into_any_element()
                     }))
             }));
         return div()
@@ -2556,6 +2682,12 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
         } else if (y_max - y_min).abs() < f64::EPSILON {
             y_max = y_min + 1.;
         }
+        let granularity = data
+            .get("timeseries")
+            .and_then(|timeseries| timeseries.get("granularity"))
+            .and_then(Value::as_str)
+            .or_else(|| data.get("granularity").and_then(Value::as_str))
+            .unwrap_or("auto");
         let axis_labels = data
             .get("timeseries")
             .and_then(|timeseries| {
@@ -2569,46 +2701,34 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
                 labels
                     .iter()
                     .filter_map(Value::as_str)
-                    .map(str::to_owned)
+                    .map(|label| format_bucket_label(label, granularity))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let charts = visible
+        let lines = visible
             .iter()
-            .enumerate()
-            .map(|(index, (label, values, color, dashed))| {
-                let points = values
+            .map(|(_, values, color, dashed)| TrendLine {
+                values: values
                     .iter()
-                    .enumerate()
-                    .map(|(point, value)| (point, value.as_f64().unwrap_or(0.) as f32))
-                    .collect::<Vec<_>>();
-                let labels = axis_labels.clone();
-                let chart = LineChart::new(points)
-                    .id(format!("usage-timeseries-{index}"))
-                    .x(move |(point, _)| {
-                        labels
-                            .get(*point)
-                            .cloned()
-                            .unwrap_or_else(|| point.to_string())
-                    })
-                    .y(|(_, value)| *value)
-                    .stroke(*color)
-                    .y_domain(y_min as f32, y_max as f32)
-                    .x_tick_count(6)
-                    .y_axis(index == 0)
-                    .x_axis(index == 0)
-                    .grid(index == 0)
-                    .interactive(index == 0)
-                    .name(label.clone());
-                let chart = if *dashed { chart } else { chart.dot() };
-                div().absolute().inset_0().child(chart)
-            });
+                    .map(|value| value.as_f64().unwrap_or(0.))
+                    .collect(),
+                color: *color,
+                dashed: *dashed,
+            })
+            .collect();
         return div()
             .flex()
             .flex_col()
             .gap_2()
             .child(legend)
-            .child(div().relative().h(px(220.)).w_full().children(charts))
+            .child(shared_trend_plot(
+                lines,
+                axis_labels,
+                y_min,
+                y_max,
+                tokens.border,
+                tokens.secondary,
+            ))
             .into_any_element();
     }
     let values = array(data, "trend");
@@ -2635,6 +2755,155 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
                 .dot(),
         )
         .into_any_element()
+}
+
+#[derive(Clone)]
+struct TrendLine {
+    values: Vec<f64>,
+    color: Hsla,
+    dashed: bool,
+}
+
+fn shared_trend_plot(
+    lines: Vec<TrendLine>,
+    labels: Vec<String>,
+    y_min: f64,
+    y_max: f64,
+    grid_color: Hsla,
+    secondary_color: Hsla,
+) -> AnyElement {
+    let plot_lines = lines.clone();
+    let plot = canvas(
+        move |bounds: Bounds<gpui_kit::gpui::Pixels>, _, _| {
+            let width = bounds.size.width.as_f32();
+            let height = bounds.size.height.as_f32();
+            let left = 38.;
+            let right = (width - 8.).max(left + 1.);
+            let top = 8.;
+            let bottom = (height - 24.).max(top + 1.);
+            let span = (y_max - y_min).max(f64::EPSILON);
+            let mut paths = Vec::new();
+            // Paint the grid first so the data lines remain visually on top.
+            for y_ratio in [0., 0.5, 1.] {
+                let y = bottom - (bottom - top) * y_ratio;
+                let mut builder = PathBuilder::stroke(px(1.));
+                builder.move_to(point(px(left), px(y)));
+                builder.line_to(point(px(right), px(y)));
+                if let Ok(path) = builder.build() {
+                    paths.push((path, grid_color));
+                }
+            }
+            for line in &plot_lines {
+                if line.values.len() < 2 {
+                    continue;
+                }
+                let mut builder = PathBuilder::stroke(px(2.));
+                if line.dashed {
+                    builder = builder.dash_array(&[px(6.), px(4.)]);
+                }
+                for (index, value) in line.values.iter().enumerate() {
+                    let x = if line.values.len() == 1 {
+                        left
+                    } else {
+                        left + (right - left) * index as f32 / (line.values.len() - 1) as f32
+                    };
+                    let ratio = ((*value - y_min) / span).clamp(0., 1.) as f32;
+                    let y = bottom - (bottom - top) * ratio;
+                    let point = point(px(x), px(y));
+                    if index == 0 {
+                        builder.move_to(point);
+                    } else {
+                        builder.line_to(point);
+                    }
+                }
+                if let Ok(path) = builder.build() {
+                    paths.push((path, line.color));
+                }
+            }
+            paths
+        },
+        move |_, paths, window, _| {
+            for (path, color) in paths {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .absolute()
+    .inset_0();
+
+    let mut tick_indexes = if labels.is_empty() {
+        Vec::new()
+    } else {
+        let stride = ((labels.len() - 1) / 5).max(1);
+        let mut indexes = (0..labels.len()).step_by(stride).collect::<Vec<_>>();
+        if indexes.last().copied() != Some(labels.len() - 1) {
+            indexes.push(labels.len() - 1);
+        }
+        indexes
+    };
+    tick_indexes.dedup();
+    let x_labels = div()
+        .absolute()
+        .left(px(38.))
+        .right(px(8.))
+        .bottom_0()
+        .h(px(20.))
+        .flex()
+        .justify_between()
+        .children(tick_indexes.iter().map(|index| {
+            div()
+                .text_xs()
+                .text_color(secondary_color)
+                .child(labels.get(*index).cloned().unwrap_or_default())
+        }));
+    let y_labels = div()
+        .absolute()
+        .left_0()
+        .top_0()
+        .bottom(px(24.))
+        .w(px(34.))
+        .flex()
+        .flex_col()
+        .justify_between()
+        .children([
+            div()
+                .text_xs()
+                .text_color(secondary_color)
+                .child(format_chart_value(y_max)),
+            div()
+                .text_xs()
+                .text_color(secondary_color)
+                .child(format_chart_value(y_min)),
+        ]);
+    div()
+        .relative()
+        .h(px(240.))
+        .w_full()
+        .child(plot)
+        .child(x_labels)
+        .child(y_labels)
+        .into_any_element()
+}
+
+fn format_bucket_label(label: &str, granularity: &str) -> String {
+    let date = label.get(5..10).unwrap_or(label);
+    if granularity == "hour" {
+        let hour = label.get(11..13).unwrap_or_default();
+        if !hour.is_empty() {
+            return format!("{date} {hour}时");
+        }
+    }
+    date.to_owned()
+}
+
+fn format_chart_value(value: f64) -> String {
+    if value.abs() >= 1_000_000. {
+        format!("{:.1}M", value / 1_000_000.)
+    } else if value.abs() >= 1_000. {
+        format!("{:.1}K", value / 1_000.)
+    } else {
+        format!("{value:.0}")
+    }
 }
 
 fn series_color(tokens: &Tokens, index: usize) -> gpui_kit::Hsla {
@@ -4015,6 +4284,34 @@ fn usage_heatmap_values(data: &Value) -> Vec<Value> {
             .collect();
     }
     array(data, "heatmap")
+}
+
+fn dashboard_phase_label(phase: &str) -> &'static str {
+    match phase {
+        "chat" => t("dashboard.phase_chat"),
+        "work" => t("dashboard.phase_work"),
+        "subagent" => t("dashboard.phase_subagent"),
+        "coordinate" => t("dashboard.phase_coordinate"),
+        "memory" => t("dashboard.phase_memory"),
+        "compact" => t("dashboard.phase_compact"),
+        _ => t("dashboard.phase_other"),
+    }
+}
+
+fn dashboard_bot_label(data: &Value, bot_id: &str) -> String {
+    for key in ["all_bots", "bots"] {
+        if let Some(bot) = array(data, key)
+            .into_iter()
+            .find(|bot| bot.get("id").and_then(Value::as_str) == Some(bot_id))
+        {
+            return string(
+                &bot,
+                "name",
+                &string(&bot, "label", &string(&bot, "display_name", bot_id)),
+            );
+        }
+    }
+    bot_id.to_owned()
 }
 
 fn member_ids(data: &Value) -> Vec<String> {
