@@ -67,6 +67,7 @@ pub struct MacBot {
     computer: Entity<Computer>,
     screen_client: Option<ScreenClient>,
     screen_task: Option<Task<()>>,
+    screen_notice: crate::screen_notice::ScreenNotice,
     screen_bot: String,
     active_endpoint: Option<String>,
     active_node_id: Option<String>,
@@ -183,6 +184,7 @@ impl MacBot {
             computer,
             screen_client: None,
             screen_task: None,
+            screen_notice: crate::screen_notice::ScreenNotice::default(),
             screen_bot: String::new(),
             active_endpoint: None,
             active_node_id: None,
@@ -963,6 +965,8 @@ impl MacBot {
     }
     fn open_computer(&mut self, bot: String, cx: &mut Context<Self>) {
         self.close_screen();
+        self.close_trace(cx);
+        self.context.clear();
         self.computer
             .update(cx, |screen, cx| screen.reset_connection(cx));
         self.screen_bot = bot.clone();
@@ -992,6 +996,7 @@ impl MacBot {
         let _guard = self.runtime.enter();
         let handle = ScreenHandle::spawn(config, bot, quality, None);
         self.screen_client = Some(handle.client);
+        let generation = self.screen_notice.generation();
         let mut events = handle.events;
         let executor = cx.background_executor().clone();
         self.screen_task = Some(cx.spawn(async move |this, cx| {
@@ -1013,6 +1018,9 @@ impl MacBot {
                     }
                     if this
                         .update(cx, |view, cx| {
+                            if !view.screen_notice.is_current(generation, &view.page) {
+                                return;
+                            }
                             match event {
                                 ScreenEvent::State(mut state) => {
                                     if let Some(bot) = view.state.bots.get(&view.screen_bot) {
@@ -1036,10 +1044,12 @@ impl MacBot {
                                         )
                                     })
                                 }
-                                ScreenEvent::Error(error) => view.notice = error,
-                                ScreenEvent::Closed => {
-                                    view.notice = tr("status.disconnected").to_string()
-                                }
+                                ScreenEvent::Error(_) => view
+                                    .screen_notice
+                                    .record(generation, crate::screen_notice::ScreenStatus::Error),
+                                ScreenEvent::Closed => view
+                                    .screen_notice
+                                    .record(generation, crate::screen_notice::ScreenStatus::Closed),
                             }
                             cx.notify();
                         })
@@ -1104,6 +1114,7 @@ impl MacBot {
             .update(cx, |screen, cx| screen.set_request_reason(reason, cx));
     }
     fn close_screen(&mut self) {
+        self.screen_notice.close();
         self.screen_task = None;
         if let Some(screen) = self.screen_client.take() {
             self.runtime.spawn(async move {
@@ -1112,6 +1123,9 @@ impl MacBot {
         }
     }
     fn computer_action(&mut self, event: &ComputerAction, cx: &mut Context<Self>) {
+        if self.page != "computer" {
+            return;
+        }
         match event {
             ComputerAction::Close => {
                 self.close_screen();
@@ -1212,6 +1226,7 @@ impl MacBot {
     }
     fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_search_open();
+        self.close_screen();
         if !self.context.is_empty() {
             self.context.pop();
             self.close_trace(cx);
@@ -1713,6 +1728,17 @@ impl Render for MacBot {
                         .text_xs()
                         .text_color(t.secondary)
                         .child(self.notice.clone()),
+                )
+            })
+            .when_some(self.screen_notice.visible_key(&self.page), |el, key| {
+                el.child(
+                    div()
+                        .px_4()
+                        .py_2()
+                        .bg(t.sidebar)
+                        .text_xs()
+                        .text_color(t.secondary)
+                        .child(tr(key)),
                 )
             })
             .when(self.update_release.is_some(), |el| {

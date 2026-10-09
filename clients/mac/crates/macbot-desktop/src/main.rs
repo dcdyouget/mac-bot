@@ -7,6 +7,7 @@ mod host_storage;
 mod i18n;
 mod local_settings;
 mod outbox;
+mod screen_notice;
 mod search_navigation;
 mod settings_i18n;
 mod settings_view;

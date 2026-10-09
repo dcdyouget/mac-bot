@@ -5,6 +5,8 @@ pub fn tr(key: &str) -> SharedString {
         "search.opening_bot" => "正在打开 Bot 私聊…",
         "search.open_failed" => "无法打开 Bot 私聊，请刷新搜索后重试",
         "computer.browser" => "的浏览器",
+        "computer.connection_error" => "画面连接异常，请重新打开画面",
+        "computer.disconnected" => "画面连接已断开",
         "settings.connection_ok" => "连接成功",
         "settings.connection_failed" => "连接失败",
         "file.unavailable" => "产物文件暂不可用",
