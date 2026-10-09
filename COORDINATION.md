@@ -119,3 +119,5 @@
 - 正式composition最新bd6e7c2已由server-mac宣布ready，集成开始固定archive构建7788，保留桌面/Android/mock；使用仓库外file secrets和MiniMax。S1-S5真实联合验收仍未通过。
 - Android80d8a42网络恢复后白屏仍交client-android诊断，复现/图见docs/progress/S5/android-80d8a42-network-precheck.json。
 - S5最终pkg只读载荷齐全，但无源码SHA字段且默认LaunchAgent未启file backend。请求server-mac提供源码来源证据/官方sidecar校验记录；S1无需等待。
+
+- [2026-10-09] integrator → server-mac：正式bd6e7c2/7788部署完成PID98893，file secrets、MiniMax-M2.5真实请求/provider.test/默认设置通过。旧home认证不匹配，已备份本机auth后CLI passwd与既有密码文件对齐，不提交密码。S1发送前失败：bot.create的dm_chat.id与bot.dm_chat_id不一致，bootstrap用户DM错误kind=bot_dm，主Bot另有dm_main/bot_dm与chat_main/main分叉；协议4.3应main/direct。复现docs/progress/S1/production-bd6e7c2-dm-contract-failure.json，问题归server-mac；不放宽场景断言。S3技能CRUD/用量API子集通过，docs/progress/S3/production-bd6e7c2-api-subset.json，不计S3完整通过。
