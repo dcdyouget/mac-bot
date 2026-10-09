@@ -1,17 +1,19 @@
-# Mac Bot 规划 v0.3
+# Mac Bot 规划 v0.4
 
 > 状态：规划中，尚未开始编码。
+> v0.4 变更：确定部署形态为中心 Host + 客户端（支持多 Host，预留节点和联邦扩展）；v1 不做 Windows，只做 macOS、Android、iOS；当前阶段只做设计和规划。
 > v0.3 变更：移动端增加 iOS，改用 Kotlin Multiplatform + Compose Multiplatform；补充开发环境说明。
 > v0.2 变更：去掉虚拟机和沙箱；改为多 Bot，每个 Bot 有独立工作间；新增群聊和 Bot 间协作；电脑操控改为控制系统自带的浏览器，并推迟到后续阶段；交互全面对齐 Grok Bot；Android 改用原生技术栈。
 
 ## 1. 定位
 
-**自托管版 Grok Bot。** 一个人拥有一支 Bot 团队，这些 Bot 运行在自己 24 小时常开的 Apple Silicon Mac 上。每个 Bot 有名字和明确职责；Bot 之间可以拉群、互发消息、交接任务。用户在 macOS、Windows、Android 或 iOS 客户端上填入 `host:port` 并完成配对后，就可以像和同事聊天一样给 Bot 派活。
+**自托管版 Grok Bot。** 一个人拥有一支 Bot 团队，这些 Bot 运行在自己 24 小时常开的 Apple Silicon Mac 上。每个 Bot 有名字和明确职责；Bot 之间可以拉群、互发消息、交接任务。用户在 macOS、Android 或 iOS 客户端（Windows 放到 v2）上填入 `host:port` 并完成配对后，就可以像和同事聊天一样给 Bot 派活。
 
 ## 2. 已确认的决策
 
 | 项 | 决策 |
 |----|------|
+| 部署形态 | **中心 Host + 客户端**（详见 5.0）：Bot 只运行在 Host 上，客户端可以连接多台 Host；桌面 App 同时包含客户端和可选的 Host |
 | 部署 | 服务端运行在 M 系列 Mac 上，16 GB 内存；**不用虚拟机，不做沙箱**（沙箱作为远期可选项） |
 | 网络 | 服务端监听一个固定端口，客户端填 `host:port` 直连。公网代理由用户自行解决，不在本项目范围内 |
 | 安全 | v1 只做**设备配对和令牌鉴权**；TLS、审计等以后再做 |
@@ -20,7 +22,7 @@
 | 系统权限 | 屏幕录制和辅助功能权限**不强制**；没授权时提示「部分功能不可用」 |
 | 模型 | 用户自定义 provider 和模型；默认认为模型支持看图 |
 | 存储 | SQLite |
-| 桌面端 | Rust + GPUI（macOS / Windows） |
+| 桌面端 | Rust + GPUI（gpui-kit）。**v1 只做 macOS**；Windows 客户端和 Computer Node 放到 v2 |
 | 移动端 | **Android（小米 17）+ iOS**：**Kotlin Multiplatform + Compose Multiplatform**，一套代码同时出 Android 和 iOS 两端，UI、网络、状态全部共享。Android 端本身就是原生 Compose，APK 小；Compose 的 iOS 支持从 1.8.0 起已经稳定 |
 | 通知 | Android：前台服务保持长连接，收到事件后弹系统通知。iOS：App 进后台后无法保持长连接，必须走 **APNs**，由 macbot-server 直接调用 APNs HTTP/2 接口，使用用户自己的 .p8 密钥（需要 Apple 开发者账号）；没有配置时，只在 App 前台运行期间通知 |
 | 签名和公证 | 由用户负责 |
@@ -97,6 +99,36 @@
 
 ## 5. 架构
 
+### 5.0 部署形态与角色
+
+**术语**
+- **Host（主机，即服务端）**：真正运行 Bot 的机器。Bot 的会话、记忆、定时任务、工作间都存放在这里。v1 只有 Mac 能当 Host。
+- **Client（客户端）**：用来看和操控 Bot 的界面，可以同时连接多台 Host。
+- **Computer Node（电脑节点，后期）**：把自己的浏览器、shell 等能力借给某台 Host 上的 Bot 使用，本身不运行 Bot。参考 OpenClaw 的 Gateway + Node，以及 Grok Bot 的 Local computer。
+
+**候选方案对比**
+
+| | A. 中心 Host + 瘦客户端 | B. 每台机器都是对等节点（各自有 Bot，跨机通信） |
+|---|---|---|
+| 分发 | 简单：桌面端一个安装包，手机端只有客户端 | 每个平台都要实现完整的服务端：Windows 上的 shell、密钥存储、自启动、电脑操控都要再做一遍 |
+| Bot 是否一直在线 | 只要 Mac 不关机，Bot 就在 | 笔记本合盖、Windows 睡眠后，这台机器上的 Bot 就离线了，跨机群聊会断 |
+| 数据一致性 | 只有一份数据，没有同步问题 | 跨机群聊的记录存在哪台机器？节点离线后消息怎么补发？用户画像要在多台机器之间同步，会出现冲突 |
+| 记忆 | 集中存放，所有 Bot 共享同一份用户画像 | 分散在各台机器，需要做同步 |
+| 跨机能力 | Client 可以同时连接多台 Host，所以操控另一台机器上的 Bot 天然就支持 | 原生支持 |
+| 复杂度 | 低 | 高（节点之间要配对和互信、消息要路由、要做补发和去重） |
+
+**决策：采用 A（中心 Host），但从第一天起按「多 Host + 节点」预留扩展点。三种角色都放进同一个桌面 App：**
+
+1. **桌面 App = Client + 可选的 Host。** 在 Mac 上，第一次启动时问「是否把这台 Mac 作为 Bot 主机？」。选「是」就在后台以 LoginItem 方式运行 macbot-server，并显示配对码；选「否」就只当客户端。分发时只有一个 dmg。
+2. **手机 App 只是 Client。**
+3. **Client 支持多个 Host**：侧栏顶部有一个 Host 切换器，类似 Slack 切换工作区，可以同时连接家里的 Mac mini 和办公室的另一台 Mac。「操控另一台机器上的 Bot」就是靠这个实现的。
+4. **全局唯一标识**：每台 Host 有一个 `node_id`（UUID）和名字；Bot、会话、消息的 ID 都用 UUIDv7，并记录所属的 `node_id`。Bot 的完整地址写作 `bot_id@node_id`。
+5. **服务端核心与平台无关**：和平台相关的能力都放在 trait 后面，包括密钥存储、自启动、浏览器桥接、桌面操控。以后要在 Windows 上做 Host，只需要实现这几个 trait。
+
+**后续扩展路径（按价值排序）：**
+- **v2 Computer Node**：Windows 机器装上同一个 App，开启「把本机电脑借给 Host」，Mac 上的 Bot 就能操作 Windows 上的浏览器和 shell。Bot 和记忆仍然集中在 Mac 上，没有数据同步问题。**这比在 Windows 上另起一套 Bot 更实用。**
+- **v3 Host 联邦（可选）**：两台 Host 之间配对以后，Bot 可以通过 `send_message(to: bot@node)` 跨机器发消息。跨机群聊由发起方所在的 Host 担任「主节点」保存记录，远端的 Bot 以「远程成员」身份参与，消息投递到它所在 Host 的 inbox。协议上预留了这些字段，等真有需要再做。
+
 ```
 ┌──────────────── Mac（macbot-server，单进程）─────────────────────┐
 │ Gateway  axum + WebSocket，固定端口（默认 7788）                    │
@@ -148,13 +180,13 @@ mac-bot/
 └── docs/
 ```
 
-在 macOS 上分发时，桌面 App 内置服务端（作为 LoginItem 或 LaunchAgent 运行）。首次启动时选择「把这台 Mac 作为 Bot 主机」，界面会显示配对码；如果只想当客户端，就去连接别的主机。
+在 macOS 上分发时只有一个 dmg：桌面 App 内置 macbot-server，作为 LoginItem 运行，角色说明见 5.0。
 
 ### 5.2 数据模型（SQLite 草案）
 
 ```
-bots(id, name, label, description, avatar, model_ref, pinned, hidden, created_at)
-chats(id, kind[direct|group|bot_dm], title, created_at)
+bots(id, node_id, name, label, description, avatar, model_ref, pinned, hidden, created_at)
+chats(id, node_id, kind[direct|group|bot_dm], title, created_at)
 chat_members(chat_id, member_kind[user|bot], member_id)
 messages(id, chat_id, seq, sender_kind, sender_id, reply_to, mentions, content_json, created_at)   -- FTS5
 runs(id, bot_id, chat_id, trigger_message_id, status, owner_task_id, started_at, ended_at)
@@ -170,6 +202,7 @@ files(id, bot_id, chat_id, path, mime, size, created_at)
 providers(id, name, api_kind, base_url, secret_ref)
 models(id, provider_id, model_id, caps_json, context_window, cost_json)
 devices(id, name, platform, token_hash, last_seen_at, revoked)
+node(node_id, name, created_at)                             -- 本机 Host 的身份（单行）
 usage(id, bot_id, run_id, model_id, input_tokens, output_tokens, cost)
 events(seq, chat_id, type, payload_json)                    -- 推送和断线补发
 ```
@@ -209,6 +242,7 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 - WebSocket，JSON 帧 `{v, id, type, payload}`，请求/响应和服务端推送并存。
 - 重连时带上 `last_seq`，服务端从 `events` 表补发。
 - 配对流程：服务端界面显示 6 位配对码（或者二维码，内含 host:port 和配对码）→ 客户端提交配对码和设备名 → 服务端返回设备令牌 → 之后每次连接带令牌。设备可在 Settings → Devices 里吊销。
+- 多 Host：客户端为每台 Host 分别保存 `{node_id, name, host:port, device_token}`。握手时服务端返回自己的 `node_id`，客户端据此识别同一台 Host 地址变化的情况（例如局域网 IP 和公网域名是同一台）。
 
 ### 5.8 电脑操控（后期阶段，先定方向）
 - **浏览器（主线）**：自研 Chrome 扩展 **Mac Bot Connector**，装进用户日常使用的 Chrome（或其他 Chromium 系浏览器），通过 localhost WebSocket 连接 macbot-server。实现参考 Playwright MCP 扩展模式和 mcp-chrome。
@@ -224,7 +258,7 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 
 | 区域 | 内容 |
 |------|------|
-| 侧栏 | New（`Cmd+N`）、Search、置顶的 Bot、Bot 列表、群聊列表、Hidden Bots、Skills、Settings；每项显示状态点（空闲 / 运行中 / 等待你） |
+| 侧栏 | 顶部是 Host 切换器（显示在线状态，可添加或配对新 Host）；下面是 New（`Cmd+N`）、Search、置顶的 Bot、Bot 列表、群聊列表、Hidden Bots、Skills、Settings；每项显示状态点（空闲 / 运行中 / 等待你） |
 | 会话主区 | 头部（头像、名字、Label，以及后期的 Agent Computer 按钮、详情按钮）；消息流；输入框 |
 | 会话详情抽屉 | Profile、Routines、Files、Memory、Members（群聊） |
 | New chat 面板 | Create new Bot / 选 2 到 6 个 Bot 建群 |
@@ -242,7 +276,9 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 | **P4 移动端** | Compose Multiplatform 客户端：会话列表、聊天、群聊、审批、通知、搜索；Android 前台服务；iOS 接入 APNs | 在小米 17 和 iPhone 上都能完成 P2 的场景 |
 | **P5 Routines** | 调度器、通过对话创建、Test run、运行历史 | 「每天 9 点总结 xxx」按时执行并推送结果 |
 | **P6 电脑操控** | 先用 Playwright MCP 扩展模式过渡，再上 Mac Bot Connector 扩展；Agent Computer 实时画面和接管；可选接入 cua-driver | 用系统 Chrome 已有的 X 登录态刷帖并总结 |
-| **P7 打磨** | Windows 打包、语音、文件页、全局搜索、用量统计、自动更新 | |
+| **P7 打磨** | 语音、文件页、全局搜索、用量统计、自动更新 | |
+| **v2** | Windows 客户端、Computer Node（Host 上的 Bot 借用其他机器的浏览器和 shell）| 在 Windows 上打开 App，就能让 Mac 上的 Bot 操作这台 Windows 的浏览器 |
+| **v3（可选）** | Host 联邦：跨 Host 的 Bot 消息和群聊 | |
 
 ## 8. 开发环境
 
@@ -252,7 +288,7 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 | GPUI | 只依赖 `gpui-kit` 0.7.x（它会 re-export GPUI、gpui-base、gpui-component 和 Lucide 图标），不单独依赖 `gpui` | Xcode 26 需要额外下载 Metal 工具链：`xcodebuild -downloadComponent MetalToolchain` |
 | 移动端 | JDK 21、Gradle（项目内使用 wrapper）、Android SDK 36 + build-tools 36.1、platform-tools（adb） | 真机调试用 USB 或无线 adb 连接小米 17 |
 | iOS | Xcode 26 + iOS Simulator 运行时；真机需要签名 | |
-| Windows 客户端 | **只能在 Windows 上构建**（GPUI 的 Windows 后端需要在 Windows 上编译 DirectX 着色器），用 GitHub Actions 的 windows runner 构建 | |
+| Windows 客户端（v2） | **只能在 Windows 上构建**（GPUI 的 Windows 后端需要在 Windows 上编译 DirectX 着色器），用 GitHub Actions 的 windows runner 构建 | |
 | 浏览器扩展 | Chrome | P6 阶段 |
 
 ## 9. 暂不考虑（记录在案）
