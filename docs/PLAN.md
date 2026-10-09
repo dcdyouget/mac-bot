@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.5
+# Mac Bot 规划 v0.6
 
 > 状态：规划中，尚未开始编码。
+> v0.6 变更：鉴权改为「访问密码」，去掉配对；密码换会话令牌，管理页也需要密码；首次设置向导；防暴力破解。
 > v0.5 变更：服务端改为无界面守护进程 macbotd（.pkg 安装、LaunchAgent），只带极简的本机 Web 管理页和 CLI；所有业务配置都通过客户端走 API；桌面 App 改为纯客户端。
 > v0.4 变更：确定部署形态为中心 Host + 客户端（支持多 Host，预留节点和联邦扩展）；v1 不做 Windows，只做 macOS、Android、iOS；当前阶段只做设计和规划。
 > v0.3 变更：移动端增加 iOS，改用 Kotlin Multiplatform + Compose Multiplatform；补充开发环境说明。
@@ -8,7 +9,7 @@
 
 ## 1. 定位
 
-**自托管版 Grok Bot。** 一个人拥有一支 Bot 团队，这些 Bot 运行在自己 24 小时常开的 Apple Silicon Mac 上。每个 Bot 有名字和明确职责；Bot 之间可以拉群、互发消息、交接任务。用户在 macOS、Android 或 iOS 客户端（Windows 放到 v2）上填入 `host:port` 并完成配对后，就可以像和同事聊天一样给 Bot 派活。
+**自托管版 Grok Bot。** 一个人拥有一支 Bot 团队，这些 Bot 运行在自己 24 小时常开的 Apple Silicon Mac 上。每个 Bot 有名字和明确职责；Bot 之间可以拉群、互发消息、交接任务。用户在 macOS、Android 或 iOS 客户端（Windows 放到 v2）上填入 `host:port` 和访问密码，就可以像和同事聊天一样给 Bot 派活。
 
 ## 2. 已确认的决策
 
@@ -17,7 +18,7 @@
 | 部署形态 | **无界面服务端 + 客户端**（详见 5.0）：服务端 `macbotd` 是守护进程，只带一个极简的本机 Web 管理页（`/admin`）和 CLI；Bot、模型、记忆等所有配置都通过客户端走 API；客户端可以连接多台 Host |
 | 部署 | 服务端运行在 M 系列 Mac 上，16 GB 内存；**不用虚拟机，不做沙箱**（沙箱作为远期可选项） |
 | 网络 | 服务端监听一个固定端口，客户端填 `host:port` 直连。公网代理由用户自行解决，不在本项目范围内 |
-| 安全 | v1 只做**设备配对和令牌鉴权**；TLS、审计等以后再做 |
+| 安全 | v1 只用**访问密码**：密码换会话令牌、argon2id 哈希、登录限速；管理页也用同一个密码；TLS 由代理层负责（详见 5.0.1） |
 | Bot | 支持多个 Bot，**每个 Bot 有独立工作间**（目录、记忆、会话、定时任务）；支持**群聊和 Bot 间消息** |
 | 电脑操控 | 以网页任务为主，**使用系统浏览器**（复用已有的登录凭证）；放到后续阶段，先把 Bot 形态跑通 |
 | 系统权限 | 屏幕录制和辅助功能权限**不强制**；没授权时提示「部分功能不可用」 |
@@ -125,33 +126,60 @@
    - **为什么必须是用户级 LaunchAgent，而不是 root 级 LaunchDaemon**：只有在用户会话里运行，才能访问该用户的钥匙串、用户的 Chrome（后期电脑操控要用），以及将来可能用到的屏幕录制和辅助功能权限。
    - 打包形式：二进制放在一个**没有界面的 `.app` 包**里（`LSUIElement`）。好处是签名、公证和系统权限都有一个稳定的身份，升级后不用重新授权。
 2. **所有管理操作都走同一个端口的 API。** Bot 的增删改、模型和 provider、记忆、定时任务、审批规则、设备管理，**全部在客户端里完成**；服务端本身不提供业务界面。
-3. **服务端只提供一个极简的 Web 管理页**（`/admin`），**默认只允许本机（localhost）访问**。它只负责客户端连上之前的那些事：
+3. **鉴权：只用一个访问密码，不做配对**（详见 5.0.1）。
+   - 安装后先设置密码。客户端添加 Host 时填 `host:port` 和密码就能连上。
+   - 管理页也用同一个密码登录。
+4. **服务端只提供一个极简的 Web 管理页**（`/admin`，需要密码）。它只负责客户端连上之前的那些事：
    - 运行状态（版本、端口、node_id、运行时长、已连接的设备）
-   - **配对码和二维码**（二维码里包含 host:port 和配对码）
-   - 已配对设备列表和吊销
+   - 已登录设备列表、踢下线、修改密码
    - 修改端口和 Host 名称、查看日志、重启服务
    - 页面是嵌入二进制的单个 HTML 文件加少量原生 JS，**不引入前端构建链**
-4. **命令行 `macbot`**（与 `macbotd` 是同一个二进制的子命令）：`macbot status`、`macbot pair`（在终端里打印配对码和二维码，适合通过 SSH 远程配置 Mac mini）、`macbot devices`、`macbot logs`、`macbot restart`。CLI 通过本地 Unix socket 和守护进程通信，靠文件权限鉴权，不需要令牌。
-5. **桌面 App（GPUI）和手机 App 都只是客户端**，不再内置 Host，也不管理服务端的生命周期。
-6. **Client 支持多个 Host**：侧栏顶部有一个 Host 切换器，类似 Slack 切换工作区，可以同时连接家里的 Mac mini 和办公室的另一台 Mac。「操控另一台机器上的 Bot」就是靠这个实现的。
-7. **全局唯一标识**：每台 Host 有一个 `node_id`（UUID）和名字；Bot、会话、消息的 ID 都用 UUIDv7，并记录所属的 `node_id`。Bot 的完整地址写作 `bot_id@node_id`。
-8. **服务端核心与平台无关**：和平台相关的能力都放在 trait 后面，包括密钥存储、自启动、浏览器桥接、桌面操控。服务端没有界面，所以以后移植到 Windows、Linux（例如 NAS），只需要实现这几个 trait。
+5. **命令行 `macbot`**（与 `macbotd` 是同一个二进制的子命令）：`macbot status`、`macbot passwd`（设置或重置密码，适合通过 SSH 远程配置 Mac mini，也是忘记密码时的唯一找回方式）、`macbot devices`、`macbot logs`、`macbot restart`。CLI 通过本地 Unix socket 和守护进程通信，靠文件权限鉴权，不需要密码。
+6. **桌面 App（GPUI）和手机 App 都只是客户端**，不再内置 Host，也不管理服务端的生命周期。
+7. **Client 支持多个 Host**：侧栏顶部有一个 Host 切换器，类似 Slack 切换工作区，可以同时连接家里的 Mac mini 和办公室的另一台 Mac。「操控另一台机器上的 Bot」就是靠这个实现的。
+8. **全局唯一标识**：每台 Host 有一个 `node_id`（UUID）和名字；Bot、会话、消息的 ID 都用 UUIDv7，并记录所属的 `node_id`。Bot 的完整地址写作 `bot_id@node_id`。
+9. **服务端核心与平台无关**：和平台相关的能力都放在 trait 后面，包括密钥存储、自启动、浏览器桥接、桌面操控。服务端没有界面，所以以后移植到 Windows、Linux（例如 NAS），只需要实现这几个 trait。
 
 **首次使用流程**
 1. 在 Mac mini 上双击 `MacBot-Server.pkg` 安装，安装结束后浏览器自动打开 `localhost:7788/admin`。
-2. 管理页显示配对码和二维码。如果 Mac mini 没接显示器，可以 SSH 上去执行 `macbot pair`。
-3. 在 Mac、Android 或 iOS 客户端里「添加 Host」：扫码，或者手动填 host:port 和配对码。
+2. 管理页显示「设置访问密码」（首次设置向导）。如果 Mac mini 没接显示器，也可以 SSH 上去执行 `macbot passwd`。
+3. 在 Mac、Android 或 iOS 客户端里「添加 Host」，填入 `host:port` 和密码。
 4. 之后的一切操作，包括创建 Bot、配置模型等，都在客户端里完成。
+
+> 为什么不在 .pkg 安装界面里直接设置密码：macOS 安装器不方便加自定义输入页（需要写已经不推荐的 Installer 插件），所以改为安装完成后的首次设置向导，体验上等同于「安装时设置密码」。
 
 **端口上的路由规划（同一个端口）**
 
 | 路径 | 用途 | 访问范围 |
 |------|------|----------|
-| `/ws` | 客户端协议：请求、响应、事件推送 | 已配对设备（令牌） |
-| `/api/v1/*` | HTTP JSON，和 `/ws` 能力一致，方便脚本和第三方集成 | 已配对设备（令牌） |
-| `/pair` | 提交配对码、换取设备令牌 | 公开（配对码 5 分钟有效，限制尝试次数） |
-| `/admin` | 极简管理页 | 默认只允许 localhost；可选开放到局域网，但需要设置管理密码 |
+| `/login` | 用密码换会话令牌 | 公开（有频率限制，见 5.0.1） |
+| `/ws` | 客户端协议：请求、响应、事件推送 | 会话令牌 |
+| `/api/v1/*` | HTTP JSON，和 `/ws` 能力一致，方便脚本和第三方集成 | 会话令牌 |
+| `/admin` | 极简管理页 | 密码登录（Cookie 会话）；**未设置密码前只允许 localhost 访问** |
 | `/ext` | 后期：Chrome 扩展连接 | 只允许 localhost |
+
+#### 5.0.1 密码鉴权
+
+**结论：可以只用密码，不做配对。** 这是单用户自托管软件的常见做法（Jellyfin、Home Assistant 都是这样），体验也最简单。但要守住下面几条，不然「只有密码」会比配对弱很多：
+
+1. **密码只在登录时发送一次。** 客户端用密码换一个**会话令牌**（随机 256 位），本地只保存令牌，放进 iOS Keychain / Android Keystore / macOS 钥匙串，不保存密码。之后连接 `/ws` 只带令牌。
+   - 这样就算令牌泄露，也只影响一台设备，可以单独踢下线。
+   - **修改密码后，所有设备的令牌自动失效**，相当于一键全部下线。
+   - 客户端「添加 Host」的体验仍然是填 `host:port` 加密码。
+2. **服务端只存密码的 argon2id 哈希**，不存明文。
+3. **防暴力破解**（因为端口会通过 frp 暴露到公网）：
+   - 按来源 IP 限速，例如每分钟最多 5 次失败
+   - 连续失败后指数退避
+   - 密码最短 8 位
+   - 登录失败记入日志，管理页可以查看
+4. **首次设置的安全窗口**：在设置密码之前，`/admin` 和 `/login` **只接受来自 localhost 的请求**，避免局域网里有人抢先把密码设掉。
+5. **忘记密码**：只能在 Mac 本机执行 `macbot passwd` 重置。能登录这台 Mac，就视为主人。
+6. **明文传输的风险**：v1 不做 TLS。登录那一次如果走的是公网明文 `ws://`，密码可能被截获。
+   - 建议：走公网时由代理层加 TLS，客户端填 `wss://域名`。
+   - 客户端同时支持 `ws://` 和 `wss://`。
+   - 以后可以升级为不传输密码本身的登录协议（如 OPAQUE/SRP）。
+
+设备列表（`sessions` 表）保留，用来查看「哪些设备登录过、最后在线时间」，以及踢掉单个设备。
 
 **后续扩展路径（按价值排序）：**
 - **v2 Computer Node**：在 Windows 上运行同一个守护进程，以 `macbotd node` 模式启动，把本机的浏览器和 shell 借给 Mac 上的 Bot 使用。Bot 和记忆仍然集中在 Mac 上，没有数据同步问题。**这比在 Windows 上另起一套 Bot 更实用。**
@@ -159,9 +187,9 @@
 
 ```
 ┌──────────── Mac（macbotd，无界面守护进程，LaunchAgent）──────────────┐
-│ Gateway  axum，固定端口（默认 7788）：/ws /api/v1 /pair /admin /ext   │
-│   配对 / 令牌鉴权 / 协议版本 / 事件流（按 seq 断线续传）               │
-│ Local CLI  Unix socket ← `macbot status|pair|devices|logs`         │
+│ Gateway  axum，固定端口（默认 7788）：/login /ws /api/v1 /admin /ext   │
+│   密码登录→会话令牌 / 协议版本 / 事件流（按 seq 断线续传）           │
+│ Local CLI  Unix socket ← `macbot status|passwd|devices|logs`       │
 │                                                                   │
 │ Orchestrator（群聊路由、Bot 间消息、handoff、防循环）                 │
 │   │                                                               │
@@ -238,7 +266,9 @@ routine_runs(id, routine_id, run_id, status, started_at)   -- 每个 Routine 只
 files(id, bot_id, chat_id, path, mime, size, created_at)
 providers(id, name, api_kind, base_url, secret_ref)
 models(id, provider_id, model_id, caps_json, context_window, cost_json)
-devices(id, name, platform, token_hash, last_seen_at, revoked)
+auth(id=1, password_hash, password_changed_at)               -- 单行；修改密码后所有 sessions 失效
+sessions(id, device_name, platform, token_hash, created_at, last_seen_at, last_ip, revoked)
+login_attempts(ip, failed_count, locked_until)
 node(node_id, name, created_at)                             -- 本机 Host 的身份（单行）
 usage(id, bot_id, run_id, model_id, input_tokens, output_tokens, cost)
 events(seq, chat_id, type, payload_json)                    -- 推送和断线补发
@@ -278,7 +308,7 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 ### 5.7 协议
 - WebSocket，JSON 帧 `{v, id, type, payload}`，请求/响应和服务端推送并存。
 - 重连时带上 `last_seq`，服务端从 `events` 表补发。
-- 配对流程：服务端界面显示 6 位配对码（或者二维码，内含 host:port 和配对码）→ 客户端提交配对码和设备名 → 服务端返回设备令牌 → 之后每次连接带令牌。设备可在 Settings → Devices 里吊销。
+- 登录流程：客户端 `POST /login {password, device_name, platform}` → 服务端返回 `session_token` 和 `node_id` → 之后连接 `/ws` 时在 `Authorization` 头里带令牌。令牌失效时，客户端提示重新输入密码。设备可以在客户端的 Settings → Devices 或管理页里踢下线。
 - 多 Host：客户端为每台 Host 分别保存 `{node_id, name, host:port, device_token}`。握手时服务端返回自己的 `node_id`，客户端据此识别同一台 Host 地址变化的情况（例如局域网 IP 和公网域名是同一台）。
 
 ### 5.8 电脑操控（后期阶段，先定方向）
@@ -295,7 +325,7 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 
 | 区域 | 内容 |
 |------|------|
-| 侧栏 | 顶部是 Host 切换器（显示在线状态，可添加或配对新 Host）；下面是 New（`Cmd+N`）、Search、置顶的 Bot、Bot 列表、群聊列表、Hidden Bots、Skills、Settings；每项显示状态点（空闲 / 运行中 / 等待你） |
+| 侧栏 | 顶部是 Host 切换器（显示在线状态，可添加新 Host：填 host:port 和密码）；下面是 New（`Cmd+N`）、Search、置顶的 Bot、Bot 列表、群聊列表、Hidden Bots、Skills、Settings；每项显示状态点（空闲 / 运行中 / 等待你） |
 | 会话主区 | 头部（头像、名字、Label，以及后期的 Agent Computer 按钮、详情按钮）；消息流；输入框 |
 | 会话详情抽屉 | Profile、Routines、Files、Memory、Members（群聊） |
 | New chat 面板 | Create new Bot / 选 2 到 6 个 Bot 建群 |
@@ -307,13 +337,13 @@ Bot 之间私聊（`send_message(to_bot, text)`）走 `bot_dm` 类型的会话�
 
 | 阶段 | 内容 | 验收 |
 |------|------|------|
-| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、单个 Bot 私聊流式对话、durable resume、配对、`/admin` 管理页、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 并配对后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
+| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、单个 Bot 私聊流式对话、durable resume、密码登录（会话令牌、限速）、`/admin` 管理页（含首次设置向导）、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 和密码后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
 | **P2 多 Bot 与群聊** | Bot 增删改、Pin/Hide/Duplicate、独立 workspace 和基础工具、审批卡片、群聊路由、@ 和 Reply、Bot 间消息与 handoff、防循环 | 3 个 Bot 在群里分工完成一个任务，中间有交接；审批只出现在私聊里 |
 | **P3 记忆与技能** | 用户画像和 Bot 笔记、session_search、Memory 页、Skills 和 `/` 引用 | 跨会话记住用户偏好，能回答「我上周说过什么」 |
 | **P4 移动端** | Compose Multiplatform 客户端：会话列表、聊天、群聊、审批、通知、搜索；Android 前台服务；iOS 接入 APNs | 在小米 17 和 iPhone 上都能完成 P2 的场景 |
 | **P5 Routines** | 调度器、通过对话创建、Test run、运行历史 | 「每天 9 点总结 xxx」按时执行并推送结果 |
 | **P6 电脑操控** | 先用 Playwright MCP 扩展模式过渡，再上 Mac Bot Connector 扩展；Agent Computer 实时画面和接管；可选接入 cua-driver | 用系统 Chrome 已有的 X 登录态刷帖并总结 |
-| **P7 打磨** | 语音、文件页、全局搜索、用量统计；客户端和服务端的自动更新（服务端通过 `/admin` 或 `macbot update` 更新）；签名的 .pkg 和 .dmg | 双击 .pkg 安装后，从客户端配对到开始对话全程不需要碰终端 |
+| **P7 打磨** | 语音、文件页、全局搜索、用量统计；客户端和服务端的自动更新（服务端通过 `/admin` 或 `macbot update` 更新）；签名的 .pkg 和 .dmg | 双击 .pkg 安装后，到客户端登录、开始对话，全程不需要碰终端 |
 | **v2** | Windows 客户端；Computer Node（在 Windows 上以 `macbotd node` 运行）| Mac 上的 Bot 能操作 Windows 上的浏览器 |
 | **v3（可选）** | Host 联邦：跨 Host 的 Bot 消息和群聊 | |
 
