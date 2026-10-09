@@ -104,6 +104,26 @@
       "mock_source": "11bc831df3cead8d8ec667501769aad92adec472",
       "assertion": "closed own window, standard open reused process, recreated window and restored history",
       "sha256": "7b23f7662e31b7f4cbfbb46a7ef7bb3bd6b6ccde1a4a72b935b9b78b49935897"
+    },
+    {
+      "path": "S4/computer-fallback.png",
+      "client_source": "58c5b45",
+      "owner_pid": 74954,
+      "mock_source": "40ca95e9e3e5758e53233b77d6cf91938f817791",
+      "endpoint": "127.0.0.1:1,127.0.0.1:7790",
+      "data_dir": "/tmp/macbot-client-final-fallback-profile",
+      "assertion": "first address 127.0.0.1:1 unreachable; main and screen use successful 7790 endpoint, JPEG painting/ACK sustained",
+      "sha256": "bbfaad249ca19af385c323357ade5f0999d7fc5d2ade0c16ed61bda1931fce93"
+    },
+    {
+      "path": "S3/dashboard-hourly-final.png",
+      "client_source": "58c5b45",
+      "owner_pid": 74954,
+      "mock_source": "40ca95e9e3e5758e53233b77d6cf91938f817791",
+      "endpoint": "127.0.0.1:1,127.0.0.1:7790",
+      "data_dir": "/tmp/macbot-client-final-fallback-profile",
+      "assertion": "hourly title and hourly axis match server auto granularity",
+      "sha256": "bace1d7db3e7db69123b0c65f167f859cc755b29bfbca88f3f9d2ffd6a121109"
     }
   ],
   "checks": {
