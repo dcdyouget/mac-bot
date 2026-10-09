@@ -11,7 +11,7 @@ use serde_json::Value;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
@@ -47,6 +47,7 @@ pub struct Store {
     write_lock: Arc<Mutex<()>>,
     files: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>>,
     event_seq: Arc<Mutex<u64>>,
+    event_keys: Arc<Mutex<HashSet<String>>>,
     chat_sequences: Arc<Mutex<()>>,
 }
 
@@ -84,6 +85,7 @@ impl Store {
             write_lock: Arc::new(Mutex::new(())),
             files: Arc::new(Mutex::new(HashMap::new())),
             event_seq: Arc::new(Mutex::new(0)),
+            event_keys: Arc::new(Mutex::new(HashSet::new())),
             chat_sequences: Arc::new(Mutex::new(())),
         };
         store.repair_jsonl_files()?;
@@ -97,6 +99,12 @@ impl Store {
             .event_seq
             .lock()
             .expect("event sequence lock poisoned") = seq;
+        *store.event_keys.lock().expect("event key lock poisoned") = store
+            .read_jsonl::<Value>("data/events/events.jsonl")?
+            .iter()
+            .filter_map(|event| event.get("_operation_key").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect();
         Ok(store)
     }
 
@@ -334,6 +342,30 @@ impl Store {
 
     /// Append a globally sequenced event. The event is synced before return.
     pub fn append_event(&self, event: impl Into<String>, data: Value) -> Result<Event, StoreError> {
+        Ok(self
+            .append_event_inner(None, event.into(), data)?
+            .expect("unkeyed append always writes"))
+    }
+
+    /// Append an operation's event exactly once, including across restart.
+    /// The receipt lives in the same synced JSONL row as the event, avoiding
+    /// a separate receipt snapshot's crash window. It is internal metadata;
+    /// `events_since` exposes only the ordinary Event fields.
+    pub fn append_event_once(
+        &self,
+        key: &str,
+        event: impl Into<String>,
+        data: Value,
+    ) -> Result<Option<Event>, StoreError> {
+        self.append_event_inner(Some(key), event.into(), data)
+    }
+
+    fn append_event_inner(
+        &self,
+        key: Option<&str>,
+        event: String,
+        data: Value,
+    ) -> Result<Option<Event>, StoreError> {
         // Serialize sequence allocation and append together. Calling
         // `append_jsonl` here would invert the file/store lock order, so this
         // method performs the small append inline.
@@ -341,19 +373,27 @@ impl Store {
         let file_lock = self.file_lock(&path);
         let _file_guard = file_lock.lock().expect("file lock poisoned");
         let _write_guard = self.write_lock.lock().expect("store lock poisoned");
+        let mut keys = self.event_keys.lock().expect("event key lock poisoned");
+        if key.is_some_and(|key| keys.contains(key)) {
+            return Ok(None);
+        }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         let mut next_seq = self.event_seq.lock().expect("event sequence lock poisoned");
         let seq = *next_seq + 1;
-        let record = Event {
-            seq,
-            event: event.into(),
-            data,
-        };
+        let record = Event { seq, event, data };
+        let mut raw = serde_json::to_value(&record).map_err(|source| StoreError::Json {
+            path: path.clone(),
+            line: 0,
+            source,
+        })?;
+        if let Some(key) = key {
+            raw["_operation_key"] = Value::String(key.to_owned());
+        }
         let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
         file.write_all(
-            &serde_json::to_vec(&record).map_err(|source| StoreError::Json {
+            &serde_json::to_vec(&raw).map_err(|source| StoreError::Json {
                 path: path.clone(),
                 line: 0,
                 source,
@@ -362,7 +402,10 @@ impl Store {
         file.write_all(b"\n")?;
         file.sync_data()?;
         *next_seq = seq;
-        Ok(record)
+        if let Some(key) = key {
+            keys.insert(key.to_owned());
+        }
+        Ok(Some(record))
     }
 
     pub fn events_since(&self, seq: u64) -> Result<Vec<Event>, StoreError> {
@@ -454,6 +497,87 @@ fn canonicalize_with_missing_tail(path: &Path) -> io::Result<PathBuf> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn operation_event_receipt_is_atomic_concurrent_and_survives_reopen() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let threads = (0..16)
+            .map(|_| {
+                let store = store.clone();
+                std::thread::spawn(move || {
+                    store
+                        .append_event_once(
+                            "rpc:request:assignment.created",
+                            "assignment.created",
+                            serde_json::json!({"assignment":{"id":"task"}}),
+                        )
+                        .unwrap()
+                        .is_some()
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            threads
+                .into_iter()
+                .map(|thread| thread.join().unwrap())
+                .filter(|written| *written)
+                .count(),
+            1
+        );
+        assert_eq!(store.last_event_seq().unwrap(), 1);
+        let wire = serde_json::to_value(store.events_since(0).unwrap()[0].clone()).unwrap();
+        assert!(wire.get("_operation_key").is_none());
+        drop(store);
+        let store = Store::open(dir.path()).unwrap();
+        assert!(store
+            .append_event_once(
+                "rpc:request:assignment.created",
+                "assignment.created",
+                Value::Null,
+            )
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            store
+                .append_event("message.created", Value::Null)
+                .unwrap()
+                .seq,
+            2
+        );
+        assert_eq!(store.events_since(0).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn torn_event_does_not_restore_an_uncommitted_operation_receipt() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store
+            .append_event_once("first", "message.created", Value::Null)
+            .unwrap();
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(dir.path().join("data/events/events.jsonl"))
+            .unwrap();
+        file.write_all(br#"{"seq":2,"_operation_key":"torn""#)
+            .unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+        drop(store);
+        let store = Store::open(dir.path()).unwrap();
+        assert_eq!(
+            store
+                .append_event_once("torn", "message.created", Value::Null)
+                .unwrap()
+                .unwrap()
+                .seq,
+            2
+        );
+        assert!(store
+            .append_event_once("first", "message.created", Value::Null)
+            .unwrap()
+            .is_none());
+    }
 
     #[test]
     fn chat_sequences_are_shared_and_updates_keep_their_position_after_recovery() {
