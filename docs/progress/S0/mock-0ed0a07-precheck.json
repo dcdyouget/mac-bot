@@ -1,0 +1,42 @@
+{
+  "checked_at": "2026-10-09T16:56:52.332017+08:00",
+  "source_commit": "0ed0a0757d33f564642e6d9b59316fae566ef7bb",
+  "component": "mock",
+  "label": "com.macbot.mock",
+  "port": 7789,
+  "listener_pid": 2326,
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "bootstrap": {
+    "seq": 50,
+    "protocol": 1,
+    "server_version": "0.1.0",
+    "node_id": "node_1",
+    "bots": 4,
+    "main_bot_id": "bot_main",
+    "main_dm_chat_id": "chat_main",
+    "sessions": 6,
+    "projects": 2
+  },
+  "result": "API precheck passed",
+  "deployment_log": "~/Library/Caches/MacBot/integrator/watch/mock-refresh-0ed0a07.log",
+  "preserved": [
+    "~/MacBot-mock",
+    "desktop installed App",
+    "Android Release APK and UI validation hold"
+  ],
+  "scope": "Only daemon upgraded; no takeover mutation or UI acceptance performed",
+  "screen_protocol_review": "0ed0a07 aligns with PROTOCOL8: takeover RPC returns {}, driver/tabs must be observed over /ws/screen",
+  "production_status": "unavailable",
+  "earlier_7788_observation": {
+    "pid": 98719,
+    "executable": "~/Applications/MacBotMock.app/Contents/MacOS/macbotd",
+    "installed_production_marker": false,
+    "resolved_observation": "PID no longer exists, 7788 no listener; ownership not established; not counted as ready"
+  },
+  "stage_note": "Historical S0 acceptance preserved; S1-S5 unaccepted"
+}
