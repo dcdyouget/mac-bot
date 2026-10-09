@@ -387,6 +387,21 @@ fn events(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
             "host.status",
             json!({"running":1,"queued":0,"global_limit":4,"subagents_running":0}),
         ),
+        (
+            "trace_item",
+            "trace.item",
+            json!({"stream":"asg_1","item":{"assignment_id":"asg_1","chat_id":"chat_login","run_id":"run_1","aseq":1,"at":now(),"type":"run.start","data":{"phase":"work","model":"prv_mock/mock-model","parent_run_id":null,"subagent_task":null}}}),
+        ),
+        (
+            "trace_delta",
+            "trace.delta",
+            json!({"stream":"asg_1","request_id":"req_1","channel":"text","call_id":null,"text":"正在生成实现计划"}),
+        ),
+        (
+            "trace_tool_output",
+            "trace.tool_output",
+            json!({"stream":"asg_1","call_id":"call_1","chunk":"20 tests passed"}),
+        ),
     ];
     for (i, (name, event, data)) in values.into_iter().enumerate() {
         write(
@@ -398,22 +413,493 @@ fn events(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn frame(seq: Option<u64>, event: &str, data: Value) -> Value {
+    let mut value = json!({"v":1,"kind":"evt","event":event,"data":data});
+    if let Some(seq) = seq {
+        value["seq"] = json!(seq);
+    }
+    value
+}
+
+fn bot_for(id: &str, name: &str, label: &str, dm_chat_id: &str) -> Value {
+    let mut value = bot();
+    value["id"] = json!(id);
+    value["name"] = json!(name);
+    value["label"] = json!(label);
+    value["is_main"] = json!(false);
+    value["dm_chat_id"] = json!(dm_chat_id);
+    value["max_parallel"] = json!(3);
+    value["tools"] =
+        json!({"files":true,"bash":true,"browser":false,"subagent":true,"web":true,"mcp":false});
+    value
+}
+
+fn chat_for(
+    id: &str,
+    kind: &str,
+    title: &str,
+    project_id: Option<&str>,
+    members: &[&str],
+    last_seq: u64,
+) -> Value {
+    let mut value = chat();
+    value["id"] = json!(id);
+    value["kind"] = json!(kind);
+    value["title"] = json!(title);
+    value["bot_id"] = if kind == "direct" {
+        members
+            .first()
+            .map_or_else(|| json!("bot_main"), |id| json!(id))
+    } else {
+        Value::Null
+    };
+    value["project_id"] = project_id.map_or(Value::Null, |id| json!(id));
+    value["member_bot_ids"] = json!(members);
+    value["last_seq"] = json!(last_seq);
+    value["attention"] = json!(if last_seq == 0 { "none" } else { "working" });
+    value
+}
+
+fn assignment_for(
+    id: &str,
+    bot_id: &str,
+    chat_id: &str,
+    title: &str,
+    status: &str,
+    parent: Option<&str>,
+) -> Value {
+    let mut value = assignment();
+    value["id"] = json!(id);
+    value["bot_id"] = json!(bot_id);
+    value["origin_chat_id"] = json!(chat_id);
+    if chat_id == "chat_web" {
+        value["project_id"] = json!("prj_web");
+    }
+    value["title"] = json!(title);
+    value["instruction"] = json!(title);
+    value["status"] = json!(status);
+    value["parent_assignment_id"] = parent.map_or(Value::Null, |id| json!(id));
+    value["from"] = if bot_id == "bot_main" {
+        json!({"kind":"user"})
+    } else {
+        json!({"kind":"bot","bot_id":"bot_main"})
+    };
+    value["started_at"] = if status == "queued" {
+        Value::Null
+    } else {
+        json!(now())
+    };
+    value["finished_at"] = if status == "done" {
+        json!(now())
+    } else {
+        Value::Null
+    };
+    value["usage"] = if status == "done" {
+        usage()
+    } else {
+        json!({"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"requests":0,"cost":null})
+    };
+    value
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scenario_message(
+    id: &str,
+    chat_id: &str,
+    seq: u64,
+    sender: Value,
+    blocks: Value,
+    fallback: &str,
+    intent: Option<&str>,
+    assignment_id: Option<&str>,
+    mentions: Value,
+    delivery: Value,
+) -> Value {
+    json!({"id":id,"chat_id":chat_id,"seq":seq,"sender":sender,"created_at":now(),"edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,"mentions":mentions,"blocks":blocks,"fallback_text":fallback,"intent":intent,"assignment_id":assignment_id,"streaming":false,"delivery":delivery,"reactions":[]})
+}
+
+fn trace_item(
+    assignment_id: &str,
+    chat_id: &str,
+    run_id: &str,
+    aseq: u64,
+    item_type: &str,
+    data: Value,
+) -> Value {
+    json!({"assignment_id":assignment_id,"chat_id":chat_id,"run_id":run_id,"aseq":aseq,"at":now(),"type":item_type,"data":data})
+}
+
+fn push_frame(lines: &mut Vec<Value>, seq: &mut u64, event: &str, data: Value) {
+    *seq += 1;
+    lines.push(frame(Some(*seq), event, data));
+}
+
 fn scenario(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let lines = vec![
-        json!({"v":1,"kind":"evt","event":"hello","data":{"protocol":1,"server_version":"0.1.0","node_id":"node_1","host_name":"Mac mini","server_time":now(),"last_seq":0,"timezone":"Asia/Shanghai","currency":"CNY","features":["browser"]}}),
-        json!({"v":1,"kind":"evt","seq":1,"event":"project.created","data":{"project":project()}}),
-        json!({"v":1,"kind":"evt","seq":2,"event":"message.created","data":{"message":message()}}),
-        json!({"v":1,"kind":"evt","seq":3,"event":"assignment.created","data":{"assignment":assignment()}}),
-        json!({"v":1,"kind":"evt","event":"trace.item","data":{"stream":"asg_1","item":{"assignment_id":"asg_1","chat_id":"chat_login","run_id":"run_1","aseq":1,"at":now(),"type":"run.start","data":{"phase":"work","model":"prv_mock/mock-model","parent_run_id":null,"subagent_task":null}}}}),
-        json!({"v":1,"kind":"evt","seq":4,"event":"message.created","data":{"message":{"id":"msg_done","chat_id":"chat_login","seq":2,"sender":{"kind":"bot","bot_id":"bot_main"},"created_at":now(),"edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,"mentions":[],"blocks":[{"type":"completion","summary":"已完成 PRD 和原型","artifacts":[artifact()],"next":[],"notify_main":true}],"fallback_text":"已完成 PRD 和原型","intent":"done","assignment_id":"asg_1","streaming":false,"delivery":[],"reactions":[]}}}),
-        json!({"v":1,"kind":"evt","seq":5,"event":"message.created","data":{"message":{"id":"msg_steer","chat_id":"chat_login","seq":3,"sender":{"kind":"user"},"created_at":now(),"edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,"mentions":[{"kind":"bot","bot_id":"bot_main","instruction":null}],"blocks":[{"type":"text","markdown":"先只做邮箱登录，不要手机号"}],"fallback_text":"先只做邮箱登录，不要手机号","intent":null,"assignment_id":null,"streaming":false,"delivery":[{"bot_id":"bot_main","assignment_id":"asg_1","state":"queued","at":now()}],"reactions":[]}}}),
-        json!({"v":1,"kind":"evt","seq":6,"event":"project.updated","data":{"project":{ "id":"prj_login","chat_id":"chat_login","name":"登录功能","slug":"login","goal":"给 App 加邮箱登录","flow":["产品","编码","测试"],"deadline":"2026-10-12","home_path":"~/MacBot/projects/login/","status":"review","lead_bot_id":"bot_main","members":[],"created_by":{"kind":"user"},"created_at":now(),"updated_at":now(),"done_at":null}}}),
-        json!({"v":1,"kind":"evt","seq":7,"event":"message.created","data":{"message":{"id":"msg_review","chat_id":"chat_main","seq":4,"sender":{"kind":"bot","bot_id":"bot_main"},"created_at":now(),"edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,"mentions":[],"blocks":[{"type":"review_card","project_id":"prj_login","artifacts":[artifact()],"state":"pending"}],"fallback_text":"登录功能待验收","intent":null,"assignment_id":null,"streaming":false,"delivery":[],"reactions":[]}}}),
-        json!({"v":1,"kind":"evt","seq":8,"event":"project.updated","data":{"project":{ "id":"prj_login","chat_id":"chat_login","name":"登录功能","slug":"login","goal":"给 App 加邮箱登录","flow":["产品","编码","测试"],"deadline":"2026-10-12","home_path":"~/MacBot/projects/login/","status":"done","lead_bot_id":"bot_main","members":[],"created_by":{"kind":"user"},"created_at":now(),"updated_at":now(),"done_at":now()}}}),
-    ];
+    let mut lines = Vec::new();
+    let mut global_seq = 0u64;
+    lines.push(frame(None, "hello", json!({"protocol":1,"server_version":"0.1.0","node_id":"node_1","host_name":"Mac mini","server_time":now(),"last_seq":0,"timezone":"Asia/Shanghai","currency":"CNY","features":["browser"]})));
+
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "chat.created",
+        json!({"chat":chat_for("chat_main","direct","总管",None,&[],0)}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_user","chat_main",1,json!({"kind":"user"}),json!([{"type":"text","markdown":"给 App 加个邮箱登录，周六前上线"}]),"给 App 加个邮箱登录，周六前上线",None,None,json!([]),json!([]))}),
+    );
+    for (id, name, label, dm) in [
+        ("bot_product", "产品", "产品经理", "chat_product"),
+        ("bot_code", "编码", "工程师", "chat_code"),
+        ("bot_test", "测试", "测试工程师", "chat_test"),
+    ] {
+        push_frame(
+            &mut lines,
+            &mut global_seq,
+            "bot.created",
+            json!({"bot":bot_for(id,name,label,dm)}),
+        );
+        push_frame(
+            &mut lines,
+            &mut global_seq,
+            "chat.created",
+            json!({"chat":chat_for(dm,"direct",name,None,&[id],0)}),
+        );
+    }
+    let members = ["bot_main", "bot_product", "bot_code", "bot_test"];
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "chat.created",
+        json!({"chat":chat_for("chat_login","project","登录功能",Some("prj_login"),&members,0)}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "project.created",
+        json!({"project":project()}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_new_group","chat_main",2,json!({"kind":"bot","bot_id":"bot_main"}),json!([{"type":"project_card","project_id":"prj_login"}]),"新群 · 登录功能",None,None,json!([]),json!([]))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_opening","chat_login",1,json!({"kind":"bot","bot_id":"bot_main"}),json!([{"type":"text","markdown":"本次事项：给 App 加邮箱登录，周六前上线。流程：产品 → 编码 → 测试。"}]),"本次事项：给 App 加邮箱登录，周六前上线。@产品 先出 PRD 和原型。",None,None,json!([{ "kind":"bot","bot_id":"bot_product","instruction":"先出 PRD 和原型"}]),json!([]))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "assignment.created",
+        json!({"assignment":assignment_for("asg_product","bot_product","chat_login","编写 PRD 和原型","queued",None)}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "assignment.updated",
+        json!({"assignment":assignment_for("asg_product","bot_product","chat_login","编写 PRD 和原型","working",None)}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_product_ack","chat_login",2,json!({"kind":"bot","bot_id":"bot_product"}),json!([{"type":"text","markdown":"收到，开始写 PRD 和原型。"}]),"收到，开始写 PRD 和原型。",Some("ack"),Some("asg_product"),json!([]),json!([]))}),
+    );
+
+    let product_trace = |aseq: u64, run: &str, typ: &str, data: Value| {
+        frame(
+            None,
+            "trace.item",
+            json!({"stream":"asg_product","item":trace_item("asg_product","chat_login",run,aseq,typ,data)}),
+        )
+    };
+    lines.push(product_trace(1,"run_product","run.start",json!({"phase":"work","model":"prv_mock/mock-model","parent_run_id":null,"subagent_task":null})));
+    lines.push(product_trace(2,"run_product","llm.request",json!({"request_id":"req_product_1","model":"prv_mock/mock-model","context":{"l0":100,"l1":200,"l2":300,"l3":0,"l4":0,"total":600},"tools":["skill.load","write"],"prompt_ref":null})));
+    lines.push(frame(None,"trace.delta",json!({"stream":"asg_product","request_id":"req_product_1","channel":"thinking","call_id":null,"text":"先加载 PRD 模板并拆分登录流程。"})));
+    lines.push(product_trace(
+        3,
+        "run_product",
+        "tool.start",
+        json!({"call_id":"call_skill","name":"skill.load","args":{"name":"prd-template"}}),
+    ));
+    lines.push(product_trace(4,"run_product","tool.end",json!({"call_id":"call_skill","is_error":false,"preview":"prd-template loaded","details":{},"truncated":false,"full_output":null,"duration_ms":18})));
+    let mut sub_aseq = 5;
+    for (n, task) in [(1, "竞品登录流程"), (2, "密码规则"), (3, "邮箱验证体验")] {
+        let run = format!("run_product_sub{n}");
+        lines.push(product_trace(sub_aseq, &run, "run.start", json!({"phase":"subagent","model":"prv_mock/mock-model","parent_run_id":"run_product","subagent_task":format!("子代理 {n}：{task}")})));
+        sub_aseq += 1;
+        lines.push(product_trace(sub_aseq, &run, "llm.request", json!({"request_id":format!("req_sub{n}"),"model":"prv_mock/mock-model","context":{"l0":20,"l1":30,"l2":40,"l3":0,"l4":0,"total":90},"tools":["web.search"],"prompt_ref":null})));
+        sub_aseq += 1;
+        lines.push(product_trace(sub_aseq, &run, "llm.response", json!({"request_id":format!("req_sub{n}"),"text":format!("{task}结论"),"thinking":null,"tool_calls":[],"stop_reason":"stop","usage":usage(),"latency_ms":80,"ttft_ms":12})));
+        sub_aseq += 1;
+        lines.push(product_trace(
+            sub_aseq,
+            &run,
+            "run.end",
+            json!({"status":"done","error":null}),
+        ));
+        sub_aseq += 1;
+    }
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "skill.updated",
+        json!({"skill":skill()}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "artifact.registered",
+        json!({"artifact":artifact_obj()}),
+    );
+    let mut prototype = artifact_obj();
+    prototype["id"] = json!("art_prototype");
+    prototype["title"] = json!("邮箱登录原型");
+    prototype["path_or_url"] = json!("product/prototype/");
+    prototype["kind"] = json!("dir");
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "artifact.registered",
+        json!({"artifact":prototype.clone()}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_product_done","chat_login",3,json!({"kind":"bot","bot_id":"bot_product"}),json!([{"type":"completion","summary":"已完成 PRD 和原型","artifacts":[artifact(),{"artifact_id":"art_prototype","title":"邮箱登录原型","path_or_url":"product/prototype/"}],"next":[{"bot_id":"bot_code","instruction":"请按 PRD 实现邮箱登录"}],"notify_main":true}]),"已完成 PRD 和原型，@编码 请按 PRD 实现邮箱登录。",Some("done"),Some("asg_product"),json!([{ "kind":"bot","bot_id":"bot_code","instruction":"请按 PRD 实现邮箱登录"}]),json!([]))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "assignment.updated",
+        json!({"assignment":assignment_for("asg_product","bot_product","chat_login","编写 PRD 和原型","done",None)}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "assignment.created",
+        json!({"assignment":assignment_for("asg_code","bot_code","chat_login","实现邮箱登录","queued",Some("asg_product"))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "assignment.updated",
+        json!({"assignment":assignment_for("asg_code","bot_code","chat_login","实现邮箱登录","working",Some("asg_product"))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_code_ack","chat_login",4,json!({"kind":"bot","bot_id":"bot_code"}),json!([{"type":"text","markdown":"收到，开始实现。"}]),"收到，开始实现。",Some("ack"),Some("asg_code"),json!([]),json!([]))}),
+    );
+    lines.push(frame(None,"trace.item",json!({"stream":"asg_code","item":trace_item("asg_code","chat_login","run_code",1,"run.start",json!({"phase":"work","model":"prv_mock/mock-model","parent_run_id":null,"subagent_task":null}))})));
+    lines.push(frame(None,"trace.delta",json!({"stream":"asg_code","request_id":"req_code_1","channel":"text","call_id":null,"text":"正在按 PRD 搭建邮箱登录流程。"})));
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_steer","chat_login",5,json!({"kind":"user"}),json!([{"type":"text","markdown":"@编码 先只做邮箱登录，不要手机号"}]),"@编码 先只做邮箱登录，不要手机号",None,None,json!([{ "kind":"bot","bot_id":"bot_code","instruction":"先只做邮箱登录，不要手机号"}]),json!([{ "bot_id":"bot_code","assignment_id":"asg_code","state":"queued","at":now()}]))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.updated",
+        json!({"message":scenario_message("msg_steer","chat_login",5,json!({"kind":"user"}),json!([{"type":"text","markdown":"@编码 先只做邮箱登录，不要手机号"}]),"@编码 先只做邮箱登录，不要手机号",None,None,json!([{ "kind":"bot","bot_id":"bot_code","instruction":"先只做邮箱登录，不要手机号"}]),json!([{ "bot_id":"bot_code","assignment_id":"asg_code","state":"delivered","at":now()}]))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.updated",
+        json!({"message":scenario_message("msg_steer","chat_login",5,json!({"kind":"user"}),json!([{"type":"text","markdown":"@编码 先只做邮箱登录，不要手机号"}]),"@编码 先只做邮箱登录，不要手机号",None,None,json!([{ "kind":"bot","bot_id":"bot_code","instruction":"先只做邮箱登录，不要手机号"}]),json!([{ "bot_id":"bot_code","assignment_id":"asg_code","state":"read","at":now()}]))}),
+    );
+    lines.push(frame(None,"trace.item",json!({"stream":"asg_code","item":trace_item("asg_code","chat_login","run_code",2,"steer",json!({"message_id":"msg_steer","text":"先只做邮箱登录，不要手机号","from":{"kind":"user"}}))})));
+    lines.push(frame(None,"trace.item",json!({"stream":"asg_code","item":trace_item("asg_code","chat_login","run_code",3,"send_msg",json!({"call_id":"call_code_progress","intent":"progress","message_id":"msg_code_progress","chat_id":"chat_login"}))})));
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_code_progress","chat_login",6,json!({"kind":"bot","bot_id":"bot_code"}),json!([{"type":"progress","text":"收到，改为只做邮箱登录，正在调整。"}]),"收到，改为只做邮箱登录，正在调整。",Some("progress"),Some("asg_code"),json!([]),json!([]))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "announcement.updated",
+        json!({"announcement":{"project_id":"prj_login","members":[],"artifacts":[artifact_obj(),prototype.clone()],"highlights":[{"text":"只做邮箱登录，不做手机号","at":now()}],"updated_at":now()}}),
+    );
+
+    let mut web_project = project();
+    web_project["id"] = json!("prj_web");
+    web_project["chat_id"] = json!("chat_web");
+    web_project["name"] = json!("官网改版");
+    web_project["slug"] = json!("web");
+    web_project["goal"] = json!("官网登录入口改版");
+    web_project["deadline"] = Value::Null;
+    web_project["home_path"] = json!("~/MacBot/projects/web/");
+    web_project["lead_bot_id"] = json!("bot_code");
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "chat.created",
+        json!({"chat":chat_for("chat_web","project","官网改版",Some("prj_web"),&["bot_code"],0)}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "project.created",
+        json!({"project":web_project}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "assignment.created",
+        json!({"assignment":assignment_for("asg_code_web","bot_code","chat_web","官网登录入口改版","working",None)}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_web_ack","chat_web",1,json!({"kind":"bot","bot_id":"bot_code"}),json!([{"type":"text","markdown":"收到，开始改版。"}]),"收到，开始改版。",Some("ack"),Some("asg_code_web"),json!([]),json!([]))}),
+    );
+    lines.push(frame(None,"trace.item",json!({"stream":"asg_code_web","item":trace_item("asg_code_web","chat_web","run_code_web",1,"run.start",json!({"phase":"work","model":"prv_mock/mock-model","parent_run_id":null,"subagent_task":null}))})));
+
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_code_done","chat_login",7,json!({"kind":"bot","bot_id":"bot_code"}),json!([{"type":"completion","summary":"已实现并部署到 localhost:3000","artifacts":[{"artifact_id":"art_code","title":"代码","path_or_url":"code/"},{"artifact_id":"art_preview","title":"预览地址","path_or_url":"http://localhost:3000"}],"next":[{"bot_id":"bot_test","instruction":"请测试邮箱登录"}],"notify_main":true}]),"已实现并部署到 localhost:3000，@测试 请测试。",Some("done"),Some("asg_code"),json!([{ "kind":"bot","bot_id":"bot_test","instruction":"请测试邮箱登录"}]),json!([]))}),
+    );
+    let mut code_artifact = artifact_obj();
+    code_artifact["id"] = json!("art_code");
+    code_artifact["title"] = json!("代码");
+    code_artifact["path_or_url"] = json!("code/");
+    code_artifact["bot_id"] = json!("bot_code");
+    code_artifact["assignment_id"] = json!("asg_code");
+    code_artifact["kind"] = json!("dir");
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "artifact.registered",
+        json!({"artifact":code_artifact}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "assignment.updated",
+        json!({"assignment":assignment_for("asg_code","bot_code","chat_login","实现邮箱登录","done",Some("asg_product"))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "assignment.created",
+        json!({"assignment":assignment_for("asg_test","bot_test","chat_login","测试邮箱登录","working",Some("asg_code"))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_test_ack","chat_login",8,json!({"kind":"bot","bot_id":"bot_test"}),json!([{"type":"text","markdown":"收到，开始测试。"}]),"收到，开始测试。",Some("ack"),Some("asg_test"),json!([]),json!([]))}),
+    );
+    lines.push(frame(None,"trace.item",json!({"stream":"asg_test","item":trace_item("asg_test","chat_login","run_test",1,"run.start",json!({"phase":"work","model":"prv_mock/mock-model","parent_run_id":null,"subagent_task":null}))})));
+    lines.push(frame(None,"trace.item",json!({"stream":"asg_test","item":trace_item("asg_test","chat_login","run_test",2,"llm.request",json!({"request_id":"req_test_1","model":"prv_mock/mock-model","context":{"l0":100,"l1":100,"l2":100,"l3":0,"l4":0,"total":300},"tools":["bash"],"prompt_ref":null}))})));
+    lines.push(frame(
+        None,
+        "trace.tool_output",
+        json!({"stream":"asg_test","call_id":"call_test","chunk":"20 tests passed"}),
+    ));
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_test_progress","chat_login",9,json!({"kind":"bot","bot_id":"bot_test"}),json!([{"type":"progress","text":"正在运行回归测试。"}]),"正在运行回归测试。",Some("progress"),Some("asg_test"),json!([]),json!([]))}),
+    );
+    let mut report = artifact_obj();
+    report["id"] = json!("art_report");
+    report["title"] = json!("测试报告");
+    report["path_or_url"] = json!("test/report.md");
+    report["bot_id"] = json!("bot_test");
+    report["assignment_id"] = json!("asg_test");
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "artifact.registered",
+        json!({"artifact":report.clone()}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_test_done","chat_login",10,json!({"kind":"bot","bot_id":"bot_test"}),json!([{"type":"completion","summary":"测试 20/20 通过","artifacts":[{"artifact_id":"art_report","title":"测试报告","path_or_url":"test/report.md"}],"next":[{"bot_id":"bot_main","instruction":"请验收登录功能"}],"notify_main":true}]),"测试 20/20 通过，报告在 test/report.md，@总管 请验收。",Some("done"),Some("asg_test"),json!([{ "kind":"main"}]),json!([]))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "assignment.updated",
+        json!({"assignment":assignment_for("asg_test","bot_test","chat_login","测试邮箱登录","done",Some("asg_code"))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "announcement.updated",
+        json!({"announcement":{"project_id":"prj_login","members":[],"artifacts":[artifact_obj(),prototype.clone(),code_artifact.clone(),report.clone()],"highlights":[{"text":"只做邮箱登录，不做手机号","at":now()},{"text":"测试 20/20 通过","at":now()}],"updated_at":now()}}),
+    );
+    let mut review_project = project();
+    review_project["status"] = json!("review");
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "project.updated",
+        json!({"project":review_project}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_review","chat_main",3,json!({"kind":"bot","bot_id":"bot_main"}),json!([{"type":"review_card","project_id":"prj_login","artifacts":[artifact(),{"artifact_id":"art_prototype","title":"邮箱登录原型","path_or_url":"product/prototype/"},{"artifact_id":"art_code","title":"代码","path_or_url":"code/"},{"artifact_id":"art_report","title":"测试报告","path_or_url":"test/report.md"}],"state":"pending"}]),"登录功能已完成，待你验收。",None,None,json!([]),json!([]))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "usage.tick",
+        json!({"assignment_id":"asg_test","usage":{"input_tokens":420,"output_tokens":180,"cache_read_tokens":0,"cache_write_tokens":0,"requests":4,"cost":0.02}}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.created",
+        json!({"message":scenario_message("msg_confirm","chat_main",4,json!({"kind":"user"}),json!([{"type":"text","markdown":"确认完成"}]),"确认完成",None,None,json!([]),json!([]))}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "message.updated",
+        json!({"message":scenario_message("msg_review","chat_main",3,json!({"kind":"bot","bot_id":"bot_main"}),json!([{"type":"review_card","project_id":"prj_login","artifacts":[artifact(),{"artifact_id":"art_prototype","title":"邮箱登录原型","path_or_url":"product/prototype/"},{"artifact_id":"art_code","title":"代码","path_or_url":"code/"},{"artifact_id":"art_report","title":"测试报告","path_or_url":"test/report.md"}],"state":"confirmed"}]),"登录功能已确认完成。",None,None,json!([]),json!([]))}),
+    );
+    let mut done_project = project();
+    done_project["status"] = json!("done");
+    done_project["done_at"] = json!(now());
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "project.updated",
+        json!({"project":done_project}),
+    );
+    push_frame(
+        &mut lines,
+        &mut global_seq,
+        "announcement.updated",
+        json!({"announcement":{"project_id":"prj_login","members":[],"artifacts":[artifact_obj(),prototype,code_artifact,report],"highlights":[{"text":"项目已确认完成","at":now()},{"text":"测试 20/20 通过","at":now()}],"updated_at":now()}}),
+    );
     let body = lines
         .into_iter()
-        .map(|v| serde_json::to_string(&v))
+        .map(|value| serde_json::to_string(&value))
         .collect::<Result<Vec<_>, _>>()?
         .join("\n")
         + "\n";

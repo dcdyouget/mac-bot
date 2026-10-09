@@ -1,0 +1,11 @@
+{
+  "data": {
+    "call_id": "call_1",
+    "chunk": "20 tests passed",
+    "stream": "asg_1"
+  },
+  "event": "trace.tool_output",
+  "kind": "evt",
+  "seq": 38,
+  "v": 1
+}

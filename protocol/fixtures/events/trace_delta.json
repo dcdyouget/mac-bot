@@ -1,0 +1,13 @@
+{
+  "data": {
+    "call_id": null,
+    "channel": "text",
+    "request_id": "req_1",
+    "stream": "asg_1",
+    "text": "正在生成实现计划"
+  },
+  "event": "trace.delta",
+  "kind": "evt",
+  "seq": 37,
+  "v": 1
+}
