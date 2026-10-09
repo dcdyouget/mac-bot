@@ -83,6 +83,8 @@ async def acceptance(url, password):
             typed(name, item)
     main = next(bot for bot in bootstrap["bots"] if bot["is_main"])
     chat_id = main["dm_chat_id"]
+    main_chat = next(chat for chat in bootstrap["chats"] if chat["id"] == chat_id)
+    assert main_chat["kind"] == "main", "main Bot must have a main conversation"
     client_request_id = str(uuid.uuid4())
     params = {"chat_id": chat_id, "text": "S0 wire acceptance", "mentions": [], "client_request_id": client_request_id}
     first = rpc(url, password, "chat.send", params)

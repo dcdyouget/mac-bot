@@ -41,9 +41,7 @@ mod execution;
 mod mock;
 
 mod adapter;
-mod backend;
 pub use adapter::ProductionBackend;
-pub use backend::{RuntimeError, RuntimeExecution};
 
 const VERSION: &str = "0.1.0";
 const PROTOCOL: u64 = 1;
