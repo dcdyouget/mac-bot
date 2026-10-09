@@ -2908,7 +2908,7 @@ impl Inner {
         if ambiguous_question {
             return Ok(false);
         }
-        if let Some(question_id) = existing_question_id.as_deref() {
+        let answered_question = if let Some(question_id) = existing_question_id.as_deref() {
             let question = self.questions.get(question_id).ok_or_else(|| {
                 OrchestratorError::Conflict(
                     "decision Question disappeared during reconciliation".into(),
@@ -2924,17 +2924,22 @@ impl Inner {
                     "decision Question does not match canonical message".into(),
                 ));
             }
-            if question.state != "pending" {
+            if !matches!(question.state.as_str(), "pending" | "answered") {
                 return Ok(false);
             }
-        }
+            question.state == "answered"
+        } else {
+            false
+        };
         let mut changed = false;
         if let Some(assignment) = assignment.as_ref() {
             let wait = WaitState {
                 reason: "decision".into(),
                 message_id: Some(message_id.into()),
             };
-            let target_status = if options.is_empty() {
+            let target_status = if answered_question {
+                "working".into()
+            } else if options.is_empty() {
                 if matches!(assignment.status.as_str(), "waiting_user" | "waiting_bot") {
                     assignment.status.clone()
                 } else {
@@ -4853,6 +4858,77 @@ mod tests {
         );
         assert!(!restored
             .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat",)
+            .unwrap());
+        assert_eq!(restored.snapshot().unwrap(), after);
+    }
+
+    #[test]
+    fn reconcile_answered_question_relinks_without_reopening_or_duplicating() {
+        let source = Orchestrator::default();
+        let bot_id = bot(&source, "已回答迁移");
+        let assignment = source
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat".into(),
+                bot_id: bot_id.clone(),
+                title: "已回答".into(),
+                instruction: "恢复已回答问题".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let message = source
+            .send_msg(SendMessageRequest {
+                bot_id: bot_id.clone(),
+                chat_id: "chat".into(),
+                assignment_id: Some(assignment.id.clone()),
+                run_id: None,
+                call_id: None,
+                text: "选择登录方式".into(),
+                intent: "decision".into(),
+                mentions: vec![MentionInput::User("user".into())],
+                artifacts: vec![],
+                options: vec!["邮箱".into(), "手机".into()],
+            })
+            .unwrap();
+        let question_id = message.question_id.clone().unwrap();
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(source.rpc(
+                "question.answer",
+                json!({"question_id":question_id,"option_index":0}),
+            ))
+            .unwrap();
+        let answered_snapshot = source.snapshot().unwrap();
+        let answered_question = answered_snapshot["questions"][&question_id].clone();
+        let mut legacy = answered_snapshot;
+        legacy["messages"][&message.id]
+            .as_object_mut()
+            .unwrap()
+            .remove("question_id");
+        legacy["assignments"][&assignment.id]["status"] = json!("working");
+        legacy["assignments"][&assignment.id]["wait"] = Value::Null;
+
+        let restored = Orchestrator::default();
+        restored.restore(legacy).unwrap();
+        assert!(restored
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
+            .unwrap());
+        let after = restored.snapshot().unwrap();
+        assert_eq!(after["messages"][&message.id]["question_id"], question_id);
+        assert_eq!(after["questions"].as_object().unwrap().len(), 1);
+        assert_eq!(after["questions"][&question_id], answered_question);
+        assert_eq!(after["assignments"][&assignment.id]["status"], "working");
+        assert_eq!(
+            after["assignments"][&assignment.id]["wait"]["message_id"],
+            message.id
+        );
+        assert!(!restored
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat")
             .unwrap());
         assert_eq!(restored.snapshot().unwrap(), after);
     }

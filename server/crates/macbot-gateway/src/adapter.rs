@@ -184,6 +184,9 @@ impl ProductionBackend {
                 continue;
             };
             let checkpoint = &job.checkpoint;
+            if checkpoint.get("waiting_reason").and_then(Value::as_str) == Some("decision") {
+                tracing::info!(job_id = %job.id, unsafe_replay = job.unsafe_replay, pending_tool = !checkpoint.get("pending_tool").is_none_or(serde_json::Value::is_null), pending_tools_empty = checkpoint.get("pending_tools").is_none_or(|tools| tools.is_null() || tools.as_array().is_some_and(Vec::is_empty)), "checking durable decision recovery");
+            }
             if job.unsafe_replay
                 || !matches!(
                     job.status,
@@ -213,6 +216,7 @@ impl ProductionBackend {
             else {
                 continue;
             };
+            tracing::info!(%run_id, %message_id, "decision recovery request loaded");
             if request.get("run_id").and_then(Value::as_str) != Some(run_id) {
                 continue;
             }

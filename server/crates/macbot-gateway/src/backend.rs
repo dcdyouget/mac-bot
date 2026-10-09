@@ -158,9 +158,185 @@ impl ComposedBackend {
                 }
                 Err(error) => tracing::error!(%error, "durable execution recovery failed"),
             }
+            recovery_backend.recover_answered_decisions().await;
             recovery_backend.dispatch_ready_assignments().await;
         });
         Ok(backend)
+    }
+
+    /// Continue decisions which were answered before a crash but whose durable
+    /// job remained in a safe waiting checkpoint.  This path is deliberately
+    /// narrower than normal job recovery: an answered Question, its canonical
+    /// message, the exact run request, and a safe decision checkpoint must all
+    /// agree before the original run is resumed.
+    async fn recover_answered_decisions(&self) {
+        let Ok(snapshot) = self.inner.orchestrator.snapshot() else {
+            return;
+        };
+        let Some(questions) = snapshot.get("questions").and_then(Value::as_object) else {
+            return;
+        };
+        let jobs_dir = self.inner.store.root().join("data/jobs");
+        let Ok(entries) = fs::read_dir(&jobs_dir) else {
+            return;
+        };
+        let entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+        let mut claimed_runs = HashSet::new();
+        for (question_id, question) in questions {
+            if question
+                .get("options")
+                .and_then(Value::as_array)
+                .is_none_or(Vec::is_empty)
+            {
+                continue;
+            }
+            let Some(answer) = answered_decision_answer(question) else {
+                continue;
+            };
+            let messages = snapshot
+                .get("messages")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flat_map(|items| items.values())
+                .filter(|message| {
+                    message.get("question_id").and_then(Value::as_str) == Some(question_id)
+                        && message.get("intent").and_then(Value::as_str) == Some("decision")
+                        && message.get("options").and_then(Value::as_array)
+                            == question.get("options").and_then(Value::as_array)
+                })
+                .collect::<Vec<_>>();
+            if messages.len() != 1 {
+                tracing::warn!(%question_id, count = messages.len(), "answered decision has ambiguous canonical message");
+                continue;
+            }
+            let message = messages[0];
+            let Some(message_id) = message.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let mut candidates = Vec::new();
+            for entry in &entries {
+                if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                    continue;
+                }
+                let Ok(file) = fs::File::open(entry.path()) else {
+                    continue;
+                };
+                let Ok(job) = serde_json::from_reader::<_, macbot_durable::Job>(file) else {
+                    continue;
+                };
+                let status = match job.status {
+                    macbot_durable::JobStatus::Waiting => "waiting",
+                    macbot_durable::JobStatus::Suspended => "suspended",
+                    _ => continue,
+                };
+                if !answered_decision_checkpoint_is_safe(
+                    &job.checkpoint,
+                    job.unsafe_replay,
+                    status,
+                    message_id,
+                ) {
+                    continue;
+                }
+                let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Ok(Some(request)) = self
+                    .inner
+                    .store
+                    .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+                else {
+                    continue;
+                };
+                if request.run_id != run_id
+                    || !answered_decision_request_matches(&snapshot, question, message, &request)
+                {
+                    continue;
+                }
+                candidates.push(request);
+            }
+            if candidates.len() != 1 {
+                tracing::warn!(%question_id, count = candidates.len(), "answered decision has ambiguous durable job");
+                continue;
+            }
+            let request = candidates.pop().expect("candidate length checked");
+            if !claimed_runs.insert(request.run_id.clone()) {
+                continue;
+            }
+            let Some(active_key) = self.reserve_run(&request) else {
+                continue;
+            };
+            let assignment_id = request.assignment_id.clone();
+            self.mark_waiting(assignment_id.as_deref(), &request.run_id, true);
+            let continuation = self.runtime.resume_question(question_id, answer).await;
+            if let Ok(mut active) = self.active_runs.lock() {
+                active.remove(&active_key);
+            }
+            match continuation {
+                Ok(Some((returned_assignment, outcome))) => {
+                    let assignment_id = returned_assignment.or(assignment_id);
+                    self.mark_waiting(
+                        assignment_id.as_deref(),
+                        &outcome.run_id,
+                        matches!(outcome.status.as_str(), "waiting" | "blocked" | "suspended"),
+                    );
+                    if outcome.status == "done" {
+                        if let Some(assignment_id) = assignment_id {
+                            self.finish_assignment_and_resume_parent(assignment_id, outcome.text)
+                                .await;
+                        }
+                    } else if matches!(outcome.status.as_str(), "failed" | "cancelled") {
+                        if let Some(assignment_id) = assignment_id {
+                            fail_assignment(
+                                self.inner.clone(),
+                                self.state.clone(),
+                                assignment_id,
+                                &outcome.status,
+                            )
+                            .await;
+                        }
+                    }
+                }
+                Ok(None) => {
+                    tracing::warn!(%question_id, run_id = %request.run_id, "answered decision had no resumable job");
+                    self.mark_waiting(assignment_id.as_deref(), &request.run_id, false);
+                    // Do not leave this exact active assignment indefinitely
+                    // working if its continuation could not be delivered.
+                    // A concurrently changed or terminal assignment is left alone.
+                    if self
+                        .inner
+                        .orchestrator
+                        .snapshot()
+                        .ok()
+                        .is_some_and(|current| {
+                            answered_decision_request_matches(&current, question, message, &request)
+                        })
+                    {
+                        if let Some(assignment_id) = assignment_id {
+                            fail_assignment(
+                                self.inner.clone(),
+                                self.state.clone(),
+                                assignment_id,
+                                "failed",
+                            )
+                            .await;
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(%question_id, run_id = %request.run_id, %error, "answered decision recovery failed");
+                    self.mark_waiting(assignment_id.as_deref(), &request.run_id, false);
+                    if let Some(assignment_id) = assignment_id {
+                        fail_assignment(
+                            self.inner.clone(),
+                            self.state.clone(),
+                            assignment_id,
+                            "failed",
+                        )
+                        .await;
+                    }
+                }
+            }
+        }
     }
 
     /// Advance due routines and dispatch each newly-created run through the
@@ -1925,6 +2101,154 @@ fn decision_checkpoint_matches_question(checkpoint: &Value, message_id: &str) ->
         && checkpoint.get("waiting_message_id").and_then(Value::as_str) == Some(message_id)
 }
 
+fn answered_decision_answer(question: &Value) -> Option<String> {
+    if question.get("state").and_then(Value::as_str) != Some("answered") {
+        return None;
+    }
+    let answer = question.get("answer")?.as_object()?;
+    if let Some(text) = answer
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+    {
+        return Some(text.to_owned());
+    }
+    let index = answer.get("option_index").and_then(Value::as_u64)? as usize;
+    question
+        .get("options")
+        .and_then(Value::as_array)
+        .and_then(|options| options.get(index))
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .map(str::to_owned)
+}
+
+fn answered_decision_checkpoint_is_safe(
+    checkpoint: &Value,
+    unsafe_replay: bool,
+    status: &str,
+    message_id: &str,
+) -> bool {
+    matches!(status, "waiting" | "suspended")
+        && !unsafe_replay
+        && checkpoint.get("waiting_reason").and_then(Value::as_str) == Some("decision")
+        && checkpoint.get("pending_tool").is_none_or(Value::is_null)
+        && checkpoint
+            .get("pending_tools")
+            .is_none_or(|value| value.is_null() || value.as_array().is_some_and(Vec::is_empty))
+        && checkpoint.get("waiting_message_id").and_then(Value::as_str) == Some(message_id)
+}
+
+fn same_runtime_bot_id(left: &str, right: &str) -> bool {
+    left == right || (matches!(left, "main" | "bot_main") && matches!(right, "main" | "bot_main"))
+}
+
+fn answered_decision_request_matches(
+    snapshot: &Value,
+    question: &Value,
+    message: &Value,
+    request: &ExecutionRequest,
+) -> bool {
+    let Some(question_bot_id) = question.get("bot_id").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(message_bot_id) = message.get("sender").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(message_id) = message.get("id").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(chat_id) = message.get("chat_id").and_then(Value::as_str) else {
+        return false;
+    };
+    if !same_runtime_bot_id(question_bot_id, &request.bot_id)
+        || !same_runtime_bot_id(message_bot_id, &request.bot_id)
+        || question.get("chat_id").and_then(Value::as_str) != Some(chat_id)
+        || request.chat_id != chat_id
+    {
+        return false;
+    }
+    let question_assignment_id = question.get("assignment_id").and_then(Value::as_str);
+    let assignment_exists = question_assignment_id.is_some_and(|id| {
+        snapshot
+            .get("assignments")
+            .and_then(Value::as_object)
+            .is_some_and(|assignments| assignments.contains_key(id))
+    });
+    if assignment_exists {
+        let Some(assignment_id) = question_assignment_id else {
+            return false;
+        };
+        let Some(assignment) = snapshot
+            .get("assignments")
+            .and_then(Value::as_object)
+            .and_then(|assignments| assignments.get(assignment_id))
+        else {
+            return false;
+        };
+        request.assignment_id.as_deref() == Some(assignment_id)
+            && message.get("assignment_id").and_then(Value::as_str) == Some(assignment_id)
+            && assignment.get("origin_chat_id").and_then(Value::as_str) == Some(chat_id)
+            && same_runtime_bot_id(
+                assignment
+                    .get("bot_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                &request.bot_id,
+            )
+            && matches!(
+                assignment.get("status").and_then(Value::as_str),
+                Some("working" | "waiting_user" | "waiting_bot")
+            )
+            && (assignment.get("wait").is_none_or(Value::is_null)
+                && assignment.get("status").and_then(Value::as_str) == Some("working")
+                || assignment
+                    .get("wait")
+                    .and_then(Value::as_object)
+                    .is_some_and(|wait| {
+                        wait.get("reason").and_then(Value::as_str) == Some("decision")
+                            && wait.get("message_id").and_then(Value::as_str) == Some(message_id)
+                    }))
+    } else {
+        let Some(question_scope) = question_assignment_id else {
+            return false;
+        };
+        let expected_scope = format!(
+            "dm_{}",
+            chat_id
+                .chars()
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                        ch
+                    } else {
+                        '_'
+                    }
+                })
+                .collect::<String>()
+        );
+        let bot_dm_matches = snapshot
+            .get("bots")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|bots| bots.values())
+            .find(|bot| {
+                bot.get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| same_runtime_bot_id(id, &request.bot_id))
+            })
+            .and_then(|bot| bot.get("dm_chat_id").and_then(Value::as_str))
+            == Some(chat_id);
+        question_scope == expected_scope
+            && request.assignment_id.is_none()
+            && request.private
+            && message
+                .get("assignment_id")
+                .and_then(Value::as_str)
+                .is_none()
+            && bot_dm_matches
+    }
+}
+
 fn assignment_result_text(snapshot: &Value, assignment_id: &str) -> Option<String> {
     let message_id = snapshot
         .get("assignments")
@@ -3427,7 +3751,8 @@ impl RuntimeExecution {
             if !matches!(
                 job.status,
                 macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
-            ) || !decision_checkpoint_matches_question(&job.checkpoint, &message_id)
+            ) || job.unsafe_replay
+                || !decision_checkpoint_matches_question(&job.checkpoint, &message_id)
             {
                 continue;
             }
@@ -3447,7 +3772,10 @@ impl RuntimeExecution {
                 request.assignment_id.is_none() && request.chat_id == chat_id
             };
             if !matches_request
-                || question.get("bot_id").and_then(Value::as_str) != Some(request.bot_id.as_str())
+                || !question
+                    .get("bot_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| same_runtime_bot_id(id, &request.bot_id))
             {
                 continue;
             }
@@ -3528,7 +3856,8 @@ impl RuntimeExecution {
             if !matches!(
                 job.status,
                 macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
-            ) || !waiting_checkpoint_matches_message(&job.checkpoint, expected_message_id)
+            ) || job.unsafe_replay
+                || !waiting_checkpoint_matches_message(&job.checkpoint, expected_message_id)
             {
                 continue;
             }
@@ -5043,15 +5372,222 @@ mod model_resolution_tests {
         }
     }
     use super::{
-        assignment_result_text, decision_checkpoint_matches_question, is_run_status_boundary,
+        answered_decision_answer, answered_decision_checkpoint_is_safe,
+        answered_decision_request_matches, assignment_result_text,
+        decision_checkpoint_matches_question, is_run_status_boundary,
         missing_model_bot_from_snapshot, pending_decision_question_id, project_assignment_targets,
         project_summary, resolve_model, routable_missing_model_chat_from_snapshot,
         waiting_assignment_for_message, waiting_checkpoint_matches_message,
         waiting_message_id_for_assignment, waiting_parent_for_child, ComposedBackend,
-        ExecutionEvent, ModelRole,
+        ExecutionEvent, ExecutionRequest, ModelRole,
     };
     use macbot_store::Event;
     use serde_json::json;
+
+    #[test]
+    fn answered_decision_recovery_uses_text_or_option_without_guessing() {
+        assert_eq!(
+            answered_decision_answer(&json!({
+                "state":"answered",
+                "options":["继续","停止"],
+                "answer":{"option_index":1}
+            }))
+            .as_deref(),
+            Some("停止")
+        );
+        assert_eq!(
+            answered_decision_answer(&json!({
+                "state":"answered",
+                "options":["继续","停止"],
+                "answer":{"option_index":0,"text":"用户自定义"}
+            }))
+            .as_deref(),
+            Some("用户自定义")
+        );
+        assert_eq!(
+            answered_decision_answer(&json!({
+                "state":"answered",
+                "options":[],
+                "answer":{"option_index":0}
+            })),
+            None
+        );
+        assert_eq!(
+            answered_decision_answer(&json!({
+                "state":"pending",
+                "options":["继续"],
+                "answer":{"option_index":0}
+            })),
+            None
+        );
+    }
+
+    #[test]
+    fn answered_decision_recovery_rejects_unsafe_or_incomplete_jobs() {
+        let safe = json!({
+            "waiting_reason":"decision",
+            "waiting_message_id":"message",
+            "pending_tool":null,
+            "pending_tools":[]
+        });
+        assert!(answered_decision_checkpoint_is_safe(
+            &safe, false, "waiting", "message"
+        ));
+        assert!(!answered_decision_checkpoint_is_safe(
+            &safe, true, "waiting", "message"
+        ));
+        assert!(!answered_decision_checkpoint_is_safe(
+            &safe, false, "running", "message"
+        ));
+        assert!(!answered_decision_checkpoint_is_safe(
+            &json!({
+                "waiting_reason":"decision",
+                "waiting_message_id":"message",
+                "pending_tool":{"call_id":"write"},
+                "pending_tools":[]
+            }),
+            false,
+            "waiting",
+            "message"
+        ));
+        assert!(!answered_decision_checkpoint_is_safe(
+            &json!({
+                "waiting_reason":"decision",
+                "waiting_message_id":"message",
+                "pending_tool":null,
+                "pending_tools":[{"name":"write"}]
+            }),
+            false,
+            "waiting",
+            "message"
+        ));
+    }
+
+    #[test]
+    fn answered_decision_recovery_requires_exact_assignment_or_private_scope() {
+        let request: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":"run-1",
+            "assignment_id":"assignment-1",
+            "chat_id":"chat-1",
+            "bot_id":"bot-1",
+            "model":"mock/model",
+            "instruction":"resume",
+            "private":false
+        }))
+        .unwrap();
+        let snapshot = json!({"assignments":{"assignment-1":{
+            "id":"assignment-1",
+            "bot_id":"bot-1",
+            "origin_chat_id":"chat-1",
+            "status":"working",
+            "wait":{"reason":"decision","message_id":"message-1"}
+        }}});
+        let question = json!({
+            "assignment_id":"assignment-1",
+            "chat_id":"chat-1",
+            "bot_id":"bot-1"
+        });
+        let message = json!({"id":"message-1","chat_id":"chat-1","sender":"bot-1","assignment_id":"assignment-1"});
+        assert!(answered_decision_request_matches(
+            &snapshot, &question, &message, &request
+        ));
+        let mut delivered_state = snapshot.clone();
+        delivered_state["assignments"]["assignment-1"]["wait"] = json!(null);
+        assert!(answered_decision_request_matches(
+            &delivered_state,
+            &question,
+            &message,
+            &request
+        ));
+        delivered_state["assignments"]["assignment-1"]["status"] = json!("waiting_bot");
+        assert!(!answered_decision_request_matches(
+            &delivered_state,
+            &question,
+            &message,
+            &request
+        ));
+        let mut conflicting_assignment_chat = snapshot.clone();
+        conflicting_assignment_chat["assignments"]["assignment-1"]["origin_chat_id"] =
+            json!("other-chat");
+        assert!(!answered_decision_request_matches(
+            &conflicting_assignment_chat,
+            &question,
+            &message,
+            &request
+        ));
+        let mut wrong_chat = request.clone();
+        wrong_chat.chat_id = "other-chat".into();
+        assert!(!answered_decision_request_matches(
+            &snapshot,
+            &question,
+            &message,
+            &wrong_chat
+        ));
+        let mut queued = snapshot.clone();
+        queued["assignments"]["assignment-1"]["status"] = json!("queued");
+        assert!(!answered_decision_request_matches(
+            &queued, &question, &message, &request
+        ));
+        let mut wrong_wait = snapshot.clone();
+        wrong_wait["assignments"]["assignment-1"]["wait"]["message_id"] = json!("old-message");
+        assert!(!answered_decision_request_matches(
+            &wrong_wait,
+            &question,
+            &message,
+            &request
+        ));
+        let mut wrong_assignment_message = message.clone();
+        wrong_assignment_message["assignment_id"] = json!("other-assignment");
+        assert!(!answered_decision_request_matches(
+            &snapshot,
+            &question,
+            &wrong_assignment_message,
+            &request
+        ));
+
+        let private_request: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":"run-private",
+            "assignment_id":null,
+            "chat_id":"dm-bot-1",
+            "bot_id":"bot-1",
+            "model":"mock/model",
+            "instruction":"resume",
+            "private":true
+        }))
+        .unwrap();
+        let private_question = json!({
+            "assignment_id":"dm_dm-bot-1",
+            "chat_id":"dm-bot-1",
+            "bot_id":"bot-1"
+        });
+        let private_message = json!({"id":"message-2","chat_id":"dm-bot-1","sender":"bot-1"});
+        let private_snapshot = json!({
+            "assignments":{},
+            "bots":{"bot-1":{"id":"bot-1","dm_chat_id":"dm-bot-1"}}
+        });
+        assert!(answered_decision_request_matches(
+            &private_snapshot,
+            &private_question,
+            &private_message,
+            &private_request
+        ));
+        let mut non_private = private_request.clone();
+        non_private.private = false;
+        assert!(!answered_decision_request_matches(
+            &private_snapshot,
+            &private_question,
+            &private_message,
+            &non_private
+        ));
+        let mut wrong_scope = private_question.clone();
+        wrong_scope["assignment_id"] = json!("dm_other-chat");
+        assert!(!answered_decision_request_matches(
+            &private_snapshot,
+            &wrong_scope,
+            &private_message,
+            &private_request
+        ));
+    }
 
     #[test]
     fn waiting_message_reply_matches_decision_wait_id() {
