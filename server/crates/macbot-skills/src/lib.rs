@@ -374,19 +374,35 @@ impl SkillRegistry {
     }
 
     pub fn update(&mut self, name: &str, content: &str) -> Result<Skill, SkillError> {
-        let entry = self
-            .entries
-            .get(name)
-            .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
-        if entry.skill.source == SkillSource::Builtin {
+        let (path, source, enabled, disabled_bot_ids, invocations_7d) = {
+            let entry = self
+                .entries
+                .get(name)
+                .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
+            (
+                entry.skill.path.clone(),
+                entry.skill.source.clone(),
+                entry.skill.enabled,
+                entry.skill.disabled_bot_ids.clone(),
+                entry.skill.invocations_7d.clone(),
+            )
+        };
+        if source == SkillSource::Builtin {
             return Err(SkillError::BuiltinReadOnly);
         }
         let (parsed_name, _) = parse_frontmatter(content)?;
         if parsed_name != name {
             return Err(SkillError::Invalid("frontmatter name mismatch".into()));
         }
-        write_skill_dir(Path::new(&entry.skill.path), content)?;
-        let indexed = make_indexed(PathBuf::from(&entry.skill.path), entry.skill.source.clone())?;
+        write_skill_dir(Path::new(&path), content)?;
+        let mut indexed = make_indexed(PathBuf::from(&path), source)?;
+        // Updating SKILL.md must not reset mutable registry metadata. These
+        // fields are outside frontmatter and are persisted by the feature
+        // snapshot, so a content edit cannot re-enable a disabled skill or
+        // erase a Bot-specific disablement.
+        indexed.skill.enabled = enabled;
+        indexed.skill.disabled_bot_ids = disabled_bot_ids;
+        indexed.skill.invocations_7d = invocations_7d;
         let skill = indexed.skill.clone();
         self.entries.insert(name.to_string(), indexed);
         Ok(skill)
@@ -1251,5 +1267,25 @@ mod tests {
         assert!(!restored.is_enabled_for("demo", Some("bot-a")).unwrap());
         assert_eq!(skill.invocations_7d.total, 1);
         assert_eq!(skill.disabled_bot_ids, vec!["bot-a"]);
+    }
+
+    #[test]
+    fn update_preserves_global_and_bot_enablement_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut registry = SkillRegistry::with_roots(temp.path().join("install"), vec![]);
+        registry.create("demo", &skill_text("demo")).unwrap();
+        registry.set_enabled("demo", false, None).unwrap();
+        registry.set_enabled("demo", false, Some("bot-a")).unwrap();
+
+        let updated = registry
+            .update(
+                "demo",
+                "---\nname: demo\ndescription: updated\n---\n# updated\n",
+            )
+            .unwrap();
+        assert!(!updated.enabled);
+        assert_eq!(updated.disabled_bot_ids, vec!["bot-a"]);
+        assert!(!registry.is_enabled_for("demo", None).unwrap());
+        assert!(!registry.is_enabled_for("demo", Some("bot-a")).unwrap());
     }
 }

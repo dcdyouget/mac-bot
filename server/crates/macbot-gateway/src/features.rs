@@ -1983,6 +1983,68 @@ mod tests {
     }
 
     #[test]
+    fn skill_update_preserves_enablement_after_persist_and_restart() {
+        let home = tempfile::tempdir().unwrap().keep();
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        service
+            .skill_rpc(
+                "skill.create",
+                json!({"name":"editable","content":skill("editable")}),
+            )
+            .unwrap();
+        service
+            .skill_rpc(
+                "skill.set_enabled",
+                json!({"name":"editable","enabled":false}),
+            )
+            .unwrap();
+        service
+            .skill_rpc(
+                "skill.set_enabled",
+                json!({"name":"editable","enabled":false,"bot_id":"bot-a"}),
+            )
+            .unwrap();
+        let updated = service
+            .skill_rpc(
+                "skill.update",
+                json!({
+                    "name":"editable",
+                    "content":"---\nname: editable\ndescription: updated\n---\n# updated\n"
+                }),
+            )
+            .unwrap();
+        assert_eq!(updated.result["skill"]["enabled"], false);
+        assert_eq!(
+            updated.result["skill"]["disabled_bot_ids"],
+            json!(["bot-a"])
+        );
+        drop(service);
+
+        let restored = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
+        let skill = restored
+            .skill_registry
+            .read()
+            .unwrap()
+            .get("editable")
+            .unwrap()
+            .skill;
+        assert!(!skill.enabled);
+        assert_eq!(skill.disabled_bot_ids, vec!["bot-a"]);
+        assert!(!restored
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("editable", None)
+            .unwrap());
+        assert!(!restored
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("editable", Some("bot-a"))
+            .unwrap());
+    }
+
+    #[test]
     fn duplicate_bot_skill_settings_persist_without_copying_invocations() {
         let service = service();
         service
