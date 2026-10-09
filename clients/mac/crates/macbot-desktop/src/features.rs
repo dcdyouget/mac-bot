@@ -4193,6 +4193,8 @@ fn search_result_rows(
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
     div()
+        .w_full()
+        .min_w_0()
         .flex()
         .flex_col()
         .gap_1()
@@ -4203,20 +4205,44 @@ fn search_result_rows(
             let snippet = string(result, "snippet", t("common.unknown"));
             let target = search_target(result, &kind);
             let mut row = div()
+                .w_full()
+                .min_w_0()
                 .flex()
                 .items_center()
-                .justify_between()
+                .gap_3()
                 .py_2()
                 .border_b_1()
                 .border_color(tokens.border)
-                .child(format!("{kind_label}   {title}\n{snippet}"));
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .w_full()
+                                .truncate()
+                                .child(format!("{kind_label}   {title}")),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .truncate()
+                                .text_sm()
+                                .text_color(tokens.secondary)
+                                .child(snippet),
+                        ),
+                );
             if let Some(target) = target {
-                row = row.child(action_button_with_id(
+                row = row.child(div().flex_shrink_0().child(action_button_with_id(
                     format!("search-open-{index}"),
                     t("search.open"),
                     FeatureAction::Navigate(target),
                     cx,
-                ));
+                )));
             }
             row
         }))
