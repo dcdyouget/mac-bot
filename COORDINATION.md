@@ -313,3 +313,12 @@
 
 - S2 产物落点补充阻断：Parent-Coder run_request cwd=原项目Home，但write raw path以~/MacBot开头；ToolContext::resolve直接cwd.join(raw)，实际index.html/styles.css落在Home/~/MacBot/projects/...嵌套目录，expanduser后的目标不存在。无越出Home；此前helper的expanduser模型与运行时解析不同，已保留批准记录和实际stat/hash，不记正确产物PASS。第三write4648同表示，暂不批准；归server-mac解析/参数校验语义核查，精确证据S2/production-c6ffcfc-file-targets.json，不现场搬产物或改待审批参数。
 - integrator仅修scripts审批核对：write/edit的leading~保守拒绝，project_home配置仍可展开；11项局部回归通过。server已确认真实解析bug，准备统一~/解析与effective target校验，并使旧tilde pending以语义错误同run重试、生成新绝对path审批；不把旧审批自动授权到新落点。与missing-project无效pending纠错一起发布，当前尚无新可消费SHA，c6现场保持。
+
+
+## server-mac：缺目标记忆与旧 tilde 审批的原 run 安全纠错（2026-10-10）
+- 复核 c6 正式证据：memory(scope=project) 未带 project_id 不能从 scope 字符串授权；旧文件工具把 leading ~/ 当相对路径，已批准产物写到 ProjectHome/~/...。两类均由 server 内部修复，保留正式原 run/审批/文件/receipt，不搬文件、不改旧 args、不使用旧许可授权新目标。
+- memory/memory_search 的 scoped ID 在审批前纯校验；参数错误以 tool.error 返回原模型。启动纠错只覆盖严格匹配的旧 pending approval/map/call/head/request/asg/Bot/chat，先持久化 receipt 再 pending→expired；原 run 消费错误，剩余 batch 仅 deferred error 不执行。已过期审批不可再次 allow/deny；崩溃在过期后、续接前可继续同 run，重复重启不二次调用。缺映射或有歧义保持不动。
+- 文件解析和 approval.detail 共用 resolve_tool_path：~ 取真实用户 HOME，MACBOT_HOME 只控制数据根；保持现有 cwd confinement。新 detail 记录 resolved_path/path_resolution=home-v1，raw args 不变。旧 leading~ write/edit 没有该元数据时仅退回模型要求明确绝对路径及新审批；已完成旧工具 receipt/错误落点保持。新鲜合法 ~/ 调用通过新审批实际写入一致目标。
+- 验证：rebase最新origin/main572ee8f后321 workspace tests、all-targets clippy -D warnings、fmt/build通过；实际旧 c6 binary→新版五场景全PASS（旧缺project、过期receipt恢复、旧leading~、新缺project、新合法~/）。核原run唯一start、严格旧审批expired/原detail不变、剩余batch无执行、新明确参数/绝对路径的新审批及actual target、重复kill9无provider新增；使用HOME下独立MACBOT_HOME，不改进程HOME。
+- 证据：/tmp/macbot-invalid-tools-20261010f.evidence.log，isolated home=/Users/gongshaojie/Library/Caches/macbot-invalid-tools-20261010f；完整协作 /tmp/macbot-invalid-tools-collaboration-20261010a.evidence.log（24 assignments/27 jobs全done）；answered Q原run重启回归 /tmp/macbot-invalid-tools-answered-20261010a.evidence.log；/tmp/macbot-invalid-tools-rebase-workspace-20261010.log、同前缀clippy/build。业务代码rebase前后逐字一致。
+- 交集成固定累计SHA沿原现场server-only升级，后续纠正操作需新approval；旧4648/4287仅按严格条件expired，60b2等有效待批保持。未触正式7788、共享7789、客户端/GUI/AVD或真实key。隔离fake与包校验不替代两端真实S2或S5 fresh整体通过。
