@@ -85,9 +85,19 @@ try:
     if result.returncode or not output.is_file() or not output.stat().st_size:
         raise RuntimeError("No desktop screenshot produced")
 except (subprocess.TimeoutExpired, RuntimeError) as exc:
-    output.unlink(missing_ok=True)
-    print(f"[capture] Desktop capture failed: {exc}", file=sys.stderr)
-    sys.exit(1)
+    # Some macOS versions finish the hidden PNG but stall while finalizing.
+    # Preserve complete evidence; an image still requires visual inspection.
+    hidden = output.with_name("." + output.name)
+    data = hidden.read_bytes() if hidden.is_file() else b""
+    if data.startswith(b"\x89PNG\r\n\x1a\n") and data.endswith(b"\x00\x00\x00\x00IEND\xaeB`\x82"):
+        hidden.replace(output)
+        output.with_suffix(".capture-note.txt").write_text(
+            "screencapture finalize failed; complete hidden PNG recovered; visual verification required\n")
+        print("[capture] Recovered complete desktop PNG; visually verify before acceptance.", file=sys.stderr)
+    else:
+        output.unlink(missing_ok=True)
+        print(f"[capture] Desktop capture failed: {exc}", file=sys.stderr)
+        sys.exit(1)
 PY
     then
       {

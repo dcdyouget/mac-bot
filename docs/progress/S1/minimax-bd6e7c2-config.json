@@ -1,0 +1,25 @@
+{
+  "source": "bd6e7c243577508fb5005acb838de452ad58f732",
+  "listen_pid": 98893,
+  "port": 7788,
+  "home": "/Users/gongshaojie/MacBot",
+  "secret_backend": "file",
+  "provider": {
+    "model": "MiniMax-M2.5",
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 44,
+      "output_tokens": 63
+    },
+    "text_present": true,
+    "host": {
+      "provider_id": "prv_01a1204f-5654-7576-ba57-281f6ef55d71",
+      "base_url": "https://api.minimax.cn/anthropic",
+      "model_ref": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+      "provider_test": true,
+      "defaults_updated": true
+    }
+  },
+  "password_file": "~/.macbot-dev-password",
+  "scope": "real MiniMax configuration; S1 scenario running, joint acceptance pending"
+}

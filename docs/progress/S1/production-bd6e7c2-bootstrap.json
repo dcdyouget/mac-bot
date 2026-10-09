@@ -1,0 +1,18 @@
+{
+  "source": "bd6e7c243577508fb5005acb838de452ad58f732",
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "bots": [
+    {
+      "id": "main",
+      "name": "总管",
+      "is_main": true
+    }
+  ],
+  "chats": 2,
+  "existing_auth_aligned_via_local_cli": true
+}

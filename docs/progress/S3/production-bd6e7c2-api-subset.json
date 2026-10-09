@@ -1,0 +1,100 @@
+{
+  "source": "bd6e7c243577508fb5005acb838de452ad58f732",
+  "skill_crud": "PASS",
+  "skill_name": "integrator-production-e4bd543c",
+  "deleted": true,
+  "usage_summary": {
+    "current": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "requests": 0,
+      "tasks_done": 0
+    },
+    "previous": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "requests": 0,
+      "tasks_done": 0
+    }
+  },
+  "heatmap": {
+    "days": [
+      {
+        "cost": null,
+        "date": "2026-10-02",
+        "requests": 0,
+        "tokens": 0,
+        "top_bot_id": null,
+        "value": 0.0
+      },
+      {
+        "cost": null,
+        "date": "2026-10-03",
+        "requests": 0,
+        "tokens": 0,
+        "top_bot_id": null,
+        "value": 0.0
+      },
+      {
+        "cost": null,
+        "date": "2026-10-04",
+        "requests": 0,
+        "tokens": 0,
+        "top_bot_id": null,
+        "value": 0.0
+      },
+      {
+        "cost": null,
+        "date": "2026-10-05",
+        "requests": 0,
+        "tokens": 0,
+        "top_bot_id": null,
+        "value": 0.0
+      },
+      {
+        "cost": null,
+        "date": "2026-10-06",
+        "requests": 0,
+        "tokens": 0,
+        "top_bot_id": null,
+        "value": 0.0
+      },
+      {
+        "cost": null,
+        "date": "2026-10-07",
+        "requests": 0,
+        "tokens": 0,
+        "top_bot_id": null,
+        "value": 0.0
+      },
+      {
+        "cost": null,
+        "date": "2026-10-08",
+        "requests": 0,
+        "tokens": 0,
+        "top_bot_id": null,
+        "value": 0.0
+      },
+      {
+        "cost": null,
+        "date": "2026-10-09",
+        "requests": 0,
+        "tokens": 0,
+        "top_bot_id": null,
+        "value": 0.0
+      }
+    ],
+    "thresholds": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "scope": "production API subset only; no cross-chat memory or UI acceptance"
+}

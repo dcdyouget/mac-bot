@@ -1,0 +1,120 @@
+{
+  "source": "bd6e7c243577508fb5005acb838de452ad58f732",
+  "bot_create": {
+    "bot": {
+      "avatar": {
+        "color": 0,
+        "kind": "bean"
+      },
+      "browser_mode": "headless",
+      "created_at": "2026-10-09T10:58:19.223526+00:00",
+      "description": "",
+      "dm_chat_id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "hidden": false,
+      "id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+      "is_main": false,
+      "label": "",
+      "max_parallel": 3,
+      "model": null,
+      "name": "集成复现-私聊契约",
+      "notifications": true,
+      "pinned": false,
+      "status": {
+        "active": 0,
+        "queued": 0,
+        "summary": "idle",
+        "waiting": 0
+      },
+      "tools": {
+        "bash": true,
+        "browser": true,
+        "files": true,
+        "mcp": true,
+        "subagent": true,
+        "web": true
+      },
+      "updated_at": "2026-10-09T10:58:19.223526+00:00"
+    },
+    "dm_chat": {
+      "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+      "id": "01a12050-59d7-7669-98d5-eab1202a13d2",
+      "kind": "direct"
+    }
+  },
+  "bootstrap_chats": [
+    {
+      "attention": "none",
+      "bot_id": null,
+      "id": "chat_main",
+      "kind": "main",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [
+        "main"
+      ],
+      "muted": false,
+      "pinned": true,
+      "project_id": null,
+      "title": "主会话",
+      "unread": 0,
+      "updated_at": "2026-10-09T10:58:19.260Z"
+    },
+    {
+      "attention": "none",
+      "bot_id": "01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "id": "dm_01a1204f-aab3-7180-88c7-501d2cbb02d0",
+      "kind": "bot_dm",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [
+        "01a1204f-aab3-7180-88c7-501d2cbb02d0"
+      ],
+      "muted": false,
+      "pinned": false,
+      "project_id": null,
+      "title": "macbot-e2e-s1-96f9d5360d07",
+      "unread": 0,
+      "updated_at": "2026-10-09T10:57:34.387393+00:00"
+    },
+    {
+      "attention": "none",
+      "bot_id": "01a12050-59d7-7669-98d5-eab07352b9d9",
+      "id": "dm_01a12050-59d7-7669-98d5-eab07352b9d9",
+      "kind": "bot_dm",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [
+        "01a12050-59d7-7669-98d5-eab07352b9d9"
+      ],
+      "muted": false,
+      "pinned": false,
+      "project_id": null,
+      "title": "集成复现-私聊契约",
+      "unread": 0,
+      "updated_at": "2026-10-09T10:58:19.223526+00:00"
+    },
+    {
+      "attention": "none",
+      "bot_id": "main",
+      "id": "dm_main",
+      "kind": "bot_dm",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [
+        "main"
+      ],
+      "muted": false,
+      "pinned": true,
+      "project_id": null,
+      "title": "总管",
+      "unread": 0,
+      "updated_at": "2026-10-09T10:56:10.042828+00:00"
+    }
+  ],
+  "expected": "non-main Bot dm_chat_id equals direct dm_chat.id; main Bot session kind main",
+  "actual_failure": "S1 stopped before chat.send: bot.create returned inconsistent dm_chat id, bootstrap worker chat kind bot_dm"
+}
