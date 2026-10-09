@@ -1,0 +1,75 @@
+{
+  "checked_at": "2026-10-09T17:38:59.218045+08:00",
+  "source_commit": "f3688240bfbb6c26402b17487c419ff81e3c6eca",
+  "component": "shared mock",
+  "port": 7789,
+  "listener_pid": 40796,
+  "result": "readonly member/pending API precheck passed",
+  "bootstrap": {
+    "seq": 50,
+    "protocol": 1,
+    "server_version": "0.1.0",
+    "node_id": "node_1",
+    "bots": 4,
+    "main_bot_id": "bot_main",
+    "main_dm_chat_id": "chat_main",
+    "sessions": 6,
+    "projects": 2
+  },
+  "login_chat_members": [
+    "bot_code",
+    "bot_main",
+    "bot_product",
+    "bot_test"
+  ],
+  "login_project_members": [
+    "bot_code",
+    "bot_main",
+    "bot_product",
+    "bot_test"
+  ],
+  "announcement_members": [
+    "bot_code",
+    "bot_main",
+    "bot_product",
+    "bot_test"
+  ],
+  "pending_references": [
+    {
+      "kind": "approvals",
+      "id": "apr_mock_pending",
+      "assignment_id": "asg_code_web",
+      "chat_id": "chat_code",
+      "bot_id": "bot_code",
+      "project_id": "prj_web"
+    },
+    {
+      "kind": "questions",
+      "id": "q_mock_pending",
+      "assignment_id": "asg_code_web",
+      "chat_id": "chat_code",
+      "bot_id": "bot_code",
+      "project_id": "prj_web"
+    }
+  ],
+  "working_assignments": [
+    "asg_code_web"
+  ],
+  "note": "Pending items intentionally refer to global working asg_code_web/prj_web, not prj_login; no project.create/approval mutation executed",
+  "deployment_log": "~/Library/Caches/MacBot/integrator/watch/mock-refresh-f368824.log",
+  "preserved": [
+    "~/MacBot-mock",
+    "installed desktop",
+    "signed Android Release",
+    "AVD"
+  ],
+  "scope": "S2 mock API only; desktop QA and Android UI evidence/production full integration separate",
+  "workbench_contract_observation": {
+    "result_top_level_keys": [
+      "workbench"
+    ],
+    "wrapped": true,
+    "authority": "PROTOCOL5.7 workbench.get returns flat Workbench",
+    "status": "server confirmed Rust/schema/wire wrapper divergence, fix pending"
+  }
+}
