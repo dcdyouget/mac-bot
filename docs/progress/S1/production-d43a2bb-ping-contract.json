@@ -1,0 +1,11 @@
+{
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "captured_at": "2026-10-09T20:04:27.085759+00:00",
+  "read_only": true,
+  "method": "ping",
+  "params": {},
+  "full_s1_pass": false,
+  "status": "FAIL_RPC_HEARTBEAT",
+  "error_code": "invalid_params",
+  "error": "RPC ping failed: method not found: ping"
+}

@@ -1,0 +1,99 @@
+{
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "at": "2026-10-09T20:05:25.514232+00:00",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+  "native": false,
+  "full_s4_pass": false,
+  "frames": [
+    {
+      "label": "before",
+      "header": {
+        "h": 316,
+        "seq": 1,
+        "tab_id": "t2",
+        "ts": 1791576325421,
+        "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "w": 640
+      },
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/before.jpg"
+    },
+    {
+      "label": "user-before",
+      "header": {
+        "h": 316,
+        "seq": 2,
+        "tab_id": "t2",
+        "ts": 1791576325633,
+        "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "w": 640
+      },
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/user-before.jpg"
+    },
+    {
+      "label": "after-touch",
+      "header": {
+        "h": 316,
+        "seq": 10,
+        "tab_id": "t2",
+        "ts": 1791576326703,
+        "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "w": 640
+      },
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/after-touch.jpg"
+    }
+  ],
+  "events": [
+    {
+      "state": {
+        "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "driver": "bot",
+        "height": 720,
+        "tabs": [
+          {
+            "active": true,
+            "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "tab_id": "t2",
+            "title": "127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+            "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+          }
+        ],
+        "width": 1280
+      },
+      "type": "state"
+    },
+    {
+      "state": {
+        "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "driver": "user",
+        "height": 720,
+        "tabs": [
+          {
+            "active": true,
+            "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "tab_id": "t2",
+            "title": "127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+            "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+          }
+        ],
+        "width": 1280
+      },
+      "type": "state"
+    }
+  ],
+  "input": {
+    "type": "touch",
+    "points": [
+      {
+        "x": 428,
+        "y": 199
+      }
+    ],
+    "end_points": [],
+    "target": "existing owned localhost fixture submit button"
+  },
+  "status": "INPUT_RESULT_NOT_OBSERVED",
+  "released": true,
+  "visual_result": "root visually reviewed final raw JPEG: native-d43 remains in text input; result remains 等待输入",
+  "note": "protocol touch probe only; no native/client or login PASS"
+}

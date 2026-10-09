@@ -1,0 +1,48 @@
+{
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "files": [
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/after-mouse.jpg",
+      "bytes": 8815,
+      "sha256": "349986523cc0e6299ddea4a3221634e0552f2747b58a962b4caa3ae5476bccc8"
+    },
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/after-touch.jpg",
+      "bytes": 8751,
+      "sha256": "7710a41101934ec1da71b285a14a99801ff6edefd7ddbae5d6b0c450da45520a"
+    },
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/before-mouse.jpg",
+      "bytes": 8790,
+      "sha256": "279e6c5c89005fd873975a77b5bdcf5df678265332490f73f1ae2d808a40cbb4"
+    },
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/before.jpg",
+      "bytes": 9128,
+      "sha256": "87901c5431da3841a260ddad5cc2d19a65d53b932de13ea4f72b40076f0c184a"
+    },
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/frame-01-seq-1.jpg",
+      "bytes": 9100,
+      "sha256": "8913ad332d2c2f96931960ff159635c61cdba90371676ca455e3734dc8fced4b"
+    },
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/frame-02-seq-2.jpg",
+      "bytes": 9102,
+      "sha256": "89adfe6d748948370dbd4479908d7c11f50f2a2cf60d1c80d87f40a02257d0af"
+    },
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/mouse-user-before.jpg",
+      "bytes": 8787,
+      "sha256": "699cb83573721960f207d2af0afd5377b1cb46017f582aa6225a5f15cf969f40"
+    },
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/user-before.jpg",
+      "bytes": 9105,
+      "sha256": "972b3fc5c2e62eeb79f5d6be7a526edc7bb30eb1c1957a4ea1a22828e3189bfa"
+    }
+  ],
+  "full_s4_pass": false,
+  "native": false,
+  "note": "frame-01-seq-1.jpg and frame-02-seq-2.jpg are a separate preceding read-only low-quality capture; capture-time header was not retained, names alone do not certify wire seq. Input probes use separately referenced before/after images. No unrelated page or credential content."
+}

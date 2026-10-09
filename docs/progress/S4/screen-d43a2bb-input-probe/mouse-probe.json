@@ -1,0 +1,102 @@
+{
+  "source_commit": "d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da",
+  "captured_at": "2026-10-09T20:06:07.910666+00:00",
+  "native": false,
+  "full_s4_pass": false,
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+  "input": {
+    "type": "mouse",
+    "action": "click",
+    "x": 428,
+    "y": 199,
+    "button": "left",
+    "click_count": 1
+  },
+  "before_header": {
+    "h": 316,
+    "seq": 1,
+    "tab_id": "t2",
+    "ts": 1791576367912,
+    "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+    "w": 640
+  },
+  "after_header": {
+    "h": 316,
+    "seq": 10,
+    "tab_id": "t2",
+    "ts": 1791576369059,
+    "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+    "w": 640
+  },
+  "status": "INPUT_RESULT_NOT_OBSERVED",
+  "released": true,
+  "events": [
+    {
+      "state": {
+        "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "driver": "bot",
+        "height": 720,
+        "tabs": [
+          {
+            "active": true,
+            "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "tab_id": "t2",
+            "title": "127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+            "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+          }
+        ],
+        "width": 1280
+      },
+      "type": "state"
+    },
+    {
+      "state": {
+        "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "driver": "user",
+        "height": 720,
+        "tabs": [
+          {
+            "active": true,
+            "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "tab_id": "t2",
+            "title": "127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+            "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+          }
+        ],
+        "width": 1280
+      },
+      "type": "state"
+    }
+  ],
+  "visual_result": "root visually reviewed final raw JPEG: native-d43 remains in text input; result remains 等待输入",
+  "note": "protocol mouse at same owned fixture submit coordinates; not yet classified as a server defect",
+  "frames": [
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/before-mouse.jpg",
+      "header": {
+        "h": 316,
+        "seq": 1,
+        "tab_id": "t2",
+        "ts": 1791576367912,
+        "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "w": 640
+      }
+    },
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/mouse-user-before.jpg",
+      "note": "Captured after user driver state, before mouse input. Exact frame header was not retained."
+    },
+    {
+      "path": "docs/progress/S4/screen-d43a2bb-input-probe/after-mouse.jpg",
+      "header": {
+        "h": 316,
+        "seq": 10,
+        "tab_id": "t2",
+        "ts": 1791576369059,
+        "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "w": 640
+      }
+    }
+  ]
+}
