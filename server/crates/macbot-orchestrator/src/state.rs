@@ -1,0 +1,2025 @@
+use crate::model::*;
+use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, MutexGuard};
+use thiserror::Error;
+use uuid::Uuid;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OrchestratorSettings {
+    pub global_limit: usize,
+    pub bot_default_limit: usize,
+    pub subagent_per_run: usize,
+    pub subagent_global: usize,
+    pub loop_hops: usize,
+}
+
+impl Default for OrchestratorSettings {
+    fn default() -> Self {
+        Self {
+            global_limit: 8,
+            bot_default_limit: 3,
+            subagent_per_run: 4,
+            subagent_global: 12,
+            loop_hops: 8,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum OrchestratorError {
+    #[error("invalid parameters: {0}")]
+    Invalid(String),
+    #[error("not found: {0}")]
+    NotFound(String),
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+    #[error("conflict: {0}")]
+    Conflict(String),
+    #[error("method not found: {0}")]
+    MethodNotFound(String),
+    #[error("internal state lock poisoned")]
+    Poisoned,
+}
+
+type Result<T> = std::result::Result<T, OrchestratorError>;
+
+#[derive(Clone)]
+pub struct Orchestrator {
+    inner: Arc<Mutex<Inner>>,
+}
+
+struct Inner {
+    settings: OrchestratorSettings,
+    bots: HashMap<Id, Bot>,
+    projects: HashMap<Id, Project>,
+    assignments: HashMap<Id, Assignment>,
+    messages: HashMap<Id, Message>,
+    artifacts: HashMap<Id, Artifact>,
+    approvals: HashMap<Id, Approval>,
+    questions: HashMap<Id, Question>,
+    routines: HashMap<Id, Routine>,
+    routine_runs: HashMap<Id, Vec<RoutineRun>>,
+    idempotent_messages: HashMap<String, Id>,
+    loop_states: HashMap<Id, String>,
+    highlights: HashMap<Id, Vec<Highlight>>,
+    templates: Vec<Template>,
+}
+
+fn new_id() -> Id {
+    Uuid::now_v7().to_string()
+}
+fn now() -> String {
+    Utc::now().to_rfc3339()
+}
+fn slugify(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "project".to_string()
+    } else {
+        trimmed
+    }
+}
+
+impl Orchestrator {
+    pub fn new(settings: OrchestratorSettings) -> Self {
+        let ts = now();
+        let main = Bot {
+            id: "main".to_string(),
+            name: "总管".to_string(),
+            label: "主 Bot".to_string(),
+            description: "负责协调团队、派发任务和提醒验收".to_string(),
+            avatar: None,
+            model: None,
+            max_parallel: 0,
+            tools: ToolToggles::default(),
+            browser_mode: "headless".into(),
+            dm_chat_id: "dm_main".into(),
+            pinned: true,
+            hidden: false,
+            notifications: true,
+            is_main: true,
+            created_at: ts.clone(),
+            updated_at: ts,
+        };
+        let templates = vec![
+            Template {
+                id: "product-code-test".into(),
+                name: "产品 + 编码 + 测试".into(),
+                description: "从需求到实现和验收的完整团队".into(),
+                bots: vec![
+                    TemplateBot {
+                        name: "产品".into(),
+                        label: "产品经理".into(),
+                        description: "梳理需求、编写 PRD 和验收标准".into(),
+                        avatar: None,
+                    },
+                    TemplateBot {
+                        name: "编码".into(),
+                        label: "工程师".into(),
+                        description: "实现功能、编写测试和部署".into(),
+                        avatar: None,
+                    },
+                    TemplateBot {
+                        name: "测试".into(),
+                        label: "测试工程师".into(),
+                        description: "验证功能并报告问题".into(),
+                        avatar: None,
+                    },
+                ],
+            },
+            Template {
+                id: "research-writing".into(),
+                name: "调研 + 写作".into(),
+                description: "先调研再整理成稿".into(),
+                bots: vec![
+                    TemplateBot {
+                        name: "调研".into(),
+                        label: "研究员".into(),
+                        description: "收集资料和事实".into(),
+                        avatar: None,
+                    },
+                    TemplateBot {
+                        name: "写作".into(),
+                        label: "写作者".into(),
+                        description: "组织内容并完成交付".into(),
+                        avatar: None,
+                    },
+                ],
+            },
+        ];
+        Self {
+            inner: Arc::new(Mutex::new(Inner {
+                settings,
+                bots: HashMap::from([(main.id.clone(), main)]),
+                projects: HashMap::new(),
+                assignments: HashMap::new(),
+                messages: HashMap::new(),
+                artifacts: HashMap::new(),
+                approvals: HashMap::new(),
+                questions: HashMap::new(),
+                routines: HashMap::new(),
+                routine_runs: HashMap::new(),
+                idempotent_messages: HashMap::new(),
+                loop_states: HashMap::new(),
+                highlights: HashMap::new(),
+                templates,
+            })),
+        }
+    }
+
+    fn lock(&self) -> Result<MutexGuard<'_, Inner>> {
+        self.inner.lock().map_err(|_| OrchestratorError::Poisoned)
+    }
+
+    /// JSON RPC adapter used by gateway and by the mock server.
+    pub async fn rpc(&self, method: &str, params: Value) -> Result<Value> {
+        let mut i = self.lock()?;
+        i.rpc(method, params)
+    }
+
+    pub fn settings(&self) -> Result<OrchestratorSettings> {
+        Ok(self.lock()?.settings.clone())
+    }
+
+    pub fn snapshot(&self) -> Result<Value> {
+        let i = self.lock()?;
+        Ok(json!({
+            "settings": i.settings.clone(),
+            "bots": i.bots.clone(),
+            "projects": i.projects.clone(),
+            "assignments": i.assignments.clone(),
+            "messages": i.messages.clone(),
+            "artifacts": i.artifacts.clone(),
+            "approvals": i.approvals.clone(),
+            "questions": i.questions.clone(),
+            "routines": i.routines.clone(),
+            "routine_runs": i.routine_runs.clone(),
+            "idempotent_messages": i.idempotent_messages.clone(),
+            "loop_states": i.loop_states.clone(),
+            "highlights": i.highlights.clone(),
+        }))
+    }
+
+    pub fn restore(&self, value: Value) -> Result<()> {
+        let mut i = self.lock()?;
+        if let Some(v) = value.get("settings") {
+            i.settings = serde_json::from_value(v.clone())
+                .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
+        }
+        restore_map(&mut i.bots, value.get("bots"))?;
+        restore_map(&mut i.projects, value.get("projects"))?;
+        restore_map(&mut i.assignments, value.get("assignments"))?;
+        restore_map(&mut i.messages, value.get("messages"))?;
+        restore_map(&mut i.artifacts, value.get("artifacts"))?;
+        restore_map(&mut i.approvals, value.get("approvals"))?;
+        restore_map(&mut i.questions, value.get("questions"))?;
+        restore_map(&mut i.routines, value.get("routines"))?;
+        restore_map(&mut i.routine_runs, value.get("routine_runs"))?;
+        restore_map(&mut i.idempotent_messages, value.get("idempotent_messages"))?;
+        restore_map(&mut i.loop_states, value.get("loop_states"))?;
+        restore_map(&mut i.highlights, value.get("highlights"))?;
+        Ok(())
+    }
+
+    pub fn with_defaults() -> Self {
+        Self::new(OrchestratorSettings::default())
+    }
+    pub fn bots(&self) -> Result<Vec<Bot>> {
+        Ok(self
+            .lock()?
+            .bots
+            .values()
+            .filter(|b| !b.hidden)
+            .cloned()
+            .collect())
+    }
+
+    pub fn create_assignment(&self, request: AssignmentRequest) -> Result<Assignment> {
+        let mut i = self.lock()?;
+        i.create_assignment(request)
+    }
+
+    pub fn send_msg(&self, request: SendMessageRequest) -> Result<Message> {
+        let mut i = self.lock()?;
+        i.send_msg(request)
+    }
+
+    pub fn queue_steer(&self, request: SteerRequest) -> Result<SteerDelivery> {
+        let mut i = self.lock()?;
+        i.queue_steer(request)
+    }
+
+    pub fn mark_steer_delivered(&self, message_id: &str) -> Result<SteerDelivery> {
+        let mut i = self.lock()?;
+        i.mark_steer(message_id, "delivered")
+    }
+
+    pub fn mark_steer_read(&self, message_id: &str) -> Result<SteerDelivery> {
+        let mut i = self.lock()?;
+        i.mark_steer(message_id, "read")
+    }
+
+    pub fn finish_assignment(&self, assignment_id: &str, status: &str) -> Result<Assignment> {
+        let mut i = self.lock()?;
+        i.finish_assignment(assignment_id, status)
+    }
+
+    pub fn start_subagent(&self, request: SubagentRequest) -> Result<SubagentHandle> {
+        let mut i = self.lock()?;
+        i.start_subagent(request)
+    }
+
+    pub fn finish_subagent(&self, assignment_id: &str, subagent_id: &str) -> Result<()> {
+        let mut i = self.lock()?;
+        i.finish_subagent(assignment_id, subagent_id)
+    }
+
+    pub fn create_approval(&self, request: ApprovalRequest) -> Result<Approval> {
+        let mut i = self.lock()?;
+        i.create_approval(request)
+    }
+
+    pub fn create_question(&self, request: QuestionRequest) -> Result<Question> {
+        let mut i = self.lock()?;
+        i.create_question(request)
+    }
+
+    pub fn tick_routines(&self, at: DateTime<Utc>) -> Result<Vec<RoutineRun>> {
+        let mut i = self.lock()?;
+        i.tick_routines(at)
+    }
+}
+
+impl Default for Orchestrator {
+    fn default() -> Self {
+        Self::with_defaults()
+    }
+}
+
+fn restore_map<T: for<'de> Deserialize<'de>>(
+    target: &mut HashMap<String, T>,
+    value: Option<&Value>,
+) -> Result<()> {
+    if let Some(value) = value {
+        *target = serde_json::from_value(value.clone())
+            .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AssignmentRequest {
+    pub project_id: Option<Id>,
+    pub origin_chat_id: Id,
+    pub bot_id: Id,
+    pub title: String,
+    pub instruction: String,
+    #[serde(default = "default_sender")]
+    pub from: String,
+    pub trigger_message_id: Option<Id>,
+    pub parent_assignment_id: Option<Id>,
+    #[serde(default = "default_priority")]
+    pub priority: u8,
+    pub root_message_id: Option<Id>,
+    #[serde(default)]
+    pub loop_hops: usize,
+}
+fn default_sender() -> String {
+    "main".to_string()
+}
+fn default_priority() -> u8 {
+    1
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SendMessageRequest {
+    pub bot_id: Id,
+    pub chat_id: Id,
+    pub assignment_id: Option<Id>,
+    pub run_id: Option<Id>,
+    pub call_id: Option<Id>,
+    pub text: String,
+    pub intent: String,
+    #[serde(default)]
+    pub mentions: Vec<MentionInput>,
+    #[serde(default)]
+    pub artifacts: Vec<ArtifactRef>,
+    #[serde(default)]
+    pub options: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MentionInput {
+    Bot {
+        bot_id: Id,
+        #[serde(default)]
+        instruction: Option<String>,
+    },
+    Main(String),
+    User(String),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SteerRequest {
+    pub bot_id: Id,
+    pub project_id: Option<Id>,
+    pub chat_id: Id,
+    pub text: String,
+    pub message_id: Option<Id>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApprovalRequest {
+    pub bot_id: Id,
+    pub assignment_id: Option<Id>,
+    pub chat_id: Id,
+    pub tool: String,
+    pub risk: String,
+    pub summary: String,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct QuestionRequest {
+    pub bot_id: Id,
+    pub assignment_id: Id,
+    pub chat_id: Id,
+    pub text: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
+    pub allow_free_text: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SubagentRequest {
+    pub assignment_id: Id,
+    pub task: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SubagentHandle {
+    pub id: Id,
+    pub assignment_id: Id,
+    pub task: String,
+}
+
+impl Inner {
+    fn rpc(&mut self, method: &str, p: Value) -> Result<Value> {
+        match method {
+            "bot.list" => Self::json(
+                json!({ "bots": self.bots.values().filter(|b| p.get("include_hidden").and_then(Value::as_bool).unwrap_or(false) || !b.hidden).cloned().collect::<Vec<_>>() }),
+            ),
+            "bot.get" => {
+                let id = str_param(&p, "bot_id")?;
+                Ok(json!({ "bot": self.bot(&id)? }))
+            }
+            "bot.create" => Self::json(self.create_bot(&p)?),
+            "bot.update" => {
+                let id = str_param(&p, "bot_id")?;
+                Ok(
+                    json!({ "bot": self.update_bot(&id, p.get("patch").cloned().unwrap_or(Value::Null))? }),
+                )
+            }
+            "bot.delete" => {
+                let id = str_param(&p, "bot_id")?;
+                self.delete_bot(&id)?;
+                Ok(json!({}))
+            }
+            "bot.templates" => Ok(json!({ "templates": self.templates })),
+            "bot.create_from_template" => {
+                let id = str_param(&p, "template_id")?;
+                Self::json(self.create_from_template(&id)?)
+            }
+            "project.list" => {
+                Ok(json!({ "projects": self.projects.values().cloned().collect::<Vec<_>>() }))
+            }
+            "project.get" => {
+                let id = str_param(&p, "project_id")?;
+                let project = self.project(&id)?.clone();
+                Ok(json!({ "project": project, "announcement": self.announcement(&id)? }))
+            }
+            "project.create" => Self::json(self.create_project(&p)?),
+            "project.add_member" => {
+                let id = str_param(&p, "project_id")?;
+                self.add_member(
+                    &id,
+                    str_param(&p, "bot_id")?,
+                    p.get("role_note")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                )?;
+                Ok(json!({ "project": self.project(&id)? }))
+            }
+            "project.remove_member" => {
+                let id = str_param(&p, "project_id")?;
+                self.remove_member(&id, str_param(&p, "bot_id")?)?;
+                Ok(json!({ "project": self.project(&id)? }))
+            }
+            "project.confirm_done" => {
+                let id = str_param(&p, "project_id")?;
+                let project = self.project_mut(&id)?;
+                project.status = "done".into();
+                project.done_at = Some(now());
+                project.updated_at = now();
+                Ok(json!({ "project": project }))
+            }
+            "project.request_changes" => {
+                let id = str_param(&p, "project_id")?;
+                let project = self.project_mut(&id)?;
+                project.status = "active".into();
+                project.updated_at = now();
+                Ok(json!({ "project": project, "text": str_param(&p,"text")? }))
+            }
+            "project.archive" => {
+                let id = str_param(&p, "project_id")?;
+                let project = self.project_mut(&id)?;
+                project.status = "archived".into();
+                project.updated_at = now();
+                Ok(json!({ "project": project }))
+            }
+            "project.reopen" => {
+                let id = str_param(&p, "project_id")?;
+                let project = self.project_mut(&id)?;
+                project.status = "active".into();
+                project.done_at = None;
+                project.updated_at = now();
+                Ok(json!({ "project": project }))
+            }
+            "assignment.create" | "assign" => Self::json(self.create_assignment(
+                serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
+            )?),
+            "delegate" => {
+                let bot_id = str_param(&p, "bot_id")?;
+                let instruction = str_param(&p, "instruction")?;
+                Self::json(
+                    self.create_assignment(AssignmentRequest {
+                        project_id: p
+                            .get("project_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                        origin_chat_id: p
+                            .get("origin_chat_id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("main-dm")
+                            .into(),
+                        bot_id,
+                        title: p
+                            .get("title")
+                            .and_then(Value::as_str)
+                            .unwrap_or("转交任务")
+                            .into(),
+                        instruction,
+                        from: p
+                            .get("from")
+                            .and_then(Value::as_str)
+                            .unwrap_or("main")
+                            .into(),
+                        trigger_message_id: None,
+                        parent_assignment_id: p
+                            .get("parent_assignment_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                        priority: 2,
+                        root_message_id: p
+                            .get("root_message_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                        loop_hops: p.get("loop_hops").and_then(Value::as_u64).unwrap_or(0) as usize,
+                    })?,
+                )
+            }
+            "assignment.list" => {
+                let mut items = self.assignments.values().cloned().collect::<Vec<_>>();
+                items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                Self::json(json!({ "items": items, "next_cursor": null }))
+            }
+            "assignment.get" => {
+                let id = str_param(&p, "assignment_id")?;
+                Ok(json!({ "assignment": self.assignment(&id)? }))
+            }
+            "assignment.stop" => {
+                let id = str_param(&p, "assignment_id")?;
+                Ok(json!({ "assignment": self.finish_assignment(&id, "cancelled")? }))
+            }
+            "assignment.steer" | "steer" => Self::json(self.queue_steer(
+                serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
+            )?),
+            "send_msg" => Self::json(self.send_msg(
+                serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
+            )?),
+            "approval.list" => {
+                Ok(json!({ "approvals": self.approvals.values().cloned().collect::<Vec<_>>() }))
+            }
+            "approval.decide" => Ok(
+                json!({ "approval": self.decide_approval(str_param(&p, "approval_id")?, str_param(&p, "decision")?)? }),
+            ),
+            "question.answer" => Ok(json!({ "question": self.answer_question(
+                    str_param(&p, "question_id")?,
+                    p.get("option_index")
+                        .and_then(Value::as_u64)
+                        .map(|n| n as usize),
+                    p.get("text").and_then(Value::as_str).map(str::to_owned),
+                )? })),
+            "loop.resolve" => {
+                let root = str_param(&p, "root_message_id")?;
+                let action = str_param(&p, "action")?;
+                if !matches!(action.as_str(), "continue" | "end") {
+                    return Err(OrchestratorError::Invalid(
+                        "action must be continue or end".into(),
+                    ));
+                }
+                self.loop_states.insert(root, action);
+                self.pump_queue();
+                Ok(json!({}))
+            }
+            "project.status" | "project_status" => {
+                let id = str_param(&p, "project_id")?;
+                Ok(
+                    json!({ "project": self.project(&id)?, "announcement": self.announcement(&id)? }),
+                )
+            }
+            "propose_bot" => Ok(json!({
+                "proposal_id": new_id(),
+                "name": str_param(&p, "name")?,
+                "label": p.get("label").and_then(Value::as_str).unwrap_or(""),
+                "description": p.get("description").and_then(Value::as_str).unwrap_or(""),
+                "state": "pending_user"
+            })),
+            "trace.history" => Ok(
+                json!({ "items": [], "first_aseq": null, "last_aseq": null, "has_more_before": false, "live": false }),
+            ),
+            "workbench.get" => Self::json(self.workbench()),
+            "routine.list" => {
+                let bot = p.get("bot_id").and_then(Value::as_str);
+                Ok(
+                    json!({ "routines": self.routines.values().filter(|r| bot.is_none_or(|id| id == r.bot_id)).cloned().collect::<Vec<_>>() }),
+                )
+            }
+            "routine.create" => Ok(json!({ "routine": self.create_routine(&p)? })),
+            "routine.update" => Ok(json!({ "routine": self.update_routine(
+                str_param(&p, "routine_id")?,
+                p.get("patch").cloned().unwrap_or(Value::Null),
+            )? })),
+            "routine.delete" => {
+                let id = str_param(&p, "routine_id")?;
+                self.routines
+                    .remove(&id)
+                    .ok_or_else(|| OrchestratorError::NotFound(id.clone()))?;
+                self.routine_runs.remove(&id);
+                Ok(json!({}))
+            }
+            "routine.set_enabled" => {
+                let id = str_param(&p, "routine_id")?;
+                let enabled = p
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| OrchestratorError::Invalid("enabled is required".into()))?;
+                let r = self.routine_mut(&id)?;
+                r.enabled = enabled;
+                r.updated_at = now();
+                Ok(json!({ "routine": r }))
+            }
+            "routine.test_run" => {
+                Ok(json!({ "run": self.test_routine(str_param(&p, "routine_id")?)? }))
+            }
+            "routine.runs" => {
+                let id = str_param(&p, "routine_id")?;
+                Ok(
+                    json!({ "runs": self.routine_runs.get(&id).cloned().unwrap_or_default().into_iter().rev().take(20).collect::<Vec<_>>() }),
+                )
+            }
+            "approval.request" => Self::json(self.create_approval(
+                serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
+            )?),
+            "question.ask" => Self::json(self.create_question(
+                serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
+            )?),
+            "subagent.start" => Self::json(self.start_subagent(
+                serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
+            )?),
+            "subagent.finish" => {
+                let assignment_id = str_param(&p, "assignment_id")?;
+                let subagent_id = str_param(&p, "subagent_id")?;
+                self.finish_subagent(&assignment_id, &subagent_id)?;
+                Ok(json!({}))
+            }
+            _ => Err(OrchestratorError::MethodNotFound(method.into())),
+        }
+    }
+
+    fn json<T: Serialize>(v: T) -> Result<Value> {
+        serde_json::to_value(v).map_err(|e| OrchestratorError::Invalid(e.to_string()))
+    }
+    fn bot(&self, id: &str) -> Result<&Bot> {
+        self.bots
+            .get(id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("bot {id}")))
+    }
+    fn project(&self, id: &str) -> Result<&Project> {
+        self.projects
+            .get(id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("project {id}")))
+    }
+    fn project_mut(&mut self, id: &str) -> Result<&mut Project> {
+        self.projects
+            .get_mut(id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("project {id}")))
+    }
+    fn assignment(&self, id: &str) -> Result<&Assignment> {
+        self.assignments
+            .get(id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("assignment {id}")))
+    }
+    fn routine_mut(&mut self, id: &str) -> Result<&mut Routine> {
+        self.routines
+            .get_mut(id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("routine {id}")))
+    }
+
+    fn create_bot(&mut self, p: &Value) -> Result<Value> {
+        let name = str_param(p, "name")?;
+        if self.bots.values().any(|b| b.name == name) {
+            return Err(OrchestratorError::Conflict(format!(
+                "bot name {name} already exists"
+            )));
+        }
+        let ts = now();
+        let id = new_id();
+        let bot = Bot {
+            id: id.clone(),
+            name,
+            label: p.get("label").and_then(Value::as_str).unwrap_or("").into(),
+            description: p
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .into(),
+            avatar: p.get("avatar").and_then(Value::as_str).map(str::to_owned),
+            model: p.get("model").and_then(Value::as_str).map(str::to_owned),
+            max_parallel: p
+                .get("max_parallel")
+                .and_then(Value::as_u64)
+                .unwrap_or(self.settings.bot_default_limit as u64)
+                as usize,
+            tools: p
+                .get("tools")
+                .cloned()
+                .map(|value| {
+                    serde_json::from_value(value)
+                        .map_err(|error| OrchestratorError::Invalid(error.to_string()))
+                })
+                .transpose()?
+                .unwrap_or_default(),
+            browser_mode: p
+                .get("browser_mode")
+                .and_then(Value::as_str)
+                .unwrap_or("headless")
+                .into(),
+            dm_chat_id: format!("dm_{id}"),
+            pinned: false,
+            hidden: false,
+            notifications: true,
+            is_main: false,
+            created_at: ts.clone(),
+            updated_at: ts,
+        };
+        self.bots.insert(id.clone(), bot.clone());
+        Ok(json!({ "bot": bot, "dm_chat": { "id": new_id(), "kind": "direct", "bot_id": id } }))
+    }
+
+    fn update_bot(&mut self, id: &str, patch: Value) -> Result<Bot> {
+        let bot = self
+            .bots
+            .get_mut(id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("bot {id}")))?;
+        if let Some(x) = patch.get("name").and_then(Value::as_str) {
+            bot.name = x.into();
+        }
+        if let Some(x) = patch.get("label").and_then(Value::as_str) {
+            bot.label = x.into();
+        }
+        if let Some(x) = patch.get("description").and_then(Value::as_str) {
+            bot.description = x.into();
+        }
+        if let Some(x) = patch.get("avatar").and_then(Value::as_str) {
+            bot.avatar = Some(x.into());
+        }
+        if let Some(x) = patch.get("model").and_then(Value::as_str) {
+            bot.model = Some(x.into());
+        }
+        if let Some(value) = patch.get("tools") {
+            bot.tools = serde_json::from_value(value.clone())
+                .map_err(|error| OrchestratorError::Invalid(error.to_string()))?;
+        }
+        if let Some(x) = patch.get("browser_mode").and_then(Value::as_str) {
+            bot.browser_mode = x.into();
+        }
+        if let Some(x) = patch.get("max_parallel").and_then(Value::as_u64) {
+            bot.max_parallel = (x as usize).max(1);
+        }
+        if let Some(x) = patch.get("pinned").and_then(Value::as_bool) {
+            bot.pinned = x;
+        }
+        if let Some(x) = patch.get("hidden").and_then(Value::as_bool) {
+            bot.hidden = x;
+        }
+        if let Some(x) = patch.get("notifications").and_then(Value::as_bool) {
+            bot.notifications = x;
+        }
+        bot.updated_at = now();
+        Ok(bot.clone())
+    }
+
+    fn delete_bot(&mut self, id: &str) -> Result<()> {
+        if id == "main" {
+            return Err(OrchestratorError::Forbidden(
+                "main Bot cannot be deleted".into(),
+            ));
+        }
+        if self.assignments.values().any(|a| {
+            a.bot_id == id
+                && matches!(
+                    a.status.as_str(),
+                    "queued" | "working" | "waiting_user" | "waiting_bot"
+                )
+        }) {
+            return Err(OrchestratorError::Conflict(
+                "Bot has active assignments".into(),
+            ));
+        }
+        self.bots
+            .remove(id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("bot {id}")))?;
+        Ok(())
+    }
+
+    fn create_from_template(&mut self, id: &str) -> Result<Value> {
+        let t = self
+            .templates
+            .iter()
+            .find(|t| t.id == id)
+            .cloned()
+            .ok_or_else(|| OrchestratorError::NotFound(format!("template {id}")))?;
+        let mut bots = Vec::new();
+        let mut chats = Vec::new();
+        for b in t.bots {
+            if let Some(existing) = self.bots.values().find(|x| x.name == b.name).cloned() {
+                bots.push(existing);
+                continue;
+            }
+            let p = json!({"name":b.name,"label":b.label,"description":b.description,"avatar":b.avatar});
+            let v = self.create_bot(&p)?;
+            bots.push(
+                serde_json::from_value(
+                    v.get("bot")
+                        .cloned()
+                        .ok_or_else(|| OrchestratorError::Invalid("template bot result".into()))?,
+                )
+                .map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
+            );
+            chats.push(v.get("dm_chat").cloned().unwrap_or(Value::Null));
+        }
+        Ok(json!({"bots":bots,"dm_chats":chats}))
+    }
+
+    fn create_project(&mut self, p: &Value) -> Result<Value> {
+        let name = str_param(p, "name")?;
+        let members = p
+            .get("member_bot_ids")
+            .and_then(Value::as_array)
+            .ok_or_else(|| OrchestratorError::Invalid("member_bot_ids is required".into()))?;
+        if members.is_empty() || members.len() > 6 {
+            return Err(OrchestratorError::Invalid(
+                "a project needs 1-6 member bots".into(),
+            ));
+        }
+        let mut pm = Vec::new();
+        for id in members {
+            let id = str_value(id)?;
+            let _ = self.bot(&id)?;
+            pm.push(ProjectMember {
+                bot_id: id,
+                role_note: "".into(),
+                joined_at: now(),
+            });
+        }
+        let id = new_id();
+        let ts = now();
+        let project = Project {
+            id: id.clone(),
+            chat_id: new_id(),
+            name: name.clone(),
+            slug: slugify(&name),
+            goal: str_param(p, "goal")?,
+            flow: p
+                .get("flow")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            deadline: p.get("deadline").and_then(Value::as_str).map(str::to_owned),
+            home_path: format!("~/MacBot/projects/{}/", slugify(&name)),
+            status: "active".into(),
+            lead_bot_id: "main".into(),
+            members: pm,
+            created_by: p
+                .get("created_by")
+                .and_then(Value::as_str)
+                .unwrap_or("user")
+                .into(),
+            created_at: ts.clone(),
+            updated_at: ts,
+            done_at: None,
+        };
+        self.highlights.insert(id.clone(), Vec::new());
+        self.projects.insert(id.clone(), project.clone());
+        Ok(
+            json!({"project":project,"chat":{"id":project.chat_id,"kind":"project","title":name,"project_id":id}}),
+        )
+    }
+
+    fn add_member(&mut self, project_id: &str, bot_id: Id, role_note: String) -> Result<()> {
+        let _ = self.bot(&bot_id)?;
+        let p = self.project_mut(project_id);
+        let p = p?;
+        if p.members.iter().any(|m| m.bot_id == bot_id) {
+            return Ok(());
+        }
+        if p.members.len() >= 7 {
+            return Err(OrchestratorError::Invalid(
+                "project has at most 6 workers plus main".into(),
+            ));
+        }
+        p.members.push(ProjectMember {
+            bot_id,
+            role_note,
+            joined_at: now(),
+        });
+        p.updated_at = now();
+        Ok(())
+    }
+    fn remove_member(&mut self, project_id: &str, bot_id: Id) -> Result<()> {
+        let ids = self
+            .assignments
+            .values()
+            .filter(|a| {
+                a.project_id.as_deref() == Some(project_id)
+                    && a.bot_id == bot_id
+                    && matches!(
+                        a.status.as_str(),
+                        "queued" | "working" | "waiting_user" | "waiting_bot"
+                    )
+            })
+            .map(|a| a.id.clone())
+            .collect::<Vec<_>>();
+        for id in ids {
+            let _ = self.finish_assignment(&id, "cancelled")?;
+        }
+        let p = self.project_mut(project_id)?;
+        p.members.retain(|m| m.bot_id != bot_id);
+        p.updated_at = now();
+        Ok(())
+    }
+
+    fn announcement(&self, project_id: &str) -> Result<Announcement> {
+        let p = self.project(project_id)?;
+        let artifacts = self
+            .artifacts
+            .values()
+            .filter(|a| a.project_id.as_deref() == Some(project_id))
+            .cloned()
+            .collect();
+        let members = p
+            .members
+            .iter()
+            .map(|m| {
+                let active = self.assignments.values().find(|a| {
+                    a.project_id.as_deref() == Some(project_id)
+                        && a.bot_id == m.bot_id
+                        && matches!(
+                            a.status.as_str(),
+                            "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
+                        )
+                });
+                AnnouncementMember {
+                    bot_id: m.bot_id.clone(),
+                    role_note: m.role_note.clone(),
+                    state: active
+                        .map(|a| a.status.clone())
+                        .unwrap_or_else(|| "idle".into()),
+                    current_assignment_id: active.map(|a| a.id.clone()),
+                    since: active.and_then(|a| a.started_at.clone()),
+                }
+            })
+            .collect();
+        Ok(Announcement {
+            project_id: project_id.into(),
+            members,
+            artifacts,
+            highlights: self
+                .highlights
+                .get(project_id)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .rev()
+                .take(20)
+                .collect(),
+            updated_at: now(),
+        })
+    }
+
+    fn create_assignment(&mut self, request: AssignmentRequest) -> Result<Assignment> {
+        let _ = self.bot(&request.bot_id)?;
+        let bot_model = self.bot(&request.bot_id)?.model.clone();
+        if let Some(pid) = &request.project_id {
+            let _ = self.project(pid)?;
+        }
+        let active_global = self
+            .assignments
+            .values()
+            .filter(|a| a.status == "working")
+            .count();
+        let active_bot = self
+            .assignments
+            .values()
+            .filter(|a| a.bot_id == request.bot_id && a.status == "working")
+            .count();
+        let same_project = self.assignments.values().any(|a| {
+            a.project_id == request.project_id
+                && a.bot_id == request.bot_id
+                && matches!(a.status.as_str(), "working" | "queued")
+        });
+        let bot_limit = self.bot(&request.bot_id)?.max_parallel;
+        let (status, reason) = if active_bot >= bot_limit {
+            ("queued", Some("bot_parallel_limit"))
+        } else if active_global >= self.settings.global_limit {
+            ("queued", Some("global_limit"))
+        } else if same_project {
+            ("queued", Some("serial_in_project"))
+        } else {
+            ("working", None)
+        };
+        let id = new_id();
+        let ts = now();
+        let assignment = Assignment {
+            id: id.clone(),
+            project_id: request.project_id,
+            origin_chat_id: request.origin_chat_id,
+            bot_id: request.bot_id,
+            title: request.title,
+            instruction: request.instruction,
+            from: request.from,
+            trigger_message_id: request.trigger_message_id,
+            parent_assignment_id: request.parent_assignment_id,
+            status: status.into(),
+            queue_reason: reason.map(str::to_owned),
+            wait: None,
+            created_at: ts.clone(),
+            started_at: (status == "working").then_some(ts),
+            finished_at: None,
+            usage: UsageTotals::default(),
+            subagents_active: 0,
+            steers: Vec::new(),
+            result_message_id: None,
+            model: bot_model,
+            priority: request.priority,
+            root_message_id: request.root_message_id,
+            loop_hops: request.loop_hops,
+        };
+        self.assignments.insert(id, assignment.clone());
+        Ok(assignment)
+    }
+
+    fn pump_queue(&mut self) {
+        loop {
+            let global = self
+                .assignments
+                .values()
+                .filter(|a| a.status == "working")
+                .count();
+            if global >= self.settings.global_limit {
+                break;
+            }
+            let next = self
+                .assignments
+                .values()
+                .filter(|a| a.status == "queued")
+                .filter(|a| {
+                    let n = self
+                        .assignments
+                        .values()
+                        .filter(|x| x.bot_id == a.bot_id && x.status == "working")
+                        .count();
+                    let serial = self.assignments.values().any(|x| {
+                        x.id != a.id
+                            && x.project_id == a.project_id
+                            && x.bot_id == a.bot_id
+                            && x.status == "working"
+                    });
+                    n < self
+                        .bots
+                        .get(&a.bot_id)
+                        .map(|b| b.max_parallel)
+                        .unwrap_or(self.settings.bot_default_limit)
+                        && !serial
+                })
+                .max_by_key(|a| (a.priority, std::cmp::Reverse(a.created_at.clone())))
+                .map(|a| a.id.clone());
+            let Some(id) = next else {
+                break;
+            };
+            if let Some(a) = self.assignments.get_mut(&id) {
+                a.status = "working".into();
+                a.queue_reason = None;
+                a.started_at = Some(now());
+            }
+        }
+    }
+
+    fn send_msg(&mut self, req: SendMessageRequest) -> Result<Message> {
+        if !matches!(
+            req.intent.as_str(),
+            "ack" | "progress" | "decision" | "done" | "blocked"
+        ) {
+            return Err(OrchestratorError::Invalid("unknown send_msg intent".into()));
+        }
+        if let (Some(run), Some(call)) = (&req.run_id, &req.call_id) {
+            if let Some(id) = self.idempotent_messages.get(&format!("{run}:{call}")) {
+                return Ok(self
+                    .messages
+                    .get(id)
+                    .ok_or_else(|| OrchestratorError::NotFound(id.clone()))?
+                    .clone());
+            }
+        }
+        if req.intent == "progress"
+            && req
+                .assignment_id
+                .as_ref()
+                .map(|id| {
+                    self.messages
+                        .values()
+                        .filter(|m| {
+                            m.assignment_id.as_ref() == Some(id)
+                                && m.intent.as_deref() == Some("progress")
+                        })
+                        .count()
+                })
+                .unwrap_or(0)
+                >= 3
+        {
+            return Err(OrchestratorError::Conflict(
+                "an assignment may report at most three progress messages".into(),
+            ));
+        }
+        let msg_id = new_id();
+        let project_id = req
+            .assignment_id
+            .as_ref()
+            .and_then(|id| self.assignments.get(id).and_then(|a| a.project_id.clone()));
+        let mentions = req
+            .mentions
+            .iter()
+            .map(|m| match m {
+                MentionInput::Bot {
+                    bot_id,
+                    instruction,
+                } => Mention::Bot {
+                    bot_id: bot_id.clone(),
+                    instruction: instruction.clone(),
+                },
+                MentionInput::Main(_) => Mention::Main,
+                MentionInput::User(_) => Mention::User,
+            })
+            .collect::<Vec<_>>();
+        let mut msg = Message {
+            id: msg_id.clone(),
+            chat_id: req.chat_id.clone(),
+            sender: req.bot_id.clone(),
+            created_at: now(),
+            text: req.text.clone(),
+            intent: Some(req.intent.clone()),
+            assignment_id: req.assignment_id.clone(),
+            mentions,
+            artifacts: req.artifacts.clone(),
+            options: req.options.clone(),
+            delivery: Vec::new(),
+            fallback_text: req.text.clone(),
+        };
+        if let Some(aid) = &req.assignment_id {
+            let a = self.assignment_mut(aid)?;
+            a.result_message_id =
+                matches!(req.intent.as_str(), "done" | "blocked").then_some(msg_id.clone());
+            match req.intent.as_str() {
+                "decision" => {
+                    a.status = if req
+                        .mentions
+                        .iter()
+                        .any(|m| matches!(m, MentionInput::User(_)))
+                    {
+                        "waiting_user"
+                    } else {
+                        "waiting_bot"
+                    }
+                    .into();
+                    a.wait = Some(WaitState {
+                        reason: "decision".into(),
+                        message_id: Some(msg_id.clone()),
+                    });
+                }
+                "done" => {
+                    a.status = "done".into();
+                    a.finished_at = Some(now());
+                    a.wait = None;
+                }
+                "blocked" => {
+                    a.status = "blocked".into();
+                    a.wait = Some(WaitState {
+                        reason: "blocked".into(),
+                        message_id: Some(msg_id.clone()),
+                    });
+                }
+                _ => {}
+            }
+        }
+        if let Some(project_id) = &project_id {
+            if req.intent == "done"
+                && req
+                    .mentions
+                    .iter()
+                    .any(|m| matches!(m, MentionInput::Main(_)))
+            {
+                if let Some(project) = self.projects.get_mut(project_id) {
+                    project.status = "review".into();
+                    project.updated_at = now();
+                }
+            }
+            if matches!(req.intent.as_str(), "decision" | "blocked") {
+                let highlights = self.highlights.entry(project_id.clone()).or_default();
+                highlights.push(Highlight {
+                    text: req.text.clone(),
+                    at: now(),
+                });
+                if highlights.len() > 20 {
+                    let excess = highlights.len() - 20;
+                    highlights.drain(..excess);
+                }
+            }
+        }
+        if req.intent == "decision" && !req.options.is_empty() {
+            if let Some(assignment_id) = &req.assignment_id {
+                let _ = self.create_question(QuestionRequest {
+                    bot_id: req.bot_id.clone(),
+                    assignment_id: assignment_id.clone(),
+                    chat_id: req.chat_id.clone(),
+                    text: req.text.clone(),
+                    options: req.options.clone(),
+                    allow_free_text: true,
+                })?;
+            }
+        }
+        self.messages.insert(msg_id.clone(), msg.clone());
+        if let (Some(run), Some(call)) = (req.run_id, req.call_id) {
+            self.idempotent_messages
+                .insert(format!("{run}:{call}"), msg_id.clone());
+        }
+        for art in req.artifacts {
+            let aid = new_id();
+            let ts = now();
+            self.artifacts.insert(
+                aid.clone(),
+                Artifact {
+                    id: aid,
+                    project_id: req
+                        .assignment_id
+                        .as_ref()
+                        .and_then(|id| self.assignments.get(id)?.project_id.clone()),
+                    bot_id: req.bot_id.clone(),
+                    assignment_id: req.assignment_id.clone().unwrap_or_default(),
+                    title: art.title,
+                    path_or_url: art.path_or_url,
+                    kind: "file".into(),
+                    created_at: ts.clone(),
+                    updated_at: ts,
+                },
+            );
+        }
+        let parent_hops = req
+            .assignment_id
+            .as_ref()
+            .and_then(|id| self.assignments.get(id).map(|a| a.loop_hops))
+            .unwrap_or(0);
+        let root = req
+            .assignment_id
+            .as_ref()
+            .and_then(|id| {
+                self.assignments
+                    .get(id)
+                    .and_then(|a| a.root_message_id.clone())
+            })
+            .unwrap_or_else(|| msg_id.clone());
+        let mut seen = HashSet::new();
+        for mention in msg.mentions.clone() {
+            if let Mention::Bot {
+                bot_id,
+                instruction,
+            } = mention
+            {
+                if !seen.insert(bot_id.clone()) {
+                    continue;
+                }
+                if bot_id == "main" {
+                    continue;
+                }
+                if parent_hops >= self.settings.loop_hops {
+                    self.loop_states.insert(root.clone(), "paused".into());
+                    continue;
+                }
+                let _ = self.create_assignment(AssignmentRequest {
+                    project_id: req
+                        .assignment_id
+                        .as_ref()
+                        .and_then(|id| self.assignments.get(id).and_then(|a| a.project_id.clone())),
+                    origin_chat_id: req.chat_id.clone(),
+                    bot_id,
+                    title: format!("交接：{}", req.intent),
+                    instruction: instruction.unwrap_or(req.text.clone()),
+                    from: req.bot_id.clone(),
+                    trigger_message_id: Some(msg_id.clone()),
+                    parent_assignment_id: req.assignment_id.clone(),
+                    priority: 2,
+                    root_message_id: Some(root.clone()),
+                    loop_hops: parent_hops + 1,
+                })?;
+            }
+        }
+        self.pump_queue();
+        msg.delivery = Vec::new();
+        Ok(msg)
+    }
+
+    fn assignment_mut(&mut self, id: &str) -> Result<&mut Assignment> {
+        self.assignments
+            .get_mut(id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("assignment {id}")))
+    }
+
+    fn start_subagent(&mut self, request: SubagentRequest) -> Result<SubagentHandle> {
+        let total = self
+            .assignments
+            .values()
+            .map(|a| a.subagents_active)
+            .sum::<usize>();
+        let active = self.assignment(&request.assignment_id)?.subagents_active;
+        if active >= self.settings.subagent_per_run {
+            return Err(OrchestratorError::Conflict(
+                "subagent per-run limit reached".into(),
+            ));
+        }
+        if total >= self.settings.subagent_global {
+            return Err(OrchestratorError::Conflict(
+                "global subagent limit reached".into(),
+            ));
+        }
+        let id = new_id();
+        self.assignment_mut(&request.assignment_id)?
+            .subagents_active += 1;
+        Ok(SubagentHandle {
+            id,
+            assignment_id: request.assignment_id,
+            task: request.task,
+        })
+    }
+
+    fn finish_subagent(&mut self, assignment_id: &str, _subagent_id: &str) -> Result<()> {
+        let a = self.assignment_mut(assignment_id)?;
+        if a.subagents_active == 0 {
+            return Err(OrchestratorError::Conflict("no active subagent".into()));
+        }
+        a.subagents_active -= 1;
+        Ok(())
+    }
+    fn finish_assignment(&mut self, id: &str, status: &str) -> Result<Assignment> {
+        if !matches!(status, "done" | "failed" | "cancelled" | "blocked") {
+            return Err(OrchestratorError::Invalid("invalid final status".into()));
+        }
+        let a = self.assignment_mut(id)?;
+        a.status = status.into();
+        a.finished_at = Some(now());
+        a.wait = None;
+        let out = a.clone();
+        self.pump_queue();
+        Ok(out)
+    }
+
+    fn queue_steer(&mut self, req: SteerRequest) -> Result<SteerDelivery> {
+        let message_id = req.message_id.unwrap_or_else(new_id);
+        let aid = self
+            .assignments
+            .values()
+            .filter(|a| {
+                a.bot_id == req.bot_id
+                    && a.project_id == req.project_id
+                    && matches!(
+                        a.status.as_str(),
+                        "working" | "waiting_user" | "waiting_bot" | "blocked"
+                    )
+            })
+            .max_by_key(|a| a.created_at.clone())
+            .map(|a| a.id.clone());
+        let state = if aid.is_some() { "queued" } else { "delivered" };
+        let ts = now();
+        let steer = Steer {
+            message_id: message_id.clone(),
+            text: req.text.clone(),
+            at: ts.clone(),
+            applied_at: (state == "delivered").then_some(ts.clone()),
+        };
+        if let Some(id) = &aid {
+            let a = self.assignment_mut(id)?;
+            if a.status == "waiting_user" || a.status == "waiting_bot" {
+                a.status = "working".into();
+                a.wait = None;
+            }
+            a.steers.push(steer);
+        }
+        Ok(SteerDelivery {
+            message_id,
+            bot_id: req.bot_id,
+            assignment_id: aid,
+            state: state.into(),
+            at: ts,
+        })
+    }
+    fn mark_steer(&mut self, message_id: &str, state: &str) -> Result<SteerDelivery> {
+        for a in self.assignments.values_mut() {
+            if let Some(s) = a.steers.iter_mut().find(|s| s.message_id == message_id) {
+                let ts = now();
+                s.applied_at = (state != "queued").then_some(ts.clone());
+                return Ok(SteerDelivery {
+                    message_id: message_id.into(),
+                    bot_id: a.bot_id.clone(),
+                    assignment_id: Some(a.id.clone()),
+                    state: state.into(),
+                    at: ts,
+                });
+            }
+        }
+        Err(OrchestratorError::NotFound(format!("steer {message_id}")))
+    }
+
+    fn create_approval(&mut self, r: ApprovalRequest) -> Result<Approval> {
+        let id = new_id();
+        let a = Approval {
+            id: id.clone(),
+            bot_id: r.bot_id,
+            assignment_id: r.assignment_id.clone(),
+            chat_id: r.chat_id,
+            tool: r.tool,
+            risk: r.risk,
+            summary: r.summary,
+            detail: r.detail,
+            state: "pending".into(),
+            created_at: now(),
+            decided_at: None,
+        };
+        if let Some(x) = r.assignment_id {
+            if let Some(asn) = self.assignments.get_mut(&x) {
+                asn.status = "waiting_user".into();
+                asn.wait = Some(WaitState {
+                    reason: "approval".into(),
+                    message_id: None,
+                });
+            }
+        }
+        self.approvals.insert(id, a.clone());
+        Ok(a)
+    }
+    fn decide_approval(&mut self, id: String, decision: String) -> Result<Approval> {
+        let a = self
+            .approvals
+            .get_mut(&id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("approval {id}")))?;
+        let state = match decision.as_str() {
+            "allow_once" => "allowed_once",
+            "always_allow" => "always_allowed",
+            "deny" => "denied",
+            _ => {
+                return Err(OrchestratorError::Invalid(
+                    "invalid approval decision".into(),
+                ))
+            }
+        };
+        a.state = state.into();
+        a.decided_at = Some(now());
+        let out = a.clone();
+        if let Some(x) = &out.assignment_id {
+            if let Some(asn) = self.assignments.get_mut(x) {
+                asn.wait = None;
+                if state != "denied" {
+                    asn.status = "working".into();
+                }
+            }
+        }
+        Ok(out)
+    }
+    fn create_question(&mut self, r: QuestionRequest) -> Result<Question> {
+        let id = new_id();
+        let q = Question {
+            id: id.clone(),
+            bot_id: r.bot_id,
+            assignment_id: r.assignment_id.clone(),
+            chat_id: r.chat_id,
+            text: r.text,
+            options: r.options,
+            allow_free_text: r.allow_free_text,
+            state: "pending".into(),
+            answer: None,
+        };
+        if let Some(a) = self.assignments.get_mut(&r.assignment_id) {
+            a.status = "waiting_user".into();
+            a.wait = Some(WaitState {
+                reason: "decision".into(),
+                message_id: None,
+            });
+        }
+        self.questions.insert(id, q.clone());
+        Ok(q)
+    }
+    fn answer_question(
+        &mut self,
+        id: String,
+        option: Option<usize>,
+        text: Option<String>,
+    ) -> Result<Question> {
+        let q = self
+            .questions
+            .get_mut(&id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("question {id}")))?;
+        if q.state != "pending" {
+            return Err(OrchestratorError::Conflict(
+                "question already answered".into(),
+            ));
+        }
+        if option.is_none() && text.is_none() {
+            return Err(OrchestratorError::Invalid(
+                "an option or text is required".into(),
+            ));
+        }
+        if let Some(n) = option {
+            if n >= q.options.len() {
+                return Err(OrchestratorError::Invalid(
+                    "option index out of range".into(),
+                ));
+            }
+        }
+        q.answer = Some(QuestionAnswer {
+            option_index: option,
+            text,
+            at: now(),
+        });
+        q.state = "answered".into();
+        let out = q.clone();
+        if let Some(a) = self.assignments.get_mut(&out.assignment_id) {
+            a.status = "working".into();
+            a.wait = None;
+        }
+        Ok(out)
+    }
+
+    fn workbench(&self) -> Value {
+        let running = self
+            .assignments
+            .values()
+            .filter(|a| a.status == "working")
+            .count();
+        let waiting = self
+            .assignments
+            .values()
+            .filter(|a| {
+                matches!(
+                    a.status.as_str(),
+                    "waiting_user" | "waiting_bot" | "blocked"
+                )
+            })
+            .map(|a| json!({"kind":a.status,"assignment_id":a.id,"bot_id":a.bot_id}))
+            .collect::<Vec<_>>();
+        let bots=self.bots.values().filter(|b|!b.is_main).map(|b|json!({"bot_id":b.id,"active":self.assignments.values().filter(|a|a.bot_id==b.id&&matches!(a.status.as_str(),"working"|"queued"|"waiting_user"|"waiting_bot")).count(),"max_parallel":b.max_parallel,"assignments":self.assignments.values().filter(|a|a.bot_id==b.id&&matches!(a.status.as_str(),"working"|"queued"|"waiting_user"|"waiting_bot")).cloned().collect::<Vec<_>>() })).collect::<Vec<_>>();
+        json!({"running":running,"global_limit":self.settings.global_limit,"subagents_running":self.assignments.values().map(|a|a.subagents_active).sum::<usize>(),"waiting":waiting,"bots":bots,"done_today":self.assignments.values().filter(|a|a.status=="done").cloned().collect::<Vec<_>>()})
+    }
+
+    fn create_routine(&mut self, p: &Value) -> Result<Routine> {
+        let bot = str_param(p, "bot_id")?;
+        let _ = self.bot(&bot)?;
+        let n = self.routines.values().filter(|r| r.bot_id == bot).count();
+        if n >= 50 {
+            return Err(OrchestratorError::Conflict(
+                "a Bot may have at most 50 routines".into(),
+            ));
+        }
+        let schedules: Vec<Schedule> = serde_json::from_value(
+            p.get("schedules")
+                .cloned()
+                .ok_or_else(|| OrchestratorError::Invalid("schedules is required".into()))?,
+        )
+        .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
+        validate_schedules(&schedules)?;
+        let timezone = p
+            .get("timezone")
+            .and_then(Value::as_str)
+            .unwrap_or("Asia/Shanghai");
+        if !valid_timezone(timezone) {
+            return Err(OrchestratorError::Invalid(format!(
+                "invalid timezone {timezone}"
+            )));
+        }
+        let ts = now();
+        let r = Routine {
+            id: new_id(),
+            bot_id: bot,
+            project_id: p
+                .get("project_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            name: str_param(p, "name")?,
+            instructions: str_param(p, "instructions")?,
+            schedules,
+            timezone: timezone.into(),
+            enabled: true,
+            next_run_at: Some((Utc::now() + Duration::minutes(5)).to_rfc3339()),
+            last_run: None,
+            created_at: ts.clone(),
+            updated_at: ts,
+        };
+        self.routines.insert(r.id.clone(), r.clone());
+        Ok(r)
+    }
+    fn update_routine(&mut self, id: String, patch: Value) -> Result<Routine> {
+        let r = self.routine_mut(&id)?;
+        if let Some(x) = patch.get("name").and_then(Value::as_str) {
+            r.name = x.into();
+        }
+        if let Some(x) = patch.get("instructions").and_then(Value::as_str) {
+            r.instructions = x.into();
+        }
+        if let Some(x) = patch.get("timezone").and_then(Value::as_str) {
+            if !valid_timezone(x) {
+                return Err(OrchestratorError::Invalid(format!("invalid timezone {x}")));
+            }
+            r.timezone = x.into();
+        }
+        if let Some(v) = patch.get("schedules") {
+            let s: Vec<Schedule> = serde_json::from_value(v.clone())
+                .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
+            validate_schedules(&s)?;
+            r.schedules = s;
+        }
+        if let Some(x) = patch.get("project_id") {
+            r.project_id = x.as_str().map(str::to_owned);
+        }
+        r.updated_at = now();
+        Ok(r.clone())
+    }
+    fn test_routine(&mut self, id: String) -> Result<RoutineRun> {
+        let r = self
+            .routines
+            .get_mut(&id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("routine {id}")))?;
+        let ts = now();
+        let run = RoutineRun {
+            id: new_id(),
+            routine_id: id.clone(),
+            assignment_id: None,
+            trigger: "test".into(),
+            status: "running".into(),
+            started_at: ts,
+            finished_at: None,
+            error: None,
+        };
+        r.last_run = Some(run.clone());
+        r.next_run_at = Some((Utc::now() + Duration::minutes(5)).to_rfc3339());
+        self.routine_runs.entry(id).or_default().push(run.clone());
+        Ok(run)
+    }
+
+    fn tick_routines(&mut self, at: DateTime<Utc>) -> Result<Vec<RoutineRun>> {
+        let due = self
+            .routines
+            .values()
+            .filter(|r| {
+                r.enabled
+                    && r.next_run_at
+                        .as_deref()
+                        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                        .is_some_and(|next| next.with_timezone(&Utc) <= at)
+            })
+            .map(|r| r.id.clone())
+            .collect::<Vec<_>>();
+        let mut runs = Vec::new();
+        for id in due {
+            let (bot_id, project_id, name, instructions) = {
+                let r = self
+                    .routines
+                    .get(&id)
+                    .ok_or_else(|| OrchestratorError::NotFound(format!("routine {id}")))?;
+                (
+                    r.bot_id.clone(),
+                    r.project_id.clone(),
+                    r.name.clone(),
+                    r.instructions.clone(),
+                )
+            };
+            let assignment = self.create_assignment(AssignmentRequest {
+                project_id,
+                origin_chat_id: format!("routine:{id}"),
+                bot_id,
+                title: name,
+                instruction: instructions,
+                from: "routine".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 0,
+                root_message_id: None,
+                loop_hops: 0,
+            })?;
+            let ts = at.to_rfc3339();
+            let run = RoutineRun {
+                id: new_id(),
+                routine_id: id.clone(),
+                assignment_id: Some(assignment.id),
+                trigger: "schedule".into(),
+                status: "running".into(),
+                started_at: ts,
+                finished_at: None,
+                error: None,
+            };
+            self.routine_runs
+                .entry(id.clone())
+                .or_default()
+                .push(run.clone());
+            if let Some(r) = self.routines.get_mut(&id) {
+                r.last_run = Some(run.clone());
+                r.next_run_at = Some((at + Duration::minutes(5)).to_rfc3339());
+                r.updated_at = at.to_rfc3339();
+            }
+            runs.push(run);
+        }
+        Ok(runs)
+    }
+}
+
+fn str_param(p: &Value, k: &str) -> Result<String> {
+    p.get(k)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| OrchestratorError::Invalid(format!("{k} is required")))
+}
+fn str_value(v: &Value) -> Result<String> {
+    v.as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| OrchestratorError::Invalid("expected string id".into()))
+}
+fn validate_schedules(s: &[Schedule]) -> Result<()> {
+    if s.is_empty() {
+        return Err(OrchestratorError::Invalid(
+            "at least one schedule is required".into(),
+        ));
+    }
+    if s.iter().any(|x| x.cron.trim().is_empty()) {
+        return Err(OrchestratorError::Invalid("cron cannot be empty".into()));
+    }
+    Ok(())
+}
+
+fn valid_timezone(value: &str) -> bool {
+    if value == "UTC" || value == "Etc/UTC" || value.starts_with("GMT") || value.starts_with("UTC")
+    {
+        return true;
+    }
+    !value.trim().is_empty()
+        && !value.contains("..")
+        && std::path::Path::new("/usr/share/zoneinfo")
+            .join(value)
+            .is_file()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bot(o: &Orchestrator, name: &str) -> Id {
+        futures_create_bot(o, name)
+    }
+    fn futures_create_bot(o: &Orchestrator, name: &str) -> Id {
+        let v = o.rpc("bot.create", json!({"name":name}));
+        let v = tokio::runtime::Runtime::new().unwrap().block_on(v).unwrap();
+        v["bot"]["id"].as_str().unwrap().into()
+    }
+
+    #[test]
+    fn send_msg_is_idempotent_and_hands_off() {
+        let o = Orchestrator::new(Default::default());
+        let b = bot(&o, "编码");
+        let p = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"登录","goal":"邮箱","member_bot_ids":[b]}),
+            ))
+            .unwrap();
+        let pid = p["project"]["id"].as_str().unwrap().to_string();
+        let a = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(pid),
+                origin_chat_id: "chat".into(),
+                bot_id: b.clone(),
+                title: "实现".into(),
+                instruction: "做事".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let req = SendMessageRequest {
+            bot_id: b.clone(),
+            chat_id: "chat".into(),
+            assignment_id: Some(a.id.clone()),
+            run_id: Some("r".into()),
+            call_id: Some("c".into()),
+            text: "好了".into(),
+            intent: "done".into(),
+            mentions: vec![MentionInput::Main("main".into())],
+            artifacts: vec![],
+            options: vec![],
+        };
+        let m1 = o.send_msg(req.clone()).unwrap();
+        let m2 = o.send_msg(req).unwrap();
+        assert_eq!(m1.id, m2.id);
+        assert_eq!(o.finish_assignment(&a.id, "done").unwrap().status, "done");
+    }
+
+    #[test]
+    fn steer_delivery_progresses_queued_delivered_read() {
+        let o = Orchestrator::new(Default::default());
+        let b = bot(&o, "编码");
+        let a = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat".into(),
+                bot_id: b.clone(),
+                title: "x".into(),
+                instruction: "x".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let s = o
+            .queue_steer(SteerRequest {
+                bot_id: b,
+                project_id: None,
+                chat_id: "chat".into(),
+                text: "调整".into(),
+                message_id: None,
+            })
+            .unwrap();
+        assert_eq!(s.assignment_id, Some(a.id));
+        assert_eq!(s.state, "queued");
+        assert_eq!(
+            o.mark_steer_delivered(&s.message_id).unwrap().state,
+            "delivered"
+        );
+        assert_eq!(o.mark_steer_read(&s.message_id).unwrap().state, "read");
+    }
+
+    #[test]
+    fn routine_limits_and_timezone_are_validated() {
+        let o = Orchestrator::new(Default::default());
+        let b = bot(&o, "定时");
+        let r=tokio::runtime::Runtime::new().unwrap().block_on(o.rpc("routine.create",json!({"bot_id":b,"name":"检查","instructions":"检查","schedules":[{"cron":"0 * * * *","label":"hourly"}],"timezone":"Asia/Shanghai"}))).unwrap();
+        assert_eq!(r["routine"]["timezone"], "Asia/Shanghai");
+        let bad=tokio::runtime::Runtime::new().unwrap().block_on(o.rpc("routine.create",json!({"bot_id":b,"name":"坏","instructions":"坏","schedules":[{"cron":"* * * * *","label":"x"}],"timezone":"No/Such"})));
+        assert!(bad.is_err());
+    }
+
+    #[test]
+    fn group_done_creates_handoff_assignment() {
+        let o = Orchestrator::default();
+        let from = bot(&o, "产品");
+        let to = bot(&o, "编码");
+        let project = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"登录","goal":"邮箱","member_bot_ids":[from,to]}),
+            ))
+            .unwrap();
+        let assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(project["project"]["id"].as_str().unwrap().into()),
+                origin_chat_id: "project-chat".into(),
+                bot_id: from.clone(),
+                title: "PRD".into(),
+                instruction: "写 PRD".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        o.send_msg(SendMessageRequest {
+            bot_id: from,
+            chat_id: "project-chat".into(),
+            assignment_id: Some(assignment.id),
+            run_id: None,
+            call_id: None,
+            text: "完成".into(),
+            intent: "done".into(),
+            mentions: vec![MentionInput::Bot {
+                bot_id: to,
+                instruction: Some("按 PRD 实现".into()),
+            }],
+            artifacts: vec![],
+            options: vec![],
+        })
+        .unwrap();
+        let list = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc("assignment.list", json!({})))
+            .unwrap();
+        assert_eq!(list["items"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn decision_steer_resumes_waiting_assignment() {
+        let o = Orchestrator::default();
+        let b = bot(&o, "编码");
+        let a = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat".into(),
+                bot_id: b.clone(),
+                title: "决策".into(),
+                instruction: "询问".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        o.send_msg(SendMessageRequest {
+            bot_id: b.clone(),
+            chat_id: "chat".into(),
+            assignment_id: Some(a.id.clone()),
+            run_id: None,
+            call_id: None,
+            text: "选一个".into(),
+            intent: "decision".into(),
+            mentions: vec![MentionInput::User("user".into())],
+            artifacts: vec![],
+            options: vec!["A".into(), "B".into()],
+        })
+        .unwrap();
+        let waiting = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc("assignment.get", json!({"assignment_id":a.id})))
+            .unwrap();
+        assert_eq!(waiting["assignment"]["status"], "waiting_user");
+        let steer = o
+            .queue_steer(SteerRequest {
+                bot_id: b,
+                project_id: None,
+                chat_id: "chat".into(),
+                text: "选 A".into(),
+                message_id: None,
+            })
+            .unwrap();
+        assert_eq!(steer.state, "queued");
+        let resumed = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc("assignment.get", json!({"assignment_id":a.id})))
+            .unwrap();
+        assert_eq!(resumed["assignment"]["status"], "working");
+    }
+
+    #[test]
+    fn subagent_limit_loop_resolution_and_routine_tick() {
+        let settings = OrchestratorSettings {
+            subagent_per_run: 1,
+            ..Default::default()
+        };
+        let o = Orchestrator::new(settings);
+        let b = bot(&o, "执行");
+        let a = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat".into(),
+                bot_id: b,
+                title: "工作".into(),
+                instruction: "工作".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: Some("root".into()),
+                loop_hops: 8,
+            })
+            .unwrap();
+        let child = o
+            .start_subagent(SubagentRequest {
+                assignment_id: a.id.clone(),
+                task: "调研".into(),
+            })
+            .unwrap();
+        assert!(o
+            .start_subagent(SubagentRequest {
+                assignment_id: a.id.clone(),
+                task: "第二个".into()
+            })
+            .is_err());
+        o.finish_subagent(&a.id, &child.id).unwrap();
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc(
+                "loop.resolve",
+                json!({"root_message_id":"root","action":"continue"}),
+            ))
+            .unwrap();
+        let at = Utc::now();
+        let bot_id = a.bot_id.clone();
+        let routine = tokio::runtime::Runtime::new().unwrap().block_on(o.rpc("routine.create", json!({"bot_id":bot_id,"name":"轮询","instructions":"轮询","schedules":[{"cron":"0 * * * *","label":"hourly"}],"timezone":"America/New_York"}))).unwrap();
+        assert_eq!(routine["routine"]["timezone"], "America/New_York");
+        let runs = o.tick_routines(at + Duration::minutes(6)).unwrap();
+        assert_eq!(runs.len(), 1);
+        let next = routine["routine"]["next_run_at"].as_str().unwrap();
+        assert!(!next.is_empty());
+    }
+}

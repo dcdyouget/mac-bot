@@ -1,0 +1,38 @@
+[package]
+name = "macbot-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+macbot-browser = { path = "../macbot-browser" }
+macbot-durable = { path = "../macbot-durable" }
+macbot-orchestrator = { path = "../macbot-orchestrator" }
+macbot-protocol = { path = "../../../protocol/rust" }
+macbot-providers = { path = "../macbot-providers" }
+macbot-store = { path = "../macbot-store" }
+macbot-tools = { path = "../macbot-tools" }
+macbot-usage = { path = "../macbot-usage" }
+argon2 = "0.5"
+async-trait.workspace = true
+axum.workspace = true
+base64.workspace = true
+chrono.workspace = true
+futures-util.workspace = true
+http.workspace = true
+mime_guess.workspace = true
+password-hash.workspace = true
+rand.workspace = true
+rand_core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+http-body-util.workspace = true
+hyper.workspace = true
+tempfile.workspace = true
+tower.workspace = true

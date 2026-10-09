@@ -1,0 +1,448 @@
+//! Crash-safe JSON storage used by `macbotd`.
+//!
+//! JSONL files are the source of truth.  A record is made durable before its
+//! caller publishes the corresponding event, and snapshots are replaced with
+//! an fsync+rename sequence.  `Store::open` repairs only an incomplete final
+//! JSONL record; a malformed complete record is reported instead of silently
+//! losing data.
+
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+use std::{
+    collections::HashMap,
+    fs::{self, File, OpenOptions},
+    io::{self, Read, Write},
+    path::{Component, Path, PathBuf},
+    sync::{Arc, Mutex},
+};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum StoreError {
+    #[error("I/O error: {0}")]
+    Io(#[from] io::Error),
+    #[error("invalid JSON in {path} at line {line}: {source}")]
+    Json {
+        path: PathBuf,
+        line: usize,
+        source: serde_json::Error,
+    },
+    #[error("invalid snapshot JSON in {path}: {source}")]
+    Snapshot {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+    #[error("data directory is already locked: {0}")]
+    Locked(PathBuf),
+    #[error("path escapes store root: {0}")]
+    PathEscape(PathBuf),
+}
+
+#[derive(Clone)]
+pub struct Store {
+    root: Arc<PathBuf>,
+    lock: Arc<File>,
+    write_lock: Arc<Mutex<()>>,
+    files: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>>,
+    event_seq: Arc<Mutex<u64>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Event {
+    pub seq: u64,
+    pub event: String,
+    pub data: Value,
+}
+
+impl Store {
+    /// Open a store and take the single-writer process lock.
+    pub fn open(root: impl AsRef<Path>) -> Result<Self, StoreError> {
+        let root = root.as_ref().to_path_buf();
+        fs::create_dir_all(&root)?;
+        // Keep the root canonical so `/var` and `/private/var` resolve to the
+        // same store on macOS and symlinked store roots cannot change the
+        // boundary check later.
+        let root = root.canonicalize()?;
+        fs::create_dir_all(root.join("data"))?;
+        let lock_path = root.join("data/.lock");
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&lock_path)?;
+        #[cfg(unix)]
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(StoreError::Locked(lock_path));
+        }
+        let store = Self {
+            root: Arc::new(root),
+            lock: Arc::new(lock),
+            write_lock: Arc::new(Mutex::new(())),
+            files: Arc::new(Mutex::new(HashMap::new())),
+            event_seq: Arc::new(Mutex::new(0)),
+        };
+        store.repair_jsonl_files()?;
+        let seq = store
+            .read_jsonl::<Event>("data/events/events.jsonl")?
+            .iter()
+            .map(|event| event.seq)
+            .max()
+            .unwrap_or(0);
+        *store
+            .event_seq
+            .lock()
+            .expect("event sequence lock poisoned") = seq;
+        Ok(store)
+    }
+
+    pub fn root(&self) -> &Path {
+        self.root.as_ref()
+    }
+
+    fn resolve(&self, relative: impl AsRef<Path>) -> Result<PathBuf, StoreError> {
+        let relative = relative.as_ref();
+        if relative
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+        {
+            return Err(StoreError::PathEscape(relative.to_path_buf()));
+        }
+        let path = if relative.is_absolute() {
+            relative.to_path_buf()
+        } else {
+            self.root.join(relative)
+        };
+        let canonical = canonicalize_with_missing_tail(&path).map_err(StoreError::Io)?;
+        if !canonical.starts_with(self.root.as_path()) {
+            return Err(StoreError::PathEscape(path));
+        }
+        Ok(path)
+    }
+
+    fn file_lock(&self, path: &Path) -> Arc<Mutex<()>> {
+        let mut locks = self.files.lock().expect("store lock poisoned");
+        locks
+            .entry(path.to_path_buf())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+
+    /// Append one complete JSON value and sync it to disk.
+    pub fn append_jsonl<T: Serialize>(
+        &self,
+        relative: impl AsRef<Path>,
+        value: &T,
+    ) -> Result<(), StoreError> {
+        let path = self.resolve(relative)?;
+        let lock = self.file_lock(&path);
+        let _file_guard = lock.lock().expect("file lock poisoned");
+        let _write_guard = self.write_lock.lock().expect("store lock poisoned");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let bytes = serde_json::to_vec(value).map_err(|e| StoreError::Json {
+            path: path.clone(),
+            line: 0,
+            source: e,
+        })?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .read(true)
+            .open(&path)?;
+        file.write_all(&bytes)?;
+        file.write_all(b"\n")?;
+        file.sync_data()?;
+        Ok(())
+    }
+
+    /// Read JSONL records, repairing an incomplete final line if needed.
+    pub fn read_jsonl<T: DeserializeOwned>(
+        &self,
+        relative: impl AsRef<Path>,
+    ) -> Result<Vec<T>, StoreError> {
+        let path = self.resolve(relative)?;
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let lock = self.file_lock(&path);
+        let _guard = lock.lock().expect("file lock poisoned");
+        let mut bytes = Vec::new();
+        File::open(&path)?.read_to_end(&mut bytes)?;
+        let complete_len = bytes
+            .iter()
+            .rposition(|b| *b == b'\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        if complete_len < bytes.len() {
+            let file = OpenOptions::new().write(true).open(&path)?;
+            file.set_len(complete_len as u64)?;
+            file.sync_data()?;
+            bytes.truncate(complete_len);
+        }
+        let mut records = Vec::new();
+        for (idx, line) in bytes
+            .split(|b| *b == b'\n')
+            .filter(|line| !line.is_empty())
+            .enumerate()
+        {
+            records.push(
+                serde_json::from_slice(line).map_err(|source| StoreError::Json {
+                    path: path.clone(),
+                    line: idx + 1,
+                    source,
+                })?,
+            );
+        }
+        Ok(records)
+    }
+
+    /// Atomically replace a JSON snapshot.  The temporary file is in the same
+    /// directory so rename is atomic on the filesystem used by macOS.
+    pub fn write_snapshot<T: Serialize>(
+        &self,
+        relative: impl AsRef<Path>,
+        value: &T,
+    ) -> Result<(), StoreError> {
+        let path = self.resolve(relative)?;
+        let lock = self.file_lock(&path);
+        let _file_guard = lock.lock().expect("file lock poisoned");
+        let _write_guard = self.write_lock.lock().expect("store lock poisoned");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let tmp = path.with_extension(format!(
+            "tmp.{}.{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let bytes = serde_json::to_vec_pretty(value).map_err(|source| StoreError::Snapshot {
+            path: path.clone(),
+            source,
+        })?;
+        let result = (|| {
+            let mut f = OpenOptions::new().create_new(true).write(true).open(&tmp)?;
+            f.write_all(&bytes)?;
+            f.write_all(b"\n")?;
+            f.sync_all()?;
+            fs::rename(&tmp, &path)?;
+            if let Some(parent) = path.parent() {
+                File::open(parent)?.sync_all()?;
+            }
+            Ok::<(), io::Error>(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        result.map_err(StoreError::Io)
+    }
+
+    pub fn read_snapshot<T: DeserializeOwned>(
+        &self,
+        relative: impl AsRef<Path>,
+    ) -> Result<Option<T>, StoreError> {
+        let path = self.resolve(relative)?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        let file = File::open(&path)?;
+        serde_json::from_reader(file)
+            .map(Some)
+            .map_err(|source| StoreError::Snapshot { path, source })
+    }
+
+    pub fn last_event_seq(&self) -> Result<u64, StoreError> {
+        Ok(*self.event_seq.lock().expect("event sequence lock poisoned"))
+    }
+
+    /// Append a globally sequenced event. The event is synced before return.
+    pub fn append_event(&self, event: impl Into<String>, data: Value) -> Result<Event, StoreError> {
+        // Serialize sequence allocation and append together. Calling
+        // `append_jsonl` here would invert the file/store lock order, so this
+        // method performs the small append inline.
+        let path = self.resolve("data/events/events.jsonl")?;
+        let file_lock = self.file_lock(&path);
+        let _file_guard = file_lock.lock().expect("file lock poisoned");
+        let _write_guard = self.write_lock.lock().expect("store lock poisoned");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut next_seq = self.event_seq.lock().expect("event sequence lock poisoned");
+        let seq = *next_seq + 1;
+        let record = Event {
+            seq,
+            event: event.into(),
+            data,
+        };
+        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+        file.write_all(
+            &serde_json::to_vec(&record).map_err(|source| StoreError::Json {
+                path: path.clone(),
+                line: 0,
+                source,
+            })?,
+        )?;
+        file.write_all(b"\n")?;
+        file.sync_data()?;
+        *next_seq = seq;
+        Ok(record)
+    }
+
+    pub fn events_since(&self, seq: u64) -> Result<Vec<Event>, StoreError> {
+        Ok(self
+            .read_jsonl::<Event>("data/events/events.jsonl")?
+            .into_iter()
+            .filter(|e| e.seq > seq)
+            .collect())
+    }
+
+    fn repair_jsonl_files(&self) -> Result<(), StoreError> {
+        fn visit(dir: &Path, store: &Store) -> Result<(), StoreError> {
+            for entry in fs::read_dir(dir)? {
+                let path = entry?.path();
+                if path.is_dir() {
+                    visit(&path, store)?;
+                } else if path.extension().is_some_and(|x| x == "jsonl") {
+                    let rel = path.strip_prefix(store.root()).unwrap_or(&path);
+                    let _: Vec<Value> = store.read_jsonl(rel)?;
+                }
+            }
+            Ok(())
+        }
+        visit(&self.root.join("data"), self)
+    }
+
+    /// Keep the lock file alive for the lifetime of the store.
+    pub fn is_locked(&self) -> bool {
+        self.lock.metadata().is_ok()
+    }
+}
+
+/// Canonicalize the existing ancestor of a path and append the missing tail.
+/// This catches symlink escapes even when the final file has not been created.
+fn canonicalize_with_missing_tail(path: &Path) -> io::Result<PathBuf> {
+    let mut probe = path.to_path_buf();
+    let mut tail = Vec::new();
+    loop {
+        match fs::canonicalize(&probe) {
+            Ok(mut canonical) => {
+                for component in tail.iter().rev() {
+                    canonical.push(component);
+                }
+                return Ok(canonical);
+            }
+            Err(error) if fs::symlink_metadata(&probe).is_err() => {
+                let Some(name) = probe.file_name() else {
+                    return Err(error);
+                };
+                tail.push(name.to_os_string());
+                let Some(parent) = probe.parent() else {
+                    return Err(error);
+                };
+                probe = parent.to_path_buf();
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn truncates_incomplete_last_line_and_keeps_previous_records() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store
+            .append_jsonl("data/log.jsonl", &serde_json::json!({"n": 1}))
+            .unwrap();
+        let path = dir.path().join("data/log.jsonl");
+        let mut f = OpenOptions::new().append(true).open(&path).unwrap();
+        f.write_all(br#"{"n": 2"#).unwrap();
+        drop(f);
+        let records: Vec<Value> = store.read_jsonl("data/log.jsonl").unwrap();
+        assert_eq!(records, vec![serde_json::json!({"n": 1})]);
+        assert_eq!(fs::read_to_string(path).unwrap(), "{\"n\":1}\n");
+    }
+
+    #[test]
+    fn snapshot_replace_is_readable() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store
+            .write_snapshot("data/state.json", &serde_json::json!({"version": 2}))
+            .unwrap();
+        assert_eq!(
+            store.read_snapshot::<Value>("data/state.json").unwrap(),
+            Some(serde_json::json!({"version": 2}))
+        );
+    }
+
+    #[test]
+    fn events_are_monotonic() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        assert_eq!(
+            store.append_event("a", serde_json::json!({})).unwrap().seq,
+            1
+        );
+        assert_eq!(
+            store.append_event("b", serde_json::json!({})).unwrap().seq,
+            2
+        );
+        assert_eq!(store.events_since(1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn concurrent_event_appends_have_unique_sequences() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let mut threads = Vec::new();
+        for index in 0..8 {
+            let store = store.clone();
+            threads.push(std::thread::spawn(move || {
+                (0..16)
+                    .map(|offset| {
+                        store
+                            .append_event(
+                                "test",
+                                serde_json::json!({"index": index, "offset": offset}),
+                            )
+                            .unwrap()
+                            .seq
+                    })
+                    .collect::<Vec<_>>()
+            }));
+        }
+        let mut seqs = threads
+            .into_iter()
+            .flat_map(|thread| thread.join().unwrap())
+            .collect::<Vec<_>>();
+        seqs.sort_unstable();
+        assert_eq!(seqs, (1..=128).collect::<Vec<_>>());
+        assert_eq!(store.last_event_seq().unwrap(), 128);
+    }
+
+    #[test]
+    fn rejects_parent_traversal_and_symlink_escape() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        assert!(matches!(
+            store.append_jsonl("data/../outside.jsonl", &serde_json::json!({})),
+            Err(StoreError::PathEscape(_))
+        ));
+        let outside = tempdir().unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("data/link")).unwrap();
+        #[cfg(unix)]
+        assert!(matches!(
+            store.append_jsonl("data/link/escape.jsonl", &serde_json::json!({})),
+            Err(StoreError::PathEscape(_))
+        ));
+    }
+}

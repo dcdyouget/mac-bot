@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+# Installer scripts run as root.  Register the daemon in the logged-in user's
+# LaunchAgent domain so Keychain and Chrome remain available to macbotd.
+CONSOLE_USER="$(stat -f '%Su' /dev/console)"
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = root ]; then
+  echo "No logged-in user; install completed without starting Mac Bot." >&2
+  exit 0
+fi
+CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+CONSOLE_HOME="$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory | awk '{print $2}')"
+APP_SRC="/Applications/MacBot Server.app"
+APP_DST="$CONSOLE_HOME/Applications/MacBot Server.app"
+BIN_DIR="$CONSOLE_HOME/.local/bin"
+HOME_DIR="${MACBOT_HOME:-$CONSOLE_HOME/MacBot}"
+PLIST_DIR="$CONSOLE_HOME/Library/LaunchAgents"
+PLIST="$PLIST_DIR/com.macbot.server.plist"
+APP_BIN="$APP_DST/Contents/MacOS/macbotd"
+
+mkdir -p "$CONSOLE_HOME/Applications" "$BIN_DIR" "$PLIST_DIR" "$HOME_DIR/data"
+rm -rf "$APP_DST"
+ditto "$APP_SRC" "$APP_DST"
+ln -sfn "$APP_BIN" "$BIN_DIR/macbotd"
+ln -sfn macbotd "$BIN_DIR/macbot"
+
+sed -e "s#__MACBOT_HOME__#$HOME_DIR#g" \
+    -e "s#__MACBOT_BIN__#$APP_BIN#g" \
+    "$APP_DST/Contents/Resources/com.macbot.server.plist" > "$PLIST"
+chown -R "$CONSOLE_USER":staff "$APP_DST" "$BIN_DIR" "$PLIST_DIR" "$HOME_DIR"
+
+launchctl bootout "gui/$CONSOLE_UID/com.macbot.server" 2>/dev/null || true
+launchctl bootstrap "gui/$CONSOLE_UID" "$PLIST"
+launchctl enable "gui/$CONSOLE_UID/com.macbot.server" || true
+sudo -u "$CONSOLE_USER" open "http://localhost:7788/admin" 2>/dev/null || true
