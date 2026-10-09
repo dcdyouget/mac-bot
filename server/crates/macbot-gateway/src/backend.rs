@@ -376,26 +376,46 @@ impl ComposedBackend {
             .filter_map(|assignment| assignment.get("bot_id").and_then(Value::as_str))
             .map(str::to_owned)
             .collect::<HashSet<_>>();
-        {
+        // Only hold the durable mutex while collecting the small set of
+        // active run ids.  Request files contain the full model context and
+        // can be megabytes, so parsing them under this Tokio mutex stalls
+        // chat.send and other execution paths.
+        let active_run_ids = {
             let durable = self.runtime.state.durable.lock().await;
-            for job in durable.jobs() {
-                if !matches!(
-                    job.status,
-                    macbot_durable::JobStatus::Queued | macbot_durable::JobStatus::Running
-                ) {
-                    continue;
-                }
-                let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
-                    continue;
-                };
-                if let Ok(Some(request)) = self
-                    .runtime
-                    .store
-                    .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
-                {
-                    active_bots.insert(request.bot_id);
-                }
-            }
+            durable
+                .jobs()
+                .filter(|job| {
+                    matches!(
+                        job.status,
+                        macbot_durable::JobStatus::Queued | macbot_durable::JobStatus::Running
+                    )
+                })
+                .filter_map(|job| {
+                    job.checkpoint
+                        .get("run_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .collect::<Vec<_>>()
+        };
+        let request_store = self.runtime.store.clone();
+        let active_requests = tokio::task::spawn_blocking(move || {
+            active_run_ids
+                .into_iter()
+                .filter_map(|run_id| {
+                    request_store
+                        .read_snapshot::<ExecutionRequest>(format!(
+                            "data/run_requests/{run_id}.json"
+                        ))
+                        .ok()
+                        .flatten()
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        for request in active_requests {
+            active_bots.insert(request.bot_id);
         }
         let targets = snapshot
             .get("bots")
