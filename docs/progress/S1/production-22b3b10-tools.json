@@ -51,5 +51,5 @@
     "streaming": false,
     "thread_count": 0
   },
-  "test_observation": "Initial script timed out waiting for manual approval; same existing run completed after exact allow_once decisions; read/bash follow-up risk bug observed. API tools only; S1 stage not passed."
+  "test_observation": "Original script timed out; approvals waited for manual review and user/bot duplicated message seq also breaks after_seq polling. Exact allow_once decisions completed same existing run; full history and trace prove tools only. Original scenario FAIL and S1 stage not passed."
 }
