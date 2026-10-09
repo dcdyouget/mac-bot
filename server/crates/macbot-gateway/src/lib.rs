@@ -881,7 +881,155 @@ fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     None
 }
 
+fn mock_screen_view(state: &MockState, bot_id: &str) -> (String, Vec<Value>) {
+    let tabs = state
+        .extra
+        .get(&format!("screen_tabs:{bot_id}"))
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect::<Vec<_>>();
+    let driver = state
+        .extra
+        .get(&format!("screen_driver:{bot_id}"))
+        .into_iter()
+        .flatten()
+        .find_map(|value| value.get("driver").and_then(Value::as_str))
+        .unwrap_or("idle")
+        .to_owned();
+    (driver, tabs)
+}
+
+fn mock_screen_state(bot_id: &str, driver: &str, tabs: &[Value], selected: &str) -> Value {
+    let tabs = tabs
+        .iter()
+        .map(|tab| {
+            let mut tab = tab.clone();
+            let is_active = tab.get("tab_id").and_then(Value::as_str) == Some(selected);
+            if let Some(object) = tab.as_object_mut() {
+                object.insert("active".into(), json!(is_active));
+            }
+            tab
+        })
+        .collect::<Vec<_>>();
+    json!({"type":"state","state":{"bot_id":bot_id,"driver":driver,
+        "tabs":tabs,"width":320,"height":180}})
+}
+
+fn mock_screen_frame(seq: u64, tab_id: &str, tabs: &[Value]) -> Vec<u8> {
+    let url = tabs
+        .iter()
+        .find(|tab| tab.get("tab_id").and_then(Value::as_str) == Some(tab_id))
+        .and_then(|tab| tab.get("url").and_then(Value::as_str))
+        .unwrap_or("about:blank");
+    let jpeg = MOCK_SCREEN_FRAMES[(seq as usize) % MOCK_SCREEN_FRAMES.len()];
+    let header =
+        json!({"seq":seq,"tab_id":tab_id,"w":320,"h":180,"ts":unix_ms(),"url":url}).to_string();
+    let mut bytes = Vec::with_capacity(4 + header.len() + jpeg.len());
+    bytes.extend_from_slice(&(header.len() as u32).to_be_bytes());
+    bytes.extend_from_slice(header.as_bytes());
+    bytes.extend_from_slice(jpeg);
+    bytes
+}
+
+async fn mock_screen_session(
+    socket: axum::extract::ws::WebSocket,
+    gw: Gateway,
+    query: ScreenQuery,
+) {
+    let (mut sink, mut stream) = socket.split();
+    let bot_id = query.bot_id.unwrap_or_else(|| "bot_main".into());
+    let mut selected = query.tab_id.unwrap_or_else(|| "tab_mock_1".into());
+    let mut seq = 1u64;
+    let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
+    let view = gw.state.inner.read().await;
+    let (mut driver, mut tabs) = mock_screen_view(&view, &bot_id);
+    drop(view);
+    let mut last_state = mock_screen_state(&bot_id, &driver, &tabs, &selected);
+    if sink.send(text_frame(&last_state)).await.is_err() {
+        return;
+    }
+    if sink
+        .send(axum::extract::ws::Message::Binary(
+            mock_screen_frame(seq, &selected, &tabs).into(),
+        ))
+        .await
+        .is_err()
+    {
+        return;
+    }
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                let view = gw.state.inner.read().await;
+                let (next_driver, next_tabs) = mock_screen_view(&view, &bot_id);
+                drop(view);
+                driver = next_driver;
+                tabs = next_tabs;
+                if !tabs.iter().any(|tab| tab.get("tab_id").and_then(Value::as_str) == Some(&selected)) {
+                    selected = tabs.first().and_then(|tab| tab.get("tab_id").and_then(Value::as_str)).unwrap_or("tab_mock_1").to_owned();
+                }
+                let state = mock_screen_state(&bot_id, &driver, &tabs, &selected);
+                if state != last_state {
+                    last_state = state.clone();
+                    if sink.send(text_frame(&state)).await.is_err() { break; }
+                }
+            }
+            message = stream.next() => {
+                let Some(Ok(message)) = message else { break; };
+                match message {
+                    axum::extract::ws::Message::Text(text) => {
+                        let parsed: Value = serde_json::from_str(&text).unwrap_or_default();
+                        match parsed.get("type").and_then(Value::as_str) {
+                            Some("ack") if parsed.get("seq").and_then(Value::as_u64) == Some(seq) => {
+                                seq += 1;
+                                if sink.send(axum::extract::ws::Message::Binary(mock_screen_frame(seq, &selected, &tabs).into())).await.is_err() { break; }
+                            }
+                            Some("switch_tab") => {
+                                if driver != "user" {
+                                    if sink.send(text_frame(&json!({"type":"error","error":{"code":"permission_denied","message":"takeover is not active"}}))).await.is_err() { break; }
+                                    continue;
+                                }
+                                let Some(requested) = parsed.get("tab_id").and_then(Value::as_str) else {
+                                    let _ = sink.send(text_frame(&json!({"type":"error","error":{"code":"invalid_request","message":"tab_id is required"}}))).await;
+                                    continue;
+                                };
+                                if !tabs.iter().any(|tab| tab.get("tab_id").and_then(Value::as_str) == Some(requested)) {
+                                    let _ = sink.send(text_frame(&json!({"type":"error","error":{"code":"forbidden","message":"tab is outside the screen assignment"}}))).await;
+                                    continue;
+                                }
+                                selected = requested.to_owned();
+                                let state = mock_screen_state(&bot_id, &driver, &tabs, &selected);
+                                last_state = state.clone();
+                                if sink.send(text_frame(&state)).await.is_err() { break; }
+                            }
+                            Some("input") => {
+                                if driver != "user" {
+                                    if sink.send(text_frame(&json!({"type":"error","error":{"code":"permission_denied","message":"takeover is not active"}}))).await.is_err() { break; }
+                                } else if let Some(event) = parsed.get("event") {
+                                    if serde_json::from_value::<macbot_protocol::ScreenInput>(event.clone()).is_err()
+                                        && sink.send(text_frame(&json!({"type":"error","error":{"code":"invalid_request","message":"invalid screen input"}}))).await.is_err() { break; }
+                                } else if sink.send(text_frame(&json!({"type":"error","error":{"code":"invalid_request","message":"event is required"}}))).await.is_err() { break; }
+                            }
+                            _ => {}
+                        }
+                    }
+                    axum::extract::ws::Message::Ping(payload) => {
+                        if sink.send(axum::extract::ws::Message::Pong(payload)).await.is_err() { break; }
+                    }
+                    axum::extract::ws::Message::Close(_) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
 async fn screen_session(socket: axum::extract::ws::WebSocket, gw: Gateway, query: ScreenQuery) {
+    if gw.mock {
+        mock_screen_session(socket, gw, query).await;
+        return;
+    }
     let (mut sink, mut stream) = socket.split();
     let bot_id = query.bot_id.unwrap_or_else(|| "bot_main".into());
     let selected_tab = query.tab_id.unwrap_or_default();

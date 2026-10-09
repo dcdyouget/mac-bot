@@ -122,7 +122,9 @@ async fn dispatch(
         "approval.list" => filtered_list(state, "approvals", &params, "state", "approvals"),
         "approval.decide" => approval_decide(state, &params),
         "question.answer" => question_answer(state, &params),
-        "loop.resolve" | "takeover.start" | "takeover.release" => Ok(json!({})),
+        "loop.resolve" => Ok(json!({})),
+        "takeover.start" => takeover_start(state, &params),
+        "takeover.release" => takeover_release(state, &params),
         "workbench.get" => workbench(state),
         "skill.list" => {
             let skills = extra_get(state, "skills")
@@ -197,6 +199,45 @@ async fn dispatch(
             None,
         )),
     }
+}
+
+fn takeover_bot_id(params: &Value) -> String {
+    params
+        .get("bot_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .unwrap_or("bot_main")
+        .to_owned()
+}
+
+fn takeover_start(state: &mut MockState, params: &Value) -> RpcResult {
+    let bot_id = takeover_bot_id(params);
+    let tabs = vec![
+        json!({"bot_id":bot_id,"tab_id":"tab_mock_1","assignment_id":"asgn_mock_1",
+            "title":"Mock 登录页","url":"https://example.test/login","active":true}),
+        json!({"bot_id":bot_id,"tab_id":"tab_mock_2","assignment_id":"asgn_mock_2",
+            "title":"Mock 工作台","url":"https://example.test/workbench","active":false}),
+    ];
+    extra_set(state, &format!("screen_tabs:{bot_id}"), tabs);
+    extra_set(
+        state,
+        &format!("screen_driver:{bot_id}"),
+        vec![json!({"bot_id":bot_id,"driver":"user"})],
+    );
+    Ok(json!({}))
+}
+
+fn takeover_release(state: &mut MockState, params: &Value) -> RpcResult {
+    let bot_id = takeover_bot_id(params);
+    if extra_get(state, &format!("screen_tabs:{bot_id}")).is_empty() {
+        let _ = takeover_start(state, params)?;
+    }
+    extra_set(
+        state,
+        &format!("screen_driver:{bot_id}"),
+        vec![json!({"bot_id":bot_id,"driver":"bot"})],
+    );
+    Ok(json!({}))
 }
 
 fn request_signature(method: &str, params: &Value) -> String {

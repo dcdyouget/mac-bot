@@ -159,7 +159,25 @@ async def acceptance(url, password):
         await screen.send(json.dumps({"type": "ack", "seq": head["seq"]}))
         next_head, next_jpeg = parse_screen(await screen.recv())
         assert next_head["seq"] > head["seq"] and next_jpeg != first_jpeg
-    print("S0 live acceptance passed: typed RPC, Host identity, idempotency, auth, live events, replay, trace cursor, JPEG ACK throttle")
+        async with websockets.connect(ws_url + "/ws", additional_headers={"Authorization": f"Bearer {password}"}, proxy=None) as control:
+            await control.recv()
+            await request(control, "takeover.start", {"bot_id": main["id"]})
+            user_state = await receive(screen, lambda x: x.get("type") == "state" and x["state"].get("driver") == "user")
+            assert {tab["tab_id"] for tab in user_state["state"]["tabs"]} == {"tab_mock_1", "tab_mock_2"}
+            await screen.send(json.dumps({"type": "input", "event": {"type": "key", "action": "press", "key": "Enter", "code": "Enter", "text": None, "modifiers": []}}))
+            await screen.send(json.dumps({"type": "ack", "seq": next_head["seq"]}))
+            input_head, _ = parse_screen(await screen.recv())
+            assert input_head["tab_id"] == "tab_mock_1", input_head
+            await screen.send(json.dumps({"type": "switch_tab", "tab_id": "tab_mock_2"}))
+            switched = await receive(screen, lambda x: x.get("type") == "state" and any(tab.get("tab_id") == "tab_mock_2" and tab.get("active") for tab in x["state"]["tabs"]))
+            assert switched["state"]["driver"] == "user"
+            await screen.send(json.dumps({"type": "ack", "seq": input_head["seq"]}))
+            switched_head, _ = parse_screen(await screen.recv())
+            assert switched_head["tab_id"] == "tab_mock_2"
+            await request(control, "takeover.release", {"bot_id": main["id"]})
+            released = await receive(screen, lambda x: x.get("type") == "state" and x["state"].get("driver") == "bot")
+            assert released["state"]["tabs"]
+    print("S0 live acceptance passed: typed RPC, Host identity, idempotency, auth, live events, replay, trace cursor, JPEG ACK throttle, takeover state/input/tab")
 
 
 if __name__ == "__main__":
