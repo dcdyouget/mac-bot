@@ -36,7 +36,7 @@ def args_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--create-worker",
         action="store_true",
-        help="Create a fresh non-main Bot when the production Host has no worker yet",
+        help="Always create a fresh non-main Bot for this scenario, even when workers already exist",
     )
     parser.add_argument(
         "--approve-test-tools-once",
@@ -113,6 +113,72 @@ def approve_marker_calls(
         expected_calls=expected,
         approved_ids=approved_ids,
     )
+
+
+def complete_chat_history(client: Any, chat_id: str) -> list[dict[str, Any]]:
+    """Read every current chat page using the protocol's before_seq cursor."""
+
+    messages: list[dict[str, Any]] = []
+    before_seq: int | None = None
+    while True:
+        params: dict[str, Any] = {"chat_id": chat_id, "limit": 100}
+        if before_seq is not None:
+            params["before_seq"] = before_seq
+        result = require_dict(client.call("chat.history", params), "chat.history result")
+        raw_page = require_list(result.get("messages"), "chat.history.messages")
+        if any(not isinstance(item, dict) for item in raw_page):
+            raise ValueError("chat.history.messages contains a non-object message")
+        page = raw_page
+        if not isinstance(result.get("has_more"), bool):
+            raise ValueError("chat.history.has_more must be boolean")
+        if not page:
+            if result["has_more"]:
+                raise ValueError("chat.history.has_more returned true with an empty page")
+            break
+        messages.extend(page)
+        if not result["has_more"]:
+            break
+        page_seqs = [item.get("seq") for item in page]
+        if any(not isinstance(seq, int) or isinstance(seq, bool) for seq in page_seqs):
+            raise ValueError("chat.history page contains a message without numeric seq")
+        next_before = min(page_seqs)
+        if before_seq is not None and next_before >= before_seq:
+            raise ValueError("chat.history before_seq cursor did not move backwards")
+        before_seq = next_before
+    return messages
+
+
+def validate_canonical_history(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Require unique message ids and strictly increasing canonical seq values."""
+
+    if not messages:
+        raise ValueError("chat.history returned no messages")
+    seen_ids: set[str] = set()
+    records: list[tuple[int, str]] = []
+    for message in messages:
+        message_id = message.get("id")
+        seq = message.get("seq")
+        if not isinstance(message_id, str) or not message_id:
+            raise ValueError("chat.history message has no canonical id")
+        if message_id in seen_ids:
+            raise ValueError(f"chat.history repeated message id {message_id}")
+        if not isinstance(seq, int) or isinstance(seq, bool):
+            raise ValueError(f"chat.history message {message_id} has no numeric seq")
+        seen_ids.add(message_id)
+        records.append((seq, message_id))
+    records.sort()
+    for previous, current in zip(records, records[1:]):
+        if current[0] <= previous[0]:
+            raise ValueError(
+                f"chat.history seq is not strictly increasing: {previous[1]}={previous[0]}, {current[1]}={current[0]}"
+            )
+    return {
+        "messages": len(records),
+        "first_seq": records[0][0],
+        "last_seq": records[-1][0],
+        "ids_unique": True,
+        "seq_strictly_increasing": True,
+    }
 
 
 def trace_evidence(client: Any, chat_id: str, marker: str, args: argparse.Namespace) -> dict[str, Any] | None:
@@ -235,8 +301,11 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
         "chat.send result",
     ).get("message")
     sent = require_dict(sent, "chat.send.message")
+    sent_id = sent.get("id")
+    if not isinstance(sent_id, str) or not sent_id:
+        raise ValueError("sent message has no canonical id")
     sent_seq = sent.get("seq")
-    if not isinstance(sent_seq, int):
+    if not isinstance(sent_seq, int) or isinstance(sent_seq, bool):
         raise ValueError("sent message has no numeric seq")
 
     approved_ids: set[str] = set()
@@ -247,15 +316,58 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
             approval_evidence.extend(
                 approve_marker_calls(client, chat_id, bot_id, marker, path, approved_ids)
             )
+        complete = complete_chat_history(client, chat_id)
+        history_order = validate_canonical_history(complete)
         history = chat_history(client, chat_id, after_seq=sent_seq)
-        for message in history["messages"]:
+        after_messages = history["messages"]
+        if any(
+            isinstance(message, dict)
+            and isinstance(message.get("seq"), int)
+            and message["seq"] <= sent_seq
+            for message in after_messages
+        ):
+            raise ValueError("chat.history after_seq returned a message at or before sent_seq")
+        complete_matches = [
+            message
+            for message in complete
             if (
                 isinstance(message, dict)
+                and isinstance(message.get("seq"), int)
+                and message["seq"] > sent_seq
                 and sender_is(message, kind="bot", bot_id=bot_id)
                 and marker in message_text(message)
                 and path in message_text(message)
-            ):
-                return {"history_messages": len(history["messages"]), "reply_id": message.get("id")}
+            )
+        ]
+        after_matches = [
+            message
+            for message in after_messages
+            if (
+                isinstance(message, dict)
+                and isinstance(message.get("seq"), int)
+                and message["seq"] > sent_seq
+                and sender_is(message, kind="bot", bot_id=bot_id)
+                and marker in message_text(message)
+                and path in message_text(message)
+            )
+        ]
+        if complete_matches and not after_matches:
+            raise ValueError("chat.history after_seq omitted a matching Bot reply")
+        for message in after_matches:
+            reply_id = message.get("id")
+            reply_seq = message.get("seq")
+            if not isinstance(reply_id, str) or not reply_id:
+                raise ValueError("matching Bot reply has no canonical id")
+            if not isinstance(reply_seq, int) or isinstance(reply_seq, bool) or reply_seq <= sent_seq:
+                raise ValueError("matching Bot reply seq is not greater than sent_seq")
+            return {
+                "history_messages": len(complete),
+                "reply_id": reply_id,
+                "reply_seq": reply_seq,
+                "sent_id": sent_id,
+                "sent_seq": sent_seq,
+                "history_order": history_order,
+            }
         return None
 
     reply = wait_until(bot_reply, timeout=args.timeout, interval=args.interval, description="S1 bot reply")
