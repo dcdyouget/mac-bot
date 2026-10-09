@@ -21,15 +21,19 @@ APP_BIN="$APP_DST/Contents/MacOS/macbotd"
 mkdir -p "$CONSOLE_HOME/Applications" "$BIN_DIR" "$PLIST_DIR" "$HOME_DIR/data"
 rm -rf "$APP_DST"
 ditto "$APP_SRC" "$APP_DST"
+rm -f "$BIN_DIR/macbotd" "$BIN_DIR/macbot"
 ln -sfn "$APP_BIN" "$BIN_DIR/macbotd"
 ln -sfn macbotd "$BIN_DIR/macbot"
 
 sed -e "s#__MACBOT_HOME__#$HOME_DIR#g" \
     -e "s#__MACBOT_BIN__#$APP_BIN#g" \
     "$APP_DST/Contents/Resources/com.macbot.server.plist" > "$PLIST"
-chown -R "$CONSOLE_USER":staff "$APP_DST" "$BIN_DIR" "$PLIST_DIR" "$HOME_DIR"
+chown -R "$CONSOLE_USER":staff "$APP_DST"
+chown "$CONSOLE_USER":staff "$CONSOLE_HOME/Applications" "$BIN_DIR" "$PLIST_DIR" "$HOME_DIR" "$HOME_DIR/data"
+chown -h "$CONSOLE_USER":staff "$BIN_DIR/macbotd" "$BIN_DIR/macbot"
+chown "$CONSOLE_USER":staff "$PLIST"
 
 launchctl bootout "gui/$CONSOLE_UID/com.macbot.server" 2>/dev/null || true
 launchctl bootstrap "gui/$CONSOLE_UID" "$PLIST"
 launchctl enable "gui/$CONSOLE_UID/com.macbot.server" || true
-sudo -u "$CONSOLE_USER" open "http://localhost:7788/admin" 2>/dev/null || true
+launchctl asuser "$CONSOLE_UID" open "http://localhost:7788/admin" 2>/dev/null || true

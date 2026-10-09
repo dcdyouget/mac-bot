@@ -31,27 +31,43 @@ cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 7788
 - `/api/v1/files`、`/api/v1/uploads`、`/api/v1/usage/export.csv`：鉴权后的文件与用量接口。
 - `/admin`：首次设置密码和管理入口；已设置密码后使用 HTTP Basic Auth。
 
-正式模式的 provider 配置通过 `provider.create` 写入，API key 只进入 macOS Keychain，不写入仓库或配置文件。开发和测试使用 `--mock`。
+管理页可修改主机名称和监听端口；端口变更写入 `data/settings.json`，重启 LaunchAgent 后生效。
+
+正式模式的 provider 配置通过 `provider.create` 写入，API key 默认进入 macOS Keychain。开发期可显式设置 `MACBOT_SECRET_BACKEND=file`，密钥以明文保存到仓库外的 `~/MacBot-dev-secrets`，也可用 `MACBOT_SECRET_DIR` 覆盖。目录权限为 0700、文件为 0600，写入采用原子替换；后端拒绝 Git checkout 内的目录。provider 响应、事件、运行日志和配置快照均不包含密钥值。
+
+```sh
+MACBOT_SECRET_BACKEND=file MACBOT_SECRET_DIR="$HOME/MacBot-dev-secrets" \
+  cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 7788
+```
 
 ## CLI
 
 ```sh
 macbotd status
 macbotd passwd --password 'new-password'
+macbotd settings --host-name '办公 Mac mini' --port 7788
 macbotd logs [-f]
 macbotd restart
 macbotd update
 ```
 
-当前 CLI 行为：`status` 请求本机 `7788` 健康接口；`passwd` 更新 `MACBOT_HOME/data/auth.json`；`logs` 读取 `MACBOT_HOME/data/macbot.log`；`restart` 请求当前用户的 `com.macbot.server` LaunchAgent；`update` 执行 `packaging/update.sh`。安装后可将同一二进制另名为 `macbot`。CLI 不依赖远程密码鉴权。
+守护进程在 `MACBOT_HOME/data/macbotd.sock` 创建权限为 0600 的 Unix 控制 socket；`status`、`passwd`、`settings`、`logs`（非 follow）、`restart` 和 `update` 通过它操作，不依赖远程密码鉴权。`settings --port` 写入配置并在重启后生效，`logs -f` 直接跟随日志文件。安装后 `macbotd` 和 `macbot` 都是指向 `MacBot Server.app/Contents/MacOS/macbotd` 的用户级 symlink，CLI 与守护进程仍是同一个二进制。
 
 ## LaunchAgent 和分发包
 
-源码安装会为当前用户构建 release，安装无界面的 `~/Applications/MacBot Server.app`（`LSUIElement=true`）、`~/.local/bin/macbotd`/`macbot`，并加载 `~/Library/LaunchAgents/com.macbot.server.plist`：
+源码安装会为当前用户构建 release，安装无界面的 `~/Applications/MacBot Server.app`（`LSUIElement=true`）、`~/.local/bin/macbotd`/`macbot`，并加载 `~/Library/LaunchAgents/com.macbot.server.plist`。源码安装和 `.pkg` 都将 agent-browser 0.38.2 sidecar 及其 Apache-2.0 许可证放入 App；首次构建下载固定版本并校验 SHA256，以后复用 `server/target/sidecars/` 缓存。可设置 `MACBOT_BROWSER_BIN` 使用已有 sidecar：
 
 ```sh
 MACBOT_HOME="$HOME/MacBot" server/macbotd/packaging/install-launchagent.sh
 server/macbotd/packaging/uninstall-launchagent.sh
+```
+
+直接从源码运行浏览器功能时，可先准备 sidecar 并指定路径：
+
+```sh
+server/macbotd/packaging/prepare-sidecar.sh server/target/sidecars/agent-browser
+MACBOT_BROWSER_BIN="$PWD/server/target/sidecars/agent-browser" \
+  cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 7788
 ```
 
 更新脚本先 fast-forward 当前 checkout，再构建 release 并重载 LaunchAgent：
@@ -59,6 +75,8 @@ server/macbotd/packaging/uninstall-launchagent.sh
 ```sh
 server/macbotd/packaging/update.sh
 ```
+
+源码安装的 `macbot update` 通过 Unix socket 调用该脚本。`.pkg` 安装包内置 `Contents/Resources/update-installed.sh` 和 `update-manifest.json`；构建发布包时必须提供 `MACBOT_UPDATE_URL` 和对应的 `MACBOT_UPDATE_SHA256`，之后 `macbot update` 会下载、校验 SHA-256 与可执行版本并原子替换 App 内二进制，再 kickstart LaunchAgent。没有 URL 的开发包会明确返回 `update_unavailable`，不会替换当前程序。
 
 构建 `.pkg`（需要 Xcode Command Line Tools 的 `pkgbuild`）：
 
