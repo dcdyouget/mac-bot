@@ -1,0 +1,14 @@
+{
+  "source_commit": "80d8a42e6418e7f14840f7cf630efe12136d518c",
+  "variant": "signed Release",
+  "serial": "emulator-5554",
+  "avd": "macbot_api36",
+  "apk_bytes": 2111878,
+  "installed_base_apk_sha256": "ea869b9a7e0be638abcd9dd308194547fc322a8f6627a249343bd81c93faa978",
+  "result": "installed APK independently matches owner final handoff hash; no install or restart",
+  "owner_scope": "Android implementation S0-S5; real-service joint acceptance S1-S5 pending",
+  "emulator_limitation": "owner QEMU hang/exit139; hardware-emulator performance is not physical-device evidence",
+  "checked_at": "2026-10-09T18:09:53.509794+08:00",
+  "owner_build_source_revision": "74917ce",
+  "hash_scope": "APK identity independently verified; source revision attribution supplied by owner"
+}

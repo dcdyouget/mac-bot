@@ -1,0 +1,15 @@
+{
+  "mock_source": "11bc831",
+  "mock_pid": 66750,
+  "workbench_keys": [
+    "bots",
+    "done_today",
+    "global_limit",
+    "running",
+    "subagents_running",
+    "waiting"
+  ],
+  "running": 1,
+  "waiting_count": 2,
+  "result": "flat Workbench wire precheck passed; mock only, not S2 joint acceptance"
+}

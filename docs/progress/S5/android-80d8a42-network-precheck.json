@@ -1,0 +1,26 @@
+{
+  "checked_at": "2026-10-09T18:13:38.859210+08:00",
+  "apk_source_handoff": "80d8a42",
+  "app_pid": 6236,
+  "serial": "emulator-5554",
+  "mock_source": "11bc831",
+  "mock_pid": 66750,
+  "initial_network": "wlan0/eth0 DOWN; wifi not connected; no routes; nc10.0.2.2:7789 Network is unreachable",
+  "recovery": [
+    "adb shell cmd wifi connect-network AndroidWifi open",
+    "adb shell svc data enable"
+  ],
+  "after_network": "wlan0 10.0.2.16; nc health HTTP200",
+  "ui_after_network": "18:12/18:13 screenshots show status bar and otherwise blank white content; app MainActivity top and PID live; no matching AndroidRuntime/ANR errors in last100 filtered log lines",
+  "before_screenshot": "android-80d8a42-current-after-mock-update.png",
+  "after_screenshot": "android-80d8a42-current-network-restored.png",
+  "actions_not_performed": [
+    "app install",
+    "app force stop",
+    "AVD restart",
+    "data wipe",
+    "Host change"
+  ],
+  "owner": "client-android investigating UI/GPU recovery; cause unconfirmed",
+  "conclusion": "network connectivity recovered; current Android UI reconnection not accepted"
+}

@@ -1,0 +1,151 @@
+{
+  "source_commit": "80d8a42e6418e7f14840f7cf630efe12136d518c",
+  "scope": "Owner screenshots archived unchanged; historical mock snapshots and multiple performance revisions. Final APK build revision74917ce, final cold-launch samplee8f69bc, earlier samplef5223b8; archive80d8a42 is handoff/document revision.",
+  "joint_acceptance": "S0 only; S1-S5 pending",
+  "artifacts": [
+    {
+      "source": "clients/mobile/verification/S0-connect-initial.png",
+      "archive": "docs/progress/S0/android-owner-80d8a42-connect-initial.png",
+      "sha256": "ed6b5acfec014b93550376b192eef9d043767a91f42befd10f54105d58fecca6",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S0-mock-sessions.png",
+      "archive": "docs/progress/S0/android-owner-80d8a42-mock-sessions.png",
+      "sha256": "f2eb2d937e9c80abd12e98f58391189f0323e68ab895fbe4f6a454e0a2a01574",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S1-chat-mock.png",
+      "archive": "docs/progress/S1/android-owner-80d8a42-chat-mock.png",
+      "sha256": "328d3a8b379f205c106b51435c8f851a163f678eac96cc9898ccc5919f1e7b88",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S1-settings-mock.png",
+      "archive": "docs/progress/S1/android-owner-80d8a42-settings-mock.png",
+      "sha256": "356dcd84c93a374e9028c94e2586909745c8bab04ceef882de3a0c7a3c2eff64",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S1-trace-mock.png",
+      "archive": "docs/progress/S1/android-owner-80d8a42-trace-mock.png",
+      "sha256": "515d91f5e9b2eab6e080cc1884a3362f7ce22da6c7b718bda4ad40f739d57ae3",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S2-approvals-questions-mock.png",
+      "archive": "docs/progress/S2/android-owner-80d8a42-approvals-questions-mock.png",
+      "sha256": "d333e343059ec09f6c7e019734634da67ff363f645dba81a7d733fbc118536a9",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S2-bots-mock.png",
+      "archive": "docs/progress/S2/android-owner-80d8a42-bots-mock.png",
+      "sha256": "f9915096ca9a0a8128b4304b5cfc395ac8175dec23b61f66855c9d8cdd5a4091",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S2-group-announcement-mock.png",
+      "archive": "docs/progress/S2/android-owner-80d8a42-group-announcement-mock.png",
+      "sha256": "948c908620b74b5cdcb670cd56b5f7da191511b24d0b419ed193570f28296007",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S2-group-mock.png",
+      "archive": "docs/progress/S2/android-owner-80d8a42-group-mock.png",
+      "sha256": "89b04bacb4a4ed77725b275daa6eb273c56ec7e7c230c148d9010497172a000f",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S2-workbench-mock.png",
+      "archive": "docs/progress/S2/android-owner-80d8a42-workbench-mock.png",
+      "sha256": "06268ae3b8cca29d4187c02090b3b31449f8fcb0dda53529fcc3beb5235dbba8",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S3-dashboard-mock.png",
+      "archive": "docs/progress/S3/android-owner-80d8a42-dashboard-mock.png",
+      "sha256": "5d93098e240d34ba626f7e27c4cd4a31518cb09a6ac2cee5d1291f6fae01124a",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S3-dashboard-trend-mock.png",
+      "archive": "docs/progress/S3/android-owner-80d8a42-dashboard-trend-mock.png",
+      "sha256": "d95e7167b6298b194f19ad00a29913843b9c5f95ee3a18c3aaa2b4a70f11266c",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S3-search-mock.png",
+      "archive": "docs/progress/S3/android-owner-80d8a42-search-mock.png",
+      "sha256": "0ed209f4bdb7d699f310dcb3e04f6e6b615ba8fce6a80c5999f2558b93a84c2f",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S3-skills-create-mock.png",
+      "archive": "docs/progress/S3/android-owner-80d8a42-skills-create-mock.png",
+      "sha256": "98b02cbf3be598c870e62b016d63a5e0ad8e51eaca58f70b2fd22e87b9b24f41",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S3-skills-detail-mock.png",
+      "archive": "docs/progress/S3/android-owner-80d8a42-skills-detail-mock.png",
+      "sha256": "0eab9074ab354acf176a4bbf3a15fff9fc348e45a03e077419230c64cf60b984",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S4-computer-release-mock.png",
+      "archive": "docs/progress/S4/android-owner-80d8a42-computer-release-mock.png",
+      "sha256": "2f9f2b45a1f08b08c284c41d0f1e5cb09599172931e3280a905c166fcf8b5bc2",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S4-computer-takeover-mock.png",
+      "archive": "docs/progress/S4/android-owner-80d8a42-computer-takeover-mock.png",
+      "sha256": "13b4d09a6bed41684b7ba1873149f150063e5c35d495e5cf398ecc47c2009d15",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S4-computer-view-mock.png",
+      "archive": "docs/progress/S4/android-owner-80d8a42-computer-view-mock.png",
+      "sha256": "5111435ac087584ba42b60aa7787e4e2281608fdfdc2c9e60141d05db8b970ca",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S4-routines-mock.png",
+      "archive": "docs/progress/S4/android-owner-80d8a42-routines-mock.png",
+      "sha256": "9e069f4df7a01a02aaa4010d162da2c8dd25dc3413c396720c59d7a96ff67595",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S5-dark-theme.png",
+      "archive": "docs/progress/S5/android-owner-80d8a42-dark-theme.png",
+      "sha256": "2da15fc06efb4b4c75964be5db705b7afa8ee5f220c0640bf03a5d826565dc83",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S5-performance.json",
+      "archive": "docs/progress/S5/android-owner-80d8a42-performance.json",
+      "sha256": "aac406af463f50e6e817889233c6400b4542adfe3317382276ac14ca3ec74586",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S5-release-connected.png",
+      "archive": "docs/progress/S5/android-owner-80d8a42-release-connected.png",
+      "sha256": "c03fe07505bb9dd7b8f40954789046add0c3044f42b4c5504c6bf7ee2710b65b",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S5-release-fresh-install.png",
+      "archive": "docs/progress/S5/android-owner-80d8a42-release-fresh-install.png",
+      "sha256": "8f26cd25e97190ec9a31967639038a989b165cea5a226c2041fd9f0da129176f",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    },
+    {
+      "source": "clients/mobile/verification/S5-swipe-actions.png",
+      "archive": "docs/progress/S5/android-owner-80d8a42-swipe-actions.png",
+      "sha256": "f6fa57d75924f57ad67b922801ac3453c5d6f8ed3a6998d26bf5b1a206390dce",
+      "provenance": "Android owner mock/specialized evidence; not independent joint acceptance"
+    }
+  ]
+}
