@@ -204,3 +204,9 @@
 - 安装af桌面主动通过原生菜单Quit49240→Finder重开83525，自动恢复正式Host连接，旧S1私聊已知文字仍可读；S1/desktop-af14e69-reopened.json。不作崩溃或S5fresh结论，当前诊断PID83525。
 - 桌面摘要203858Token/60请求/0任务/费用未知/cache20%与同range RPC一致，S3/production-af14e69-ae3009b-dashboard-summary.json/215802-desktop.png已核图；heatmap API Oct9为唯一非零，threshold退化同值，灰图不推断丢数据，heatmap-check.json保留待验。
 - S3原生技能integrator-native-ae3009b创建v1落盘；编辑v2后offscreen保存AX click未导致RPC变更。client-mac只读确认保存读当前content InputState、outer scroll至页底才可见，没有误绑代码证据；当前CUA滚动定位失败，因此修改未验，不归业务P0，native-skill.json/220204截图留存。该样例仅RPC停用保留v1用于复现，不修改其他技能；不计双端CRUD完成。
+
+
+## integrator：client-mac 技能摘要响应 P1（待固定发布）
+- 归属client-mac。该线独立源码核查AF shell_features.rs:286–301：skill.update/set_enabled/publish按PROTOCOL5.8返回不含content的Skill摘要；合并旧selected后设置editor_reload，load_selected可能重建旧skill.get正文。源码复现路径：get载入v1→编辑v2→update成功返回摘要→旧selected reload回v1；尚未作为原生现场实测结论。
+- 此问题不解释S3/production-af14e69-ae3009b-native-skill.json的offscreen保存未触发，原CUA工具限制结论保持，220204截图不能当成功RPC后回灌证据。
+- client-mac正在最小修复：以请求已保存content更新preview，保留Textarea期间继续输入；metadata摘要不reload，完整get才reload，补局部回归，与热图四档可见性一并发固定SHA/候选产物。集成收到后部署并分别复验，当前安装/服务保持。
