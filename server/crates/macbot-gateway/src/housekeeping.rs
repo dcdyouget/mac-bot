@@ -57,7 +57,15 @@ pub fn cleanup_uploads(store: &Store, now: SystemTime) -> Result<usize, Housekee
             continue;
         }
         match fs::remove_file(entry.path()) {
-            Ok(()) => removed += 1,
+            Ok(()) => {
+                removed += 1;
+                let metadata = store.root().join("data/uploads").join(format!("{id}.json"));
+                match fs::remove_file(metadata) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
             // A concurrent upload cleanup or operator may have removed it.
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
@@ -133,6 +141,12 @@ mod tests {
         upload(&store, "old", b"old");
         upload(&store, "kept", b"kept");
         store
+            .write_snapshot("data/uploads/old.json", &json!({"name":"old.txt"}))
+            .unwrap();
+        store
+            .write_snapshot("data/uploads/kept.json", &json!({"name":"kept.txt"}))
+            .unwrap();
+        store
             .append_jsonl(
                 "data/chats/dm/messages.jsonl",
                 &json!({"blocks":[{"root":"upload","root_id":"kept"}]}),
@@ -148,7 +162,9 @@ mod tests {
         let now = SystemTime::now() + UPLOAD_TTL + Duration::from_secs(1);
         assert_eq!(cleanup_uploads(&store, now).unwrap(), 1);
         assert!(!dir.path().join("uploads/old").exists());
+        assert!(!dir.path().join("data/uploads/old.json").exists());
         assert!(dir.path().join("uploads/kept").exists());
+        assert!(dir.path().join("data/uploads/kept.json").exists());
     }
 
     #[test]

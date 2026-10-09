@@ -18,7 +18,7 @@ use macbot_skills::{BotSkillSettingsSnapshot, Skill, SkillError, SkillRegistry};
 use macbot_store::{Event, Store, StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -1199,15 +1199,17 @@ impl FeatureService {
     ) -> FeatureResult<Vec<SearchHit>> {
         let limit = limit.clamp(1, 100);
         let filter = kinds.iter().map(String::as_str).collect::<HashSet<_>>();
-        let mut hits = Vec::new();
-        collect_search_files(
-            &self.shared_store.root().join("data"),
-            query,
-            &filter,
-            limit,
-            &mut hits,
-        )?;
-        Ok(hits)
+        let mut hits = BTreeMap::new();
+        collect_search_files(&self.shared_store.root().join("data"), &filter, &mut hits)?;
+        let current_ids = current_orchestrator_ids(&self.shared_store.root().join("data"));
+        let query = query.to_lowercase();
+        Ok(hits
+            .into_values()
+            .filter(|record| search_record_is_live(record, current_ids.as_ref()))
+            .filter(|record| record.search_text.to_lowercase().contains(&query))
+            .map(|record| record.hit)
+            .take(limit)
+            .collect())
     }
 
     pub fn search_rpc(&self, params: Value) -> FeatureResult<Value> {
@@ -1446,6 +1448,11 @@ pub struct SearchHit {
     pub at: Option<String>,
 }
 
+struct SearchRecord {
+    hit: SearchHit,
+    search_text: String,
+}
+
 fn required_string<'a>(value: &'a Value, key: &str) -> FeatureResult<&'a str> {
     value
         .get(key)
@@ -1543,35 +1550,27 @@ fn upload_path(home: &Path, id: &str) -> FeatureResult<PathBuf> {
 
 fn collect_search_files(
     root: &Path,
-    query: &str,
     kinds: &HashSet<&str>,
-    limit: usize,
-    hits: &mut Vec<SearchHit>,
+    hits: &mut BTreeMap<(String, String), SearchRecord>,
 ) -> FeatureResult<()> {
-    if hits.len() >= limit || !root.exists() {
+    if !root.exists() {
         return Ok(());
     }
     for entry in fs::read_dir(root)? {
         let path = entry?.path();
-        if hits.len() >= limit {
-            break;
-        }
         if path.is_dir() {
-            collect_search_files(&path, query, kinds, limit, hits)?;
+            collect_search_files(&path, kinds, hits)?;
             continue;
         }
         if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
             for line in fs::read_to_string(&path)?.lines() {
                 if let Ok(value) = serde_json::from_str::<Value>(line) {
-                    collect_search_value(&value, &path, query, kinds, limit, hits);
-                }
-                if hits.len() >= limit {
-                    break;
+                    collect_search_value(&value, &path, kinds, hits);
                 }
             }
         } else if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
             if let Ok(value) = serde_json::from_slice::<Value>(&fs::read(&path)?) {
-                collect_search_value(&value, &path, query, kinds, limit, hits);
+                collect_search_value(&value, &path, kinds, hits);
             }
         }
     }
@@ -1581,23 +1580,60 @@ fn collect_search_files(
 fn collect_search_value(
     value: &Value,
     path: &Path,
-    query: &str,
     kinds: &HashSet<&str>,
-    limit: usize,
-    hits: &mut Vec<SearchHit>,
+    hits: &mut BTreeMap<(String, String), SearchRecord>,
 ) {
-    if hits.len() >= limit {
-        return;
-    }
+    collect_search_value_inner(value, path, kinds, hits, false);
+}
+
+fn collect_search_value_inner(
+    value: &Value,
+    path: &Path,
+    kinds: &HashSet<&str>,
+    hits: &mut BTreeMap<(String, String), SearchRecord>,
+    inherited_deleted: bool,
+) {
     if let Some(object) = value.as_object() {
+        let deleted = inherited_deleted
+            || object.get("deleted").and_then(Value::as_bool) == Some(true)
+            || object.get("type").and_then(Value::as_str) == Some("message.deleted");
+        if deleted {
+            return;
+        }
         let kind = search_kind(object, path);
         let serialized = serde_json::to_string(value).unwrap_or_default();
-        if serialized.to_lowercase().contains(&query.to_lowercase())
+        let is_envelope = object.contains_key("type") && object.contains_key("data");
+        let has_nested = object
+            .values()
+            .any(|child| child.is_object() || child.is_array());
+        let has_search_fields = [
+            "id",
+            "message_id",
+            "artifact_id",
+            "routine_id",
+            "bot_id",
+            "title",
+            "name",
+            "fallback_text",
+            "description",
+            "content",
+            "text",
+            "path_or_url",
+            "max_parallel",
+            "schedules",
+        ]
+        .iter()
+        .any(|field| object.contains_key(*field));
+        if !is_envelope
+            && (!has_nested || has_search_fields)
             && (kinds.is_empty() || kinds.contains(kind.as_str()))
         {
             let id = object
                 .get("id")
                 .or_else(|| object.get("message_id"))
+                .or_else(|| object.get("artifact_id"))
+                .or_else(|| object.get("routine_id"))
+                .or_else(|| object.get("bot_id"))
                 .and_then(Value::as_str)
                 .unwrap_or_else(|| {
                     path.file_stem()
@@ -1612,31 +1648,133 @@ fn collect_search_value(
                 .unwrap_or("")
                 .to_string();
             let at = object
-                .get("at")
+                .get("updated_at")
+                .or_else(|| object.get("at"))
                 .or_else(|| object.get("created_at"))
-                .or_else(|| object.get("updated_at"))
                 .and_then(Value::as_str)
                 .map(str::to_string);
-            hits.push(SearchHit {
-                kind,
+            let hit = SearchHit {
+                kind: kind.clone(),
                 id: id.to_string(),
                 chat_id: object
                     .get("chat_id")
                     .and_then(Value::as_str)
                     .map(str::to_string),
                 title,
-                snippet: serialized.chars().take(240).collect(),
+                snippet: readable_snippet(object, &kind, &serialized),
                 at,
-            });
+            };
+            let key = (hit.kind.clone(), hit.id.clone());
+            let replace = hits
+                .get(&key)
+                .is_none_or(|previous| search_hit_is_newer(&hit, &previous.hit));
+            if replace {
+                hits.insert(
+                    key,
+                    SearchRecord {
+                        hit,
+                        search_text: serialized,
+                    },
+                );
+            }
         }
         for child in object.values() {
-            collect_search_value(child, path, query, kinds, limit, hits);
+            collect_search_value_inner(child, path, kinds, hits, deleted);
         }
     } else if let Some(items) = value.as_array() {
         for child in items {
-            collect_search_value(child, path, query, kinds, limit, hits);
+            collect_search_value_inner(child, path, kinds, hits, inherited_deleted);
         }
     }
+}
+
+fn current_orchestrator_ids(data_root: &Path) -> Option<HashMap<&'static str, HashSet<String>>> {
+    let path = data_root.join("orchestrator/state.json");
+    let value = serde_json::from_slice::<Value>(&fs::read(path).ok()?).ok()?;
+    let mut ids = HashMap::new();
+    for (kind, field) in [
+        ("bot", "bots"),
+        ("routine", "routines"),
+        ("artifact", "artifacts"),
+    ] {
+        if let Some(value) = value.get(field) {
+            let mut field_ids = HashSet::new();
+            collect_state_ids(value, &mut field_ids);
+            ids.insert(kind, field_ids);
+        }
+    }
+    Some(ids)
+}
+
+fn collect_state_ids(value: &Value, ids: &mut HashSet<String>) {
+    match value {
+        Value::Array(items) => items.iter().for_each(|item| collect_state_ids(item, ids)),
+        Value::Object(object) => {
+            if let Some(id) = ["id", "bot_id", "routine_id", "artifact_id"]
+                .iter()
+                .find_map(|field| object.get(*field).and_then(Value::as_str))
+            {
+                ids.insert(id.to_string());
+            } else {
+                for (key, child) in object {
+                    if child.is_object() || child.is_array() {
+                        ids.insert(key.clone());
+                        collect_state_ids(child, ids);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn search_record_is_live(
+    record: &SearchRecord,
+    current_ids: Option<&HashMap<&'static str, HashSet<String>>>,
+) -> bool {
+    let Some(current_ids) = current_ids else {
+        return true;
+    };
+    current_ids
+        .get(record.hit.kind.as_str())
+        .is_none_or(|ids| ids.contains(&record.hit.id))
+}
+
+fn search_hit_is_newer(candidate: &SearchHit, previous: &SearchHit) -> bool {
+    match (candidate.at.as_deref(), previous.at.as_deref()) {
+        (Some(candidate), Some(previous)) => candidate >= previous,
+        (Some(_), None) | (None, None) => true,
+        (None, Some(_)) => false,
+    }
+}
+
+fn readable_snippet(
+    object: &serde_json::Map<String, Value>,
+    kind: &str,
+    serialized: &str,
+) -> String {
+    let fields: &[&str] = match kind {
+        "bot" => &["name", "label", "description", "model", "status"],
+        "chat" => &["title", "name", "last_message", "description"],
+        "message" => &["fallback_text", "content", "text"],
+        "artifact" => &["title", "description", "path_or_url"],
+        "routine" => &["name", "instructions", "description"],
+        _ => &["title", "name", "description", "content", "text"],
+    };
+    let mut parts = fields
+        .iter()
+        .filter_map(|field| object.get(*field))
+        .filter_map(|value| match value {
+            Value::String(value) if !value.trim().is_empty() => Some(value.clone()),
+            Value::Number(value) => Some(value.to_string()),
+            Value::Bool(value) => Some(value.to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        parts.push(serialized.to_string());
+    }
+    parts.join(" · ").chars().take(240).collect()
 }
 
 fn search_kind(object: &serde_json::Map<String, Value>, path: &Path) -> String {
@@ -2179,6 +2317,143 @@ mod tests {
         let typed: Vec<SearchHit> = serde_json::from_value(filtered["results"].clone()).unwrap();
         assert_eq!(typed.len(), 1);
         assert_eq!(typed[0].kind, "artifact");
+    }
+
+    #[test]
+    fn bot_search_upserts_state_objects_and_survives_restart() {
+        let home = tempdir().unwrap().keep();
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        service
+            .shared_store
+            .write_snapshot(
+                "data/bots/history.json",
+                &json!([{
+                    "id":"bot-1",
+                    "name":"集成复现旧名称",
+                    "description":"旧描述",
+                    "max_parallel":1,
+                    "updated_at":"2026-01-01T00:00:00Z"
+                }]),
+            )
+            .unwrap();
+        service
+            .shared_store
+            .write_snapshot(
+                "data/orchestrator/state.json",
+                &json!({"bots":[{
+                    "id":"bot-1",
+                    "name":"集成复现新名称",
+                    "description":"当前描述",
+                    "max_parallel":2,
+                    "updated_at":"2026-01-02T00:00:00Z"
+                }]}),
+            )
+            .unwrap();
+        let result = service
+            .search_rpc(json!({"query":"集成复现","kinds":["bot"]}))
+            .unwrap();
+        let hits: Vec<SearchHit> = serde_json::from_value(result["results"].clone()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "bot-1");
+        assert!(hits[0].snippet.contains("集成复现新名称"));
+        assert!(hits[0].snippet.contains("当前描述"));
+        assert!(!hits[0].snippet.starts_with('{'));
+        drop(service);
+
+        let restored = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let result = restored
+            .search_rpc(json!({"query":"集成复现","kinds":["bot"]}))
+            .unwrap();
+        let hits: Vec<SearchHit> = serde_json::from_value(result["results"].clone()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.contains("当前描述"));
+        let stale = restored
+            .search_rpc(json!({"query":"集成复现旧名称","kinds":["bot"]}))
+            .unwrap();
+        let stale_hits: Vec<SearchHit> = serde_json::from_value(stale["results"].clone()).unwrap();
+        assert!(stale_hits.is_empty());
+
+        restored
+            .shared_store
+            .write_snapshot(
+                "data/orchestrator/state.json",
+                &json!({"bots":[{
+                    "id":"bot-1",
+                    "name":"集成复现已重命名",
+                    "description":"更新后的描述",
+                    "max_parallel":3,
+                    "updated_at":"2026-01-03T00:00:00Z"
+                }]}),
+            )
+            .unwrap();
+        let result = restored
+            .search_rpc(json!({"query":"集成复现已重命名","kinds":["bot"]}))
+            .unwrap();
+        let hits: Vec<SearchHit> = serde_json::from_value(result["results"].clone()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.contains("更新后的描述"));
+    }
+
+    #[test]
+    fn search_filters_deleted_objects_against_live_state_and_keeps_no_state_fixtures() {
+        let home = tempdir().unwrap().keep();
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        service
+            .shared_store
+            .write_snapshot(
+                "data/orchestrator/state.json",
+                &json!({
+                    "bots": {"bot-live": {"id":"bot-live","name":"保留机器人","max_parallel":1}},
+                    "routines": {"routine-live": {"routine_id":"routine-live","name":"保留例行任务","schedules":[]}},
+                    "artifacts": {"artifact-live": {"artifact_id":"artifact-live","title":"保留产物","path_or_url":"/tmp/live"}}
+                }),
+            )
+            .unwrap();
+        service
+            .shared_store
+            .write_snapshot(
+                "data/orchestrator/history.json",
+                &json!({
+                    "bot": {"id":"bot-gone","name":"gone bot needle","max_parallel":1},
+                    "routine": {"routine_id":"routine-gone","name":"gone routine needle","schedules":[]},
+                    "artifact": {"artifact_id":"artifact-gone","title":"gone artifact needle","path_or_url":"/tmp/gone"}
+                }),
+            )
+            .unwrap();
+        service
+            .shared_store
+            .write_snapshot(
+                "data/events/messages.json",
+                &json!({"type":"message.deleted","data":{"message_id":"message-gone","fallback_text":"gone message needle"}}),
+            )
+            .unwrap();
+        drop(service);
+
+        let restored = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let live = restored
+            .search_rpc(json!({"query":"保留","kinds":["bot","routine","artifact"],"limit":10}))
+            .unwrap();
+        let live_hits: Vec<SearchHit> = serde_json::from_value(live["results"].clone()).unwrap();
+        assert_eq!(live_hits.len(), 3);
+        for query in ["gone bot", "gone routine", "gone artifact", "gone message"] {
+            let result = restored
+                .search_rpc(json!({"query":query,"limit":10}))
+                .unwrap();
+            let hits: Vec<SearchHit> = serde_json::from_value(result["results"].clone()).unwrap();
+            assert!(
+                hits.is_empty(),
+                "deleted search result for {query}: {hits:?}"
+            );
+        }
+
+        fs::remove_file(home.join("data/orchestrator/state.json")).unwrap();
+        let fixture = restored
+            .search_rpc(json!({"query":"gone bot","kinds":["bot"],"limit":10}))
+            .unwrap();
+        let fixture_hits: Vec<SearchHit> =
+            serde_json::from_value(fixture["results"].clone()).unwrap();
+        assert_eq!(fixture_hits.len(), 1);
+        assert_eq!(fixture_hits[0].id, "bot-gone");
     }
 
     #[test]

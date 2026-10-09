@@ -1114,20 +1114,26 @@ pub fn maintenance_extract<P: MaintenanceProvider>(
     transcript: &str,
 ) -> Result<Vec<MemoryEntry>, MemoryError> {
     store.begin_run(run_id)?;
-    for draft in provider.extract(transcript)? {
-        store.stage(
-            run_id,
-            MemoryRequest {
-                target: draft.target,
-                action: MemoryAction::Add,
-                content: draft.content,
-                id: None,
-                kind: Some(draft.kind),
-                source: draft.source,
-            },
-        )?;
+    let result = (|| {
+        for draft in provider.extract(transcript)? {
+            store.stage(
+                run_id,
+                MemoryRequest {
+                    target: draft.target,
+                    action: MemoryAction::Add,
+                    content: draft.content,
+                    id: None,
+                    kind: Some(draft.kind),
+                    source: draft.source,
+                },
+            )?;
+        }
+        store.commit_run(run_id)
+    })();
+    if result.is_err() {
+        store.rollback_run(run_id);
     }
-    store.commit_run(run_id)
+    result
 }
 
 pub async fn async_maintenance_extract<P: AsyncMaintenanceProvider>(
@@ -1137,20 +1143,27 @@ pub async fn async_maintenance_extract<P: AsyncMaintenanceProvider>(
     transcript: &str,
 ) -> Result<Vec<MemoryEntry>, MemoryError> {
     store.begin_run(run_id)?;
-    for draft in provider.extract(transcript).await? {
-        store.stage(
-            run_id,
-            MemoryRequest {
-                target: draft.target,
-                action: MemoryAction::Add,
-                content: draft.content,
-                id: None,
-                kind: Some(draft.kind),
-                source: draft.source,
-            },
-        )?;
+    let result = async {
+        for draft in provider.extract(transcript).await? {
+            store.stage(
+                run_id,
+                MemoryRequest {
+                    target: draft.target,
+                    action: MemoryAction::Add,
+                    content: draft.content,
+                    id: None,
+                    kind: Some(draft.kind),
+                    source: draft.source,
+                },
+            )?;
+        }
+        store.commit_run(run_id)
     }
-    store.commit_run(run_id)
+    .await;
+    if result.is_err() {
+        store.rollback_run(run_id);
+    }
+    result
 }
 
 pub async fn async_compact_text<P: AsyncMaintenanceProvider>(
@@ -1456,6 +1469,73 @@ mod tests {
                 source: MemorySource::default(),
             }])
         }
+    }
+
+    struct FailingExtractProvider;
+    impl MaintenanceProvider for FailingExtractProvider {
+        fn summarize(&self, _: &str) -> Result<String, MemoryError> {
+            Ok("unused".into())
+        }
+
+        fn extract(&self, _: &str) -> Result<Vec<MemoryDraft>, MemoryError> {
+            Err(MemoryError::Provider("extract failed".into()))
+        }
+    }
+
+    struct AsyncFailingExtractProvider;
+    #[async_trait::async_trait]
+    impl AsyncMaintenanceProvider for AsyncFailingExtractProvider {
+        async fn summarize(&self, _: &str) -> Result<String, MemoryError> {
+            Ok("unused".into())
+        }
+
+        async fn extract(&self, _: &str) -> Result<Vec<MemoryDraft>, MemoryError> {
+            Err(MemoryError::Provider("async extract failed".into()))
+        }
+    }
+
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        let waker = std::task::Waker::noop();
+        let mut context = std::task::Context::from_waker(waker);
+        let mut future = Box::pin(future);
+        loop {
+            match future.as_mut().poll(&mut context) {
+                std::task::Poll::Ready(value) => return value,
+                std::task::Poll::Pending => std::thread::yield_now(),
+            }
+        }
+    }
+
+    #[test]
+    fn maintenance_extract_rolls_back_when_provider_fails() {
+        let mut store = MemoryStore::new();
+        assert!(maintenance_extract(
+            &mut store,
+            &FailingExtractProvider,
+            "maintenance-fail",
+            "transcript"
+        )
+        .is_err());
+        assert!(matches!(
+            store.commit_run("maintenance-fail"),
+            Err(MemoryError::NoStagedChanges(_))
+        ));
+    }
+
+    #[test]
+    fn async_maintenance_extract_rolls_back_when_provider_fails() {
+        let mut store = MemoryStore::new();
+        let result = block_on(async_maintenance_extract(
+            &mut store,
+            &AsyncFailingExtractProvider,
+            "async-maintenance-fail",
+            "transcript",
+        ));
+        assert!(result.is_err());
+        assert!(matches!(
+            store.commit_run("async-maintenance-fail"),
+            Err(MemoryError::NoStagedChanges(_))
+        ));
     }
 
     #[test]

@@ -357,6 +357,13 @@ def model_setup(base: str, password: str, fake_url: str, main: dict):
     # Keep the main Bot configured too: this catches a deployment that only
     # wires the worker path while the real settings.main path remains null.
     rpc(base, password, "bot.update", {"bot_id": main["id"], "patch": {"model": model_ref}, "client_request_id": "s3-feature-main-model"})
+    # Maintenance is a separate role. Keep it null deliberately: the contract
+    # requires null to inherit models.bot_default, while an explicit Bot model
+    # must not silently become a global default.
+    rpc(base, password, "settings.update", {
+        "patch": {"models": {"main": model_ref, "bot_default": model_ref, "maintenance": None}},
+        "client_request_id": "s3-feature-maintenance-model",
+    })
     return worker
 
 
