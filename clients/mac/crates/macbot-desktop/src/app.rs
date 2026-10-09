@@ -1131,7 +1131,17 @@ impl MacBot {
         if let Some(data) = self.feature_data.as_object_mut() {
             data.remove("filter");
         }
-        if matches!(page, "new_bot" | "new_group") {
+        if matches!(
+            page,
+            "new_bot"
+                | "new_group"
+                | "new"
+                | "skills"
+                | "workbench"
+                | "dashboard"
+                | "search"
+                | "routines"
+        ) {
             self.feature_data = json!({});
             self.editor_reload = false;
         }
