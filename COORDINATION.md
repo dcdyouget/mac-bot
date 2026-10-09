@@ -444,3 +444,12 @@
 - 根协调单独提交理由：交付两项正式阻断的根因、真实入口测试和旧审批安全恢复边界。
 
 - Release 载荷复验：/tmp/macbot-user-steer-memory-release-20261010b.evidence.log 完整通过上述工作中/等待中用户插话、fresh memory 错误纠正及实际旧094 pending 升级。初次 Release a 测试因 tool.start 先于审批落盘而单次查询漏读 pending 超时，记录保留；3012b44 只修测试，等待精确纠正调用的审批或 tool.end 再决定，不放宽审批参数或服务策略。最终包仍从干净累计 SHA 构建并校验 source/dirty/hash，由集成独立消费，不计 fresh 安装。
+
+
+## server-mac：取消任务后的审批终态与旧版收敛（2026-10-10）
+
+- 正式 d799 P1 根因：assignment.stop 已取消 durable job/assignment，但关联 pending approval 未过期，approval.list/workbench 继续可见。修复 92d76ce：同一状态锁终结 assignment 时仅把该 assignment 的 pending approvals 设 expired；重复终结不改 finished_at/decided_at，terminal assignment 不接受迟到审批或决定，其他任务及 assignment_id=null 的私聊审批保持。
+- 生产 adapter 持久化并发布稳定 receipt key 的 approval.resolved，重复 stop/restart 不重复事件；旧版 terminal + pending 仅按已有 assignment_id 关联恢复，decided_at 使用原 finished_at，写盘后修复 durable 事件，不恢复任务、不修改原工具参数/checkpoint、不执行或重放工具。正常 pending deny 保持 denied、assignment failed、job cancelled，并有一次停止消息/终态事件；过期 deny 在触 engine 前拒绝，不影响后续纠正调用。
+- 验证：344 workspace tests、全 targets 严格 clippy/fmt；实际旧 d799 binary 创建 pending→assignment.stop→kill9→新版升级、重复 stop/restart，原 run/job/checkpoint/args/finished_at 保持，只有一个 approval.resolved，无工具执行/文件落点/provider 新调用；另一个项目及 standalone 私聊 pending 保持，normal deny 通过。证据 /tmp/macbot-cancel-approvals-20261010b.evidence.log，脚本 server/macbotd/tests/smoke_cancelled_approvals.py，命令见 server/README.md。初次 a 仅测试把早前 usage assignment.updated 误计为终态重复，已限定 failed 终态事件并完整重跑，失败记录保留。
+- 完整 production+fake provider 协作回归通过：26 assignments/29 jobs 全 done，/tmp/macbot-cancel-collaboration-20261010a.evidence.log。无协议变更。最终干净累计 SHA/包校验后交集成 server-only 升级；正式 d799、原项目/审批、demo、GUI/AVD/mock 未触，隔离/包载荷不是联合/native/S5fresh PASS。
+- 根协调单独提交理由：记录取消审批 P1 根因、明确决定语义及旧已取消任务的安全收敛边界。
