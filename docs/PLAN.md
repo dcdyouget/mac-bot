@@ -1,6 +1,7 @@
-# Mac Bot 规划 v0.11
+# Mac Bot 规划 v0.12
 
 > 状态：规划中，尚未开始编码。
+> v0.12 变更：主 Bot 只协调不干活（转交小事、提醒验收、新增待验收状态）；新增 5.10「工具与技能」（pi 风格的文件和 bash 工具、agent-browser 工具、子代理、技能管理、各角色的工具权限）；仪表盘（热力图、按模型 / Bot / 项目的每日折线）的 API。
 > v0.11 变更：新增主 Bot（日常对话 + 所有群的负责人）；任务接力（收到 → 工作中 → 完成 → @下一个）；两段式输出（发言 / 干活）；插话；系统维护的公告和产物；按群并行和并发上限；工作台和统计；用量记账。
 > v0.10 变更：项目 = 一件事 = 一个群（私聊里自动建项目、项目生命周期）；记忆简化为用户、Bot、项目三种；上下文全自动管理，界面不暴露任何控件。
 > v0.9 变更：新增「记忆与上下文管理」（每个会话独立执行线程、四层记忆、当前项目由会话决定、分段与压缩、群上下文包）。
@@ -25,11 +26,14 @@
 | 网络 | 服务端监听一个固定端口，客户端填 `host:port` 直连。公网代理由用户自行解决，不在本项目范围内 |
 | 安全 | v1 **只做访问密码**：客户端每次连接都带上密码，管理页用同一个密码；其他安全措施全部放到以后（详见 5.0.1） |
 | Bot | 支持多个 Bot，**每个 Bot 有独立工作间**（目录、记忆、会话、定时任务）；支持**群聊和 Bot 间消息** |
-| **主 Bot** | 每台 Host 内置一个、不能删除（可以改名，默认叫「总管」）。它是日常对话对象，也是**所有群的负责人**：负责建群、拉人、分派任务、跟进、验收，以及完成后通知你 |
+| **主 Bot** | 每台 Host 内置一个、不能删除（可以改名，默认叫「总管」）。它是日常对话对象，也是**所有群的负责人**。**它只协调，不干活**：建群、拉人、分派任务、跟进进度，做完后**提醒你验收**；需要动手的小事转给合适的 Bot。它没有文件、bash、浏览器这类工具 |
 | **群 = 一件事 = 项目** | 群名就是这件事的名字；有 Home 目录、系统自动维护的公告（成员状态、产物、项目记忆） |
 | **两段式输出** | 每个 Bot 的输出分两路：**群里发言**（短、快，用发言模型）和**干活**（长、带工具、过程不进群）。详见 5.3 |
-| **并行** | 同一个 Bot 可以同时在多个群里干活（每个群是独立的会话，只是加载的项目记忆不同）。有全局上限（默认 8）和每个 Bot 的上限（默认 3，主 Bot 默认 4）；同一个群里同一个 Bot 的活按顺序做 |
-| **可观测** | 工作台（每个 Bot 正在干什么）+ 统计（每个 Bot 的 token、模型、按群分布、费用）；每次模型调用都记账 |
+| **并行** | 同一个 Bot 可以同时在多个群里干活（每个群是独立的会话，只是加载的项目记忆不同）。有全局上限（默认 8）和每个 Bot 的上限（默认 3）；同一个群里同一个 Bot 的活按顺序做；主 Bot 不占并发名额 |
+| **可观测** | 工作台（每个 Bot 正在干什么）+ **仪表盘**（参考 OpenAI 用量页：热力图、每日 token 折线，可以按模型 / Bot / 项目切换）；每次模型调用都记账 |
+| **工具** | 照搬 pi 的文件工具（read / write / edit / ls / find / grep）和 bash，再加上 **agent-browser**、**子代理**、网页、协作、记忆等工具。详见 5.10 |
+| **子代理** | Bot 干活时临时叫来的帮手，上下文独立，只交回结论，用来保持 Bot 上下文干净。**它不是 Bot**：没有身份和记忆，不进群 |
+| **技能** | 遵循 Agent Skills 规范（`SKILL.md`），**所有 Bot 共用**，子代理也能用；按需加载 |
 | 电脑操控 | 以网页任务为主，**使用系统浏览器**（复用已有的登录凭证）；放到后续阶段，先把 Bot 形态跑通 |
 | 系统权限 | 屏幕录制和辅助功能权限**不强制**；没授权时提示「部分功能不可用」 |
 | 模型 | 用户自定义 provider 和模型；默认认为模型支持看图 |
@@ -47,6 +51,7 @@
 |------|--------|
 | **Grok Bot**（[docs.x.ai/grok-bot](https://docs.x.ai/grok-bot/overview)） | 产品形态、页面结构、交互细节（见第 4 节） |
 | **hermes-agent**（[GitHub](https://github.com/NousResearch/hermes-agent)） | 记忆系统：两份有字数上限的 curated 笔记 + 快照注入 + 会话全文检索 |
+| **pi / coding-agent 工具**（[GitHub](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/src/core/tools)） | 工具定义：read、write、edit、ls、find、grep、bash 的参数和截断规则（2000 行 / 50KB）、file-mutation-queue；Agent Skills（按需加载、`/skill:name`） |
 | **pi / pi-ai**（[GitHub](https://github.com/earendil-works/pi/tree/main/packages/ai)） | Provider 层：按 API 类型抽象、模型目录（能力和价格）、任意 OpenAI 兼容端点 |
 | **pi / pi-durable**（[GitHub](https://github.com/earendil-works/pi/tree/main/packages/durable)） | 持久化运行：Entry、Commit、Task checkpoint、inbox 排队、`requestId` 幂等、resume、compaction |
 | **nightly-labs/openbot**（[GitHub](https://github.com/nightly-labs/openbot)，PolyForm 非商用许可，**只参考设计，不复用代码**） | 与本项目形态最接近的开源实现：本地优先的 AI 队友桌面应用；每个 agent 有独立工作区；**频道（群聊）里每个 agent × 每个频道有一条独立执行线程**；按包组装频道上下文；先做确定性路由；单个负责人加显式委派；每个根请求最多 8 次自动委派；按 80% 阈值压缩；频道记忆；还能从 Grok Bot 导入 agent |
@@ -83,12 +88,13 @@
 
 - **主 Bot**是日常对话对象，也是所有群的负责人。你对它说「帮我做 xxx」，它判断需要多人配合时就**建群**：群名就是这件事，创建 Home 目录，拉相关的 Bot 进群，在群里发开场（事项、目标、流程），并 @ 第一个 Bot。
 - 群成员是主 Bot 加上 1–6 个 Bot。也可以手动建群（⌘N），主 Bot 自动加入。
-- 群里的协作是**任务接力**：被 @ 的 Bot 先回复「收到」（状态变为 ⟳ 工作中），在后台干活；完成后在群里报告产物和位置，并 @ 下一个 Bot；最后一个 Bot 完成后 @主 Bot。主 Bot 验收、写总结、标记完成，然后在私聊里通知你。
+- 群里的协作是**任务接力**：被 @ 的 Bot 先回复「收到」（状态变为 ⟳ 工作中），在后台干活；完成后在群里报告产物和位置，并 @ 下一个 Bot；最后一个 Bot 完成后 @主 Bot。主 Bot 汇总产物，把群状态改为**待验收**，在私聊里**提醒你验收**；你确认后群才算完成，提了修改意见就派回给对应的 Bot。
 - **公告**由系统自动维护：Home 路径、目标、流程、成员分工和状态、产物清单、项目记忆。
 - 你可以随时在群里 **@ 任意 Bot**。它正在干活时，这条消息就是**插话**：它立即回复，指令插进当前工作，下一步生效。
 - 群里不 @ 任何人时，消息交给主 Bot 处理。
 - **群里不出现**审批请求、密码或登录请求、外发草稿，这些都回到对应 Bot 的私聊里。
-- 群的状态：进行中 → 已完成 → 已归档。
+- 群的状态：进行中 → 待验收 → 已完成 → 已归档。
+- 主 Bot **只协调不干活**：闲聊和知识问答它直接回答；需要动手的小事，它用 `delegate` 转给一个 Bot（不建群），结果回到私聊。
 
 ### 4.4 Bot 之间的协作
 - **交接**：完成报告里的 @ 就是交接，附带产物清单和说明。
@@ -245,11 +251,11 @@ mac-bot/
 ### 5.2 数据模型（SQLite 草案）
 
 ```
-bots(id, node_id, name, label, description, avatar, is_main, work_model_ref, voice_model_ref, max_parallel, pinned, hidden, created_at)
+bots(id, node_id, name, label, description, avatar, is_main, work_model_ref, voice_model_ref, max_parallel, tools_json, pinned, hidden, created_at)
                                                             -- is_main：主 Bot，全局唯一
 chats(id, node_id, kind[direct|project|bot_dm], title, project_id, created_at)
                                                             -- kind=project 的会话就是项目群，与 projects 一对一
-threads(id, bot_id, chat_id, loaded_project_id, segment_no, summary_entry_id, token_estimate, updated_at)
+threads(id, kind[bot|subagent], bot_id, chat_id, parent_run_id, loaded_project_id, segment_no, summary_entry_id, token_estimate, updated_at)
                                                             -- 执行线程：每个 (Bot, 会话) 一条，见 5.5
 thread_segments(id, thread_id, no, reason[start|compact|project_loaded|snapshot_stale], summary, memory_snapshot_json, created_at)
 chat_members(chat_id, member_kind[user|bot], member_id)
@@ -257,18 +263,19 @@ messages(id, chat_id, seq, sender_kind, sender_id, reply_to, mentions, content_j
 runs(id, bot_id, chat_id, thread_id, assignment_id, phase[voice|work|memory|compact], trigger_message_id, status, started_at, ended_at)
 entries(id, thread_id, segment_no, run_id, seq, kind, json) -- 不可变，参照 pi-durable 的 Entry
 jobs(id, owner, kind, status, checkpoint_json, updated_at)  -- durable 引擎内部可恢复的状态机（原 pi-durable Task）
-assignments(id, project_id, bot_id, title, instruction, from_kind[user|bot], from_id, parent_id,
+assignments(id, project_id NULL, origin_chat_id, bot_id, title, instruction, from_kind[user|bot], from_id, parent_id,
             status[queued|acked|working|blocked|waiting_user|done|failed|cancelled], queue_reason,
-            started_at, finished_at, tokens_in, tokens_out, cost)          -- 群里的「任务」，见 5.3
+            started_at, finished_at, tokens_in, tokens_out, cost)          -- 群里的「任务」；project_id 为空 = 主 Bot 转交的小事
 assignment_steers(id, assignment_id, message_id, text, applied_at)  -- 插话
 artifacts(id, project_id, bot_id, assignment_id, title, path_or_url, kind, created_at, updated_at)
 submissions(id, bot_id, request_id UNIQUE, status)          -- 幂等
 approvals(id, bot_id, run_id, tool, args_json, status, decision, rule_id)
-projects(id, name, slug, goal, flow, deadline, home_path, status[active|done|archived], lead_bot_id, chat_id, created_by[user|bot_id], created_at, done_at)
+projects(id, name, slug, goal, flow, deadline, home_path, status[active|review|done|archived], lead_bot_id, chat_id, created_by[user|bot_id], created_at, done_at)
                                                             -- 一个项目 = 一个群；lead 默认为主 Bot
 project_members(project_id, bot_id, role_note)            -- 主 Bot + 1–6 个 Bot；role_note=分工
 memories(id, scope[user|bot|project], kind[fact|self|worklog|summary], bot_id, project_id, content, source_bot_id, source_chat_id, updated_at)   -- FTS5
-skills(id, name, description, body_md, updated_at)
+skills(name PRIMARY KEY, path, source[builtin|user|imported], description, enabled, disabled_bot_ids_json, scanned_at)   -- 只是索引；内容在磁盘 SKILL.md
+skill_invocations(id, skill_name, bot_id, run_id, ts)
 routines(id, bot_id, project_id, name, schedule, tz, instructions, enabled, next_run_at)
 routine_runs(id, routine_id, run_id, status, started_at)   -- 每个 Routine 只保留 20 条
 files(id, bot_id, chat_id, path, mime, size, created_at)
@@ -276,9 +283,9 @@ providers(id, name, api_kind, base_url, secret_ref)
 models(id, provider_id, model_id, caps_json, context_window, cost_json)
 auth(id=1, password_hash)                                   -- 单行
 node(node_id, name, created_at)                             -- 本机 Host 的身份（单行）
-usage(id, ts, bot_id, project_id, chat_id, assignment_id, run_id, phase[voice|work|memory|compact],
+usage(id, ts, bot_id, project_id, chat_id, assignment_id, run_id, phase[voice|work|subagent|coordinate|memory|compact],
       provider_id, model_id, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost)
-usage_daily(day, bot_id, project_id, model_id, phase, input_tokens, output_tokens, cache_read_tokens, cost)   -- 汇总表，供统计页查询
+usage_hourly(hour, bot_id, project_id, model_id, phase, input_tokens, output_tokens, cache_read_tokens, requests, cost)   -- 汇总表，供仪表盘查询（天、周由它聚合）
 settings(key, value_json)                                   -- 并发上限、默认模型等
 events(seq, chat_id, type, payload_json)                    -- 推送和断线补发
 ```
@@ -317,7 +324,8 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
    - `memory(...)`、`project_note(text)`：写项目记忆。
 5. **完成**：`complete_task` 被调用后，系统**确定性地**生成完成报告，格式为「✓ 已完成 {summary}」+ 产物卡片 + `@next 指令`，不再调用一次模型；把 artifacts 登记到公告；状态变为 `done`；如果有 `next`，就为下一个 Bot 创建新的 assignment（回到第 1 步）。
 6. **卡住**：`report_blocked` → 状态变为 `blocked` 或 `waiting_user`，群里显示卡住报告，并通知主 Bot（需要用户时同时通知用户）。
-7. **结束**：流程中最后一个 Bot 完成后 @主 Bot。主 Bot 用干活 run 验收（检查产物是否齐全，必要时打回），然后写总结、标记群完成，并在主 Bot 私聊里发完成通知和推送。
+7. **待验收**：流程中最后一个 Bot 完成后 @主 Bot。主 Bot **不检查产物内容**，只根据公告里的产物清单汇总，把群状态改为 `review`，在主 Bot 私聊里发**待验收卡片**并推送。
+8. **验收**：用户点「确认完成」→ 群变为 `done`，主 Bot 在群里发总结、写项目记忆。用户点「提修改意见」→ 主 Bot 把意见拆分后 `assign` 给对应的 Bot，回到第 1 步。
 
 **插话（用户 @ 一个正在干活的 Bot）**：
 1. 立即调用一次发言模型生成确认回复，例如「收到，改为只做邮箱登录」，发到群里。
@@ -325,19 +333,26 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 3. 如果插话是「停 / 取消」，就中止干活 run，状态变为 `cancelled`，Bot 回到待命。
 4. 如果是决定性内容，例如「只做邮箱」，自动写入项目记忆。
 
-**主 Bot 的额外职责**（L0 规则 + 专用工具）：
-- `create_project(name, goal, flow, members[], deadline?)`：建群、建 Home 目录、生成公告、发开场。
-- `assign(bot, instruction)`：在群里 @ 某个 Bot 并创建 assignment。
-- `list_bots()`：按头衔和描述挑选成员；找不到合适的 Bot 时提议新建，需要用户同意。
-- `finish_project(summary)`：验收、写总结、标记完成、通知用户。
-- 监控：某个成员 `blocked` 超过阈值或者失败时，主 Bot 被唤醒去跟进（重试、换人或问用户）。
+**主 Bot 只协调，不干活**：没有文件、bash、浏览器、子代理工具；它的每次调用都记为 `coordinate` 阶段，**不占并发名额**。它的工具（详见 5.10.6）：
+- `list_bots()`：查看成员的头衔、描述、当前忙闲情况。
+- `create_project(name, goal, flow, members[], deadline?)`：建群、建 Home 目录、生成公告、发开场并 @ 第一个 Bot。
+- `assign(project, bot, instruction)`：在群里 @ 某个 Bot 并创建 assignment。
+- `delegate(bot, instruction)`：把私聊里的小事转给某个 Bot，不建群，结果回到主 Bot 私聊。
+- `project_status(project)`：读取公告数据，包括成员状态和产物。
+- `request_review(project, summary)`：群进入待验收，给用户发待验收卡片并推送。
+- `finish_project(project, summary)`：只能在用户确认之后调用。
+- `propose_bot(name, title, description)`：提议新建一个 Bot，需要用户同意。
+- `notify_user(text)`：给用户发提醒。
+- 记忆和检索工具。
+
+**被唤醒的时机**：用户私聊；群里没 @ 任何人的消息；有 Bot 完成报告时 @ 了它；某个成员 `blocked` 或 `failed`（去跟进：重试、换人或问用户）；某个任务超时（默认 2 小时没有进展）。
 
 #### 5.3.2 并发调度
 
 - **调度单位**：(Bot, 群) 的干活 run。私聊和定时任务也各算一个调度单位。
 - **三层限制**：
   1. 全局上限：默认 8，受 API 速率限制和内存（浏览器会话）约束。
-  2. 每个 Bot 的上限 `max_parallel`：默认 3，主 Bot 默认 4。
+  2. 每个 Bot 的上限 `max_parallel`：默认 3。主 Bot 只协调，不占名额。
   3. 同一个群内，同一个 Bot 的 assignment **串行**执行，避免同一个人自己跟自己冲突。
 - **排队顺序**：先按优先级（用户直接 @ > 交接 > 定时任务），再按到达时间。名额释放时唤醒排队的任务。
 - **资源**：
@@ -345,7 +360,8 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
   - 浏览器会话按 (Bot, 群) 隔离，`--session <bot>-<project>`。
   - Home 目录由群成员共享。约定每个 Bot 写自己的子目录（例如 `product/`、`code/`、`test/`），共享文件由负责人维护。
 - **记忆并发**：三种记忆的写入都是追加或按条目替换，在 run 结束时提交。冲突时以后写入的为准，后台整理时再合并。
-- 发言调用不占并发名额，单独按每分钟次数限速。
+- 发言调用和主 Bot 的协调调用不占并发名额，单独按每分钟次数限速。
+- **子代理**：每个干活 run 最多同时跑 4 个（同一条 assistant 消息里的多个 `subagent` 调用并行执行），全局最多 12 个。子代理不占 Bot 的并发名额，但受全局子代理上限约束。
 
 #### 5.3.3 持久化与恢复
 
@@ -426,11 +442,12 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 #### 5.5.5 项目生命周期
 
 - **进行中**：显示在侧栏「群」列表。
-- **完成**：主 Bot 验收通过后标记完成，或者用户直接点。完成时会做四件事：
+- **待验收**：最后一个 Bot 完成后，主 Bot 汇总产物、提醒用户验收。
+- **完成**：用户确认后进入完成。完成时会做四件事：
   1. 主 Bot 在群里发总结，并写进项目记忆，包括结果、产出物和遗留问题。
   2. 每个成员 Bot 的工作记录追加一条。
   3. 如果过程中发现了用户偏好，提炼进用户记忆。
-  4. 主 Bot 在私聊里发完成通知，同时推送到手机。
+  4. 主 Bot 在私聊里回复「已归档到已完成」。
 - **已完成**的项目折叠到侧栏的「已完成」里。可以继续发消息，发了就自动重新打开。
 - **归档**：从列表中隐藏，但记忆和记录保留，可以搜索。
 
@@ -479,14 +496,21 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 - 任何相关事件都会触发 `announcement.updated` 推送。
 - 干活 run 的上下文里放的是公告的文本版，这就是项目的共享上下文。
 
-#### 5.5.9 用量记账与统计
+#### 5.5.9 用量记账与仪表盘
 
-- **每次模型调用都记一行 `usage`**，包括 Bot、群、任务、阶段（发言 / 干活 / 记忆 / 压缩）、服务商、模型、输入和输出 token、缓存读写 token、费用。费用 = token × `models.cost_json` 里配置的单价；没有配置单价时费用为空。
-- 写入时同时更新 `usage_daily` 汇总表，统计页只查汇总表。
+- **每次模型调用都记一行 `usage`**，包括 Bot、群、任务、阶段（发言 / 干活 / 子代理 / 协调 / 记忆 / 压缩）、服务商、模型、输入和输出 token、缓存读写 token、费用。
+  - 费用 = token × `models.cost_json` 里配置的单价；没有配置单价时费用为空。
+  - 子代理的消耗记在调用它的 Bot 名下，phase 为 `subagent`。
+- 写入时同时更新 `usage_hourly` 汇总表（同一个事务里 upsert）。仪表盘只查汇总表，天和周由它聚合。
 - 任务卡片上的实时 token 数由 `usage.tick` 事件推送，每个任务每 2 秒最多推一次。
-- API：`GET /api/v1/usage?from&to&group_by=bot|project|model|phase&bot_id&project_id`。
+- **仪表盘 API**：
+  - `GET /api/v1/usage/summary?from&to`：指标卡数据，附带与上一个同长度周期的对比。
+  - `GET /api/v1/usage/heatmap?mode=calendar|weekhour&from&to&metric=tokens|cost|requests`：日历模式返回每天的值和 4 档阈值（按分位数计算）；星期 × 小时模式返回 7×24 矩阵（按 Host 时区）。
+  - `GET /api/v1/usage/timeseries?from&to&granularity=auto|hour|day|week&dimension=model|bot|project&metric=tokens|cost|requests&split_io=bool&top=6`：每个维度值一条序列，超过 top 的合并为「其他」；`project` 维度额外包含「私聊」和「定时任务」两个来源。
+  - `GET /api/v1/usage/breakdown?from&to&dimension=…&drill=bot:<id>|project:<id>`：明细表和下钻（包括按阶段的拆分）。
+  - `GET /api/v1/usage/export.csv?...`：导出。
 
-### 5.6 Provider
+### 5.6 Provider### 5.6 Provider
 - API 类型：`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative`。
 - 用户新增 provider 时填 base_url、key（存入钥匙串）和 API 类型，然后添加模型 ID 或从 `/models` 拉取列表。
 - 统一的流式事件：TextDelta、ThinkingDelta、ToolCallDelta、Usage、Stop。
@@ -534,6 +558,121 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 
 **P6 开工时需要先确认**：`--profile Default` 读取 Chrome cookie 时是否会触发钥匙串弹窗（Chrome 的 cookie 由钥匙串里的 "Chrome Safe Storage" 加密）；`--profile` 与 `--restore` 组合使用时的行为。
 
+### 5.10 工具与技能
+
+> 参考 pi（`packages/coding-agent/src/core/tools`）的工具定义：参数用 JSON Schema；结果分为给模型看的 `content` 和给界面看的 `details`；输出统一截断；出错时返回 `isError` 结果，让模型自己修正，而不是抛异常（nightly-labs 也是这么处理的）。
+
+#### 5.10.1 工具框架（Rust）
+
+```rust
+#[async_trait]
+trait Tool: Send + Sync {
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;          // 给模型看的说明
+    fn schema(&self) -> serde_json::Value;  // 参数 JSON Schema（schemars 生成）
+    fn risk(&self, args: &Value) -> Risk;   // Read | Write | Exec | External，供审批规则使用
+    async fn call(&self, ctx: &ToolCtx, args: Value) -> ToolResult;
+}
+struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value /* 给工作详情渲染 */, is_error: bool }
+struct ToolCtx { bot, project, assignment, cwd /* 默认是项目 Home */, abort: CancellationToken, approvals, events, usage }
+```
+
+- **统一截断**：文本输出最多 **2,000 行或 50 KB**（与 pi 相同）。超出时保留头部或尾部（bash 保留尾部），完整输出写入 `~/MacBot/runs/<run_id>/<call_id>.out`，并在结果里给出 `full_output_path`。
+- **审批钩子**：调用前先按 `risk` 和规则判断：自动允许 / 先问我 / 拒绝。「先问我」时挂起 run，在私聊里发审批卡片。
+- **可以并行的工具**：同一条 assistant 消息里的只读工具调用（read、grep、find、ls、web_fetch、subagent）并行执行；写类工具按顺序执行。同一个文件的写入经过 file-mutation-queue 串行化（pi 的做法）。
+- **工作详情渲染**：每个工具注册一个 `details` 渲染器，例如 edit 渲染成 diff，bash 显示命令和退出码，browser 显示缩略图。
+
+#### 5.10.2 文件与 shell 工具（照搬 pi）
+
+| 工具 | 参数 | 说明 |
+|------|------|------|
+| `read` | `path`, `offset?`（从 1 开始的行号）, `limit?` | 读文本文件（截断规则同上）或图片（jpg、png、gif、webp，作为图片附件交给模型） |
+| `write` | `path`, `content` | 新建或覆盖文件，自动创建父目录 |
+| `edit` | `path`, `edits[]: {oldText, newText}` | 精确替换。每个 `oldText` 必须在原文件中**唯一**，并且互不重叠；失败时返回原因，让模型修正 |
+| `ls` | `path?`, `limit?`（默认 500） | 列出目录，目录名带 `/`，包含隐藏文件 |
+| `find` | `pattern`（glob）, `path?`, `limit?`（默认 1000） | 按 glob 找文件，遵守 .gitignore |
+| `grep` | `pattern`, `path?`, `glob?`, `ignoreCase?`, `literal?`, `context?`, `limit?`（默认 100） | 搜索文件内容，返回路径和行号，遵守 .gitignore（内部用 ripgrep 的 Rust 库 grep-searcher） |
+| `bash` | `command`, `timeout?`（秒）, `background?`, `cwd?` | 用 `/bin/zsh -lc` 执行，返回 `{output, truncated, full_output_path?, exit_code, wall_time_seconds}`。取消时杀掉整个进程组。`background=true` 时立即返回 `job_id`，适合启动开发服务器 |
+| `bash_job` | `job_id`, `action: status|output|kill` | 管理后台进程。任务结束时，这个任务启动的后台进程默认一起结束（除非登记为产物，例如已部署的服务） |
+
+- **路径规则**：相对路径以项目 Home 为准（私聊和转交的小事以 `~/MacBot/bots/<bot>/` 为准）。允许访问 Home 以外的路径，但写入属于 `Write` 风险，会经过审批规则。
+- **环境变量**：bash 继承 PATH、locale 和代理变量，**不继承** macbotd 自身的密钥（API Key 不会暴露给命令）。
+
+#### 5.10.3 浏览器工具（agent-browser CLI）
+
+macbotd 内部调用 sidecar：`agent-browser --session <bot>-<project> [--profile Default --restore] --json <command> …`。会话名、profile 和流端口都由系统注入，**模型无法访问别的 Bot 的会话**。
+
+| 工具 | 参数 | 对应的 agent-browser 命令 |
+|------|------|---------------------------|
+| `browser_open` | `url`, `mode?: headless|headless_profile|attach` | `open <url>`（mode 默认来自 Bot 设置） |
+| `browser_snapshot` | `interactive_only?`, `selector?` | `snapshot`：返回无障碍树，每个元素带 `@e1` 这样的引用 |
+| `browser_act` | `action: click|fill|type|press|hover|select|check|scroll|drag|upload`, `ref|selector`, `value?` | 按引用操作元素 |
+| `browser_get` | `what: text|html|url|title|value|attr`, `ref?` | 读取页面信息 |
+| `browser_wait` | `for: ref|text|url|load|networkidle`, `value?`, `timeout?` | 等待 |
+| `browser_screenshot` | `full_page?`, `annotate?` | 截图，作为图片交给模型；`annotate` 会在截图上标出元素编号 |
+| `browser_tabs` | `action: list|new|switch|close`, `index?` | 标签页 |
+| `browser_nav` | `action: back|forward|reload` | 导航 |
+| `browser_eval` | `script` | 执行 JS，风险等级为 `External`，默认先问我 |
+| `request_takeover` | `reason` | 请求用户在 Agent Computer 里接管（登录、验证码、两步验证）；等用户交还后才返回 |
+
+- 内置技能 `agent-browser`（改写自 agent-browser 自带的 skills 文档），说明推荐的工作流：snapshot → 按引用操作 → 页面变化后重新 snapshot。
+- 风险分级：读取类（snapshot、get、screenshot）为 `Read`；在页面上操作（act）为 `External`，可以写规则，例如「在 x.com 上点发布按钮前先问我」。
+
+#### 5.10.4 子代理工具
+
+```text
+subagent(
+  task: string,            // 要完成什么、要交回什么（需要自包含）
+  context?: string,        // 需要的背景，例如文件路径、已知结论
+  tools?: string[],        // 可用工具子集；默认是只读文件工具 + web_fetch + browser 读取类
+  model?: string,          // 默认是所属 Bot 的干活模型（全局设置可以改）
+  max_turns?: number       // 默认 30
+) -> { result: string, files?: string[], usage }
+```
+
+- **它是什么**：一次独立的模型运行，有全新的上下文；只有一份简短的系统提示（「你是一个帮手，完成任务后用简洁的结论回答」）、技能清单和 `task`。它**没有** Bot 身份、三种记忆、群消息和公告。
+- **它不能做什么**：不能进群发言，不能 @，不能写记忆，不能再调用 `subagent`（最多一层），不能使用协作工具和 `request_takeover`。
+- **为什么要有它**：大量阅读、搜索、对比、试错的过程留在子代理里，Bot 自己的上下文只收到结论，因此更干净，也更省 token。
+- **并行**：同一条 assistant 消息里的多个 `subagent` 调用并行执行（每个 run 最多 4 个，全局最多 12 个）。
+- **持久化**：子代理有自己的线程（`threads.kind=subagent`，`parent_run_id` 指向调用它的 run），可以恢复；工作详情里显示为可以展开的嵌套步骤。
+- **记账**：记在所属 Bot 名下，phase 为 `subagent`。
+
+#### 5.10.5 其他工具
+
+| 类别 | 工具 | 说明 |
+|------|------|------|
+| 技能 | `skill(name, args?)` | 加载 `SKILL.md` 全文，返回技能目录路径，方便模型用 read 或 bash 读取附带文件。也可以直接用 `read` 读 |
+| 网页 | `web_fetch(url, prompt?)` | 抓取网页并转成 Markdown（readability + html2md），过长时截断 |
+| 网页 | `web_search(query, limit?)` | 可选：需要在设置里配置搜索服务（Brave、Tavily、SearXNG 等）；没有配置时不出现在工具列表里 |
+| 协作（干活 run） | `complete_task`, `report_blocked`, `group_update`, `ask_user`, `send_message`, `project_note` | 见 5.3.1 |
+| 记忆 | `memory(scope, action: add|replace|remove, content, id?)`, `memory_search(query, scope?)`, `session_search(query)`, `chat_history(chat, before?, limit?)` | 见 5.5 |
+| 扩展 | MCP 客户端 | 把外部 MCP server 的工具接进来，按 Bot 授权；默认关闭 |
+
+#### 5.10.6 各角色能用哪些工具
+
+| 工具 | 主 Bot | Bot（干活） | Bot（发言） | 子代理 |
+|------|:---:|:---:|:---:|:---:|
+| 文件（read、write、edit、ls、find、grep） | — | ✅ | — | 默认只读，可以授权写入 |
+| bash、bash_job | — | ✅ | — | 授权后可用 |
+| 浏览器 | — | ✅ | — | 默认只读类 |
+| subagent | — | ✅ | — | — |
+| skill | ✅（只读，用来了解流程） | ✅ | — | ✅ |
+| web_fetch、web_search | ✅ | ✅ | — | ✅ |
+| 协作工具 | 主 Bot 专用一套（见 5.3.1） | ✅ | — | — |
+| 记忆和检索 | ✅ | ✅ | — | — |
+| MCP | — | 按授权 | — | 按授权 |
+
+每个 Bot 还可以在设置里关掉某类工具，例如测试 Bot 不需要浏览器以外的写操作。
+
+#### 5.10.7 技能管理
+
+- **格式**：遵循 Agent Skills 规范，与 pi、Claude Code 兼容。每个技能是一个目录，`SKILL.md` 开头的 frontmatter 包含 `name`（小写字母、数字和连字符，不超过 64 个字符）和 `description`（不超过 1024 个字符，写清楚做什么、什么时候用），可选 `disable-model-invocation`、`allowed-tools`；目录里还可以放 `scripts/`、`references/`、`assets/`。
+- **位置**：`~/MacBot/skills/`（内置技能和自建技能），另外可以配置额外扫描的目录，例如 `~/.agents/skills/`、`~/.claude/skills/`。服务端监听目录变化并自动重新扫描。
+- **所有 Bot 共用**：干活 run 和子代理的系统提示里只列出技能清单（名字、描述、路径）；模型需要时调用 `skill` 加载全文（按需加载，节省上下文）。用户可以用 `/技能名 参数` 强制加载。可以对个别 Bot 停用某个技能。
+- **管理 API**：列出、查看、新建、编辑、启用/停用、导入（文件夹、Git URL、zip）、删除；记录每次调用（`skill_invocations`），供技能页统计使用。
+- **生成技能**：Bot 可以用 `write` 在 `~/MacBot/skills/<name>/` 下写一份草稿，但需要用户在技能页确认后才会启用。
+- **内置技能**：`agent-browser`（浏览器操作）、`macbot-collab`（完成报告、交接、卡住时的写法）、`project-home`（Home 目录的约定）。
+
 ## 6. 界面与组件设计
 
 已迁移到 **[DESIGN.md](DESIGN.md)**，包括组件划分、每个组件的界面和功能、线框图、设计语言、群聊交互、移动端和管理页。
@@ -542,12 +681,12 @@ events(seq, chat_id, type, payload_json)                    -- 推送和断线�
 
 | 阶段 | 内容 | 验收 |
 |------|------|------|
-| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、**和主 Bot 的私聊**流式对话、durable resume、执行线程和分段、自动压缩（80% 阈值，先做摘要；记忆提取放到 P3）、密码鉴权、`/admin` 管理页（含首次设置密码）、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 和密码后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
-| **P2 主 Bot 与群协作** | 主 Bot；Bot 增删改；**群 = 项目**（主 Bot 建群、Home 目录、公告、产物登记、生命周期）；**assignments 任务流转**（收到 → 工作中 → 完成 → @下一个、卡住）；**两段式输出**；**插话**；确定性路由（没 @ 时交给主 Bot）；**并发调度**（全局、每个 Bot、群内串行）；审批卡片；防循环；**工作台**；用量记账 | 场景测试：对主 Bot 说「给 App 加邮箱登录」→ 自动建群、产品 → 编码 → 测试依次接力 → 中途 @编码 插话生效 → 主 Bot 验收并在私聊里通知；同时另一个群里的编码任务并行；工作台能看到两件活 |
-| **P3 记忆、技能与统计** | 三种记忆（用户、Bot、项目）；工作记录自动追加和滚动；私聊里自动识别并加载项目记忆；开新段前的记忆提取；项目完成总结；后台记忆整理；session_search / memory_search；记忆页；Skills 和 `/` 引用；**统计页**（按 Bot / 群 / 模型 / 阶段，含趋势） | 跨会话记住用户偏好，能回答「我上周说过什么」 |
-| **P4 移动端** | Compose Multiplatform 客户端：消息（主 Bot / 群 / Bot）、群（状态条、公告、任务卡片、插话）、工作详情、工作台、统计、审批、通知、搜索；Android 前台服务；iOS 接入 APNs | 在小米 17 和 iPhone 上都能完成 P2 的场景 |
+| **P1 骨架** | Cargo workspace、protocol、store、providers（OpenAI 兼容 + Anthropic）、**工具框架 + pi 风格文件工具和 bash**、技能扫描和 `skill` 工具、和一个普通 Bot 的私聊（能读写文件、跑命令）、durable resume、执行线程和分段、自动压缩（80% 阈值，先做摘要；记忆提取放到 P3）、密码鉴权、`/admin` 管理页（含首次设置密码）、`macbot` CLI、LaunchAgent 安装脚本、GPUI 侧栏和聊天 | 桌面端填 host:port 和密码后能和 Bot 对话；服务端重启后正在进行的 run 能自动恢复 |
+| **P2 主 Bot 与群协作** | 主 Bot；Bot 增删改；**群 = 项目**（主 Bot 建群、Home 目录、公告、产物登记、生命周期）；**assignments 任务流转**（收到 → 工作中 → 完成 → @下一个、卡住）；**两段式输出**；**插话**；**子代理**；主 Bot 的协调工具（建群、assign、delegate、待验收）；确定性路由（没 @ 时交给主 Bot）；**并发调度**（全局、每个 Bot、群内串行、子代理）；审批卡片；防循环；**工作台**；用量记账 | 场景测试：对主 Bot 说「给 App 加邮箱登录」→ 自动建群、产品 → 编码 → 测试依次接力 → 中途 @编码 插话生效 → 主 Bot 提醒验收 → 确认后完成；同时另一个群里的编码任务并行；工作台能看到两件活 |
+| **P3 记忆、技能与仪表盘** | 三种记忆（用户、Bot、项目）；工作记录自动追加和滚动；私聊里自动识别并加载项目记忆；开新段前的记忆提取；项目完成总结；后台记忆整理；session_search / memory_search；记忆页；技能页（导入、启用/停用、调用统计）和 `/` 引用；**仪表盘**（指标卡、日历和星期 × 小时热力图、按模型 / Bot / 项目的每日折线、明细下钻、CSV 导出） | 跨会话记住用户偏好，能回答「我上周说过什么」 |
+| **P4 移动端** | Compose Multiplatform 客户端：消息（主 Bot / 群 / Bot）、群（状态条、公告、任务卡片、插话）、工作详情、工作台、仪表盘、待验收、审批、通知、搜索；Android 前台服务；iOS 接入 APNs | 在小米 17 和 iPhone 上都能完成 P2 的场景 |
 | **P5 Routines** | 调度器、通过对话创建、Test run、运行历史 | 「每天 9 点总结 xxx」按时执行并推送结果 |
-| **P6 电脑操控** | 以 sidecar 方式集成 agent-browser（每个 Bot 一个会话，复用 Chrome profile）；macbotd 代理实时画面和输入；Agent Computer 面板和接管 | 用系统 Chrome 已有的 X 登录态刷帖并总结 |
+| **P6 电脑操控** | 以 sidecar 方式集成 agent-browser，提供 browser_* 工具和 request_takeover（每个 (Bot, 群) 一个会话，复用 Chrome profile）；macbotd 代理实时画面和输入；Agent Computer 面板和接管 | 用系统 Chrome 已有的 X 登录态刷帖并总结 |
 | **P7 打磨** | 语音、文件页、全局搜索；客户端和服务端的自动更新（服务端通过 `/admin` 或 `macbot update` 更新）；签名的 .pkg 和 .dmg | 双击 .pkg 安装后，到客户端登录、开始对话，全程不需要碰终端 |
 | **v2** | Windows 客户端；Computer Node（在 Windows 上以 `macbotd node` 运行）| Mac 上的 Bot 能操作 Windows 上的浏览器 |
 | **v3（可选）** | Host 联邦：跨 Host 的 Bot 消息和群聊 | |
