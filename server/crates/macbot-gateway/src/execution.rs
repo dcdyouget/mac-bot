@@ -3172,22 +3172,23 @@ mod tests {
             .unwrap();
         assert_eq!(job.status, JobStatus::Failed);
         drop(durable);
-        let events = sink.events.lock().unwrap();
-        assert!(events.iter().any(|event| {
-            event.data.pointer("/item/type").and_then(Value::as_str) == Some("run.start")
-        }));
-        assert!(events.iter().any(|event| {
-            event.data.pointer("/item/type").and_then(Value::as_str) == Some("run.end")
-                && event
-                    .data
-                    .pointer("/item/data/status")
-                    .and_then(Value::as_str)
-                    == Some("failed")
-        }));
-        assert!(!events.iter().any(|event| {
-            event.data.pointer("/item/type").and_then(Value::as_str) == Some("llm.request")
-        }));
-        drop(events);
+        {
+            let events = sink.events.lock().unwrap();
+            assert!(events.iter().any(|event| {
+                event.data.pointer("/item/type").and_then(Value::as_str) == Some("run.start")
+            }));
+            assert!(events.iter().any(|event| {
+                event.data.pointer("/item/type").and_then(Value::as_str) == Some("run.end")
+                    && event
+                        .data
+                        .pointer("/item/data/status")
+                        .and_then(Value::as_str)
+                        == Some("failed")
+            }));
+            assert!(!events.iter().any(|event| {
+                event.data.pointer("/item/type").and_then(Value::as_str) == Some("llm.request")
+            }));
+        }
         let messages = engine
             .store
             .read_jsonl::<Value>("data/chats/chat_mock/messages.jsonl")
