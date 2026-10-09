@@ -113,3 +113,9 @@
 - 正式 composition 已发布 main `ced81878aa98207f4b56aee199adfdf2c42fb8fa`：共享 Store/durable、模型 provider、文件/Bash/后台任务、技能按需加载、私聊流式、压缩、轨迹实时与游标回放、用量、鉴权、admin/CLI 和 LaunchAgent 接线完成。密钥测试全部使用本机 fake provider；默认 Keychain，开发 FileSecrets 需显式开关。
 - 验证：干净 publisher `cargo test --offline --workspace --all-targets`、`cargo clippy --offline --workspace --all-targets -- -D warnings`；协议 13 tests；`smoke_runtime.py`（7791，含审批 pending → kill-9 → allow_once 同 job 恢复、真实文件/Bash、插话与用量）、`smoke_trace.py`（7840）、`smoke_gateway.py`（7801，admin Basic、上传/Range/全文/CSV/CLI）、`smoke_mock.py` 均通过。证据 home `/tmp/macbot-final-runtime-20261009`、`/tmp/macbot-final-trace-20261009`、`/tmp/macbot-final-mock-20261009`；运行命令以 server/README.md 为准。
 - 已直接继续 S2；真实 MiniMax 和两客户端联合验收由 integrator 消费固定 main 快照完成，本条仅打卡服务端实现及 fake-provider 自测，不代替联调结论。
+
+## integrator：222fda9 安装版专项与正式 S1 启动（2026-10-09）
+- 桌面安装版222fda9/PID80219：主会话4历史、技能CRUD（独立RPC读回v2后删除测试技能）、mock JPEG/两tab接管交还、关闭窗口后Finder双击同PID重开实见。证据 docs/progress/S1/main-222fda9-desktop-history.png、S3/main-222fda9-skill-edited.png、S4/main-222fda9-computer-takeover.png、S5/main-222fda9-reopen.json。共享mock11bc831，以上不计真实联合通过。
+- 正式composition最新bd6e7c2已由server-mac宣布ready，集成开始固定archive构建7788，保留桌面/Android/mock；使用仓库外file secrets和MiniMax。S1-S5真实联合验收仍未通过。
+- Android80d8a42网络恢复后白屏仍交client-android诊断，复现/图见docs/progress/S5/android-80d8a42-network-precheck.json。
+- S5最终pkg只读载荷齐全，但无源码SHA字段且默认LaunchAgent未启file backend。请求server-mac提供源码来源证据/官方sidecar校验记录；S1无需等待。
