@@ -1,0 +1,119 @@
+{
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "frames": [
+    {
+      "bytes": 8688,
+      "header": {
+        "h": 316,
+        "seq": 3,
+        "tab_id": "t2",
+        "ts": 1791565624023,
+        "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "w": 640
+      },
+      "path": "docs/progress/S4/screen-715d099-restored/frame-01-seq-3.jpg",
+      "seq": 3
+    },
+    {
+      "bytes": 8696,
+      "header": {
+        "h": 316,
+        "seq": 4,
+        "tab_id": "t2",
+        "ts": 1791565624245,
+        "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "w": 640
+      },
+      "path": "docs/progress/S4/screen-715d099-restored/frame-02-seq-4.jpg",
+      "seq": 4
+    }
+  ],
+  "health_version": "0.1.0",
+  "initial_state": {
+    "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+    "driver": "bot",
+    "height": 720,
+    "tabs": [
+      {
+        "active": true,
+        "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "tab_id": "t2",
+        "title": "",
+        "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+      }
+    ],
+    "width": 1280
+  },
+  "note": "Transport only; frame/state URL differences are reported as a possible timing race, not hard-asserted. No input, browser login, frame painting, notification, or mobile UI evidence.",
+  "output": "docs/progress/S4/screen-715d099-restored",
+  "quality": "low",
+  "scenario": "S4 screen transport API checks",
+  "status": "PASS",
+  "takeover": {
+    "enabled": true,
+    "release_state": {
+      "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "driver": "bot",
+      "height": 720,
+      "tabs": [
+        {
+          "active": true,
+          "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "tab_id": "t2",
+          "title": "",
+          "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+        }
+      ],
+      "width": 1280
+    },
+    "user_state": {
+      "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "driver": "user",
+      "height": 720,
+      "tabs": [
+        {
+          "active": true,
+          "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "tab_id": "t2",
+          "title": "",
+          "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+        }
+      ],
+      "width": 1280
+    }
+  },
+  "url": "http://127.0.0.1:7788",
+  "url_checks": {
+    "hard_asserted": false,
+    "initial_active_tabs": [
+      {
+        "tab_id": "t2",
+        "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+      }
+    ],
+    "items": [
+      {
+        "frame_url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "matches_state_url": true,
+        "state_url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "tab_id": "t2"
+      },
+      {
+        "frame_url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "matches_state_url": true,
+        "state_url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+        "tab_id": "t2"
+      }
+    ],
+    "warnings": []
+  },
+  "server_source_commit": "715d0995b31b2f111106e8e77e2c31b45440906b",
+  "server_pid": 13726,
+  "checked_at": "2026-10-09T17:07:17.947303+00:00",
+  "existing_bot_after_daemon_restart": true,
+  "new_model_request_sent": false,
+  "new_browser_open_sent": false,
+  "native_input_verified": false,
+  "native_paint_verified": false,
+  "raw_jpeg_visually_checked": true
+}

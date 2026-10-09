@@ -1,0 +1,45 @@
+{
+  "artifact": "production server deployment evidence",
+  "observed_at": "2026-10-09T17:04:49Z",
+  "source_commit": "715d0995b31b2f111106e8e77e2c31b45440906b",
+  "deploy_log": "~/Library/Caches/MacBot/integrator/watch/server-deploy-715d099.log",
+  "deploy_attempts": [
+    {
+      "attempt": "initial fixed clean archive deployment",
+      "result": "exit_1",
+      "failure": "LaunchAgent kickstart failed; no 7788 listener was available at that attempt",
+      "components": "server build/install attempted; desktop, Android, and mock were preserved/skipped"
+    },
+    {
+      "attempt": "follow-up LaunchAgent bootstrap/kickstart",
+      "result": "recovered",
+      "note": "Current listener and health below were independently checked after recovery"
+    }
+  ],
+  "service": {
+    "label": "com.macbot.server",
+    "launchagent_pid": 13726,
+    "listener_pid": 13726,
+    "listen": "*:7788",
+    "executable": "~/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+    "installed_source_marker": "715d0995b31b2f111106e8e77e2c31b45440906b",
+    "pid_match": true,
+    "argv": "omitted"
+  },
+  "health": {
+    "endpoint": "GET http://127.0.0.1:7788/api/v1/health",
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false,
+    "mock": false
+  },
+  "verification": {
+    "read_only": true,
+    "password_or_environment_recorded": false,
+    "screen_or_browser_acceptance": "not_checked",
+    "s1_joint_acceptance": "not_passed",
+    "s4_acceptance": "not_passed",
+    "s5_fresh_install": "not_passed"
+  }
+}

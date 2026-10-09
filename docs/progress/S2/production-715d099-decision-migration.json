@@ -1,0 +1,363 @@
+{
+  "scenario": "S2 decision migration read-only",
+  "url": "http://127.0.0.1:7788",
+  "before_artifact": "docs/progress/S2/production-f9109a3-decision-before-upgrade.json",
+  "scope": "same two legacy projects; no mutation",
+  "projects": [
+    {
+      "marker": "macbot-e2e-s2-login-6770085010b5",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "decision_identity": [
+        {
+          "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+          "unchanged": true,
+          "present": true,
+          "before_seq": 2,
+          "after_seq": 2
+        },
+        {
+          "id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+          "unchanged": true,
+          "present": true,
+          "before_seq": 5,
+          "after_seq": 5
+        }
+      ],
+      "current_decision_count": 2,
+      "current_decisions": [
+        {
+          "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+          "seq": 2,
+          "created_at": "2026-10-09T16:13:16.550963+00:00",
+          "blocks": [
+            {
+              "markdown": "项目 [macbot-e2e-s2-login-6770085010b5] 的本地 PRD 已编写完成，请确认登录方式：",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+          "seq": 5,
+          "created_at": "2026-10-09T16:17:25.411795+00:00",
+          "blocks": [
+            {
+              "markdown": "✅ 用户已确认登录方式为：**邮箱登录**（仅邮箱验证）\n\n请产品 Bot 更新 PRD，编码 Bot 准备进入实现阶段。",
+              "type": "text"
+            }
+          ]
+        }
+      ],
+      "question_blocks": [
+        {
+          "message_id": "msg_question_run_01a12170-b386-776a-96da-513ceaaf93ea",
+          "seq": 4,
+          "blocks": [
+            {
+              "question_id": "01a12170-cb4e-73fb-b58a-73031310860d",
+              "type": "question"
+            }
+          ],
+          "classification": "existing_main_ask_user_question_block"
+        }
+      ],
+      "questions": [],
+      "assignment_filter": {
+        "requested_project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "returned_count": 2,
+        "project_scoped_count": 2
+      },
+      "assignments": [
+        {
+          "id": "01a12170-b386-776a-96da-513ceaaf93ea",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "bot_id": "main",
+          "status": "waiting_bot",
+          "wait": {
+            "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+            "reason": "decision"
+          },
+          "run_ids": [
+            "run_01a12170-b386-776a-96da-513ceaaf93ea"
+          ],
+          "waiting_trace": [
+            {
+              "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+              "aseq": 5,
+              "at": "2026-10-09T16:13:21.846Z",
+              "reason": "decision",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+              "aseq": 12,
+              "at": "2026-10-09T16:14:37.229Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+              "aseq": 24,
+              "at": "2026-10-09T16:17:25.572Z",
+              "reason": "decision",
+              "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34"
+            }
+          ],
+          "run_states": {
+            "run_01a12170-b386-776a-96da-513ceaaf93ea": {
+              "phase": "work",
+              "start_aseq": 1,
+              "start_at": "2026-10-09T16:13:16.897Z"
+            }
+          },
+          "trace_count": 24,
+          "trace_first_aseq": 1,
+          "trace_last_aseq": 24
+        },
+        {
+          "id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "status": "working",
+          "wait": null,
+          "run_ids": [
+            "run_01a12164-7c88-764d-8e90-510303cc1a58"
+          ],
+          "waiting_trace": [
+            {
+              "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+              "aseq": 9,
+              "at": "2026-10-09T16:00:02.773Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+              "aseq": 16,
+              "at": "2026-10-09T16:13:10.974Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+              "aseq": 24,
+              "at": "2026-10-09T16:13:16.722Z",
+              "reason": "decision",
+              "message_id": "01a12170-b386-776a-96da-513ab4e7f6b1"
+            }
+          ],
+          "run_states": {
+            "run_01a12164-7c88-764d-8e90-510303cc1a58": {
+              "phase": "work",
+              "start_aseq": 1,
+              "start_at": "2026-10-09T15:59:57.100Z"
+            }
+          },
+          "trace_count": 24,
+          "trace_first_aseq": 1,
+          "trace_last_aseq": 24
+        }
+      ],
+      "original_main_cc34_wait": [
+        {
+          "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+          "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+          "aseq": 24,
+          "at": "2026-10-09T16:17:25.572Z",
+          "reason": "decision",
+          "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34"
+        }
+      ]
+    },
+    {
+      "marker": "macbot-e2e-s2-parallel-670fbcbf1d89",
+      "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "decision_identity": [
+        {
+          "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+          "unchanged": true,
+          "present": true,
+          "before_seq": 2,
+          "after_seq": 2
+        }
+      ],
+      "current_decision_count": 1,
+      "current_decisions": [
+        {
+          "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+          "seq": 2,
+          "created_at": "2026-10-09T16:17:31.029311+00:00",
+          "blocks": [
+            {
+              "markdown": "macbot-e2e-s2-parallel-670fbcbf1d89 项目的登录方式选择？",
+              "type": "text"
+            }
+          ]
+        }
+      ],
+      "question_blocks": [],
+      "questions": [],
+      "assignment_filter": {
+        "requested_project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+        "returned_count": 1,
+        "project_scoped_count": 1
+      },
+      "assignments": [
+        {
+          "id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "status": "working",
+          "wait": null,
+          "run_ids": [
+            "run_01a12167-a1fb-73c5-b084-9eee39ef7972"
+          ],
+          "waiting_trace": [
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 9,
+              "at": "2026-10-09T16:03:34.037Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 16,
+              "at": "2026-10-09T16:13:14.451Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 23,
+              "at": "2026-10-09T16:13:22.516Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 34,
+              "at": "2026-10-09T16:14:38.042Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 41,
+              "at": "2026-10-09T16:17:25.871Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 49,
+              "at": "2026-10-09T16:17:31.193Z",
+              "reason": "decision",
+              "message_id": "01a12174-9595-70d1-994f-65707bf0f0bc"
+            }
+          ],
+          "run_states": {
+            "run_01a12167-a1fb-73c5-b084-9eee39ef7972": {
+              "phase": "work",
+              "start_aseq": 1,
+              "start_at": "2026-10-09T16:03:27.040Z"
+            }
+          },
+          "trace_count": 49,
+          "trace_first_aseq": 1,
+          "trace_last_aseq": 49
+        }
+      ],
+      "original_main_cc34_wait": [],
+      "question_assessment": "no_new_question_block_or_question_object_observed"
+    }
+  ],
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false,
+    "mock": null
+  },
+  "question_inventory": {
+    "bootstrap_pending_count": 0,
+    "workbench_question_count": 0
+  },
+  "checkpoints": {
+    "jobs_dir": "~/MacBot/data/jobs",
+    "matched_jobs": [
+      {
+        "file": "job_01a12164-809f-7316-bd5f-82da38a1793e.json",
+        "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+        "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+        "waiting_message_id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+        "status": "waiting",
+        "pending_tool": false,
+        "pending_tools": [],
+        "waiting_reason": "decision",
+        "wait_intent": "decision"
+      },
+      {
+        "file": "job_01a12167-b4b2-7276-bd22-32e1ec7ef105.json",
+        "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+        "waiting_message_id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+        "status": "waiting",
+        "pending_tool": false,
+        "pending_tools": [],
+        "waiting_reason": "decision",
+        "wait_intent": "decision"
+      },
+      {
+        "file": "job_01a12170-b4d7-75cd-80fe-3d6f93352c2b.json",
+        "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+        "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+        "waiting_message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+        "status": "waiting",
+        "pending_tool": false,
+        "pending_tools": [],
+        "waiting_reason": "decision",
+        "wait_intent": "decision"
+      }
+    ]
+  },
+  "status": "IDENTITY_PASS_MIGRATION_INCOMPLETE",
+  "conclusion": "IDENTITY_PASS_MIGRATION_INCOMPLETE: all three decision message identities are unchanged. The product seq4 question block is the existing Main ask_user question already answered, not a new Product decision migration. Parallel has no new question block/object. Exact waiting checkpoints and run_request mappings remain linked to the historical three runs; root must handle the explicit owner response before any S2 conclusion.",
+  "assessment": {
+    "decision_message_identity": "PASS: all three baseline decision IDs retain identical seq/created_at/blocks",
+    "product_question": "EXISTING_MAIN_ASK_USER_ANSWERED: the seq4 question block is the historical Main ask_user flow, not a migrated Product decision question",
+    "parallel_question": "NO_NEW_QUESTION_BLOCK_OR_QUESTION_OBJECT_OBSERVED",
+    "original_main_cc34_wait": "PRESENT and still linked to the historical Main assignment checkpoint",
+    "checkpoint": "PASS: exact three waiting jobs have waiting_reason=decision, wait_intent=decision, pending_tools=[], and the expected waiting_message_id",
+    "run_request_mapping": "PASS: exact three run request records map run_id to assignment_id/project_id/chat_id without serializing model body",
+    "s2_acceptance": "MIGRATION_INCOMPLETE; no mutation or approval performed"
+  },
+  "run_requests": [
+    {
+      "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+      "assignment_id": "01a12164-7c88-764d-8e90-510303cc1a58",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "phase": "work"
+    },
+    {
+      "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "assignment_id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+      "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+      "phase": "work"
+    },
+    {
+      "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+      "assignment_id": "01a12170-b386-776a-96da-513ceaaf93ea",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "bot_id": "main",
+      "phase": "coordinate"
+    }
+  ]
+}

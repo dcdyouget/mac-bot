@@ -1,0 +1,53 @@
+{
+  "artifact": "server decision/reply_to package audit",
+  "checked_at": "2026-10-10",
+  "package_path": "/tmp/MacBot-Server-decision-715d099-20261010.pkg",
+  "expanded_path": "/tmp/macbot-final-715d099-expanded-integrator-1791565356",
+  "package_sha256": {
+    "expected": "a9518f1db1459f3a244858c4b7180cc6d30741e75db29ce4baf6d74533d940de",
+    "actual": "a9518f1db1459f3a244858c4b7180cc6d30741e75db29ce4baf6d74533d940de",
+    "match": true
+  },
+  "source": {
+    "expected_commit": "715d0995b31b2f111106e8e77e2c31b45440906b",
+    "embedded_commit": "715d0995b31b2f111106e8e77e2c31b45440906b",
+    "dirty": false,
+    "match": true
+  },
+  "binaries": {
+    "macbotd": {
+      "expected_sha256": "523666a444d0df84a36a68bcdfbfe3f0ab1128c60f1e2e80b1cba7d042ed222b",
+      "actual_sha256": "523666a444d0df84a36a68bcdfbfe3f0ab1128c60f1e2e80b1cba7d042ed222b",
+      "match": true
+    },
+    "agent_browser": {
+      "expected_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "actual_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "match": true
+    }
+  },
+  "package_metadata": {
+    "identifier": "com.macbot.server",
+    "version": "0.1.0",
+    "payload_files": 29,
+    "install_location": "/",
+    "postinstall_script": true,
+    "launchagent_label": "com.macbot.server",
+    "run_at_load": true,
+    "keep_alive": true,
+    "environment_keys": ["MACBOT_HOME"],
+    "default_secret_backend": "Keychain; package does not embed a secret backend override",
+    "argv_recorded": false
+  },
+  "verification_scope": {
+    "read_only_package_audit": true,
+    "installed": false,
+    "runtime_pid_recorded": false,
+    "fresh_install_passed": false,
+    "credentials_read": false,
+    "notes": [
+      "The package, embedded source metadata, daemon hash, and official arm64 sidecar hash all match the supplied release values.",
+      "This artifact does not establish deployment, runtime health, screen behavior, or S2/S4 acceptance."
+    ]
+  }
+}

@@ -1,0 +1,290 @@
+{
+  "scenario": "S2 decision baseline before upgrade",
+  "url": "http://127.0.0.1:7788",
+  "scope": "read-only; exactly the two legacy S2 projects",
+  "projects": [
+    {
+      "marker": "macbot-e2e-s2-login-6770085010b5",
+      "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+      "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+      "project": {
+        "id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "chat_id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "status": "active",
+        "flow": [
+          "产品 Bot 编写本地 PRD",
+          "编码 Bot 实现本地 demo",
+          "测试 Bot 验证功能"
+        ],
+        "name": "macbot-e2e-s2-login-6770085010b5-登录功能",
+        "goal": "完成邮箱登录 demo 开发，包含 'macbot-e2e-s2-login-6770085010b5' 和 '邮箱登录'",
+        "home_path": "~/MacBot/projects/macbot-e2e-s2-login-6770085010b5/"
+      },
+      "chat": {
+        "id": "01a12164-6b92-732d-9ecb-ed4910933eb9",
+        "kind": "project",
+        "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8"
+      },
+      "decision_messages": [
+        {
+          "id": "01a12170-b386-776a-96da-513ab4e7f6b1",
+          "seq": 2,
+          "created_at": "2026-10-09T16:13:16.550963+00:00",
+          "blocks": [
+            {
+              "markdown": "项目 [macbot-e2e-s2-login-6770085010b5] 的本地 PRD 已编写完成，请确认登录方式：",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+          "seq": 5,
+          "created_at": "2026-10-09T16:17:25.411795+00:00",
+          "blocks": [
+            {
+              "markdown": "✅ 用户已确认登录方式为：**邮箱登录**（仅邮箱验证）\n\n请产品 Bot 更新 PRD，编码 Bot 准备进入实现阶段。",
+              "type": "text"
+            }
+          ]
+        }
+      ],
+      "questions": [],
+      "assignment_filter": {
+        "requested_project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+        "returned_count": 2,
+        "project_scoped_count": 2,
+        "unscoped_null_project_count": 0
+      },
+      "assignments": [
+        {
+          "id": "01a12170-b386-776a-96da-513ceaaf93ea",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "bot_id": "main",
+          "status": "waiting_bot",
+          "created_at": "2026-10-09T16:13:16.550992+00:00",
+          "started_at": "2026-10-09T16:13:16.550992+00:00",
+          "finished_at": null,
+          "wait": {
+            "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34",
+            "reason": "decision"
+          },
+          "run_ids": [
+            "run_01a12170-b386-776a-96da-513ceaaf93ea"
+          ],
+          "waiting_trace": [
+            {
+              "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+              "aseq": 5,
+              "at": "2026-10-09T16:13:21.846Z",
+              "reason": "decision",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+              "aseq": 12,
+              "at": "2026-10-09T16:14:37.229Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12170-b386-776a-96da-513ceaaf93ea",
+              "aseq": 24,
+              "at": "2026-10-09T16:17:25.572Z",
+              "reason": "decision",
+              "message_id": "01a12174-7fa3-72f4-a23e-69790d06cc34"
+            }
+          ],
+          "run_states": {
+            "run_01a12170-b386-776a-96da-513ceaaf93ea": {
+              "phase": "work",
+              "start_aseq": 1,
+              "start_at": "2026-10-09T16:13:16.897Z"
+            }
+          },
+          "trace_count": 24,
+          "trace_first_aseq": 1,
+          "trace_last_aseq": 24
+        },
+        {
+          "id": "01a12164-7c88-764d-8e90-510303cc1a58",
+          "project_id": "01a12164-6b92-732d-9ecb-ed48e8a94ca8",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "status": "working",
+          "created_at": "2026-10-09T15:59:56.040477+00:00",
+          "started_at": "2026-10-09T15:59:56.040477+00:00",
+          "finished_at": null,
+          "wait": null,
+          "run_ids": [
+            "run_01a12164-7c88-764d-8e90-510303cc1a58"
+          ],
+          "waiting_trace": [
+            {
+              "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+              "aseq": 9,
+              "at": "2026-10-09T16:00:02.773Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+              "aseq": 16,
+              "at": "2026-10-09T16:13:10.974Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12164-7c88-764d-8e90-510303cc1a58",
+              "aseq": 24,
+              "at": "2026-10-09T16:13:16.722Z",
+              "reason": "decision",
+              "message_id": "01a12170-b386-776a-96da-513ab4e7f6b1"
+            }
+          ],
+          "run_states": {
+            "run_01a12164-7c88-764d-8e90-510303cc1a58": {
+              "phase": "work",
+              "start_aseq": 1,
+              "start_at": "2026-10-09T15:59:57.100Z"
+            }
+          },
+          "trace_count": 24,
+          "trace_first_aseq": 1,
+          "trace_last_aseq": 24
+        }
+      ]
+    },
+    {
+      "marker": "macbot-e2e-s2-parallel-670fbcbf1d89",
+      "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+      "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+      "project": {
+        "id": "01a12167-8cc6-7452-9f10-15a518384bee",
+        "chat_id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "status": "active",
+        "flow": [
+          "产品 PRD",
+          "编码实现",
+          "测试验收"
+        ],
+        "name": "macbot-e2e-s2-parallel-670fbcbf1d89-并行官网改版",
+        "goal": "macbot-e2e-s2-parallel-670fbcbf1d89 邮箱登录 本地 demo 开发",
+        "home_path": "~/MacBot/projects/macbot-e2e-s2-parallel-670fbcbf1d89/"
+      },
+      "chat": {
+        "id": "01a12167-8cc6-7452-9f10-15a69f104b5d",
+        "kind": "project",
+        "project_id": "01a12167-8cc6-7452-9f10-15a518384bee"
+      },
+      "decision_messages": [
+        {
+          "id": "01a12174-9595-70d1-994f-65707bf0f0bc",
+          "seq": 2,
+          "created_at": "2026-10-09T16:17:31.029311+00:00",
+          "blocks": [
+            {
+              "markdown": "macbot-e2e-s2-parallel-670fbcbf1d89 项目的登录方式选择？",
+              "type": "text"
+            }
+          ]
+        }
+      ],
+      "questions": [],
+      "assignment_filter": {
+        "requested_project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+        "returned_count": 1,
+        "project_scoped_count": 1,
+        "unscoped_null_project_count": 0
+      },
+      "assignments": [
+        {
+          "id": "01a12167-a1fb-73c5-b084-9eee39ef7972",
+          "project_id": "01a12167-8cc6-7452-9f10-15a518384bee",
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "status": "working",
+          "created_at": "2026-10-09T16:03:22.235256+00:00",
+          "started_at": "2026-10-09T16:03:22.235256+00:00",
+          "finished_at": null,
+          "wait": null,
+          "run_ids": [
+            "run_01a12167-a1fb-73c5-b084-9eee39ef7972"
+          ],
+          "waiting_trace": [
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 9,
+              "at": "2026-10-09T16:03:34.037Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 16,
+              "at": "2026-10-09T16:13:14.451Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 23,
+              "at": "2026-10-09T16:13:22.516Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 34,
+              "at": "2026-10-09T16:14:38.042Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 41,
+              "at": "2026-10-09T16:17:25.871Z",
+              "reason": "approval",
+              "message_id": null
+            },
+            {
+              "run_id": "run_01a12167-a1fb-73c5-b084-9eee39ef7972",
+              "aseq": 49,
+              "at": "2026-10-09T16:17:31.193Z",
+              "reason": "decision",
+              "message_id": "01a12174-9595-70d1-994f-65707bf0f0bc"
+            }
+          ],
+          "run_states": {
+            "run_01a12167-a1fb-73c5-b084-9eee39ef7972": {
+              "phase": "work",
+              "start_aseq": 1,
+              "start_at": "2026-10-09T16:03:27.040Z"
+            }
+          },
+          "trace_count": 49,
+          "trace_first_aseq": 1,
+          "trace_last_aseq": 49
+        }
+      ]
+    }
+  ],
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false,
+    "mock": null
+  },
+  "status": "PASS_READ_ONLY",
+  "note": "Baseline records only; no request, approval, question.answer, or assignment mutation.",
+  "question_inventory": {
+    "bootstrap.pending.questions": {
+      "count": 0,
+      "items": []
+    },
+    "workbench.waiting.questions": {
+      "count": 0,
+      "items": []
+    },
+    "association_note": "No pending Question objects were exposed; decision messages and their assignment wait message_ids remain in each project record."
+  }
+}

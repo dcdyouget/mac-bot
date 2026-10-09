@@ -537,14 +537,38 @@ macbot_install_launch_agent() {
   if launchctl print "gui/$uid/$label" >/dev/null 2>&1; then
     launchctl bootout "gui/$uid/$label" >/dev/null 2>&1 || true
   fi
-  if ! launchctl bootstrap "gui/$uid" "$plist" >/dev/null 2>&1; then
-    launchctl load -w "$plist" >/dev/null 2>&1 || {
-      macbot_error "无法加载 LaunchAgent $label"; return 1;
+  macbot_activate_launch_agent "$uid" "$label" "$plist"
+}
+
+macbot_activate_launch_agent() {
+  local agent_uid="$1" agent_label="$2" agent_plist="$3"
+  local attempt=0 loaded=0
+  # launchd may briefly reject bootstrap/kickstart after bootout. Retry the
+  # same registration without rebuilding or replacing application data.
+  while [ "$attempt" -lt 5 ]; do
+    if launchctl bootstrap "gui/$agent_uid" "$agent_plist" >/dev/null 2>&1 ||
+       launchctl print "gui/$agent_uid/$agent_label" >/dev/null 2>&1; then
+      loaded=1
+      break
+    fi
+    attempt=$((attempt + 1))
+    [ "$attempt" -ge 5 ] || sleep 1
+  done
+  if [ "$loaded" != 1 ]; then
+    launchctl load -w "$agent_plist" >/dev/null 2>&1 || {
+      macbot_error "无法加载 LaunchAgent $agent_label"; return 1;
     }
   fi
-  launchctl kickstart -k "gui/$uid/$label" >/dev/null 2>&1 || {
-    macbot_error "无法 kickstart LaunchAgent $label"; return 1;
-  }
+  attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    if launchctl kickstart -k "gui/$agent_uid/$agent_label" >/dev/null 2>&1; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    [ "$attempt" -ge 5 ] || sleep 1
+  done
+  macbot_error "无法 kickstart LaunchAgent $agent_label"
+  return 1
 }
 
 macbot_wait_health() {
