@@ -80,6 +80,10 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
     updated = require_dict(client.call("skill.update", {"name": skill_name, "content": content_v2}), "skill.update result")
     if require_dict(updated.get("skill"), "skill.update.skill").get("name") != skill_name:
         raise ValueError("skill.update returned a different skill")
+    updated_detail = require_dict(client.call("skill.get", {"name": skill_name}), "skill.get after update result").get("skill")
+    updated_detail = require_dict(updated_detail, "skill.get after update.skill")
+    if updated_detail.get("content") != content_v2:
+        raise ValueError("skill.get after update did not return the updated content")
     disabled = require_dict(client.call("skill.set_enabled", {"name": skill_name, "enabled": False}), "skill.set_enabled result")
     if require_dict(disabled.get("skill"), "skill.set_enabled.skill").get("enabled") is not False:
         raise ValueError("skill.set_enabled(false) was not reflected")
@@ -100,14 +104,33 @@ def scenario(args: argparse.Namespace) -> dict[str, Any]:
     for key in ("current", "previous"):
         current = require_dict(summary.get(key), f"usage.summary.{key}")
         for field in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "requests", "tasks_done"):
-            if not isinstance(current.get(field), (int, float)):
+            if not isinstance(current.get(field), (int, float)) or isinstance(current.get(field), bool):
                 raise ValueError(f"usage.summary.{key}.{field} is not numeric")
+        if current.get("cost") is not None and (
+            not isinstance(current.get("cost"), (int, float)) or isinstance(current.get("cost"), bool)
+        ):
+            raise ValueError(f"usage.summary.{key}.cost must be numeric or null")
     heatmap = require_dict(
         client.call("usage.heatmap", {"mode": "calendar", "from": start, "to": end, "metric": "tokens"}),
         "usage.heatmap result",
     )
     if not isinstance(heatmap.get("days"), list) or not isinstance(heatmap.get("thresholds"), list) or len(heatmap["thresholds"]) != 3:
         raise ValueError("usage.heatmap does not match the calendar response shape")
+    if any(not isinstance(value, (int, float)) or isinstance(value, bool) for value in heatmap["thresholds"]):
+        raise ValueError("usage.heatmap.thresholds must contain three numbers")
+    for day in heatmap["days"]:
+        day = require_dict(day, "usage.heatmap.days entry")
+        if not isinstance(day.get("date"), str):
+            raise ValueError("usage.heatmap day.date must be a string")
+        for field in ("value", "tokens", "requests"):
+            if not isinstance(day.get(field), (int, float)) or isinstance(day.get(field), bool):
+                raise ValueError(f"usage.heatmap day.{field} is not numeric")
+        if day.get("cost") is not None and (
+            not isinstance(day.get("cost"), (int, float)) or isinstance(day.get("cost"), bool)
+        ):
+            raise ValueError("usage.heatmap day.cost must be numeric or null")
+        if day.get("top_bot_id") is not None and not isinstance(day.get("top_bot_id"), str):
+            raise ValueError("usage.heatmap day.top_bot_id must be string or null")
     timeseries = require_dict(
         client.call("usage.timeseries", {"from": start, "to": end, "granularity": "auto", "dimension": "bot", "metric": "tokens"}),
         "usage.timeseries result",
