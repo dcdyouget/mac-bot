@@ -37,6 +37,29 @@ This records Android implementation, mock checks and the explicitly listed real-
 
 ## Continuation fixes
 
+- Notification quota candidate (`cac5b12`, 2026-10-10): active tray budget 40,
+  protected FGS `id=100`/foreground entries/group summaries, Host/chat message
+  coalescing and Host-isolated approval/review actions. Durable pending payloads
+  precede event-cursor advancement; business markers follow exact OS payload
+  visibility. Permission/channel denial and silent rejection retain pending
+  requests with 1–30 second backoff, including recovery without a new event.
+- Independent validation: 26 Android-shell JUnit/Robolectric API 36 tests in
+  4 suites, 54 shared tests in 17 suites, 5 generator tests, 220 schema objects
+  and 168 fixture values/94 files. Full-50 needs/completed/message delivery,
+  same/multi-Host replay, monotonic sequences, message coalescing, silent/throwing
+  rejection, durable restart, blocked-channel recovery, protected-only capacity,
+  preparation failure before eviction and actual PendingIntent targets pass.
+  Signed Release/R8/resource shrink, lint and APK signature verification pass.
+- This candidate has not been installed or exercised on the shared AVD. No
+  existing notifications were cleared; GUI, APK installation, services and keys
+  were not changed. `S4-notification-candidate.json` identifies the source and
+  immutable local APK. Integrator owns the update/new scheduled-event window;
+  this does not establish native S4 or joint S1–S5 completion. Legacy `seen`
+  markers remain honored, so older silent rejections are not replayed.
+- The existing notification BroadcastReceiver still has no durable action retry
+  when its readiness/Host call fails. This candidate preserves its actions and
+  routing; it does not claim to resolve that separate reliability issue.
+
 - MainConnection sends the protocol `ping` request every 20 seconds. Ktor's OkHttp session rejects an explicit `Frame.Ping` write; the previous implementation therefore disconnected at each heartbeat. A real OkHttp/MockWebServer regression crosses multiple heartbeat intervals and confirms a later request still succeeds.
 - Identical simultaneous writes now have independent request IDs; failed/cancelled calls release their lease and reuse their own retry ID. Skills save/publish refresh the full detail, not only the list.
 - The foreground service subscribes before connection initialization, seeds notification history at hello before replay, skips streaming placeholders, and notifies each final message once. Host connection failures are visible in localized UI text.

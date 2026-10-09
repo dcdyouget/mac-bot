@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-10",
+  "source_commit": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "variant": "distribution-signed Release, R8 and resource shrink",
+  "application_id": "bot.mac.mobile",
+  "version_code": 1,
+  "target_sdk": 36,
+  "candidate_path": "/Users/gongshaojie/Project/mac-bot-client-android/clients/mobile/androidApp/build/outputs/apk/candidates/android-notification-cac5b12d68fbe409b41e763231c28f2e7baaff37.apk",
+  "apk_sha256": "c1b2e2fbbe3b305f0ac2f643311188265a50c08042da3438fb47e6c382872f2a",
+  "apk_bytes": 2111890,
+  "signer_certificate_sha256": "f0e092d192020efd8c41c351f8c7d62f7df10ee2c9806f8611b564c18073b161",
+  "external_signing_environment": "$HOME/.local/share/macbot/android-signing/release.env",
+  "apk_signature_verified": true,
+  "apk_contains_new_pending_and_delivery_markers": true,
+  "tests": {
+    "android_shell_host_tests": 26,
+    "android_shell_suites": 4,
+    "shared_host_tests": 54,
+    "shared_suites": 17,
+    "generator_tests": 5,
+    "schema_objects": 220,
+    "fixture_values": 168,
+    "fixture_files": 94,
+    "failures": 0
+  },
+  "commands": [
+    "./gradlew :androidApp:testDebugUnitTest :shared:commonTest :shared:androidUnitTest",
+    "python3 protocol/kotlin/generate.py --check",
+    "python3 -m unittest discover -s protocol/kotlin/tests -p 'test*.py'",
+    "./gradlew :androidApp:assembleRelease :androidApp:lintRelease",
+    "apksigner verify --verbose --print-certs <candidate.apk>"
+  ],
+  "policy": {
+    "active_limit_including_fgs": 40,
+    "protected": [
+      "id=100",
+      "FLAG_FOREGROUND_SERVICE",
+      "FLAG_GROUP_SUMMARY"
+    ],
+    "reclaim_order": [
+      "old messages",
+      "ordinary completions",
+      "attention/review"
+    ],
+    "message_merge": "per Host/chat",
+    "ledger_commit": "exact OS payload visibility after durable enqueue",
+    "retry_backoff_seconds": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      30
+    ],
+    "legacy_seen_markers": "honored; historical silently rejected entries not replayed"
+  },
+  "device_changes": false,
+  "shared_avd_used": false,
+  "installed": false,
+  "notifications_manually_cleared": false,
+  "shared_services_changed": false,
+  "signing_key_changed": false,
+  "native_s4_pass": false,
+  "joint_stage_pass": false,
+  "limits": [
+    "Host/Robolectric proof only; actual quota and new scheduled delivery require integrator-owned update window.",
+    "Protected-only tray cannot be reclaimed; pending delivery remains unacknowledged.",
+    "Existing BroadcastReceiver readiness/Host failures have no durable action retry; this separate behavior is unchanged."
+  ],
+  "logs": [
+    "/tmp/macbot-notification-candidate-tests.log",
+    "/tmp/macbot-notification-candidate-release.log"
+  ]
+}
