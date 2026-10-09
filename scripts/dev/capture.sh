@@ -37,17 +37,23 @@ else
   MACBOT_CAPTURE_PIDS="${DESKTOP_PIDS[*]}" /usr/bin/swift -e 'import CoreGraphics
 import Foundation
 let wanted = Set((ProcessInfo.processInfo.environment["MACBOT_CAPTURE_PIDS"] ?? "").split(separator: " ").compactMap { Int32($0) })
-let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-for window in windows {
-  let ownerPID = window[kCGWindowOwnerPID as String] as? Int ?? 0
-  let layer = window[kCGWindowLayer as String] as? Int ?? 1
-  let alpha = window[kCGWindowAlpha as String] as? Double ?? 1
-  if wanted.contains(Int32(ownerPID)), layer == 0, alpha > 0,
-     let number = window[kCGWindowNumber as String] as? Int {
-    print("\(number) \(ownerPID)")
-    break
+let deadline = Date().addingTimeInterval(10)
+var found = false
+repeat {
+  let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+  for window in windows {
+    let ownerPID = window[kCGWindowOwnerPID as String] as? Int ?? 0
+    let layer = window[kCGWindowLayer as String] as? Int ?? 1
+    let alpha = window[kCGWindowAlpha as String] as? Double ?? 1
+    if wanted.contains(Int32(ownerPID)), layer == 0, alpha > 0,
+       let number = window[kCGWindowNumber as String] as? Int {
+      print("\(number) \(ownerPID)")
+      found = true
+      break
+    }
   }
-}' > "$OUT/$STAMP-desktop-window.txt" 2>/dev/null || true
+  if !found { Thread.sleep(forTimeInterval: 0.25) }
+} while !found && Date() < deadline' > "$OUT/$STAMP-desktop-window.txt" 2>/dev/null || true
   WINDOW_INFO="$(cat "$OUT/$STAMP-desktop-window.txt" 2>/dev/null || true)"
   if [[ "$WINDOW_INFO" =~ ^([0-9]+)[[:space:]]([0-9]+)$ ]]; then
     WINDOW="${BASH_REMATCH[1]}"

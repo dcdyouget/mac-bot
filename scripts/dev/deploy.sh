@@ -70,7 +70,20 @@ case "$desktop_rc" in
   0)
     desktop_destination="$HOME/Applications/MacBot.app"
     desktop_previous_pids=$(pgrep -f "$desktop_destination/Contents/MacOS/" 2>/dev/null || true)
-    if ! rm -rf "$desktop_destination" || \
+    for desktop_pid in $desktop_previous_pids; do kill -TERM "$desktop_pid" 2>/dev/null || true; done
+    desktop_stopped=0
+    for ((desktop_attempt=0; desktop_attempt<40; desktop_attempt++)); do
+      desktop_alive=0
+      for desktop_pid in $desktop_previous_pids; do
+        if kill -0 "$desktop_pid" 2>/dev/null; then desktop_alive=1; fi
+      done
+      if [ "$desktop_alive" -eq 0 ]; then desktop_stopped=1; break; fi
+      sleep 0.25
+    done
+    if [ "$desktop_stopped" -ne 1 ]; then
+      macbot_error "旧桌面进程未在 10 秒内退出；保留现有安装，下次重试"
+      failures=1
+    elif ! rm -rf "$desktop_destination" || \
        ! mkdir -p "$HOME/Applications" || \
        ! cp -R "$MACBOT_DESKTOP_APP" "$desktop_destination"; then
       macbot_error "桌面客户端安装失败"
@@ -78,8 +91,7 @@ case "$desktop_rc" in
     else
       printf '%s\n' "$MACBOT_MAIN_SHA" > "$desktop_destination/Contents/Resources/source-commit" || failures=1
       macbot_log "桌面客户端已安装：$desktop_destination"
-      for desktop_pid in $desktop_previous_pids; do kill -TERM "$desktop_pid" 2>/dev/null || true; done
-      desktop_open_args=(-g)
+      desktop_open_args=(-n -g)
       if [ -f "$MACBOT_CACHE_ROOT/watch/file-secrets" ]; then
         desktop_open_args+=(--env MACBOT_SECRET_BACKEND=file)
       fi

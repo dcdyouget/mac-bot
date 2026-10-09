@@ -1,0 +1,29 @@
+{
+  "checked_at": "2026-10-09T17:50:47.613341+08:00",
+  "source_commit": "fb0da7cf9475c2936aa2e84f2736b6a7a393d510",
+  "app": "~/Applications/MacBot.app",
+  "pid": 48726,
+  "window_id": 56853,
+  "mock_source": "f368824",
+  "mock_pid": 40796,
+  "deploy_exit": 0,
+  "deploy_log": "~/Library/Caches/MacBot/integrator/watch/desktop-install-fb0da7c.log",
+  "file_secret_backend": true,
+  "snapshot": "main-fb0da7c-installed-history.png",
+  "history_observation": "Installed main chat visibly displays four fixture messages after launch: user request, project-created card, review card, confirmation. This verifies startup history loading only.",
+  "skills_regression": "not performed; GUI handed back",
+  "automation": {
+    "cua_fullpath": "cgWindowNotFound",
+    "cua_bundle_id": "cgWindowNotFound",
+    "cua_inventory": "30s timeout/reset",
+    "cg_window": "installed PID exact-match, layer0, onscreen1, alpha1",
+    "screencapture": "10s finalize timeout; complete hidden PNG visually inspected and recovered"
+  },
+  "untouched": [
+    "QA42266",
+    "private mock7790",
+    "shared mock7789",
+    "Android signed Release/AVD"
+  ],
+  "phase_conclusion": "No new S1-S5 acceptance; reconnection history and skills interaction remain pending."
+}
