@@ -1693,6 +1693,18 @@ impl crate::RpcBackend for ComposedBackend {
                 }
             }
         }
+        // Keep duplication on the process-wide FeatureService so copied skill
+        // metadata and the Bot mutation share one atomic registry instance.
+        if method == "bot.duplicate" {
+            return self
+                .inner
+                .duplicate_bot_with_feature_service_and_state(
+                    state,
+                    &params,
+                    self.feature_service.clone(),
+                )
+                .await;
+        }
         let inner_result = if method == "takeover.start" {
             self.inner.execution_takeover_start(state, &params).await
         } else if method == "takeover.release" {

@@ -7,24 +7,26 @@
 //! operation JSONL is synced, then the global event log is synced, then the
 //! event is published to connected clients.
 
-use crate::{now, GatewayState, RpcBackend, RpcError, RpcResult};
+use crate::{features::FeatureService, now, GatewayState, RpcBackend, RpcError, RpcResult};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use macbot_browser::BrowserError;
 use macbot_durable::DurableRuntime;
 use macbot_orchestrator::{Orchestrator, UsageTotals};
 use macbot_protocol::{
-    Announcement, Approval, Assignment, Bot, Chat, Device, HeatmapResult, Hello, Message,
-    PendingItems, Project, Question, Routine, Settings, UsageBreakdownResult, UsageSummaryResult,
-    UsageTimeseriesResult,
+    Announcement, Approval, Assignment, Bot, BotDuplicateResult, Chat, Device, HeatmapResult,
+    Hello, Message, PendingItems, Project, Question, Routine, Settings, UsageBreakdownResult,
+    UsageSummaryResult, UsageTimeseriesResult,
 };
 use macbot_providers::registry::{ProviderRegistry, RegistryError};
+use macbot_skills::BotSkillSettingsSnapshot;
 use macbot_store::Store;
 use macbot_usage::UsageLedger;
 use serde_json::{json, Map, Value};
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum AdapterError {
@@ -105,13 +107,19 @@ impl ProductionBackend {
         Self::migrate_legacy_chat_sequences(&store, &orchestrator)?;
         let mut idempotency = HashMap::new();
         for op in operations {
-            if op.get("status").and_then(Value::as_str) == Some("done") {
-                if let (Some(id), Some(result)) = (
-                    op.get("client_request_id").and_then(Value::as_str),
-                    op.get("result"),
-                ) {
-                    idempotency.insert(id.into(), result.clone());
+            let Some(id) = op.get("client_request_id").and_then(Value::as_str) else {
+                continue;
+            };
+            match op.get("status").and_then(Value::as_str) {
+                Some("done") => {
+                    if let Some(result) = op.get("result") {
+                        idempotency.insert(id.into(), result.clone());
+                    }
                 }
+                Some("rolled_back") => {
+                    idempotency.remove(id);
+                }
+                _ => {}
             }
         }
         let secrets = macbot_providers::configured_secret_store()
@@ -326,7 +334,7 @@ impl ProductionBackend {
 
     fn event_name(method: &str) -> Option<&'static str> {
         Some(match method {
-            "bot.create" | "bot.create_from_template" => "bot.created",
+            "bot.create" | "bot.create_from_template" | "bot.duplicate" => "bot.created",
             "bot.update" => "bot.updated",
             "bot.delete" => "bot.deleted",
             "project.create" => "project.created",
@@ -536,6 +544,28 @@ impl RpcBackend for ProductionBackend {
     }
 
     async fn call(&self, method: &str, params: Value, state: &GatewayState) -> RpcResult {
+        // Duplicate uses a shared FeatureService and must own the writer lock
+        // across Bot creation and persistence. Route it before the generic
+        // lock so the state-aware helper cannot deadlock on a second lock.
+        if method == "bot.duplicate" {
+            let feature_service = FeatureService::with_store(
+                self.store.clone(),
+                self.store.root().to_path_buf(),
+                Vec::<std::path::PathBuf>::new(),
+            )
+            .map_err(|error| RpcError {
+                code: error.code().into(),
+                message: error.to_string(),
+                details: None,
+            })?;
+            return self
+                .duplicate_bot_with_feature_service_and_state(
+                    state,
+                    &params,
+                    Arc::new(feature_service),
+                )
+                .await;
+        }
         let _guard = self.write_lock.lock().await;
         if method.starts_with("provider.") || method.starts_with("model.") {
             let in_use_models = self.in_use_models();
@@ -572,6 +602,7 @@ impl RpcBackend for ProductionBackend {
         }
         let result = match method {
             "bootstrap" => self.bootstrap(state).await?,
+            "bot.duplicate" => self.duplicate_bot_with_skills(&params).await?,
             "chat.send" => self.chat_send(params.clone()).await?,
             "chat.history" => self.chat_history(&params).await?,
             "chat.mark_read" => self.chat_mark_read(&params).await?,
@@ -1202,6 +1233,213 @@ impl ProductionBackend {
                 .await;
         }
         Ok(json!({"assignment":assignment}))
+    }
+
+    async fn duplicate_bot_with_skills(&self, params: &Value) -> RpcResult {
+        let feature_service = FeatureService::with_store(
+            self.store.clone(),
+            self.store.root().to_path_buf(),
+            Vec::<std::path::PathBuf>::new(),
+        )
+        .map_err(|error| RpcError {
+            code: error.code().into(),
+            message: error.to_string(),
+            details: None,
+        })?;
+        self.duplicate_bot_with_feature_service(params, Arc::new(feature_service))
+            .await
+    }
+
+    /// Duplicate a Bot while sharing the process-wide FeatureService used by
+    /// model runs. ComposedBackend can call this entry point so its in-memory
+    /// skill registry observes the same copy and rollback immediately.
+    async fn duplicate_bot_with_feature_service_unpersisted(
+        &self,
+        params: &Value,
+        feature_service: Arc<FeatureService>,
+    ) -> Result<(Value, String, BotSkillSettingsSnapshot), RpcError> {
+        let source_bot_id = required_text(params, "bot_id")?;
+        let name = required_text(params, "name")?;
+        let target_bot_id = params
+            .get("target_bot_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| Uuid::now_v7().to_string());
+        if target_bot_id == "main" || target_bot_id.contains('/') {
+            return Err(RpcError {
+                code: "invalid_params".into(),
+                message: "target_bot_id must be a non-main id".into(),
+                details: None,
+            });
+        }
+
+        let skill_snapshot = feature_service
+            .prepare_duplicate_bot_skill_settings(&source_bot_id, &target_bot_id)
+            .map_err(|error| RpcError {
+                code: error.code().into(),
+                message: error.to_string(),
+                details: None,
+            })?;
+
+        let mut duplicate_params = params.clone();
+        let object = duplicate_params.as_object_mut().ok_or_else(|| RpcError {
+            code: "invalid_params".into(),
+            message: "params must be an object".into(),
+            details: None,
+        })?;
+        object.insert("bot_id".into(), json!(source_bot_id));
+        object.insert("name".into(), json!(name));
+        object.insert("target_bot_id".into(), json!(target_bot_id));
+        let result = match self
+            .orchestrator
+            .rpc("bot.duplicate", duplicate_params.clone())
+            .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = feature_service.restore_duplicate_bot_skill_settings(&skill_snapshot);
+                return Err(Self::error(error));
+            }
+        };
+        let mut result = match normalize_result("bot.duplicate", result) {
+            Ok(result) => result,
+            Err(message) => {
+                self.rollback_duplicate_bot(&target_bot_id, &feature_service, &skill_snapshot)
+                    .await;
+                return Err(RpcError {
+                    code: "internal".into(),
+                    message,
+                    details: None,
+                });
+            }
+        };
+        if let Err(message) = self.enrich_bot_status(&mut result) {
+            self.rollback_duplicate_bot(&target_bot_id, &feature_service, &skill_snapshot)
+                .await;
+            return Err(RpcError {
+                code: "internal".into(),
+                message,
+                details: None,
+            });
+        }
+        if let Err(message) = validate_result("bot.duplicate", &result) {
+            self.rollback_duplicate_bot(&target_bot_id, &feature_service, &skill_snapshot)
+                .await;
+            return Err(RpcError {
+                code: "internal".into(),
+                message,
+                details: None,
+            });
+        }
+        Ok((result, target_bot_id, skill_snapshot))
+    }
+
+    /// Public non-dispatching helper used by gateway tests and internal callers.
+    /// The regular RPC dispatcher persists after this returns; callers that
+    /// bypass it must use `duplicate_bot_with_feature_service_and_state`.
+    pub async fn duplicate_bot_with_feature_service(
+        &self,
+        params: &Value,
+        feature_service: Arc<FeatureService>,
+    ) -> RpcResult {
+        let (result, _target_bot_id, _skill_snapshot) = self
+            .duplicate_bot_with_feature_service_unpersisted(params, feature_service)
+            .await?;
+        Ok(result)
+    }
+
+    /// ComposedBackend entry point for Bot duplication.  The regular RPC path
+    /// persists in `call` after this helper returns; the composed path bypasses
+    /// that dispatcher, so it must take the writer lock and use the same
+    /// operation/event persistence path here.
+    pub async fn duplicate_bot_with_feature_service_and_state(
+        &self,
+        state: &GatewayState,
+        params: &Value,
+        feature_service: Arc<FeatureService>,
+    ) -> RpcResult {
+        let _guard = self.write_lock.lock().await;
+        if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
+            if let Some(value) = self.idempotency.lock().await.get(request_id).cloned() {
+                return Ok(value);
+            }
+        }
+        let (result, target_bot_id, skill_snapshot) = self
+            .duplicate_bot_with_feature_service_unpersisted(params, feature_service.clone())
+            .await?;
+        match self.persist(state, "bot.duplicate", params, &result).await {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                self.rollback_duplicate_bot(&target_bot_id, &feature_service, &skill_snapshot)
+                    .await;
+                if let Err(compensation_error) = self.persist_duplicate_rollback_snapshot(
+                    &target_bot_id,
+                    params.get("client_request_id").and_then(Value::as_str),
+                ) {
+                    tracing::error!(
+                        %compensation_error,
+                        target_bot_id,
+                        "failed to persist duplicate rollback snapshot"
+                    );
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// The initial operation WAL record can outlive a failed snapshot rename.
+    /// Append a non-`done` compensation record with the post-rollback snapshot
+    /// so restart chooses the clean snapshot and never reconstructs the target.
+    fn persist_duplicate_rollback_snapshot(
+        &self,
+        target_bot_id: &str,
+        client_request_id: Option<&str>,
+    ) -> Result<(), RpcError> {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        self.store
+            .append_jsonl(
+                "data/orchestrator/operations.jsonl",
+                &json!({
+                    "method":"bot.duplicate.rollback",
+                    "params":{"target_bot_id":target_bot_id},
+                    "client_request_id":client_request_id,
+                    "result":{"rolled_back":true},
+                    "snapshot":snapshot,
+                    "status":"rolled_back",
+                    "at":now()
+                }),
+            )
+            .map_err(store_error)
+    }
+
+    async fn rollback_duplicate_bot(
+        &self,
+        target_bot_id: &str,
+        feature_service: &FeatureService,
+        skill_snapshot: &BotSkillSettingsSnapshot,
+    ) {
+        let _ = feature_service.restore_duplicate_bot_skill_settings(skill_snapshot);
+        if let Ok(routines) = self
+            .orchestrator
+            .rpc("routine.list", json!({"bot_id":target_bot_id}))
+            .await
+        {
+            if let Some(items) = routines.get("routines").and_then(Value::as_array) {
+                for routine in items {
+                    if let Some(id) = routine.get("id").and_then(Value::as_str) {
+                        let _ = self
+                            .orchestrator
+                            .rpc("routine.delete", json!({"routine_id":id}))
+                            .await;
+                    }
+                }
+            }
+        }
+        let _ = self
+            .orchestrator
+            .rpc("bot.delete", json!({"bot_id":target_bot_id}))
+            .await;
     }
 
     async fn chat_send(&self, params: Value) -> RpcResult {
@@ -1870,6 +2108,9 @@ fn browser_error(error: BrowserError) -> RpcError {
 fn event_data(method: &str, params: &Value, result: &Value) -> Value {
     match method {
         "bot.delete" => json!({ "bot_id": params.get("bot_id").cloned().unwrap_or(Value::Null) }),
+        "bot.duplicate" => {
+            json!({ "bot": result.get("bot").cloned().unwrap_or(Value::Null) })
+        }
         "project.request_changes" => {
             json!({ "project": result.get("project").cloned().unwrap_or(Value::Null), "message": { "fallback_text": result.get("text").cloned().unwrap_or(Value::Null) } })
         }
@@ -1926,11 +2167,11 @@ fn normalize_result(method: &str, mut result: Value) -> Result<Value, String> {
                 }
             }
         }
-        "bot.get" | "bot.create" | "bot.update" => {
+        "bot.get" | "bot.create" | "bot.update" | "bot.duplicate" => {
             if let Some(item) = result.get_mut("bot") {
                 normalize_bot(item);
             }
-            if method == "bot.create" {
+            if matches!(method, "bot.create" | "bot.duplicate") {
                 normalize_created_bot_chat(&mut result);
             }
         }
@@ -2358,6 +2599,7 @@ fn validate_json_shape(method: &str, value: &Value) -> Result<(), String> {
         }
         "bot.list" => parse!(Vec<Bot>, value["bots"]),
         "bot.get" | "bot.create" | "bot.update" => parse!(Bot, value["bot"]),
+        "bot.duplicate" => parse!(BotDuplicateResult, value),
         "project.list" => parse!(Vec<Project>, value["projects"]),
         "project.get" => {
             parse!(Project, value["project"]);
@@ -3055,6 +3297,314 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn production_duplicate_uses_preallocated_target_and_rolls_back_skills() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let source = backend
+            .call(
+                "bot.create",
+                json!({"name":"复制源","client_request_id":"duplicate-source"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let source_id = source["bot"]["id"].as_str().unwrap();
+        let feature_service = FeatureService::with_store(
+            backend.store.clone(),
+            backend.store.root().to_path_buf(),
+            Vec::<std::path::PathBuf>::new(),
+        )
+        .unwrap();
+        feature_service
+            .skill_rpc(
+                "skill.create",
+                json!({"name":"duplicate-skill","content":"---\nname: duplicate-skill\ndescription: duplicate test\n---\nUse this skill."}),
+            )
+            .unwrap();
+        feature_service
+            .skill_rpc(
+                "skill.set_enabled",
+                json!({"name":"duplicate-skill","enabled":false,"bot_id":source_id}),
+            )
+            .unwrap();
+        backend
+            .call(
+                "routine.create",
+                json!({
+                    "bot_id":source_id,
+                    "name":"复制巡检",
+                    "instructions":"检查复制",
+                    "schedules":[{"cron":"*/5 * * * *","label":"每五分钟"}],
+                    "timezone":"Asia/Shanghai"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let target_id = "duplicate-target-01";
+        let duplicated = backend
+            .duplicate_bot_with_feature_service(
+                &json!({"bot_id":source_id,"name":"复制目标","target_bot_id":target_id}),
+                Arc::new(feature_service.clone()),
+            )
+            .await
+            .unwrap();
+        let _: BotDuplicateResult = serde_json::from_value(duplicated.clone()).unwrap();
+        assert_eq!(duplicated["bot"]["id"], target_id);
+        assert_eq!(duplicated["dm_chat"]["id"], format!("dm_{target_id}"));
+        let routines = backend
+            .call("routine.list", json!({"bot_id":target_id}), &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(routines["routines"].as_array().unwrap().len(), 1);
+        assert_eq!(routines["routines"][0]["enabled"], true);
+        assert!(!feature_service
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("duplicate-skill", Some(target_id))
+            .unwrap());
+
+        let existing = backend
+            .call(
+                "bot.create",
+                json!({"name":"已存在","client_request_id":"duplicate-existing"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let existing_id = existing["bot"]["id"].as_str().unwrap();
+        let failed = backend
+            .duplicate_bot_with_feature_service(
+                &json!({"bot_id":source_id,"name":"不会创建","target_bot_id":existing_id}),
+                Arc::new(feature_service.clone()),
+            )
+            .await;
+        assert!(failed.is_err());
+        assert!(feature_service
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("duplicate-skill", Some(existing_id))
+            .unwrap());
+        let bots = backend
+            .call("bot.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        assert!(!bots["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["name"].as_str() == Some("不会创建")));
+    }
+
+    #[tokio::test]
+    async fn composed_duplicate_rolls_back_when_persist_snapshot_fails() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let source = backend
+            .call(
+                "bot.create",
+                json!({"name":"持久化失败源","client_request_id":"dup-io-source"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let source_id = source["bot"]["id"].as_str().unwrap();
+        let feature_service = Arc::new(
+            FeatureService::with_store(
+                backend.store.clone(),
+                backend.store.root().to_path_buf(),
+                Vec::<std::path::PathBuf>::new(),
+            )
+            .unwrap(),
+        );
+        feature_service
+            .skill_rpc(
+                "skill.create",
+                json!({"name":"dup-io-skill","content":"---\nname: dup-io-skill\ndescription: test\n---\nUse."}),
+            )
+            .unwrap();
+        feature_service
+            .skill_rpc(
+                "skill.set_enabled",
+                json!({"name":"dup-io-skill","enabled":false,"bot_id":source_id}),
+            )
+            .unwrap();
+        backend
+            .call(
+                "routine.create",
+                json!({
+                    "bot_id":source_id,
+                    "name":"复制失败例程",
+                    "instructions":"test",
+                    "schedules":[{"cron":"*/5 * * * *","label":"测试"}],
+                    "timezone":"Asia/Shanghai"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+
+        let state_path = home.path().join("data/orchestrator/state.json");
+        fs::remove_file(&state_path).unwrap();
+        fs::create_dir(&state_path).unwrap();
+        let target_id = "dup-io-target";
+        let failed = backend
+            .duplicate_bot_with_feature_service_and_state(
+                &gateway.state,
+                &json!({"bot_id":source_id,"name":"不会留下","target_bot_id":target_id}),
+                feature_service.clone(),
+            )
+            .await;
+        assert!(failed.is_err());
+
+        let bots = backend
+            .call("bot.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        assert!(!bots["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|bot| bot["id"].as_str() == Some(target_id)));
+        let routines = backend
+            .call("routine.list", json!({"bot_id":target_id}), &gateway.state)
+            .await
+            .unwrap();
+        assert!(routines["routines"].as_array().unwrap().is_empty());
+        assert!(feature_service
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("dup-io-skill", Some(target_id))
+            .unwrap());
+        assert!(!backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .iter()
+            .any(|event| event.event == "bot.created"
+                && event.data["bot"]["id"].as_str() == Some(target_id)));
+
+        // The failed write left state.json as a directory; remove the injected
+        // fault and verify restart selects the compensating WAL snapshot.
+        fs::remove_dir(&state_path).unwrap();
+        drop(feature_service);
+        drop(backend);
+        drop(gateway);
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bots = backend
+            .call("bot.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        assert!(!bots["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|bot| bot["id"].as_str() == Some(target_id)));
+        let routines = backend
+            .call("routine.list", json!({"bot_id":target_id}), &gateway.state)
+            .await
+            .unwrap();
+        assert!(routines["routines"].as_array().unwrap().is_empty());
+        let feature_service = Arc::new(
+            FeatureService::with_store(
+                backend.store.clone(),
+                backend.store.root().to_path_buf(),
+                Vec::<std::path::PathBuf>::new(),
+            )
+            .unwrap(),
+        );
+        assert!(feature_service
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("dup-io-skill", Some(target_id))
+            .unwrap());
+
+        // The public adapter.call path must use the same state-aware route.
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        backend
+            .store
+            .write_snapshot("data/orchestrator/state.json", &snapshot)
+            .unwrap();
+        fs::remove_file(&state_path).unwrap();
+        fs::create_dir(&state_path).unwrap();
+        let target_id_2 = "dup-io-target-call";
+        let failed = backend
+            .call(
+                "bot.duplicate",
+                json!({"bot_id":source_id,"name":"call不会留下","target_bot_id":target_id_2,"client_request_id":"dup-io-failed"}),
+                &gateway.state,
+            )
+            .await;
+        assert!(failed.is_err());
+        let operations = backend
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+            .unwrap();
+        let rollback = operations
+            .iter()
+            .rfind(|operation| {
+                operation.get("client_request_id").and_then(Value::as_str) == Some("dup-io-failed")
+            })
+            .unwrap();
+        assert_eq!(rollback["status"], "rolled_back");
+        fs::remove_dir(&state_path).unwrap();
+        drop(feature_service);
+        drop(backend);
+        drop(gateway);
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bots = backend
+            .call("bot.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        assert!(!bots["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|bot| bot["id"].as_str() == Some(target_id_2)));
+        let routines = backend
+            .call(
+                "routine.list",
+                json!({"bot_id":target_id_2}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(routines["routines"].as_array().unwrap().is_empty());
+        let feature_service = FeatureService::with_store(
+            backend.store.clone(),
+            backend.store.root().to_path_buf(),
+            Vec::<std::path::PathBuf>::new(),
+        )
+        .unwrap();
+        assert!(feature_service
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("dup-io-skill", Some(target_id_2))
+            .unwrap());
+    }
+
+    #[tokio::test]
     async fn assignment_stop_emits_one_protocol_system_message_and_is_repeat_safe() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
@@ -3135,7 +3685,11 @@ mod tests {
         });
         let backend = ProductionBackend::open(home.path()).unwrap();
         let bot = backend
-            .call("bot.create", json!({"name":"active-done-bot"}), &gateway.state)
+            .call(
+                "bot.create",
+                json!({"name":"active-done-bot"}),
+                &gateway.state,
+            )
             .await
             .unwrap();
         let project = backend

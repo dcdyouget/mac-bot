@@ -579,6 +579,27 @@ impl Inner {
                 Ok(json!({ "bot": self.bot(&id)? }))
             }
             "bot.create" => Self::json(self.create_bot(&p)?),
+            "bot.duplicate" => {
+                let target_bot_id = match p.get("target_bot_id") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(id)) if !id.trim().is_empty() => Some(id.clone()),
+                    Some(Value::String(_)) => {
+                        return Err(OrchestratorError::Invalid(
+                            "target_bot_id must not be empty".into(),
+                        ));
+                    }
+                    Some(_) => {
+                        return Err(OrchestratorError::Invalid(
+                            "target_bot_id must be a string or null".into(),
+                        ));
+                    }
+                };
+                Self::json(self.duplicate_bot(
+                    str_param(&p, "bot_id")?,
+                    str_param(&p, "name")?,
+                    target_bot_id,
+                )?)
+            }
             "bot.update" => {
                 let id = str_param(&p, "bot_id")?;
                 Ok(
@@ -920,6 +941,72 @@ impl Inner {
         };
         self.bots.insert(id.clone(), bot.clone());
         Ok(json!({ "bot": bot, "dm_chat": dm_chat_for_bot(&bot) }))
+    }
+
+    fn duplicate_bot(
+        &mut self,
+        source_id: String,
+        name: String,
+        target_bot_id: Option<String>,
+    ) -> Result<Value> {
+        if self.bots.values().any(|bot| bot.name == name) {
+            return Err(OrchestratorError::Conflict(format!(
+                "bot name {name} already exists"
+            )));
+        }
+        let source = self.bot(&source_id)?.clone();
+        let id = target_bot_id.unwrap_or_else(new_id);
+        if id == "main" || self.bots.contains_key(&id) {
+            return Err(OrchestratorError::Conflict(format!(
+                "bot id {id} already exists"
+            )));
+        }
+        let timestamp = now();
+        let bot = Bot {
+            id: id.clone(),
+            name,
+            label: source.label,
+            description: source.description,
+            avatar: source.avatar,
+            model: source.model,
+            max_parallel: source.max_parallel,
+            tools: source.tools,
+            browser_mode: source.browser_mode,
+            dm_chat_id: format!("dm_{id}"),
+            pinned: source.pinned,
+            hidden: source.hidden,
+            notifications: source.notifications,
+            is_main: false,
+            created_at: timestamp.clone(),
+            updated_at: timestamp.clone(),
+        };
+        let routines = self
+            .routines
+            .values()
+            .filter(|routine| routine.bot_id == source_id)
+            .cloned()
+            .map(|mut routine| {
+                routine.id = new_id();
+                routine.bot_id = id.clone();
+                routine.last_run = None;
+                routine.created_at = timestamp.clone();
+                routine.updated_at = timestamp.clone();
+                routine.next_run_at = if routine.enabled {
+                    Some(
+                        next_routine_at(&routine.schedules, &routine.timezone, Utc::now())?
+                            .to_rfc3339(),
+                    )
+                } else {
+                    None
+                };
+                Ok::<Routine, OrchestratorError>(routine)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.bots.insert(id.clone(), bot.clone());
+        for routine in routines {
+            self.routines.insert(routine.id.clone(), routine);
+        }
+        Ok(json!({"bot":bot,"dm_chat":dm_chat_for_bot(&bot)}))
     }
 
     fn update_bot(&mut self, id: &str, patch: Value) -> Result<Bot> {
@@ -2876,6 +2963,58 @@ mod tests {
             (day_local.month(), day_local.day(), day_local.hour()),
             (3, 1, 9)
         );
+    }
+
+    #[test]
+    fn bot_duplicate_copies_profile_and_routines_without_history() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "原 Bot");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(o.rpc(
+            "bot.update",
+            json!({"bot_id":worker,"patch":{"description":"资料","model":"provider/model","max_parallel":4}}),
+        ))
+        .unwrap();
+        let routine = rt
+            .block_on(o.rpc(
+                "routine.create",
+                json!({"bot_id":worker,"name":"巡检","instructions":"检查","schedules":[{"cron":"*/5 * * * *","label":"five"}]}),
+            ))
+            .unwrap();
+        let routine_id = routine["routine"]["id"].as_str().unwrap();
+        rt.block_on(o.rpc("routine.test_run", json!({"routine_id":routine_id})))
+            .unwrap();
+        let duplicated = rt
+            .block_on(o.rpc(
+                "bot.duplicate",
+                json!({"bot_id":worker,"name":"复制 Bot","target_bot_id":"bot-copy-target"}),
+            ))
+            .unwrap();
+        assert_eq!(duplicated["bot"]["id"], "bot-copy-target");
+        assert_eq!(duplicated["bot"]["dm_chat_id"], "dm_bot-copy-target");
+        assert_eq!(duplicated["bot"]["description"], "资料");
+        assert_eq!(duplicated["bot"]["model"], "provider/model");
+        assert_eq!(duplicated["bot"]["max_parallel"], 4);
+        let snapshot = o.snapshot().unwrap();
+        let copied = snapshot["routines"]
+            .as_object()
+            .unwrap()
+            .values()
+            .filter(|routine| routine["bot_id"] == "bot-copy-target")
+            .collect::<Vec<_>>();
+        assert_eq!(copied.len(), 1);
+        assert!(copied[0]["last_run"].is_null());
+        assert!(snapshot["routine_runs"]
+            .as_object()
+            .unwrap()
+            .get(copied[0]["id"].as_str().unwrap())
+            .is_none());
+        assert!(rt
+            .block_on(o.rpc(
+                "bot.duplicate",
+                json!({"bot_id":worker,"name":"重复目标","target_bot_id":"bot-copy-target"}),
+            ))
+            .is_err());
     }
 
     #[test]

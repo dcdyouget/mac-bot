@@ -14,7 +14,7 @@ use macbot_memory::{
 use macbot_providers::{
     Completion, HttpProvider, ModelProvider, ModelRequest, ProviderConfig, SecretStore, TokenUsage,
 };
-use macbot_skills::{Skill, SkillError, SkillRegistry};
+use macbot_skills::{BotSkillSettingsSnapshot, Skill, SkillError, SkillRegistry};
 use macbot_store::{Event, Store, StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -474,6 +474,69 @@ impl FeatureService {
             .write()
             .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?
             .record_invocation(name, bot_id)?;
+        self.persist_skills()
+    }
+
+    /// Copy source Bot skill disablement settings for `bot.duplicate`.
+    /// The Bot RPC owner remains responsible for copying Bot metadata and
+    /// emitting its event; this hook persists only shared skill metadata.
+    pub fn duplicate_bot_skill_settings(
+        &self,
+        source_bot_id: &str,
+        target_bot_id: &str,
+    ) -> FeatureResult<()> {
+        self.prepare_duplicate_bot_skill_settings(source_bot_id, target_bot_id)
+            .map(|_| ())
+    }
+
+    /// Apply duplicate skill settings and return a rollback snapshot. The
+    /// snapshot is intentionally limited to per-Bot disablement metadata, so
+    /// invocation counters and all memory/history remain untouched.
+    pub fn prepare_duplicate_bot_skill_settings(
+        &self,
+        source_bot_id: &str,
+        target_bot_id: &str,
+    ) -> FeatureResult<BotSkillSettingsSnapshot> {
+        let mut registry = self
+            .skill_registry
+            .write()
+            .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?;
+        let snapshot = registry.snapshot_bot_settings(target_bot_id)?;
+        if let Err(error) = registry.copy_bot_settings(source_bot_id, target_bot_id) {
+            let _ = registry.restore_bot_settings(&snapshot);
+            return Err(error.into());
+        }
+        drop(registry);
+        if let Err(error) = self.persist_skills() {
+            let restore_result = self
+                .skill_registry
+                .write()
+                .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))
+                .and_then(|mut registry| {
+                    registry.restore_bot_settings(&snapshot)?;
+                    Ok(())
+                });
+            let _ = self.persist_skills();
+            if let Err(restore_error) = restore_result {
+                return Err(FeatureError::Invalid(format!(
+                    "skill copy failed ({error}); rollback failed ({restore_error})"
+                )));
+            }
+            return Err(error);
+        }
+        Ok(snapshot)
+    }
+
+    /// Restore a snapshot returned by `prepare_duplicate_bot_skill_settings`
+    /// when the owning Bot transaction fails after skill metadata was saved.
+    pub fn restore_duplicate_bot_skill_settings(
+        &self,
+        snapshot: &BotSkillSettingsSnapshot,
+    ) -> FeatureResult<()> {
+        self.skill_registry
+            .write()
+            .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?
+            .restore_bot_settings(snapshot)?;
         self.persist_skills()
     }
 
@@ -1691,6 +1754,82 @@ mod tests {
             .is_enabled_for("persistent", Some("bot-a"))
             .unwrap());
         assert_eq!(skill.invocations_7d.total, 1);
+    }
+
+    #[test]
+    fn duplicate_bot_skill_settings_persist_without_copying_invocations() {
+        let service = service();
+        service
+            .skill_rpc(
+                "skill.create",
+                json!({"name":"duplicate-skill","content":skill("duplicate-skill")}),
+            )
+            .unwrap();
+        service
+            .skill_registry
+            .write()
+            .unwrap()
+            .set_enabled("duplicate-skill", false, Some("source-bot"))
+            .unwrap();
+        service
+            .record_skill_invocation("duplicate-skill", Some("source-bot"))
+            .unwrap();
+        service
+            .duplicate_bot_skill_settings("source-bot", "target-bot")
+            .unwrap();
+        let skill = service
+            .skill_registry
+            .read()
+            .unwrap()
+            .get("duplicate-skill")
+            .unwrap()
+            .skill;
+        assert!(skill.disabled_bot_ids.iter().any(|id| id == "target-bot"));
+        assert_eq!(skill.invocations_7d.total, 1);
+    }
+
+    #[test]
+    fn duplicate_bot_skill_settings_can_be_rolled_back() {
+        let service = service();
+        service
+            .skill_rpc(
+                "skill.create",
+                json!({"name":"rollback-skill","content":skill("rollback-skill")}),
+            )
+            .unwrap();
+        service
+            .skill_registry
+            .write()
+            .unwrap()
+            .set_enabled("rollback-skill", false, Some("source-bot"))
+            .unwrap();
+        let snapshot = service
+            .prepare_duplicate_bot_skill_settings("source-bot", "target-bot")
+            .unwrap();
+        assert!(!service
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("rollback-skill", Some("target-bot"))
+            .unwrap());
+        service
+            .restore_duplicate_bot_skill_settings(&snapshot)
+            .unwrap();
+        assert!(service
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("rollback-skill", Some("target-bot"))
+            .unwrap());
+        let home = service.home.clone();
+        drop(service);
+        let restored = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
+        assert!(restored
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("rollback-skill", Some("target-bot"))
+            .unwrap());
     }
 
     #[test]

@@ -78,6 +78,19 @@ pub struct BotInvocation {
     pub count: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BotSkillSettingsSnapshot {
+    pub bot_id: String,
+    pub entries: Vec<BotSkillSettingsEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BotSkillSettingsEntry {
+    pub name: String,
+    pub disabled_bot_ids: Vec<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Skill {
     pub name: String,
@@ -419,6 +432,104 @@ impl SkillRegistry {
         }
         entry.skill.updated_at = Utc::now();
         Ok(entry.skill.clone())
+    }
+
+    /// Copy only per-Bot disablement settings when a Bot is duplicated.
+    /// Global skill state, invocation counters and content belong to the
+    /// shared skill and must not be copied as Bot history.
+    pub fn copy_bot_settings(
+        &mut self,
+        source_bot_id: &str,
+        target_bot_id: &str,
+    ) -> Result<Vec<Skill>, SkillError> {
+        if source_bot_id.is_empty() || target_bot_id.is_empty() {
+            return Err(SkillError::Invalid("Bot id is required".into()));
+        }
+        if source_bot_id == target_bot_id {
+            return Err(SkillError::Invalid(
+                "source and target Bot must differ".into(),
+            ));
+        }
+        for entry in self.entries.values_mut() {
+            let source_disabled = entry
+                .skill
+                .disabled_bot_ids
+                .iter()
+                .any(|id| id == source_bot_id);
+            let previous = entry.skill.disabled_bot_ids.clone();
+            entry
+                .skill
+                .disabled_bot_ids
+                .retain(|id| id != target_bot_id);
+            if source_disabled {
+                entry.skill.disabled_bot_ids.push(target_bot_id.to_string());
+                entry.skill.disabled_bot_ids.sort();
+            }
+            if entry.skill.disabled_bot_ids != previous {
+                entry.skill.updated_at = Utc::now();
+            }
+        }
+        Ok(self.list())
+    }
+
+    pub fn snapshot_bot_settings(
+        &self,
+        bot_id: &str,
+    ) -> Result<BotSkillSettingsSnapshot, SkillError> {
+        if bot_id.is_empty() {
+            return Err(SkillError::Invalid("Bot id is required".into()));
+        }
+        Ok(BotSkillSettingsSnapshot {
+            bot_id: bot_id.to_string(),
+            entries: self
+                .entries
+                .values()
+                .map(|entry| BotSkillSettingsEntry {
+                    name: entry.skill.name.clone(),
+                    disabled_bot_ids: entry.skill.disabled_bot_ids.clone(),
+                    updated_at: entry.skill.updated_at,
+                })
+                .collect(),
+        })
+    }
+
+    pub fn restore_bot_settings(
+        &mut self,
+        snapshot: &BotSkillSettingsSnapshot,
+    ) -> Result<(), SkillError> {
+        if snapshot.bot_id.is_empty() {
+            return Err(SkillError::Invalid("Bot id is required".into()));
+        }
+        for saved in &snapshot.entries {
+            let Some(entry) = self.entries.get_mut(&saved.name) else {
+                continue;
+            };
+            let was_disabled = saved
+                .disabled_bot_ids
+                .iter()
+                .any(|id| id == &snapshot.bot_id);
+            let is_disabled = entry
+                .skill
+                .disabled_bot_ids
+                .iter()
+                .any(|id| id == &snapshot.bot_id);
+            if is_disabled == was_disabled {
+                continue;
+            }
+            entry
+                .skill
+                .disabled_bot_ids
+                .retain(|id| id != &snapshot.bot_id);
+            if was_disabled {
+                entry.skill.disabled_bot_ids.push(snapshot.bot_id.clone());
+                entry.skill.disabled_bot_ids.sort();
+            }
+            // Preserve a concurrent change made for another Bot. The
+            // timestamp reflects this target-only rollback when it changes
+            // the membership, rather than restoring an obsolete global time.
+            entry.skill.updated_at = Utc::now();
+        }
+        Ok(())
     }
 
     pub fn is_enabled_for(&self, name: &str, bot_id: Option<&str>) -> Result<bool, SkillError> {
@@ -958,6 +1069,61 @@ mod tests {
         registry.set_enabled("demo", false, Some("bot-1")).unwrap();
         assert!(!registry.is_enabled_for("demo", Some("bot-1")).unwrap());
         assert!(registry.is_enabled_for("demo", Some("bot-2")).unwrap());
+    }
+
+    #[test]
+    fn duplicate_copies_only_source_bot_disablement() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut registry = SkillRegistry::with_roots(temp.path().join("install"), vec![]);
+        registry.create("demo", &skill_text("demo")).unwrap();
+        registry
+            .set_enabled("demo", false, Some("source-bot"))
+            .unwrap();
+        registry
+            .record_invocation("demo", Some("source-bot"))
+            .unwrap();
+        registry
+            .copy_bot_settings("source-bot", "target-bot")
+            .unwrap();
+        assert!(!registry.is_enabled_for("demo", Some("target-bot")).unwrap());
+        assert_eq!(registry.get("demo").unwrap().skill.invocations_7d.total, 1);
+        assert!(registry
+            .copy_bot_settings("target-bot", "target-bot")
+            .is_err());
+    }
+
+    #[test]
+    fn bot_skill_settings_snapshot_restores_target_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut registry = SkillRegistry::with_roots(temp.path().join("install"), vec![]);
+        registry.create("demo", &skill_text("demo")).unwrap();
+        let snapshot = registry.snapshot_bot_settings("target-bot").unwrap();
+        registry
+            .set_enabled("demo", false, Some("target-bot"))
+            .unwrap();
+        registry.restore_bot_settings(&snapshot).unwrap();
+        assert!(registry.is_enabled_for("demo", Some("target-bot")).unwrap());
+    }
+
+    #[test]
+    fn restoring_target_settings_preserves_concurrent_other_bot_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut registry = SkillRegistry::with_roots(temp.path().join("install"), vec![]);
+        registry.create("demo", &skill_text("demo")).unwrap();
+        registry
+            .set_enabled("demo", false, Some("source-bot"))
+            .unwrap();
+        let snapshot = registry.snapshot_bot_settings("target-bot").unwrap();
+        registry
+            .copy_bot_settings("source-bot", "target-bot")
+            .unwrap();
+        registry
+            .set_enabled("demo", false, Some("other-bot"))
+            .unwrap();
+        registry.restore_bot_settings(&snapshot).unwrap();
+        assert!(registry.is_enabled_for("demo", Some("target-bot")).unwrap());
+        assert!(!registry.is_enabled_for("demo", Some("other-bot")).unwrap());
+        assert!(!registry.is_enabled_for("demo", Some("source-bot")).unwrap());
     }
 
     #[test]

@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import shutil
+import signal
 import time
 import uuid
 
@@ -124,6 +126,25 @@ def has_stop_system_message(messages: list[dict]) -> bool:
         if message.get("intent") == "blocked" and "任务已停止" in text:
             return True
     return False
+
+
+def memory_entries(home: Path) -> list[dict]:
+    path = home / "data" / "memory" / "state.json"
+    if not path.exists():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    entries = payload.get("entries", payload if isinstance(payload, list) else [])
+    assert isinstance(entries, list), payload
+    return entries
+
+
+def restart_daemon(daemon: Daemon) -> None:
+    assert daemon.process is not None, "duplicate persistence requires a managed daemon"
+    if daemon.process.poll() is None:
+        os.killpg(daemon.process.pid, signal.SIGTERM)
+        daemon.process.wait(timeout=10)
+    time.sleep(0.5)
+    daemon.start()
 
 
 def project_assignments(base: str, password: str, project_id: str) -> list[dict]:
@@ -331,6 +352,25 @@ def duplicate_section(base: str, password: str, home: Path, source: dict, suffix
             "client_request_id": f"duplicate-routine:{suffix}",
         },
     )["routine"]
+    disabled_routine = rpc(
+        base,
+        password,
+        "routine.create",
+        {
+            "bot_id": source["id"],
+            "name": f"duplicate-disabled-routine-{suffix}",
+            "instructions": f"duplicate-disabled-marker-{suffix}",
+            "schedules": [{"cron": "30 * * * *", "label": "half-hourly"}],
+            "timezone": "Asia/Shanghai",
+            "client_request_id": f"duplicate-disabled-routine:{suffix}",
+        },
+    )["routine"]
+    disabled_routine = rpc(
+        base,
+        password,
+        "routine.set_enabled",
+        {"routine_id": disabled_routine["id"], "enabled": False},
+    )["routine"]
     history_marker = f"duplicate-history-{suffix}"
     rpc(
         base,
@@ -356,14 +396,24 @@ def duplicate_section(base: str, password: str, home: Path, source: dict, suffix
     source_routines = rpc(base, password, "routine.list", {"bot_id": source["id"]})["routines"]
     copied_routines = rpc(base, password, "routine.list", {"bot_id": copied["id"]})["routines"]
     assert any(item["id"] == routine["id"] for item in source_routines)
+    assert any(item["id"] == disabled_routine["id"] for item in source_routines)
     assert len(copied_routines) == len(source_routines)
     assert {item["id"] for item in copied_routines}.isdisjoint({item["id"] for item in source_routines})
     assert all(item.get("last_run") is None for item in copied_routines), copied_routines
+    source_by_instruction = {item["instructions"]: item for item in source_routines}
+    copied_by_instruction = {item["instructions"]: item for item in copied_routines}
+    assert set(copied_by_instruction) == set(source_by_instruction)
+    for instruction, original in source_by_instruction.items():
+        clone = copied_by_instruction[instruction]
+        assert clone["id"] != original["id"]
+        assert clone.get("enabled") == original.get("enabled"), (original, clone)
+        assert rpc(base, password, "routine.runs", {"routine_id": clone["id"]})["runs"] == []
     source_history = rpc(base, password, "chat.history", {"chat_id": source["dm_chat_id"], "limit": 100})["messages"]
     copied_history = rpc(base, password, "chat.history", {"chat_id": copied["dm_chat_id"], "limit": 100})["messages"]
     assert any(history_marker in item.get("fallback_text", "") for item in source_history), source_history
     assert not any(history_marker in item.get("fallback_text", "") for item in copied_history), copied_history
     assert rpc(base, password, "skill.get", {"name": skill_name})["skill"]["enabled"] is False
+    assert all(entry.get("source", {}).get("bot_id") != copied["id"] for entry in memory_entries(home))
 
     # Duplicate-name failure must be atomic: no extra Bot or copied routine.
     before_ids = {item["id"] for item in before} | {source["id"]}
@@ -376,7 +426,18 @@ def duplicate_section(base: str, password: str, home: Path, source: dict, suffix
     after = rpc(base, password, "bot.list", {"include_hidden": True})["bots"]
     assert {item["id"] for item in after} == before_ids | {copied["id"]}, (before_ids, after)
     assert len(rpc(base, password, "routine.list", {"bot_id": copied["id"]})["routines"]) == len(copied_routines)
-    return {"source_bot": source["id"], "duplicate_bot": copied["id"], "routine": routine["id"], "history_isolated": True, "rollback": True}
+    return {
+        "source_bot": source["id"],
+        "duplicate_bot": copied["id"],
+        "routines": [item["id"] for item in copied_routines],
+        "source_routines": [item["id"] for item in source_routines],
+        "disabled_routine": disabled_routine["id"],
+        "skill": skill_name,
+        "history_isolated": True,
+        "memory_isolated": True,
+        "runs_isolated": True,
+        "rollback": True,
+    }
 
 
 def acceptance(args: argparse.Namespace) -> None:
@@ -395,6 +456,21 @@ def acceptance(args: argparse.Namespace) -> None:
         confirm = confirm_done_scenario(base, args.password, args.home, coder, tester, suffix)
         review = confirm_review_scenario(base, args.password, args.home, coder, tester, suffix)
         duplicate = duplicate_section(base, args.password, args.home, coder, suffix) if args.with_duplicate else None
+        if duplicate is not None:
+            restart_daemon(daemon)
+            bots = rpc(base, args.password, "bot.list", {"include_hidden": True})["bots"]
+            copied = next(item for item in bots if item["id"] == duplicate["duplicate_bot"])
+            source = next(item for item in bots if item["id"] == duplicate["source_bot"])
+            assert copied["id"] != source["id"]
+            persisted_routines = rpc(base, args.password, "routine.list", {"bot_id": copied["id"]})["routines"]
+            assert {item["id"] for item in persisted_routines} == set(duplicate["routines"])
+            assert {item["id"] for item in persisted_routines}.isdisjoint(set(duplicate["source_routines"]))
+            assert all(item.get("last_run") is None for item in persisted_routines), persisted_routines
+            assert rpc(base, args.password, "skill.get", {"name": duplicate["skill"]})["skill"]["enabled"] is False
+            copied_history = rpc(base, args.password, "chat.history", {"chat_id": copied["dm_chat_id"], "limit": 100})["messages"]
+            assert not any(f"duplicate-history-{suffix}" in item.get("fallback_text", "") for item in copied_history), copied_history
+            assert all(entry.get("source", {}).get("bot_id") != copied["id"] for entry in memory_entries(args.home))
+            duplicate["restart_persisted"] = True
         assert not Path(DispatchProvider.stop_path).exists()
         print(json.dumps({"ok": True, "remove_member": remove, "confirm_done": confirm, "confirm_review": review, "duplicate": duplicate, "home": str(args.home)}, ensure_ascii=False))
     finally:
