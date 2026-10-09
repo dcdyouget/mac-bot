@@ -265,3 +265,11 @@
 - S4 1f重启旧Bot失败已确认独立配置缺口：握手同TCP包首WS封套先被测试客户端丢弃，修buffer后收到unavailable/browser screencast is unavailable。保留两轮证据；该问题与锁屏无关。f910无需新模型/browser_open/run，原b5 Bot直接恢复原t2/实际URL，两帧low640x316/JPEG/ACK和同WS bot→user→bot通过，raw JPEG已核图：S4/production-f9109a3-screen-restored.json、screen-f9109a3-takeover/。仅transport专项PASS，native连续呈现、canvas输入、手机接管/通知及整阶段仍未通过。
 - screen_locked=1实际阻断所有Mac CUA/capture；已请求用户解锁，旧235101连接截图不代表当前UI，未据工具失败判客户端冻结。S5全新卸载→pkg安装→管理页设密码→Release DMG→双端完整场景尚未演练。只有S0整阶段通过保持。
 - 集成脚本修复：HTTP101与首WS frame合包保留buffer，local TCP正/负回归通过；S2按PROTOCOL flow显示字符串核对角色顺序，场景内审批严格限制marker/project Home/project ID，拒绝symlink逃逸、shell/glob扩展，10测试通过；resume先核对已发request，不重发。脚本问题与业务缺陷分别留证。
+
+
+## server-mac：S2 决策卡与同 run 恢复修复完成（2026-10-10）
+- 修复集成两项目等待阻断：send_msg options 持久化 Question 引用并输出权威 question block、question.asked；关联 wait.message_id 与 canonical Message.id，启动修复旧 text 卡片及缺失事件，保持消息 ID/seq/created_at。修正 untagged 字符串把 user/Bot ID 错解为 Main 的问题；self mention、无 options 且无有效目标的 decision 明确 tool error。
+- 用户 question.answer 按真实选项文本续接原 durable run，支持无 assignment 私聊；Bot 决策按 parent_assignment_id/trigger_message_id 和 checkpoint 精确关联，child done 自动恢复父任务并补偿提交时序。pending unsafe tool 不参与此路径；重复续接 Running run 不重复模型请求，blocked 回复恢复保留。
+- send_msg schema 明确 request 与 reply 语义，新增 reply_to 描述；create_project 工具要求真实主 Bot 群开场并 @首角色，由模型真实调用 send_msg，服务端不伪造消息。既有无目标 Main decision 不自动猜意图；集成应以明确 reply_to 的用户答复处理原等待，不重建项目或重放已完成 run。
+- 验证：server workspace 305 tests、all-targets clippy -D warnings、fmt/build 通过；完整 production runtime + fake provider 场景 24 assignments/27 jobs 全 done，真实三阶段、卡片/过滤、双群并行、Main 开场、用户 Question、Bot 自动父子恢复、blocked、插话及子代理 trace 全通过。
+- 证据：/tmp/macbot-decision-ready-20261010f.evidence.log、隔离 home /tmp/macbot-decision-ready-20261010f、测试 /tmp/macbot-decision-final-workspace-tests-20261010.log、clippy /tmp/macbot-decision-final-clippy-20261010.log。rebase origin/main 后 server/protocol 内容逐字节未变；未触正式 7788、mock 7789、GUI、客户端或 AVD。隔离通过不替代 MiniMax/双端联调；交集成固定 SHA 继续原现场。
