@@ -9,6 +9,12 @@ printf 'MacBot status\n'
 printf 'main sha: %s\n' "$main_sha"
 printf 'host: %s\n' "$(scutil --get ComputerName 2>/dev/null || hostname)"
 printf '\n[deployment watcher]\n'
+if [ -f "$MACBOT_CACHE_ROOT/watch/ui-validation-hold" ]; then
+  printf 'deployment hold: active (shared emulator/mock UI validation)\n'
+fi
+if [ -f "$MACBOT_CACHE_ROOT/watch/mock-only" ]; then
+  printf 'production service: deferred (mock-only release)\n'
+fi
 watch_pid=$(macbot_launchctl_pid bot.mac.integrator.watch)
 if [ -n "$watch_pid" ]; then printf 'process: running (pid %s)\n' "$watch_pid"; else printf 'process: scheduled, currently idle\n'; fi
 python3 - "$MACBOT_CACHE_ROOT/watch/latest.json" <<'PY'

@@ -74,7 +74,16 @@ packaging/package.sh debug app
 open dist/MacBot.app
 ```
 
-运行时可用 `packaging/run.sh debug`，或设置 `MACBOT_HOST=127.0.0.1:7788`、`MACBOT_PASSWORD` 后启动正式服务地址。当前 `server/README.md` 仍缺少 `macbotd` 的编译、mock、LaunchAgent 和正式运行命令；`clients/mobile/README.md` 仍缺少 Gradle wrapper、APK 编译、`adb install` 和启动 Activity 命令。部署脚本会逐项探测并跳过尚未发布的组件；集成线会在 `COORDINATION.md` 记录归属和复现信息。协议 `/api/v1/rpc` 的脚本调用应遵循 `docs/PROTOCOL.md`：正式服务请求带 `Authorization: Bearer <密码>`，S0 bootstrap 请求用于确认会话列表可返回。
+服务端和 Android 编译运行命令已发布：
+
+```sh
+cargo build --release --manifest-path server/Cargo.toml -p macbotd
+cd clients/mobile
+./gradlew :androidApp:assembleDebug
+```
+
+LaunchAgent、独立 MACBOT_HOME、APK 安装与 Activity 命令见 `server/README.md`、`clients/mobile/README.md`。Android 编译使用 JDK 21 与 API 37.0，模拟器和 target 仍为 API 36；`deploy.sh` 会自动探测产物。当前 mock-only 发布期使用 `MACBOT_SKIP_PRODUCTION=1 ./scripts/dev/deploy.sh` 和 `./scripts/dev/mock.sh`；正式访问密码仍只存于 `~/.macbot-dev-password`。
+
 
 ## 真实模型
 
@@ -88,7 +97,7 @@ open dist/MacBot.app
 python3 scripts/dev/watch.py --install
 ```
 
-当前本机 `watch/mock-only` 标记暂缓正式服务部署；`7788` 执行 ready 后由集成负责人移除此标记。共享模拟器进行专项 UI 检查时会暂缓周期部署，交回后恢复。
+当前本机 `watch/mock-only` 标记暂缓正式服务部署；`7788` 执行 ready 后由集成负责人移除此标记。共享模拟器进行专项 UI 检查时，本机 `watch/ui-validation-hold` 标记暂缓周期部署，交回后移除恢复；只部署桌面可显式指定 `MACBOT_SKIP_PRODUCTION=1 MACBOT_SKIP_ANDROID=1`。
 
 源码从 `main` 分支的固定提交导出到 `~/Library/Caches/MacBot/integrator/source/`，不会切换其他开发线的 worktree。远端 `origin/main` 若领先则部署其固定 SHA；本地 main 若领先则部署本地 SHA。二者分叉时停止部署并报告，避免自动选错版本；网络失败时使用已获取的 main 引用。部署与初步 S0 API 检查日志保存在 `~/Library/Caches/MacBot/integrator/watch/`，API 成功不代表两端界面已验收。停止持续检查：`python3 scripts/dev/watch.py --uninstall`。
 

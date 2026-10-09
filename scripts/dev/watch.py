@@ -18,6 +18,9 @@ LABEL = "bot.mac.integrator.watch"
 
 def run_once() -> int:
     STATE.mkdir(parents=True, exist_ok=True)
+    if (STATE / "ui-validation-hold").exists():
+        print("Deployment held for shared emulator/mock UI validation; waiting for handback.")
+        return 0
     lock = STATE / "lock"
     # flock is unavailable on stock macOS; fcntl locks also recover after crashes.
     import fcntl

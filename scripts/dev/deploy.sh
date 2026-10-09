@@ -90,7 +90,12 @@ case "$desktop_rc" in
 esac
 
 android_rc=0
-macbot_build_android || android_rc=$?
+if [ "${MACBOT_SKIP_ANDROID:-0}" = 1 ]; then
+  macbot_log "client-android：保留当前 UI 验证会话，跳过安装/重启"
+  android_rc=2
+else
+  macbot_build_android || android_rc=$?
+fi
 case "$android_rc" in
   0)
     macbot_install_android || failures=1
