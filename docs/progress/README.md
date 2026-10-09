@@ -4,11 +4,11 @@
 
 ## 现在的状态
 
-截至 `72d4353`，协议 Rust crate、35 个 JSON schema（另有 `.gitkeep`，目录共 36 项）、对象/消息块/事件/轨迹 fixtures 和登录场景已发布。桌面端已从 main 首次打包并安装到 `~/Applications/MacBot.app`，可以打开连接页；正式服务 `7788`、Android APK 和 mock 驱动的完整 S0 场景仍待发布，因此 S0 还未通过联调验收。Android 演示环境已统一为 `macbot_api36`（Android 16 / API 36 / arm64）。
+main `08462a4` 的独立 mock、桌面 App、Android APK 已部署。mock bootstrap 检查通过，Android 已显示主 Bot/群/Bot 会话列表；桌面收到 Connected 后同步调用钥匙串，阻塞界面并停在“正在连接…”，因此 S0 联调不通过，问题已交 client-mac。正式 `7788` 和真实模型执行尚未 ready，当前只运行 `7789/dev` mock。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
-| S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 桌面 main 预览可打开；正式 7788、Android APK、mock bootstrap 和两端截图待完成 | `docs/progress/S0/` |
+| S0 | 桌面端和 Android 模拟器连接 mock 并看到会话列表 | 不通过：mock API/Android 列表通过；桌面 Keychain 阻塞界面 | `docs/progress/S0/` |
 | S1 | 真实服务端上的单 Bot 对话、工具和轨迹恢复 | 未验收 | `docs/progress/S1/` |
 | S2 | 主 Bot、群协作、插话和待验收 | 未验收 | `docs/progress/S2/` |
 | S3 | 技能、仪表盘、搜索和记忆 | 未验收 | `docs/progress/S3/` |
@@ -29,9 +29,9 @@ cd /Users/gongshaojie/Project/mac-bot
 
 `deploy.sh` 会按当前代码可用性编译并部署 `macbotd`、桌面 `.app` 和 Android APK；缺少某条开发线产物时会跳过并打印提示。正式服务使用端口 `7788`，数据目录为 `~/MacBot`，访问密码只从本机文件 `~/.macbot-dev-password` 读取或由部署流程设置，密码内容不写入仓库。
 
-当前可打开桌面客户端，点击“查看协议示例”查看主 Bot 会话；正式 `7788` 和 main Android APK 尚未就绪。`docs/progress/S0/` 已归档桌面连接页与示例会话截图；两端连接正式发布 mock 的证据待补。窗口截图命令写出完整 PNG 后超时，本次截图人工检查并恢复归档，未将退出码记为通过。
+当前 Android App 的 Mock Host 可查看会话；桌面连接 mock 尚有界面阻塞，修复前可点击“查看协议示例”预览。正式 `7788` 尚未 ready。最新 [S0 联调记录](S0/main-s0-integration.json) 和 [Android 会话截图](S0/main-08462a4-android.png)、[桌面阻塞截图](S0/main-08462a4-desktop-connecting.png) 已归档。窗口截图命令写出完整 PNG 后超时，本次截图人工检查并恢复归档，未将退出码记为通过。
 
-桌面端：打开 `~/Applications/MacBot.app`，连接地址填写 `127.0.0.1:7788`，密码填写 `~/.macbot-dev-password` 中的值。
+桌面端：打开 `~/Applications/MacBot.app`；当前 mock 地址为 `127.0.0.1:7789`，密码 `dev`，已知连接后界面阻塞待修。正式服务 ready 后填写 `127.0.0.1:7788`，密码取自 `~/.macbot-dev-password`。
 
 Android 模拟器：需要时先执行：
 
@@ -39,7 +39,7 @@ Android 模拟器：需要时先执行：
 ./scripts/dev/deploy.sh
 ```
 
-部署脚本会启动 AVD `macbot_api36`、等待 `sys.boot_completed=1` 并安装 APK。打开 App 后，连接地址填写 `10.0.2.2:7788`；这是模拟器访问 Mac 本机的地址。以后换成同一局域网中的真机时，填写 `192.168.31.162:7788`。密码与桌面端相同。
+部署脚本会启动 AVD `macbot_api36`、等待 `sys.boot_completed=1` 并安装 APK。打开 App 后，当前 mock 地址填写 `10.0.2.2:7789`，密码 `dev`；正式服务 ready 后填写 `10.0.2.2:7788`。这是模拟器访问 Mac 本机的地址。以后换成同一局域网中的真机时，填写 `192.168.31.162:7788`。密码与桌面端相同。
 
 查看服务状态、进程、端口和最近日志：
 
@@ -87,6 +87,8 @@ open dist/MacBot.app
 ```sh
 python3 scripts/dev/watch.py --install
 ```
+
+当前本机 `watch/mock-only` 标记暂缓正式服务部署；`7788` 执行 ready 后由集成负责人移除此标记。共享模拟器进行专项 UI 检查时会暂缓周期部署，交回后恢复。
 
 源码从 `main` 分支的固定提交导出到 `~/Library/Caches/MacBot/integrator/source/`，不会切换其他开发线的 worktree。远端 `origin/main` 若领先则部署其固定 SHA；本地 main 若领先则部署本地 SHA。二者分叉时停止部署并报告，避免自动选错版本；网络失败时使用已获取的 main 引用。部署与初步 S0 API 检查日志保存在 `~/Library/Caches/MacBot/integrator/watch/`，API 成功不代表两端界面已验收。停止持续检查：`python3 scripts/dev/watch.py --uninstall`。
 
