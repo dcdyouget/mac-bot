@@ -1,6 +1,6 @@
 # AGENTS.md：多 agent 并行开发约定
 
-> 本仓库由多个 AI agent 同时开发。动手之前先读完本文，再读 `docs/` 下的 PLAN.md、DESIGN.md、PROTOCOL.md、REFERENCES.md。各开发线的启动 prompt 在 `docs/AGENT_PROMPTS.md`。
+> 本仓库由多个 AI agent 同时开发。动手之前先读完本文，再读 `docs/` 下的文档。**每类规则只有一个权威来源**（见 PLAN 第 0 章）：协议字段看 PROTOCOL.md，界面和交互看 DESIGN.md，服务端实现和开发计划看 PLAN.md。各开发线的启动 prompt 在 `docs/AGENT_PROMPTS.md`。
 
 ## 1. 四条开发线和目录归属
 
@@ -16,8 +16,10 @@
 | 目录 | 归属 |
 |------|------|
 | `core/`（网络、重连和补发、协议模型、状态存储、设计系统、导航框架、fixtures 加载） | client-android |
-| `feature/connect`（Host 管理和连接）、`feature/chat`（私聊和消息块渲染）、`feature/group`（群、公告、状态条、任务卡片、插话）、`feature/mainbot`（新群卡片、待验收卡片、转交）、`feature/approval` | client-android |
-| `feature/trace`（工作详情、全屏运行轨迹、历史任务）、`feature/workbench`、`feature/dashboard`、`feature/skills`、`feature/memory`、`feature/settings`、`feature/computer`（Agent Computer） | client-ios |
+| `feature/connect`（Host 管理和连接）、`feature/chat`（私聊、消息块渲染、送达状态）、`feature/group`（群、公告、状态条、任务卡片、插话）、`feature/mainbot`（新群卡片、待验收卡片、转交）、`feature/approval`（审批、提问）、`feature/search`、`feature/routines`（查看、暂停/恢复） | client-android |
+| `feature/trace`（工作详情、全屏运行轨迹、历史任务）、`feature/workbench`、`feature/dashboard`、`feature/skills`（增删改、导入、启用/停用）、`feature/bots`（Bot 列表和资料编辑）、`feature/settings`、`feature/computer`（Agent Computer） | client-ios |
+
+> 记忆完全由服务端管理，**任何客户端都没有记忆相关的页面**。
 
 - `docs/`、`AGENTS.md`、根目录文件：**不要随意修改**。确实需要修改时，单独提一个 commit，并在提交说明里写清楚理由。
 - 需要改别人目录里的东西时，不要直接改：在仓库根目录的 `COORDINATION.md` 里追加一条请求（谁、要什么、为什么），由负责的开发线处理。
@@ -65,8 +67,8 @@
 - **测试**：
   - server：单元测试，加一个基于 mock provider 的场景测试。
   - 客户端：核心逻辑（重连、补发、状态合并）要有单元测试；界面至少能对着 mock 跑通。
-- **不确定时**：以 PLAN.md 和 PROTOCOL.md 为准；如果文档没有覆盖到，按最简单可行的做法实现，并在 `COORDINATION.md` 里记录你的决定。
+- **不确定时**：按文档地图找权威文档；文档没有覆盖到的，按最简单可行的做法实现，并在 `COORDINATION.md` 里记录你的决定。
 
 ## 5. 阶段与汇合点
 
-阶段划分见 PLAN.md 7.1（S0 契约与骨架 → S1 单 Bot 跑通 → S2 主 Bot 与群协作 → S3 记忆、技能、仪表盘 → S4 浏览器与定时任务）。每个阶段结束时在 main 上联调一次，按「汇合点」一栏的场景走一遍。
+阶段划分见 PLAN 第 6 章（唯一的开发计划）：S0 契约与骨架 → S1 单 Bot 闭环 → S2 主 Bot 与群协作 → S3 技能、仪表盘、记忆 → S4 浏览器、定时任务、推送 → S5 打磨与分发。**目标是一次做完全部功能**：每完成一个阶段，在 COORDINATION.md 打卡后直接进入下一阶段；四条线都打卡后由 server-mac 运行联调场景。只有被阻塞时才停下来。
