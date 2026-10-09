@@ -51,6 +51,37 @@ class RpcStateReducerTest {
     }
 
     @Test
+    fun workbenchWaitingRefreshMergesPendingApprovalsAndQuestions() {
+        val current = MobileState(
+            approvals = listOf(objectOf("""{"id":"approval-existing","state":"pending"}""")),
+            questions = listOf(objectOf("""{"id":"question-existing","state":"pending"}""")),
+        )
+        val result = objectOf(
+            """{
+                "waiting":[
+                    {"kind":"approval","approval":{"id":"approval-new","state":"pending"}},
+                    {"kind":"question","question":{"id":"question-new","state":"pending"}},
+                    {"kind":"takeover","bot_id":"bot-1","assignment_id":"assignment-1","reason":"user"}
+                ],
+                "bots":[],
+                "done_today":[]
+            }"""
+        )
+
+        val next = RpcStateReducer.apply(current, "workbench.get", buildJsonObject {}, result)
+
+        assertEquals(
+            setOf("approval-existing", "approval-new"),
+            next.approvals.map { it.str("id") }.toSet(),
+        )
+        assertEquals(
+            setOf("question-existing", "question-new"),
+            next.questions.map { it.str("id") }.toSet(),
+        )
+        assertTrue(next.bots.isEmpty())
+    }
+
+    @Test
     fun templateCreateMergesBotsAndHistoryKeepsExistingMessages() {
         val current = MobileState(
             bots = listOf(objectOf("""{"id":"existing-bot"}""")),

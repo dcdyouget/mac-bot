@@ -59,7 +59,19 @@ object RpcStateReducer {
         }
         if (method == "workbench.get") {
             val assignments = result.objects("bots").flatMap { it.objects("assignments") } + result.objects("done_today")
-            next = next.copy(workbench = result, assignments = mergeById(next.assignments, assignments))
+            val waiting = result.objects("waiting")
+            val approvals = waiting
+                .filter { it.str("kind") == "approval" }
+                .mapNotNull { it["approval"] as? JsonObject }
+            val questions = waiting
+                .filter { it.str("kind") == "question" }
+                .mapNotNull { it["question"] as? JsonObject }
+            next = next.copy(
+                workbench = result,
+                assignments = mergeById(next.assignments, assignments),
+                approvals = mergeById(next.approvals, approvals),
+                questions = mergeById(next.questions, questions),
+            )
         }
         if (method == "model.upsert" && result["model"] is JsonObject) {
             next = next.copy(models = mergeById(next.models, listOf(result.getValue("model").jsonObject), "ref"))

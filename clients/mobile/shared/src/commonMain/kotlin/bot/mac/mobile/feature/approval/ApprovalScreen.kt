@@ -22,6 +22,7 @@ import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.resources.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -36,7 +37,16 @@ fun ApprovalScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
     var error by remember { mutableStateOf<String?>(null) }
     val pendingApprovals = state.approvals.filter { it.str("state") == "pending" }
     val pendingQuestions = state.questions.filter { it.str("state") == "pending" }
-    LaunchedEffect(Unit) { runCatching { repository.call("approval.list", buildJsonObject { put("state", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive("pending")) }) }) }.onFailure { error = it.message } }
+    LaunchedEffect(Unit) {
+        try {
+            repository.call("approval.list", buildJsonObject { put("state", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive("pending")) }) })
+            repository.call("workbench.get", buildJsonObject {})
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            error = failure.message
+        }
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
         Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(stringResource(Res.string.feature_approval), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
