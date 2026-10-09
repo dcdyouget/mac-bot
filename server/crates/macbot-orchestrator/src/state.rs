@@ -457,6 +457,11 @@ impl Orchestrator {
         i.create_approval(request)
     }
 
+    pub fn expire_invalid_approval(&self, id: &str) -> Result<Option<Approval>> {
+        let mut i = self.lock()?;
+        i.expire_invalid_approval(id)
+    }
+
     pub fn create_question(&self, request: QuestionRequest) -> Result<Question> {
         let mut i = self.lock()?;
         i.create_question(request)
@@ -2692,11 +2697,30 @@ impl Inner {
         self.approvals.insert(id, a.clone());
         Ok(a)
     }
+
+    fn expire_invalid_approval(&mut self, id: &str) -> Result<Option<Approval>> {
+        let approval = self
+            .approvals
+            .get_mut(id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("approval {id}")))?;
+        if approval.state != "pending" {
+            return Ok(None);
+        }
+        approval.state = "expired".into();
+        approval.decided_at = Some(now());
+        Ok(Some(approval.clone()))
+    }
+
     fn decide_approval(&mut self, id: String, decision: String) -> Result<Approval> {
         let a = self
             .approvals
             .get_mut(&id)
             .ok_or_else(|| OrchestratorError::NotFound(format!("approval {id}")))?;
+        if a.state == "expired" {
+            return Err(OrchestratorError::Conflict(
+                "expired approval cannot be decided".into(),
+            ));
+        }
         let state = match decision.as_str() {
             "allow_once" => "allowed_once",
             "always_allow" => "always_allowed",
@@ -6480,5 +6504,59 @@ mod tests {
         .unwrap();
         assert_eq!(o.poll_project_attention(Utc::now()).unwrap().len(), 1);
         assert!(o.poll_project_attention(Utc::now()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn expire_invalid_approval_is_idempotent_and_does_not_touch_assignment() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "失效审批");
+        let assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "dm".into(),
+                bot_id: worker.clone(),
+                title: "审批任务".into(),
+                instruction: "等待审批".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let approval = o
+            .create_approval(ApprovalRequest {
+                bot_id: worker,
+                assignment_id: Some(assignment.id.clone()),
+                chat_id: "dm".into(),
+                tool: "bash".into(),
+                risk: "exec".into(),
+                summary: "执行测试命令".into(),
+                detail: "echo migration-marker".into(),
+            })
+            .unwrap();
+        let before = o.snapshot().unwrap();
+        let before_assignment = before["assignments"][&assignment.id].clone();
+        let expired = o.expire_invalid_approval(&approval.id).unwrap().unwrap();
+        assert_eq!(expired.id, approval.id);
+        assert_eq!(expired.state, "expired");
+        assert!(expired.decided_at.is_some());
+        assert_eq!(expired.tool, approval.tool);
+        assert_eq!(expired.risk, approval.risk);
+        assert_eq!(expired.summary, approval.summary);
+        assert_eq!(expired.detail, approval.detail);
+        let after = o.snapshot().unwrap();
+        assert_eq!(after["assignments"][&assignment.id], before_assignment);
+        assert!(after["approval_rules"].as_array().unwrap().is_empty());
+        let late_decision = tokio::runtime::Runtime::new().unwrap().block_on(o.rpc(
+            "approval.decide",
+            json!({"approval_id":approval.id,"decision":"allow_once"}),
+        ));
+        assert!(late_decision.is_err());
+        assert_eq!(o.snapshot().unwrap(), after);
+        let expired_again = o.expire_invalid_approval(&approval.id).unwrap();
+        assert!(expired_again.is_none());
+        assert_eq!(o.snapshot().unwrap(), after);
     }
 }

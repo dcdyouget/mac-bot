@@ -13,7 +13,9 @@ use futures_util::future::join_all;
 use macbot_durable::{DurableError, DurableRuntime, InboxItem, Job, JobStatus};
 use macbot_providers::{Completion, ModelEvent, ModelProvider, ModelRequest, TokenUsage, ToolCall};
 use macbot_store::{Store, StoreError};
-use macbot_tools::{Part, Risk, Tool, ToolCancellation, ToolContext, ToolOutputChunk, ToolResult};
+use macbot_tools::{
+    resolve_tool_path, Part, Risk, Tool, ToolCancellation, ToolContext, ToolOutputChunk, ToolResult,
+};
 use macbot_usage::{Totals, UsageLedger, UsageRecord};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -776,7 +778,7 @@ impl ExecutionEngine {
         } else {
             request.messages.clone()
         };
-        let (job, mut messages, start_turn, resumed, approved_call, approved_followups) = {
+        let (job, mut messages, start_turn, resumed, approved_call, mut approved_followups) = {
             let mut durable = self.state.durable.lock().await;
             let existing = durable
                 .jobs()
@@ -893,18 +895,18 @@ impl ExecutionEngine {
                     let mut write_ahead_calls = Vec::with_capacity(pending_calls.len() + 1);
                     write_ahead_calls.push(call.clone());
                     write_ahead_calls.extend(pending_calls.iter().cloned());
-                    let resumed_job = durable.commit(
-                        &job.id,
-                        JobStatus::Running,
-                        json!({
-                            "run_id":request.run_id,
-                            "round":round,
-                            "messages":messages,
-                            "pending_tool":call.clone(),
-                            "pending_tools":write_ahead_calls
-                        }),
-                        true,
-                    )?;
+                    let mut checkpoint = json!({
+                        "run_id": request.run_id,
+                        "round": round,
+                        "messages": messages,
+                        "pending_tool": call.clone(),
+                        "pending_tools": write_ahead_calls
+                    });
+                    if let Some(detail) = job.checkpoint.get("approval_detail") {
+                        checkpoint["approval_detail"] = detail.clone();
+                    }
+                    let resumed_job =
+                        durable.commit(&job.id, JobStatus::Running, checkpoint, true)?;
                     (
                         resumed_job,
                         messages,
@@ -1028,8 +1030,31 @@ impl ExecutionEngine {
                     false,
                 )?;
             } else {
-                self.execute_approved_tool(&request, &job, start_turn, call, &mut messages)
+                if let Some(error) = invalid_pending_tool_args(
+                    &call.name,
+                    &call.args,
+                    job.checkpoint.get("approval_detail"),
+                ) {
+                    self.trace(
+                        &request,
+                        "tool.start",
+                        json!({"call_id":call.call_id,"name":call.name,"args":call.args}),
+                    )
                     .await?;
+                    self.reject_invalid_tool_call(
+                        &request,
+                        &job,
+                        start_turn,
+                        (&call, error),
+                        &mut messages,
+                        Some(&approved_followups),
+                    )
+                    .await?;
+                    approved_followups.clear();
+                } else {
+                    self.execute_approved_tool(&request, &job, start_turn, call, &mut messages)
+                        .await?;
+                }
             }
             if let Some(outcome) = self
                 .process_approved_followups(
@@ -1341,6 +1366,17 @@ impl ExecutionEngine {
                     self.trace(&request, "tool.end", json!({"call_id":call.call_id,"is_error":true,"preview":"tool is not permitted for this run","details":{},"truncated":false,"full_output":null,"duration_ms":0})).await?;
                     continue;
                 }
+                if let Some(error) = invalid_memory_tool_args(&call.name, &call.args) {
+                    let result = ToolResult::error(error);
+                    messages.push(tool_message(&call.call_id, &result));
+                    self.trace(
+                        &request,
+                        "tool.end",
+                        json!({"call_id":call.call_id,"is_error":true,"preview":"invalid memory arguments","details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                    )
+                    .await?;
+                    continue;
+                }
                 if matches!(call.name.as_str(), "ask_user" | "question") {
                     let question = call.args["question"]
                         .as_str()
@@ -1579,7 +1615,7 @@ impl ExecutionEngine {
                         && (matches!(&risk, Risk::Write | Risk::Exec | Risk::External)
                             || builtin_risky));
                 if risky && !self.risky_call_allowed(&request, &call.name, &call.args) {
-                    let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":tool_calls[call_index..]});
+                    let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":tool_calls[call_index..],"approval_detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref())});
                     self.state.durable.lock().await.commit(
                         &job.id,
                         JobStatus::Waiting,
@@ -1607,7 +1643,7 @@ impl ExecutionEngine {
                             "tool":call.name,
                             "risk":risk,
                             "summary":format!("Approval required for {}",call.name),
-                            "detail":call.args.to_string(),
+                            "detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref()).to_string(),
                             "state":"pending",
                             "created_at":now_rfc3339(),
                             "decided_at":null
@@ -1623,7 +1659,7 @@ impl ExecutionEngine {
                     });
                 }
                 if risky {
-                    let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":tool_calls[call_index..]});
+                    let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":tool_calls[call_index..],"approval_detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref())});
                     self.state.durable.lock().await.commit(
                         &job.id,
                         JobStatus::Running,
@@ -1743,6 +1779,171 @@ impl ExecutionEngine {
         })
     }
 
+    /// Record a deterministic memory-argument rejection without entering the
+    /// approval path. This is also used when an old checkpoint contains an
+    /// invalid call: the call and same-turn follow-ups are consumed as
+    /// explicit errors before the run is returned to the model.
+    async fn reject_invalid_tool_call(
+        &self,
+        request: &ExecutionRequest,
+        job: &Job,
+        turn: usize,
+        (call, error): (&ToolCall, String),
+        messages: &mut Vec<Value>,
+        remaining: Option<&[ToolCall]>,
+    ) -> Result<(), ExecutionError> {
+        let result = ToolResult::error(error);
+        messages.push(tool_message(&call.call_id, &result));
+        self.trace(
+            request,
+            "tool.end",
+            json!({
+                "call_id": call.call_id,
+                "is_error": true,
+                "preview": "invalid pending tool arguments",
+                "details": {},
+                "truncated": false,
+                "full_output": null,
+                "duration_ms": 0
+            }),
+        )
+        .await?;
+        if let Some(remaining) = remaining {
+            for deferred in remaining {
+                messages.push(json!({
+                    "role": "tool",
+                    "tool_call_id": deferred.call_id,
+                    "content": "not executed because preceding call had invalid arguments; request again",
+                    "is_error": true
+                }));
+            }
+        }
+        let checkpoint = json!({
+            "run_id": request.run_id,
+            "round": turn + 1,
+            "messages": messages
+        });
+        self.state
+            .durable
+            .lock()
+            .await
+            .commit(&job.id, JobStatus::Running, checkpoint, false)?;
+        Ok(())
+    }
+
+    /// Consume a persisted invalid memory approval on the same run.  The
+    /// expected call id is an exact checkpoint guard; a stale approval or a
+    /// valid memory call is left untouched for the normal approval flow.
+    pub async fn reject_invalid_pending_tool(
+        &self,
+        mut request: ExecutionRequest,
+        expected_call_id: &str,
+    ) -> Result<Option<ExecutionOutcome>, ExecutionError> {
+        let call = {
+            let mut durable = self.state.durable.lock().await;
+            let Some(job) = durable
+                .jobs()
+                .find(|job| job.checkpoint["run_id"].as_str() == Some(request.run_id.as_str()))
+                .cloned()
+            else {
+                return Ok(None);
+            };
+            if !matches!(job.status, JobStatus::Waiting | JobStatus::Suspended) {
+                return Ok(None);
+            }
+            let pending_tool = job.checkpoint.get("pending_tool").cloned();
+            let mut pending = job.checkpoint["pending_tools"]
+                .as_array()
+                .map(|calls| {
+                    calls
+                        .iter()
+                        .cloned()
+                        .map(serde_json::from_value::<ToolCall>)
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()
+                .map_err(|error| ExecutionError::Durable(DurableError::Invalid(error.to_string())))?
+                .unwrap_or_default();
+            if pending.is_empty() {
+                let Some(pending_tool) = pending_tool.clone() else {
+                    return Ok(None);
+                };
+                let call = serde_json::from_value::<ToolCall>(pending_tool).map_err(|error| {
+                    ExecutionError::Durable(DurableError::Invalid(error.to_string()))
+                })?;
+                pending.push(call);
+            }
+            let Some(call) = pending.first().cloned() else {
+                return Ok(None);
+            };
+            if call.call_id != expected_call_id
+                || invalid_pending_tool_args(
+                    &call.name,
+                    &call.args,
+                    job.checkpoint.get("approval_detail"),
+                )
+                .is_none()
+            {
+                return Ok(None);
+            }
+            if let Some(pending_tool) = pending_tool {
+                let checkpoint_call =
+                    serde_json::from_value::<ToolCall>(pending_tool).map_err(|error| {
+                        ExecutionError::Durable(DurableError::Invalid(error.to_string()))
+                    })?;
+                if checkpoint_call.call_id != call.call_id {
+                    return Ok(None);
+                }
+            }
+            pending.remove(0);
+            let mut messages = job.checkpoint["messages"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let error = invalid_pending_tool_args(
+                &call.name,
+                &call.args,
+                job.checkpoint.get("approval_detail"),
+            )
+            .expect("invalid pending tool was checked above");
+            messages.push(tool_message(&call.call_id, &ToolResult::error(error)));
+            for deferred in &pending {
+                messages.push(json!({
+                    "role": "tool",
+                    "tool_call_id": deferred.call_id,
+                    "content": "not executed because preceding call had invalid arguments; request again",
+                    "is_error": true
+                }));
+            }
+            let checkpoint = json!({
+                "run_id": request.run_id,
+                "round": job.checkpoint["round"].as_u64().unwrap_or_default(),
+                "messages": messages
+            });
+            durable.commit(&job.id, JobStatus::Running, checkpoint, false)?;
+            call
+        };
+
+        self.trace(
+            &request,
+            "tool.end",
+            json!({
+                "call_id": call.call_id,
+                "is_error": true,
+                "preview": "invalid tool arguments",
+                "details": {},
+                "truncated": false,
+                "full_output": null,
+                "duration_ms": 0
+            }),
+        )
+        .await?;
+
+        request.resume_approved = false;
+        request.resume_message = None;
+        Ok(Some(self.run(request).await?))
+    }
+
     async fn execute_approved_tool(
         &self,
         request: &ExecutionRequest,
@@ -1834,6 +2035,25 @@ impl ExecutionEngine {
                 .await?;
                 messages.push(tool_message(&call.call_id, &result));
                 continue;
+            }
+
+            if let Some(error) = invalid_memory_tool_args(&call.name, &call.args) {
+                self.trace(
+                    request,
+                    "tool.start",
+                    json!({"call_id":call.call_id,"name":call.name,"args":call.args}),
+                )
+                .await?;
+                self.reject_invalid_tool_call(
+                    request,
+                    job,
+                    turn,
+                    (&call, error),
+                    messages,
+                    Some(&pending),
+                )
+                .await?;
+                return Ok(None);
             }
 
             if matches!(call.name.as_str(), "ask_user" | "question") {
@@ -2073,7 +2293,7 @@ impl ExecutionEngine {
                 self.state.durable.lock().await.commit(
                     &job.id,
                     JobStatus::Waiting,
-                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls}),
+                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls,"approval_detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref())}),
                     true,
                 )?;
                 self.trace(
@@ -2097,7 +2317,7 @@ impl ExecutionEngine {
                         "tool":call.name,
                         "risk":risk_name,
                         "summary":format!("Approval required for {}",call.name),
-                        "detail":call.args.to_string(),
+                        "detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref()).to_string(),
                         "state":"pending",
                         "created_at":now_rfc3339(),
                         "decided_at":null
@@ -2119,7 +2339,7 @@ impl ExecutionEngine {
                 self.state.durable.lock().await.commit(
                     &job.id,
                     JobStatus::Running,
-                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls}),
+                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls,"approval_detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref())}),
                     true,
                 )?;
             }
@@ -2620,6 +2840,92 @@ fn trace_phase(request: &ExecutionRequest) -> &str {
     }
 }
 
+pub(crate) fn invalid_memory_tool_args(name: &str, args: &Value) -> Option<String> {
+    if name != "memory" {
+        return None;
+    }
+    let Some(object) = args.as_object() else {
+        return Some("memory arguments must be an object".into());
+    };
+    let Some(scope) = object.get("scope").and_then(Value::as_str) else {
+        return Some("memory scope is required".into());
+    };
+    match scope {
+        "user" => None,
+        "bot"
+            if object
+                .get("bot_id")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty()) =>
+        {
+            None
+        }
+        "bot" => Some("memory bot scope requires bot_id".into()),
+        "project"
+            if object
+                .get("project_id")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty()) =>
+        {
+            None
+        }
+        "project" => Some("memory project scope requires project_id".into()),
+        other => Some(format!("unknown memory scope: {other}")),
+    }
+}
+
+pub(crate) fn invalid_pending_tool_args(
+    name: &str,
+    args: &Value,
+    approval_detail: Option<&Value>,
+) -> Option<String> {
+    if let Some(error) = invalid_memory_tool_args(name, args) {
+        return Some(error);
+    }
+    if !matches!(name, "write" | "edit") {
+        return None;
+    }
+    let path = args.get("path").and_then(Value::as_str)?;
+    if !(path == "~" || path.starts_with("~/")) {
+        return None;
+    }
+    let resolved = approval_detail
+        .and_then(|detail| detail.get("resolved_path"))
+        .and_then(Value::as_str);
+    let resolution = approval_detail
+        .and_then(|detail| detail.get("path_resolution"))
+        .and_then(Value::as_str);
+    if resolved.is_some() && resolution == Some("home-v1") {
+        None
+    } else {
+        Some("legacy tilde path resolution changed; retry absolute path and new approval".into())
+    }
+}
+
+fn approval_detail(
+    tool_name: &str,
+    args: &Value,
+    cwd: &std::path::Path,
+    user_home: Option<&std::path::Path>,
+) -> Value {
+    let mut detail = args.clone();
+    if matches!(tool_name, "read" | "write" | "edit") {
+        if let Some(path) = args.get("path").and_then(Value::as_str) {
+            if let Ok(resolved) = resolve_tool_path(cwd, path, user_home) {
+                if let Some(object) = detail.as_object_mut() {
+                    object.insert("resolved_path".into(), json!(resolved));
+                    object.insert("path_resolution".into(), json!("home-v1"));
+                }
+            }
+        }
+    }
+    detail
+}
+
+fn actual_user_home() -> Option<PathBuf> {
+    macbot_tools::current_user_home()
+}
+
 fn estimate_context(messages: &[Value]) -> Value {
     let total = messages
         .iter()
@@ -2852,6 +3158,22 @@ fn builtin_requires_approval(
     cwd: &std::path::Path,
     home: &std::path::Path,
 ) -> bool {
+    builtin_requires_approval_with_user_home(
+        tool_name,
+        args,
+        cwd,
+        home,
+        actual_user_home().as_deref(),
+    )
+}
+
+fn builtin_requires_approval_with_user_home(
+    tool_name: &str,
+    args: &Value,
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+    user_home: Option<&std::path::Path>,
+) -> bool {
     if tool_name == "browser_eval"
         || tool_name == "pay"
         || tool_name == "payment"
@@ -2891,10 +3213,11 @@ fn builtin_requires_approval(
         }
         if recursive && force {
             let target = std::path::Path::new(token);
-            let resolved = if target.is_absolute() {
-                target.to_path_buf()
-            } else {
-                cwd.join(target)
+            let resolved = match resolve_tool_path(cwd, token, user_home) {
+                Ok(resolved) => resolved,
+                Err(_) if *token == "~" || token.starts_with("~/") => return true,
+                Err(_) if target.is_absolute() => target.to_path_buf(),
+                Err(_) => cwd.join(target),
             };
             if !lexically_normalize(&resolved).starts_with(lexically_normalize(home)) {
                 return true;
@@ -3048,6 +3371,30 @@ mod tests {
     use std::sync::Mutex as StdMutex;
     use std::time::Duration;
     use tempfile::tempdir;
+
+    #[test]
+    fn memory_arguments_are_rejected_before_approval() {
+        assert_eq!(
+            invalid_memory_tool_args("memory", &json!({"scope":"project"})),
+            Some("memory project scope requires project_id".into())
+        );
+        assert_eq!(
+            invalid_memory_tool_args("memory", &json!({"scope":"bot","bot_id":""})),
+            Some("memory bot scope requires bot_id".into())
+        );
+        assert_eq!(
+            invalid_memory_tool_args("memory", &json!({"scope":"team"})),
+            Some("unknown memory scope: team".into())
+        );
+        assert_eq!(
+            invalid_memory_tool_args("memory", &json!({"scope":"user"})),
+            None
+        );
+        assert_eq!(
+            invalid_memory_tool_args("memory", &json!({})),
+            Some("memory scope is required".into())
+        );
+    }
 
     #[derive(Default)]
     struct RecordingSink {
@@ -3433,6 +3780,51 @@ mod tests {
         }
     }
 
+    struct RecordingCorrectionProvider {
+        requests: Arc<StdMutex<Vec<ModelRequest>>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for RecordingCorrectionProvider {
+        async fn stream(
+            &self,
+            request: ModelRequest,
+            events: mpsc::Sender<ModelEvent>,
+        ) -> macbot_providers::Result<Completion> {
+            self.requests.lock().unwrap().push(request);
+            let completion = Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "corrected-memory".into(),
+                    name: "memory".into(),
+                    args: json!({
+                        "scope": "project",
+                        "project_id": "project-valid",
+                        "action": "add",
+                        "content": "retry"
+                    }),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            };
+            let _ = events
+                .send(ModelEvent::TextDelta {
+                    text: completion.text.clone(),
+                })
+                .await;
+            let _ = events
+                .send(ModelEvent::Usage {
+                    usage: completion.usage.clone(),
+                })
+                .await;
+            let _ = events
+                .send(ModelEvent::Stop {
+                    reason: completion.stop_reason.clone(),
+                })
+                .await;
+            Ok(completion)
+        }
+    }
+
     struct SlowReadTool {
         name: &'static str,
         active: Arc<AtomicUsize>,
@@ -3715,6 +4107,98 @@ mod tests {
             &cwd,
             home
         ));
+    }
+
+    #[test]
+    fn approval_detail_resolves_tilde_and_legacy_pending_is_rejected() {
+        let root = tempdir().unwrap();
+        let user_home = root.path().join("user-home");
+        let home = user_home.join("MacBot");
+        let cwd = home.join("runs");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let args = json!({"path":"~/MacBot/runs/notes.txt","content":"x"});
+        let detail = approval_detail("write", &args, &cwd, Some(&user_home));
+        assert_eq!(detail["resolved_path"], json!(cwd.join("notes.txt")));
+        assert_eq!(detail["path_resolution"], json!("home-v1"));
+        assert!(invalid_pending_tool_args("write", &args, Some(&detail)).is_none());
+        assert!(invalid_pending_tool_args("write", &args, None).is_some());
+        assert!(invalid_pending_tool_args("edit", &args, Some(&json!({}))).is_some());
+        assert!(invalid_pending_tool_args("read", &args, None).is_none());
+        assert!(builtin_requires_approval(
+            "bash",
+            &json!({"command":"rm -rf ~/MacBot/runs/cache"}),
+            &cwd,
+            &home
+        ));
+        assert!(!builtin_requires_approval_with_user_home(
+            "bash",
+            &json!({"command":"rm -rf ~/MacBot/runs/cache"}),
+            &cwd,
+            &home,
+            Some(&user_home)
+        ));
+    }
+
+    #[tokio::test]
+    async fn approved_tilde_call_carries_resolution_metadata_through_resume() {
+        let dir = tempdir().unwrap();
+        let fake_home = dir.path().join("user-home").join("MacBot");
+        let cwd = fake_home.join("project");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let args = json!({"path":"~/project/notes.txt","content":"x"});
+        let call = ToolCall {
+            call_id: "tilde-write".into(),
+            name: "write".into(),
+            args: args.clone(),
+        };
+        let detail = approval_detail("write", &args, &cwd, Some(&fake_home));
+        let store = Store::open(dir.path()).unwrap();
+        {
+            let mut durable = macbot_durable::DurableRuntime::from_store(store.clone()).unwrap();
+            let job = durable
+                .create_job(
+                    "bot_mock",
+                    "model_run",
+                    json!({"run_id":"tilde-resume","round":0,"messages":[]}),
+                )
+                .unwrap();
+            durable
+                .commit(
+                    &job.id,
+                    JobStatus::Waiting,
+                    json!({
+                        "run_id":"tilde-resume",
+                        "round":0,
+                        "messages":[],
+                        "pending_tool":call.clone(),
+                        "pending_tools":[call],
+                        "approval_detail":detail
+                    }),
+                    true,
+                )
+                .unwrap();
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let engine = ExecutionEngine::new(
+            store,
+            Arc::new(MockProvider::new(vec![Completion {
+                text: "continued".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            }])),
+            vec![Arc::new(NeverCalledTool {
+                name: "write",
+                calls: calls.clone(),
+            }) as Arc<dyn Tool>],
+            Arc::new(RecordingSink::default()),
+            dir.path(),
+        )
+        .unwrap();
+        let mut req = request(false);
+        req.run_id = "tilde-resume".into();
+        req.resume_approved = true;
+        assert_eq!(engine.run(req).await.unwrap().status, "done");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -5335,6 +5819,101 @@ mod tests {
         assert!(jobs.iter().any(|job| {
             job["unsafe_replay"] == true && job["checkpoint"]["pending_tool"]["name"] == "write"
         }));
+    }
+
+    #[tokio::test]
+    async fn invalid_memory_approval_is_rejected_atomically_and_retried() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let invalid = ToolCall {
+            call_id: "invalid-memory".into(),
+            name: "memory".into(),
+            args: json!({"scope":"project","action":"add","content":"old"}),
+        };
+        let deferred_write = ToolCall {
+            call_id: "deferred-write".into(),
+            name: "write".into(),
+            args: json!({"path":"must-not-exist","content":"no side effect"}),
+        };
+        let assistant = json!({
+            "role":"assistant",
+            "tool_calls":[invalid.clone(), deferred_write.clone()]
+        });
+        {
+            let mut durable = macbot_durable::DurableRuntime::from_store(store.clone()).unwrap();
+            let job = durable
+                .create_job(
+                    "bot_mock",
+                    "model_run",
+                    json!({"run_id":"legacy-memory","round":0,"messages":[assistant]}),
+                )
+                .unwrap();
+            durable
+                .commit(
+                    &job.id,
+                    JobStatus::Waiting,
+                    json!({
+                        "run_id":"legacy-memory",
+                        "round":0,
+                        "messages":[assistant],
+                        "pending_tool":invalid,
+                        "pending_tools":[invalid,deferred_write]
+                    }),
+                    true,
+                )
+                .unwrap();
+        }
+        let requests = Arc::new(StdMutex::new(Vec::new()));
+        let sink = Arc::new(RecordingSink::default());
+        let memory_calls = Arc::new(AtomicUsize::new(0));
+        let engine = ExecutionEngine::new(
+            store,
+            Arc::new(RecordingCorrectionProvider {
+                requests: requests.clone(),
+            }),
+            vec![Arc::new(NeverCalledTool {
+                name: "memory",
+                calls: memory_calls.clone(),
+            }) as Arc<dyn Tool>],
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+        let mut req = request(false);
+        req.run_id = "legacy-memory".into();
+        req.allow_unsafe = false;
+        let outcome = engine
+            .reject_invalid_pending_tool(req.clone(), "invalid-memory")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(outcome.status, "suspended");
+        assert_eq!(requests.lock().unwrap().len(), 1);
+        assert_eq!(memory_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(sink.approvals.lock().unwrap().len(), 1);
+        let model_messages = requests.lock().unwrap()[0].messages.clone();
+        assert!(model_messages.iter().any(|message| {
+            message["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("memory project scope requires project_id"))
+        }));
+        assert!(model_messages.iter().any(|message| {
+            message["content"].as_str().is_some_and(|content| {
+                content.contains("not executed because preceding call had invalid arguments")
+            })
+        }));
+        assert!(engine
+            .reject_invalid_pending_tool(req.clone(), "wrong-call")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(engine
+            .reject_invalid_pending_tool(req, "corrected-memory")
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(memory_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(sink.approvals.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]

@@ -149,21 +149,56 @@ impl ToolContext {
         self
     }
     fn resolve(&self, path: &str) -> Result<PathBuf, ToolError> {
-        let raw = Path::new(path);
-        let candidate = if raw.is_absolute() {
-            raw.to_path_buf()
-        } else {
-            self.cwd.join(raw)
-        };
-        let cwd = self
-            .cwd
-            .canonicalize()
-            .map_err(|_| ToolError::PathEscape(candidate.clone()))?;
-        let resolved = canonicalize_with_missing(&candidate)?;
-        if !resolved.starts_with(&cwd) {
-            return Err(ToolError::PathEscape(candidate));
-        }
-        Ok(candidate)
+        let home = current_user_home();
+        resolve_tool_path(&self.cwd, path, home.as_deref())
+    }
+}
+
+/// Resolve a tool path while keeping the existing working-directory escape
+/// policy.  `home` is injectable so callers and tests can expand `~` without
+/// mutating the process environment; `None` leaves tilde paths unchanged.
+pub fn resolve_tool_path(
+    cwd: &Path,
+    path: &str,
+    home: Option<&Path>,
+) -> Result<PathBuf, ToolError> {
+    let raw = Path::new(path);
+    let expanded = if path == "~" {
+        home.map(Path::to_path_buf)
+            .unwrap_or_else(|| raw.to_path_buf())
+    } else if let Some(suffix) = path.strip_prefix("~/") {
+        home.map(|home| home.join(suffix))
+            .unwrap_or_else(|| raw.to_path_buf())
+    } else {
+        raw.to_path_buf()
+    };
+    let candidate = if expanded.is_absolute() {
+        expanded
+    } else {
+        cwd.join(expanded)
+    };
+    let canonical_cwd = cwd
+        .canonicalize()
+        .map_err(|_| ToolError::PathEscape(candidate.clone()))?;
+    let resolved = canonicalize_with_missing(&candidate)?;
+    if !resolved.starts_with(&canonical_cwd) {
+        return Err(ToolError::PathEscape(candidate));
+    }
+    Ok(candidate)
+}
+
+pub fn current_user_home() -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        std::env::var_os("HOME").map(PathBuf::from)
+    }
+    #[cfg(windows)]
+    {
+        std::env::var_os("USERPROFILE").map(PathBuf::from)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        None
     }
 }
 
@@ -1389,6 +1424,48 @@ pub fn default_tools() -> Vec<Arc<dyn Tool>> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn resolve_tool_path_expands_home_without_changing_other_paths() {
+        let home = tempdir().unwrap();
+        let cwd = home.path().join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(home.path().join("MacBot")).unwrap();
+
+        assert_eq!(
+            resolve_tool_path(&cwd, "notes.txt", Some(home.path())).unwrap(),
+            cwd.join("notes.txt")
+        );
+        assert_eq!(
+            resolve_tool_path(home.path(), "~", Some(home.path())).unwrap(),
+            home.path()
+        );
+        assert!(resolve_tool_path(&cwd, "~", Some(home.path())).is_err());
+        let macbot = resolve_tool_path(home.path(), "~/MacBot", Some(home.path())).unwrap();
+        assert_eq!(macbot, home.path().join("MacBot"));
+        let artifact = resolve_tool_path(&cwd, "~/work/marker.txt", Some(home.path())).unwrap();
+        std::fs::write(&artifact, b"marker").unwrap();
+        assert_eq!(std::fs::read(&artifact).unwrap(), b"marker");
+        assert_eq!(
+            resolve_tool_path(&cwd, "~other/MacBot", Some(home.path())).unwrap(),
+            cwd.join("~other/MacBot")
+        );
+        let absolute = cwd.join("macbot-absolute");
+        assert_eq!(
+            resolve_tool_path(&cwd, absolute.to_str().unwrap(), Some(home.path())).unwrap(),
+            absolute
+        );
+    }
+
+    #[test]
+    fn tool_context_resolve_uses_process_home_for_tilde() {
+        let Some(home) = current_user_home() else {
+            return;
+        };
+        let context = ToolContext::new(&home, "run", home.join("runs"));
+        assert_eq!(context.resolve("~/MacBot").unwrap(), home.join("MacBot"));
+    }
+
     #[tokio::test]
     async fn edit_requires_unique_replacements() {
         let dir = tempdir().unwrap();

@@ -501,15 +501,24 @@ impl Tool for MemoryTool {
     }
 
     fn description(&self) -> &str {
-        "Stage a user, private Bot, or project memory change for the current run."
+        "Stage a user, private Bot, or project memory change for the current run. Project and Bot targets require explicit project_id or bot_id; IDs are never inferred from run context."
     }
 
     fn schema(&self) -> Value {
-        json!({"type":"object","required":["scope","action","content"],"properties":{
-            "scope":{"enum":["user","bot","project"]},"action":{"enum":["add","replace","remove"]},
-            "content":{"type":"string"},"id":{"type":"string"},"user_id":{"type":"string"},
-            "bot_id":{"type":"string"},"project_id":{"type":"string"},"kind":{"type":"string"}
-        }})
+        json!({
+            "type":"object",
+            "description":"Project and Bot targets require explicit non-empty project_id or bot_id; never infer target IDs from context.",
+            "required":["scope","action","content"],
+            "properties":{
+                "scope":{"enum":["user","bot","project"]},"action":{"enum":["add","replace","remove"]},
+                "content":{"type":"string"},"id":{"type":"string"},"user_id":{"type":"string"},
+                "bot_id":{"type":"string","minLength":1},"project_id":{"type":"string","minLength":1},"kind":{"type":"string"}
+            },
+            "allOf":[
+                {"if":{"properties":{"scope":{"const":"bot"}}},"then":{"required":["bot_id"]}},
+                {"if":{"properties":{"scope":{"const":"project"}}},"then":{"required":["project_id"]}}
+            ]
+        })
     }
 
     fn risk(&self, _: &Value) -> Risk {
@@ -538,10 +547,19 @@ impl Tool for MemorySearchTool {
         "memory_search"
     }
     fn description(&self) -> &str {
-        "Search durable memory visible to this Bot and user/group context."
+        "Search durable memory visible to this Bot and user/group context. Project and Bot targets require explicit project_id or bot_id; IDs are never inferred from run context."
     }
     fn schema(&self) -> Value {
-        json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"scope":{"enum":["user","bot","project"]},"user_id":{"type":"string"},"bot_id":{"type":"string"},"project_id":{"type":"string"}}})
+        json!({
+            "type":"object",
+            "description":"When scope is project or bot, provide an explicit non-empty project_id or bot_id; never infer target IDs from context.",
+            "required":["query"],
+            "properties":{"query":{"type":"string"},"scope":{"enum":["user","bot","project"]},"user_id":{"type":"string"},"bot_id":{"type":"string","minLength":1},"project_id":{"type":"string","minLength":1}},
+            "allOf":[
+                {"if":{"properties":{"scope":{"const":"bot"}}},"then":{"required":["bot_id"]}},
+                {"if":{"properties":{"scope":{"const":"project"}}},"then":{"required":["project_id"]}}
+            ]
+        })
     }
     fn risk(&self, _: &Value) -> Risk {
         Risk::Read
@@ -758,6 +776,34 @@ mod tests {
         let home = tempdir().unwrap().keep();
         let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
         FeatureToolRuntime::new(service, FeatureRunContext::bot("bot-a", "user-a"))
+    }
+
+    #[test]
+    fn memory_schemas_require_explicit_project_and_bot_ids() {
+        let runtime = runtime();
+        for tool_name in ["memory", "memory_search"] {
+            let schema = runtime
+                .tools()
+                .into_iter()
+                .find(|tool| tool.name() == tool_name)
+                .unwrap()
+                .schema();
+            assert_eq!(schema["properties"]["bot_id"]["minLength"], 1);
+            assert_eq!(schema["properties"]["project_id"]["minLength"], 1);
+            assert!(schema["description"]
+                .as_str()
+                .unwrap()
+                .contains("never infer"));
+            let conditions = schema["allOf"].as_array().unwrap();
+            assert!(conditions.iter().any(|condition| {
+                condition["if"]["properties"]["scope"]["const"] == "bot"
+                    && condition["then"]["required"] == json!(["bot_id"])
+            }));
+            assert!(conditions.iter().any(|condition| {
+                condition["if"]["properties"]["scope"]["const"] == "project"
+                    && condition["then"]["required"] == json!(["project_id"])
+            }));
+        }
     }
 
     #[test]
