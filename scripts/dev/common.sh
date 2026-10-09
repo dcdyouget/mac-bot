@@ -542,32 +542,22 @@ macbot_install_launch_agent() {
 
 macbot_activate_launch_agent() {
   local agent_uid="$1" agent_label="$2" agent_plist="$3"
-  local attempt=0 loaded=0
-  # launchd may briefly reject bootstrap/kickstart after bootout. Retry the
-  # same registration without rebuilding or replacing application data.
-  while [ "$attempt" -lt 5 ]; do
-    if launchctl bootstrap "gui/$agent_uid" "$agent_plist" >/dev/null 2>&1 ||
-       launchctl print "gui/$agent_uid/$agent_label" >/dev/null 2>&1; then
-      loaded=1
-      break
+  local agent_deadline=$((SECONDS + 30))
+  # A successful bootstrap may still precede service registration. Retry both
+  # operations in the required GUI domain, rather than relying on legacy load
+  # or repeatedly kickstarting a registration that has disappeared.
+  while [ "$SECONDS" -lt "$agent_deadline" ]; do
+    if launchctl print "gui/$agent_uid/$agent_label" >/dev/null 2>&1 ||
+       launchctl bootstrap "gui/$agent_uid" "$agent_plist" >/dev/null 2>&1; then
+      if launchctl kickstart -k "gui/$agent_uid/$agent_label" >/dev/null 2>&1; then
+        return 0
+      fi
     fi
-    attempt=$((attempt + 1))
-    [ "$attempt" -ge 5 ] || sleep 1
-  done
-  if [ "$loaded" != 1 ]; then
-    launchctl load -w "$agent_plist" >/dev/null 2>&1 || {
-      macbot_error "无法加载 LaunchAgent $agent_label"; return 1;
-    }
-  fi
-  attempt=0
-  while [ "$attempt" -lt 5 ]; do
-    if launchctl kickstart -k "gui/$agent_uid/$agent_label" >/dev/null 2>&1; then
-      return 0
+    if [ "$SECONDS" -lt "$agent_deadline" ]; then
+      sleep 1
     fi
-    attempt=$((attempt + 1))
-    [ "$attempt" -ge 5 ] || sleep 1
   done
-  macbot_error "无法 kickstart LaunchAgent $agent_label"
+  macbot_error "无法在 gui/$agent_uid 注册并启动 LaunchAgent $agent_label"
   return 1
 }
 

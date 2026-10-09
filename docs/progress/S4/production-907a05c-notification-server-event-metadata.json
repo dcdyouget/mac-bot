@@ -1,0 +1,97 @@
+{
+  "source_commit": "907a05cbfbeca5e2edb1d60bf1cd3214ac9ca614",
+  "captured_at": "2026-10-09T20:29:07.617774+00:00",
+  "read_only": true,
+  "events": [
+    {
+      "seq": 2716,
+      "event": "assignment.created",
+      "type": null,
+      "ts": null,
+      "at": null,
+      "data_keys": [
+        "assignment"
+      ],
+      "assignment": {
+        "id": "01a12254-900e-704b-ae89-7fbb92b9d877",
+        "status": "working",
+        "project_id": null,
+        "origin_chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+        "chat_id": null,
+        "result_message_id": null
+      }
+    },
+    {
+      "seq": 2735,
+      "event": "assignment.updated",
+      "type": null,
+      "ts": null,
+      "at": null,
+      "data_keys": [
+        "assignment"
+      ],
+      "assignment": {
+        "id": "01a12254-900e-704b-ae89-7fbb92b9d877",
+        "status": "working",
+        "project_id": null,
+        "origin_chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+        "chat_id": null,
+        "result_message_id": null
+      }
+    },
+    {
+      "seq": 2738,
+      "event": "message.created",
+      "type": null,
+      "ts": null,
+      "at": null,
+      "data_keys": [
+        "message"
+      ],
+      "message": {
+        "id": "01a12254-cd92-773a-a4e6-6b5a54835f54",
+        "chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+        "assignment_id": "01a12254-900e-704b-ae89-7fbb92b9d877",
+        "streaming": false,
+        "intent": "done",
+        "sender": {
+          "bot_id": "01a12227-e6b9-7276-96cb-98ab5185e1a5",
+          "kind": "bot"
+        }
+      }
+    },
+    {
+      "seq": 2748,
+      "event": "assignment.updated",
+      "type": null,
+      "ts": null,
+      "at": null,
+      "data_keys": [
+        "assignment"
+      ],
+      "assignment": {
+        "id": "01a12254-900e-704b-ae89-7fbb92b9d877",
+        "status": "done",
+        "project_id": null,
+        "origin_chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+        "chat_id": null,
+        "result_message_id": "01a12254-cd92-773a-a4e6-6b5a54835f54"
+      }
+    }
+  ],
+  "assignment": {
+    "id": "01a12254-900e-704b-ae89-7fbb92b9d877",
+    "status": "done",
+    "project_id": null,
+    "origin_chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+    "chat_id": null,
+    "result_message_id": "01a12254-cd92-773a-a4e6-6b5a54835f54"
+  },
+  "chat": {
+    "id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+    "kind": "direct",
+    "muted": false
+  },
+  "notification_receipt_proven": false,
+  "full_s4_pass": false
+}

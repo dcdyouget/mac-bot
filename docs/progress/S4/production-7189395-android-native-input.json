@@ -1,0 +1,41 @@
+{
+  "source_commit": "7189395802e38174dd3f2c7196eff3bc35751cf6",
+  "at": "2026-10-09T20:36:00.477488+00:00",
+  "canvas_bounds": [
+    163,
+    371,
+    2403,
+    723
+  ],
+  "frame_dimensions": [
+    640,
+    316
+  ],
+  "raw_frame_target": [
+    428,
+    199
+  ],
+  "native_coordinates": [
+    1403,
+    593
+  ],
+  "native_android_adb_tap": true,
+  "full_s4_pass": false,
+  "client_source_commit": "2ccfc88e950c7e1d1af3f4572d0c44be72571ac8",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "tab_id": "t2",
+  "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+  "status": "PASS_NATIVE_LOCAL_TOUCH_SUBMIT",
+  "native_takeover_verified": true,
+  "native_release_confirmation_clicked": true,
+  "native_released_state_observed": true,
+  "root_visual_result": "Native Android screenshot after tap changed from waiting to green received native-d43. No protocol input or browser_open was sent for this submit.",
+  "screenshots": {
+    "before": "production-7189395-android-takeover-before.png",
+    "after": "production-7189395-android-touch-result.png",
+    "released": "production-7189395-android-released.png"
+  },
+  "x_login_verified": false,
+  "desktop_native_input_verified": false,
+  "note": "Keyboard text was entered previously on d43. This run proves its submission by native touch after server geometry fix, not new text entry or authenticated X login."
+}

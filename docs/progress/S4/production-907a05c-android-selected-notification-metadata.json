@@ -1,0 +1,27 @@
+{
+  "at_utc": "2026-10-09T20:27:12.826869+00:00",
+  "read_only": true,
+  "host_id": "d152bb68-f2b3-40c4-85eb-e68535af71d2",
+  "global_notifications": "absent/default=true",
+  "main_cursor": "2820",
+  "ledger_cursor": "2820",
+  "target_assignment_ledger": "2748",
+  "target_message_ledger": "seen",
+  "target_needs_message_ledger": null,
+  "assignment_id": "01a12254-900e-704b-ae89-7fbb92b9d877",
+  "message_id": "01a12254-cd92-773a-a4e6-6b5a54835f54",
+  "state_keys_read": [
+    "notifications",
+    "last_seq:d152bb68-f2b3-40c4-85eb-e68535af71d2"
+  ],
+  "ledger_keys_read": [
+    "_last_persistent_seq:d152bb68-f2b3-40c4-85eb-e68535af71d2",
+    "d152bb68-f2b3-40c4-85eb-e68535af71d2:completed:01a12254-900e-704b-ae89-7fbb92b9d877",
+    "d152bb68-f2b3-40c4-85eb-e68535af71d2:message:01a12254-cd92-773a-a4e6-6b5a54835f54",
+    "d152bb68-f2b3-40c4-85eb-e68535af71d2:needs:01a12254-cd92-773a-a4e6-6b5a54835f54"
+  ],
+  "credentials_or_message_bodies_extracted": false,
+  "owner_evidence_path": "/tmp/macbot-android-907a05c-selected-notification-metadata.json",
+  "owner_chat": "b0036de1-1a71-4b6a-80dc-107f8a365f91",
+  "full_s4_pass": false
+}

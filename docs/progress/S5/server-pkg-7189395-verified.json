@@ -1,0 +1,75 @@
+{
+  "artifact": "server screen-input package audit",
+  "checked_at": "2026-10-10",
+  "package_path": "/tmp/MacBot-Server-screen-input-7189395-20261010.pkg",
+  "package_bytes": 15990037,
+  "package_sha256": {
+    "expected": "fb3979483ceb8418ab5a60627e30cb8481da0c5ff83534c5185d9287bec57187",
+    "actual": "fb3979483ceb8418ab5a60627e30cb8481da0c5ff83534c5185d9287bec57187",
+    "match": true
+  },
+  "expanded_path": "/tmp/macbot-integrator-7189395-expanded-20261010-0430",
+  "source": {
+    "expected_commit": "7189395802e38174dd3f2c7196eff3bc35751cf6",
+    "source_commit_txt": "7189395802e38174dd3f2c7196eff3bc35751cf6",
+    "build_info_commit": "7189395802e38174dd3f2c7196eff3bc35751cf6",
+    "info_plist_commit": "7189395802e38174dd3f2c7196eff3bc35751cf6",
+    "dirty": false,
+    "commit_match": true
+  },
+  "binaries": {
+    "macbotd": {
+      "expected_sha256": "6dd44219e15ddcdf91ad0c7e14a3ce1df470756569dd97e32f95112a35ac8d57",
+      "actual_sha256": "6dd44219e15ddcdf91ad0c7e14a3ce1df470756569dd97e32f95112a35ac8d57",
+      "match": true
+    },
+    "agent_browser": {
+      "expected_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "actual_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+      "match": true
+    }
+  },
+  "build_info": {
+    "version": "0.1.0",
+    "source_dirty": false,
+    "macbotd_sha256_matches": true,
+    "agent_browser_sha256_matches": true
+  },
+  "package_metadata": {
+    "identifier": "com.macbot.server",
+    "version": "0.1.0",
+    "payload_files": 29,
+    "install_location": "/",
+    "postinstall_script": true,
+    "launchagent_label": "com.macbot.server",
+    "run_at_load": true,
+    "keep_alive": true,
+    "environment_keys": [
+      "MACBOT_HOME"
+    ],
+    "default_secret_backend": "Keychain; package does not embed a secret backend override",
+    "pkg_signature": "unsigned per pkgutil --check-signature",
+    "argv_recorded": false
+  },
+  "owner_report": {
+    "path": "/tmp/macbot-screen-input-package-check-20261010.json",
+    "release_payload_input_pass": true,
+    "low_evidence": "/tmp/macbot-screen-input-20261010f/evidence/result.json",
+    "high_evidence": "/tmp/macbot-screen-input-20261010g/evidence/result.json",
+    "independently_rerun_by_integrator": false
+  },
+  "verification_scope": {
+    "read_only_package_audit": true,
+    "installed": false,
+    "payload_executed": false,
+    "runtime_pid_recorded": false,
+    "fresh_install_passed": false,
+    "full_s5_pass": false,
+    "credentials_read": false,
+    "notes": [
+      "Package hash, source stamps, dirty=false metadata, daemon hash, and official arm64 sidecar hash all match the supplied release values.",
+      "Owner screen-input payload result is retained as owner evidence and was not rerun by this audit.",
+      "This candidate audit does not establish installation, LaunchAgent activation, runtime health, screen behavior, or S2/S4 acceptance."
+    ]
+  }
+}
