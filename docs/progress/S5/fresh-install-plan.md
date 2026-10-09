@@ -2,11 +2,11 @@
 
 状态：**未执行，不能计 S5 通过**。这是可逆操作计划，不是验收记录。
 
-当前停止条件：正式 d43 服务已隔离旧后台调用，两旧测试已通过精确 assignment.stop 收敛为 Cancelled；新 S2 仍有错误 project_id 的 memory 待审批及完整协作验收未闭环，Mac `screen_locked=1`；原生截图和输入不可验收。新的 S2 参数错误安全纠正、用户解锁 Mac、并确认最新 server ready/pkg 后，才允许卸载或重启。脚本是否存在不是业务验收硬前置；没有统一编排脚本时可以人工执行并保存命令、输出、PID、哈希和截图。
+当前停止条件：正式服务为 `7189395`，Android 通知修复 `cac5b12` 已同签名更新；S2 产物链仍未闭环，第二群错误 chat_id 被接受的校验补丁待交付，相关未知审批保持不批准；Mac `screen_locked=1`，桌面原生截图和输入不可验收。先保留 S2 现场、完成参数纠错和用户解锁，再按最新固定 ready/pkg 开始本全新安装演练。脚本是否存在不是验收硬前置；可以人工执行并保存命令、输出、PID、哈希和截图。
 
 ## 前置条件与路径
 
-- server 必须交付最新 ready 完整 SHA、`.pkg`、`source-commit.txt`、`build-info.json`、`dirty=false`、daemon/sidecar SHA。当前 d43a2bbb88c6dbf1e0d4f9fd4121f6e5cb60b8da pkg 仅完成候选审计，SHA-256 为 `497c2af125920bd819a71a66cf0e05d34c050c86323156d2c0653c42d2a6420f`，证据见 [server-pkg-d43a2bb-verified.json](server-pkg-d43a2bb-verified.json)；后台修复已包含，但后续 memory 目标校验 ready 仍须交付并复验。
+- server 必须交付最新 ready 完整 SHA、`.pkg`、`source-commit.txt`、`build-info.json`、`dirty=false`、daemon/sidecar SHA。当前 `7189395802e38174dd3f2c7196eff3bc35751cf6` pkg 已完成候选审计，SHA-256 为 `fb3979483ceb8418ab5a60627e30cb8481da0c5ff83534c5185d9287bec57187`，见 [server-pkg-7189395-verified.json](server-pkg-7189395-verified.json)；后续 S2 未知 chat 目标校验补丁须从归属线取得固定 ready 和匹配包。
 - client-mac 必须交付正式 `.dmg`，通过 source/binary SHA、DMG SHA、`codesign --verify --deep --strict` 和 `hdiutil` 校验。
 - client-android 必须交付签名 Release APK；只允许同签名 `adb install -r`，不卸载、不清空现有数据。
 - PLAN 第 6 章 S5 权威顺序是 `pkg → 设置密码 → 两端连接 → 完整场景`（`docs/PLAN.md:524-531`）；服务端安装见 `server/README.md:60-97`，桌面 DMG 见 `clients/mac/README.md:37-52`。

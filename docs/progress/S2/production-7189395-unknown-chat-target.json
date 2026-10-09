@@ -1,0 +1,171 @@
+{
+  "trace": {
+    "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+    "run_id": "run_01a1226e-358b-73fd-b672-c1cc02f56192",
+    "has_more_before": false,
+    "run_item_count": 28,
+    "selected": [
+      {
+        "type": "tool.start",
+        "aseq": 4,
+        "run_id": "run_01a1226e-358b-73fd-b672-c1cc02f56192",
+        "at": "2026-10-09T20:50:27.486Z",
+        "data_name": "send_msg",
+        "call_id": "call_function_rjjhjc9sz63n_1",
+        "args_keys": [
+          "artifacts",
+          "chat_id",
+          "intent",
+          "mentions",
+          "text"
+        ],
+        "args_chat_id": "01a12236-b308-7080-9877-6fc078239999",
+        "details_keys": null,
+        "is_error": null,
+        "result_keys": null
+      },
+      {
+        "type": "tool.start",
+        "aseq": 8,
+        "run_id": "run_01a1226e-358b-73fd-b672-c1cc02f56192",
+        "at": "2026-10-09T20:50:33.531Z",
+        "data_name": "send_msg",
+        "call_id": "call_function_6xulsedc19lz_1",
+        "args_keys": [
+          "artifacts",
+          "chat_id",
+          "intent",
+          "mentions",
+          "text",
+          "title"
+        ],
+        "args_chat_id": "01a12236-b308-7080-9877-6fc078239999",
+        "details_keys": null,
+        "is_error": null,
+        "result_keys": null
+      },
+      {
+        "type": "tool.start",
+        "aseq": 12,
+        "run_id": "run_01a1226e-358b-73fd-b672-c1cc02f56192",
+        "at": "2026-10-09T20:50:42.104Z",
+        "data_name": "send_msg",
+        "call_id": "call_function_ud4evoavg7x8_1",
+        "args_keys": [
+          "chat_id",
+          "intent",
+          "mentions",
+          "text"
+        ],
+        "args_chat_id": "01a12236-b308-7080-9877-6fc078239999",
+        "details_keys": null,
+        "is_error": null,
+        "result_keys": null
+      },
+      {
+        "type": "send_msg",
+        "aseq": 13,
+        "run_id": "run_01a1226e-358b-73fd-b672-c1cc02f56192",
+        "at": "2026-10-09T20:50:44.726Z",
+        "data_name": null,
+        "call_id": "call_function_ud4evoavg7x8_1",
+        "args_keys": null,
+        "args_chat_id": null,
+        "details_keys": null,
+        "is_error": null,
+        "result_keys": null
+      },
+      {
+        "type": "tool.start",
+        "aseq": 18,
+        "run_id": "run_01a1226e-358b-73fd-b672-c1cc02f56192",
+        "at": "2026-10-09T20:51:04.026Z",
+        "data_name": "send_msg",
+        "call_id": "call_function_i3fjnfzv0hca_1",
+        "args_keys": [
+          "chat_id",
+          "intent",
+          "text"
+        ],
+        "args_chat_id": "01a12236-b308-7080-9877-6fc078239999",
+        "details_keys": null,
+        "is_error": null,
+        "result_keys": null
+      },
+      {
+        "type": "tool.start",
+        "aseq": 24,
+        "run_id": "run_01a1226e-358b-73fd-b672-c1cc02f56192",
+        "at": "2026-10-09T20:51:23.269Z",
+        "data_name": "send_msg",
+        "call_id": "call_function_ygywol4i0qnm_1",
+        "args_keys": [
+          "chat_id",
+          "intent",
+          "mentions",
+          "text"
+        ],
+        "args_chat_id": "01a12236-b308-7080-9877-6fc078239999",
+        "details_keys": null,
+        "is_error": null,
+        "result_keys": null
+      }
+    ]
+  },
+  "assignment": {
+    "id": "01a1226e-b853-70de-b697-f728cc24eace",
+    "project_id": null,
+    "origin_chat_id": "01a12236-b308-7080-9877-6fc078239999",
+    "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+    "status": "waiting_user",
+    "parent_assignment_id": null,
+    "trigger_message_id": "01a1226e-b853-70de-b697-f727456a65ca",
+    "from": {
+      "bot_id": "main",
+      "kind": "bot"
+    },
+    "started_at": "2026-10-09T20:50:43.923701+00:00",
+    "finished_at": null,
+    "result_message_id": null
+  },
+  "chat_list": {
+    "target_project_id": "01a12236-b308-7080-9877-6fc078239999",
+    "target_exists": false,
+    "matching_count": 0,
+    "total_count": 21
+  },
+  "run_request": {
+    "run_id": "run_01a1226e-358b-73fd-b672-c1cc02f56192",
+    "assignment_id": null,
+    "project_id": "01a12236-b308-7080-9877-6fc078239999",
+    "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+    "cwd": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c",
+    "bot_id": "main",
+    "parent_run_id": null
+  },
+  "health": {
+    "version": "0.1.0",
+    "protocol": 1
+  },
+  "source": "formal 7788 read-only; no mutation",
+  "selected_call_relation": [
+    {
+      "type": "tool.start",
+      "aseq": 12,
+      "call_id": "call_function_ud4evoavg7x8_1"
+    },
+    {
+      "type": "send_msg",
+      "aseq": 13,
+      "call_id": "call_function_ud4evoavg7x8_1",
+      "message_id": "01a1226e-b853-70de-b697-f727456a65ca",
+      "chat_id": "01a12236-b308-7080-9877-6fc078239999",
+      "intent": "progress"
+    }
+  ],
+  "server_source_commit": "7189395802e38174dd3f2c7196eff3bc35751cf6",
+  "observed_at": "2026-10-09T21:11:35.143541+00:00",
+  "status": "CONFIRMED_INVALID_TARGET_ACCEPTED",
+  "full_s2_pass": false,
+  "mutations_performed": false
+}

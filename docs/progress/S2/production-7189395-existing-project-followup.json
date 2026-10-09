@@ -1,0 +1,198 @@
+{
+  "version": 1,
+  "created_at": "2026-10-09T20:50:04.388374Z",
+  "project_ids": [
+    "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+    "01a12236-b308-7080-9877-6fc078239999"
+  ],
+  "markers": [
+    "macbot-e2e-s2-followup-d049cacfb8b3",
+    "macbot-e2e-s2-followup-55f1a21f1fcc"
+  ],
+  "requests": [
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "marker": "macbot-e2e-s2-followup-d049cacfb8b3",
+      "kind": "followup_request",
+      "client_request_id": "29e9173d-6301-45b1-8e4a-f7f8520af1c7",
+      "status": "sent",
+      "created_at": "2026-10-09T20:50:08.581311Z",
+      "message_id": "01a1226e-2e62-7007-b384-e095b71d82c4",
+      "seq": 34,
+      "message_created_at": "2026-10-09T20:50:08.610776+00:00"
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "marker": "macbot-e2e-s2-followup-55f1a21f1fcc",
+      "kind": "followup_request",
+      "client_request_id": "dd7f7cb2-50a8-49ab-bd5c-78765f25e991",
+      "status": "sent",
+      "created_at": "2026-10-09T20:50:09.653076Z",
+      "message_id": "01a1226e-3299-70d1-9e50-ac931a86fc97",
+      "seq": 5,
+      "message_created_at": "2026-10-09T20:50:09.689849+00:00"
+    }
+  ],
+  "steers": [],
+  "approval_observations": [],
+  "observations": [
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "marker": "macbot-e2e-s2-followup-d049cacfb8b3",
+      "status": "active",
+      "assignments": [],
+      "main_marker_messages": [
+        "01a1226f-afa1-75a6-96e4-3ea3d1d875d9",
+        "01a12270-17ba-7694-b32d-c443586a1763"
+      ],
+      "coding_assignments": [],
+      "tester_assignments": [],
+      "question_message_ids": [],
+      "review_message_ids": [],
+      "completion_message_ids": [],
+      "trace": [],
+      "steers": [],
+      "home_files": [
+        {
+          "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/PRD.md",
+          "size": 1501,
+          "sha256": "b4bcf15559dc21021998ce9c2cb4729641de421796097196cc329e6052391455"
+        }
+      ]
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "marker": "macbot-e2e-s2-followup-55f1a21f1fcc",
+      "status": "active",
+      "assignments": [],
+      "main_marker_messages": [],
+      "coding_assignments": [],
+      "tester_assignments": [],
+      "question_message_ids": [],
+      "review_message_ids": [],
+      "completion_message_ids": [],
+      "trace": [],
+      "steers": [],
+      "home_files": [
+        {
+          "path": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/PRD.md",
+          "size": 1784,
+          "sha256": "4465e5e9d4e041ab9ae60f09e018a363e26033eac40b5c1aa959f61aed0544fa"
+        }
+      ]
+    }
+  ],
+  "full_s2_pass": false,
+  "role_ids": {
+    "产品": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+    "编码": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+    "测试": "01a120c6-2f8b-7045-aeb6-621e949e22ac"
+  },
+  "main_bot_id": "main",
+  "project_snapshots": [
+    {
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "home_path": "~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/",
+      "scope_marker": "macbot-e2e-s2-login-522c6b619b92",
+      "name": "macbot-e2e-s2-login-522c6b619b92-登录功能",
+      "goal": "完成本地邮箱登录 demo，目标必须包含 macbot-e2e-s2-login-522c6b619b92 和邮箱登录",
+      "status": "active",
+      "flow": [
+        "产品",
+        "编码",
+        "测试"
+      ],
+      "member_bot_ids": [
+        "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+        "main"
+      ],
+      "marker": "macbot-e2e-s2-followup-d049cacfb8b3",
+      "baseline_assignment_ids": [
+        "01a12236-9689-7737-b4fe-3abf79fd6f60",
+        "01a1223a-741e-74e6-aad1-e9c7d6517f29",
+        "01a12251-7d46-72ed-97d5-0e4092402b53",
+        "01a12252-2197-7703-9bdd-087b0ff8b80f",
+        "01a12252-9dca-7352-b125-9388c4db5163",
+        "01a12253-b420-7785-963e-8107e6e3e8e3",
+        "01a12253-f129-721e-9189-e7b76229330c",
+        "01a12255-3ffe-7095-a8f7-a03d407d6dfe"
+      ]
+    },
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+      "home_path": "~/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/",
+      "scope_marker": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+      "name": "macbot-e2e-s2-parallel-fc45ecd3b62c-并行官网改版",
+      "goal": "macbot-e2e-s2-parallel-fc45ecd3b62c 邮箱登录功能 - 本地 demo 实现",
+      "status": "active",
+      "flow": [
+        "产品: 编写本地 PRD",
+        "编码: 实现本地 demo",
+        "测试: 验证功能"
+      ],
+      "member_bot_ids": [
+        "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+        "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+        "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+        "main"
+      ],
+      "marker": "macbot-e2e-s2-followup-55f1a21f1fcc",
+      "baseline_assignment_ids": [
+        "01a12236-d7c0-74a2-be96-206ca2f855a3"
+      ]
+    }
+  ],
+  "updated_at": "2026-10-09T20:57:15.287648Z",
+  "status": "PARTIAL",
+  "main_run_ids": [
+    "run_01a1226e-3071-7306-9470-e608263c47d9",
+    "run_01a1226e-358b-73fd-b672-c1cc02f56192"
+  ],
+  "main_run_bindings": [
+    {
+      "run_id": "run_01a1226e-3071-7306-9470-e608263c47d9",
+      "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+      "assignment_id": null,
+      "canonical_message_id": "01a1226e-2e62-7007-b384-e095b71d82c4",
+      "canonical_seq": 34,
+      "instruction": {
+        "len": 521,
+        "sha256": "a24705c08c693829b905fbaa5fc0a3d899f8b2283835bf8ed5ef7f0c2c7b9e56"
+      },
+      "fallback_text": {
+        "len": 521,
+        "sha256": "a24705c08c693829b905fbaa5fc0a3d899f8b2283835bf8ed5ef7f0c2c7b9e56"
+      },
+      "knownText_markdown": {
+        "len": 521,
+        "sha256": "a24705c08c693829b905fbaa5fc0a3d899f8b2283835bf8ed5ef7f0c2c7b9e56"
+      },
+      "instruction_matches_fallback": true,
+      "instruction_matches_knownText": true,
+      "canonical_user_matches": true,
+      "trace_run_items": 48,
+      "assign_call_id": "call_function_nywz46kgi05n_1",
+      "assign_start_aseq": 12,
+      "assign_end_aseq": 13,
+      "root_assignment_id": "01a1226e-a78d-712e-83af-c438d45163e2"
+    }
+  ],
+  "main_root_assignment_ids": {
+    "01a12236-76c4-746c-a0e8-42ff0b8e79f5": [
+      "01a1226e-a78d-712e-83af-c438d45163e2"
+    ]
+  },
+  "main_binding_failures": [
+    {
+      "project_id": "01a12236-b308-7080-9877-6fc078239999",
+      "run_id": "run_01a1226e-358b-73fd-b672-c1cc02f56192",
+      "status": "STOP/PARTIAL",
+      "error_type": "FollowupStop"
+    }
+  ]
+}

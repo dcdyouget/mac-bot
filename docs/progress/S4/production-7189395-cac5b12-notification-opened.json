@@ -1,0 +1,19 @@
+{
+  "marker": "macbot-e2e-s4-schedule-e016e826f393",
+  "native_tap": true,
+  "source_notification_kind": "chat_message",
+  "app_marker_after_tap": false,
+  "notification_text_bounds": "[179,1284][891,1337]",
+  "full_s4_pass": false,
+  "expected_bot_id": "01a12227-e6b9-7276-96cb-98ab5185e1a5",
+  "expected_chat_id": "dm_01a12227-e6b9-7276-96cb-98ab5185e1a5",
+  "unique_bot_header_root_visual_match": true,
+  "marker_visible_after_native_scroll": true,
+  "manual_scroll_required": true,
+  "approval_actions_tested": false,
+  "android_source_commit": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "server_source_commit": "7189395802e38174dd3f2c7196eff3bc35751cf6",
+  "root_visual_marker_review": true,
+  "status": "PASS_LOCAL_MESSAGE_NOTIFICATION_OPEN",
+  "screenshot": "docs/progress/S4/production-7189395-cac5b12-notification-opened.png"
+}

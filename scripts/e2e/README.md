@@ -42,7 +42,6 @@ python3 scripts/e2e/s2/login_feature.py --product-bot-id <id> --coding-bot-id <i
 # 在两个已有项目群继续执行（不会 project.create、回答旧问题或 confirm_done）；先只做静态检查，真实运行需单独授权
 python3 scripts/e2e/s2/project_followup.py --project-id <project1> --project-id <project2> \
   --product-bot-id <product_id> --coding-bot-id <coding_id> --test-bot-id <test_id> \
-  --main-run-id <main_run_for_project1> --main-run-id <main_run_for_project2> \
   --journal docs/progress/S2/<unique-followup>.json --json
 # 未完成的 follow-up 只能用同一 journal 恢复；未知 chat.send 结果会停止且绝不重发
 python3 scripts/e2e/s2/project_followup.py --project-id <project1> --project-id <project2> \
@@ -50,8 +49,12 @@ python3 scripts/e2e/s2/project_followup.py --project-id <project1> --project-id 
   --main-run-id <main_run_for_project1> --main-run-id <main_run_for_project2> \
   --resume-journal docs/progress/S2/<unique-followup>.json --json
 
+```
+
 `--main-run-id` 是可选的严格绑定增强；提供时必须是两个项目各自已验证的精确本机 `run_requests/run_*.json` ID。未提供时保留 canonical request 的严格 trigger/parent 图，后续可在 resume 时补入 run ID。脚本只接受
 `bot_id=main`、`assignment_id=null` 且 request instruction 与唯一 canonical user fallback/knownText 完全相等的 run；再由同 chat trace 的 `assign` tool.end 精确绑定新 root assignment。缺少 assign（例如并行项目没有新派发）会 STOP/PARTIAL，不按时间或邻接消息猜测归属。
+
+```sh
 python3 scripts/e2e/s3/skills_usage_search.py --bot-id <non_main_bot_id>
 python3 scripts/e2e/s4/routines_browser.py --url http://127.0.0.1:7788 --bot-id <bot_id>
 # S4 scheduler: creates a near-future cron, waits for trigger=schedule and done;
