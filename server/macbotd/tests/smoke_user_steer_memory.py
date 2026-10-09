@@ -389,6 +389,17 @@ def run_memory(base: str, password: str, worker: dict[str, Any], project: dict[s
     assert not any(item.get("assignment_id") == assignment_id
         and json.loads(item.get("detail", "{}" )).get("kind") == "project_status" for item in before), before
     wait_until(lambda: any(item.get("type") == "tool.start" and item.get("data", {}).get("call_id") == "memory-corrected" for item in traces(base, password, assignment_id)), "corrected project memory call", 30)
+    # tool.start precedes approval persistence.  Wait for the exact corrected
+    # call's approval or successful result instead of racing a single list read.
+    def corrected_call_ready() -> bool:
+        pending = rpc(base, password, "approval.list", {}).get("approvals", [])
+        return any(item.get("assignment_id") == assignment_id and item.get("state") == "pending" for item in pending) or any(
+            item.get("type") == "tool.end"
+            and item.get("data", {}).get("call_id") == "memory-corrected"
+            for item in traces(base, password, assignment_id)
+        )
+
+    wait_until(corrected_call_ready, "corrected memory approval or result", 30)
     # A future policy may gate the corrected write; if so, approve only this
     # exact corrected call.  The invalid project_status call is never approved.
     approvals = [item for item in rpc(base, password, "approval.list", {}).get("approvals", []) if item.get("assignment_id") == assignment_id and item.get("state") == "pending"]
