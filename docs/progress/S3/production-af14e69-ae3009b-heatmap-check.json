@@ -1,0 +1,74 @@
+{
+  "scenario": "S3 usage heatmap read-only diagnosis",
+  "status": "PARTIAL_DIAGNOSIS",
+  "source_commit": "af14e6952aa8acdaf0ea943bc13e72340368da40",
+  "service": {
+    "url": "http://127.0.0.1:7788",
+    "timezone": "Asia/Shanghai",
+    "mock": false
+  },
+  "protocol": {
+    "source": "docs/PROTOCOL.md:659-660",
+    "calendar_input": {
+      "mode": "calendar",
+      "metric": "tokens",
+      "from": "2025-10-04T13:59:48Z",
+      "to": "2026-10-09T13:59:48Z"
+    },
+    "calendar_semantics": "days use DateStr; thresholds are [number, number, number]",
+    "weekhour_semantics": "matrix is 7x24 with Monday first"
+  },
+  "api": {
+    "usage_summary_current": {
+      "cache_read_tokens": 46945,
+      "cache_write_tokens": 0,
+      "input_tokens": 192077,
+      "output_tokens": 11781,
+      "requests": 60,
+      "tasks_done": 0,
+      "cost": null
+    },
+    "usage_summary_previous": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "requests": 0,
+      "tasks_done": 0,
+      "cost": null
+    },
+    "calendar": {
+      "days_count": 371,
+      "first_date": "2025-10-04",
+      "last_date": "2026-10-09",
+      "nonzero_days": 1,
+      "thresholds": [
+        203858.0,
+        203858.0,
+        203858.0
+      ],
+      "nonzero_cells": [
+        {
+          "date": "2026-10-09",
+          "value": 203858.0,
+          "tokens": 203858,
+          "requests": 60,
+          "top_bot_id": "main"
+        }
+      ]
+    },
+    "weekhour": {
+      "nonzero_cells": 3
+    }
+  },
+  "source_review": {
+    "client_calendar_range": "clients/mac/crates/macbot-desktop/src/features.rs:1273-1283 and 1502-1510 use Utc::now() minus 370 days through Utc::now()",
+    "client_date_alignment": "clients/mac/crates/macbot-desktop/src/features.rs:2339-2345 parses the first DateStr and aligns Monday-first columns; day cells use the server date field at 2439-2447",
+    "client_color_mapping": "clients/mac/crates/macbot-desktop/src/features.rs:2537-2549 maps zero to tokens.bot and nonzero values <= thresholds[0] to tokens.sidebar",
+    "installed_dark_tokens": "clients/mac/crates/macbot-desktop/src/tokens.rs:27-28 defines sidebar #232325 and bot #2c2c2e in dark mode",
+    "server_timezone_mapping": "server/crates/macbot-usage/src/lib.rs:213-215 parses host timezone; 245-258 maps records to local DateStr; 232-241 computes weekhour with the same timezone",
+    "server_test": "server/crates/macbot-usage/src/lib.rs:782-800 verifies Asia/Shanghai date conversion"
+  },
+  "conclusion": "The API has one nonzero calendar day (2026-10-09) and its totals match the dashboard summary. No evidence of a UTC/date off-by-one was found. With one nonzero value, all three thresholds collapse to 203858; the installed renderer therefore assigns the nonzero cell the sidebar gray palette, adjacent to the zero bot gray palette. The all-gray screenshot remains a UI visual boundary condition, not an API data failure or a proven client bug.",
+  "boundary": "Keep the gray heatmap visual pending an independent UI review; this artifact does not claim screenshot PASS."
+}

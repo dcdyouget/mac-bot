@@ -1,0 +1,26 @@
+{
+  "scenario": "S3 native skill partial",
+  "status": "INCOMPLETE",
+  "server_source_commit": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "desktop_source_commit": "af14e6952aa8acdaf0ea943bc13e72340368da40",
+  "name": "integrator-native-ae3009b",
+  "source": "user",
+  "content_sha256": "e933d68cc63bff31eef254c6d60f1ac3a7316e108a46743eeba323e1300e545d",
+  "v1_in_saved_content": true,
+  "v2_in_saved_content": false,
+  "native_create_verified": true,
+  "native_update_verified": false,
+  "native_delete_not_tested": true,
+  "screenshot": "20261009-220204-desktop.png",
+  "limitation": "Save is below visible viewport; CUA coordinate/scroll fails. AX Save returned no observable change; owner asked for read-only input binding check. Test skill kept pending diagnosis.",
+  "cleanup": {
+    "enabled": false,
+    "method": "skill.set_enabled RPC",
+    "content_retained_for_reproduction": true
+  },
+  "owner_readonly_findings": {
+    "save_uses_live_content_input": true,
+    "save_below_outer_scroll_viewport": true,
+    "confirmed_product_defect": false
+  }
+}

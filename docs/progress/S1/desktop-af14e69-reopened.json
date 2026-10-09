@@ -1,0 +1,15 @@
+{
+  "scenario": "Desktop purposeful quit/reopen and formal history",
+  "status": "PARTIAL_PASS",
+  "desktop_source_commit": "af14e6952aa8acdaf0ea943bc13e72340368da40",
+  "server_source_commit": "ae3009b412be7d1f643c12733a4a15f332afec72",
+  "previous_pid": 49240,
+  "exit": "User-task authorized native menu Quit; no crash inference",
+  "current_pid": 83525,
+  "formal_auto_connected": true,
+  "selected_chat": "dm_01a120ad-9b0b-7778-a47c-994249264e05",
+  "known_history_readable": true,
+  "scope": "Developer-installed app only; not S5 release/fresh installation or Android acceptance.",
+  "window_id": 57993,
+  "screenshot": "docs/progress/S1/20261009-220707-desktop.png"
+}

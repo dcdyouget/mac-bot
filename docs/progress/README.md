@@ -4,7 +4,7 @@
 
 ## 现在的状态
 
-正式服务 `ae3009b` 已从固定干净 archive 部署到 `7788`（PID `63443`），MiniMax-M2.5 沿用本机 file backend。桌面 `af14e69`（PID `49240`）已实际显示修复后的旧消息和新只读回复；Computer 本地页面绘制、接管/交还和低画质尺寸已复验。Android 签名 Release `80d8a42` 与共享 mock `11bc831` 保持；Android 正式 UI 仍受 CUA Qt 绑定限制，替代操作等待用户回应。持续部署保留 UI 验证 hold，避免中断现场。
+正式服务 `ae3009b` 已从固定干净 archive 部署到 `7788`（PID `63443`），MiniMax-M2.5 沿用本机 file backend。桌面 `af14e69`（当前 PID `83525`；主动退出重开，先前截图 PID `49240`）已实际显示修复后的旧消息和新只读回复；Computer 本地页面绘制、接管/交还和低画质尺寸已复验。Android 签名 Release `80d8a42` 与共享 mock `11bc831` 保持；Android 正式 UI 仍受 CUA Qt 绑定限制，替代操作等待用户回应。持续部署保留 UI 验证 hold，避免中断现场。
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|
@@ -21,7 +21,7 @@ Android [交回记录](S5/android-80d8a42-handoff.json)与[24份归属线截图/
 
 当前阻断：S2 新请求已建项目并成功调用 `create_project/assign`，但主会话完整增量历史没有 `project_card`，项目 `flow=[]`；[取证](S2/production-ae3009b-login-scene-partial.json)已交 server-mac，服务端已确认缺少持久项目卡路径，正补工具 schema 的流程/成员校验；HTTP flow 字段允许省略，但完整场景仍要求正确流程。脚本新增 `--resume-partial`，恢复时核对原 request ID/seq/角色 ID，不重复发送；旧审批只按本次唯一 marker 匹配，原 9e 待审批不影响新请求。Android 正式 Host 操作等待 CUA 替代方式回应；桌面 canvas 坐标点击/滚动遭 CUA `windowNotFoundAtPosition`，实际键鼠输入尚未验收。S5 尚未做全新安装。
 
-最新 `ae3009b` 证据：[实际部署来源](S1/server-ae3009b-deployed.json)、[旧6消息原 ID/seq/时间戳与文字恢复](S1/production-ae3009b-history-repaired.json)、[新 write/read/bash 与已知 Markdown](S1/production-ae3009b-private-chat.json)、[原生只读消息与 trace](S1/production-af14e69-ae3009b-native-read.json)、[文字截图](S1/20261009-214932-desktop.png)、[同连接接管/交还与低画质](S4/production-ae3009b-screen-transport.json)、[桌面 Computer 专项](S4/production-af14e69-ae3009b-native-computer.json)、[包来源与哈希](S5/server-pkg-ae3009b-verified.json)。首次 browser 工具结束后即读到流式占位的记录保留为 early snapshot incomplete，[最终只读复核](S4/production-ae3009b-browser-final.json)已确认文字和 URL。API、桌面专项和候选包校验均不替代真实双端整体验收。
+最新 `ae3009b` 证据：[实际部署来源](S1/server-ae3009b-deployed.json)、[旧6消息原 ID/seq/时间戳与文字恢复](S1/production-ae3009b-history-repaired.json)、[新 write/read/bash 与已知 Markdown](S1/production-ae3009b-private-chat.json)、[原生只读消息与 trace](S1/production-af14e69-ae3009b-native-read.json)、[文字截图](S1/20261009-214932-desktop.png)、[同连接接管/交还与低画质](S4/production-ae3009b-screen-transport.json)、[桌面 Computer 专项](S4/production-af14e69-ae3009b-native-computer.json)、[包来源与哈希](S5/server-pkg-ae3009b-verified.json)。首次 browser 工具结束后即读到流式占位的记录保留为 early snapshot incomplete，[最终只读复核](S4/production-ae3009b-browser-final.json)已确认文字和 URL。API、桌面专项和候选包校验均不替代真实双端整体验收。最新[桌面摘要](S3/production-af14e69-ae3009b-dashboard-summary.json)与同range RPC一致；[heatmap只读核查](S3/production-af14e69-ae3009b-heatmap-check.json)有Oct9非零数据，不以灰图推断数据缺失。[原生技能新建](S3/production-af14e69-ae3009b-native-skill.json)已落盘，保存按钮在页底，工具滚动限制使修改尚未触发；源码未确认误绑，样例已停用保留复现。
 
 `9e70`最新证据：[write/read/bash、seq1→2和 after_seq](S1/production-9e70d88-private-chat.json)、[2178→5282 同 run 恢复](S1/production-9e70d88-recovery.json)、[pending 与 Workbench 一致](S1/production-9e70d88-workbench.json)、[技能/用量/搜索/跨 DM 偏好](S3/production-9e70d88-api.json)、[偏好实际落盘](S3/production-9e70d88-memory-persisted.json)、[真实 schedule 与 canonical 结果 ID](S4/production-9e70d88-scheduled-routine.json)、[接管 RPC 成功但 driver 广播超时](S4/production-9e70d88-takeover-api.json)。这些是 API 或专项证据，均不替代双端 UI 和完整场景。
 
