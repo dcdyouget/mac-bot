@@ -185,3 +185,9 @@
 - 最新af Release DMG由client提供，集成独立hash/source/hdiutil VALID、readonly/noautoopen实际挂载载荷/Applications链接核对一致并detach；S5/desktop-dmg-af14e69-candidate.json。尚未release实装或fresh install；9e pkg只读载荷证据同样不计S5通过。
 - 21:20 AVD WiFi未关联/无route是真实，cmd wifi重连已恢复，未重启/安装/清空App。随后临时printf|nc立即EOF的无响应是假失败，flush保留250ms两port各6/6 HTTP200；S5/android-network-20261009-2120.json区分真实失联和临时probe race。原status已有250ms延迟，本次仅加强no-route/TCP/HTTP分层和超时进程组清理，不误称新加延迟修了既有status。Android正式UI仍等用户替代操作回应，未用端口probe代替两端连接验收。
 - 新scripts/e2e/s4/browser_fixture.py仅127.0.0.1:52200、stdlib、本地动画+普通文本提交回显，无外部请求/账号/持久化，供随后CUA真实Computer点击/键盘核验；不证明外部网页登录/通知。旧52199动画现场保留，当前二者都为集成自有服务。
+
+### server-mac 累计文字、画面和主 Bot 协调修复（2026-10-09）
+- 修复重复 normalization 清空 known text：旧历史、user/placeholder/final 与 durable event 保留实际 Markdown，原 message ID/seq 不变。三轮 live fake-provider + restart 严格校验 text.markdown 与 fallback_text 一致。
+- 真实 sidecar screen 持续发布接管状态；同 WS bot→user→bot、low JPEG≤640、header 实际 URL/尺寸、缩放后的点击与键盘输入通过本机 Chrome 页面验证。
+- 默认 create_project/assign/delegate 等协调工具不触发通用副作用审批；auto_create_project=false 与显式 ask_first 保留用户确认，finish_project 不将 review 自动当成用户确认，文件/Bash/browser/subagent 审批保持。
+- 验证：clean release rebased gateway 120 tests、workspace all-targets clippy -D warnings；/tmp/macbot-final-text-blocks-20261009a.evidence.log、/tmp/macbot-final-screen-clean-20261009a.evidence.log、/tmp/macbot-policy-smoke-20261009-gate-3（60 provider calls）。未操作共享 7788/7789，完整双端联合验收由 integrator 消费固定 main 进行。
