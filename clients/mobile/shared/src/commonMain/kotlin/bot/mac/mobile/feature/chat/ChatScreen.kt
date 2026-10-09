@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -167,6 +168,11 @@ fun ChatScreen(
                 chat?.str("project_id")?.takeIf { it.isNotBlank() }?.let { projectId ->
                     Text("ⓘ", Modifier.padding(8.dp))
                     IconButton(onClick = { onOpenProject(projectId) }) { Text("›") }
+                }
+                if (chat?.str("kind") in setOf("main", "direct")) {
+                    TextButton(onClick = { onOpenTrace(null, chatId) }) {
+                        Text(stringResource(Res.string.feature_trace))
+                    }
                 }
                 IconButton(onClick = { onOpenHistory(chatId) }) { Text("↺") }
             }
