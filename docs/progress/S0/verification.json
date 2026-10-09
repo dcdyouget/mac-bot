@@ -1,0 +1,44 @@
+{
+  "at": "2026-10-09T07:18:00.099253+00:00",
+  "source_main": "b1ba8f9952f2ecb57fa073a231f177b433ed1ff8",
+  "stage": "S0",
+  "acceptance": "blocked",
+  "reason": "No runnable server/desktop/Android components merged into main",
+  "deploy": {
+    "exit": 0,
+    "server": "skipped: no Cargo.toml",
+    "desktop": "skipped: no Cargo.toml/package script",
+    "android": "skipped: no Gradle project"
+  },
+  "mock": {
+    "exit": 2,
+    "status": "skipped: no server source"
+  },
+  "s0_bootstrap": {
+    "exit": 1,
+    "status": "connection refused on 127.0.0.1:7789"
+  },
+  "android_avd": {
+    "name": "macbot_api36",
+    "serial": "emulator-5554",
+    "state": "running",
+    "package": "not installed"
+  },
+  "screenshots": [],
+  "script_checks": [
+    "Bash syntax",
+    "Python compilation",
+    "S0 fake HTTP authentication/bootstrap",
+    "Production scenarios reject mock port"
+  ],
+  "minimax": {
+    "models_http": 200,
+    "api_kind": "anthropic-messages",
+    "base_url": "https://api.minimax.cn/anthropic",
+    "model": "MiniMax-M2.5",
+    "upstream_text": "passed",
+    "host_provider": "waiting for deployed server",
+    "credential_store": "login Keychain"
+  },
+  "deployment_logs": "~/Library/Caches/MacBot/integrator/watch/"
+}
