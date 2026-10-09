@@ -1,6 +1,6 @@
 # Mac Bot 客户端 ↔ 服务端协议 v1
 
-> **本文是协议的唯一权威来源**，四条开发线（server-mac、client-mac、client-android、client-ios）共同遵守。
+> **本文是协议的唯一权威来源**，所有开发线（v1：server-mac、client-mac、client-android）共同遵守。字段里保留了 iOS 相关的取值（如 `platform: "ios"`），供以后使用。
 > - 机器可读的定义由 server-mac 从 `protocol/rust` 导出到 `protocol/schema/`，必须与本文一致；两者冲突时以本文为准，并修正 schema。
 > - 修改协议走 AGENTS.md 第 3 节的流程。
 > - 下面的类型用 TypeScript 语法描述：`?` 表示可以省略，`| null` 表示值可以为 null。JSON 字段名一律为 `snake_case`。
