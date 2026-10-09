@@ -1,5 +1,7 @@
 //! Provider adapters. Credentials are resolved only at the HTTP boundary.
 pub mod registry;
+pub mod secrets;
+pub use secrets::{configured_secret_store, FileSecrets};
 
 use async_trait::async_trait;
 use eventsource_stream::Eventsource;
@@ -1031,6 +1033,75 @@ mod tests {
             secrets,
         );
         assert_eq!(provider.models().await.unwrap()[0]["id"], "fake-model");
+        server.abort();
+    }
+    #[tokio::test]
+    async fn anthropic_stream_uses_versioned_route_and_retains_signed_tool_context() {
+        use axum::{routing::post, Router};
+        let app = Router::new().route(
+            "/anthropic/v1/messages",
+            post(|headers: axum::http::HeaderMap, axum::Json(body): axum::Json<Value>| async move {
+                assert_eq!(headers["x-api-key"], "test-only");
+                assert_eq!(headers["anthropic-version"], "2023-06-01");
+                assert_eq!(body["model"], "fake/model");
+                assert_eq!(body["stream"], true);
+                let events = [
+                    json!({"type":"message_start","message":{"usage":{"input_tokens":4,"cache_read_input_tokens":2}}}),
+                    json!({"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}),
+                    json!({"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan"}}),
+                    json!({"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"fake-signature"}}),
+                    json!({"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call-1","name":"read","input":{}}}),
+                    json!({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"README.md\"}"}}),
+                    json!({"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":3}}),
+                    json!({"type":"message_stop"}),
+                ];
+                let sse = events.iter().map(|event| format!("data: {event}\n\n")).collect::<String>();
+                ([("content-type", "text/event-stream")], sse)
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let secrets = Arc::new(MemorySecrets::default());
+        secrets.set("p", "test-only").unwrap();
+        for suffix in ["/anthropic", "/anthropic/v1/"] {
+            let provider = HttpProvider::new(
+                ProviderConfig {
+                    id: "p".into(),
+                    name: "fake".into(),
+                    api_kind: ApiKind::AnthropicMessages,
+                    base_url: format!("http://{addr}{suffix}"),
+                    headers: BTreeMap::new(),
+                },
+                secrets.clone(),
+            );
+            let result = provider.test("fake/model").await.unwrap();
+            assert_eq!(result.usage.input_tokens, 6);
+            assert_eq!(result.usage.cache_read_tokens, 2);
+            assert_eq!(result.usage.output_tokens, 3);
+            assert_eq!(result.tool_calls[0].args, json!({"path":"README.md"}));
+            assert_eq!(
+                result.assistant_content.as_ref().unwrap()["content"][0]["signature"],
+                "fake-signature"
+            );
+            let (_, body) = wire_request(
+                ApiKind::AnthropicMessages,
+                &ModelRequest {
+                    model: "fake/model".into(),
+                    messages: vec![
+                        json!({"role":"assistant","assistant_content":result.assistant_content}),
+                        json!({"role":"tool","tool_call_id":"call-1","content":"file contents"}),
+                    ],
+                    max_output: 16,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(
+                body["messages"][0]["content"][0]["signature"],
+                "fake-signature"
+            );
+            assert_eq!(body["messages"][1]["content"][0]["tool_use_id"], "call-1");
+        }
         server.abort();
     }
     #[tokio::test]
