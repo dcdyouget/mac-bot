@@ -334,7 +334,18 @@ fn canonicalize_with_missing_tail(path: &Path) -> io::Result<PathBuf> {
                 }
                 return Ok(canonical);
             }
-            Err(error) if fs::symlink_metadata(&probe).is_err() => {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                match fs::symlink_metadata(&probe) {
+                    // Another writer may create an ordinary ancestor between
+                    // canonicalize and metadata. Retry instead of turning a
+                    // valid concurrent first append into an ENOENT failure.
+                    Ok(metadata) if !metadata.file_type().is_symlink() => continue,
+                    Ok(_) => return Err(error), // A dangling symlink is not a missing tail.
+                    Err(metadata_error) if metadata_error.kind() != io::ErrorKind::NotFound => {
+                        return Err(metadata_error);
+                    }
+                    Err(_) => {}
+                }
                 let Some(name) = probe.file_name() else {
                     return Err(error);
                 };
@@ -403,9 +414,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
         let mut threads = Vec::new();
+        let barrier = Arc::new(std::sync::Barrier::new(8));
         for index in 0..8 {
             let store = store.clone();
+            let barrier = barrier.clone();
             threads.push(std::thread::spawn(move || {
+                barrier.wait();
                 (0..16)
                     .map(|offset| {
                         store
