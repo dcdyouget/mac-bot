@@ -1,0 +1,9 @@
+{
+  "source_commit": "40ca95e9e3e5758e53233b77d6cf91938f817791",
+  "bytes": 12083424,
+  "sha256": "4ec28be35919953e9e7c68635fbcf8ee78f14a13d5b73a83d3747629aec61f5e",
+  "result": "clean archive release build passed, staged only, not started",
+  "log": "~/Library/Caches/MacBot/integrator/watch/server-stage-40ca95e.log",
+  "shared_mock": "11bc831/PID66750 unchanged",
+  "production_provider": "disabled"
+}
