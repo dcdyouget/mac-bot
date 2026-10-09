@@ -4,12 +4,7 @@
 use crate::{Error, Result, SecretStore};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::{
-    fs,
-    io::Write,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{fs, io::Write, path::PathBuf, sync::Arc};
 
 pub struct FileSecrets {
     directory: PathBuf,

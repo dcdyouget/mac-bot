@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{Cursor, Read, Write};
+use std::io::{BufRead, BufReader, Cursor, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
@@ -101,7 +101,6 @@ pub struct SkillDetail {
 #[derive(Clone, Debug)]
 struct IndexedSkill {
     skill: Skill,
-    content: String,
     disable_model_invocation: bool,
 }
 
@@ -160,7 +159,6 @@ impl SkillRegistry {
                         invocations_7d: InvocationStats::default(),
                         updated_at: now,
                     },
-                    content: builtin_content(name),
                     disable_model_invocation: false,
                 },
             );
@@ -198,6 +196,24 @@ impl SkillRegistry {
         }
         self.refresh_fingerprints();
         Ok(self.list())
+    }
+
+    /// Restore mutable index metadata from the durable feature snapshot after
+    /// a scan. File contents and paths are never taken from the snapshot;
+    /// only metadata for an entry that was found in an allowed root is used.
+    pub fn restore_metadata(&mut self, saved: &[Skill]) {
+        for saved_skill in saved {
+            let Some(entry) = self.entries.get_mut(&saved_skill.name) else {
+                continue;
+            };
+            if entry.skill.source != saved_skill.source || entry.skill.path != saved_skill.path {
+                continue;
+            }
+            entry.skill.enabled = saved_skill.enabled;
+            entry.skill.disabled_bot_ids = saved_skill.disabled_bot_ids.clone();
+            entry.skill.invocations_7d = saved_skill.invocations_7d.clone();
+            entry.skill.updated_at = saved_skill.updated_at;
+        }
     }
 
     /// Cheap polling hook for a gateway watcher. Call this periodically after
@@ -244,7 +260,7 @@ impl SkillRegistry {
             .get(name)
             .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
         let content = if entry.skill.source == SkillSource::Builtin {
-            entry.content.clone()
+            builtin_content(&entry.skill.name)
         } else {
             fs::read_to_string(skill_file_path(&entry.skill.path))?
         };
@@ -320,7 +336,7 @@ impl SkillRegistry {
         }
         let dir = self.install_root.join(name);
         write_skill_dir(&dir, content)?;
-        let indexed = make_indexed(dir, SkillSource::User, content)?;
+        let indexed = make_indexed(dir, SkillSource::User)?;
         let skill = indexed.skill.clone();
         self.entries.insert(name.to_string(), indexed);
         Ok(skill)
@@ -338,7 +354,7 @@ impl SkillRegistry {
         }
         let dir = self.install_root.join(".drafts").join(name);
         write_skill_dir(&dir, content)?;
-        let indexed = make_indexed(dir, SkillSource::Draft, content)?;
+        let indexed = make_indexed(dir, SkillSource::Draft)?;
         let skill = indexed.skill.clone();
         self.entries.insert(name.to_string(), indexed);
         Ok(skill)
@@ -357,11 +373,7 @@ impl SkillRegistry {
             return Err(SkillError::Invalid("frontmatter name mismatch".into()));
         }
         write_skill_dir(Path::new(&entry.skill.path), content)?;
-        let indexed = make_indexed(
-            PathBuf::from(&entry.skill.path),
-            entry.skill.source.clone(),
-            content,
-        )?;
+        let indexed = make_indexed(PathBuf::from(&entry.skill.path), entry.skill.source.clone())?;
         let skill = indexed.skill.clone();
         self.entries.insert(name.to_string(), indexed);
         Ok(skill)
@@ -438,7 +450,7 @@ impl SkillRegistry {
             return Err(SkillError::Conflict(name.to_string()));
         }
         fs::rename(&old_dir, &new_dir)?;
-        let indexed = make_indexed(new_dir, SkillSource::User, &entry.content)?;
+        let indexed = make_indexed(new_dir, SkillSource::User)?;
         let skill = indexed.skill.clone();
         self.entries.insert(name.to_string(), indexed);
         Ok(skill)
@@ -470,7 +482,7 @@ impl SkillRegistry {
             }
             let destination = self.install_root.join(&parsed.skill.name);
             copy_skill_dir(&dir, &destination)?;
-            let indexed = make_indexed(destination, SkillSource::Imported, &parsed.content)?;
+            let indexed = make_indexed(destination, SkillSource::Imported)?;
             result.push(indexed.skill.clone());
             self.entries.insert(indexed.skill.name.clone(), indexed);
         }
@@ -682,8 +694,7 @@ fn read_skill_dir(dir: &Path) -> Result<Option<IndexedSkill>, SkillError> {
     if !path.is_file() {
         return Ok(None);
     }
-    let content = fs::read_to_string(&path)?;
-    let parsed = parse_frontmatter_inner(&content)?;
+    let parsed = read_frontmatter_file(&path)?;
     let source = if dir
         .components()
         .any(|component| matches!(component, Component::Normal(name) if name == ".drafts"))
@@ -692,7 +703,7 @@ fn read_skill_dir(dir: &Path) -> Result<Option<IndexedSkill>, SkillError> {
     } else {
         SkillSource::User
     };
-    let indexed = make_indexed(dir.to_path_buf(), source, &content)?;
+    let indexed = make_indexed(dir.to_path_buf(), source)?;
     // Keep this explicit validation here so malformed files fail the scan
     // before they can shadow an earlier root.
     if indexed.skill.name != parsed.name {
@@ -701,12 +712,8 @@ fn read_skill_dir(dir: &Path) -> Result<Option<IndexedSkill>, SkillError> {
     Ok(Some(indexed))
 }
 
-fn make_indexed(
-    dir: PathBuf,
-    source: SkillSource,
-    content: &str,
-) -> Result<IndexedSkill, SkillError> {
-    let parsed = parse_frontmatter_inner(content)?;
+fn make_indexed(dir: PathBuf, source: SkillSource) -> Result<IndexedSkill, SkillError> {
+    let parsed = read_frontmatter_file(&dir.join("SKILL.md"))?;
     let mut files = Vec::new();
     if dir.is_dir() {
         for entry in WalkDir::new(&dir)
@@ -737,9 +744,40 @@ fn make_indexed(
             invocations_7d: InvocationStats::default(),
             updated_at: Utc::now(),
         },
-        content: content.to_string(),
         disable_model_invocation: parsed.disable_model_invocation,
     })
+}
+
+/// Read only the bounded YAML frontmatter during indexing. The body remains
+/// on disk and is loaded by `get`/`load_for_bot` when a model actually invokes
+/// the skill.
+fn read_frontmatter_file(path: &Path) -> Result<Frontmatter, SkillError> {
+    const MAX_FRONTMATTER_BYTES: usize = 128 * 1024;
+    let file = fs::File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut text = String::new();
+    let mut line = String::new();
+    let mut saw_open = false;
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            break;
+        }
+        text.push_str(&line);
+        if text.len() > MAX_FRONTMATTER_BYTES {
+            return Err(SkillError::Invalid(
+                "SKILL.md frontmatter exceeds 128 KiB".into(),
+            ));
+        }
+        if text.lines().count() == 1 && line.trim() == "---" {
+            saw_open = true;
+            continue;
+        }
+        if saw_open && line.trim() == "---" {
+            return parse_frontmatter_inner(&text);
+        }
+    }
+    Err(SkillError::Invalid("unterminated YAML frontmatter".into()))
 }
 
 fn skill_file_path(path: &str) -> PathBuf {
@@ -1020,5 +1058,32 @@ mod tests {
         registry.set_extra_dirs(vec![second]).unwrap();
         assert!(registry.get("two").is_ok());
         assert!(registry.get("one").is_err());
+    }
+
+    #[test]
+    fn restores_enablement_and_invocations_after_rescan() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("external/demo");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("SKILL.md"), skill_text("demo")).unwrap();
+        let mut registry = SkillRegistry::with_roots(
+            temp.path().join("install"),
+            vec![temp.path().join("external")],
+        );
+        registry.rescan().unwrap();
+        registry.set_enabled("demo", false, Some("bot-a")).unwrap();
+        registry.record_invocation("demo", Some("bot-a")).unwrap();
+        let saved = registry.list();
+
+        let mut restored = SkillRegistry::with_roots(
+            temp.path().join("install"),
+            vec![temp.path().join("external")],
+        );
+        restored.rescan().unwrap();
+        restored.restore_metadata(&saved);
+        let skill = restored.get("demo").unwrap().skill;
+        assert!(!restored.is_enabled_for("demo", Some("bot-a")).unwrap());
+        assert_eq!(skill.invocations_7d.total, 1);
+        assert_eq!(skill.disabled_bot_ids, vec!["bot-a"]);
     }
 }

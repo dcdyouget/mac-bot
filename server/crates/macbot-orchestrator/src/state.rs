@@ -1,5 +1,6 @@
 use crate::model::*;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, LocalResult, NaiveDateTime, TimeZone, Timelike, Utc};
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -273,6 +274,17 @@ impl Orchestrator {
     pub fn finish_assignment(&self, assignment_id: &str, status: &str) -> Result<Assignment> {
         let mut i = self.lock()?;
         i.finish_assignment(assignment_id, status)
+    }
+
+    pub fn update_assignment_usage(
+        &self,
+        assignment_id: &str,
+        usage: UsageTotals,
+    ) -> Result<Assignment> {
+        let mut i = self.lock()?;
+        let assignment = i.assignment_mut(assignment_id)?;
+        assignment.usage = usage;
+        Ok(assignment.clone())
     }
 
     pub fn start_subagent(&self, request: SubagentRequest) -> Result<SubagentHandle> {
@@ -630,11 +642,16 @@ impl Inner {
                     .ok_or_else(|| OrchestratorError::Invalid("enabled is required".into()))?;
                 let r = self.routine_mut(&id)?;
                 r.enabled = enabled;
+                if enabled {
+                    r.next_run_at =
+                        Some(next_routine_at(&r.schedules, &r.timezone, Utc::now())?.to_rfc3339());
+                }
                 r.updated_at = now();
                 Ok(json!({ "routine": r }))
             }
             "routine.test_run" => {
-                Ok(json!({ "run": self.test_routine(str_param(&p, "routine_id")?)? }))
+                let (run, dispatch) = self.test_routine(str_param(&p, "routine_id")?)?;
+                Ok(json!({ "run": run, "dispatch": [dispatch] }))
             }
             "routine.runs" => {
                 let id = str_param(&p, "routine_id")?;
@@ -1581,16 +1598,13 @@ impl Inner {
                 .ok_or_else(|| OrchestratorError::Invalid("schedules is required".into()))?,
         )
         .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
-        validate_schedules(&schedules)?;
         let timezone = p
             .get("timezone")
             .and_then(Value::as_str)
             .unwrap_or("Asia/Shanghai");
-        if !valid_timezone(timezone) {
-            return Err(OrchestratorError::Invalid(format!(
-                "invalid timezone {timezone}"
-            )));
-        }
+        parse_timezone(timezone)?;
+        validate_schedules(&schedules, timezone)?;
+        let next_run_at = next_routine_at(&schedules, timezone, Utc::now())?.to_rfc3339();
         let ts = now();
         let r = Routine {
             id: new_id(),
@@ -1604,7 +1618,7 @@ impl Inner {
             schedules,
             timezone: timezone.into(),
             enabled: true,
-            next_run_at: Some((Utc::now() + Duration::minutes(5)).to_rfc3339()),
+            next_run_at: Some(next_run_at),
             last_run: None,
             created_at: ts.clone(),
             updated_at: ts,
@@ -1613,51 +1627,85 @@ impl Inner {
         Ok(r)
     }
     fn update_routine(&mut self, id: String, patch: Value) -> Result<Routine> {
-        let r = self.routine_mut(&id)?;
+        let mut updated = self
+            .routines
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| OrchestratorError::NotFound(format!("routine {id}")))?;
         if let Some(x) = patch.get("name").and_then(Value::as_str) {
-            r.name = x.into();
+            updated.name = x.into();
         }
         if let Some(x) = patch.get("instructions").and_then(Value::as_str) {
-            r.instructions = x.into();
+            updated.instructions = x.into();
         }
         if let Some(x) = patch.get("timezone").and_then(Value::as_str) {
-            if !valid_timezone(x) {
-                return Err(OrchestratorError::Invalid(format!("invalid timezone {x}")));
-            }
-            r.timezone = x.into();
+            parse_timezone(x)?;
+            updated.timezone = x.into();
         }
         if let Some(v) = patch.get("schedules") {
             let s: Vec<Schedule> = serde_json::from_value(v.clone())
                 .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
-            validate_schedules(&s)?;
-            r.schedules = s;
+            updated.schedules = s;
         }
         if let Some(x) = patch.get("project_id") {
-            r.project_id = x.as_str().map(str::to_owned);
+            updated.project_id = x.as_str().map(str::to_owned);
         }
-        r.updated_at = now();
-        Ok(r.clone())
+        validate_schedules(&updated.schedules, &updated.timezone)?;
+        updated.next_run_at =
+            Some(next_routine_at(&updated.schedules, &updated.timezone, Utc::now())?.to_rfc3339());
+        updated.updated_at = now();
+        self.routines.insert(id, updated.clone());
+        Ok(updated)
     }
-    fn test_routine(&mut self, id: String) -> Result<RoutineRun> {
-        let r = self
+    fn test_routine(&mut self, id: String) -> Result<(RoutineRun, Value)> {
+        let (bot_id, project_id, name, instructions, schedules, timezone) = self
             .routines
-            .get_mut(&id)
+            .get(&id)
+            .map(|r| {
+                (
+                    r.bot_id.clone(),
+                    r.project_id.clone(),
+                    r.name.clone(),
+                    r.instructions.clone(),
+                    r.schedules.clone(),
+                    r.timezone.clone(),
+                )
+            })
             .ok_or_else(|| OrchestratorError::NotFound(format!("routine {id}")))?;
+        let assignment = self.create_assignment(AssignmentRequest {
+            project_id,
+            origin_chat_id: format!("routine:{id}"),
+            bot_id,
+            title: name,
+            instruction: instructions,
+            from: "routine".into(),
+            trigger_message_id: None,
+            parent_assignment_id: None,
+            priority: 0,
+            root_message_id: None,
+            loop_hops: 0,
+        })?;
         let ts = now();
         let run = RoutineRun {
             id: new_id(),
             routine_id: id.clone(),
-            assignment_id: None,
+            assignment_id: Some(assignment.id.clone()),
             trigger: "test".into(),
             status: "running".into(),
-            started_at: ts,
+            started_at: ts.clone(),
             finished_at: None,
             error: None,
         };
+        let next_run_at = next_routine_at(&schedules, &timezone, Utc::now())?;
+        let r = self
+            .routines
+            .get_mut(&id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("routine {id}")))?;
         r.last_run = Some(run.clone());
-        r.next_run_at = Some((Utc::now() + Duration::minutes(5)).to_rfc3339());
+        r.next_run_at = Some(next_run_at.to_rfc3339());
+        r.updated_at = ts.clone();
         self.routine_runs.entry(id).or_default().push(run.clone());
-        Ok(run)
+        Ok((run.clone(), routine_dispatch(&run, &assignment)))
     }
 
     fn tick_routines(&mut self, at: DateTime<Utc>) -> Result<Vec<RoutineRun>> {
@@ -1715,9 +1763,16 @@ impl Inner {
                 .entry(id.clone())
                 .or_default()
                 .push(run.clone());
+            let next_run_at = {
+                let r = self
+                    .routines
+                    .get(&id)
+                    .ok_or_else(|| OrchestratorError::NotFound(format!("routine {id}")))?;
+                next_routine_at(&r.schedules, &r.timezone, at)?.to_rfc3339()
+            };
             if let Some(r) = self.routines.get_mut(&id) {
                 r.last_run = Some(run.clone());
-                r.next_run_at = Some((at + Duration::minutes(5)).to_rfc3339());
+                r.next_run_at = Some(next_run_at);
                 r.updated_at = at.to_rfc3339();
             }
             runs.push(run);
@@ -1737,28 +1792,242 @@ fn str_value(v: &Value) -> Result<String> {
         .map(str::to_owned)
         .ok_or_else(|| OrchestratorError::Invalid("expected string id".into()))
 }
-fn validate_schedules(s: &[Schedule]) -> Result<()> {
-    if s.is_empty() {
+const MIN_ROUTINE_INTERVAL: i64 = 5 * 60;
+const CRON_SEARCH_MINUTES: usize = 366 * 24 * 60 * 5;
+
+#[derive(Clone, Debug)]
+struct CronExpression {
+    minute: Vec<bool>,
+    hour: Vec<bool>,
+    day_of_month: Vec<bool>,
+    month: Vec<bool>,
+    day_of_week: Vec<bool>,
+}
+
+impl CronExpression {
+    fn parse(value: &str) -> Result<Self> {
+        let fields = value.split_whitespace().collect::<Vec<_>>();
+        if fields.len() != 5 {
+            return Err(OrchestratorError::Invalid(format!(
+                "cron must have five fields: {value}"
+            )));
+        }
+        Ok(Self {
+            minute: parse_cron_field(fields[0], 0, 59, false)?,
+            hour: parse_cron_field(fields[1], 0, 23, false)?,
+            day_of_month: parse_cron_field(fields[2], 1, 31, false)?,
+            month: parse_cron_field(fields[3], 1, 12, false)?,
+            day_of_week: parse_cron_field(fields[4], 0, 6, true)?,
+        })
+    }
+
+    fn matches(&self, value: NaiveDateTime) -> bool {
+        if !self.minute[value.minute() as usize]
+            || !self.hour[value.hour() as usize]
+            || !self.month[value.month() as usize]
+        {
+            return false;
+        }
+        let dom = self.day_of_month[value.day() as usize];
+        let dow = self.day_of_week[value.weekday().num_days_from_sunday() as usize];
+        let dom_restricted = self.day_of_month[1..].iter().any(|enabled| !enabled);
+        let dow_restricted = self.day_of_week.iter().any(|enabled| !enabled);
+        match (dom_restricted, dow_restricted) {
+            (true, true) => dom || dow,
+            (true, false) => dom,
+            (false, true) => dow,
+            (false, false) => true,
+        }
+    }
+}
+
+fn parse_cron_field(value: &str, min: u32, max: u32, sunday_alias: bool) -> Result<Vec<bool>> {
+    if value.is_empty() {
+        return Err(OrchestratorError::Invalid(
+            "cron field cannot be empty".into(),
+        ));
+    }
+    let mut enabled = vec![false; (max + 1) as usize];
+    for item in value.split(',') {
+        let (range, step, has_step) = item
+            .split_once('/')
+            .map_or((item, 1, false), |(range, step)| {
+                (range, step.parse::<u32>().unwrap_or(0), true)
+            });
+        if step == 0 {
+            return Err(OrchestratorError::Invalid(format!(
+                "invalid cron step in {value}"
+            )));
+        }
+        let (start, end) = if range == "*" {
+            (min, max)
+        } else if let Some((start, end)) = range.split_once('-') {
+            let start = start
+                .parse::<u32>()
+                .map_err(|_| OrchestratorError::Invalid(format!("invalid cron range {range}")))?;
+            let end = end
+                .parse::<u32>()
+                .map_err(|_| OrchestratorError::Invalid(format!("invalid cron range {range}")))?;
+            if start > end {
+                return Err(OrchestratorError::Invalid(format!(
+                    "invalid cron range {range}"
+                )));
+            }
+            (start, end)
+        } else {
+            let point = range
+                .parse::<u32>()
+                .map_err(|_| OrchestratorError::Invalid(format!("invalid cron value {range}")))?;
+            (point, if has_step { max } else { point })
+        };
+        if (start < min || end > max) && !(sunday_alias && min == 0 && start <= 7 && end == 7) {
+            return Err(OrchestratorError::Invalid(format!(
+                "cron value outside range {range}"
+            )));
+        }
+        let mut point = start;
+        while point <= end {
+            let normalized = if sunday_alias && point == 7 { 0 } else { point };
+            enabled[normalized as usize] = true;
+            match point.checked_add(step) {
+                Some(next) => point = next,
+                None => break,
+            }
+        }
+    }
+    if enabled.iter().all(|value| !value) {
+        return Err(OrchestratorError::Invalid(format!(
+            "cron field has no values: {value}"
+        )));
+    }
+    Ok(enabled)
+}
+
+fn parse_timezone(value: &str) -> Result<Tz> {
+    let normalized = match value {
+        "UTC" => "Etc/UTC",
+        other => other,
+    };
+    normalized
+        .parse::<Tz>()
+        .map_err(|_| OrchestratorError::Invalid(format!("invalid timezone {value}")))
+}
+
+fn next_local_occurrence(
+    expression: &CronExpression,
+    after: NaiveDateTime,
+) -> Option<NaiveDateTime> {
+    let time = after.time();
+    let mut candidate = after
+        - Duration::seconds(time.second() as i64)
+        - Duration::nanoseconds(time.nanosecond() as i64)
+        + Duration::minutes(1);
+    for _ in 0..CRON_SEARCH_MINUTES {
+        if expression.matches(candidate) {
+            return Some(candidate);
+        }
+        candidate += Duration::minutes(1);
+    }
+    None
+}
+
+fn next_schedule_occurrence(
+    expression: &CronExpression,
+    timezone: Tz,
+    after: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    let mut local_after = after.with_timezone(&timezone).naive_local();
+    for _ in 0..CRON_SEARCH_MINUTES {
+        let local = next_local_occurrence(expression, local_after)?;
+        match timezone.from_local_datetime(&local) {
+            LocalResult::Single(value) => {
+                let value = value.with_timezone(&Utc);
+                if value > after {
+                    return Some(value);
+                }
+            }
+            LocalResult::Ambiguous(first, second) => {
+                let mut values = [first.with_timezone(&Utc), second.with_timezone(&Utc)];
+                values.sort();
+                if let Some(value) = values.into_iter().find(|value| *value > after) {
+                    return Some(value);
+                }
+            }
+            LocalResult::None => {}
+        }
+        local_after = local;
+    }
+    None
+}
+
+fn next_routine_at(
+    schedules: &[Schedule],
+    timezone: &str,
+    after: DateTime<Utc>,
+) -> Result<DateTime<Utc>> {
+    let timezone = parse_timezone(timezone)?;
+    let mut next = None;
+    for schedule in schedules {
+        let expression = CronExpression::parse(&schedule.cron)?;
+        if let Some(candidate) = next_schedule_occurrence(&expression, timezone, after) {
+            next = Some(next.map_or(candidate, |current: DateTime<Utc>| current.min(candidate)));
+        }
+    }
+    next.ok_or_else(|| OrchestratorError::Invalid("cron has no future occurrence".into()))
+}
+
+fn validate_schedules(schedules: &[Schedule], timezone: &str) -> Result<()> {
+    if schedules.is_empty() {
         return Err(OrchestratorError::Invalid(
             "at least one schedule is required".into(),
         ));
     }
-    if s.iter().any(|x| x.cron.trim().is_empty()) {
-        return Err(OrchestratorError::Invalid("cron cannot be empty".into()));
+    let timezone = parse_timezone(timezone)?;
+    let expressions = schedules
+        .iter()
+        .map(|schedule| {
+            if schedule.cron.trim().is_empty() {
+                return Err(OrchestratorError::Invalid("cron cannot be empty".into()));
+            }
+            CronExpression::parse(&schedule.cron)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let anchor = DateTime::<Utc>::from_timestamp(1_704_067_200, 0)
+        .expect("fixed cron validation anchor is valid");
+    let mut occurrences = Vec::new();
+    for expression in &expressions {
+        let mut cursor = anchor - Duration::minutes(1);
+        for _ in 0..16 {
+            let Some(next) = next_schedule_occurrence(expression, timezone, cursor) else {
+                break;
+            };
+            occurrences.push(next);
+            cursor = next;
+        }
+    }
+    occurrences.sort();
+    occurrences.dedup();
+    for window in occurrences.windows(2) {
+        if (window[1] - window[0]).num_seconds() < MIN_ROUTINE_INTERVAL {
+            return Err(OrchestratorError::Invalid(
+                "routine schedules must be at least five minutes apart".into(),
+            ));
+        }
     }
     Ok(())
 }
 
-fn valid_timezone(value: &str) -> bool {
-    if value == "UTC" || value == "Etc/UTC" || value.starts_with("GMT") || value.starts_with("UTC")
-    {
-        return true;
-    }
-    !value.trim().is_empty()
-        && !value.contains("..")
-        && std::path::Path::new("/usr/share/zoneinfo")
-            .join(value)
-            .is_file()
+fn routine_dispatch(run: &RoutineRun, assignment: &Assignment) -> Value {
+    json!({
+        "run_id": run.id,
+        "assignment_id": assignment.id,
+        "bot_id": assignment.bot_id,
+        "chat_id": assignment.origin_chat_id,
+        "project_id": assignment.project_id,
+        "instruction": assignment.instruction,
+        "model": assignment.model,
+        "trigger": run.trigger,
+    })
 }
 
 #[cfg(test)]
@@ -2013,13 +2282,106 @@ mod tests {
                 json!({"root_message_id":"root","action":"continue"}),
             ))
             .unwrap();
-        let at = Utc::now();
         let bot_id = a.bot_id.clone();
-        let routine = tokio::runtime::Runtime::new().unwrap().block_on(o.rpc("routine.create", json!({"bot_id":bot_id,"name":"轮询","instructions":"轮询","schedules":[{"cron":"0 * * * *","label":"hourly"}],"timezone":"America/New_York"}))).unwrap();
+        let routine = tokio::runtime::Runtime::new().unwrap().block_on(o.rpc("routine.create", json!({"bot_id":bot_id,"name":"轮询","instructions":"轮询","schedules":[{"cron":"*/5 * * * *","label":"every five minutes"}],"timezone":"America/New_York"}))).unwrap();
         assert_eq!(routine["routine"]["timezone"], "America/New_York");
-        let runs = o.tick_routines(at + Duration::minutes(6)).unwrap();
+        let due = DateTime::parse_from_rfc3339(routine["routine"]["next_run_at"].as_str().unwrap())
+            .unwrap()
+            .with_timezone(&Utc);
+        let runs = o.tick_routines(due + Duration::seconds(1)).unwrap();
         assert_eq!(runs.len(), 1);
         let next = routine["routine"]["next_run_at"].as_str().unwrap();
         assert!(!next.is_empty());
+    }
+
+    #[test]
+    fn routine_cron_timezone_and_minimum_interval_are_enforced() {
+        let o = Orchestrator::default();
+        let bot_id = bot(&o, "定时测试");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let invalid_cron = rt.block_on(o.rpc(
+            "routine.create",
+            json!({"bot_id":bot_id,"name":"太快","instructions":"x","schedules":[{"cron":"*/2 * * * *","label":"too fast"}],"timezone":"Asia/Shanghai"}),
+        ));
+        assert!(invalid_cron.is_err());
+        let invalid_shape = rt.block_on(o.rpc(
+            "routine.create",
+            json!({"bot_id":bot_id,"name":"坏表达式","instructions":"x","schedules":[{"cron":"every minute","label":"bad"}],"timezone":"Asia/Shanghai"}),
+        ));
+        assert!(invalid_shape.is_err());
+        let invalid_zone = rt.block_on(o.rpc(
+            "routine.create",
+            json!({"bot_id":bot_id,"name":"坏时区","instructions":"x","schedules":[{"cron":"0 * * * *","label":"hourly"}],"timezone":"No/Such"}),
+        ));
+        assert!(invalid_zone.is_err());
+
+        let created = rt
+            .block_on(o.rpc(
+                "routine.create",
+                json!({"bot_id":bot_id,"name":"多时区","instructions":"巡检","schedules":[{"cron":"0 9 * * *","label":"morning"},{"cron":"30 8 * * *","label":"early"}],"timezone":"America/New_York"}),
+            ))
+            .unwrap();
+        let next =
+            DateTime::parse_from_rfc3339(created["routine"]["next_run_at"].as_str().unwrap())
+                .unwrap()
+                .with_timezone(&Utc);
+        assert!(next > Utc::now() - Duration::minutes(1));
+        let expression = CronExpression::parse("30 1 * * *").unwrap();
+        let dst_anchor = DateTime::parse_from_rfc3339("2024-11-03T04:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let dst_next = next_schedule_occurrence(
+            &expression,
+            parse_timezone("America/New_York").unwrap(),
+            dst_anchor,
+        )
+        .unwrap();
+        assert_eq!(
+            dst_next
+                .with_timezone(&parse_timezone("America/New_York").unwrap())
+                .hour(),
+            1
+        );
+        let month_start = CronExpression::parse("0 9 1 * *").unwrap();
+        let day_anchor = DateTime::parse_from_rfc3339("2024-02-02T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let day_next = next_schedule_occurrence(
+            &month_start,
+            parse_timezone("Asia/Shanghai").unwrap(),
+            day_anchor,
+        )
+        .unwrap();
+        let day_local = day_next.with_timezone(&parse_timezone("Asia/Shanghai").unwrap());
+        assert_eq!(
+            (day_local.month(), day_local.day(), day_local.hour()),
+            (3, 1, 9)
+        );
+    }
+
+    #[test]
+    fn routine_test_run_creates_assignment_and_dispatch_descriptor() {
+        let o = Orchestrator::default();
+        let bot_id = bot(&o, "测试执行");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let created = rt
+            .block_on(o.rpc(
+                "routine.create",
+                json!({"bot_id":bot_id,"name":"手动运行","instructions":"执行一次 fake","schedules":[{"cron":"*/5 * * * *","label":"five"}],"timezone":"Asia/Shanghai"}),
+            ))
+            .unwrap();
+        let routine_id = created["routine"]["id"].as_str().unwrap();
+        let result = rt
+            .block_on(o.rpc("routine.test_run", json!({"routine_id":routine_id})))
+            .unwrap();
+        let run = &result["run"];
+        let assignment_id = run["assignment_id"].as_str().unwrap();
+        assert_eq!(result["dispatch"][0]["run_id"], run["id"]);
+        assert_eq!(result["dispatch"][0]["assignment_id"], assignment_id);
+        let assignment = rt
+            .block_on(o.rpc("assignment.get", json!({"assignment_id":assignment_id})))
+            .unwrap();
+        assert_eq!(assignment["assignment"]["instruction"], "执行一次 fake");
+        assert_eq!(assignment["assignment"]["status"], "working");
     }
 }

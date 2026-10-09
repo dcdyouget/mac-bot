@@ -149,6 +149,52 @@ pub struct MemorySource {
     pub session_id: Option<String>,
 }
 
+/// Authenticated visibility supplied by the gateway for one model run.
+/// Memory targets are never authorized from model-provided ids alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MemoryAccess {
+    pub user_id: Option<String>,
+    pub project_id: Option<String>,
+    pub project_member_bot_ids: Vec<String>,
+}
+
+impl MemoryAccess {
+    pub fn user(user_id: impl Into<String>) -> Self {
+        Self {
+            user_id: Some(user_id.into()),
+            ..Self::default()
+        }
+    }
+
+    pub fn group(project_id: impl Into<String>, member_bot_ids: Vec<String>) -> Self {
+        Self {
+            project_id: Some(project_id.into()),
+            project_member_bot_ids: member_bot_ids,
+            ..Self::default()
+        }
+    }
+
+    pub fn group_for_user(
+        user_id: impl Into<String>,
+        project_id: impl Into<String>,
+        member_bot_ids: Vec<String>,
+    ) -> Self {
+        Self {
+            user_id: Some(user_id.into()),
+            project_id: Some(project_id.into()),
+            project_member_bot_ids: member_bot_ids,
+        }
+    }
+
+    pub fn is_project_member(&self, bot_id: &str, project_id: &str) -> bool {
+        self.project_id.as_deref() == Some(project_id)
+            && self
+                .project_member_bot_ids
+                .iter()
+                .any(|member| member == bot_id)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MemoryEntry {
     pub id: String,
@@ -168,7 +214,7 @@ pub enum MemoryAction {
     Remove,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MemoryRequest {
     pub target: MemoryTarget,
     pub action: MemoryAction,
@@ -357,10 +403,13 @@ impl MemoryStore {
             self.begin_run(run_id)?;
         }
         validate_request(&request)?;
-        self.staged
-            .get_mut(run_id)
-            .expect("run inserted")
-            .push(request);
+        let staged = self.staged.get_mut(run_id).expect("run inserted");
+        // Execution may ask for context more than once while refreshing a
+        // snapshot.  Identical writes in one run are retries, not distinct
+        // memories; dedupe before quota accounting and commit.
+        if !staged.iter().any(|existing| existing == &request) {
+            staged.push(request);
+        }
         Ok(())
     }
 
@@ -544,6 +593,7 @@ impl MemoryStore {
             .map(|x| x.content.chars().count())
             .sum::<usize>()
             + content.chars().count();
+        let summary_source = source.clone();
         let mut rolled = Vec::new();
         while total > BOT_WORKLOG_LIMIT && !rows.is_empty() {
             let old = rows.remove(0);
@@ -569,7 +619,7 @@ impl MemoryStore {
                     content: summary,
                     id: None,
                     kind: Some(MemoryKind::BotWorklog),
-                    source: MemorySource::default(),
+                    source: summary_source,
                 })?;
             }
         }
@@ -582,12 +632,16 @@ impl MemoryStore {
             source,
         })?;
         if self.used(&entry.target, &MemoryKind::BotWorklog) > BOT_WORKLOG_LIMIT {
-            self.compact_worklog(&entry.target)?;
+            self.compact_worklog(&entry.target, &entry.source)?;
         }
         Ok(entry)
     }
 
-    fn compact_worklog(&mut self, target: &MemoryTarget) -> Result<(), MemoryError> {
+    fn compact_worklog(
+        &mut self,
+        target: &MemoryTarget,
+        source: &MemorySource,
+    ) -> Result<(), MemoryError> {
         let mut rows: Vec<_> = self
             .entries
             .values()
@@ -628,7 +682,7 @@ impl MemoryStore {
                 target: target.clone(),
                 kind: MemoryKind::BotWorklog,
                 content: summary,
-                source: MemorySource::default(),
+                source: source.clone(),
                 created_at: now,
                 updated_at: now,
             };
@@ -1158,6 +1212,20 @@ mod tests {
     }
 
     #[test]
+    fn identical_staged_memory_retries_are_deduplicated() {
+        let mut store = MemoryStore::new();
+        let write = request(
+            MemoryTarget::bot("b"),
+            "same context summary",
+            MemoryKind::BotWorklog,
+        );
+        store.stage("retry", write.clone()).unwrap();
+        store.stage("retry", write).unwrap();
+        let entries = store.commit_run("retry").unwrap();
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
     fn persisted_entries_keep_source_and_reload() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("memory.json");
@@ -1271,7 +1339,29 @@ mod tests {
                 .sum::<usize>()
                 <= BOT_WORKLOG_LIMIT
         );
-        assert!(rows.iter().any(|entry| entry.content.starts_with('[')));
+        let summary = rows
+            .iter()
+            .find(|entry| entry.content.starts_with('['))
+            .expect("rolled worklog should have a monthly summary");
+        assert_eq!(summary.source.bot_id.as_deref(), None);
+
+        let mut sourced = MemoryStore::new();
+        let source = MemorySource {
+            bot_id: Some("bot-source".into()),
+            run_id: Some("run-source".into()),
+            session_id: Some("session-source".into()),
+        };
+        sourced
+            .append_worklog(MemoryTarget::bot("b"), "x".repeat(1_400), source.clone())
+            .unwrap();
+        sourced
+            .append_worklog(MemoryTarget::bot("b"), "y".repeat(200), source)
+            .unwrap();
+        let summary = sourced
+            .entries()
+            .find(|entry| entry.content.starts_with('['))
+            .expect("sourced worklog should have a monthly summary");
+        assert_eq!(summary.source.bot_id.as_deref(), Some("bot-source"));
     }
 
     #[test]

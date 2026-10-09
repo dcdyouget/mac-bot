@@ -12,7 +12,7 @@ use macbot_memory::{
     MemorySource, MemoryTarget, ProjectRecord, SessionMessage, SharedMemoryStore,
 };
 use macbot_providers::{
-    Completion, HttpProvider, ModelProvider, ModelRequest, ProviderConfig, SecretStore,
+    Completion, HttpProvider, ModelProvider, ModelRequest, ProviderConfig, SecretStore, TokenUsage,
 };
 use macbot_skills::{Skill, SkillError, SkillRegistry};
 use macbot_store::{Event, Store, StoreError};
@@ -23,6 +23,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
+use uuid::Uuid;
 
 const IDEMPOTENCY_FILE: &str = "data/features/idempotency.json";
 const SKILLS_FILE: &str = "data/features/skills.json";
@@ -91,29 +92,7 @@ pub enum MemoryActor {
 /// the user and resolved group membership. User memory is shared by all Bots
 /// for that user; project memory is visible only to project members; Bot
 /// memory remains private to its owner.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct MemoryAccess {
-    pub user_id: Option<String>,
-    pub project_id: Option<String>,
-    pub project_member_bot_ids: Vec<String>,
-}
-
-impl MemoryAccess {
-    pub fn user(user_id: impl Into<String>) -> Self {
-        Self {
-            user_id: Some(user_id.into()),
-            ..Self::default()
-        }
-    }
-
-    pub fn group(project_id: impl Into<String>, member_bot_ids: Vec<String>) -> Self {
-        Self {
-            project_id: Some(project_id.into()),
-            project_member_bot_ids: member_bot_ids,
-            ..Self::default()
-        }
-    }
-}
+pub use macbot_memory::MemoryAccess;
 
 impl MemoryActor {
     pub fn bot(bot_id: impl Into<String>) -> Self {
@@ -128,14 +107,14 @@ impl MemoryActor {
         }
     }
 
-    fn bot_id(&self) -> Option<&str> {
+    pub(crate) fn bot_id(&self) -> Option<&str> {
         match self {
             Self::MainBot { bot_id } | Self::Bot { bot_id } => Some(bot_id),
             Self::System => None,
         }
     }
 
-    fn is_main(&self) -> bool {
+    pub(crate) fn is_main(&self) -> bool {
         matches!(self, Self::MainBot { .. } | Self::System)
     }
 }
@@ -155,6 +134,11 @@ pub struct FeatureService {
     maintenance_policy: Arc<RwLock<MaintenancePolicy>>,
     maintenance_state: Arc<RwLock<MaintenanceState>>,
 }
+
+/// The one feature state handle shared by gateway RPCs, a model run and
+/// background maintenance.  Keeping this alias public makes the ownership
+/// boundary explicit for the runtime without exposing the internal locks.
+pub type SharedFeatureService = Arc<FeatureService>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MaintenancePolicy {
@@ -186,6 +170,16 @@ struct MaintenanceUsage {
 }
 
 impl FeatureService {
+    /// Open one shared feature service for a gateway process.  Runtime code
+    /// should clone the returned `Arc` into every run instead of reopening the
+    /// store, which would create independent staged-memory and skill indexes.
+    pub fn open_shared(
+        home: impl Into<PathBuf>,
+        extra_dirs: impl IntoIterator<Item = PathBuf>,
+    ) -> FeatureResult<SharedFeatureService> {
+        Ok(Arc::new(Self::open(home, extra_dirs)?))
+    }
+
     pub fn open(
         home: impl Into<PathBuf>,
         extra_dirs: impl IntoIterator<Item = PathBuf>,
@@ -208,6 +202,9 @@ impl FeatureService {
         let memory = SharedMemoryStore::new(macbot_memory::MemoryStore::load_from(&memory_path)?);
         let mut registry = SkillRegistry::new(&home, extra_dirs);
         registry.rescan()?;
+        if let Some(saved_skills) = shared_store.read_snapshot::<Vec<Skill>>(SKILLS_FILE)? {
+            registry.restore_metadata(&saved_skills);
+        }
         let records = shared_store
             .read_snapshot::<Vec<IdempotencyRecord>>(IDEMPOTENCY_FILE)?
             .unwrap_or_default();
@@ -261,6 +258,46 @@ impl FeatureService {
             .write()
             .map_err(|_| FeatureError::Invalid("maintenance lock poisoned".into()))? = provider;
         Ok(())
+    }
+
+    /// Apply the runtime-owned feature configuration to this shared handle.
+    /// The caller may pass either setting independently; skill roots are
+    /// rescanned before the provider is installed so a failed scan cannot
+    /// leave a partially configured runtime.
+    pub fn configure_runtime(
+        &self,
+        extra_dirs: impl IntoIterator<Item = PathBuf>,
+        provider: Option<Arc<dyn AsyncMaintenanceProvider>>,
+    ) -> FeatureResult<()> {
+        self.set_skill_extra_dirs(extra_dirs)?;
+        self.set_maintenance_provider(provider)
+    }
+
+    /// Poll skill roots after settings or filesystem changes. The index only
+    /// reads frontmatter; full bodies remain on-demand.
+    pub fn refresh_skills(&self) -> FeatureResult<Option<Vec<Skill>>> {
+        let refreshed = self
+            .skill_registry
+            .write()
+            .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?
+            .rescan_if_changed()?;
+        if refreshed.is_some() {
+            self.persist_skills()?;
+        }
+        Ok(refreshed)
+    }
+
+    pub fn set_skill_extra_dirs(
+        &self,
+        extra_dirs: impl IntoIterator<Item = PathBuf>,
+    ) -> FeatureResult<Vec<Skill>> {
+        let skills = self
+            .skill_registry
+            .write()
+            .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?
+            .set_extra_dirs(extra_dirs)?;
+        self.persist_skills()?;
+        Ok(skills)
     }
 
     /// Dispatch the protocol's complete skill management surface.
@@ -430,6 +467,16 @@ impl FeatureService {
         Ok(skill)
     }
 
+    /// Record a model-side skill load and persist the rolling invocation
+    /// counter. Full text is still loaded only by `SkillRegistry` on demand.
+    pub fn record_skill_invocation(&self, name: &str, bot_id: Option<&str>) -> FeatureResult<()> {
+        self.skill_registry
+            .write()
+            .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?
+            .record_invocation(name, bot_id)?;
+        self.persist_skills()
+    }
+
     fn finish_skill_mutation(
         &self,
         method: &str,
@@ -572,6 +619,35 @@ impl FeatureService {
         self.commit_memory_run(run_id)
     }
 
+    /// Stage a compaction summary in the active model run. It is committed
+    /// together with ordinary memory writes only after the run reaches done.
+    pub fn stage_context_summary(
+        &self,
+        actor: &MemoryActor,
+        access: &MemoryAccess,
+        run_id: &str,
+        target: MemoryTarget,
+        summary: &str,
+        source: MemorySource,
+    ) -> FeatureResult<()> {
+        if summary.trim().is_empty() {
+            return Ok(());
+        }
+        self.stage_memory_with_access(
+            actor,
+            access,
+            run_id,
+            MemoryRequest {
+                target,
+                action: MemoryAction::Add,
+                content: summary.to_owned(),
+                id: None,
+                kind: Some(MemoryKind::BotWorklog),
+                source,
+            },
+        )
+    }
+
     pub fn memory_rpc(&self, actor: &MemoryActor, params: Value) -> FeatureResult<Value> {
         self.memory_rpc_with_access(actor, &MemoryAccess::default(), params)
     }
@@ -591,20 +667,18 @@ impl FeatureService {
             })
             .transpose()?
             .unwrap_or(MemoryAction::Add);
-        let mut source = serde_json::from_value::<MemorySource>(
-            params.get("source").cloned().unwrap_or_else(|| json!({})),
-        )
-        .map_err(|e| FeatureError::Invalid(e.to_string()))?;
         let run_id = params
             .get("run_id")
             .and_then(Value::as_str)
             .ok_or_else(|| FeatureError::Invalid("memory writes require run_id".into()))?;
-        if source.bot_id.is_none() {
-            source.bot_id = actor.bot_id().map(str::to_string);
-        }
-        if source.run_id.is_none() {
-            source.run_id = Some(run_id.to_string());
-        }
+        // Source is provenance, not model input.  Keep the optional JSON
+        // field for wire compatibility, but ignore all caller-supplied
+        // provenance and assign only authenticated identity/run ownership.
+        let source = MemorySource {
+            bot_id: actor.bot_id().map(str::to_string),
+            run_id: Some(run_id.to_string()),
+            session_id: None,
+        };
         let request = MemoryRequest {
             target,
             action,
@@ -633,6 +707,44 @@ impl FeatureService {
         target: Option<&MemoryTarget>,
     ) -> FeatureResult<Vec<MemoryEntry>> {
         Ok(self.shared_memory.search(query, target)?)
+    }
+
+    pub fn memory_search_for_access(
+        &self,
+        actor: &MemoryActor,
+        access: &MemoryAccess,
+        query: &str,
+        target: Option<&MemoryTarget>,
+    ) -> FeatureResult<Vec<MemoryEntry>> {
+        if let Some(target) = target {
+            authorize_memory(actor, access, target, &MemoryAction::Add)?;
+            return self.memory_search(query, Some(target));
+        }
+        if actor.is_main() {
+            return self.memory_search(query, None);
+        }
+        let mut targets = Vec::new();
+        if let Some(user_id) = &access.user_id {
+            targets.push(MemoryTarget::user(user_id.clone()));
+        }
+        if let Some(bot_id) = actor.bot_id() {
+            targets.push(MemoryTarget::bot(bot_id));
+            if let Some(project_id) = &access.project_id {
+                if access.is_project_member(bot_id, project_id) {
+                    targets.push(MemoryTarget::project(project_id.clone()));
+                }
+            }
+        }
+        let mut results = Vec::new();
+        let mut seen = HashSet::new();
+        for target in targets {
+            for entry in self.memory_search(query, Some(&target))? {
+                if seen.insert(entry.id.clone()) {
+                    results.push(entry);
+                }
+            }
+        }
+        Ok(results)
     }
 
     pub fn add_session_message(&self, message: SessionMessage) -> FeatureResult<()> {
@@ -675,6 +787,31 @@ impl FeatureService {
             .read()
             .map_err(|_| FeatureError::Invalid("conversation lock poisoned".into()))?
             .project_find(query))
+    }
+
+    pub fn project_find_for_access(
+        &self,
+        actor: &MemoryActor,
+        access: &MemoryAccess,
+        query: &str,
+    ) -> FeatureResult<Vec<ProjectRecord>> {
+        let projects = self.project_find(query)?;
+        if actor.is_main() {
+            return Ok(projects);
+        }
+        let Some(project_id) = access.project_id.as_deref() else {
+            return Ok(Vec::new());
+        };
+        let Some(bot_id) = actor.bot_id() else {
+            return Ok(Vec::new());
+        };
+        if !access.is_project_member(bot_id, project_id) {
+            return Ok(Vec::new());
+        }
+        Ok(projects
+            .into_iter()
+            .filter(|project| project.id == project_id)
+            .collect())
     }
 
     pub fn chat_history(&self, chat_id: &str, limit: usize) -> FeatureResult<Vec<SessionMessage>> {
@@ -741,8 +878,23 @@ impl FeatureService {
                 return Err(error.into());
             }
         };
+        // Extraction is an additive maintenance pass. A provider that
+        // returns malformed extraction JSON must not discard a valid
+        // worklog summary; retain the summary and skip only those drafts.
+        let drafts = match provider.extract(&transcript).await {
+            Ok(drafts) => drafts,
+            Err(error) => {
+                tracing::warn!(%error, bot_id = %target.owner_id, "maintenance extraction skipped");
+                Vec::new()
+            }
+        };
         // The unique run id prevents collision with an in-flight model run.
         let run_id = format!("maintenance-{}", uuid::Uuid::now_v7());
+        let maintenance_source = MemorySource {
+            bot_id: Some(target.owner_id.clone()),
+            run_id: Some(run_id.clone()),
+            session_id: Some("maintenance".into()),
+        };
         let commit = (|| -> FeatureResult<Vec<MemoryEntry>> {
             self.begin_memory_run(&run_id)?;
             for row in rows {
@@ -766,9 +918,36 @@ impl FeatureService {
                     content: summary,
                     id: None,
                     kind: Some(MemoryKind::BotWorklog),
-                    source: MemorySource::default(),
+                    source: maintenance_source.clone(),
                 },
             )?;
+            for draft in drafts {
+                // Maintenance reads only this Bot's worklog. Keep extracted
+                // memories within that same private scope so a model cannot
+                // turn private Bot history into user/project data.
+                if draft.target != *target {
+                    return Err(FeatureError::Invalid(
+                        "maintenance drafts must target the source Bot".into(),
+                    ));
+                }
+                let mut source = draft.source;
+                // Extraction output is untrusted model data.  Keep only its
+                // content/kind; all provenance is assigned by maintenance.
+                source.bot_id = Some(target.owner_id.clone());
+                source.run_id = Some(run_id.clone());
+                source.session_id = Some("maintenance".into());
+                self.shared_memory.stage(
+                    &run_id,
+                    MemoryRequest {
+                        target: draft.target,
+                        action: MemoryAction::Add,
+                        content: draft.content,
+                        id: None,
+                        kind: Some(draft.kind),
+                        source,
+                    },
+                )?;
+            }
             self.commit_memory_run(&run_id)
         })();
         let entries = match commit {
@@ -780,6 +959,40 @@ impl FeatureService {
             }
         };
         Ok(entries.into_iter().find(|entry| entry.target == *target))
+    }
+
+    /// Persist a compacted context segment through the same atomic run path
+    /// as model memory writes. This makes compact summaries recoverable after
+    /// restart without exposing them as a client-facing protocol event.
+    pub fn persist_context_summary(
+        &self,
+        target: MemoryTarget,
+        summary: &str,
+        source: MemorySource,
+    ) -> FeatureResult<Option<MemoryEntry>> {
+        if target.scope != macbot_memory::MemoryScope::Bot || summary.trim().is_empty() {
+            return Ok(None);
+        }
+        let run_id = format!("compact-{}", uuid::Uuid::now_v7());
+        self.begin_memory_run(&run_id)?;
+        self.shared_memory.stage(
+            &run_id,
+            MemoryRequest {
+                target: target.clone(),
+                action: MemoryAction::Add,
+                content: summary.to_owned(),
+                id: None,
+                kind: Some(MemoryKind::BotWorklog),
+                source,
+            },
+        )?;
+        match self.commit_memory_run(&run_id) {
+            Ok(entries) => Ok(entries.into_iter().find(|entry| entry.target == target)),
+            Err(error) => {
+                let _ = self.rollback_memory_run(&run_id);
+                Err(error)
+            }
+        }
     }
 
     /// Returns whether the scheduler should run private worklog maintenance.
@@ -822,6 +1035,21 @@ impl FeatureService {
         }
     }
 
+    /// Scheduler entrypoint: call this from the gateway's idle/day tick. The
+    /// policy and durable per-Bot counters make repeated ticks cheap and safe.
+    pub async fn maintenance_tick(
+        &self,
+        targets: &[MemoryTarget],
+    ) -> FeatureResult<Vec<MemoryEntry>> {
+        let mut committed = Vec::new();
+        for target in targets {
+            if let Some(entry) = self.run_maintenance_if_due(target).await? {
+                committed.push(entry);
+            }
+        }
+        Ok(committed)
+    }
+
     /// Ask the configured provider to compact only when context assembly
     /// crossed the 80% segment boundary. This path receives the current
     /// context explicitly; automatic maintenance never reads private chats.
@@ -845,7 +1073,7 @@ impl FeatureService {
             .map(|layer| layer.content.as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        Ok(Some(provider.summarize(&text).await?))
+        Ok(Some(provider.compact(&text).await?))
     }
 
     fn reserve_maintenance(
@@ -975,6 +1203,71 @@ impl ContextProvider for FeatureService {
 pub struct ModelMaintenanceAdapter {
     provider: Arc<dyn ModelProvider>,
     model: String,
+    usage_sink: Option<Arc<dyn MaintenanceUsageSink>>,
+    usage_context: Option<MaintenanceUsageContext>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MaintenanceUsageContext {
+    pub request_id: String,
+    pub bot_id: String,
+    pub project_id: Option<String>,
+    pub chat_id: String,
+    pub run_id: String,
+    pub provider_id: String,
+    pub model_id: String,
+    pub routine: bool,
+}
+
+#[async_trait]
+pub trait MaintenanceUsageSink: Send + Sync {
+    async fn record(
+        &self,
+        phase: &str,
+        context: &MaintenanceUsageContext,
+        usage: &TokenUsage,
+    ) -> Result<(), String>;
+}
+
+/// Production can provide a cheap/local fallback model for idle maintenance
+/// and compaction. A primary provider failure is retried once through the
+/// fallback; successful primary calls are never duplicated.
+pub struct FallbackMaintenanceProvider {
+    primary: Arc<dyn AsyncMaintenanceProvider>,
+    fallback: Arc<dyn AsyncMaintenanceProvider>,
+}
+
+impl FallbackMaintenanceProvider {
+    pub fn new(
+        primary: Arc<dyn AsyncMaintenanceProvider>,
+        fallback: Arc<dyn AsyncMaintenanceProvider>,
+    ) -> Self {
+        Self { primary, fallback }
+    }
+}
+
+#[async_trait]
+impl AsyncMaintenanceProvider for FallbackMaintenanceProvider {
+    async fn summarize(&self, text: &str) -> Result<String, MemoryError> {
+        match self.primary.summarize(text).await {
+            Ok(value) => Ok(value),
+            Err(_) => self.fallback.summarize(text).await,
+        }
+    }
+
+    async fn compact(&self, text: &str) -> Result<String, MemoryError> {
+        match self.primary.compact(text).await {
+            Ok(value) => Ok(value),
+            Err(_) => self.fallback.compact(text).await,
+        }
+    }
+
+    async fn extract(&self, text: &str) -> Result<Vec<macbot_memory::MemoryDraft>, MemoryError> {
+        match self.primary.extract(text).await {
+            Ok(value) => Ok(value),
+            Err(_) => self.fallback.extract(text).await,
+        }
+    }
 }
 
 impl ModelMaintenanceAdapter {
@@ -982,7 +1275,22 @@ impl ModelMaintenanceAdapter {
         Self {
             provider,
             model: model.into(),
+            usage_sink: None,
+            usage_context: None,
         }
+    }
+
+    /// Attach a gateway-owned UsageLedger adapter. The feature crate keeps
+    /// this as a trait so it does not take a dependency on the dashboard
+    /// implementation; protocol usage phase keys are `memory` and `compact`.
+    pub fn with_usage_sink(mut self, sink: Arc<dyn MaintenanceUsageSink>) -> Self {
+        self.usage_sink = Some(sink);
+        self
+    }
+
+    pub fn with_usage_context(mut self, context: MaintenanceUsageContext) -> Self {
+        self.usage_context = Some(context);
+        self
     }
 
     pub fn from_http(
@@ -993,8 +1301,14 @@ impl ModelMaintenanceAdapter {
         Self::new(Arc::new(HttpProvider::new(config, secrets)), model)
     }
 
-    async fn complete(&self, system: &str, text: &str) -> Result<Completion, FeatureError> {
-        self.provider
+    async fn complete(
+        &self,
+        phase: &str,
+        system: &str,
+        text: &str,
+    ) -> Result<Completion, FeatureError> {
+        let completion = self
+            .provider
             .complete(ModelRequest {
                 model: self.model.clone(),
                 messages: vec![
@@ -1006,7 +1320,18 @@ impl ModelMaintenanceAdapter {
                 session_id: None,
             })
             .await
-            .map_err(|error| FeatureError::Provider(error.to_string()))
+            .map_err(|error| FeatureError::Provider(error.to_string()))?;
+        if let (Some(sink), Some(context)) = (&self.usage_sink, &self.usage_context) {
+            // A single configured adapter serves both idle summarization and
+            // context compaction. Give every provider call its own durable
+            // request id so UsageLedger does not deduplicate later calls.
+            let mut context = context.clone();
+            context.request_id = format!("{}:{}", context.request_id, Uuid::now_v7());
+            sink.record(phase, &context, &completion.usage)
+                .await
+                .map_err(FeatureError::Provider)?;
+        }
+        Ok(completion)
     }
 }
 
@@ -1014,6 +1339,7 @@ impl ModelMaintenanceAdapter {
 impl AsyncMaintenanceProvider for ModelMaintenanceAdapter {
     async fn summarize(&self, text: &str) -> Result<String, MemoryError> {
         self.complete(
+            "memory",
             "Summarize the durable work log. Preserve decisions, facts, and unresolved items.",
             text,
         )
@@ -1025,6 +1351,7 @@ impl AsyncMaintenanceProvider for ModelMaintenanceAdapter {
     async fn extract(&self, text: &str) -> Result<Vec<macbot_memory::MemoryDraft>, MemoryError> {
         let completion = self
             .complete(
+                "memory",
                 "Extract only durable memories as a JSON array with target, kind, and content fields. Return [] when none.",
                 text,
             )
@@ -1032,6 +1359,17 @@ impl AsyncMaintenanceProvider for ModelMaintenanceAdapter {
             .map_err(|error| MemoryError::Provider(error.to_string()))?;
         serde_json::from_str(&completion.text)
             .map_err(|error| MemoryError::Provider(format!("maintenance JSON: {error}")))
+    }
+
+    async fn compact(&self, text: &str) -> Result<String, MemoryError> {
+        self.complete(
+            "compact",
+            "Compact the context segment while preserving decisions, constraints, and unresolved items.",
+            text,
+        )
+        .await
+        .map(|completion| completion.text)
+        .map_err(|error| MemoryError::Provider(error.to_string()))
     }
 }
 
@@ -1106,10 +1444,10 @@ fn authorize_memory(
         macbot_memory::MemoryScope::User
             if access.user_id.as_deref() == Some(target.owner_id.as_str()) => {}
         macbot_memory::MemoryScope::Project
-            if access.project_id.as_deref() == Some(target.owner_id.as_str())
-                && actor.bot_id().is_some_and(|bot| {
-                    access.project_member_bot_ids.iter().any(|id| id == bot)
-                }) => {}
+            if access.is_project_member(
+                actor.bot_id().unwrap_or_default(),
+                target.owner_id.as_str(),
+            ) => {}
         macbot_memory::MemoryScope::Bot => {
             return Err(FeatureError::Invalid(
                 "a Bot may only write its own private memory".into(),
@@ -1303,6 +1641,59 @@ mod tests {
     }
 
     #[test]
+    fn feature_skill_roots_follow_settings_and_filesystem_changes() {
+        let service = service();
+        let extra = service.home.join("extra-skills");
+        std::fs::create_dir_all(extra.join("external")).unwrap();
+        std::fs::write(extra.join("external/SKILL.md"), skill("external")).unwrap();
+        let skills = service.set_skill_extra_dirs(vec![extra.clone()]).unwrap();
+        assert!(skills.iter().any(|item| item.name == "external"));
+        std::fs::create_dir_all(extra.join("second")).unwrap();
+        std::fs::write(extra.join("second/SKILL.md"), skill("second")).unwrap();
+        assert!(service.refresh_skills().unwrap().is_some());
+        assert!(service.skill_registry.read().unwrap().get("second").is_ok());
+    }
+
+    #[test]
+    fn skill_metadata_survives_feature_service_restart() {
+        let home = tempfile::tempdir().unwrap().keep();
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        service
+            .skill_rpc(
+                "skill.create",
+                json!({"name":"persistent","content":skill("persistent")}),
+            )
+            .unwrap();
+        service
+            .skill_registry
+            .write()
+            .unwrap()
+            .set_enabled("persistent", false, Some("bot-a"))
+            .unwrap();
+        service
+            .record_skill_invocation("persistent", Some("bot-a"))
+            .unwrap();
+        service.persist_skills().unwrap();
+        drop(service);
+
+        let restored = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
+        let skill = restored
+            .skill_registry
+            .read()
+            .unwrap()
+            .get("persistent")
+            .unwrap()
+            .skill;
+        assert!(!restored
+            .skill_registry
+            .read()
+            .unwrap()
+            .is_enabled_for("persistent", Some("bot-a"))
+            .unwrap());
+        assert_eq!(skill.invocations_7d.total, 1);
+    }
+
+    #[test]
     fn memory_actor_permissions_and_context_hook() {
         let service = service();
         service.begin_memory_run("run-1").unwrap();
@@ -1373,12 +1764,63 @@ mod tests {
         ) -> macbot_providers::Result<Completion> {
             Ok(Completion {
                 text: "summarized work".into(),
+                assistant_content: None,
                 thinking: String::new(),
                 tool_calls: Vec::new(),
                 usage: TokenUsage::default(),
                 stop_reason: "stop".into(),
             })
         }
+    }
+
+    struct FailingMaintenance;
+    #[async_trait]
+    impl AsyncMaintenanceProvider for FailingMaintenance {
+        async fn summarize(&self, _: &str) -> Result<String, MemoryError> {
+            Err(MemoryError::Provider("primary unavailable".into()))
+        }
+    }
+
+    struct RecordingUsage(Arc<std::sync::Mutex<Vec<String>>>);
+    #[async_trait]
+    impl MaintenanceUsageSink for RecordingUsage {
+        async fn record(
+            &self,
+            phase: &str,
+            _: &MaintenanceUsageContext,
+            _: &TokenUsage,
+        ) -> Result<(), String> {
+            self.0.lock().unwrap().push(phase.to_string());
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn maintenance_has_fallback_and_usage_phase_hooks() {
+        let fallback = FallbackMaintenanceProvider::new(
+            Arc::new(FailingMaintenance),
+            Arc::new(ModelMaintenanceAdapter::new(
+                Arc::new(FakeMaintenance),
+                "fallback",
+            )),
+        );
+        assert_eq!(fallback.summarize("work").await.unwrap(), "summarized work");
+
+        let phases = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let adapter = ModelMaintenanceAdapter::new(Arc::new(FakeMaintenance), "mock")
+            .with_usage_sink(Arc::new(RecordingUsage(Arc::clone(&phases))))
+            .with_usage_context(MaintenanceUsageContext {
+                request_id: "maintenance-1".into(),
+                bot_id: "bot-a".into(),
+                chat_id: "chat-a".into(),
+                run_id: "run-a".into(),
+                provider_id: "mock".into(),
+                model_id: "mock".into(),
+                ..Default::default()
+            });
+        assert_eq!(adapter.summarize("work").await.unwrap(), "summarized work");
+        assert_eq!(adapter.compact("context").await.unwrap(), "summarized work");
+        assert_eq!(&*phases.lock().unwrap(), &["memory", "compact"]);
     }
 
     #[tokio::test]
@@ -1461,6 +1903,89 @@ mod tests {
             .is_ok());
         service.commit_memory_run("access").unwrap();
         assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn memory_rpc_overwrites_untrusted_provenance() {
+        let service = service();
+        let actor = MemoryActor::bot("bot-a");
+        let access = MemoryAccess::user("user-a");
+        service.begin_memory_run("actual-run").unwrap();
+        service
+            .memory_rpc_with_access(
+                &actor,
+                &access,
+                json!({
+                    "scope": "bot",
+                    "bot_id": "bot-a",
+                    "action": "add",
+                    "kind": "bot_experience",
+                    "content": "source sentinel",
+                    "run_id": "actual-run",
+                    "source": {
+                        "bot_id": "other-bot",
+                        "run_id": "forged-run",
+                        "session_id": "forged-session"
+                    }
+                }),
+            )
+            .unwrap();
+        let entries = service.commit_memory_run("actual-run").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].source.bot_id.as_deref(), Some("bot-a"));
+        assert_eq!(entries[0].source.run_id.as_deref(), Some("actual-run"));
+        assert_eq!(entries[0].source.session_id, None);
+    }
+
+    #[test]
+    fn compact_summary_is_staged_until_run_success() {
+        let service = service();
+        let actor = MemoryActor::bot("bot-a");
+        let access = MemoryAccess::user("u");
+        service.begin_memory_run("compact-fail").unwrap();
+        service
+            .stage_context_summary(
+                &actor,
+                &access,
+                "compact-fail",
+                MemoryTarget::bot("bot-a"),
+                "compacted context",
+                MemorySource {
+                    bot_id: Some("bot-a".into()),
+                    run_id: Some("compact-fail".into()),
+                    session_id: Some("chat".into()),
+                },
+            )
+            .unwrap();
+        assert!(service
+            .memory_search("compacted", Some(&MemoryTarget::bot("bot-a")))
+            .unwrap()
+            .is_empty());
+        service.rollback_memory_run("compact-fail").unwrap();
+        assert!(service
+            .memory_search("compacted", Some(&MemoryTarget::bot("bot-a")))
+            .unwrap()
+            .is_empty());
+
+        service.begin_memory_run("compact-ok").unwrap();
+        service
+            .stage_context_summary(
+                &actor,
+                &access,
+                "compact-ok",
+                MemoryTarget::bot("bot-a"),
+                "compacted context",
+                MemorySource::default(),
+            )
+            .unwrap();
+        service.commit_memory_run("compact-ok").unwrap();
+        assert_eq!(
+            service
+                .memory_search("compacted", Some(&MemoryTarget::bot("bot-a")))
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

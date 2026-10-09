@@ -6,7 +6,6 @@
   <key>ProgramArguments</key>
   <array>
     <string>__MACBOT_BIN__</string>
-    <string>--port</string><string>7788</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict><key>MACBOT_HOME</key><string>__MACBOT_HOME__</string></dict>

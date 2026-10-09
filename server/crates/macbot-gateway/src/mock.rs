@@ -5,9 +5,9 @@
 //! mutating method returns the object it changed and appends the corresponding
 //! protocol event to the gateway event log.
 
-use super::{GatewayState, MockState, RpcResult, id, now, rpc_error};
+use super::{id, now, rpc_error, GatewayState, MockState, RpcResult};
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 pub(crate) async fn mock_call(method: &str, params: Value, state: &GatewayState) -> RpcResult {
     let mut data = state.inner.write().await;
@@ -2162,12 +2162,10 @@ fn routine_set_enabled(state: &mut MockState, params: &Value) -> RpcResult {
         .into_iter()
         .find(|x| x.get("id").and_then(Value::as_str) == Some(idv))
         .ok_or_else(|| rpc_error("not_found", "routine not found", None))?;
-    routine["enabled"] = json!(
-        params
-            .get("enabled")
-            .and_then(Value::as_bool)
-            .unwrap_or(true)
-    );
+    routine["enabled"] = json!(params
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true));
     routine["updated_at"] = json!(now());
     replace_extra(state, "routines", routine.clone());
     state.emit("routine.updated", json!({"routine":routine.clone()}));
@@ -2314,7 +2312,11 @@ fn model_delete(state: &mut MockState, params: &Value) -> RpcResult {
     Ok(json!({}))
 }
 fn settings_update(state: &mut MockState, params: &Value) -> RpcResult {
+    crate::adapter::validate_settings_secret_params(params)?;
     merge_patch(&mut state.settings, params.get("patch"));
+    if let Some(key) = params.get("web_search_key").and_then(Value::as_str) {
+        state.settings["web_search"]["has_key"] = json!(!key.is_empty());
+    }
     let settings = state.settings.clone();
     state.emit("settings.updated", json!({"settings":settings.clone()}));
     Ok(json!({"settings":settings}))
@@ -2361,7 +2363,7 @@ mod contract_tests {
         RoutineRun, SearchHit, SearchResult, Settings, Skill, SkillDetail, UsageBreakdownResult,
         UsageSummaryResult, UsageTimeseriesResult, WorkbenchResult,
     };
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
 
     async fn gateway() -> Gateway {
         let home = tempfile::tempdir().unwrap();
@@ -2546,12 +2548,10 @@ mod contract_tests {
             !typed.results.is_empty(),
             "fixture artifact corpus is empty"
         );
-        assert!(
-            typed
-                .results
-                .iter()
-                .all(|hit| hit.kind == macbot_protocol::SearchKind::Artifact)
-        );
+        assert!(typed
+            .results
+            .iter()
+            .all(|hit| hit.kind == macbot_protocol::SearchKind::Artifact));
         for hit in artifacts["results"].as_array().unwrap() {
             let _: SearchHit = serde_json::from_value(hit.clone()).unwrap();
             assert_eq!(hit.as_object().unwrap().len(), 6);
@@ -2612,34 +2612,26 @@ mod contract_tests {
         let workbench = call(&gateway, "workbench.get", json!({})).await;
         let typed: WorkbenchResult = serde_json::from_value(workbench).unwrap();
         assert_eq!(typed.workbench.running as usize, expected_running);
-        assert!(
-            typed
-                .workbench
-                .waiting
-                .iter()
-                .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Approval { .. }) })
-        );
-        assert!(
-            typed
-                .workbench
-                .waiting
-                .iter()
-                .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Question { .. }) })
-        );
-        assert!(
-            typed
-                .workbench
-                .bots
-                .iter()
-                .any(|bot| !bot.assignments.is_empty())
-        );
-        assert!(
-            typed
-                .workbench
-                .done_today
-                .iter()
-                .all(|assignment| assignment.status == macbot_protocol::AssignmentStatus::Done)
-        );
+        assert!(typed
+            .workbench
+            .waiting
+            .iter()
+            .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Approval { .. }) }));
+        assert!(typed
+            .workbench
+            .waiting
+            .iter()
+            .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Question { .. }) }));
+        assert!(typed
+            .workbench
+            .bots
+            .iter()
+            .any(|bot| !bot.assignments.is_empty()));
+        assert!(typed
+            .workbench
+            .done_today
+            .iter()
+            .all(|assignment| assignment.status == macbot_protocol::AssignmentStatus::Done));
 
         call(
             &gateway,
@@ -2660,13 +2652,11 @@ mod contract_tests {
         .await;
         let released = call(&gateway, "workbench.get", json!({})).await;
         let released: WorkbenchResult = serde_json::from_value(released).unwrap();
-        assert!(
-            !released
-                .workbench
-                .waiting
-                .iter()
-                .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Takeover { .. }) })
-        );
+        assert!(!released
+            .workbench
+            .waiting
+            .iter()
+            .any(|item| { matches!(item, macbot_protocol::WorkbenchWaiting::Takeover { .. }) }));
     }
 
     #[tokio::test]
@@ -2724,7 +2714,13 @@ mod contract_tests {
     #[test]
     fn usage_auto_granularity_matches_production_ranges() {
         let from = Utc::now();
-        for (days, expected) in [(1, "hour"), (7, "hour"), (8, "day"), (90, "day"), (91, "week")] {
+        for (days, expected) in [
+            (1, "hour"),
+            (7, "hour"),
+            (8, "day"),
+            (90, "day"),
+            (91, "week"),
+        ] {
             let result = super::usage_timeseries(&json!({"from":from.to_rfc3339(),"to":(from+Duration::days(days)).to_rfc3339(),"granularity":"auto"})).unwrap();
             assert_eq!(result["granularity"], expected);
             if days == 1 {
@@ -2802,12 +2798,10 @@ mod contract_tests {
         let timeseries: UsageTimeseriesResult = serde_json::from_value(timeseries).unwrap();
         assert!(!timeseries.buckets.is_empty());
         assert!(timeseries.series.iter().any(|series| series.key == "other"));
-        assert!(
-            timeseries
-                .series
-                .iter()
-                .all(|series| series.values.len() == timeseries.buckets.len())
-        );
+        assert!(timeseries
+            .series
+            .iter()
+            .all(|series| series.values.len() == timeseries.buckets.len()));
 
         let breakdown = call(
             &gateway,
@@ -2826,12 +2820,10 @@ mod contract_tests {
                 .sum::<u64>(),
             summary.current.usage.requests
         );
-        assert!(
-            breakdown
-                .rows
-                .iter()
-                .any(|row| row.phases.contains_key("compact"))
-        );
+        assert!(breakdown
+            .rows
+            .iter()
+            .any(|row| row.phases.contains_key("compact")));
 
         let model_breakdown = call(
             &gateway,
@@ -2841,11 +2833,9 @@ mod contract_tests {
         .await;
         let model_breakdown: UsageBreakdownResult =
             serde_json::from_value(model_breakdown).unwrap();
-        assert!(
-            model_breakdown
-                .rows
-                .iter()
-                .any(|row| row.key == "free-model" && row.usage.cost.is_none())
-        );
+        assert!(model_breakdown
+            .rows
+            .iter()
+            .any(|row| row.key == "free-model" && row.usage.cost.is_none()));
     }
 }

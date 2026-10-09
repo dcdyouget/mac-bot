@@ -14,9 +14,9 @@ use axum::{
     Json, Router,
 };
 use base64::Engine;
-use chrono::{SecondsFormat, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use futures_util::{SinkExt, StreamExt};
-use macbot_browser::{BrowserManager, ProcessRunner};
+use macbot_browser::{BrowserError, BrowserManager, ProcessRunner};
 use password_hash::SaltString;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
@@ -30,18 +30,29 @@ use std::{
 };
 use tokio::{
     fs,
-    net::TcpListener,
-    sync::{broadcast, RwLock},
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream, UnixListener},
+    sync::{broadcast, mpsc, Mutex, RwLock},
 };
+
 use tracing::{info, warn};
 use uuid::Uuid;
 
 #[allow(dead_code)]
+mod collaboration_tools;
+#[allow(dead_code)]
 mod execution;
+#[allow(dead_code)]
+mod features;
+mod housekeeping;
+#[allow(dead_code)]
+mod memory_tools;
 mod mock;
 
 mod adapter;
+mod backend;
 pub use adapter::ProductionBackend;
+pub use backend::{ComposedBackend, RuntimeError, RuntimeExecution};
 
 const VERSION: &str = "0.1.0";
 const PROTOCOL: u64 = 1;
@@ -51,6 +62,17 @@ const MAX_UPLOAD: usize = 100 * 1024 * 1024;
 #[async_trait::async_trait]
 pub trait RpcBackend: Send + Sync + 'static {
     async fn call(&self, method: &str, params: Value, state: &GatewayState) -> RpcResult;
+
+    /// Export usage through the ledger owned by this backend.  HTTP handlers
+    /// must use this hook instead of opening the Store a second time: the
+    /// production Store is protected by a process-wide single-writer lock.
+    async fn export_usage_csv(&self, _params: &Value, _timezone: &str) -> Result<String, RpcError> {
+        Err(rpc_error(
+            "unsupported",
+            "usage CSV export is unavailable",
+            None,
+        ))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -93,7 +115,148 @@ pub struct GatewayState {
     /// queue in `MockState` remains the source for resume; this channel only
     /// carries events produced after a socket has connected.
     pub events: broadcast::Sender<Value>,
+    trace_runtime: Arc<Mutex<TraceRuntime>>,
+    event_lock: Arc<Mutex<()>>,
     pub(crate) browser: Arc<tokio::sync::Mutex<BrowserManager<ProcessRunner>>>,
+    /// Number of live gateway screen connections sharing each Bot sidecar.
+    /// The sidecar is disabled only when the last connection closes.
+    pub(crate) screen_streams: Arc<tokio::sync::Mutex<HashMap<String, usize>>>,
+}
+
+#[derive(Debug, Clone)]
+struct TraceInFlight {
+    assignment_id: Option<String>,
+    chat_id: String,
+    text: String,
+    thinking: String,
+    tool_args: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct TraceRuntime {
+    in_flight: HashMap<String, TraceInFlight>,
+}
+
+impl TraceRuntime {
+    fn from_events(events: impl IntoIterator<Item = Value>) -> Self {
+        let mut runtime = Self::default();
+        for event in events {
+            if event.get("event").and_then(Value::as_str) == Some("trace.item") {
+                let item = event
+                    .get("data")
+                    .and_then(|data| data.get("item"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                runtime.update_persistent("trace.item", &json!({"item": item}));
+            }
+        }
+        runtime
+    }
+
+    fn update_persistent(&mut self, event: &str, data: &Value) {
+        if event != "trace.item" {
+            return;
+        }
+        let Some(item) = data.get("item") else {
+            return;
+        };
+        let kind = item.get("type").and_then(Value::as_str).unwrap_or("");
+        let Some(item_data) = item.get("data") else {
+            return;
+        };
+        let Some(request_id) = item_data.get("request_id").and_then(Value::as_str) else {
+            return;
+        };
+        match kind {
+            "llm.request" => {
+                let Some(chat_id) = item.get("chat_id").and_then(Value::as_str) else {
+                    return;
+                };
+                self.in_flight.insert(
+                    request_id.to_owned(),
+                    TraceInFlight {
+                        assignment_id: item
+                            .get("assignment_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                        chat_id: chat_id.to_owned(),
+                        text: String::new(),
+                        thinking: String::new(),
+                        tool_args: HashMap::new(),
+                    },
+                );
+            }
+            "llm.response" => {
+                self.in_flight.remove(request_id);
+            }
+            _ => {}
+        }
+    }
+
+    fn update_temporary(&mut self, event: &str, data: &Value) {
+        let Some(request_id) = data.get("request_id").and_then(Value::as_str) else {
+            return;
+        };
+        let Some(request) = self.in_flight.get_mut(request_id) else {
+            return;
+        };
+        if event != "trace.delta" {
+            return;
+        }
+        let text = data.get("text").and_then(Value::as_str).unwrap_or("");
+        match data
+            .get("channel")
+            .and_then(Value::as_str)
+            .unwrap_or("text")
+        {
+            "thinking" => request.thinking.push_str(text),
+            "tool_args" => {
+                if let Some(call_id) = data.get("call_id").and_then(Value::as_str) {
+                    request
+                        .tool_args
+                        .entry(call_id.to_owned())
+                        .or_default()
+                        .push_str(text);
+                }
+            }
+            _ => request.text.push_str(text),
+        }
+    }
+
+    fn matches(&self, assignment_id: Option<&str>, chat_id: Option<&str>, data: &Value) -> bool {
+        let request = data
+            .get("request_id")
+            .and_then(Value::as_str)
+            .and_then(|id| self.in_flight.get(id));
+        let event_assignment = data
+            .get("assignment_id")
+            .and_then(Value::as_str)
+            .or_else(|| request.and_then(|item| item.assignment_id.as_deref()));
+        let event_chat = data
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .or_else(|| request.map(|item| item.chat_id.as_str()));
+        assignment_id.is_none_or(|expected| event_assignment == Some(expected))
+            && chat_id.is_none_or(|expected| event_chat == Some(expected))
+    }
+
+    fn in_flight_for(&self, assignment_id: Option<&str>, chat_id: Option<&str>) -> Vec<Value> {
+        self.in_flight
+            .iter()
+            .filter(|(_, request)| {
+                assignment_id
+                    .is_none_or(|expected| request.assignment_id.as_deref() == Some(expected))
+                    && chat_id.is_none_or(|expected| request.chat_id == expected)
+            })
+            .map(|(request_id, request)| {
+                json!({
+                    "request_id": request_id,
+                    "text": request.text,
+                    "thinking": request.thinking,
+                })
+            })
+            .collect()
+    }
 }
 
 impl GatewayState {
@@ -101,8 +264,54 @@ impl GatewayState {
     /// Callers must append to Store first; this method only handles live clients
     /// and the bounded replay buffer.
     pub(crate) async fn publish_event(&self, seq: u64, event: &str, data: Value) {
-        let value = self.inner.write().await.emit_persisted(seq, event, data);
+        let _event_lock = self.event_lock.lock().await;
+        let value = {
+            let mut state = self.inner.write().await;
+            let value = state.emit_persisted(seq, event, data);
+            if event == "trace.item" {
+                let trace_data = value.get("data").cloned().unwrap_or(Value::Null);
+                state.index_trace_item(&trace_data);
+            }
+            value
+        };
+        if event == "trace.item" {
+            let item = value
+                .get("data")
+                .and_then(|data| data.get("item"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            self.trace_runtime
+                .lock()
+                .await
+                .update_persistent(event, &json!({"item": item}));
+        }
         let _ = self.events.send(value);
+    }
+
+    pub(crate) async fn publish_temporary(&self, event: &str, data: Value) {
+        let _event_lock = self.event_lock.lock().await;
+        self.trace_runtime
+            .lock()
+            .await
+            .update_temporary(event, &data);
+        let _ = self.events.send(json!({
+            "v": 1,
+            "kind": "evt",
+            "event": event,
+            "data": data,
+        }));
+    }
+
+    async fn rebuild_trace_runtime(&self) {
+        let events = self
+            .inner
+            .read()
+            .await
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        *self.trace_runtime.lock().await = TraceRuntime::from_events(events);
     }
 }
 
@@ -273,7 +482,7 @@ impl MockState {
         });
         let hello = json!({"v":1,"kind":"evt","event":"hello","data":{
             "protocol":1,"server_version":VERSION,"node_id":node_id,"host_name":host_name,
-            "server_time":now,"last_seq":0,"timezone":"Asia/Shanghai","currency":"CNY","features":["mock","browser"]
+            "server_time":now,"last_seq":0,"timezone":"Asia/Shanghai","currency":"CNY","features":if load_fixture {json!(["mock","browser"])} else {json!(["browser"])}
         }});
         let settings = json!({
             "host_name":host_name,"timezone":"Asia/Shanghai","currency":"CNY",
@@ -411,7 +620,12 @@ impl MockState {
 
     fn emit(&mut self, event: &str, data: Value) -> Value {
         self.seq += 1;
-        self.emit_persisted(self.seq, event, data)
+        let value = self.emit_persisted(self.seq, event, data);
+        if event == "trace.item" {
+            let trace_data = value.get("data").cloned().unwrap_or(Value::Null);
+            self.index_trace_item(&trace_data);
+        }
+        value
     }
 
     fn emit_persisted(&mut self, seq: u64, event: &str, data: Value) -> Value {
@@ -453,20 +667,26 @@ impl Gateway {
                     value
                 })
         };
+        let initial_state = MockState::new(&host_name, config.mock, &node_id);
+        let mut trace_runtime = TraceRuntime::from_events(initial_state.events.iter().cloned());
+        for items in initial_state.traces.values() {
+            for item in items {
+                trace_runtime.update_persistent("trace.item", &json!({"item": item}));
+            }
+        }
         let state = GatewayState {
-            inner: Arc::new(RwLock::new(MockState::new(
-                &host_name,
-                config.mock,
-                &node_id,
-            ))),
+            inner: Arc::new(RwLock::new(initial_state)),
             home: config.home.clone(),
             host_name: Arc::new(RwLock::new(host_name)),
             node_id: Arc::new(RwLock::new(node_id)),
             events,
+            trace_runtime: Arc::new(Mutex::new(trace_runtime)),
+            event_lock: Arc::new(Mutex::new(())),
             browser: Arc::new(tokio::sync::Mutex::new(BrowserManager::new(
                 macbot_browser::SessionConfig::default(),
                 Arc::new(ProcessRunner),
             ))),
+            screen_streams: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         };
         Self {
             state,
@@ -511,17 +731,40 @@ impl Gateway {
             .with_state(self.clone())
     }
 
+    /// Router for the per-user control socket. It is served only on the Unix
+    /// socket and therefore does not expose password-management operations on
+    /// the TCP listener.
+    pub fn local_router(&self) -> Router {
+        Router::new()
+            .route("/__local/status", get(local_status_handler))
+            .route("/__local/passwd", post(local_passwd_handler))
+            .route("/__local/settings", post(local_settings_handler))
+            .route("/__local/logs", get(local_logs_handler))
+            .route("/__local/restart", post(local_restart_handler))
+            .route("/__local/update", post(local_update_handler))
+            .with_state(self.clone())
+    }
+
     pub async fn serve(self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         fs::create_dir_all(self.state.home.join("data")).await?;
         fs::create_dir_all(self.state.home.join("uploads")).await?;
+        let socket_path = self.state.home.join("data/macbotd.sock");
+        let _ = fs::remove_file(&socket_path).await;
+        let unix = UnixListener::bind(&socket_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
+        }
         let listener = TcpListener::bind(self.config_addr()).await?;
         info!(addr = %listener.local_addr()?, "macbot gateway listening");
-        axum::serve(
+        let tcp = axum::serve(
             listener,
             self.router()
                 .into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await?;
+        );
+        let local = axum::serve(unix, self.local_router().into_make_service());
+        tokio::try_join!(tcp, local)?;
         Ok(())
     }
 
@@ -629,23 +872,38 @@ struct WsReq {
     params: Value,
 }
 
+#[derive(Debug, Clone)]
+struct TraceSubscription {
+    assignment_id: Option<String>,
+    chat_id: Option<String>,
+    last_aseq: u64,
+}
+
 async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
     let (mut sink, mut stream) = socket.split();
     let mut live = gw.state.events.subscribe();
-    let mut trace_streams: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
+    let mut trace_streams: HashMap<String, TraceSubscription> = HashMap::new();
     let mut last_received = std::time::Instant::now();
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(60));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let host_name = gw.state.host_name.read().await.clone();
     let node_id = gw.state.node_id.read().await.clone();
+    let production_hello = if !gw.mock {
+        gw.rpc("bootstrap", json!({}))
+            .await
+            .ok()
+            .and_then(|value| value.get("hello").cloned())
+    } else {
+        None
+    };
     let hello = {
         let state = gw.state.inner.read().await;
-        let mut hello = state
+        let mut hello = production_hello.map(|hello| json!({"v":1,"kind":"evt","event":"hello","data":hello})).unwrap_or_else(|| state
             .events
             .iter()
             .find(|event| event.get("event").and_then(Value::as_str) == Some("hello"))
             .cloned()
-            .unwrap_or_else(|| json!({"v":1,"kind":"evt","event":"hello","data":hello_value(&state, &host_name, &node_id)}));
+            .unwrap_or_else(|| json!({"v":1,"kind":"evt","event":"hello","data":hello_value(&state, &host_name, &node_id)})));
         hello["data"]["server_time"] = json!(now());
         hello["data"]["last_seq"] = json!(state.seq);
         hello["data"]["host_name"] = json!(host_name);
@@ -685,7 +943,37 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                         let replay = res.get("replay_events").and_then(Value::as_array).cloned().unwrap_or_default();
                         if request.method == "trace.subscribe" {
                             if let Some(stream_id) = res.get("stream").and_then(Value::as_str) {
-                                trace_streams.insert(stream_id.to_owned(), (request.params.get("assignment_id").and_then(Value::as_str).map(str::to_owned), request.params.get("chat_id").and_then(Value::as_str).map(str::to_owned)));
+                                let last_aseq = replay
+                                    .iter()
+                                    .filter_map(|event| {
+                                        event
+                                            .pointer("/data/item/aseq")
+                                            .and_then(Value::as_u64)
+                                    })
+                                    .max()
+                                    .unwrap_or_else(|| {
+                                        request
+                                            .params
+                                            .get("since_aseq")
+                                            .and_then(Value::as_u64)
+                                            .unwrap_or(0)
+                                    });
+                                trace_streams.insert(
+                                    stream_id.to_owned(),
+                                    TraceSubscription {
+                                        assignment_id: request
+                                            .params
+                                            .get("assignment_id")
+                                            .and_then(Value::as_str)
+                                            .map(str::to_owned),
+                                        chat_id: request
+                                            .params
+                                            .get("chat_id")
+                                            .and_then(Value::as_str)
+                                            .map(str::to_owned),
+                                        last_aseq,
+                                    },
+                                );
                             }
                         } else if request.method == "trace.unsubscribe" {
                             if let Some(stream_id) = request.params.get("stream").and_then(Value::as_str) { trace_streams.remove(stream_id); }
@@ -716,15 +1004,44 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
             event = live.recv() => {
                 match event {
                     Ok(event) => {
-                        if event.get("event").and_then(Value::as_str) == Some("trace.item") {
+                        let event_name = event.get("event").and_then(Value::as_str).unwrap_or("");
+                        if event_name == "trace.item" {
                             let item = event.get("data").and_then(|data| data.get("item")).cloned().or_else(|| event.get("data").cloned()).unwrap_or(Value::Null);
-                            for (stream_id, (assignment_id, chat_id)) in &trace_streams {
-                                let matches_assignment = assignment_id.as_deref().is_none_or(|id| item.get("assignment_id").and_then(Value::as_str) == Some(id));
-                                let matches_chat = chat_id.as_deref().is_none_or(|id| item.get("chat_id").and_then(Value::as_str) == Some(id));
-                                if matches_assignment && matches_chat {
-                                    let frame = json!({"v":1,"kind":"evt","event":"trace.item","data":{"stream":stream_id,"item":item}});
-                                    if sink.send(text_frame(&frame)).await.is_err() { break; }
+                            let aseq = item.get("aseq").and_then(Value::as_u64).unwrap_or(0);
+                            let mut frames = Vec::new();
+                            for (stream_id, subscription) in &mut trace_streams {
+                                let matches_assignment = subscription.assignment_id.as_deref().is_none_or(|id| item.get("assignment_id").and_then(Value::as_str) == Some(id));
+                                let matches_chat = subscription.chat_id.as_deref().is_none_or(|id| item.get("chat_id").and_then(Value::as_str) == Some(id));
+                                if matches_assignment && matches_chat && aseq > subscription.last_aseq {
+                                    subscription.last_aseq = aseq;
+                                    frames.push(json!({"v":1,"kind":"evt","event":"trace.item","data":{"stream":stream_id,"item":item.clone()}}));
                                 }
+                            }
+                            for frame in frames {
+                                if sink.send(text_frame(&frame)).await.is_err() { break; }
+                            }
+                        } else if matches!(event_name, "trace.delta" | "trace.tool_output") {
+                            let data = event.get("data").cloned().unwrap_or(Value::Null);
+                            let runtime = gw.state.trace_runtime.lock().await.clone();
+                            let mut frames = Vec::new();
+                            for (stream_id, subscription) in &trace_streams {
+                                if runtime.matches(
+                                    subscription.assignment_id.as_deref(),
+                                    subscription.chat_id.as_deref(),
+                                    &data,
+                                ) {
+                                    let mut frame = event.clone();
+                                    if let Some(object) = frame
+                                        .get_mut("data")
+                                        .and_then(Value::as_object_mut)
+                                    {
+                                        object.insert("stream".into(), json!(stream_id));
+                                    }
+                                    frames.push(frame);
+                                }
+                            }
+                            for frame in frames {
+                                if sink.send(text_frame(&frame)).await.is_err() { break; }
                             }
                         } else if sink.send(text_frame(&event)).await.is_err() { break; }
                     }
@@ -772,24 +1089,57 @@ async fn handle_ws_request(gw: &Gateway, request: &WsReq) -> RpcResult {
             .params
             .get("assignment_id")
             .and_then(Value::as_str)
-            .or_else(|| request.params.get("chat_id").and_then(Value::as_str))
-            .unwrap_or("");
+            .map(str::to_owned);
+        let chat = request
+            .params
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        if assignment.is_none() && chat.is_none() {
+            return Err(rpc_error(
+                "invalid_params",
+                "assignment_id or chat_id is required",
+                None,
+            ));
+        }
         let since = request
             .params
             .get("since_aseq")
             .and_then(Value::as_u64)
             .unwrap_or(0);
         let state = gw.state.inner.read().await;
-        let items = state.traces.get(assignment).cloned().unwrap_or_default();
+        let mut items = Vec::new();
+        if let Some(assignment) = assignment.as_deref() {
+            items.extend(state.traces.get(assignment).cloned().unwrap_or_default());
+        } else if let Some(chat) = chat.as_deref() {
+            items.extend(state.traces.get(chat).cloned().unwrap_or_default());
+        }
         drop(state);
+        items.sort_by_key(|item| item.get("aseq").and_then(Value::as_u64).unwrap_or(0));
+        items.dedup_by(|left, right| left.get("aseq") == right.get("aseq"));
         let stream = id("stream");
         let mut out = vec![];
         for item in items {
+            let matches_assignment = assignment.as_deref().is_none_or(|expected| {
+                item.get("assignment_id").and_then(Value::as_str) == Some(expected)
+            });
+            let matches_chat = chat.as_deref().is_none_or(|expected| {
+                item.get("chat_id").and_then(Value::as_str) == Some(expected)
+            });
+            if !matches_assignment || !matches_chat {
+                continue;
+            }
             if item.get("aseq").and_then(Value::as_u64).unwrap_or(0) > since {
                 out.push(json!({"v":1,"kind":"evt","event":"trace.item","data":{"stream":stream,"item":item}}));
             }
         }
-        return Ok(json!({"stream":stream,"in_flight":[],"replay_events":out}));
+        let in_flight = gw
+            .state
+            .trace_runtime
+            .lock()
+            .await
+            .in_flight_for(assignment.as_deref(), chat.as_deref());
+        return Ok(json!({"stream":stream,"in_flight":in_flight,"replay_events":out}));
     }
     gw.rpc(&request.method, request.params.clone()).await
 }
@@ -830,9 +1180,10 @@ async fn screen_handler(
 #[derive(Debug, Deserialize, Clone)]
 struct ScreenQuery {
     bot_id: Option<String>,
-    #[serde(rename = "quality")]
-    _quality: Option<String>,
+    quality: Option<String>,
     tab_id: Option<String>,
+    /// Optional assignment scope for tab selection and input isolation.
+    assignment_id: Option<String>,
     token: Option<String>,
 }
 
@@ -842,6 +1193,7 @@ const MOCK_SCREEN_FRAMES: [&[u8]; 3] = [
     include_bytes!("../assets/mock-screen-3.jpg"),
 ];
 
+#[cfg(test)]
 fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     if bytes.len() < 4 || bytes[0..2] != [0xff, 0xd8] {
         return None;
@@ -881,12 +1233,751 @@ fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     None
 }
 
-fn mock_screen_view(state: &MockState, bot_id: &str) -> (String, Vec<Value>) {
+fn screen_state(
+    manager: &mut BrowserManager<ProcessRunner>,
+    bot_id: &str,
+    assignment_id: Option<&str>,
+    requested_tab: Option<&str>,
+    mock: bool,
+) -> Result<(Value, String, Option<String>), BrowserError> {
+    let state = manager
+        .state(bot_id)
+        .unwrap_or_else(|_| manager.session(bot_id).clone());
+    let scope = assignment_id.map(str::to_owned);
+    let tabs = scope
+        .as_deref()
+        .map(|assignment| {
+            state
+                .tabs
+                .iter()
+                .filter(|tab| tab.assignment_id == assignment)
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| state.tabs.clone());
+    if let Some(tab_id) = requested_tab.filter(|tab_id| {
+        !(tab_id.is_empty()
+            || tabs.iter().any(|tab| tab.tab_id == *tab_id)
+            || mock && *tab_id == "tab_mock")
+    }) {
+        return Err(BrowserError::Invalid(format!(
+            "tab {tab_id} is outside the screen assignment"
+        )));
+    }
+    let tab_id = requested_tab
+        .filter(|tab_id| !tab_id.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            tabs.iter()
+                .find(|tab| tab.active)
+                .or_else(|| tabs.first())
+                .map(|tab| tab.tab_id.clone())
+        })
+        .unwrap_or_else(|| {
+            if mock {
+                "tab_mock".into()
+            } else {
+                String::new()
+            }
+        });
+    let driver = if state.takeover {
+        "user"
+    } else if !tabs.is_empty() {
+        "bot"
+    } else {
+        "idle"
+    };
+    let tabs = tabs
+        .into_iter()
+        .map(|tab| {
+            // The selected tab is authoritative for this connection. Browser
+            // sidecars may lag their tab event, so expose a deterministic
+            // active marker to clients immediately after switch_tab.
+            let active = tab.tab_id == tab_id;
+            json!({"tab_id":tab.tab_id,"title":tab.title,"url":tab.url,
+                "assignment_id":tab.assignment_id,"active":active})
+        })
+        .collect::<Vec<_>>();
+    Ok((
+        json!({"type":"state","state":{"bot_id":bot_id,
+            "driver":driver,"tabs":tabs,"width":if mock {320} else {1280},
+            "height":if mock {180} else {720}}}),
+        tab_id,
+        scope,
+    ))
+}
+
+fn screen_error(error: &str, message: impl Into<String>) -> axum::extract::ws::Message {
+    text_frame(&json!({"type":"error","error":{"code":error,"message":message.into()}}))
+}
+
+enum SidecarEvent {
+    Frame {
+        seq: u64,
+        jpeg: Vec<u8>,
+        width: u32,
+        height: u32,
+        timestamp: u64,
+    },
+    Url(String),
+    Tabs {
+        active_tab_id: Option<String>,
+    },
+    Ping(Vec<u8>),
+    Closed,
+}
+
+async fn sidecar_connect(
+    port: u16,
+    max_fps: u32,
+) -> Result<
+    (
+        tokio::io::ReadHalf<TcpStream>,
+        tokio::io::WriteHalf<TcpStream>,
+    ),
+    String,
+> {
+    let mut socket = TcpStream::connect(("127.0.0.1", port))
+        .await
+        .map_err(|error| error.to_string())?;
+    let key = base64::engine::general_purpose::STANDARD.encode(Uuid::now_v7().as_bytes());
+    let request = format!(
+        "GET /?pacing=ack&maxFps={max_fps} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nOrigin: http://127.0.0.1\r\n\r\n"
+    );
+    socket
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut response = Vec::new();
+    while !response.windows(4).any(|window| window == b"\r\n\r\n") {
+        let mut byte = [0u8; 1];
+        socket
+            .read_exact(&mut byte)
+            .await
+            .map_err(|error| error.to_string())?;
+        response.push(byte[0]);
+        if response.len() > 16 * 1024 {
+            return Err("sidecar handshake headers too large".into());
+        }
+    }
+    if !response.starts_with(b"HTTP/1.1 101") {
+        return Err("sidecar stream handshake failed".into());
+    }
+    Ok(tokio::io::split(socket))
+}
+
+async fn sidecar_write_frame(
+    writer: &mut tokio::io::WriteHalf<TcpStream>,
+    opcode: u8,
+    payload: &[u8],
+) -> Result<(), String> {
+    let mut frame = Vec::with_capacity(payload.len() + 14);
+    frame.push(0x80 | (opcode & 0x0f));
+    let length = payload.len();
+    if length < 126 {
+        frame.push(0x80 | length as u8);
+    } else if length <= u16::MAX as usize {
+        frame.push(0x80 | 126);
+        frame.extend_from_slice(&(length as u16).to_be_bytes());
+    } else {
+        frame.push(0x80 | 127);
+        frame.extend_from_slice(&(length as u64).to_be_bytes());
+    }
+    let mask_uuid = Uuid::now_v7();
+    let mask = &mask_uuid.as_bytes()[..4];
+    frame.extend_from_slice(mask);
+    frame.extend(
+        payload
+            .iter()
+            .enumerate()
+            .map(|(index, byte)| byte ^ mask[index % 4]),
+    );
+    writer
+        .write_all(&frame)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn sidecar_read_frame(
+    reader: &mut tokio::io::ReadHalf<TcpStream>,
+) -> Result<(u8, Vec<u8>), String> {
+    let mut head = [0u8; 2];
+    reader
+        .read_exact(&mut head)
+        .await
+        .map_err(|error| error.to_string())?;
+    let opcode = head[0] & 0x0f;
+    let masked = head[1] & 0x80 != 0;
+    let mut length = (head[1] & 0x7f) as u64;
+    if length == 126 {
+        let mut bytes = [0u8; 2];
+        reader
+            .read_exact(&mut bytes)
+            .await
+            .map_err(|e| e.to_string())?;
+        length = u16::from_be_bytes(bytes) as u64;
+    } else if length == 127 {
+        let mut bytes = [0u8; 8];
+        reader
+            .read_exact(&mut bytes)
+            .await
+            .map_err(|e| e.to_string())?;
+        length = u64::from_be_bytes(bytes);
+    }
+    if length > 32 * 1024 * 1024 {
+        return Err("sidecar frame too large".into());
+    }
+    let mut mask = [0u8; 4];
+    if masked {
+        reader
+            .read_exact(&mut mask)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    let mut payload = vec![0u8; length as usize];
+    reader
+        .read_exact(&mut payload)
+        .await
+        .map_err(|e| e.to_string())?;
+    if masked {
+        for (index, byte) in payload.iter_mut().enumerate() {
+            *byte ^= mask[index % 4];
+        }
+    }
+    Ok((opcode, payload))
+}
+
+async fn sidecar_reader(
+    mut reader: tokio::io::ReadHalf<TcpStream>,
+    events: mpsc::Sender<SidecarEvent>,
+) {
+    loop {
+        let Ok((opcode, payload)) = sidecar_read_frame(&mut reader).await else {
+            let _ = events.send(SidecarEvent::Closed).await;
+            return;
+        };
+        match opcode {
+            0x1 => {
+                let Ok(value) = serde_json::from_slice::<Value>(&payload) else {
+                    continue;
+                };
+                match value.get("type").and_then(Value::as_str) {
+                    Some("frame") => {
+                        let Some(data) = value.get("data").and_then(Value::as_str) else {
+                            continue;
+                        };
+                        let Ok(jpeg) = base64::engine::general_purpose::STANDARD.decode(data)
+                        else {
+                            continue;
+                        };
+                        let metadata = value.get("metadata").cloned().unwrap_or_default();
+                        let frame = SidecarEvent::Frame {
+                            seq: value.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                            jpeg,
+                            width: metadata
+                                .get("deviceWidth")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(1280) as u32,
+                            height: metadata
+                                .get("deviceHeight")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(720) as u32,
+                            timestamp: metadata
+                                .get("timestamp")
+                                .and_then(Value::as_u64)
+                                .unwrap_or_else(unix_ms),
+                        };
+                        if events.send(frame).await.is_err() {
+                            return;
+                        }
+                    }
+                    Some("url") => {
+                        if let Some(url) = value.get("url").and_then(Value::as_str) {
+                            if events
+                                .send(SidecarEvent::Url(url.to_owned()))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
+                    }
+                    Some("tabs") => {
+                        let active_tab_id = value
+                            .get("tabs")
+                            .and_then(Value::as_array)
+                            .and_then(|tabs| {
+                                tabs.iter().find(|tab| {
+                                    tab.get("active").and_then(Value::as_bool) == Some(true)
+                                })
+                            })
+                            .and_then(|tab| tab.get("tabId").and_then(Value::as_str))
+                            .map(str::to_owned);
+                        if events
+                            .send(SidecarEvent::Tabs { active_tab_id })
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            0x9 => {
+                if events.send(SidecarEvent::Ping(payload)).await.is_err() {
+                    return;
+                }
+            }
+            0x8 => {
+                let _ = events.send(SidecarEvent::Closed).await;
+                return;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn sidecar_stream_port(value: &Value) -> Option<u16> {
+    value
+        .get("port")
+        .or_else(|| value.get("data").and_then(|data| data.get("port")))
+        .and_then(Value::as_u64)
+        .and_then(|port| u16::try_from(port).ok())
+}
+
+fn sidecar_quality_fps(quality: Option<&str>) -> u32 {
+    match quality {
+        Some("high") => 20,
+        Some("low") => 8,
+        _ => 15,
+    }
+}
+
+fn sidecar_gateway_frame(
+    seq: u64,
+    frame: &SidecarEvent,
+    tab_id: &str,
+    url: &str,
+) -> Option<Vec<u8>> {
+    let SidecarEvent::Frame {
+        jpeg,
+        width,
+        height,
+        timestamp,
+        ..
+    } = frame
+    else {
+        return None;
+    };
+    let header = json!({"seq":seq,"tab_id":tab_id,"w":width,"h":height,"ts":timestamp,"url":url})
+        .to_string();
+    let mut bytes = Vec::with_capacity(4 + header.len() + jpeg.len());
+    bytes.extend_from_slice(&(header.len() as u32).to_be_bytes());
+    bytes.extend_from_slice(header.as_bytes());
+    bytes.extend_from_slice(jpeg);
+    Some(bytes)
+}
+
+fn sidecar_input(event: &Value) -> Option<Value> {
+    let kind = event.get("type").and_then(Value::as_str)?;
+    match kind {
+        "mouse" => Some(json!({
+            "type":"input_mouse",
+            "eventType": match event.get("action").and_then(Value::as_str).unwrap_or("move") {
+                "down" => "mousePressed", "up" => "mouseReleased", _ => "mouseMoved"
+            },
+            "x":event.get("x").and_then(Value::as_f64).unwrap_or(0.0),
+            "y":event.get("y").and_then(Value::as_f64).unwrap_or(0.0),
+            "button":event.get("button").and_then(Value::as_str).unwrap_or("left"),
+            "clickCount":event.get("click_count").and_then(Value::as_u64).unwrap_or(1)
+        })),
+        "wheel" => Some(json!({"type":"input_mouse","eventType":"mouseWheel",
+            "x":event.get("x").and_then(Value::as_f64).unwrap_or(0.0),
+            "y":event.get("y").and_then(Value::as_f64).unwrap_or(0.0),
+            "deltaX":event.get("dx").and_then(Value::as_f64).unwrap_or(0.0),
+            "deltaY":event.get("dy").and_then(Value::as_f64).unwrap_or(0.0)})),
+        "key" => Some(json!({
+            "type":"input_keyboard",
+            "eventType": match event.get("action").and_then(Value::as_str).unwrap_or("press") {
+                "down" => "keyDown", "up" => "keyUp", _ => "char"
+            },
+            "key":event.get("key").and_then(Value::as_str).unwrap_or(""),
+            "text":event.get("text").cloned().unwrap_or(Value::Null)
+        })),
+        "touch" => Some(json!({"type":"input_touch",
+            "eventType": match event.get("action").and_then(Value::as_str).unwrap_or("move") {
+                "start" => "touchStart", "end" => "touchEnd", _ => "touchMove"
+            },
+            "touchPoints":event.get("points").cloned().unwrap_or_else(|| json!([]))})),
+        _ => None,
+    }
+}
+
+async fn release_screen_stream(gw: &Gateway, bot_id: &str, assignment_id: &str) {
+    let should_disable = {
+        let mut streams = gw.state.screen_streams.lock().await;
+        match streams.get_mut(bot_id) {
+            Some(count) if *count > 1 => {
+                *count -= 1;
+                false
+            }
+            Some(_) => {
+                streams.remove(bot_id);
+                true
+            }
+            None => false,
+        }
+    };
+    if should_disable {
+        let mut browser = gw.state.browser.lock().await;
+        let _ = browser.stream_disable_for_assignment(bot_id, assignment_id);
+    }
+}
+
+async fn real_sidecar_screen_session(
+    socket: axum::extract::ws::WebSocket,
+    gw: Gateway,
+    query: ScreenQuery,
+) {
+    let (mut sink, mut client) = socket.split();
+    let bot_id = query.bot_id.unwrap_or_else(|| "bot_main".into());
+    let access_scope = query.assignment_id;
+    let mut tab_id = query.tab_id.unwrap_or_default();
+    let setup = {
+        let mut browser = gw.state.browser.lock().await;
+        let state = screen_state(
+            &mut browser,
+            &bot_id,
+            access_scope.as_deref(),
+            (!tab_id.is_empty()).then_some(tab_id.as_str()),
+            false,
+        );
+        let Ok((screen, selected, _)) = state else {
+            let _ = sink
+                .send(screen_error(
+                    "forbidden",
+                    "no browser tab is available for this Bot or assignment",
+                ))
+                .await;
+            return;
+        };
+        tab_id = selected;
+        // The sidecar stream is Bot-wide. An explicit assignment scopes the
+        // visible tabs; an omitted assignment lets an authenticated screen
+        // client browse every tab owned by the Bot. We still use the selected
+        // tab's assignment to address the stream lifecycle API.
+        let stream_scope = browser.state(&bot_id).ok().and_then(|state| {
+            state
+                .tabs
+                .iter()
+                .find(|tab| tab.tab_id == tab_id)
+                .map(|tab| tab.assignment_id.clone())
+        });
+        let Some(stream_scope) = stream_scope else {
+            let _ = sink
+                .send(screen_error(
+                    "unavailable",
+                    "browser screencast is unavailable",
+                ))
+                .await;
+            return;
+        };
+        let status = browser
+            .stream_enable_for_assignment(&bot_id, &stream_scope, None)
+            .ok();
+        let port = status.as_ref().and_then(sidecar_stream_port).or_else(|| {
+            browser
+                .stream_status_for_assignment(&bot_id, &stream_scope)
+                .ok()
+                .and_then(|value| sidecar_stream_port(&value))
+        });
+        (screen, stream_scope, port)
+    };
+    let (state, stream_scope, port) = setup;
+    let Some(port) = port else {
+        let mut browser = gw.state.browser.lock().await;
+        let _ = browser.stream_disable_for_assignment(&bot_id, &stream_scope);
+        let _ = sink
+            .send(screen_error(
+                "unavailable",
+                "browser screencast is unavailable",
+            ))
+            .await;
+        return;
+    };
+    {
+        let mut streams = gw.state.screen_streams.lock().await;
+        *streams.entry(bot_id.clone()).or_insert(0) += 1;
+    }
+    if sink.send(text_frame(&state)).await.is_err() {
+        release_screen_stream(&gw, &bot_id, &stream_scope).await;
+        return;
+    }
+    let (reader_half, sidecar_writer) =
+        match sidecar_connect(port, sidecar_quality_fps(query.quality.as_deref())).await {
+            Ok(parts) => parts,
+            Err(error) => {
+                let _ = sink.send(screen_error("unavailable", error)).await;
+                release_screen_stream(&gw, &bot_id, &stream_scope).await;
+                return;
+            }
+        };
+    let (out_tx, mut out_rx) = mpsc::channel::<(u8, Vec<u8>)>(8);
+    let writer_task = tokio::spawn(async move {
+        let mut sidecar_writer = sidecar_writer;
+        while let Some((opcode, payload)) = out_rx.recv().await {
+            if sidecar_write_frame(&mut sidecar_writer, opcode, &payload)
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    let (events_tx, mut events_rx) = mpsc::channel(16);
+    let reader_task = tokio::spawn(sidecar_reader(reader_half, events_tx));
+    let mut gateway_seq = 0u64;
+    let mut in_flight: Option<(u64, u64)> = None;
+    let mut latest: Option<SidecarEvent> = None;
+    let mut current_url = String::from("about:blank");
+    let mut sidecar_tab_id: Option<String> = None;
+    let mut awaiting_tab_confirmation = false;
+    'session: loop {
+        tokio::select! {
+            incoming = events_rx.recv() => {
+                let Some(incoming) = incoming else { break; };
+                match incoming {
+                    SidecarEvent::Frame { seq, jpeg, width, height, timestamp } => {
+                        // A tab switch can leave one old frame in the sidecar
+                        // queue. ACK and discard it until the active-tab event
+                        // confirms that the pixels belong to the selected tab.
+                        if awaiting_tab_confirmation
+                            || sidecar_tab_id
+                                .as_deref()
+                                .is_some_and(|active| active != tab_id)
+                        {
+                            let _ = out_tx
+                                .send((
+                                    1,
+                                    serde_json::to_vec(&json!({"type":"ack","seq":seq}))
+                                        .unwrap_or_default(),
+                                ))
+                                .await;
+                            continue;
+                        }
+                        let frame = SidecarEvent::Frame { seq, jpeg, width, height, timestamp };
+                        if in_flight.is_some() { latest = Some(frame); continue; }
+                        gateway_seq += 1;
+                        if let Some(frame) = sidecar_gateway_frame(gateway_seq, &frame, &tab_id, &current_url) {
+                            if sink.send(axum::extract::ws::Message::Binary(frame.into())).await.is_err() { break 'session; }
+                            in_flight = Some((gateway_seq, seq));
+                        }
+                    }
+                    SidecarEvent::Tabs { active_tab_id } => {
+                        let initial_tabs = sidecar_tab_id.is_none();
+                        sidecar_tab_id = active_tab_id.clone();
+                        awaiting_tab_confirmation = false;
+                        // BrowserManager restores ownership metadata, while
+                        // the native browser is authoritative for the active
+                        // page. A Bot-level screen must adopt that initial
+                        // active tab or it can discard every first JPEG when
+                        // another assignment opened the last tab.
+                        if initial_tabs && access_scope.is_none() {
+                            if let Some(active) = active_tab_id {
+                                if active != tab_id {
+                                    let known = {
+                                        let browser = gw.state.browser.lock().await;
+                                        browser
+                                            .state(&bot_id)
+                                            .ok()
+                                            .is_some_and(|state| {
+                                                state.tabs.iter().any(|tab| tab.tab_id == active)
+                                            })
+                                    };
+                                    if known {
+                                        tab_id = active;
+                                        let update = {
+                                            let mut browser = gw.state.browser.lock().await;
+                                            screen_state(
+                                                &mut browser,
+                                                &bot_id,
+                                                access_scope.as_deref(),
+                                                Some(&tab_id),
+                                                false,
+                                            )
+                                            .ok()
+                                        };
+                                        if let Some((state, _, _)) = update {
+                                            if sink.send(text_frame(&state)).await.is_err() {
+                                                break 'session;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SidecarEvent::Url(url) => {
+                        current_url = url.clone();
+                        // URL/title changes arrive from the sidecar before the
+                        // next JPEG. Publish a state update so clients do not
+                        // have to wait for (or decode) a frame to refresh tabs.
+                        let update = {
+                            let mut browser = gw.state.browser.lock().await;
+                            screen_state(
+                                &mut browser,
+                                &bot_id,
+                                access_scope.as_deref(),
+                                Some(&tab_id),
+                                false,
+                            )
+                            .ok()
+                            .map(|(mut state, _, _)| {
+                                if let Some(tabs) = state
+                                    .get_mut("state")
+                                    .and_then(|value| value.get_mut("tabs"))
+                                    .and_then(Value::as_array_mut)
+                                {
+                                    for tab in tabs {
+                                        if tab.get("tab_id").and_then(Value::as_str) == Some(&tab_id) {
+                                            if let Some(object) = tab.as_object_mut() {
+                                                object.insert("url".into(), json!(url));
+                                            }
+                                        }
+                                    }
+                                }
+                                state
+                            })
+                        };
+                        if let Some(state) = update {
+                            if sink.send(text_frame(&state)).await.is_err() {
+                                break 'session;
+                            }
+                        }
+                    },
+                    SidecarEvent::Ping(payload) => { let _ = out_tx.send((0xA, payload)).await; }
+                    SidecarEvent::Closed => break,
+                }
+            }
+            incoming = client.next() => {
+                let Some(Ok(message)) = incoming else { break; };
+                match message {
+                    axum::extract::ws::Message::Text(text) => {
+                        let parsed: Value = serde_json::from_str(&text).unwrap_or_default();
+                        match parsed.get("type").and_then(Value::as_str) {
+                            Some("ack") => {
+                                if let Some((gateway, sidecar)) = in_flight {
+                                    if parsed.get("seq").and_then(Value::as_u64) == Some(gateway) {
+                                        let _ = out_tx.send((1, serde_json::to_vec(&json!({"type":"ack","seq":sidecar})).unwrap_or_default())).await;
+                                        in_flight = None;
+                                        if let Some(frame) = latest.take() {
+                                            gateway_seq += 1;
+                                            if let Some(bytes) = sidecar_gateway_frame(gateway_seq, &frame, &tab_id, &current_url) {
+                                                if sink.send(axum::extract::ws::Message::Binary(bytes.into())).await.is_err() { break 'session; }
+                                                if let SidecarEvent::Frame { seq, .. } = frame { in_flight = Some((gateway_seq, seq)); }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Some("switch_tab") => {
+                                let Some(requested) = parsed.get("tab_id").and_then(Value::as_str) else { continue; };
+                                let mut browser = gw.state.browser.lock().await;
+                                if !browser.state(&bot_id).map(|state| state.takeover).unwrap_or(false) {
+                                    let _ = sink.send(screen_error("permission_denied", "takeover is not active")).await;
+                                    continue;
+                                }
+                                let requested_scope = browser.state(&bot_id).ok().and_then(|state| {
+                                    state.tabs.iter().find(|tab| tab.tab_id == requested).map(|tab| tab.assignment_id.clone())
+                                });
+                                let Some(requested_scope) = requested_scope else {
+                                    let _ = sink.send(screen_error("forbidden", "tab is outside this Bot")).await;
+                                    continue;
+                                };
+                                if access_scope
+                                    .as_deref()
+                                    .is_some_and(|scope| scope != requested_scope)
+                                {
+                                    let _ = sink.send(screen_error("forbidden", "tab is outside the screen assignment")).await;
+                                    continue;
+                                }
+                                if browser
+                                    .tab_for_assignment(&bot_id, &requested_scope, Some(requested))
+                                    .is_err()
+                                {
+                                    let _ = sink
+                                        .send(screen_error("forbidden", "tab is outside the screen assignment"))
+                                        .await;
+                                    continue;
+                                }
+                                if let Err(error) = browser.switch_tab(&bot_id, &requested_scope) {
+                                    let _ = sink
+                                        .send(screen_error("unavailable", error.to_string()))
+                                        .await;
+                                    continue;
+                                }
+                                drop(browser);
+                                tab_id = requested.to_owned();
+                                sidecar_tab_id = None;
+                                awaiting_tab_confirmation = true;
+                                let update = {
+                                    let mut browser = gw.state.browser.lock().await;
+                                    screen_state(
+                                        &mut browser,
+                                        &bot_id,
+                                        access_scope.as_deref(),
+                                        Some(&tab_id),
+                                        false,
+                                    )
+                                    .ok()
+                                };
+                                if let Some((state, _, _)) = update {
+                                    if sink.send(text_frame(&state)).await.is_err() {
+                                        break 'session;
+                                    }
+                                }
+                            }
+                            Some("input") => {
+                                let Some(event) = parsed.get("event") else { let _ = sink.send(screen_error("invalid_request", "event is required")).await; continue; };
+                                if serde_json::from_value::<macbot_protocol::ScreenInput>(event.clone()).is_err() {
+                                    let _ = sink.send(screen_error("invalid_request", "invalid screen event")).await; continue;
+                                }
+                                let allowed = gw.state.browser.lock().await.state(&bot_id).map(|state| state.takeover).unwrap_or(false);
+                                let Some(sidecar_event) = sidecar_input(event) else { continue; };
+                                if !allowed { let _ = sink.send(screen_error("permission_denied", "takeover is not active")).await; continue; }
+                                let _ = out_tx.send((1, serde_json::to_vec(&sidecar_event).unwrap_or_default())).await;
+                            }
+                            _ => {}
+                        }
+                    }
+                    axum::extract::ws::Message::Ping(payload) => { let _ = sink.send(axum::extract::ws::Message::Pong(payload)).await; }
+                    axum::extract::ws::Message::Close(_) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+    reader_task.abort();
+    writer_task.abort();
+    release_screen_stream(&gw, &bot_id, &stream_scope).await;
+}
+
+fn mock_screen_view(
+    state: &MockState,
+    bot_id: &str,
+    assignment_id: Option<&str>,
+) -> (String, Vec<Value>) {
     let tabs = state
         .extra
         .get(&format!("screen_tabs:{bot_id}"))
         .into_iter()
         .flatten()
+        .filter(|tab| {
+            assignment_id.is_none_or(|assignment| {
+                tab.get("assignment_id").and_then(Value::as_str) == Some(assignment)
+            })
+        })
         .cloned()
         .collect::<Vec<_>>();
     let driver = state
@@ -940,10 +2031,11 @@ async fn mock_screen_session(
     let (mut sink, mut stream) = socket.split();
     let bot_id = query.bot_id.unwrap_or_else(|| "bot_main".into());
     let mut selected = query.tab_id.unwrap_or_else(|| "tab_mock_1".into());
+    let assignment_id = query.assignment_id;
     let mut seq = 1u64;
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
     let view = gw.state.inner.read().await;
-    let (mut driver, mut tabs) = mock_screen_view(&view, &bot_id);
+    let (mut driver, mut tabs) = mock_screen_view(&view, &bot_id, assignment_id.as_deref());
     drop(view);
     let mut last_state = mock_screen_state(&bot_id, &driver, &tabs, &selected);
     if sink.send(text_frame(&last_state)).await.is_err() {
@@ -962,7 +2054,7 @@ async fn mock_screen_session(
         tokio::select! {
             _ = interval.tick() => {
                 let view = gw.state.inner.read().await;
-                let (next_driver, next_tabs) = mock_screen_view(&view, &bot_id);
+                let (next_driver, next_tabs) = mock_screen_view(&view, &bot_id, assignment_id.as_deref());
                 drop(view);
                 driver = next_driver;
                 tabs = next_tabs;
@@ -1030,161 +2122,7 @@ async fn screen_session(socket: axum::extract::ws::WebSocket, gw: Gateway, query
         mock_screen_session(socket, gw, query).await;
         return;
     }
-    let (mut sink, mut stream) = socket.split();
-    let bot_id = query.bot_id.unwrap_or_else(|| "bot_main".into());
-    let selected_tab = query.tab_id.unwrap_or_default();
-    let (screen_state, tab_id, tab_url) = {
-        let mut browser = gw.state.browser.lock().await;
-        let state = browser
-            .state(&bot_id)
-            .unwrap_or_else(|_| browser.session(&bot_id).clone());
-        let tab_id = if selected_tab.is_empty() {
-            state
-                .tabs
-                .first()
-                .map(|tab| tab.tab_id.clone())
-                .unwrap_or_else(|| "tab_mock".into())
-        } else {
-            selected_tab
-        };
-        let url = state
-            .tabs
-            .iter()
-            .find(|tab| tab.tab_id == tab_id)
-            .map(|tab| tab.url.clone())
-            .unwrap_or_else(|| "about:blank".into());
-        let driver = if state.takeover {
-            "user"
-        } else if state.tabs.is_empty() {
-            "idle"
-        } else {
-            "bot"
-        };
-        let tabs = state.tabs.into_iter().map(|tab| json!({"tab_id":tab.tab_id,"title":tab.title,"url":tab.url,"assignment_id":tab.assignment_id,"active":tab.active})).collect::<Vec<_>>();
-        (
-            json!({"type":"state","state":{"bot_id":bot_id,"driver":driver,"tabs":tabs,"width":if gw.mock {320} else {1280},"height":if gw.mock {180} else {720}}}),
-            tab_id,
-            url,
-        )
-    };
-    let state = screen_state;
-    if sink.send(text_frame(&state)).await.is_err() {
-        return;
-    }
-    let mut seq = 0u64;
-    // A frame is sent only after the previous one has been ACKed.  This is the
-    // same back-pressure rule used by the browser sidecar, and prevents a slow
-    // mobile decoder from accumulating an unbounded queue.
-    let mock = gw.mock;
-    let capture = |seq: u64| {
-        let browser = gw.state.browser.clone();
-        let bot_id = bot_id.clone();
-        let tab_id = tab_id.clone();
-        let tab_url = tab_url.clone();
-        async move {
-            let jpeg = {
-                let mut manager = browser.lock().await;
-                manager.screenshot(&bot_id, &tab_id).ok()
-            };
-            let (jpeg, width, height) = match jpeg {
-                Some(jpeg) => {
-                    let (width, height) = jpeg_dimensions(&jpeg).unwrap_or((1280, 720));
-                    (jpeg, width, height)
-                }
-                None if mock => (
-                    MOCK_SCREEN_FRAMES[(seq as usize) % MOCK_SCREEN_FRAMES.len()].to_vec(),
-                    320,
-                    180,
-                ),
-                None => return None,
-            };
-            let header = json!({"seq":seq,"tab_id":tab_id,"w":width,"h":height,"ts":unix_ms(),"url":tab_url}).to_string();
-            let mut bytes = Vec::with_capacity(4 + header.len() + jpeg.len());
-            bytes.extend_from_slice(&(header.len() as u32).to_be_bytes());
-            bytes.extend_from_slice(header.as_bytes());
-            bytes.extend_from_slice(&jpeg);
-            Some(bytes)
-        }
-    };
-    seq += 1;
-    let Some(frame) = capture(seq).await else {
-        let _ = sink
-            .send(text_frame(&json!({"type":"state","state":{"bot_id":bot_id,"tab_id":tab_id,"driver":"idle","availability":"unavailable","reason":"screenshot_unavailable"}})))
-            .await;
-        return;
-    };
-    if sink
-        .send(axum::extract::ws::Message::Binary(frame.into()))
-        .await
-        .is_err()
-    {
-        return;
-    }
-    while let Some(Ok(message)) = stream.next().await {
-        match message {
-            axum::extract::ws::Message::Text(text) => {
-                let parsed: Value = serde_json::from_str(&text).unwrap_or_default();
-                match parsed.get("type").and_then(Value::as_str) {
-                    Some("ack") => {
-                        if parsed.get("seq").and_then(Value::as_u64) == Some(seq) {
-                            seq += 1;
-                            let Some(frame) = capture(seq).await else {
-                                let _ = sink.send(text_frame(&json!({"type":"state","state":{"bot_id":bot_id,"tab_id":tab_id,"driver":"idle","availability":"unavailable","reason":"screenshot_unavailable"}}))).await;
-                                break;
-                            };
-                            if sink
-                                .send(axum::extract::ws::Message::Binary(frame.into()))
-                                .await
-                                .is_err()
-                            {
-                                break;
-                            }
-                        }
-                    }
-                    Some("switch_tab") => {
-                        if let Some(requested) = parsed.get("tab_id").and_then(Value::as_str) {
-                            let mut browser = gw.state.browser.lock().await;
-                            let assignment = browser.state(&bot_id).ok().and_then(|state| {
-                                state
-                                    .tabs
-                                    .into_iter()
-                                    .find(|tab| tab.tab_id == requested)
-                                    .map(|tab| tab.assignment_id)
-                            });
-                            if let Some(assignment) = assignment {
-                                let _ = browser.switch_tab(&bot_id, &assignment);
-                            }
-                        }
-                    }
-                    Some("input") => {
-                        if let Some(event) = parsed.get("event") {
-                            if let Ok(event) =
-                                serde_json::from_value::<macbot_browser::ScreenInput>(event.clone())
-                            {
-                                let mut browser = gw.state.browser.lock().await;
-                                let assignment = browser.state(&bot_id).ok().and_then(|state| {
-                                    state
-                                        .tabs
-                                        .into_iter()
-                                        .find(|tab| tab.tab_id == tab_id)
-                                        .map(|tab| tab.assignment_id)
-                                });
-                                if let Some(assignment) = assignment {
-                                    let _ = browser.input(&bot_id, &assignment, event);
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            axum::extract::ws::Message::Ping(p) => {
-                let _ = sink.send(axum::extract::ws::Message::Pong(p)).await;
-            }
-            axum::extract::ws::Message::Close(_) => break,
-            _ => {}
-        }
-    }
+    real_sidecar_screen_session(socket, gw, query).await;
 }
 
 fn unix_ms() -> u64 {
@@ -1238,16 +2176,23 @@ struct FileQuery {
 }
 #[allow(clippy::result_large_err)]
 fn resolve_file(home: &FsPath, q: &FileQuery) -> Result<PathBuf, Response> {
+    let root_id = q
+        .root_id
+        .as_deref()
+        .filter(|value| is_safe_component(value));
+    let Some(root_id) = root_id else {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_params",
+            "root_id must be one normal path component",
+        ));
+    };
     let root = match q.root.as_str() {
         "project" => home
             .join("projects")
-            .join(q.root_id.clone().unwrap_or_default()),
-        "bot" => home
-            .join("bots")
-            .join(q.root_id.clone().unwrap_or_default()),
-        "upload" => home
-            .join("uploads")
-            .join(q.root_id.clone().unwrap_or_default()),
+            .join(project_slug(home, root_id).unwrap_or_else(|| root_id.to_owned())),
+        "bot" => home.join("bots").join(root_id),
+        "upload" => home.join("uploads").join(root_id),
         _ => {
             return Err(error_response(
                 StatusCode::BAD_REQUEST,
@@ -1271,7 +2216,11 @@ fn resolve_file(home: &FsPath, q: &FileQuery) -> Result<PathBuf, Response> {
             "path escapes root",
         ));
     }
-    let candidate = root.join(rel);
+    let candidate = if q.path.is_empty() {
+        root.clone()
+    } else {
+        root.join(rel)
+    };
     if let (Ok(root_real), Ok(candidate_real)) = (
         std::fs::canonicalize(&root),
         std::fs::canonicalize(&candidate),
@@ -1285,6 +2234,19 @@ fn resolve_file(home: &FsPath, q: &FileQuery) -> Result<PathBuf, Response> {
         }
     }
     Ok(candidate)
+}
+
+fn project_slug(home: &FsPath, project_id: &str) -> Option<String> {
+    let snapshot = home.join("data/orchestrator/state.json");
+    let value = serde_json::from_str::<Value>(&std::fs::read_to_string(snapshot).ok()?).ok()?;
+    let slug = value
+        .get("projects")
+        .and_then(Value::as_object)
+        .and_then(|projects| projects.get(project_id))
+        .and_then(|project| project.get("slug"))
+        .and_then(Value::as_str)
+        .filter(|slug| is_safe_component(slug))?;
+    Some(slug.to_owned())
 }
 fn ranged_response(headers: &HeaderMap, bytes: &[u8], mime: HeaderValue) -> Response {
     let total = bytes.len();
@@ -1477,11 +2439,79 @@ struct OutputQuery {
     run_id: String,
     call_id: String,
 }
-async fn usage_csv_handler(State(gw): State<Gateway>, headers: HeaderMap) -> Response {
+#[derive(Debug, Deserialize, Default)]
+struct UsageCsvQuery {
+    from: Option<String>,
+    to: Option<String>,
+    dimension: Option<String>,
+    bot_id: Option<String>,
+    project_id: Option<String>,
+    timezone: Option<String>,
+}
+async fn usage_csv_handler(
+    State(gw): State<Gateway>,
+    headers: HeaderMap,
+    Query(query): Query<UsageCsvQuery>,
+) -> Response {
     if let Err(r) = authorize(&gw, &headers, None).await {
         return r;
     }
-    let body = "date,bot_id,project_id,input_tokens,output_tokens,cost\n";
+    let to = query.to.unwrap_or_else(now);
+    let from = query.from.unwrap_or_else(|| {
+        DateTime::parse_from_rfc3339(&to)
+            .map(|value| (value.with_timezone(&Utc) - ChronoDuration::days(30)).to_rfc3339())
+            .unwrap_or_else(|_| to.clone())
+    });
+    let dimension = query.dimension.unwrap_or_else(|| "bot".into());
+    let mut params = json!({
+        "from": from,
+        "to": to,
+        "dimension": dimension,
+    });
+    if let Some(bot_id) = query.bot_id {
+        params["drill"] = json!({"bot_id": bot_id});
+    } else if let Some(project_id) = query.project_id {
+        params["drill"] = json!({"project_id": project_id});
+    }
+    let timezone = if let Some(timezone) = query.timezone {
+        timezone
+    } else {
+        match gw.rpc("settings.get", json!({})).await {
+            Ok(settings) => settings
+                .get("settings")
+                .and_then(|value| value.get("timezone"))
+                .and_then(Value::as_str)
+                .unwrap_or("Asia/Shanghai")
+                .to_owned(),
+            Err(error) => {
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &error.code,
+                    &error.message,
+                )
+            }
+        }
+    };
+    let body = if let Some(backend) = gw.backend.as_ref() {
+        match backend.export_usage_csv(&params, &timezone).await {
+            Ok(body) => body,
+            Err(error) => {
+                let status = if error.code == "invalid_params" {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                };
+                return error_response(status, &error.code, &error.message);
+            }
+        }
+    } else {
+        match gw.rpc("usage.breakdown", params).await {
+            Ok(value) => usage_breakdown_csv(&value),
+            Err(error) => {
+                return error_response(StatusCode::BAD_REQUEST, &error.code, &error.message)
+            }
+        }
+    };
     (
         [
             (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
@@ -1495,23 +2525,110 @@ async fn usage_csv_handler(State(gw): State<Gateway>, headers: HeaderMap) -> Res
         .into_response()
 }
 
+fn usage_breakdown_csv(value: &Value) -> String {
+    let mut csv =
+        "key,label,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,requests,cost\n"
+            .to_owned();
+    for row in value
+        .get("rows")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let quote = |value: &Value| {
+            let text = value.as_str().unwrap_or("");
+            format!("\"{}\"", text.replace('"', "\"\""))
+        };
+        let usage = row.get("usage").unwrap_or(&Value::Null);
+        csv.push_str(&format!(
+            "{},{},{},{},{},{},{},{}\n",
+            quote(row.get("key").unwrap_or(&Value::Null)),
+            quote(row.get("label").unwrap_or(&Value::Null)),
+            usage
+                .get("input_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            usage
+                .get("output_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            usage
+                .get("cache_read_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            usage
+                .get("cache_write_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            usage.get("requests").and_then(Value::as_u64).unwrap_or(0),
+            usage
+                .get("cost")
+                .filter(|cost| !cost.is_null())
+                .map(ToString::to_string)
+                .unwrap_or_default()
+        ));
+    }
+    csv
+}
+
 async fn admin_handler(
     State(gw): State<Gateway>,
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> Response {
-    if !gw.auth.setup_required().await && !is_local_or_basic(remote, &headers, &gw).await {
-        return error_response(
+    if !is_local_or_basic(remote, &headers, &gw).await {
+        let mut response = error_response(
             StatusCode::UNAUTHORIZED,
             "unauthorized",
             "admin authentication required",
         );
+        response.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Basic realm=\"Mac Bot\""),
+        );
+        return response;
     }
-    Html("<!doctype html><meta charset=utf-8><title>Mac Bot</title><h1>Mac Bot</h1><p id=status>正在加载</p><form method=post action=/admin/setup><input name=password type=password placeholder=访问密码><button>设置密码</button></form><script>fetch('/api/v1/health').then(r=>r.json()).then(x=>status.textContent=JSON.stringify(x))</script>").into_response()
+    Html(ADMIN_HTML).into_response()
 }
+
+const ADMIN_HTML: &str = r#"<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Mac Bot Server</title><h1>Mac Bot Server</h1>
+<p id="status">加载中…</p>
+<section id="setup"><h2>首次设置密码</h2>
+<form method="post" action="/admin/setup"><input name="password" type="password" required placeholder="访问密码"><button>设置密码</button></form></section>
+<section id="settings"><h2>设置</h2>
+<form id="settings-form"><label>名称 <input id="host_name"></label>
+<label>端口 <input id="port" type="number" min="1" max="65535"></label>
+<button>保存</button></form><p id="settings-result"></p></section>
+<section><h2>日志</h2><button id="reload-logs">刷新</button><pre id="logs"></pre></section>
+<button id="restart">重启服务</button>
+<script>
+const $ = (id) => document.getElementById(id);
+async function load() {
+  const r = await fetch('/admin/status');
+  if (!r.ok) { $('status').textContent = '需要 HTTP Basic Auth'; return; }
+  const x = await r.json();
+  if (x.setup_required) { $('status').textContent = '请先设置访问密码'; $('settings').style.display='none'; return; }
+  $('status').textContent = `运行中 · ${x.host_name} · 端口 ${x.port} · seq ${x.seq}`;
+  $('host_name').value = x.host_name || '';
+  $('port').value = x.port || '';
+  $('setup').style.display = 'none';
+  await logs();
+}
+async function logs() { $('logs').textContent = await (await fetch('/admin/logs')).text(); }
+$('settings-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const r = await fetch('/admin/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({host_name:$('host_name').value, port:Number($('port').value)})});
+  $('settings-result').textContent = r.ok ? '已保存，重启后端口生效' : await r.text();
+});
+$('reload-logs').onclick = logs;
+$('restart').onclick = async () => { $('settings-result').textContent = await (await fetch('/admin/restart', {method:'POST'})).text(); };
+load().catch((e) => $('status').textContent = e.toString());
+</script>"#;
 async fn is_local_or_basic(remote: SocketAddr, headers: &HeaderMap, gw: &Gateway) -> bool {
-    if remote.ip().is_loopback() {
-        return true;
+    if gw.auth.setup_required().await {
+        return remote.ip().is_loopback();
     }
     if let Some(v) = headers
         .get(header::AUTHORIZATION)
@@ -1562,25 +2679,23 @@ async fn admin_setup_handler(
 }
 async fn admin_settings_handler(
     State(gw): State<Gateway>,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(patch): Json<Value>,
 ) -> Response {
-    if let Err(r) = authorize(&gw, &headers, None).await {
-        return r;
+    if !is_local_or_basic(remote, &headers, &gw).await {
+        let mut response = error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "admin authentication required",
+        );
+        response.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Basic realm=\"Mac Bot\""),
+        );
+        return response;
     }
-    if let Some(name) = patch.get("host_name").and_then(Value::as_str) {
-        *gw.state.host_name.write().await = name.to_string();
-    }
-    let settings_path = gw.state.home.join("data/settings.json");
-    if let Some(parent) = settings_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let persisted = json!({"host_name":gw.state.host_name.read().await.clone(),"port":patch.get("port").and_then(Value::as_u64).unwrap_or(7788)});
-    let tmp = settings_path.with_extension("json.tmp");
-    if let Ok(bytes) = serde_json::to_vec_pretty(&persisted) {
-        let _ = std::fs::write(&tmp, bytes).and_then(|_| std::fs::rename(&tmp, &settings_path));
-    }
-    Json(json!({"ok":true,"host_name":gw.state.host_name.read().await.clone()})).into_response()
+    local_settings_handler(State(gw), Json(patch)).await
 }
 
 async fn admin_status_handler(
@@ -1596,7 +2711,7 @@ async fn admin_status_handler(
         );
     }
     let state = gw.state.inner.read().await;
-    Json(json!({"running":true,"port":gw.bind_addr.port(),"host_name":gw.state.host_name.read().await.clone(),"seq":state.seq,"mock":gw.mock})).into_response()
+    Json(json!({"running":true,"setup_required":gw.setup_required().await,"port":gw.bind_addr.port(),"host_name":gw.state.host_name.read().await.clone(),"seq":state.seq,"mock":gw.mock})).into_response()
 }
 
 async fn admin_logs_handler(
@@ -1619,6 +2734,159 @@ async fn admin_logs_handler(
             Vec::<u8>::new(),
         )
             .into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct LocalPassword {
+    password: String,
+}
+
+async fn local_settings_handler(State(gw): State<Gateway>, Json(patch): Json<Value>) -> Response {
+    let settings_path = gw.state.home.join("data/settings.json");
+    let current = fs::read_to_string(&settings_path)
+        .await
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .unwrap_or_else(|| json!({}));
+    let mut settings = current.as_object().cloned().unwrap_or_default();
+    if let Some(name) = patch.get("host_name") {
+        settings.insert("host_name".into(), name.clone());
+    }
+    if let Some(port) = patch.get("port").and_then(Value::as_u64) {
+        if !(1..=u16::MAX as u64).contains(&port) {
+            return error_response(StatusCode::BAD_REQUEST, "invalid_port", "port out of range");
+        }
+        settings.insert("port".into(), json!(port));
+    }
+    let tmp = settings_path.with_extension("json.tmp");
+    let result = serde_json::to_vec_pretty(&Value::Object(settings.clone()))
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| {
+            use std::io::Write;
+            std::fs::create_dir_all(settings_path.parent().unwrap_or(&gw.state.home))
+                .map_err(|error| error.to_string())?;
+            let mut file = std::fs::File::create(&tmp).map_err(|error| error.to_string())?;
+            file.write_all(&bytes).map_err(|error| error.to_string())?;
+            file.sync_all().map_err(|error| error.to_string())?;
+            std::fs::rename(&tmp, &settings_path).map_err(|error| error.to_string())?;
+            std::fs::File::open(settings_path.parent().unwrap_or(&gw.state.home))
+                .and_then(|directory| directory.sync_all())
+                .map_err(|error| error.to_string())
+        });
+    match result {
+        Ok(()) => {
+            if let Some(name) = patch.get("host_name").and_then(Value::as_str) {
+                *gw.state.host_name.write().await = name.to_owned();
+            }
+            Json(json!({"ok":true,"settings":settings,"restart_required":patch.get("port").is_some()})).into_response()
+        }
+        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, "settings", &error),
+    }
+}
+
+async fn local_status_handler(State(gw): State<Gateway>) -> Json<Value> {
+    Json(json!({
+        "ok": true,
+        "setup_required": gw.setup_required().await,
+        "address": gw.bind_addr.to_string(),
+        "home": gw.state.home,
+    }))
+}
+
+async fn local_passwd_handler(
+    State(gw): State<Gateway>,
+    Json(payload): Json<LocalPassword>,
+) -> Response {
+    match gw.set_password(&payload.password).await {
+        Ok(()) => Json(json!({"ok":true})).into_response(),
+        Err(error) => error_response(StatusCode::BAD_REQUEST, "invalid_password", &error),
+    }
+}
+
+async fn local_logs_handler(State(gw): State<Gateway>) -> Response {
+    match fs::read_to_string(gw.state.home.join("data/macbot.log")).await {
+        Ok(log) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], log).into_response(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            String::new(),
+        )
+            .into_response(),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "logs",
+            &error.to_string(),
+        ),
+    }
+}
+
+async fn local_restart_handler(State(_gw): State<Gateway>) -> Json<Value> {
+    let uid = std::process::Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .filter(|uid| !uid.is_empty());
+    let requested = uid.as_deref().is_some_and(|uid| {
+        std::process::Command::new("launchctl")
+            .args(["kickstart", "-k", &format!("gui/{uid}/com.macbot.server")])
+            .status()
+            .is_ok_and(|status| status.success())
+    });
+    Json(json!({"ok":requested,"restarting":requested}))
+}
+
+async fn local_update_handler(State(_gw): State<Gateway>) -> Response {
+    let configured = std::env::var_os("MACBOT_UPDATE_SCRIPT").map(PathBuf::from);
+    let (script, bundled) = if let Some(path) = configured.filter(|path| path.is_file()) {
+        (path, false)
+    } else {
+        let resources = std::env::current_exe()
+            .ok()
+            .and_then(|executable| executable.parent().map(FsPath::to_path_buf))
+            .and_then(|bin| bin.parent().map(FsPath::to_path_buf))
+            .map(|contents| contents.join("Resources/update-installed.sh"));
+        if let Some(path) = resources.filter(|path| path.is_file()) {
+            (path, true)
+        } else {
+            let source = std::env::current_exe()
+                .ok()
+                .and_then(|executable| executable.parent().map(FsPath::to_path_buf))
+                .and_then(|bin| bin.parent().map(FsPath::to_path_buf))
+                .and_then(|root| root.parent().map(FsPath::to_path_buf))
+                .map(|server| server.join("macbotd/packaging/update.sh"));
+            let Some(path) = source.filter(|path| path.is_file()) else {
+                return error_response(
+                    StatusCode::NOT_IMPLEMENTED,
+                    "update_unavailable",
+                    "no update script or packaged manifest",
+                );
+            };
+            (path, false)
+        }
+    };
+    if bundled {
+        let manifest = script.with_file_name("update-manifest.json");
+        let url = std::fs::read_to_string(&manifest)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|value| value.get("url").and_then(Value::as_str).map(str::to_owned));
+        if url.as_deref().is_none_or(str::is_empty) {
+            return error_response(
+                StatusCode::NOT_IMPLEMENTED,
+                "update_unavailable",
+                "packaged update manifest has no URL",
+            );
+        }
+    }
+    match std::process::Command::new("sh").arg(&script).spawn() {
+        Ok(_) => Json(json!({"ok":true,"started":true,"script":script})).into_response(),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "update",
+            &error.to_string(),
+        ),
     }
 }
 
@@ -1654,40 +2922,72 @@ pub async fn run(config: GatewayConfig) -> Result<(), Box<dyn std::error::Error 
     let gateway = if config.mock {
         gateway
     } else {
-        let backend = Arc::new(ProductionBackend::open(&config.home)?);
+        let production = Arc::new(ProductionBackend::open(&config.home)?);
+        let housekeeping_store = production.store.clone();
         // Rebuild the in-memory event window used by websocket resume and
         // trace replay from the durable global event log before accepting
         // connections.  The store has already repaired a truncated tail.
-        let persisted = backend.store.events_since(0)?;
+        let persisted = production.store.events_since(0)?;
         {
             let mut state = gateway.state.inner.write().await;
             for event in persisted {
                 state.restore_event(event.seq, &event.event, event.data);
             }
         }
-        let tick_backend = backend.clone();
-        let tick_state = gateway.state.clone();
+        gateway.state.rebuild_trace_runtime().await;
+        let composed = Arc::new(ComposedBackend::open(
+            production,
+            gateway.state.clone(),
+            config.home.clone(),
+        )?);
+        let tick_backend = composed.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            let mut last_upload_cleanup = std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(60 * 60))
+                .unwrap_or_else(std::time::Instant::now);
             loop {
                 interval.tick().await;
-                if let Err(error) = tick_backend.tick_routines(&tick_state, Utc::now()).await {
+                if let Err(error) = tick_backend.tick_routines(Utc::now()).await {
                     warn!(?error, "routine scheduler tick failed");
+                }
+                if let Err(error) = tick_backend.tick_features().await {
+                    warn!(?error, "feature maintenance tick failed");
+                }
+                if last_upload_cleanup.elapsed() >= std::time::Duration::from_secs(60 * 60) {
+                    if let Err(error) = housekeeping::cleanup_uploads(
+                        &housekeeping_store,
+                        std::time::SystemTime::now(),
+                    ) {
+                        warn!(?error, "upload housekeeping failed");
+                    }
+                    last_upload_cleanup = std::time::Instant::now();
                 }
             }
         });
-        gateway.with_backend(backend)
+        gateway.with_backend(composed)
     };
     fs::create_dir_all(&config.home).await?;
+    fs::create_dir_all(config.home.join("data")).await?;
+    fs::create_dir_all(config.home.join("uploads")).await?;
+    let socket_path = config.home.join("data/macbotd.sock");
+    let _ = fs::remove_file(&socket_path).await;
+    let unix = UnixListener::bind(&socket_path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
+    }
     let listener = TcpListener::bind(config.bind_addr).await?;
-    info!(addr=%config.bind_addr,"macbot gateway listening");
-    axum::serve(
+    info!(addr=%config.bind_addr, socket=%socket_path.display(), "macbot gateway listening");
+    let tcp = axum::serve(
         listener,
         gateway
             .router()
             .into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
+    );
+    let local = axum::serve(unix, gateway.local_router().into_make_service());
+    tokio::try_join!(tcp, local)?;
     Ok(())
 }
 
@@ -1696,6 +2996,72 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use tower::ServiceExt;
+    #[tokio::test]
+    async fn configured_admin_requires_basic_even_on_loopback() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            ..Default::default()
+        });
+        let remote = "127.0.0.1:1234".parse().unwrap();
+        let mut headers = HeaderMap::new();
+        assert!(!is_local_or_basic(remote, &headers, &gw).await);
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic YWRtaW46ZGV2"),
+        );
+        assert!(is_local_or_basic(remote, &headers, &gw).await);
+        let fresh = Gateway::new(GatewayConfig {
+            home: dir.path().join("fresh"),
+            ..Default::default()
+        });
+        assert!(is_local_or_basic(remote, &HeaderMap::new(), &fresh).await);
+        assert!(
+            !is_local_or_basic("192.0.2.1:1234".parse().unwrap(), &HeaderMap::new(), &fresh).await
+        );
+    }
+
+    #[tokio::test]
+    async fn admin_settings_preserves_models_and_rejects_invalid_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            ..Default::default()
+        });
+        let path = dir.path().join("data/settings.json");
+        let prior = json!({"host_name":"before","models":{"work":{"provider_id":"fake","model_id":"fake"}},"concurrency":{"global":2},"web_search":{"provider":"fake"}});
+        fs::create_dir_all(path.parent().unwrap()).await.unwrap();
+        fs::write(&path, serde_json::to_vec(&prior).unwrap())
+            .await
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic YWRtaW46ZGV2"),
+        );
+        let response = admin_settings_handler(
+            State(gw.clone()),
+            ConnectInfo("127.0.0.1:1234".parse().unwrap()),
+            headers,
+            Json(json!({"host_name":"after","port":7801})),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let saved: Value = serde_json::from_slice(&fs::read(&path).await.unwrap()).unwrap();
+        assert_eq!(saved["models"], prior["models"]);
+        assert_eq!(saved["concurrency"], prior["concurrency"]);
+        assert_eq!(saved["web_search"], prior["web_search"]);
+        assert_eq!(saved["host_name"], "after");
+        let response = local_settings_handler(
+            State(gw.clone()),
+            Json(json!({"host_name":"invalid","port":0})),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(gw.state.host_name.read().await.as_str(), "after");
+    }
     #[tokio::test]
     async fn mock_bootstrap_and_idempotency() {
         let dir = tempfile::tempdir().unwrap();
@@ -1765,6 +3131,13 @@ mod tests {
             1
         );
         drop(state);
+        assert!(gw
+            .state
+            .trace_runtime
+            .lock()
+            .await
+            .in_flight
+            .contains_key("req_product_1"));
         let project = gw
             .rpc("project.get", json!({"project_id":"prj_login"}))
             .await
@@ -1773,6 +3146,119 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn trace_subscribe_returns_inflight_and_applies_both_scopes() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            mock: true,
+            ..Default::default()
+        });
+        let item = json!({
+            "assignment_id":"assignment_trace",
+            "chat_id":"chat_trace",
+            "run_id":"run_trace",
+            "aseq":1,
+            "type":"llm.request",
+            "data":{"request_id":"run_trace:llm:0"}
+        });
+        gw.state
+            .publish_event(1, "trace.item", json!({"stream":"chat_trace","item":item}))
+            .await;
+        gw.state
+            .publish_temporary(
+                "trace.delta",
+                json!({"stream":"chat_trace","request_id":"run_trace:llm:0","channel":"text","text":"partial"}),
+            )
+            .await;
+
+        let request = WsReq {
+            v: Some(1),
+            kind: "req".into(),
+            id: "subscribe".into(),
+            method: "trace.subscribe".into(),
+            params: json!({"assignment_id":"assignment_trace","chat_id":"chat_trace","since_aseq":0}),
+        };
+        let result = handle_ws_request(&gw, &request).await.unwrap();
+        assert_eq!(result["replay_events"].as_array().unwrap().len(), 1);
+        assert_eq!(result["in_flight"][0]["request_id"], "run_trace:llm:0");
+        assert_eq!(result["in_flight"][0]["text"], "partial");
+
+        let wrong_chat = WsReq {
+            params: json!({"assignment_id":"assignment_trace","chat_id":"other","since_aseq":0}),
+            ..request
+        };
+        let result = handle_ws_request(&gw, &wrong_chat).await.unwrap();
+        assert!(result["replay_events"].as_array().unwrap().is_empty());
+        assert!(result["in_flight"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn trace_runtime_handles_concurrent_stream_deltas_and_subscribes() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            mock: true,
+            ..Default::default()
+        });
+        let item = json!({
+            "assignment_id":"assignment_concurrent",
+            "chat_id":"chat_concurrent",
+            "run_id":"run_concurrent",
+            "aseq":1,
+            "type":"llm.request",
+            "data":{"request_id":"run_concurrent:llm:0"}
+        });
+        gw.state
+            .publish_event(
+                1,
+                "trace.item",
+                json!({"stream":"chat_concurrent","item":item}),
+            )
+            .await;
+        let publisher = {
+            let state = gw.state.clone();
+            tokio::spawn(async move {
+                let mut tasks = Vec::new();
+                for _ in 0..32 {
+                    let state = state.clone();
+                    tasks.push(tokio::spawn(async move {
+                        state
+                            .publish_temporary(
+                                "trace.delta",
+                                json!({"request_id":"run_concurrent:llm:0","channel":"text","text":"x"}),
+                            )
+                            .await;
+                    }));
+                }
+                for task in tasks {
+                    task.await.unwrap();
+                }
+            })
+        };
+        let subscriber = {
+            let state = gw.clone();
+            tokio::spawn(async move {
+                for _ in 0..16 {
+                    let request = WsReq {
+                        v: Some(1),
+                        kind: "req".into(),
+                        id: "subscribe".into(),
+                        method: "trace.subscribe".into(),
+                        params: json!({"assignment_id":"assignment_concurrent","since_aseq":0}),
+                    };
+                    handle_ws_request(&state, &request).await.unwrap();
+                }
+            })
+        };
+        publisher.await.unwrap();
+        subscriber.await.unwrap();
+        let runtime = gw.state.trace_runtime.lock().await;
+        assert_eq!(runtime.in_flight["run_concurrent:llm:0"].text.len(), 32);
     }
     #[test]
     fn range() {
@@ -1786,6 +3272,52 @@ mod tests {
             r.headers().get(header::CONTENT_RANGE).unwrap(),
             "bytes 2-3/4"
         );
+    }
+
+    #[test]
+    fn upload_file_ref_with_empty_path_resolves_to_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("uploads")).unwrap();
+        std::fs::write(dir.path().join("uploads/upload-1"), b"uploaded bytes").unwrap();
+        let query = FileQuery {
+            root: "upload".into(),
+            root_id: Some("upload-1".into()),
+            path: String::new(),
+        };
+        let path = resolve_file(dir.path(), &query).unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), b"uploaded bytes");
+    }
+
+    #[test]
+    fn file_resolution_uses_project_slug_and_rejects_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("data/orchestrator")).unwrap();
+        std::fs::write(
+            dir.path().join("data/orchestrator/state.json"),
+            json!({"projects":{"project-1":{"slug":"login-feature"}}}).to_string(),
+        )
+        .unwrap();
+        let project = FileQuery {
+            root: "project".into(),
+            root_id: Some("project-1".into()),
+            path: "artifact.md".into(),
+        };
+        assert_eq!(
+            resolve_file(dir.path(), &project).unwrap(),
+            dir.path().join("projects/login-feature/artifact.md")
+        );
+        let root_escape = FileQuery {
+            root: "bot".into(),
+            root_id: Some("../escape".into()),
+            path: "file".into(),
+        };
+        assert!(resolve_file(dir.path(), &root_escape).is_err());
+        let path_escape = FileQuery {
+            root: "bot".into(),
+            root_id: Some("bot-1".into()),
+            path: "../escape".into(),
+        };
+        assert!(resolve_file(dir.path(), &path_escape).is_err());
     }
 
     #[test]

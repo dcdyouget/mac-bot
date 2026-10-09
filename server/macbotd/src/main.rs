@@ -1,6 +1,11 @@
 use clap::{Parser, Subcommand};
 use macbot_gateway::{run, GatewayConfig};
-use std::{net::SocketAddr, path::PathBuf};
+use serde_json::json;
+use std::{
+    io::{Read, Write},
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "macbotd", version, about = "Mac Bot host daemon")]
@@ -23,6 +28,12 @@ enum Command {
     Passwd {
         #[arg(long)]
         password: Option<String>,
+    },
+    Settings {
+        #[arg(long)]
+        host_name: Option<String>,
+        #[arg(long)]
+        port: Option<u16>,
     },
     Logs {
         #[arg(short)]
@@ -49,13 +60,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if let Some(command) = args.command {
         return run_command(command, home).await;
     }
-    let port = args.port.unwrap_or(if args.mock { 7789 } else { 7788 });
+    let saved = std::fs::read_to_string(home.join("data/settings.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+    let port = args
+        .port
+        .or_else(|| {
+            saved
+                .as_ref()
+                .and_then(|value| value.get("port").and_then(|v| v.as_u64()).map(|v| v as u16))
+        })
+        .unwrap_or(if args.mock { 7789 } else { 7788 });
+    let host_name = saved
+        .as_ref()
+        .and_then(|value| value.get("host_name").and_then(|v| v.as_str()))
+        .unwrap_or("Mac Bot")
+        .to_owned();
     run(GatewayConfig {
         bind_addr: SocketAddr::from(([0, 0, 0, 0], port)),
         home,
         password: args.password,
         mock: args.mock,
-        ..Default::default()
+        host_name,
     })
     .await
 }
@@ -66,58 +92,101 @@ async fn run_command(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match command {
         Command::Status => {
-            let health = "http://127.0.0.1:7788/api/v1/health".to_string();
-            let output = std::process::Command::new("curl")
-                .args(["-fsS", &health])
-                .output();
-            match output {
-                Ok(out) if out.status.success() => {
-                    print!("{}", String::from_utf8_lossy(&out.stdout))
-                }
-                _ => println!("macbotd is not reachable"),
-            }
+            print!("{}", local_request(&home, "GET", "/__local/status", None)?);
         }
         Command::Passwd { password } => {
             let password = password
                 .or_else(|| std::env::var("MACBOT_PASSWORD").ok())
                 .ok_or("provide --password or MACBOT_PASSWORD")?;
-            let gateway = macbot_gateway::Gateway::new(GatewayConfig {
-                home,
-                ..Default::default()
-            });
-            gateway.set_password(&password).await?;
+            local_request(
+                &home,
+                "POST",
+                "/__local/passwd",
+                Some(json!({"password":password})),
+            )?;
             println!("password updated");
         }
+        Command::Settings { host_name, port } => {
+            if host_name.is_none() && port.is_none() {
+                return Err("provide --host-name and/or --port".into());
+            }
+            let mut patch = serde_json::Map::new();
+            if let Some(host_name) = host_name {
+                patch.insert("host_name".into(), json!(host_name));
+            }
+            if let Some(port) = port {
+                patch.insert("port".into(), json!(port));
+            }
+            print!(
+                "{}",
+                local_request(&home, "POST", "/__local/settings", Some(json!(patch)))?
+            );
+        }
         Command::Logs { follow } => {
-            let path = home.join("data/macbot.log");
             if follow {
+                let path = home.join("data/macbot.log");
                 let _ = std::process::Command::new("tail")
                     .args(["-f", path.to_string_lossy().as_ref()])
                     .status();
-            } else if let Ok(s) = std::fs::read_to_string(path) {
-                print!("{s}");
+            } else {
+                print!("{}", local_request(&home, "GET", "/__local/logs", None)?);
             }
         }
         Command::Restart => {
-            let uid = std::process::Command::new("id")
-                .arg("-u")
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-                .filter(|uid| !uid.is_empty())
-                .ok_or("cannot determine current uid")?;
-            let _ = std::process::Command::new("launchctl")
-                .args(["kickstart", "-k", &format!("gui/{uid}/com.macbot.server")])
-                .status();
+            print!(
+                "{}",
+                local_request(&home, "POST", "/__local/restart", None)?
+            );
         }
         Command::Update => {
-            let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("packaging/update.sh");
-            let status = std::process::Command::new("sh").arg(script).status()?;
-            if !status.success() {
-                return Err("update failed".into());
-            }
+            print!("{}", local_request(&home, "POST", "/__local/update", None)?);
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn local_request(
+    home: &Path,
+    method: &str,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    use std::os::unix::net::UnixStream;
+    let socket = home.join("data/macbotd.sock");
+    let mut stream = UnixStream::connect(socket)?;
+    let payload = body
+        .map(|value| serde_json::to_vec(&value))
+        .transpose()?
+        .unwrap_or_default();
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+        payload.len()
+    );
+    stream.write_all(request.as_bytes())?;
+    stream.write_all(&payload)?;
+    stream.flush()?;
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response)?;
+    let marker = b"\r\n\r\n";
+    let offset = response
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .ok_or("invalid local daemon response")?;
+    let body = &response[offset + marker.len()..];
+    let text = String::from_utf8(body.to_vec())?;
+    if !response.starts_with(b"HTTP/1.1 2") {
+        return Err(format!("local daemon request failed: {text}").into());
+    }
+    Ok(text)
+}
+
+#[cfg(not(unix))]
+fn local_request(
+    _home: &Path,
+    _method: &str,
+    _path: &str,
+    _body: Option<serde_json::Value>,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    Err("local CLI socket is only supported on Unix".into())
 }

@@ -20,7 +20,7 @@ MACBOT_HOME=/tmp/macbot-mock \
 cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 7788
 ```
 
-`--port`、`--password`、`--home` 可覆盖默认值；`--home` 优先于 `MACBOT_HOME`。`--password` 只在 `data/auth.json` 不存在时初始化，不覆盖已有密码。已有密码可用 `macbotd passwd --password <password>` 重置；密码只保存为 Argon2 哈希，文件权限为 0600。首次设置密码前，除健康检查外的请求只接受 loopback；`/api/v1/health` 无需鉴权。
+`--port`、`--password`、`--home` 可覆盖默认值；`--home` 优先于 `MACBOT_HOME`。`--password` 只在 `data/auth.json` 不存在时初始化，不覆盖已有密码。已有密码可用 `macbotd passwd --password <password>` 重置；密码只保存为 Argon2 哈希，文件权限为 0600。首次设置密码必须通过 loopback 的 `/admin` 完成；健康检查公开，其余接口在 `setup_required` 状态拒绝访问。`/api/v1/health` 无需鉴权。
 
 ## HTTP/WebSocket
 
@@ -59,6 +59,8 @@ macbotd update
 
 ```sh
 MACBOT_HOME="$HOME/MacBot" server/macbotd/packaging/install-launchagent.sh
+# install.sh 是同一源码安装流程的短入口
+server/macbotd/packaging/install.sh
 server/macbotd/packaging/uninstall-launchagent.sh
 ```
 
@@ -85,3 +87,31 @@ server/macbotd/packaging/build-pkg.sh target/MacBot-Server.pkg
 ```
 
 `.pkg` 安装 `/Applications/MacBot Server.app`，由 postinstall 复制到当前登录用户的 `~/Applications`、创建用户级 CLI，并通过 `launchctl bootstrap gui/<uid>` 注册 LaunchAgent；没有登录用户时只安装文件。
+
+## 验证
+
+```sh
+cargo test --manifest-path server/Cargo.toml --workspace
+cargo clippy --manifest-path server/Cargo.toml --workspace --all-targets -- -D warnings
+cargo test --manifest-path protocol/rust/Cargo.toml
+python3 server/macbotd/tests/smoke_packaging.py --pkg target/MacBot-Server.pkg
+```
+
+`server/macbotd/tests/smoke_mock.py` 验证隔离 mock 的协议、事件补发、轨迹游标和画面 ACK。正式模式的 `smoke_runtime.py`、`smoke_collaboration.py`、`smoke_features.py`、`smoke_screen.py` 使用本机 fake provider 与独立数据目录；运行参数见各脚本 `--help`。开发测试必须显式选择 file secrets 的临时目录，使用不同端口，不连接真实模型。
+
+以下场景自行启动和关闭隔离服务；每次使用新的 `--home`。Python 依赖为 `websockets` 和 `jsonschema`，可安装在仓库外的 venv。`smoke_trace.py` 验证进行中的文本与游标补发，`smoke_routines.py` 验证调度、通知和禁用；定时场景使用隔离日志中的到期时间，不改变正式服务的最短周期。
+
+```sh
+python3 server/macbotd/tests/smoke_runtime.py \
+  --daemon-command 'server/target/debug/macbotd --port 7791 --password dev' \
+  --home /tmp/macbot-runtime-check
+python3 server/macbotd/tests/smoke_features.py \
+  --daemon-command 'server/target/debug/macbotd --port 7798 --password dev' \
+  --home /tmp/macbot-features-check
+python3 server/macbotd/tests/smoke_trace.py \
+  --daemon-command 'server/target/debug/macbotd --port 7840 --password dev' \
+  --home /tmp/macbot-trace-check
+python3 server/macbotd/tests/smoke_screen.py \
+  --daemon-command 'server/target/debug/macbotd --port 7830 --password dev' \
+  --home /tmp/macbot-screen-check --browser-bin "$PWD/server/target/sidecars/agent-browser"
+```
