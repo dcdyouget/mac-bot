@@ -709,7 +709,20 @@ impl Inner {
                 serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
             )?),
             "approval.list" => {
-                Ok(json!({ "approvals": self.approvals.values().cloned().collect::<Vec<_>>() }))
+                let states = p.get("state").and_then(Value::as_array);
+                let approvals = self
+                    .approvals
+                    .values()
+                    .filter(|approval| {
+                        states.is_none_or(|values| {
+                            values
+                                .iter()
+                                .any(|value| value.as_str() == Some(approval.state.as_str()))
+                        })
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                Ok(json!({ "approvals": approvals }))
             }
             "approval.decide" => Ok(
                 json!({ "approval": self.decide_approval(str_param(&p, "approval_id")?, str_param(&p, "decision")?)? }),
@@ -1721,17 +1734,46 @@ impl Inner {
             .values()
             .filter(|a| a.status == "working")
             .count();
-        let waiting = self
-            .assignments
+        let mut waiting = Vec::new();
+        for project in self
+            .projects
             .values()
-            .filter(|a| {
-                matches!(
-                    a.status.as_str(),
-                    "waiting_user" | "waiting_bot" | "blocked"
-                )
-            })
-            .map(|a| json!({"kind":a.status,"assignment_id":a.id,"bot_id":a.bot_id}))
-            .collect::<Vec<_>>();
+            .filter(|project| project.status == "review")
+        {
+            waiting.push(json!({
+                "kind": "review",
+                "project_id": project.id,
+                "since": project.updated_at,
+            }));
+        }
+        for approval in self
+            .approvals
+            .values()
+            .filter(|approval| approval.state == "pending")
+        {
+            waiting.push(json!({"kind": "approval", "approval": approval}));
+        }
+        for question in self
+            .questions
+            .values()
+            .filter(|question| question.state == "pending")
+        {
+            waiting.push(json!({"kind": "question", "question": question}));
+        }
+        for assignment in self.assignments.values().filter(|assignment| {
+            matches!(assignment.status.as_str(), "waiting_user" | "waiting_bot")
+                && assignment
+                    .wait
+                    .as_ref()
+                    .is_some_and(|wait| wait.reason == "takeover")
+        }) {
+            waiting.push(json!({
+                "kind": "takeover",
+                "bot_id": assignment.bot_id,
+                "assignment_id": assignment.id,
+                "reason": assignment.wait.as_ref().map(|wait| wait.reason.clone()).unwrap_or_default(),
+            }));
+        }
         let bots=self.bots.values().filter(|b|!b.is_main).map(|b|json!({"bot_id":b.id,"active":self.assignments.values().filter(|a|a.bot_id==b.id&&matches!(a.status.as_str(),"working"|"queued"|"waiting_user"|"waiting_bot")).count(),"max_parallel":b.max_parallel,"assignments":self.assignments.values().filter(|a|a.bot_id==b.id&&matches!(a.status.as_str(),"working"|"queued"|"waiting_user"|"waiting_bot")).cloned().collect::<Vec<_>>() })).collect::<Vec<_>>();
         json!({"running":running,"global_limit":self.settings.global_limit,"subagents_running":self.assignments.values().map(|a|a.subagents_active).sum::<usize>(),"waiting":waiting,"bots":bots,"done_today":self.assignments.values().filter(|a|a.status=="done").cloned().collect::<Vec<_>>()})
     }
@@ -2412,6 +2454,50 @@ mod tests {
         let m2 = o.send_msg(req).unwrap();
         assert_eq!(m1.id, m2.id);
         assert_eq!(o.finish_assignment(&a.id, "done").unwrap().status, "done");
+    }
+
+    #[test]
+    fn workbench_includes_standalone_pending_approval() {
+        let o = Orchestrator::default();
+        let bot_id = bot(&o, "工作台审批");
+        let approval = o
+            .create_approval(ApprovalRequest {
+                bot_id,
+                assignment_id: None,
+                chat_id: "chat_main".into(),
+                tool: "browser.act".into(),
+                risk: "exec".into(),
+                summary: "需要确认".into(),
+                detail: "独立审批".into(),
+            })
+            .unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(o.rpc("workbench.get", json!({}))).unwrap();
+        let waiting = result["waiting"].as_array().unwrap();
+        assert!(waiting.iter().any(|item| {
+            item["kind"] == "approval"
+                && item["approval"]["id"] == approval.id
+                && item["approval"]["assignment_id"].is_null()
+        }));
+        assert!(waiting.iter().all(|item| {
+            matches!(
+                item["kind"].as_str(),
+                Some("review" | "approval" | "question" | "takeover")
+            )
+        }));
+        rt.block_on(o.rpc(
+            "approval.decide",
+            json!({"approval_id":approval.id,"decision":"allow_once"}),
+        ))
+        .unwrap();
+        let pending = rt
+            .block_on(o.rpc("approval.list", json!({"state":["pending"]})))
+            .unwrap();
+        assert!(pending["approvals"].as_array().unwrap().is_empty());
+        let resolved = rt
+            .block_on(o.rpc("approval.list", json!({"state":["allowed_once"]})))
+            .unwrap();
+        assert_eq!(resolved["approvals"].as_array().unwrap().len(), 1);
     }
 
     #[test]

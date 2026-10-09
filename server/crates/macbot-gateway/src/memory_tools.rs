@@ -325,7 +325,7 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
         self.delegate.emit(event).await;
     }
 
-    async fn send_group_message(&self, message: Value) -> Result<(), String> {
+    async fn send_group_message(&self, message: Value) -> Result<Value, String> {
         self.delegate.send_group_message(message).await
     }
 

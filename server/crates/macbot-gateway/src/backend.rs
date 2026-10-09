@@ -20,7 +20,7 @@ use crate::{
         SharedFeatureService,
     },
     memory_tools::{FeatureExecutionSink, FeatureRunContext, FeatureToolRuntime},
-    GatewayState,
+    GatewayState, RpcBackend,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -443,7 +443,7 @@ impl ComposedBackend {
         )
     }
 
-    fn request_for_chat(&self, params: &Value, result: &Value) -> Option<ExecutionRequest> {
+    async fn request_for_chat(&self, params: &Value, result: &Value) -> Option<ExecutionRequest> {
         let chat_id = params.get("chat_id")?.as_str()?.to_owned();
         let instruction = params.get("text")?.as_str()?.to_owned();
         let requested_bot = params
@@ -557,24 +557,17 @@ impl ComposedBackend {
                 .map(|id| format!("run_{id}"))
                 .unwrap_or_else(|| format!("run_{}", Uuid::now_v7()))
         };
-        let mut messages = snapshot
-            .get("messages")
-            .and_then(Value::as_object)
-            .into_iter()
-            .flat_map(|items| items.values())
-            .filter(|message| {
-                message.get("chat_id").and_then(Value::as_str) == Some(chat_id.as_str())
-            })
-            .filter_map(|message| {
-                let text = message.get("text").and_then(Value::as_str)?.to_owned();
-                let role = if message.get("sender").and_then(Value::as_str) == Some("user") {
-                    "user"
-                } else {
-                    "assistant"
-                };
-                Some(json!({"role":role,"content":text}))
-            })
-            .collect::<Vec<_>>();
+        let history = self
+            .inner
+            .call(
+                "chat.history",
+                json!({"chat_id": chat_id, "tail": 100, "limit": 100}),
+                &self.state,
+            )
+            .await
+            .ok();
+        let mut messages =
+            self.chat_model_messages(&snapshot, &chat_id, message_id, history.as_ref());
         messages.push(json!({"role":"user","content":instruction}));
         let price = self.runtime.price_for_model(&model);
         let cwd = self.runtime.cwd_for(project_id.as_deref(), &bot_id);
@@ -603,6 +596,147 @@ impl ComposedBackend {
             save_full_requests: false,
             resume_message: None,
         })
+    }
+
+    /// Rebuild the provider conversation from the durable chat log. The
+    /// orchestrator snapshot is a HashMap and does not carry the wire seq, so
+    /// iterating values directly can put an old turn after the current user
+    /// request. Merge the snapshot with the append-only chat log, deduplicate
+    /// by message id, and use a stable `(created_at, seq, id)` ordering.
+    ///
+    /// `current_message_id` is excluded because `chat.send` has already
+    /// persisted that user message; the caller appends it exactly once below.
+    fn chat_model_messages(
+        &self,
+        snapshot: &Value,
+        chat_id: &str,
+        current_message_id: Option<&str>,
+        history: Option<&Value>,
+    ) -> Vec<Value> {
+        let mut by_id = std::collections::BTreeMap::<String, Value>::new();
+        if let Some(messages) = history
+            .and_then(|value| value.get("messages"))
+            .and_then(Value::as_array)
+        {
+            for message in messages {
+                let id = message
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                if !id.is_empty() {
+                    by_id.insert(id, message.clone());
+                }
+            }
+        } else if let Some(messages) = snapshot.get("messages").and_then(Value::as_object) {
+            for message in messages
+                .values()
+                .filter(|message| message.get("chat_id").and_then(Value::as_str) == Some(chat_id))
+            {
+                let id = message
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                if !id.is_empty() {
+                    by_id.insert(id, message.clone());
+                }
+            }
+        }
+        let mut messages = by_id
+            .into_values()
+            .filter(|message| {
+                current_message_id.is_none_or(|current| {
+                    message.get("id").and_then(Value::as_str) != Some(current)
+                })
+            })
+            .filter_map(Self::chat_message_to_model)
+            .collect::<Vec<_>>();
+        messages.sort_by(|left, right| {
+            let left_created = left
+                .get("_created_at")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let right_created = right
+                .get("_created_at")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            left_created
+                .cmp(right_created)
+                .then_with(|| {
+                    left.get("_seq")
+                        .and_then(Value::as_u64)
+                        .cmp(&right.get("_seq").and_then(Value::as_u64))
+                })
+                .then_with(|| {
+                    left.get("_id")
+                        .and_then(Value::as_str)
+                        .cmp(&right.get("_id").and_then(Value::as_str))
+                })
+        });
+        for message in &mut messages {
+            if let Some(object) = message.as_object_mut() {
+                object.remove("_created_at");
+                object.remove("_seq");
+                object.remove("_id");
+            }
+        }
+        messages
+    }
+
+    fn chat_message_to_model(message: Value) -> Option<Value> {
+        let id = message.get("id").and_then(Value::as_str)?.to_owned();
+        let created_at = message
+            .get("created_at")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let seq = message.get("seq").and_then(Value::as_u64);
+        let sender_kind = message
+            .get("sender")
+            .and_then(|sender| {
+                sender
+                    .as_str()
+                    .or_else(|| sender.get("kind").and_then(Value::as_str))
+            })
+            .unwrap_or("bot");
+        let role =
+            message
+                .get("role")
+                .and_then(Value::as_str)
+                .unwrap_or(if sender_kind == "user" {
+                    "user"
+                } else {
+                    "assistant"
+                });
+        let content = message
+            .get("content")
+            .and_then(Value::as_str)
+            .or_else(|| message.get("text").and_then(Value::as_str))
+            .or_else(|| message.get("fallback_text").and_then(Value::as_str))
+            .unwrap_or_default();
+        if content.is_empty() && message.get("tool_calls").is_none() {
+            return None;
+        }
+        let mut model = json!({
+            "role": role,
+            "content": content,
+            "_created_at": created_at,
+            "_seq": seq,
+            "_id": id,
+        });
+        for key in [
+            "tool_calls",
+            "tool_call_id",
+            "name",
+            "is_error",
+            "assistant_content",
+        ] {
+            if let Some(value) = message.get(key) {
+                model[key] = value.clone();
+            }
+        }
+        Some(model)
     }
 
     /// Build a durable request for an assignment admitted by the orchestrator.
@@ -651,24 +785,7 @@ impl ComposedBackend {
             .and_then(Value::as_str)
             .map(str::to_owned);
         let private = chat_id == "chat_main" || chat_id.starts_with("dm_");
-        let mut messages = snapshot
-            .get("messages")
-            .and_then(Value::as_object)
-            .into_iter()
-            .flat_map(|items| items.values())
-            .filter(|message| {
-                message.get("chat_id").and_then(Value::as_str) == Some(chat_id.as_str())
-            })
-            .filter_map(|message| {
-                let text = message.get("text").and_then(Value::as_str)?.to_owned();
-                let role = if message.get("sender").and_then(Value::as_str) == Some("user") {
-                    "user"
-                } else {
-                    "assistant"
-                };
-                Some(json!({"role":role,"content":text}))
-            })
-            .collect::<Vec<_>>();
+        let mut messages = self.chat_model_messages(&snapshot, &chat_id, None, None);
         messages.push(json!({"role":"user","content":instruction}));
         let run_id = format!("run_{assignment_id}");
         let price = self.runtime.price_for_model(&model);
@@ -831,43 +948,6 @@ impl ComposedBackend {
         }))
     }
 
-    fn merge_execution_history(&self, params: &Value, mut result: Value) -> crate::RpcResult {
-        let Some(chat_id) = params.get("chat_id").and_then(Value::as_str) else {
-            return Ok(result);
-        };
-        let path = format!("data/chats/{}/messages.jsonl", safe_component(chat_id));
-        let execution = self
-            .inner
-            .store
-            .read_jsonl::<Value>(path)
-            .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
-        let Some(messages) = result.get_mut("messages").and_then(Value::as_array_mut) else {
-            return Ok(result);
-        };
-        for message in execution {
-            let Some(id) = message.get("id") else {
-                continue;
-            };
-            if let Some(existing) = messages.iter_mut().find(|item| item.get("id") == Some(id)) {
-                *existing = message;
-            } else {
-                messages.push(message);
-            }
-        }
-        messages.sort_by_key(|message| message.get("seq").and_then(Value::as_u64).unwrap_or(0));
-        let after = params.get("after_seq").and_then(Value::as_u64).unwrap_or(0);
-        let limit = params
-            .get("limit")
-            .and_then(Value::as_u64)
-            .unwrap_or(50)
-            .min(100) as usize;
-        messages.retain(|message| message.get("seq").and_then(Value::as_u64).unwrap_or(0) > after);
-        let has_more = messages.len() > limit;
-        messages.truncate(limit);
-        result["has_more"] = json!(has_more);
-        Ok(result)
-    }
-
     fn spawn_request(&self, request: ExecutionRequest) {
         let run_id = request.run_id.clone();
         let active_key = request
@@ -999,11 +1079,80 @@ async fn block_missing_model(
     }
 }
 
-/// Routine dispatch uses a synthetic `routine:<id>` origin for its internal
-/// assignment.  That value is useful for routing execution, but it is not a
-/// client-visible chat.  Missing-model notices must land in a real chat so a
-/// user can see the terminal blocked state: a project assignment uses the
-/// project's chat, otherwise the Bot DM is the stable fallback.
+fn missing_model_bot_from_snapshot(
+    snapshot: &Value,
+    chat_id: &str,
+    requested_bot: Option<&str>,
+) -> String {
+    if let Some(bot_id) = snapshot
+        .get("bots")
+        .and_then(Value::as_object)
+        .and_then(|bots| {
+            bots.values()
+                .find(|bot| bot.get("dm_chat_id").and_then(Value::as_str) == Some(chat_id))
+        })
+        .and_then(|bot| bot.get("id").and_then(Value::as_str))
+    {
+        return bot_id.to_owned();
+    }
+    if chat_id == "chat_main" {
+        if let Some(bot_id) = snapshot
+            .get("bots")
+            .and_then(Value::as_object)
+            .and_then(|bots| {
+                bots.values()
+                    .find(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+            })
+            .and_then(|bot| bot.get("id").and_then(Value::as_str))
+        {
+            return bot_id.to_owned();
+        }
+    }
+    requested_bot
+        .filter(|bot_id| !bot_id.is_empty() && *bot_id != "main")
+        .or_else(|| {
+            snapshot
+                .get("bots")
+                .and_then(Value::as_object)
+                .and_then(|bots| {
+                    bots.values()
+                        .find(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+                })
+                .and_then(|bot| bot.get("id").and_then(Value::as_str))
+        })
+        .unwrap_or("main")
+        .to_owned()
+}
+
+async fn notify_missing_model_chat(
+    inner: Arc<ProductionBackend>,
+    state: GatewayState,
+    bot_id: String,
+    chat_id: String,
+    user_message_id: &str,
+) {
+    let receipt_id = format!("model-missing-{user_message_id}");
+    let message = json!({
+        "bot_id": bot_id,
+        "chat_id": chat_id,
+        "assignment_id": null,
+        "text": "未配置默认模型",
+        "intent": "blocked",
+        "mentions": []
+    });
+    let envelope = json!({
+        "message": message,
+        "receipt": {"run_id": receipt_id, "call_id": "model-missing"}
+    });
+    if let Err(error) = inner.execution_send_msg(&state, envelope).await {
+        tracing::warn!(%error, %user_message_id, "failed to persist missing-model DM notification");
+    }
+}
+
+/// Routine dispatch normally resolves to a real project chat or Bot DM.
+/// A synthetic `routine:<id>` value can remain only as a legacy defensive
+/// fallback; missing-model notices should otherwise land in a real chat so a
+/// user can see the terminal blocked state.
 fn routable_missing_model_chat(
     inner: &ProductionBackend,
     bot_id: &str,
@@ -1336,9 +1485,6 @@ impl crate::RpcBackend for ComposedBackend {
                     details: None,
                 })?;
         }
-        if method == "chat.history" {
-            result = self.merge_execution_history(&params, result)?;
-        }
         let mut resumed_waiting_message = false;
         if method == "chat.send" {
             let reply_to = params
@@ -1445,7 +1591,7 @@ impl crate::RpcBackend for ComposedBackend {
                 true
             };
             if fresh && !resumed_waiting_message {
-                if let Some(request) = self.request_for_chat(&params, &result) {
+                if let Some(request) = self.request_for_chat(&params, &result).await {
                     if request
                         .assignment_id
                         .as_deref()
@@ -1461,53 +1607,68 @@ impl crate::RpcBackend for ComposedBackend {
                     // chat.send has already admitted the assignment.  Do not
                     // leave it permanently working when settings contain no
                     // model for the selected Bot.
-                    let assignment_id =
-                        self.inner
-                            .orchestrator
-                            .snapshot()
-                            .ok()
-                            .and_then(|snapshot| {
-                                snapshot
-                                    .get("assignments")
-                                    .and_then(Value::as_object)
-                                    .and_then(|assignments| {
-                                        assignments.values().find_map(|assignment| {
-                                            let matches = assignment
-                                                .get("trigger_message_id")
-                                                .and_then(Value::as_str)
-                                                == Some(message_id)
-                                                && assignment.get("status").and_then(Value::as_str)
-                                                    == Some("working");
-                                            matches
-                                                .then(|| {
-                                                    assignment.get("id").and_then(Value::as_str)
-                                                })
-                                                .flatten()
-                                        })
-                                    })
-                                    .map(str::to_owned)
-                            });
-                    if let Some(assignment_id) = assignment_id {
+                    let snapshot = self.inner.orchestrator.snapshot().ok();
+                    let assignment = snapshot.as_ref().and_then(|snapshot| {
+                        snapshot
+                            .get("assignments")
+                            .and_then(Value::as_object)
+                            .and_then(|assignments| {
+                                assignments.values().find(|assignment| {
+                                    assignment.get("trigger_message_id").and_then(Value::as_str)
+                                        == Some(message_id)
+                                        && assignment.get("status").and_then(Value::as_str)
+                                            == Some("working")
+                                })
+                            })
+                    });
+                    if let Some(assignment) = assignment {
+                        let assignment_id = assignment
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned();
+                        let assignment_bot_id = assignment
+                            .get("bot_id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("main")
+                            .to_owned();
+                        let assignment_chat_id = assignment
+                            .get("origin_chat_id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("chat_main")
+                            .to_owned();
                         tracing::error!(%assignment_id, "chat assignment has no configured model; failing it");
                         block_missing_model(
                             self.inner.clone(),
                             self.state.clone(),
-                            params
-                                .get("bot_id")
-                                .and_then(Value::as_str)
-                                .unwrap_or("main")
-                                .to_owned(),
-                            params
-                                .get("chat_id")
-                                .and_then(Value::as_str)
-                                .unwrap_or("chat_main")
-                                .to_owned(),
+                            assignment_bot_id,
+                            assignment_chat_id,
                             assignment_id,
                             &format!("model-missing-{message_id}"),
                         )
                         .await;
                     } else {
-                        tracing::error!(%message_id, "chat request has no configured model");
+                        let chat_id = params
+                            .get("chat_id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("chat_main")
+                            .to_owned();
+                        let requested_bot = params.get("bot_id").and_then(Value::as_str);
+                        let bot_id = snapshot
+                            .as_ref()
+                            .map(|snapshot| {
+                                missing_model_bot_from_snapshot(snapshot, &chat_id, requested_bot)
+                            })
+                            .unwrap_or_else(|| requested_bot.unwrap_or("main").to_owned());
+                        tracing::error!(%message_id, %bot_id, "chat request has no configured model");
+                        notify_missing_model_chat(
+                            self.inner.clone(),
+                            self.state.clone(),
+                            bot_id,
+                            chat_id,
+                            message_id,
+                        )
+                        .await;
                     }
                 }
             }
@@ -2033,7 +2194,7 @@ impl RuntimeExecution {
             Err(error) => {
                 return Err(RuntimeError::Execution(ExecutionError::Durable(
                     error.into(),
-                )))
+                )));
             }
         };
         for entry in entries {
@@ -2132,7 +2293,7 @@ impl RuntimeExecution {
             Err(error) => {
                 return Err(RuntimeError::Execution(ExecutionError::Durable(
                     error.into(),
-                )))
+                )));
             }
         };
         for entry in entries {
@@ -2213,7 +2374,7 @@ impl RuntimeExecution {
             Err(error) => {
                 return Err(RuntimeError::Execution(ExecutionError::Durable(
                     error.into(),
-                )))
+                )));
             }
         };
         for entry in entries {
@@ -3209,6 +3370,15 @@ struct OrchestratorSink {
 }
 
 impl OrchestratorSink {
+    fn canonical_chat_message(&self, chat_id: &str, message: &Value) -> Result<Value, String> {
+        self.store
+            .sequence_chat_messages(chat_id, std::slice::from_ref(message))
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .next()
+            .ok_or_else(|| "chat message sequencing returned no message".into())
+    }
+
     async fn persist_execution_question(&self, message: &Value, block: &Value) {
         let Some(call_id) = block.get("question_id").and_then(Value::as_str) else {
             tracing::error!("execution emitted question block without question_id");
@@ -3290,6 +3460,13 @@ impl OrchestratorSink {
         {
             question_block["question_id"] = json!(question_id);
         }
+        let updated_message = match self.canonical_chat_message(chat_id, &updated_message) {
+            Ok(message) => message,
+            Err(error) => {
+                tracing::error!(%error, chat_id, "failed to sequence question card update");
+                return;
+            }
+        };
         if let Err(error) = self.store.append_jsonl(
             format!("data/chats/{}/messages.jsonl", safe_component(chat_id)),
             &updated_message,
@@ -3381,6 +3558,20 @@ impl OrchestratorSink {
             "delivery": [],
             "reactions": []
         });
+        let dm_message = match self.canonical_chat_message(dm_chat_id, &dm_message) {
+            Ok(message) => message,
+            Err(error) => {
+                tracing::error!(%error, chat_id = dm_chat_id, "failed to sequence takeover DM card");
+                return;
+            }
+        };
+        if let Err(error) = self.store.append_jsonl(
+            format!("data/chats/{}/messages.jsonl", safe_component(dm_chat_id)),
+            &dm_message,
+        ) {
+            tracing::error!(%error, chat_id = dm_chat_id, "failed to persist takeover DM card");
+            return;
+        }
         self.inner
             .emit(ExecutionEvent {
                 event: "message.created".into(),
@@ -3388,12 +3579,6 @@ impl OrchestratorSink {
                 persistent: true,
             })
             .await;
-        if let Err(error) = self.store.append_jsonl(
-            format!("data/chats/{}/messages.jsonl", safe_component(dm_chat_id)),
-            &dm_message,
-        ) {
-            tracing::error!(%error, chat_id = dm_chat_id, "failed to persist takeover DM card");
-        }
         if let Some(approval_ref) = result.get("approval_ref") {
             let mut group_message = message.clone();
             if let Some(blocks) = group_message
@@ -3406,6 +3591,13 @@ impl OrchestratorSink {
                     "chat_id": approval_ref.get("chat_id").cloned().unwrap_or(Value::Null)
                 }));
             }
+            let group_message = match self.canonical_chat_message(chat_id, &group_message) {
+                Ok(message) => message,
+                Err(error) => {
+                    tracing::error!(%error, chat_id, "failed to sequence takeover group card");
+                    return;
+                }
+            };
             if let Err(error) = self.store.append_jsonl(
                 format!("data/chats/{}/messages.jsonl", safe_component(chat_id)),
                 &group_message,
@@ -3455,7 +3647,7 @@ impl ExecutionSink for OrchestratorSink {
         self.inner.emit(event).await;
     }
 
-    async fn send_group_message(&self, message: Value) -> Result<(), String> {
+    async fn send_group_message(&self, message: Value) -> Result<Value, String> {
         self.inner.send_group_message(message).await
     }
 
@@ -3521,7 +3713,7 @@ impl ExecutionSink for OrchestratorSink {
 
 #[async_trait]
 impl GroupMessageBridge for OrchestratorGroupBridge {
-    async fn send_msg(&self, mut message: Value) -> Result<(), String> {
+    async fn send_msg(&self, message: Value) -> Result<Value, String> {
         let result = self
             .backend
             .execution_send_msg(&self.state, message.clone())
@@ -3548,10 +3740,7 @@ impl GroupMessageBridge for OrchestratorGroupBridge {
                 }
             }
         }
-        if let Some(object) = message.as_object_mut() {
-            object.insert("message_id".into(), result["id"].clone());
-        }
-        Ok(())
+        Ok(result)
     }
 }
 
@@ -3572,7 +3761,10 @@ impl ModelProvider for UnavailableProvider {
 
 #[cfg(test)]
 mod model_resolution_tests {
-    use super::{resolve_model, routable_missing_model_chat_from_snapshot, ModelRole};
+    use super::{
+        missing_model_bot_from_snapshot, resolve_model, routable_missing_model_chat_from_snapshot,
+        ModelRole,
+    };
     use serde_json::json;
 
     #[test]
@@ -3634,6 +3826,24 @@ mod model_resolution_tests {
         assert_eq!(
             resolve_model(&snapshot, &settings, "main", ModelRole::Maintenance).as_deref(),
             Some("fake/main")
+        );
+    }
+
+    #[test]
+    fn missing_model_dm_resolves_worker_and_main_bots_without_provider() {
+        let snapshot = json!({
+            "bots": {
+                "main": {"id":"main", "is_main":true, "dm_chat_id":"chat_main"},
+                "worker": {"id":"worker", "is_main":false, "dm_chat_id":"dm_worker"}
+            }
+        });
+        assert_eq!(
+            missing_model_bot_from_snapshot(&snapshot, "dm_worker", None),
+            "worker"
+        );
+        assert_eq!(
+            missing_model_bot_from_snapshot(&snapshot, "chat_main", None),
+            "main"
         );
     }
 

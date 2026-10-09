@@ -121,6 +121,16 @@ pub struct ExecutionOutcome {
     pub turns: usize,
 }
 
+struct ApprovedFollowupContext<'a> {
+    request: &'a ExecutionRequest,
+    job: &'a Job,
+    turn: usize,
+    messages: &'a mut Vec<Value>,
+    group_progress_count: &'a mut usize,
+    group_done: &'a mut bool,
+    usage: &'a TokenUsage,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionEvent {
     pub event: String,
@@ -180,7 +190,10 @@ pub trait ExecutionSink: Send + Sync {
     /// Persistent events must be written before the implementation fans them
     /// out. Temporary deltas are subscriber-only and never enter the WAL.
     async fn emit(&self, event: ExecutionEvent);
-    async fn send_group_message(&self, message: Value) -> Result<(), String>;
+    /// Admit a group message and return the canonical persisted Message.
+    /// The request payload contains the durable receipt, whose logical ID is
+    /// intentionally separate from the canonical message ID returned here.
+    async fn send_group_message(&self, message: Value) -> Result<Value, String>;
     async fn approval_required(&self, data: Value);
     /// Publish the protocol's temporary workbench usage tick. Implementations
     /// may also update their durable assignment snapshot in this hook.
@@ -215,7 +228,8 @@ pub trait ProviderResolver: Send + Sync {
 /// side effect an executor may perform: admitting a `send_msg` tool result.
 #[async_trait]
 pub trait GroupMessageBridge: Send + Sync {
-    async fn send_msg(&self, message: Value) -> Result<(), String>;
+    /// Return the canonical persisted Message created (or found on replay).
+    async fn send_msg(&self, message: Value) -> Result<Value, String>;
 }
 
 /// Production sink for the real GatewayState. Persistent events are written
@@ -262,7 +276,7 @@ impl ExecutionSink for GatewayStateSink {
         }
     }
 
-    async fn send_group_message(&self, message: Value) -> Result<(), String> {
+    async fn send_group_message(&self, message: Value) -> Result<Value, String> {
         self.group.send_msg(message).await
     }
 
@@ -282,8 +296,8 @@ pub struct NullExecutionSink;
 #[async_trait]
 impl ExecutionSink for NullExecutionSink {
     async fn emit(&self, _: ExecutionEvent) {}
-    async fn send_group_message(&self, _: Value) -> Result<(), String> {
-        Ok(())
+    async fn send_group_message(&self, message: Value) -> Result<Value, String> {
+        Ok(message.get("message").cloned().unwrap_or(message))
     }
     async fn approval_required(&self, _: Value) {}
 }
@@ -294,7 +308,6 @@ impl ExecutionSink for NullExecutionSink {
 pub struct ExecutionState {
     pub durable: Arc<Mutex<DurableRuntime>>,
     pub aseq: Arc<Mutex<HashMap<String, u64>>>,
-    pub message_seq: Arc<Mutex<HashMap<String, u64>>>,
     pub cancelled: Arc<Mutex<HashSet<String>>>,
     pub cancellations: Arc<Mutex<HashMap<String, ToolCancellation>>>,
     usage_ticks: Arc<Mutex<HashMap<String, UsageTickState>>>,
@@ -306,7 +319,6 @@ impl ExecutionState {
         Ok(Arc::new(Self {
             durable: Arc::new(Mutex::new(DurableRuntime::from_store(store)?)),
             aseq: Arc::new(Mutex::new(HashMap::new())),
-            message_seq: Arc::new(Mutex::new(HashMap::new())),
             cancelled: Arc::new(Mutex::new(HashSet::new())),
             cancellations: Arc::new(Mutex::new(HashMap::new())),
             usage_ticks: Arc::new(Mutex::new(HashMap::new())),
@@ -434,22 +446,6 @@ impl ExecutionEngine {
         Ok(*entry)
     }
 
-    async fn next_message_seq(&self, chat_id: &str) -> Result<u64, ExecutionError> {
-        let mut state = self.state.message_seq.lock().await;
-        let entry = state.entry(chat_id.to_owned()).or_insert_with(|| {
-            self.store
-                .read_jsonl::<Value>(format!("data/chats/{}/messages.jsonl", safe_id(chat_id)))
-                .ok()
-                .into_iter()
-                .flatten()
-                .filter_map(|message| message.get("seq").and_then(Value::as_u64))
-                .max()
-                .unwrap_or(0)
-        });
-        *entry += 1;
-        Ok(*entry)
-    }
-
     async fn cleanup_run_tools(&self, request: &ExecutionRequest) {
         let cancellation = self.state.cancellation_for(&request.run_id).await;
         let context = ToolContext::new(
@@ -537,6 +533,27 @@ impl ExecutionEngine {
                 .and_then(|settings| settings.pointer("/trace/save_full_requests").cloned())
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false)
+    }
+
+    /// Approval policy is deliberately read for every risky call.  Settings
+    /// updates are live and must not require rebuilding the execution engine.
+    /// `allow_unsafe` is the one-shot decision carried by an approval
+    /// continuation; otherwise an explicit global mode or matching
+    /// `auto_allow` rule can skip the approval card. A matching `ask_first`
+    /// rule always wins over an `auto_allow` rule (and over the global mode).
+    fn risky_call_allowed(
+        &self,
+        request: &ExecutionRequest,
+        tool_name: &str,
+        args: &Value,
+    ) -> bool {
+        let settings = self
+            .store
+            .read_snapshot::<Value>("data/settings.json")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        request.allow_unsafe || approval_settings_allow(&settings, tool_name, args)
     }
 
     fn persist_model_request(
@@ -969,50 +986,22 @@ impl ExecutionEngine {
                 self.execute_approved_tool(&request, &job, start_turn, call, &mut messages)
                     .await?;
             }
-            if !approved_followups.is_empty() {
-                let next = approved_followups[0].clone();
-                let checkpoint = json!({
-                    "run_id":request.run_id,
-                    "round":start_turn + 1,
-                    "messages":messages,
-                    "pending_tool":next,
-                    "pending_tools":approved_followups
-                });
-                self.state.durable.lock().await.commit(
-                    &job.id,
-                    JobStatus::Waiting,
-                    checkpoint,
-                    true,
-                )?;
-                self.trace(
-                    &request,
-                    "run.wait",
-                    json!({"reason":"approval","message_id":Value::Null}),
+            if let Some(outcome) = self
+                .process_approved_followups(
+                    approved_followups,
+                    ApprovedFollowupContext {
+                        request: &request,
+                        job: &job,
+                        turn: start_turn,
+                        messages: &mut messages,
+                        group_progress_count: &mut group_progress_count,
+                        group_done: &mut group_done,
+                        usage: &usage,
+                    },
                 )
-                .await?;
-                self.sink
-                    .approval_required(json!({"approval":{
-                        "id":format!("apr_{}",safe_id(&next.call_id)),
-                        "bot_id":request.bot_id,
-                        "assignment_id":request.assignment_id,
-                        "chat_id":request.chat_id,
-                        "tool":next.name,
-                        "risk":"write",
-                        "summary":format!("Approval required for {}",next.name),
-                        "detail":next.args.to_string(),
-                        "state":"pending",
-                        "created_at":now_rfc3339(),
-                        "decided_at":null
-                    }}))
-                    .await;
-                return Ok(ExecutionOutcome {
-                    run_id: request.run_id,
-                    job_id: job.id,
-                    status: "suspended".into(),
-                    text: final_text,
-                    usage,
-                    turns: start_turn + 1,
-                });
+                .await?
+            {
+                return Ok(outcome);
             }
             start_turn + 1
         } else {
@@ -1398,25 +1387,36 @@ impl ExecutionEngine {
                         // happen after durable admission and before the
                         // bridge call. The bridge is idempotent by run/call.
                         let persisted_payload = receipt.payload.clone();
-                        if let Err(error) = self
+                        let canonical = match self
                             .sink
                             .send_group_message(
                                 json!({"receipt":receipt,"message":persisted_payload}),
                             )
                             .await
                         {
-                            let result = ToolResult::error(error);
+                            Ok(message) => message,
+                            Err(error) => {
+                                let result = ToolResult::error(error);
+                                messages.push(tool_message(&call.call_id, &result));
+                                self.trace(&request, "tool.end", json!({"call_id":call.call_id,"is_error":true,"preview":"send_msg bridge failed","details":{},"truncated":false,"full_output":null,"duration_ms":0})).await?;
+                                continue;
+                            }
+                        };
+                        let Some(canonical_id) = canonical_message_id(&canonical) else {
+                            let result = ToolResult::error(
+                                "send_msg bridge returned no canonical message id",
+                            );
                             messages.push(tool_message(&call.call_id, &result));
-                            self.trace(&request, "tool.end", json!({"call_id":call.call_id,"is_error":true,"preview":"send_msg bridge failed","details":{},"truncated":false,"full_output":null,"duration_ms":0})).await?;
+                            self.trace(&request, "tool.end", json!({"call_id":call.call_id,"is_error":true,"preview":"send_msg bridge returned malformed message","details":{},"truncated":false,"full_output":null,"duration_ms":0})).await?;
                             continue;
-                        }
+                        };
                         if intent == "progress" {
                             group_progress_count += 1;
                         }
                         if intent == "done" {
                             group_done = true;
                         }
-                        self.trace(&request, "send_msg", json!({"call_id":call.call_id,"intent":intent,"message_id":message_id,"chat_id":chat_id})).await?;
+                        self.trace(&request, "send_msg", json!({"call_id":call.call_id,"intent":intent,"message_id":canonical_id,"chat_id":chat_id})).await?;
                         let result = ToolResult::text("message admitted");
                         messages.push(tool_message(&call.call_id, &result));
                         if intent == "done" {
@@ -1463,7 +1463,7 @@ impl ExecutionEngine {
                                     "messages":messages,
                                     "pending_tools":remaining,
                                     "waiting_reason":intent,
-                                    "waiting_message_id":message_id,
+                                    "waiting_message_id":canonical_id,
                                     "waiting_message":true,
                                     "wait_intent":intent
                                 }),
@@ -1472,7 +1472,7 @@ impl ExecutionEngine {
                             self.trace(
                                 &request,
                                 "run.wait",
-                                json!({"reason":if intent == "decision" {"decision"} else {"blocked"},"message_id":message_id}),
+                                json!({"reason":if intent == "decision" {"decision"} else {"blocked"},"message_id":canonical_id}),
                             )
                             .await?;
                             return Ok(ExecutionOutcome {
@@ -1492,8 +1492,12 @@ impl ExecutionEngine {
                     continue;
                 };
                 let risk = tool.risk(&call.args);
-                let risky = matches!(&risk, Risk::Write | Risk::Exec | Risk::External);
-                if risky && !request.allow_unsafe {
+                let cwd = request.cwd.as_deref().unwrap_or(self.home.as_path());
+                let builtin_risky =
+                    builtin_requires_approval(&call.name, &call.args, cwd, &self.home);
+                let risky =
+                    matches!(&risk, Risk::Write | Risk::Exec | Risk::External) || builtin_risky;
+                if risky && !self.risky_call_allowed(&request, &call.name, &call.args) {
                     let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":tool_calls[call_index..]});
                     self.state.durable.lock().await.commit(
                         &job.id,
@@ -1713,6 +1717,319 @@ impl ExecutionEngine {
         Ok(())
     }
 
+    /// Continue the remaining tool calls from an approval checkpoint one by
+    /// one.  A model turn can mix a write with reads and another write; the
+    /// latter must not inherit the first call's hard-coded risk or approval.
+    async fn process_approved_followups(
+        &self,
+        followups: Vec<ToolCall>,
+        context: ApprovedFollowupContext<'_>,
+    ) -> Result<Option<ExecutionOutcome>, ExecutionError> {
+        let ApprovedFollowupContext {
+            request,
+            job,
+            turn,
+            messages,
+            group_progress_count,
+            group_done,
+            usage,
+        } = context;
+        let mut pending = followups;
+        while !pending.is_empty() {
+            let call = pending.remove(0);
+            if !tool_allowed(request, &call.name) {
+                let result = ToolResult::error("tool is not permitted for this run");
+                self.trace(
+                    request,
+                    "tool.start",
+                    json!({"call_id":call.call_id,"name":call.name,"args":call.args}),
+                )
+                .await?;
+                self.trace(
+                    request,
+                    "tool.end",
+                    json!({"call_id":call.call_id,"is_error":true,"preview":"tool is not permitted for this run","details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                )
+                .await?;
+                messages.push(tool_message(&call.call_id, &result));
+                continue;
+            }
+
+            if matches!(call.name.as_str(), "ask_user" | "question") {
+                let question = call.args["question"]
+                    .as_str()
+                    .or_else(|| call.args["prompt"].as_str())
+                    .unwrap_or("请回答这个问题")
+                    .to_owned();
+                let mut all_calls = Vec::with_capacity(pending.len() + 1);
+                all_calls.push(call.clone());
+                all_calls.extend(pending.iter().cloned());
+                self.state.durable.lock().await.commit(
+                    &job.id,
+                    JobStatus::Waiting,
+                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls}),
+                    true,
+                )?;
+                self.trace(
+                    request,
+                    "run.wait",
+                    json!({"reason":"decision","message_id":Value::Null}),
+                )
+                .await?;
+                self.publish_question_request(request, &call.call_id, &question)
+                    .await?;
+                return Ok(Some(ExecutionOutcome {
+                    run_id: request.run_id.clone(),
+                    job_id: job.id.clone(),
+                    status: "suspended".into(),
+                    text: String::new(),
+                    usage: usage.clone(),
+                    turns: turn + 1,
+                }));
+            }
+
+            if call.name == "request_takeover" {
+                let reason = call.args["reason"]
+                    .as_str()
+                    .unwrap_or("用户需要接管浏览器")
+                    .to_owned();
+                let mut all_calls = Vec::with_capacity(pending.len() + 1);
+                all_calls.push(call.clone());
+                all_calls.extend(pending.iter().cloned());
+                self.state.durable.lock().await.commit(
+                    &job.id,
+                    JobStatus::Waiting,
+                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls}),
+                    true,
+                )?;
+                self.trace(
+                    request,
+                    "run.wait",
+                    json!({"reason":"takeover","message_id":Value::Null}),
+                )
+                .await?;
+                self.publish_takeover_request(request, &reason).await?;
+                return Ok(Some(ExecutionOutcome {
+                    run_id: request.run_id.clone(),
+                    job_id: job.id.clone(),
+                    status: "suspended".into(),
+                    text: String::new(),
+                    usage: usage.clone(),
+                    turns: turn + 1,
+                }));
+            }
+
+            // send_msg is a gateway bridge rather than a Tool implementation.
+            // It is already idempotent by run/call and must be admitted once,
+            // instead of being mistaken for a generic write follow-up.
+            if call.name == "send_msg" {
+                let intent = call.args["intent"].as_str().unwrap_or("progress");
+                if intent == "progress" && *group_progress_count >= 3 {
+                    messages.push(tool_message(
+                        &call.call_id,
+                        &ToolResult::error("progress messages are limited to three per task"),
+                    ));
+                    continue;
+                }
+                let chat_id = call.args["chat_id"]
+                    .as_str()
+                    .unwrap_or(&request.chat_id)
+                    .to_owned();
+                let message_id = call.args["message_id"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("msg_{}", safe_id(&call.call_id)));
+                let mut payload = call.args.clone();
+                if let Some(object) = payload.as_object_mut() {
+                    object.insert("message_id".into(), json!(message_id.clone()));
+                    object.insert("chat_id".into(), json!(chat_id.clone()));
+                    object.insert("bot_id".into(), json!(request.bot_id.clone()));
+                    object.insert("assignment_id".into(), json!(request.assignment_id.clone()));
+                    object.insert("intent".into(), json!(intent));
+                }
+                let (receipt, _) = self.state.durable.lock().await.send_msg_once(
+                    &request.run_id,
+                    &call.call_id,
+                    intent,
+                    &message_id,
+                    payload.clone(),
+                )?;
+                let canonical = match self
+                    .sink
+                    .send_group_message(json!({"receipt":receipt,"message":payload}))
+                    .await
+                {
+                    Ok(message) => message,
+                    Err(error) => {
+                        let result = ToolResult::error(error);
+                        messages.push(tool_message(&call.call_id, &result));
+                        self.trace(
+                            request,
+                            "tool.end",
+                            json!({"call_id":call.call_id,"is_error":true,"preview":"send_msg bridge failed","details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                        )
+                        .await?;
+                        continue;
+                    }
+                };
+                let Some(canonical_id) = canonical_message_id(&canonical) else {
+                    let result =
+                        ToolResult::error("send_msg bridge returned no canonical message id");
+                    messages.push(tool_message(&call.call_id, &result));
+                    self.trace(
+                        request,
+                        "tool.end",
+                        json!({"call_id":call.call_id,"is_error":true,"preview":"send_msg bridge returned malformed message","details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                    )
+                    .await?;
+                    continue;
+                };
+                if intent == "progress" {
+                    *group_progress_count += 1;
+                }
+                if intent == "done" {
+                    *group_done = true;
+                }
+                self.trace(
+                    request,
+                    "send_msg",
+                    json!({"call_id":call.call_id,"intent":intent,"message_id":canonical_id,"chat_id":chat_id}),
+                )
+                .await?;
+                let result = ToolResult::text("message admitted");
+                messages.push(tool_message(&call.call_id, &result));
+                if intent == "done" {
+                    let final_text = call.args["text"]
+                        .as_str()
+                        .unwrap_or("任务已完成")
+                        .to_owned();
+                    self.state.durable.lock().await.commit(
+                        &job.id,
+                        JobStatus::Done,
+                        json!({"run_id":request.run_id,"text":final_text,"usage":usage,"turns":turn + 1,"messages":messages}),
+                        false,
+                    )?;
+                    self.sink
+                        .commit_succeeded(
+                            request,
+                            json!({"run_id":request.run_id,"text":final_text}),
+                        )
+                        .await;
+                    self.trace(
+                        request,
+                        "run.end",
+                        json!({"status":"done","error":Value::Null}),
+                    )
+                    .await?;
+                    self.cleanup_run_tools(request).await;
+                    return Ok(Some(ExecutionOutcome {
+                        run_id: request.run_id.clone(),
+                        job_id: job.id.clone(),
+                        status: "done".into(),
+                        text: final_text,
+                        usage: usage.clone(),
+                        turns: turn + 1,
+                    }));
+                }
+                if matches!(intent, "decision" | "blocked") {
+                    self.state.durable.lock().await.commit(
+                        &job.id,
+                        JobStatus::Waiting,
+                        json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tools":pending,"waiting_reason":intent,"waiting_message_id":canonical_id,"waiting_message":true,"wait_intent":intent}),
+                        false,
+                    )?;
+                    self.trace(
+                        request,
+                        "run.wait",
+                        json!({"reason":if intent == "decision" {"decision"} else {"blocked"},"message_id":canonical_id}),
+                    )
+                    .await?;
+                    return Ok(Some(ExecutionOutcome {
+                        run_id: request.run_id.clone(),
+                        job_id: job.id.clone(),
+                        status: "suspended".into(),
+                        text: String::new(),
+                        usage: usage.clone(),
+                        turns: turn + 1,
+                    }));
+                }
+                continue;
+            }
+
+            let Some(tool) = self.tools.get(&call.name).cloned() else {
+                messages.push(tool_message(
+                    &call.call_id,
+                    &ToolResult::error(format!("unknown tool: {}", call.name)),
+                ));
+                continue;
+            };
+            let risk = tool.risk(&call.args);
+            let cwd = request.cwd.as_deref().unwrap_or(self.home.as_path());
+            let builtin_risky = builtin_requires_approval(&call.name, &call.args, cwd, &self.home);
+            let risky = matches!(&risk, Risk::Write | Risk::Exec | Risk::External) || builtin_risky;
+            if risky && !self.risky_call_allowed(request, &call.name, &call.args) {
+                let mut all_calls = Vec::with_capacity(pending.len() + 1);
+                all_calls.push(call.clone());
+                all_calls.extend(pending.iter().cloned());
+                self.state.durable.lock().await.commit(
+                    &job.id,
+                    JobStatus::Waiting,
+                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls}),
+                    true,
+                )?;
+                self.trace(
+                    request,
+                    "run.wait",
+                    json!({"reason":"approval","message_id":Value::Null}),
+                )
+                .await?;
+                let risk_name = match risk {
+                    Risk::Write => "write",
+                    Risk::Exec => "exec",
+                    Risk::External => "external",
+                    Risk::Read => "write",
+                };
+                self.sink
+                    .approval_required(json!({"approval":{
+                        "id":format!("apr_{}",safe_id(&call.call_id)),
+                        "bot_id":request.bot_id,
+                        "assignment_id":request.assignment_id,
+                        "chat_id":request.chat_id,
+                        "tool":call.name,
+                        "risk":risk_name,
+                        "summary":format!("Approval required for {}",call.name),
+                        "detail":call.args.to_string(),
+                        "state":"pending",
+                        "created_at":now_rfc3339(),
+                        "decided_at":null
+                    }}))
+                    .await;
+                return Ok(Some(ExecutionOutcome {
+                    run_id: request.run_id.clone(),
+                    job_id: job.id.clone(),
+                    status: "suspended".into(),
+                    text: String::new(),
+                    usage: usage.clone(),
+                    turns: turn + 1,
+                }));
+            }
+            if risky {
+                let mut all_calls = Vec::with_capacity(pending.len() + 1);
+                all_calls.push(call.clone());
+                all_calls.extend(pending.iter().cloned());
+                self.state.durable.lock().await.commit(
+                    &job.id,
+                    JobStatus::Running,
+                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls}),
+                    true,
+                )?;
+            }
+            self.execute_approved_tool(request, job, turn, call, messages)
+                .await?;
+        }
+        Ok(None)
+    }
+
     async fn execute_read_tool(
         &self,
         request: &ExecutionRequest,
@@ -1919,6 +2236,7 @@ impl ExecutionEngine {
         message["fallback_text"] = json!(text);
         message["streaming"] = json!(false);
         message["edited_at"] = json!(now_rfc3339());
+        let message = self.canonical_chat_message(&request.chat_id, message)?;
         self.replace_message(&path, &message)?;
         self.sink
             .emit(ExecutionEvent {
@@ -1930,6 +2248,20 @@ impl ExecutionEngine {
         Ok(())
     }
 
+    fn canonical_chat_message(
+        &self,
+        chat_id: &str,
+        message: Value,
+    ) -> Result<Value, ExecutionError> {
+        self.store
+            .sequence_chat_messages(chat_id, &[message])?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                ExecutionError::Sink("message sequence allocator returned no row".into())
+            })
+    }
+
     async fn publish_takeover_request(
         &self,
         request: &ExecutionRequest,
@@ -1937,11 +2269,9 @@ impl ExecutionEngine {
     ) -> Result<(), ExecutionError> {
         let message_id = format!("msg_takeover_{}", safe_id(&request.run_id));
         let path = format!("data/chats/{}/messages.jsonl", safe_id(&request.chat_id));
-        let seq = self.next_message_seq(&request.chat_id).await?;
-        let message = json!({
+        let message = self.canonical_chat_message(&request.chat_id, json!({
             "id": message_id,
             "chat_id": request.chat_id,
-            "seq": seq,
             "sender": {"kind":"bot","bot_id":request.bot_id},
             "created_at": now_rfc3339(),
             "edited_at": null,
@@ -1956,7 +2286,7 @@ impl ExecutionEngine {
             "streaming": false,
             "delivery": [],
             "reactions": []
-        });
+        }))?;
         self.store.append_jsonl(&path, &message)?;
         // Keep a restart-safe marker for private runs, whose orchestrator
         // assignment is synthesized by the takeover RPC and is therefore not
@@ -1983,26 +2313,27 @@ impl ExecutionEngine {
     ) -> Result<(), ExecutionError> {
         let message_id = format!("msg_question_{}", safe_id(&request.run_id));
         let path = format!("data/chats/{}/messages.jsonl", safe_id(&request.chat_id));
-        let seq = self.next_message_seq(&request.chat_id).await?;
-        let message = json!({
-            "id": message_id,
-            "chat_id": request.chat_id,
-            "seq": seq,
-            "sender": {"kind":"bot","bot_id":request.bot_id},
-            "created_at": now_rfc3339(),
-            "edited_at": null,
-            "deleted": false,
-            "reply_to": null,
-            "thread_count": 0,
-            "mentions": [],
-            "blocks": [{"type":"question","question_id":question_id}],
-            "fallback_text": question,
-            "intent": null,
-            "assignment_id": request.assignment_id,
-            "streaming": false,
-            "delivery": [],
-            "reactions": []
-        });
+        let message = self.canonical_chat_message(
+            &request.chat_id,
+            json!({
+                "id": message_id,
+                "chat_id": request.chat_id,
+                "sender": {"kind":"bot","bot_id":request.bot_id},
+                "created_at": now_rfc3339(),
+                "edited_at": null,
+                "deleted": false,
+                "reply_to": null,
+                "thread_count": 0,
+                "mentions": [],
+                "blocks": [{"type":"question","question_id":question_id}],
+                "fallback_text": question,
+                "intent": null,
+                "assignment_id": request.assignment_id,
+                "streaming": false,
+                "delivery": [],
+                "reactions": []
+            }),
+        )?;
         self.store.append_jsonl(&path, &message)?;
         // `ask_user` is an executor-level question, not an orchestrator
         // question. Persist the call id so question.answer can resume it even
@@ -2033,28 +2364,39 @@ impl ExecutionEngine {
             .iter()
             .any(|message| message["id"] == message_id)
         {
+            // Ensure legacy placeholders also reserve a canonical position;
+            // existing IDs never consume a second sequence number.
+            if let Some(existing) = self
+                .store
+                .read_jsonl::<Value>(&path)?
+                .into_iter()
+                .find(|message| message["id"] == message_id)
+            {
+                let _ = self.canonical_chat_message(&request.chat_id, existing)?;
+            }
             return Ok(message_id);
         }
-        let seq = self.next_message_seq(&request.chat_id).await?;
-        let message = json!({
-            "id": message_id,
-            "chat_id": request.chat_id,
-            "seq": seq,
-            "sender": {"kind":"bot","bot_id":request.bot_id},
-            "created_at": now_rfc3339(),
-            "edited_at": null,
-            "deleted": false,
-            "reply_to": null,
-            "thread_count": 0,
-            "mentions": [],
-            "blocks": [],
-            "fallback_text": "",
-            "intent": null,
-            "assignment_id": request.assignment_id,
-            "streaming": true,
-            "delivery": [],
-            "reactions": []
-        });
+        let message = self.canonical_chat_message(
+            &request.chat_id,
+            json!({
+                "id": message_id,
+                "chat_id": request.chat_id,
+                "sender": {"kind":"bot","bot_id":request.bot_id},
+                "created_at": now_rfc3339(),
+                "edited_at": null,
+                "deleted": false,
+                "reply_to": null,
+                "thread_count": 0,
+                "mentions": [],
+                "blocks": [],
+                "fallback_text": "",
+                "intent": null,
+                "assignment_id": request.assignment_id,
+                "streaming": true,
+                "delivery": [],
+                "reactions": []
+            }),
+        )?;
         self.store.append_jsonl(&path, &message)?;
         self.sink
             .emit(ExecutionEvent {
@@ -2358,6 +2700,125 @@ fn steer_message(request: &ExecutionRequest, steer: &InboxItem, state: &str) -> 
         "reactions": []
     })
 }
+
+fn approval_settings_allow(settings: &Value, tool_name: &str, args: &Value) -> bool {
+    let Some(approvals) = settings.get("approvals") else {
+        return false;
+    };
+    let Some(rules) = approvals.get("rules").and_then(Value::as_array) else {
+        return approvals.get("mode").and_then(Value::as_str) == Some("always_allow");
+    };
+    let generated_summary = format!("Approval required for {tool_name}");
+    let matches_rule = |rule: &Value| {
+        if rule.get("enabled").and_then(Value::as_bool) == Some(false) {
+            return false;
+        }
+        if rule.get("tool").and_then(Value::as_str) == Some(tool_name) {
+            return true;
+        }
+        let Some(text) = rule.get("text").and_then(Value::as_str) else {
+            return false;
+        };
+        text == tool_name || text == generated_summary || contains_argument_literal(args, text)
+    };
+    if rules.iter().any(|rule| {
+        rule.get("kind").and_then(Value::as_str) == Some("ask_first") && matches_rule(rule)
+    }) {
+        return false;
+    }
+    if approvals.get("mode").and_then(Value::as_str) == Some("always_allow") {
+        return true;
+    }
+    rules.iter().any(|rule| {
+        rule.get("kind").and_then(Value::as_str) == Some("auto_allow") && matches_rule(rule)
+    })
+}
+
+fn builtin_requires_approval(
+    tool_name: &str,
+    args: &Value,
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+) -> bool {
+    if tool_name == "browser_eval"
+        || tool_name == "pay"
+        || tool_name == "payment"
+        || tool_name.contains("payment")
+    {
+        return true;
+    }
+    let Some(command) = args.get("command").and_then(Value::as_str) else {
+        return false;
+    };
+    let tokens = command.split_whitespace().collect::<Vec<_>>();
+    if tokens
+        .iter()
+        .any(|token| *token == "sudo" || token.ends_with("/sudo"))
+        || tokens.windows(2).any(|pair| pair == ["git", "push"])
+    {
+        return true;
+    }
+    let Some(rm_index) = tokens
+        .iter()
+        .position(|token| *token == "rm" || token.ends_with("/rm"))
+    else {
+        return false;
+    };
+    let mut recursive = false;
+    let mut force = false;
+    let mut options_done = false;
+    for token in tokens.iter().skip(rm_index + 1) {
+        if !options_done && *token == "--" {
+            options_done = true;
+            continue;
+        }
+        if !options_done && token.starts_with('-') {
+            recursive |= *token == "--recursive" || token[1..].contains('r');
+            force |= *token == "--force" || token[1..].contains('f');
+            continue;
+        }
+        if recursive && force {
+            let target = std::path::Path::new(token);
+            let resolved = if target.is_absolute() {
+                target.to_path_buf()
+            } else {
+                cwd.join(target)
+            };
+            if !lexically_normalize(&resolved).starts_with(lexically_normalize(home)) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn lexically_normalize(path: &std::path::Path) -> std::path::PathBuf {
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            component => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn contains_argument_literal(value: &Value, literal: &str) -> bool {
+    match value {
+        Value::String(value) => value == literal,
+        Value::Array(values) => values
+            .iter()
+            .any(|value| contains_argument_literal(value, literal)),
+        Value::Object(values) => values
+            .values()
+            .any(|value| contains_argument_literal(value, literal)),
+        _ => false,
+    }
+}
+
 fn now_rfc3339() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
@@ -2367,11 +2828,25 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
+
+fn canonical_message_id(message: &Value) -> Option<String> {
+    [
+        message.pointer("/id"),
+        message.pointer("/message_id"),
+        message.pointer("/message/id"),
+        message.pointer("/message/message_id"),
+    ]
+    .into_iter()
+    .filter_map(|value| value.and_then(Value::as_str))
+    .find(|id| !id.is_empty())
+    .map(str::to_owned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use macbot_providers::{MockProvider, ToolCall};
-    use macbot_tools::{BashTool, WriteTool};
+    use macbot_tools::{BashTool, ReadTool, WriteTool};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Mutex as StdMutex;
     use tempfile::tempdir;
@@ -2381,15 +2856,42 @@ mod tests {
         events: StdMutex<Vec<ExecutionEvent>>,
         groups: StdMutex<Vec<Value>>,
         approvals: StdMutex<Vec<Value>>,
+        return_canonical_id: bool,
+    }
+
+    impl RecordingSink {
+        fn canonical_ids() -> Self {
+            Self {
+                return_canonical_id: true,
+                ..Default::default()
+            }
+        }
     }
     #[async_trait]
     impl ExecutionSink for RecordingSink {
         async fn emit(&self, event: ExecutionEvent) {
             self.events.lock().unwrap().push(event);
         }
-        async fn send_group_message(&self, message: Value) -> Result<(), String> {
-            self.groups.lock().unwrap().push(message);
-            Ok(())
+        async fn send_group_message(&self, message: Value) -> Result<Value, String> {
+            self.groups.lock().unwrap().push(message.clone());
+            let mut canonical = message.get("message").cloned().unwrap_or_else(|| json!({}));
+            let return_canonical_id = self.return_canonical_id;
+            if return_canonical_id {
+                if let Some(message_id) = canonical_message_id(&canonical) {
+                    canonical["id"] = json!(format!("canonical_{message_id}"));
+                }
+            }
+            if canonical.get("id").and_then(Value::as_str).is_none()
+                && canonical
+                    .get("message_id")
+                    .and_then(Value::as_str)
+                    .is_none()
+            {
+                if let Some(message_id) = canonical.get("message_id").cloned() {
+                    canonical["id"] = message_id;
+                }
+            }
+            Ok(canonical)
         }
         async fn approval_required(&self, data: Value) {
             self.approvals.lock().unwrap().push(data);
@@ -2725,6 +3227,83 @@ mod tests {
         assert_eq!(execution_phase(&chat), "custom");
     }
 
+    #[test]
+    fn approval_settings_match_global_mode_tools_and_literal_commands() {
+        let always = json!({"approvals":{"mode":"always_allow","rules":[]}});
+        assert!(approval_settings_allow(
+            &always,
+            "bash",
+            &json!({"command":"sudo id"})
+        ));
+
+        let require = json!({"approvals":{"mode":"require","rules":[
+            {"kind":"auto_allow","text":"Approval required for write"},
+            {"kind":"auto_allow","text":"git push origin main"}
+        ]}});
+        assert!(approval_settings_allow(
+            &require,
+            "write",
+            &json!({"path":"x"})
+        ));
+        assert!(approval_settings_allow(
+            &require,
+            "bash",
+            &json!({"command":"git push origin main"})
+        ));
+        assert!(!approval_settings_allow(
+            &require,
+            "bash",
+            &json!({"command":"git status"})
+        ));
+        let conflict = json!({"approvals":{"mode":"always_allow","rules":[
+            {"kind":"auto_allow","text":"git push origin main"},
+            {"kind":"ask_first","text":"git push origin main"}
+        ]}});
+        assert!(!approval_settings_allow(
+            &conflict,
+            "bash",
+            &json!({"command":"git push origin main"})
+        ));
+        let home = std::path::Path::new("/Users/test/MacBot");
+        let cwd = home.join("runs");
+        assert!(builtin_requires_approval(
+            "browser_eval",
+            &json!({}),
+            &cwd,
+            home
+        ));
+        assert!(builtin_requires_approval(
+            "bash",
+            &json!({"command":"sudo id"}),
+            &cwd,
+            home
+        ));
+        assert!(builtin_requires_approval(
+            "bash",
+            &json!({"command":"git push origin main"}),
+            &cwd,
+            home
+        ));
+        assert!(builtin_requires_approval(
+            "bash",
+            &json!({"command":"rm -rf /tmp/build"}),
+            &cwd,
+            home
+        ));
+        assert!(!builtin_requires_approval(
+            "bash",
+            &json!({"command":"rm -rf runs/cache"}),
+            &cwd,
+            home
+        ));
+        assert!(builtin_requires_approval(
+            "bash",
+            &json!({"command":"rm -rf /Users/test/MacBot/../outside"}),
+            &cwd,
+            home
+        ));
+    }
+
     #[tokio::test]
     async fn safe_tools_run_concurrently_in_group_chats() {
         let dir = tempdir().unwrap();
@@ -2986,7 +3565,7 @@ mod tests {
     #[tokio::test]
     async fn send_msg_done_ends_run_before_later_model_tools() {
         let dir = tempdir().unwrap();
-        let sink = Arc::new(RecordingSink::default());
+        let sink = Arc::new(RecordingSink::canonical_ids());
         let provider = Arc::new(MockProvider::new(vec![Completion {
             tool_calls: vec![
                 ToolCall {
@@ -3020,6 +3599,10 @@ mod tests {
         assert_eq!(sink.groups.lock().unwrap()[0]["message"]["intent"], "done");
         let trace =
             std::fs::read_to_string(dir.path().join("data/traces/assignment_done.jsonl")).unwrap();
+        assert!(trace.lines().any(|line| {
+            let value: Value = serde_json::from_str(line).unwrap();
+            value["type"] == "send_msg" && value["data"]["message_id"] == "canonical_msg_done_1"
+        }));
         assert!(!trace.lines().any(|line| {
             let value: Value = serde_json::from_str(line).unwrap();
             value["type"] == "tool.start" && value["data"]["call_id"] == "must_not_run"
@@ -3029,7 +3612,7 @@ mod tests {
     #[tokio::test]
     async fn send_msg_decision_waits_and_resumes_without_replaying_receipt() {
         let dir = tempdir().unwrap();
-        let sink = Arc::new(RecordingSink::default());
+        let sink = Arc::new(RecordingSink::canonical_ids());
         let provider = Arc::new(MockProvider::new(vec![
             Completion {
                 tool_calls: vec![ToolCall {
@@ -3070,6 +3653,7 @@ mod tests {
         assert!(jobs.iter().any(|job| {
             job["checkpoint"]["waiting_reason"] == "decision"
                 && job["checkpoint"]["waiting_message"] == true
+                && job["checkpoint"]["waiting_message_id"] == "canonical_msg_decision_1"
         }));
         assert_eq!(
             engine
@@ -3092,6 +3676,14 @@ mod tests {
             std::fs::read_to_string(dir.path().join("data/traces/assignment_decision.jsonl"))
                 .unwrap();
         assert_eq!(trace.matches("\"type\":\"send_msg\"").count(), 2);
+        assert!(trace.lines().any(|line| {
+            let value: Value = serde_json::from_str(line).unwrap();
+            value["type"] == "send_msg" && value["data"]["message_id"] == "canonical_msg_decision_1"
+        }));
+        assert!(trace.lines().any(|line| {
+            let value: Value = serde_json::from_str(line).unwrap();
+            value["type"] == "send_msg" && value["data"]["message_id"] == "canonical_msg_done_2"
+        }));
     }
 
     #[tokio::test]
@@ -3343,9 +3935,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn private_stream_messages_use_shared_durable_chat_sequences() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let user_one = store
+            .sequence_chat_messages("chat_sequence", &[json!({"id":"user_one"})])
+            .unwrap();
+        assert_eq!(user_one[0]["seq"], 1);
+        let provider = Arc::new(MockProvider::new(vec![
+            Completion {
+                text: "first".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            },
+            Completion {
+                text: "second".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            },
+        ]));
+        let engine = ExecutionEngine::new(
+            store.clone(),
+            provider,
+            std::iter::empty::<Arc<dyn Tool>>(),
+            Arc::new(RecordingSink::default()),
+            dir.path(),
+        )
+        .unwrap();
+        let mut first = request(true);
+        first.chat_id = "chat_sequence".into();
+        first.run_id = "sequence_first".into();
+        assert_eq!(engine.run(first).await.unwrap().status, "done");
+        assert_eq!(store.last_chat_sequence("chat_sequence").unwrap(), 2);
+
+        let user_two = store
+            .sequence_chat_messages("chat_sequence", &[json!({"id":"user_two"})])
+            .unwrap();
+        assert_eq!(user_two[0]["seq"], 3);
+        let mut second = request(true);
+        second.chat_id = "chat_sequence".into();
+        second.run_id = "sequence_second".into();
+        assert_eq!(engine.run(second).await.unwrap().status, "done");
+        assert_eq!(store.last_chat_sequence("chat_sequence").unwrap(), 4);
+
+        let rows = store
+            .read_jsonl::<Value>("data/chats/chat_sequence/messages.jsonl")
+            .unwrap();
+        let first_rows = rows
+            .iter()
+            .filter(|message| message["id"] == "msg_sequence_first")
+            .map(|message| message["seq"].as_u64().unwrap())
+            .collect::<Vec<_>>();
+        let second_rows = rows
+            .iter()
+            .filter(|message| message["id"] == "msg_sequence_second")
+            .map(|message| message["seq"].as_u64().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(first_rows, vec![2, 2]);
+        assert_eq!(second_rows, vec![4, 4]);
+    }
+
+    #[tokio::test]
     async fn group_send_is_once_even_when_run_replayed() {
         let dir = tempdir().unwrap();
-        let sink = Arc::new(RecordingSink::default());
+        let sink = Arc::new(RecordingSink::canonical_ids());
         let provider = Arc::new(MockProvider::new(vec![
             Completion {
                 tool_calls: vec![ToolCall {
@@ -3391,6 +4044,18 @@ mod tests {
         let admitted = sink.groups.lock().unwrap()[0].clone();
         assert_eq!(admitted["message"]["mentions"][0], "main");
         assert_eq!(admitted["message"]["artifacts"][0]["title"], "report");
+        let trace =
+            std::fs::read_to_string(dir.path().join("data/traces/chat_mock.jsonl")).unwrap();
+        assert!(trace.lines().any(|line| {
+            let value: Value = serde_json::from_str(line).unwrap();
+            value["type"] == "send_msg" && value["data"]["message_id"] == "canonical_msg_seed"
+        }));
+        let submissions = engine
+            .store
+            .read_jsonl::<Value>("data/submissions.jsonl")
+            .unwrap();
+        assert_eq!(submissions.len(), 1);
+        assert_eq!(submissions[0]["receipt"]["message_id"], "msg_seed");
         let usage_records = std::fs::read_dir(dir.path().join("data/usage/raw"))
             .unwrap()
             .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
@@ -3836,6 +4501,207 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn always_allow_mode_skips_second_approval_for_risky_tool() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store
+            .write_snapshot(
+                "data/settings.json",
+                &json!({"approvals":{"mode":"always_allow","rules":[]}}),
+            )
+            .unwrap();
+        let sink = Arc::new(RecordingSink::default());
+        let provider = Arc::new(MockProvider::new(vec![
+            Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "always_write".into(),
+                    name: "write".into(),
+                    args: json!({"path":"always.txt","content":"ok"}),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+            Completion {
+                text: "done".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            },
+        ]));
+        let engine = ExecutionEngine::new(
+            store,
+            provider,
+            vec![Arc::new(WriteTool::default()) as Arc<dyn Tool>],
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+        let mut req = request(false);
+        req.allow_unsafe = false;
+        assert_eq!(engine.run(req).await.unwrap().status, "done");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("always.txt")).unwrap(),
+            "ok"
+        );
+        assert!(sink.approvals.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn approval_rules_are_live_and_ask_first_prefers_auto_allow() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store
+            .write_snapshot(
+                "data/settings.json",
+                &json!({"approvals":{"mode":"require","rules":[]}}),
+            )
+            .unwrap();
+        let sink = Arc::new(RecordingSink::default());
+        let provider = Arc::new(MockProvider::new(vec![
+            Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "first_write".into(),
+                    name: "write".into(),
+                    args: json!({"path":"first.txt","content":"first"}),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+            Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "second_write".into(),
+                    name: "write".into(),
+                    args: json!({"path":"second.txt","content":"second"}),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+            Completion {
+                text: "done".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            },
+        ]));
+        let engine = ExecutionEngine::new(
+            store.clone(),
+            provider,
+            vec![Arc::new(WriteTool::default()) as Arc<dyn Tool>],
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+
+        let mut first = request(false);
+        first.run_id = "approval_live_first".into();
+        first.allow_unsafe = false;
+        assert_eq!(engine.run(first).await.unwrap().status, "suspended");
+        assert_eq!(sink.approvals.lock().unwrap().len(), 1);
+
+        store
+            .write_snapshot(
+                "data/settings.json",
+                &json!({"approvals":{"mode":"require","rules":[
+                    {"kind":"auto_allow","text":"Approval required for write"}
+                ]}}),
+            )
+            .unwrap();
+        let mut second = request(false);
+        second.run_id = "approval_live_second".into();
+        second.allow_unsafe = false;
+        assert_eq!(engine.run(second).await.unwrap().status, "done");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("second.txt")).unwrap(),
+            "second"
+        );
+        assert_eq!(sink.approvals.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn approved_followups_recheck_each_risk_and_preserve_safe_calls() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        store
+            .write_snapshot(
+                "data/settings.json",
+                &json!({"approvals":{"mode":"require","rules":[]}}),
+            )
+            .unwrap();
+        let sink = Arc::new(RecordingSink::default());
+        let provider = Arc::new(MockProvider::new(vec![Completion {
+            tool_calls: vec![
+                ToolCall {
+                    call_id: "chain_write".into(),
+                    name: "write".into(),
+                    args: json!({"path":"chain.txt","content":"chain"}),
+                },
+                ToolCall {
+                    call_id: "chain_read".into(),
+                    name: "read".into(),
+                    args: json!({"path":"chain.txt"}),
+                },
+                ToolCall {
+                    call_id: "chain_bash".into(),
+                    name: "bash".into(),
+                    args: json!({"command":"printf done > bash-chain.txt"}),
+                },
+            ],
+            stop_reason: "tool_calls".into(),
+            ..Default::default()
+        }]));
+        let engine = ExecutionEngine::new(
+            store,
+            provider,
+            vec![
+                Arc::new(WriteTool::default()) as Arc<dyn Tool>,
+                Arc::new(ReadTool) as Arc<dyn Tool>,
+                Arc::new(BashTool::default()) as Arc<dyn Tool>,
+            ],
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+        let mut request = request(false);
+        request.run_id = "approval_chain".into();
+        request.allow_unsafe = false;
+        assert_eq!(
+            engine.run(request.clone()).await.unwrap().status,
+            "suspended"
+        );
+        assert_eq!(sink.approvals.lock().unwrap().len(), 1);
+        assert!(!dir.path().join("chain.txt").exists());
+
+        let first_continuation = engine.continue_approved(request.clone()).await.unwrap();
+        assert_eq!(first_continuation.status, "suspended");
+        assert_eq!(sink.approvals.lock().unwrap().len(), 2);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("chain.txt")).unwrap(),
+            "chain"
+        );
+        assert!(!dir.path().join("bash-chain.txt").exists());
+        {
+            let events = sink.events.lock().unwrap();
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| {
+                        event.event == "trace.item"
+                            && event.data["item"]["type"] == "tool.end"
+                            && event.data["item"]["data"]["call_id"] == "chain_read"
+                    })
+                    .count(),
+                1
+            );
+        }
+
+        let final_continuation = engine.continue_approved(request).await.unwrap();
+        assert_eq!(final_continuation.status, "done");
+        assert_eq!(sink.approvals.lock().unwrap().len(), 2);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("bash-chain.txt")).unwrap(),
+            "done"
+        );
+    }
+
+    #[tokio::test]
     async fn unsafe_tool_checkpoint_waits_for_approval_without_side_effect() {
         let dir = tempdir().unwrap();
         let sink = Arc::new(RecordingSink::default());
@@ -3881,6 +4747,9 @@ mod tests {
             job["checkpoint"]["pending_tools"]
                 .as_array()
                 .is_some_and(|calls| calls.len() == 2)
+        }));
+        assert!(jobs.iter().any(|job| {
+            job["unsafe_replay"] == true && job["checkpoint"]["pending_tool"]["name"] == "write"
         }));
     }
 

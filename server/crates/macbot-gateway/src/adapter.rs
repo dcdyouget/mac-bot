@@ -102,6 +102,7 @@ impl ProductionBackend {
                 .restore(snapshot)
                 .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
         }
+        Self::migrate_legacy_chat_sequences(&store, &orchestrator)?;
         let mut idempotency = HashMap::new();
         for op in operations {
             if op.get("status").and_then(Value::as_str) == Some("done") {
@@ -126,6 +127,82 @@ impl ProductionBackend {
             write_lock: Arc::new(Mutex::new(())),
             idempotency: Arc::new(Mutex::new(idempotency)),
         })
+    }
+
+    fn migrate_legacy_chat_sequences(
+        store: &Store,
+        orchestrator: &Orchestrator,
+    ) -> Result<(), AdapterError> {
+        let mut chats: HashMap<String, Vec<Value>> = HashMap::new();
+        if let Some(messages) = orchestrator
+            .snapshot()
+            .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?
+            .get("messages")
+            .and_then(Value::as_object)
+        {
+            for message in messages.values() {
+                if let Some(chat_id) = message.get("chat_id").and_then(Value::as_str) {
+                    chats
+                        .entry(chat_id.to_owned())
+                        .or_default()
+                        .push(message.clone());
+                }
+            }
+        }
+        let dir = store.root().join("data/chats");
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => Some(entries),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(AdapterError::Store(error.into())),
+        };
+        if let Some(entries) = entries {
+            for entry in entries {
+                let entry = entry.map_err(|error| AdapterError::Store(error.into()))?;
+                let path = entry.path().join("messages.jsonl");
+                let messages =
+                    store.read_jsonl::<Value>(path.strip_prefix(store.root()).unwrap_or(&path))?;
+                for message in messages {
+                    if let Some(chat_id) = message.get("chat_id").and_then(Value::as_str) {
+                        chats.entry(chat_id.to_owned()).or_default().push(message);
+                    }
+                }
+            }
+        }
+        for (chat_id, messages) in chats {
+            if store.last_chat_sequence(&chat_id)? != 0 {
+                continue;
+            }
+            let mut latest = HashMap::new();
+            for message in messages {
+                if let Some(id) = message.get("id").and_then(Value::as_str) {
+                    latest.insert(id.to_owned(), message);
+                }
+            }
+            let mut messages = latest.into_values().collect::<Vec<_>>();
+            messages.sort_by(|left, right| {
+                left.get("created_at")
+                    .and_then(Value::as_str)
+                    .cmp(&right.get("created_at").and_then(Value::as_str))
+                    .then_with(|| {
+                        left.get("seq")
+                            .and_then(Value::as_u64)
+                            .cmp(&right.get("seq").and_then(Value::as_u64))
+                    })
+                    .then_with(|| {
+                        left.get("id")
+                            .and_then(Value::as_str)
+                            .cmp(&right.get("id").and_then(Value::as_str))
+                    })
+            });
+            let canonical = store.sequence_chat_messages(&chat_id, &messages)?;
+            for message in canonical {
+                store.append_jsonl(
+                    format!("data/chats/{}/messages.jsonl", takeover_component(&chat_id)),
+                    &message,
+                )?;
+            }
+        }
+        Ok(())
     }
 
     fn error(error: macbot_orchestrator::OrchestratorError) -> RpcError {
@@ -273,6 +350,7 @@ impl ProductionBackend {
             "routine.delete" => "routine.deleted",
             "routine.test_run" => "routine.run",
             "routine.execution" => "routine.run",
+            "chat.mark_read" => "read.updated",
             "loop.resolve" => "assignment.updated",
             "settings.update" => "settings.updated",
             _ => return None,
@@ -496,6 +574,7 @@ impl RpcBackend for ProductionBackend {
             "bootstrap" => self.bootstrap(state).await?,
             "chat.send" => self.chat_send(params.clone()).await?,
             "chat.history" => self.chat_history(&params).await?,
+            "chat.mark_read" => self.chat_mark_read(&params).await?,
             "chat.list" => self.chat_list().await?,
             "chat.get" => self.chat_get(&params).await?,
             "settings.get" => json!({"settings": self.settings(state).await?}),
@@ -503,6 +582,11 @@ impl RpcBackend for ProductionBackend {
             "usage.summary" | "usage.heatmap" | "usage.timeseries" | "usage.breakdown" => {
                 self.usage_query(state, method, &params).await?
             }
+            "workbench.get" => self.workbench().map_err(|message| RpcError {
+                code: "internal".into(),
+                message,
+                details: None,
+            })?,
             "device.register" => self.device_register(&params).await?,
             // Protocol authority for both actions is `{}`.  The internal
             // runtime bridge calls the typed helpers above when it needs the
@@ -586,6 +670,12 @@ impl RpcBackend for ProductionBackend {
             details: None,
         })?;
         let mut result = result;
+        if method == "send_msg" {
+            result = self.persist_client_message(&result)?;
+        } else if method == "chat.send" {
+            let canonical = self.persist_client_message(&result["message"])?;
+            result["message"] = canonical;
+        }
         self.enrich_bot_status(&mut result)
             .map_err(|message| RpcError {
                 code: "internal".into(),
@@ -878,7 +968,38 @@ impl ProductionBackend {
 
     async fn takeover_start(&self, state: &GatewayState, params: &Value) -> RpcResult {
         let bot_id = required_text(params, "bot_id")?;
-        let (assignment_id, mut request) = self.takeover_for_action(params, "pending")?;
+        let (assignment_id, mut request) = match self.takeover_for_action(params, "pending") {
+            Ok(value) => value,
+            Err(error) if error.code == "not_found" && params.get("assignment_id").is_none() => {
+                let assignment_id = format!("browser_takeover_{bot_id}");
+                let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+                let bot = snapshot
+                    .get("bots")
+                    .and_then(Value::as_object)
+                    .and_then(|bots| bots.get(&bot_id))
+                    .ok_or_else(|| RpcError {
+                        code: "not_found".into(),
+                        message: format!("bot {bot_id} not found"),
+                        details: None,
+                    })?;
+                let chat_id = bot
+                    .get("dm_chat_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| {
+                        if bot_is_main(bot) {
+                            "chat_main".into()
+                        } else {
+                            format!("dm_{bot_id}")
+                        }
+                    });
+                (
+                    assignment_id.clone(),
+                    json!({"bot_id":bot_id,"assignment_id":assignment_id,"chat_id":chat_id,"group_chat_id":Value::Null,"reason":"用户接管浏览器","question_id":Value::Null,"state":"pending","created_at":now()}),
+                )
+            }
+            Err(error) => return Err(error),
+        };
         if request.get("bot_id").and_then(Value::as_str) != Some(bot_id.as_str()) {
             return Err(RpcError {
                 code: "forbidden".into(),
@@ -1072,30 +1193,132 @@ impl ProductionBackend {
             .rpc("send_msg", send)
             .await
             .map_err(ProductionBackend::error)?;
-        let next_seq = self
-            .orchestrator
-            .snapshot()
-            .ok()
-            .and_then(|snapshot| {
-                snapshot
-                    .get("messages")
-                    .and_then(Value::as_object)
-                    .map(|items| {
-                        items
-                            .values()
-                            .filter(|item| {
-                                item.get("chat_id").and_then(Value::as_str) == Some(chat_id)
-                            })
-                            .count() as u64
-                    })
-            })
-            .unwrap_or(1);
         let mut result = json!({"message": message});
-        result["message"]["seq"] = json!(next_seq);
         if let Some(reply_to) = params.get("reply_to") {
             result["message"]["reply_to"] = reply_to.clone();
         }
         Ok(result)
+    }
+
+    fn load_chat_messages(&self, chat_id: &str) -> Result<Vec<Value>, RpcError> {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let mut messages = snapshot
+            .get("messages")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|items| items.values())
+            .filter(|item| item.get("chat_id").and_then(Value::as_str) == Some(chat_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let persisted = self
+            .store
+            .read_jsonl::<Value>(format!(
+                "data/chats/{}/messages.jsonl",
+                takeover_component(chat_id)
+            ))
+            .map_err(store_error)?;
+        for message in persisted {
+            if message.get("chat_id").and_then(Value::as_str) != Some(chat_id) {
+                continue;
+            }
+            if let Some(existing) = messages
+                .iter_mut()
+                .find(|item| item.get("id") == message.get("id"))
+            {
+                *existing = message;
+            } else {
+                messages.push(message);
+            }
+        }
+        messages.sort_by(|left, right| {
+            left.get("created_at")
+                .and_then(Value::as_str)
+                .cmp(&right.get("created_at").and_then(Value::as_str))
+                .then_with(|| {
+                    left.get("seq")
+                        .and_then(Value::as_u64)
+                        .cmp(&right.get("seq").and_then(Value::as_u64))
+                })
+                .then_with(|| {
+                    left.get("id")
+                        .and_then(Value::as_str)
+                        .cmp(&right.get("id").and_then(Value::as_str))
+                })
+        });
+        Ok(messages)
+    }
+
+    fn persist_client_message(&self, message: &Value) -> Result<Value, RpcError> {
+        let chat_id = message
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "chat message has no chat_id".into(),
+                details: None,
+            })?;
+        let mut messages = self.load_chat_messages(chat_id)?;
+        let mut wire = message.clone();
+        normalize_message(&mut wire);
+        let message_id = wire.get("id").cloned();
+        if let Some(existing) = messages
+            .iter_mut()
+            .find(|item| item.get("id") == message_id.as_ref())
+        {
+            *existing = wire;
+        } else {
+            messages.push(wire);
+        }
+        let canonical = self.sequence_chat_messages(chat_id, messages)?;
+        canonical
+            .into_iter()
+            .find(|item| item.get("id") == message_id.as_ref())
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "sequenced chat message disappeared".into(),
+                details: None,
+            })
+    }
+
+    fn sequence_chat_messages(
+        &self,
+        chat_id: &str,
+        messages: Vec<Value>,
+    ) -> Result<Vec<Value>, RpcError> {
+        let canonical = self
+            .store
+            .sequence_chat_messages(chat_id, &messages)
+            .map_err(store_error)?;
+        let existing = self
+            .store
+            .read_jsonl::<Value>(format!(
+                "data/chats/{}/messages.jsonl",
+                takeover_component(chat_id)
+            ))
+            .map_err(store_error)?;
+        let existing = existing
+            .into_iter()
+            .filter_map(|item| {
+                let id = item.get("id").and_then(Value::as_str)?.to_owned();
+                Some((id, item))
+            })
+            .collect::<HashMap<_, _>>();
+        for item in &canonical {
+            let changed = item
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|id| existing.get(id))
+                .is_none_or(|old| old != item);
+            if changed {
+                self.store
+                    .append_jsonl(
+                        format!("data/chats/{}/messages.jsonl", takeover_component(chat_id)),
+                        item,
+                    )
+                    .map_err(store_error)?;
+            }
+        }
+        Ok(canonical)
     }
 
     async fn chat_history(&self, params: &Value) -> RpcResult {
@@ -1107,33 +1330,65 @@ impl ProductionBackend {
                 message: "chat_id is required".into(),
                 details: None,
             })?;
-        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
-        let mut messages = snapshot
-            .get("messages")
-            .and_then(Value::as_object)
-            .into_iter()
-            .flat_map(|items| items.values())
-            .filter(|item| item.get("chat_id").and_then(Value::as_str) == Some(chat_id))
-            .cloned()
-            .collect::<Vec<_>>();
-        messages.sort_by(|a, b| {
-            a.get("created_at")
-                .and_then(Value::as_str)
-                .cmp(&b.get("created_at").and_then(Value::as_str))
-        });
-        for (index, message) in messages.iter_mut().enumerate() {
-            message["seq"] = json!((index + 1) as u64);
-        }
+        let mut messages =
+            self.sequence_chat_messages(chat_id, self.load_chat_messages(chat_id)?)?;
+        messages.sort_by_key(|item| item.get("seq").and_then(Value::as_u64).unwrap_or(0));
         let after = params.get("after_seq").and_then(Value::as_u64).unwrap_or(0);
+        let before = params.get("before_seq").and_then(Value::as_u64);
         messages.retain(|item| item.get("seq").and_then(Value::as_u64).unwrap_or(0) > after);
+        if let Some(before) = before {
+            messages.retain(|item| item.get("seq").and_then(Value::as_u64).unwrap_or(0) < before);
+        }
         let limit = params
             .get("limit")
             .and_then(Value::as_u64)
             .unwrap_or(50)
             .min(100) as usize;
         let has_more = messages.len() > limit;
-        messages.truncate(limit);
+        if after == 0 {
+            if messages.len() > limit {
+                let start = messages.len() - limit;
+                messages = messages.split_off(start);
+            }
+        } else {
+            messages.truncate(limit);
+        }
         Ok(json!({"messages":messages,"has_more":has_more}))
+    }
+
+    async fn chat_mark_read(&self, params: &Value) -> RpcResult {
+        let chat_id = params
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: "chat_id is required".into(),
+                details: None,
+            })?;
+        let seq = params
+            .get("seq")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: "seq is required".into(),
+                details: None,
+            })?;
+        let _ = self.chat_get(&json!({"chat_id":chat_id})).await?;
+        let path = format!("data/chats/{}/metadata.json", takeover_component(chat_id));
+        let mut metadata = self
+            .store
+            .read_snapshot::<Value>(&path)
+            .map_err(store_error)?
+            .unwrap_or_else(|| json!({}));
+        let current = metadata
+            .get("last_read_seq")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        metadata["last_read_seq"] = json!(current.max(seq));
+        self.store
+            .write_snapshot(path, &metadata)
+            .map_err(store_error)?;
+        Ok(json!({}))
     }
 
     async fn chat_list(&self) -> RpcResult {
@@ -1151,6 +1406,18 @@ impl ProductionBackend {
             for project in projects.values() {
                 chats.push(project_chat(project));
             }
+        }
+        for chat in &mut chats {
+            let Some(id) = chat.get("id").and_then(Value::as_str).map(str::to_owned) else {
+                continue;
+            };
+            if let Ok(Some(metadata)) = self.store.read_snapshot::<Value>(format!(
+                "data/chats/{}/metadata.json",
+                takeover_component(&id)
+            )) {
+                apply_chat_overlay(chat, &metadata);
+            }
+            chat["last_seq"] = json!(self.store.last_chat_sequence(&id).map_err(store_error)?);
         }
         Ok(json!({"chats":chats}))
     }
@@ -1188,6 +1455,14 @@ impl ProductionBackend {
             .await
             .map_err(Self::error)?["bots"]
             .clone();
+        let mut bot_result = json!({"bots":bots});
+        self.enrich_bot_status(&mut bot_result)
+            .map_err(|message| RpcError {
+                code: "internal".into(),
+                message,
+                details: None,
+            })?;
+        let bots = bot_result["bots"].clone();
         let projects = self
             .orchestrator
             .rpc("project.list", json!({}))
@@ -1213,12 +1488,23 @@ impl ProductionBackend {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let approvals = pending
+            .get("approvals")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let seq = self.store.last_event_seq().map_err(store_error)?;
         let host_name = state.host_name.read().await.clone();
         let node_id = state.node_id.read().await.clone();
         let hello = json!({"protocol":1,"server_version":"0.1.0","node_id":node_id,"host_name":host_name,"server_time":now(),"last_seq":seq,"timezone":settings["timezone"],"currency":settings["currency"],"features":["browser"]});
         Ok(
-            json!({"seq":seq,"hello":hello,"bots":bots,"chats":chats,"projects":projects,"settings":settings,"pending":{"approvals":pending["approvals"],"questions":questions,"reviews":[]}}),
+            json!({"seq":seq,"hello":hello,"bots":bots,"chats":chats,"projects":projects,"settings":settings,"pending":{"approvals":approvals,"questions":questions,"reviews":[]}}),
         )
     }
 
@@ -1246,10 +1532,11 @@ impl ProductionBackend {
     }
 
     fn enrich_bot_status(&self, result: &mut Value) -> Result<(), String> {
-        let Some(assignments) = self
+        let snapshot = self
             .orchestrator
             .snapshot()
-            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+        let Some(assignments) = snapshot
             .get("assignments")
             .and_then(Value::as_object)
             .cloned()
@@ -1257,6 +1544,14 @@ impl ProductionBackend {
             return Ok(());
         };
         let mut counts: HashMap<String, (u32, u32, u32, bool)> = HashMap::new();
+        let assignment_status = assignments
+            .iter()
+            .filter_map(|(id, item)| {
+                item.get("status")
+                    .and_then(Value::as_str)
+                    .map(|status| (id.clone(), status.to_owned()))
+            })
+            .collect::<HashMap<_, _>>();
         for assignment in assignments.values() {
             let Some(bot_id) = assignment.get("bot_id").and_then(Value::as_str) else {
                 continue;
@@ -1272,6 +1567,25 @@ impl ProductionBackend {
                 "waiting_user" | "waiting_bot" => entry.2 += 1,
                 "blocked" => entry.3 = true,
                 _ => {}
+            }
+        }
+        if let Some(items) = snapshot.get("approvals").and_then(Value::as_object) {
+            for approval in items
+                .values()
+                .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
+            {
+                let already_waiting = approval
+                    .get("assignment_id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| assignment_status.get(id))
+                    .is_some_and(|status| {
+                        matches!(status.as_str(), "waiting_user" | "waiting_bot")
+                    });
+                if !already_waiting {
+                    if let Some(bot_id) = approval.get("bot_id").and_then(Value::as_str) {
+                        counts.entry(bot_id.into()).or_default().2 += 1;
+                    }
+                }
             }
         }
         let set = |bot: &mut Value| {
@@ -1304,6 +1618,107 @@ impl ProductionBackend {
             }
         }
         Ok(())
+    }
+
+    fn workbench(&self) -> Result<Value, String> {
+        let snapshot = self
+            .orchestrator
+            .snapshot()
+            .map_err(|error| error.to_string())?;
+        let assignments = snapshot
+            .get("assignments")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let mut waiting = Vec::new();
+        if let Some(items) = snapshot.get("approvals").and_then(Value::as_object) {
+            for approval in items
+                .values()
+                .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
+            {
+                waiting.push(json!({"kind":"approval","approval":approval}));
+            }
+        }
+        if let Some(items) = snapshot.get("questions").and_then(Value::as_object) {
+            for question in items
+                .values()
+                .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
+            {
+                waiting.push(json!({"kind":"question","question":question}));
+            }
+        }
+        let mut counts = HashMap::new();
+        for assignment in assignments.values() {
+            let Some(bot_id) = assignment.get("bot_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let entry = counts.entry(bot_id.to_owned()).or_insert((0, 0, 0, false));
+            match assignment
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+            {
+                "working" => entry.0 += 1,
+                "queued" => entry.1 += 1,
+                "waiting_user" | "waiting_bot" => entry.2 += 1,
+                "blocked" => entry.3 = true,
+                _ => {}
+            }
+        }
+        let assignment_status = assignments
+            .iter()
+            .filter_map(|(id, item)| {
+                item.get("status")
+                    .and_then(Value::as_str)
+                    .map(|status| (id.clone(), status.to_owned()))
+            })
+            .collect::<HashMap<_, _>>();
+        if let Some(items) = snapshot.get("approvals").and_then(Value::as_object) {
+            for approval in items
+                .values()
+                .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
+            {
+                let already_waiting = approval
+                    .get("assignment_id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| assignment_status.get(id))
+                    .is_some_and(|status| {
+                        matches!(status.as_str(), "waiting_user" | "waiting_bot")
+                    });
+                if !already_waiting {
+                    if let Some(bot_id) = approval.get("bot_id").and_then(Value::as_str) {
+                        counts.entry(bot_id.into()).or_default().2 += 1;
+                    }
+                }
+            }
+        }
+        let bots = snapshot.get("bots").and_then(Value::as_object).map(|items| items.values().filter(|bot| !bot_is_main(bot)).map(|bot| {
+            let bot_id = bot.get("id").and_then(Value::as_str).unwrap_or("");
+            let (active, _, _, _) = counts.get(bot_id).copied().unwrap_or_default();
+            let assignments = assignments.values().filter(|item| item.get("bot_id").and_then(Value::as_str) == Some(bot_id)).cloned().map(|mut item| { normalize_assignment(&mut item); item }).collect::<Vec<_>>();
+            json!({"bot_id":bot_id,"active":active,"max_parallel":bot.get("max_parallel").and_then(Value::as_u64).unwrap_or(1),"assignments":assignments})
+        }).collect::<Vec<_>>()).unwrap_or_default();
+        let done_today = assignments
+            .values()
+            .filter(|item| item.get("status").and_then(Value::as_str) == Some("done"))
+            .cloned()
+            .map(|mut item| {
+                normalize_assignment(&mut item);
+                item
+            })
+            .collect::<Vec<_>>();
+        let running = assignments
+            .values()
+            .filter(|item| item.get("status").and_then(Value::as_str) == Some("working"))
+            .count();
+        let global_limit = snapshot
+            .get("settings")
+            .and_then(|settings| settings.get("global_limit"))
+            .and_then(Value::as_u64)
+            .unwrap_or(8);
+        Ok(
+            json!({"running":running,"global_limit":global_limit,"subagents_running":0,"waiting":waiting,"bots":bots,"done_today":done_today}),
+        )
     }
 }
 
@@ -1438,6 +1853,10 @@ fn event_data(method: &str, params: &Value, result: &Value) -> Value {
             json!({ "message": result.get("message").cloned().unwrap_or_else(|| result.clone()) })
         }
         "settings.update" => result.clone(),
+        "chat.mark_read" => json!({
+            "chat_id": params.get("chat_id").cloned().unwrap_or(Value::Null),
+            "last_read_seq": params.get("seq").cloned().unwrap_or(Value::Null)
+        }),
         "routine.delete" => {
             json!({ "routine_id": params.get("routine_id").cloned().unwrap_or(Value::Null) })
         }
@@ -1718,6 +2137,12 @@ fn complete_bot_chat(chat: &mut Map<String, Value>, bot: &Value, id: &str, kind:
             .unwrap_or_else(|| json!(now()))
     });
 }
+
+fn apply_chat_overlay(chat: &mut Value, overlay: &Value) {
+    if let Some(value) = overlay.get("last_read_seq").and_then(Value::as_u64) {
+        chat["last_read_seq"] = json!(value);
+    }
+}
 fn normalize_sender(value: &mut Value) {
     if let Some(s) = value.as_str().map(str::to_owned) {
         *value = if s == "user" {
@@ -1918,6 +2343,7 @@ fn validate_json_shape(method: &str, value: &Value) -> Result<(), String> {
         "usage.heatmap" => parse!(HeatmapResult, value),
         "usage.timeseries" => parse!(UsageTimeseriesResult, value),
         "usage.breakdown" => parse!(UsageBreakdownResult, value),
+        "workbench.get" => parse!(macbot_protocol::WorkbenchResult, value),
         "device.register" => parse!(Device, value["device"]),
         "approval.decide" => parse!(Approval, value["approval"]),
         "approval.list" => parse!(Vec<Approval>, value["approvals"]),
@@ -1947,6 +2373,206 @@ mod tests {
     };
     use macbot_usage::{Totals, UsageRecord};
     use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn production_chat_mark_read_persists_overlay_and_event() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        backend
+            .call(
+                "chat.mark_read",
+                json!({"chat_id":"chat_main","seq":7}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let chat = backend
+            .call("chat.get", json!({"chat_id":"chat_main"}), &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(chat["chat"]["last_read_seq"], 7);
+        let event = backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .into_iter()
+            .find(|event| event.event == "read.updated")
+            .unwrap();
+        assert_eq!(event.data["chat_id"], "chat_main");
+        assert_eq!(event.data["last_read_seq"], 7);
+        backend
+            .call(
+                "chat.mark_read",
+                json!({"chat_id":"chat_main","seq":3}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let chat = backend
+            .call("chat.get", json!({"chat_id":"chat_main"}), &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(chat["chat"]["last_read_seq"], 7);
+    }
+
+    #[tokio::test]
+    async fn production_pending_approval_without_assignment_is_visible() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let approval = backend.call("approval.request", json!({"bot_id":"main","assignment_id":null,"chat_id":"chat_main","tool":"browser.act","risk":"exec","summary":"standalone","detail":"test"}), &gateway.state).await.unwrap();
+        let id = approval["id"].as_str().unwrap().to_owned();
+        let bots = backend
+            .call("bot.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(bots["bots"][0]["status"]["summary"], "waiting_user");
+        let workbench = backend
+            .call("workbench.get", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        let typed: macbot_protocol::WorkbenchResult = serde_json::from_value(workbench).unwrap();
+        assert!(typed.workbench.waiting.iter().any(|item| matches!(item, macbot_protocol::WorkbenchWaiting::Approval { approval } if approval.id == id)));
+        backend
+            .call(
+                "approval.decide",
+                json!({"approval_id":id,"decision":"allow_once"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bots = backend
+            .call("bot.list", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(bots["bots"][0]["status"]["waiting"], 0);
+    }
+
+    #[tokio::test]
+    async fn chat_sequences_are_shared_across_senders_updates_and_restart() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let user_one = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":"chat_main","text":"user-1","mentions":[]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_one = backend
+            .call(
+                "send_msg",
+                json!({"bot_id":"main","chat_id":"chat_main","text":"bot-1","intent":"ack"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let mut placeholder = bot_one.clone();
+        placeholder["blocks"] = json!([{"type":"text","markdown":"placeholder"}]);
+        placeholder["fallback_text"] = json!("placeholder");
+        backend
+            .store
+            .append_jsonl("data/chats/chat_main/messages.jsonl", &placeholder)
+            .unwrap();
+        let mut final_update = bot_one.clone();
+        final_update["blocks"] = json!([{"type":"text","markdown":"final"}]);
+        final_update["fallback_text"] = json!("final");
+        backend
+            .store
+            .append_jsonl("data/chats/chat_main/messages.jsonl", &final_update)
+            .unwrap();
+        let user_two = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":"chat_main","text":"user-2","mentions":[]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_two = backend
+            .call(
+                "send_msg",
+                json!({"bot_id":"main","chat_id":"chat_main","text":"bot-2","intent":"ack"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let first = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":20}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let first_items = first["messages"].as_array().unwrap();
+        assert_eq!(first_items.len(), 4);
+        assert_eq!(
+            first_items
+                .iter()
+                .map(|item| item["seq"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 4]
+        );
+        assert_eq!(first_items[1]["id"], bot_one["id"]);
+        assert_eq!(first_items[1]["fallback_text"], "final");
+        let after_two = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","after_seq":2,"limit":20}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            after_two["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["seq"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            vec![3, 4]
+        );
+        assert_eq!(user_one["message"]["seq"], 1);
+        assert_eq!(user_two["message"]["seq"], 3);
+        assert_eq!(bot_two["seq"], 4);
+        drop(backend);
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let restarted = ProductionBackend::open(home.path()).unwrap();
+        let after_restart = restarted
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","after_seq":2,"limit":20}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            after_restart["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["seq"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            vec![3, 4]
+        );
+        assert_eq!(restarted.store.last_chat_sequence("chat_main").unwrap(), 4);
+    }
 
     #[tokio::test]
     async fn production_rpc_returns_complete_protocol_objects_and_durable_event() {
