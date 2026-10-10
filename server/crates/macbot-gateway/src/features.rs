@@ -658,10 +658,12 @@ impl FeatureService {
         Ok(self.shared_memory.rollback_run(run_id)?)
     }
 
-    /// Persist the final project summary and the originating Bot's worklog as
-    /// one idempotent memory transaction. Confirm-done retries reuse stable
-    /// entry IDs; identical retries are no-ops and later project completions
-    /// replace the same two records instead of appending duplicates.
+    /// Persist the final project summary as an idempotent project-memory
+    /// transaction. The Bot's worklog has its own quota and lifecycle; a
+    /// project confirmation must not consume that quota or fail because it is
+    /// full. `bot_id` remains part of the internal call shape and source
+    /// metadata for compatibility with older callers, but is not the memory
+    /// target scope.
     pub fn finalize_project_summary(
         &self,
         project_id: &str,
@@ -681,57 +683,35 @@ impl FeatureService {
             .lock()
             .map_err(|_| FeatureError::Invalid("project finalize lock poisoned".into()))?;
         let project_entry_id = format!("project-summary:{project_id}");
-        let worklog_entry_id = format!("project-summary-worklog:{project_id}:{bot_id}");
         let existing = self.shared_memory.entries()?;
         let existing_project = existing.iter().find(|entry| entry.id == project_entry_id);
-        let existing_worklog = existing.iter().find(|entry| entry.id == worklog_entry_id);
-        if let (Some(project), Some(worklog)) = (existing_project, existing_worklog) {
-            if project.content == summary && worklog.content == summary {
-                return Ok(vec![project.clone(), worklog.clone()]);
-            }
+        if existing_project
+            .as_ref()
+            .is_some_and(|project| project.content == summary)
+        {
+            return Ok(vec![existing_project.expect("checked above").clone()]);
         }
 
-        let run_id = format!("project-summary-run:{project_id}:{bot_id}");
+        let run_id = format!("project-summary-run:{project_id}");
         self.begin_memory_run(&run_id)?;
         let source = MemorySource {
             bot_id: Some(bot_id.to_owned()),
             run_id: Some(run_id.clone()),
             session_id: None,
         };
-        let stage = (|| {
-            self.shared_memory.stage(
-                &run_id,
-                MemoryRequest {
-                    target: MemoryTarget::project(project_id),
-                    action: if existing_project.is_some() {
-                        MemoryAction::Replace
-                    } else {
-                        MemoryAction::Add
-                    },
-                    content: summary.to_owned(),
-                    id: Some(project_entry_id),
-                    kind: Some(MemoryKind::Project),
-                    source: source.clone(),
-                },
-            )?;
-            self.shared_memory.stage(
-                &run_id,
-                MemoryRequest {
-                    target: MemoryTarget::bot(bot_id),
-                    action: if existing_worklog.is_some() {
-                        MemoryAction::Replace
-                    } else {
-                        MemoryAction::Add
-                    },
-                    content: summary.to_owned(),
-                    id: Some(worklog_entry_id),
-                    kind: Some(MemoryKind::BotWorklog),
-                    source,
-                },
-            )?;
-            Ok::<_, MemoryError>(())
-        })();
-        if let Err(error) = stage {
+        let request = MemoryRequest {
+            target: MemoryTarget::project(project_id),
+            action: if existing_project.is_some() {
+                MemoryAction::Replace
+            } else {
+                MemoryAction::Add
+            },
+            content: summary.to_owned(),
+            id: Some(project_entry_id),
+            kind: Some(MemoryKind::Project),
+            source,
+        };
+        if let Err(error) = self.shared_memory.stage(&run_id, request) {
             let _ = self.rollback_memory_run(&run_id);
             return Err(error.into());
         }
@@ -2223,18 +2203,18 @@ mod tests {
         let first = service
             .finalize_project_summary("project-a", "bot-a", "最终项目结论")
             .unwrap();
-        assert_eq!(first.len(), 2);
-        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
+        assert_eq!(first.len(), 1);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
         let retry = service
             .finalize_project_summary("project-a", "bot-a", "最终项目结论")
             .unwrap();
         assert_eq!(retry, first);
-        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
         let updated = service
             .finalize_project_summary("project-a", "bot-a", "第二次项目结论")
             .unwrap();
-        assert_eq!(updated.len(), 2);
-        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
+        assert_eq!(updated.len(), 1);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
         let retry_updated = service
             .finalize_project_summary("project-a", "bot-a", "第二次项目结论")
             .unwrap();
@@ -2243,16 +2223,77 @@ mod tests {
 
         let restored = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
         let entries = restored.shared_memory.entries().unwrap();
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 1);
         assert!(entries.iter().any(|entry| {
             entry.target == MemoryTarget::project("project-a")
                 && entry.kind == MemoryKind::Project
                 && entry.content == "第二次项目结论"
         }));
+        assert!(!entries
+            .iter()
+            .any(|entry| entry.target == MemoryTarget::bot("bot-a")));
+    }
+
+    #[test]
+    fn project_summary_ignores_full_bot_worklog_quota() {
+        let service = service();
+        service
+            .shared_memory
+            .add(MemoryRequest {
+                target: MemoryTarget::bot("main"),
+                action: MemoryAction::Add,
+                content: "x".repeat(macbot_memory::BOT_WORKLOG_LIMIT),
+                id: Some("full-main-worklog".into()),
+                kind: Some(MemoryKind::BotWorklog),
+                source: MemorySource::default(),
+            })
+            .unwrap();
+
+        let entries = service
+            .finalize_project_summary("project-full-bot", "main", "项目完成总结")
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].target, MemoryTarget::project("project-full-bot"));
+        assert!(service
+            .shared_memory
+            .entries()
+            .unwrap()
+            .iter()
+            .any(|entry| entry.id == "full-main-worklog"));
+        let retry = service
+            .finalize_project_summary("project-full-bot", "main", "项目完成总结")
+            .unwrap();
+        assert_eq!(retry, entries);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn project_summary_retry_keeps_legacy_worklog_entries() {
+        let service = service();
+        service
+            .shared_memory
+            .add(MemoryRequest {
+                target: MemoryTarget::bot("bot-a"),
+                action: MemoryAction::Add,
+                content: "legacy project summary worklog".into(),
+                id: Some("project-summary-worklog:project-legacy:bot-a".into()),
+                kind: Some(MemoryKind::BotWorklog),
+                source: MemorySource::default(),
+            })
+            .unwrap();
+
+        let first = service
+            .finalize_project_summary("project-legacy", "bot-a", "新的项目总结")
+            .unwrap();
+        let retry = service
+            .finalize_project_summary("project-legacy", "bot-a", "新的项目总结")
+            .unwrap();
+        assert_eq!(first, retry);
+        let entries = service.shared_memory.entries().unwrap();
+        assert_eq!(entries.len(), 2);
         assert!(entries.iter().any(|entry| {
-            entry.target == MemoryTarget::bot("bot-a")
-                && entry.kind == MemoryKind::BotWorklog
-                && entry.content == "第二次项目结论"
+            entry.id == "project-summary-worklog:project-legacy:bot-a"
+                && entry.content == "legacy project summary worklog"
         }));
     }
 

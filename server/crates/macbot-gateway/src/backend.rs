@@ -7001,8 +7001,8 @@ mod persistence_tests {
         assert!(entries
             .iter()
             .any(|entry| entry.id == format!("project-summary:{project_id}")));
-        assert!(entries
+        assert!(!entries
             .iter()
-            .any(|entry| entry.id == format!("project-summary-worklog:{project_id}:main")));
+            .any(|entry| { entry.id == format!("project-summary-worklog:{project_id}:main") }));
     }
 }
