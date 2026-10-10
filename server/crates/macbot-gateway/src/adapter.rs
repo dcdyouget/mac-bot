@@ -824,6 +824,14 @@ impl ProductionBackend {
         params: &Value,
     ) -> RpcResult {
         let _guard = self.write_lock.lock().await;
+        if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
+            if self.idempotency.lock().await.contains_key(request_id) {
+                // The operation is already durably committed. A retry must
+                // not select another scope or emit another continuation;
+                // the public protocol result is still the empty object.
+                return Ok(json!({}));
+            }
+        }
         let result = self.takeover_start(state, params).await?;
         self.persist(state, "takeover.start", params, &json!({}))
             .await?;
@@ -2004,6 +2012,13 @@ impl ProductionBackend {
         params: &Value,
     ) -> RpcResult {
         let _guard = self.write_lock.lock().await;
+        if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
+            if self.idempotency.lock().await.contains_key(request_id) {
+                // Do not consume a second active takeover when a caller
+                // retries after the first release was durably committed.
+                return Ok(json!({}));
+            }
+        }
         let result = self.takeover_release(state, params).await?;
         self.persist(state, "takeover.release", params, &json!({}))
             .await?;
@@ -8278,6 +8293,174 @@ mod tests {
             .any(|event| event.event == "question.answered"
                 && event.data["question"]["id"] == question_id));
         drop(gateway);
+    }
+
+    #[tokio::test]
+    async fn execution_takeover_retries_are_idempotent_across_restart_and_scope_changes() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"takeover-idempotency"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+        let browser_config = || SessionConfig {
+            executable: "/usr/bin/true".into(),
+            mode: BrowserMode::Attach,
+            chrome_profile: None,
+            idle_timeout_secs: 900,
+            profile_source: None,
+            isolated_profile_root: None,
+            state_path: None,
+        };
+        gateway
+            .state
+            .browser
+            .lock()
+            .await
+            .set_bot_config(&bot_id, browser_config())
+            .unwrap();
+
+        let start_params = json!({
+            "bot_id":bot_id,
+            "client_request_id":"takeover-start-retry"
+        });
+        let first_start = backend
+            .execution_takeover_start(&gateway.state, &start_params)
+            .await
+            .unwrap();
+        let start_assignment = first_start["takeover_request"]["assignment_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let start_path = format!("data/takeovers/{start_assignment}.json");
+        let mut completed_start = backend
+            .store
+            .read_snapshot::<Value>(&start_path)
+            .unwrap()
+            .unwrap();
+        completed_start["state"] = json!("done");
+        backend
+            .store
+            .write_snapshot(&start_path, &completed_start)
+            .unwrap();
+        drop(backend);
+        drop(gateway);
+
+        let restarted_gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let restarted = ProductionBackend::open(home.path()).unwrap();
+        restarted_gateway
+            .state
+            .browser
+            .lock()
+            .await
+            .set_bot_config(&bot_id, browser_config())
+            .unwrap();
+        let retry_start = restarted
+            .execution_takeover_start(&restarted_gateway.state, &start_params)
+            .await
+            .unwrap();
+        assert_eq!(retry_start, json!({}));
+        assert_eq!(
+            restarted
+                .store
+                .read_snapshot::<Value>(&start_path)
+                .unwrap()
+                .unwrap()["state"],
+            "done"
+        );
+
+        let older = json!({
+            "bot_id":bot_id,
+            "assignment_id":"dm-older",
+            "chat_id":"dm-test",
+            "state":"active",
+            "created_at":"2026-10-10T15:00:00Z"
+        });
+        let newer = json!({
+            "bot_id":bot_id,
+            "assignment_id":"dm-newer",
+            "chat_id":"dm-test",
+            "state":"active",
+            "created_at":"2026-10-10T16:00:00Z"
+        });
+        restarted
+            .store
+            .write_snapshot("data/takeovers/dm-older.json", &older)
+            .unwrap();
+        restarted
+            .store
+            .write_snapshot("data/takeovers/dm-newer.json", &newer)
+            .unwrap();
+        let release_params = json!({
+            "bot_id":bot_id,
+            "client_request_id":"takeover-release-retry"
+        });
+        let first_release = restarted
+            .execution_takeover_release(&restarted_gateway.state, &release_params)
+            .await
+            .unwrap();
+        assert_eq!(
+            first_release["takeover_request"]["assignment_id"],
+            "dm-newer"
+        );
+        drop(restarted);
+        drop(restarted_gateway);
+
+        let release_gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let release_retry_backend = ProductionBackend::open(home.path()).unwrap();
+        release_gateway
+            .state
+            .browser
+            .lock()
+            .await
+            .set_bot_config(&bot_id, browser_config())
+            .unwrap();
+        let retry_release = release_retry_backend
+            .execution_takeover_release(&release_gateway.state, &release_params)
+            .await
+            .unwrap();
+        assert_eq!(retry_release, json!({}));
+        assert_eq!(
+            release_retry_backend
+                .store
+                .read_snapshot::<Value>("data/takeovers/dm-older.json")
+                .unwrap()
+                .unwrap()["state"],
+            "active"
+        );
+        let operations = release_retry_backend
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+            .unwrap();
+        assert_eq!(
+            operations
+                .iter()
+                .filter(|operation| operation["client_request_id"] == "takeover-release-retry")
+                .count(),
+            1
+        );
+        assert_eq!(
+            operations
+                .iter()
+                .filter(|operation| operation["client_request_id"] == "takeover-start-retry")
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]
