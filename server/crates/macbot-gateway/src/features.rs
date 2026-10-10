@@ -912,11 +912,20 @@ impl FeatureService {
     }
 
     pub fn add_session_message(&self, message: SessionMessage) -> FeatureResult<()> {
+        self.add_session_messages(vec![message])
+    }
+
+    pub fn add_session_messages(&self, messages: Vec<SessionMessage>) -> FeatureResult<()> {
+        if messages.is_empty() {
+            return Ok(());
+        }
         let mut conversations = self
             .conversations
             .write()
             .map_err(|_| FeatureError::Invalid("conversation lock poisoned".into()))?;
-        conversations.add_message(message);
+        for message in messages {
+            conversations.add_message(message);
+        }
         self.shared_store
             .write_snapshot(CONVERSATIONS_FILE, &*conversations)?;
         Ok(())
@@ -2964,6 +2973,31 @@ mod tests {
             serde_json::from_value(fixture["results"].clone()).unwrap();
         assert_eq!(fixture_hits.len(), 1);
         assert_eq!(fixture_hits[0].id, "bot-gone");
+    }
+
+    #[test]
+    fn conversation_batch_preserves_order_and_persists_all_messages() {
+        let service = service();
+        let messages: Vec<_> = (0..120)
+            .map(|index| SessionMessage {
+                id: format!("message-{index}"),
+                session_id: "session".into(),
+                chat_id: "chat".into(),
+                project_id: Some("project".into()),
+                role: "user".into(),
+                content: format!("content-{index}"),
+                at: Utc::now(),
+            })
+            .collect();
+        service.add_session_messages(messages.clone()).unwrap();
+        service.add_session_messages(Vec::new()).unwrap();
+        let persisted: ConversationIndex = service
+            .shared_store
+            .read_snapshot(CONVERSATIONS_FILE)
+            .unwrap()
+            .unwrap();
+        assert_eq!(persisted.chat_history("chat", 200), messages);
+        assert_eq!(service.chat_history("chat", 200).unwrap(), messages[20..]);
     }
 
     #[test]

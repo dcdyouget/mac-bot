@@ -5398,6 +5398,7 @@ impl RuntimeExecution {
             .feature_service
             .chat_history(&request.chat_id, 100)
             .unwrap_or_default();
+        let mut messages = Vec::new();
         for (index, message) in request.messages.iter().enumerate() {
             let Some(content) = message.get("content").and_then(Value::as_str) else {
                 continue;
@@ -5410,7 +5411,7 @@ impl RuntimeExecution {
                 .get("role")
                 .and_then(Value::as_str)
                 .unwrap_or("user");
-            if let Err(error) = self.feature_service.add_session_message(SessionMessage {
+            messages.push(SessionMessage {
                 id,
                 session_id: request.chat_id.clone(),
                 chat_id: request.chat_id.clone(),
@@ -5418,9 +5419,10 @@ impl RuntimeExecution {
                 role: role.to_owned(),
                 content: content.to_owned(),
                 at: Utc::now(),
-            }) {
-                tracing::warn!(chat_id = %request.chat_id, %error, "failed to sync recent feature message");
-            }
+            });
+        }
+        if let Err(error) = self.feature_service.add_session_messages(messages) {
+            tracing::warn!(chat_id = %request.chat_id, %error, "failed to sync recent feature messages");
         }
     }
 
