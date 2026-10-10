@@ -5480,9 +5480,20 @@ mod tests {
         );
         // Generic scheduler recovery and duplicate approval RPCs must not
         // enter the same provider turn while the continuation is alive.
-        assert_eq!(engine.run(request.clone()).await.unwrap().status, "running");
         assert_eq!(
-            engine.continue_approved(request).await.unwrap().status,
+            tokio::time::timeout(Duration::from_secs(5), engine.run(request.clone()))
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            "running"
+        );
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), engine.continue_approved(request))
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
             "running"
         );
         release.notify_one();
