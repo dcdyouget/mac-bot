@@ -1,0 +1,60 @@
+{
+  "observed_at": "2026-10-10T01:26:30.470269+00:00",
+  "server_source": "7481d8e4b988e866bb3feade18db7e603b6aba5e",
+  "current_assignment": {
+    "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+    "created_at": "2026-10-10T01:19:47.471683+00:00",
+    "finished_at": null,
+    "from": {
+      "kind": "user"
+    },
+    "id": "01a12365-0d0f-7514-b461-ec9aa2006a89",
+    "instruction": "macbot-e2e-s2-tester-browser-014f69dbd222：继续本群既有项目的真实测试，不创建项目。原TEST.md明确未实际浏览器测试，不能算通过。你是测试Bot，请亲自使用browser_open/browser_snapshot/browser_act等浏览器工具访问 http://127.0.0.1:52205/login.html（集成方已提供本地只读HTTP服务），真实验证邮箱格式、错误密码、正确登录、刷新保持、退出及窄屏。先read本项目login.html确认演示账号，不猜凭据。项目Home=~/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/，project_id=01a12236-b308-7080-9877-6fc078239999，chat_id=01a12236-b308-7080-9877-6fc18b39cfdb。不要改demo，不要Bash、不启动服务、不使用subagent、不修改memory、不派给自己或其他Bot。只在本Home新写TEST-browser.md，按实际日期记录每一步输入、实际可见结果、工具证据与未覆盖项；未执行必须明确写未执行。全部实际测试结束后send_msg intent=done向主Bot汇报并附真实报告产物，失败则如实反馈。不要直接确认项目完成。",
+    "loop_hops": 0,
+    "model": "",
+    "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+    "parent_assignment_id": null,
+    "priority": 2,
+    "project_id": "01a12236-b308-7080-9877-6fc078239999",
+    "queue_reason": null,
+    "result_message_id": null,
+    "root_message_id": "01a12365-0d0f-7514-b461-ec99e0f08eda",
+    "started_at": "2026-10-10T01:19:47.471683+00:00",
+    "status": "waiting_user",
+    "steers": [
+      {
+        "applied_at": "2026-10-10T01:19:47.471671+00:00",
+        "at": "2026-10-10T01:19:47.471671+00:00",
+        "message_id": "01a12365-0d0f-7514-b461-ec99e0f08eda",
+        "text": "macbot-e2e-s2-tester-browser-014f69dbd222：继续本群既有项目的真实测试，不创建项目。原TEST.md明确未实际浏览器测试，不能算通过。你是测试Bot，请亲自使用browser_open/browser_snapshot/browser_act等浏览器工具访问 http://127.0.0.1:52205/login.html（集成方已提供本地只读HTTP服务），真实验证邮箱格式、错误密码、正确登录、刷新保持、退出及窄屏。先read本项目login.html确认演示账号，不猜凭据。项目Home=~/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/，project_id=01a12236-b308-7080-9877-6fc078239999，chat_id=01a12236-b308-7080-9877-6fc18b39cfdb。不要改demo，不要Bash、不启动服务、不使用subagent、不修改memory、不派给自己或其他Bot。只在本Home新写TEST-browser.md，按实际日期记录每一步输入、实际可见结果、工具证据与未覆盖项；未执行必须明确写未执行。全部实际测试结束后send_msg intent=done向主Bot汇报并附真实报告产物，失败则如实反馈。不要直接确认项目完成。"
+      }
+    ],
+    "subagents_active": 0,
+    "title": "插话",
+    "trigger_message_id": "01a12365-0d0f-7514-b461-ec99e0f08eda",
+    "usage": {
+      "cache_read_tokens": 26412,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 144610,
+      "output_tokens": 1386,
+      "requests": 0
+    },
+    "wait": {
+      "message_id": null,
+      "reason": "approval"
+    }
+  },
+  "announcement_member": {
+    "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+    "current_assignment_id": "01a12291-4b55-7243-bc26-be662b64a950",
+    "role_note": "",
+    "since": "2026-10-09T21:28:29.781838+00:00",
+    "state": "done"
+  },
+  "matches_current": false,
+  "screenshot": "production-7481d8e-unlocked-desktop.png",
+  "screen_locked": false,
+  "cause": "HashMap.values().find includes done before current work; selection is unordered",
+  "full_s2_pass": false
+}

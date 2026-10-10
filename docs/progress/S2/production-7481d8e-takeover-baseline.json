@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-10-10T01:21:54.356182+00:00",
+  "mode": "read-only takeover baseline",
+  "integrator_head": "e8153d8a26082bedc2faecf9ec2b77eabdf39881",
+  "main_status": "?? design/",
+  "processes": "PID COMM\n66750 /Users/gongshaojie/Applications/MacBotMock.app/Contents/MacOS/macbotd\n66995 /Users/gongshaojie/Applications/MacBot.app/Contents/MacOS/macbot-desktop\n86386 /Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+  "listeners": "COMMAND   PID        USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nmacbotd 66750 gongshaojie    9u  IPv4 0x44705c55c37ecfc3      0t0  TCP *:7789 (LISTEN)\nmacbotd 86386 gongshaojie   11u  IPv4  0xee1951f7efa97cd      0t0  TCP *:7788 (LISTEN)",
+  "android_pid": "20943",
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "source_stamps": {
+    "MacBotServer": "7481d8e4b988e866bb3feade18db7e603b6aba5e",
+    "MacBot": "7c5e480f3a2582068198df3bfca6b6d2db452ff1",
+    "MacBotMock": "11bc831df3cead8d8ec667501769aad92adec472"
+  },
+  "screen_locked": true,
+  "desktop_ui_pass": false,
+  "full_s2_pass": false,
+  "android_screenshot": "production-7481d8e-takeover-android.png",
+  "android_visual_review": "Existing parallel project shows new actual-browser followup user message, delivered state and working task card; not test completion."
+}

@@ -1,0 +1,107 @@
+   Compiling macbot-desktop v0.1.0 (/Users/gongshaojie/Project/mac-bot-integrator/clients/mac/crates/macbot-desktop)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.20s
+warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/lib.rs (target/debug/deps/macbot_client_core-fb0f701bd8ee2778)
+
+running 33 tests
+test tests::disconnected_in_flight_request_is_requeued_with_same_idempotency_key ... ok
+test tests::bootstrap_cursor_resets_transport_gap ... ok
+test tests::arbitrary_endpoints_get_ws_path ... ok
+test tests::bootstrap_indexes_nested_pending_and_cache_round_trip ... ok
+test tests::bootstrap_and_transient_events_keep_ui_maps_in_sync ... ok
+test tests::event_maps_keep_bootstrap_keys_for_announcements_skills_and_models ... ok
+test tests::ordered_events_merge_and_deduplicate ... ok
+test tests::loopback_wrong_node_is_rejected ... ok
+test tests::reconnect_delay_has_bounded_jitter ... ok
+test tests::protocol_types_validate_wire_request_and_response_without_dropping_extensions ... ok
+test tests::known_params_validate_required_fields_without_rejecting_extensions ... ok
+test tests::request_frame_preserves_retry_metadata_extensions_and_future_methods ... ok
+test tests::connected_event_reports_successful_fallback_endpoint ... ok
+test tests::screen_parser_and_ack ... ok
+test tests::loopback_resume_replay_and_reset_bootstrap ... ok
+test tests::streaming_message_deltas_merge_in_sequence_and_finalize ... ok
+test tests::trace_cursor_dedup_and_response_replaces_delta ... ok
+test tests::trace_history_overlap_deduplicates_by_aseq_without_cursor_regression ... ok
+test tests::trace_older_history_does_not_move_last_cursor_backwards ... ok
+test tests::resume_hello_watermark_rollback_forces_bootstrap ... ok
+test tests::transport_cursor_does_not_skip_an_event_gap ... ok
+test tests::app_state_gap_flood_requests_resync_and_bootstrap_recovers ... ok
+test tests::resume_sync_watermark_rollback_forces_bootstrap ... ok
+test tests::write_params_get_stable_idempotency_key ... ok
+test tests::unknown_trace_items_are_ignored_for_validation_and_unknown_events_are_ignored_in_state ... ok
+test tests::unknown_message_blocks_are_fallbacked_for_history_and_preserved_on_wire ... ok
+test tests::transport_gap_flood_is_bounded_and_cleared_for_reconnect ... ok
+test tests::loopback_disconnect_retries_same_write_request_id ... ok
+test tests::in_flight_request_timeout_is_independent_of_heartbeat_interval ... ok
+test tests::close_command_exits_connected_worker_without_reconnect ... ok
+test tests::unrelated_response_id_does_not_requeue_current_request ... ok
+test tests::screen_ack_is_sent_only_after_caller_renders_frame ... ok
+test tests::connected_transport_disconnects_on_gap_flood ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+     Running unittests src/main.rs (target/debug/deps/macbot_desktop-5f0452d8c4e995ac)
+
+running 53 tests
+test computer::tests::contain_mapping_preserves_aspect_ratio ... ok
+test computer::tests::render_ack_waits_for_the_presented_image ... ok
+test computer::tests::stale_render_callback_cannot_ack_a_reopened_connection_with_reused_sequences ... ok
+test feature_i18n::tests::known_keys_are_localised ... ok
+test feature_i18n::tests::unknown_keys_have_safe_fallback ... ok
+test app::shell_features::skill_result_tests::full_get_response_reloads_editor_detail ... ok
+test app::shell_features::skill_result_tests::update_summary_uses_saved_content_without_reloading_inputs ... ok
+test features::tests::feature_actions_keep_rpc_payload ... ok
+test app::shell_features::skill_result_tests::metadata_summary_preserves_content_and_current_draft ... ok
+test features::tests::protocol_payload_shapes_use_server_field_names ... ok
+test app::chat::tests::known_empty_text_block_does_not_use_message_fallback ... ok
+test features::tests::safe_data_helpers_handle_missing_fields ... ok
+test features::tests::update_data_merge_preserves_selected_editor_context ... ok
+test host_storage::tests::file_backend_requires_explicit_development_switch ... ok
+test computer::tests::incoming_and_failed_decodes_preserve_the_presented_frame_and_ack_sequence ... ok
+test features::tests::search_target_bot_uses_optional_chat_hint ... ok
+test host_storage::tests::keychain_queries_disable_authentication_ui ... ok
+test features::tests::usage_data_does_not_fabricate_empty_series ... ok
+test features::tests::heatmap_quantiles_use_four_increasing_intensities_of_one_activity_color ... ok
+test features::tests::rpc_helpers_cover_required_protocol_fields ... ok
+test features::tests::sparse_heatmap_keeps_nonzero_days_distinct_from_empty_days ... ok
+test host_storage::tests::serialized_records_never_contain_password ... ok
+test outbox::tests::credentials_are_rejected_before_disk_write ... ok
+test computer::tests::jpeg_decode_produces_gpui_pixels_and_rejects_corrupt_frames ... ok
+test screen_notice::tests::closing_clears_status_and_rejects_previous_session_events ... ok
+test screen_notice::tests::screen_status_is_visible_only_on_computer ... ok
+test search_navigation::tests::chat_for_another_bot_is_never_selected ... ok
+test local_settings::tests::launch_agent_is_written_and_removed_only_in_test_home ... ok
+test app::chat::tests::queued_user_block_has_renderable_markdown_before_server_response ... ok
+test local_settings::tests::local_settings_round_trip_is_private ... ok
+test host_storage::tests::store_uses_private_mode_and_round_trips_metadata ... ok
+test outbox::tests::restart_round_trip_retains_original_retry_params_and_request_id ... ok
+test search_navigation::tests::hint_chat_is_preferred_when_it_belongs_to_bot ... ok
+test search_navigation::tests::main_chat_is_a_valid_bot_destination ... ok
+test search_navigation::tests::mismatched_hint_falls_back_to_default_dm_chat ... ok
+test search_navigation::tests::missing_or_non_dm_chat_is_an_error_condition ... ok
+test search_navigation::tests::empty_cache_fetches_bot_then_chat_from_loopback ... ok
+test storage_paths::tests::accepts_single_path_components ... ok
+test storage_paths::tests::rejects_relative_override ... ok
+test outbox::tests::node_mismatch_is_ignored_and_successful_send_is_removed ... ok
+test trace_view::tests::live_tool_output_is_capped_and_terminal_result_replaces_chunks ... ok
+test update::tests::compares_semver_with_prerelease_rules ... ok
+test update::tests::allows_https_and_local_http_only ... ok
+test update::tests::decodes_sha256 ... ok
+test update::tests::isolated_dmg_install_when_requested ... ok
+test update::tests::installer_script_is_reviewable_without_touching_an_app ... ok
+test host_storage::tests::development_file_backend_round_trips_with_private_permissions ... ok
+test state_cache::tests::saves_atomic_private_cache_and_round_trips_state ... ok
+test state_cache::tests::older_async_save_is_skipped_by_capture_stamp ... ok
+test state_cache::tests::rejects_other_host_or_node_and_cursor_corruption ... ok
+test state_cache::tests::newer_stamp_can_commit_a_legal_server_cursor_rollback ... ok
+test host_storage::tests::locked_mutations_keep_records_from_concurrent_snapshots ... ok
+test trace_view::tests::long_trace_rows_do_not_overlap_on_first_frame_or_update ... ok
+
+test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+   Doc-tests macbot_client_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

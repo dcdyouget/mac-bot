@@ -1,0 +1,28 @@
+{
+  "observed_at": "2026-10-10T01:29:08.007743+00:00",
+  "source_commit": "dcd5e36aba0faec8921d79c5a80622c022028d7e",
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "pending_unchanged": true,
+  "pending_count": 15,
+  "checkpoint_files_unchanged": {
+    "/Users/gongshaojie/MacBot/data/run_requests/run_01a12365-0d0f-7514-b461-ec9aa2006a89.json": true,
+    "/Users/gongshaojie/MacBot/data/jobs/job_01a12365-17c6-73e1-a8c2-66e7a8fd7265.json": true,
+    "/Users/gongshaojie/MacBot/data/approval-map/01a1236a-fc53-728e-9941-0bc83630b9e0.json": true
+  },
+  "assignment_id": "01a12365-0d0f-7514-b461-ec9aa2006a89",
+  "assignment_state": "waiting_user",
+  "announcement_member": {
+    "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+    "current_assignment_id": "01a12365-0d0f-7514-b461-ec9aa2006a89",
+    "role_note": "",
+    "since": "2026-10-10T01:19:47.471683+00:00",
+    "state": "waiting_user"
+  },
+  "status": "PASS_API_ANNOUNCEMENT_SELECTION",
+  "full_s2_pass": false
+}

@@ -1,0 +1,102 @@
+{
+  "observed_at": "2026-10-10T01:37:31.563354+00:00",
+  "source_commit": "ff083bc30c91cb47023dc055064dfefc3b5b55f5",
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "other_pending_unchanged": true,
+  "other_pending_count": 14,
+  "original_approval": {
+    "assignment_id": "01a12365-0d0f-7514-b461-ec9aa2006a89",
+    "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+    "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+    "created_at": "2026-10-10T01:30:45.544742+00:00",
+    "decided_at": "2026-10-10T01:36:02.375174+00:00",
+    "detail": "{\"action\":\"reload\",\"assignment_id\":\"01a12365-0d0f-7514-b461-ec9aa2006a89\",\"tab_id\":\"t2\"}",
+    "id": "01a1236f-17a8-74ae-bb1d-e3e7a3d518a4",
+    "risk": "external",
+    "state": "allowed_once",
+    "summary": "Approval required for browser_nav",
+    "tool": "browser_nav"
+  },
+  "navigation_trace": [
+    {
+      "aseq": 71,
+      "assignment_id": "01a12365-0d0f-7514-b461-ec9aa2006a89",
+      "at": "2026-10-10T01:30:40.077Z",
+      "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+      "data": {
+        "args": {
+          "action": "reload",
+          "assignment_id": "01a12365-0d0f-7514-b461-ec9aa2006a89",
+          "tab_id": "t2"
+        },
+        "call_id": "call_function_ihodknko6ybm_1",
+        "name": "browser_nav"
+      },
+      "run_id": "run_01a12365-0d0f-7514-b461-ec9aa2006a89",
+      "type": "tool.start"
+    },
+    {
+      "aseq": 74,
+      "assignment_id": "01a12365-0d0f-7514-b461-ec9aa2006a89",
+      "at": "2026-10-10T01:36:09.539Z",
+      "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+      "data": {
+        "args": {
+          "action": "reload",
+          "assignment_id": "01a12365-0d0f-7514-b461-ec9aa2006a89",
+          "tab_id": "t2"
+        },
+        "call_id": "call_function_ihodknko6ybm_1",
+        "name": "browser_nav"
+      },
+      "run_id": "run_01a12365-0d0f-7514-b461-ec9aa2006a89",
+      "type": "tool.start"
+    },
+    {
+      "aseq": 75,
+      "assignment_id": "01a12365-0d0f-7514-b461-ec9aa2006a89",
+      "at": "2026-10-10T01:36:09.662Z",
+      "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+      "data": {
+        "call_id": "call_function_ihodknko6ybm_1",
+        "details": {
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275010974
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "url": "http://127.0.0.1:52205/login.html"
+          },
+          "error": null,
+          "success": true
+        },
+        "duration_ms": 110,
+        "full_output": null,
+        "is_error": false,
+        "preview": "{\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":11677035664275010974},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"url\":\"http://127.0.0.1:52205/login.html\"},\"error\":null,\"success\":true}",
+        "truncated": false
+      },
+      "run_id": "run_01a12365-0d0f-7514-b461-ec9aa2006a89",
+      "type": "tool.end"
+    }
+  ],
+  "status": "PASS_ACTUAL_TESTER_RELOAD",
+  "full_s2_pass": false,
+  "audit_limit": "Initial aggregate pre-decision hash assertion failed; no claim that all request/job bytes stayed unchanged. A separately executed decision revalidated exact approval/map/head/request/run identity and original args immediately before allow_once. Afterwards request and job legitimately advance; original map remains intact.",
+  "request_contains_restart_feedback": false,
+  "server_listener": "COMMAND   PID        USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nmacbotd 67601 gongshaojie   11u  IPv4 0xbb7a6d4ffa653fc1      0t0  TCP *:7788 (LISTEN)\n"
+}

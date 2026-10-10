@@ -1,0 +1,44 @@
+{
+  "observed_at": "2026-10-10T01:34:04.128080+00:00",
+  "status": "PASS_DESKTOP_NATIVE_USAGE_SUMMARY",
+  "server_source": "dcd5e36aba0faec8921d79c5a80622c022028d7e",
+  "desktop_source": "7c5e480f3a2582068198df3bfca6b6d2db452ff1",
+  "desktop_pid": 66995,
+  "range": {
+    "from": "2026-10-09T00:00:00Z",
+    "to": "2026-10-09T23:59:59Z"
+  },
+  "summary": {
+    "current": {
+      "cache_read_tokens": 3685100,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 5531382,
+      "output_tokens": 172444,
+      "requests": 540,
+      "tasks_done": 1
+    },
+    "previous": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "requests": 0,
+      "tasks_done": 0
+    }
+  },
+  "native": {
+    "total_tokens": 5703826,
+    "requests": 540,
+    "cost_label": "未知",
+    "tasks_done": 1,
+    "visually_reviewed": true
+  },
+  "screenshot": "production-dcd5e36-desktop-usage-summary.png",
+  "limits": [
+    "Android must be rechecked at this same range; historical Android 490 requests was earlier data.",
+    "Native capture refreshed after window zoom; investigate delayed frames separately."
+  ],
+  "full_s3_pass": false
+}

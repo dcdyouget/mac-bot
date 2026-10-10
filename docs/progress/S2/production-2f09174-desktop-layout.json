@@ -1,0 +1,26 @@
+{
+  "observed_at": "2026-10-10T02:04:35.861073+00:00",
+  "server_source": "b7d6c766e8d2f217db91ee63ecb6220ad12a3b95",
+  "desktop_source": "2f091744ec4bb5da0774a715fea02628330c5ebf",
+  "desktop_pid": "82965",
+  "screen_locked": false,
+  "screenshots": [
+    "production-8d347b6-desktop-trace-after.png",
+    "production-2f09174-desktop-chat-after.png",
+    "production-2f09174-desktop-chat-narrow.png"
+  ],
+  "visual_review": {
+    "trace": "Actual long JSON wraps inside narrow panel; following rows no longer overlap.",
+    "chat": "Long report and subsequent user bubble remain separate; native scroll, narrower window, and follow latest preserve composer area."
+  },
+  "tests": {
+    "client_core": 33,
+    "desktop": 53,
+    "strict_clippy": "passed"
+  },
+  "full_s1_pass": false,
+  "full_s2_pass": false,
+  "limitations": [
+    "This is a desktop list layout专项, not live-stream/dual-client/full-stage acceptance."
+  ]
+}
