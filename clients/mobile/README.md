@@ -71,6 +71,37 @@ adb install -r androidApp/build/outputs/apk/release/androidApp-release.apk
 Check the instrumentation output reports the expected test count (currently 4),
 not merely a successful build with zero discovered tests.
 
+For the real `NotificationManager` capacity check, use the explicit
+`macbotNotificationCapacityIsolated=true` opt-in. It changes only the test
+APK's application ID to `bot.mac.mobile.capacitytest`, so the installed
+`bot.mac.mobile` data and notifications remain untouched. Build and verify the
+target/test package names before installing, then run only the named test
+directly; do not use `connected*AndroidTest`, which may uninstall or reset the
+formal package:
+
+```sh
+./gradlew -PmacbotSignedDeviceTests=true \
+  -PmacbotNotificationCapacityIsolated=true \
+  :androidApp:assembleDebug :androidApp:assembleDebugAndroidTest
+"$ANDROID_HOME/build-tools/36.1.0/aapt" dump badging \
+  androidApp/build/outputs/apk/debug/androidApp-debug.apk | grep "bot.mac.mobile.capacitytest"
+"$ANDROID_HOME/build-tools/36.1.0/aapt" dump xmltree \
+  androidApp/build/outputs/apk/androidTest/debug/androidApp-debug-androidTest.apk AndroidManifest.xml \
+  | grep "bot.mac.mobile.capacitytest"
+adb install -r -t androidApp/build/outputs/apk/debug/androidApp-debug.apk
+adb install -r -t androidApp/build/outputs/apk/androidTest/debug/androidApp-debug-androidTest.apk
+adb shell am instrument -w -e class=bot.mac.mobile.NotificationManagerCapacityInstrumentedTest \
+  bot.mac.mobile.capacitytest.test/androidx.test.runner.AndroidJUnitRunner
+adb uninstall bot.mac.mobile.capacitytest.test
+adb uninstall bot.mac.mobile.capacitytest
+```
+
+The test exercises the device `NotificationManager` with a 50-entry baseline,
+protected foreground/summary entries, and the app's 40-entry retention policy.
+It is a device-capacity check only; it does not replace real-provider delivery
+or the S4 end-to-end notification scenario. Cleanup must uninstall only the two
+`capacitytest` packages shown above.
+
 Android notifications use channels `needs-you`, `completed`, `messages`. Grant notification permission when requested. The foreground service owns the long-lived main connection; screen streams open only while the Computer page is visible. Notification actions use the same idempotent protocol writes as in-app actions.
 
 The notification tray keeps at most 40 active entries, including the foreground
