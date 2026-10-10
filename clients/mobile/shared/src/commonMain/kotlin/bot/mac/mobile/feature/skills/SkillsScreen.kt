@@ -231,7 +231,7 @@ private fun SkillDetail(skill: JsonObject, bots: List<JsonObject>, modifier: Mod
     val files = skill.arr("files")
     val invocations = skill.obj("invocations_7d")
     val source = skill.str("source")
-    val botNames = bots.associate { it.str("id") to it.str("label").ifBlank { it.str("name") } }
+    val botNames = bots.associate { it.str("id") to botDisplayName(it) }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
         Text(skill.str("name") ?: "", style = MaterialTheme.typography.titleLarge)
         Text(skill.str("description") ?: "", style = MaterialTheme.typography.bodyMedium)
@@ -258,12 +258,16 @@ private fun SkillDetail(skill: JsonObject, bots: List<JsonObject>, modifier: Mod
         HorizontalDivider()
         if (bots.isNotEmpty()) {
             Text(stringResource(Res.string.skills_bot_access), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
-            bots.forEach { bot ->
-                val botId = bot.str("id")
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(bot.str("label") ?: bot.str("name") ?: botId, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                    Switch(checked = botId !in disabledBots, onCheckedChange = { onToggleBot(botId, it) })
+            if (skillBotAccessAvailable(source)) {
+                bots.forEach { bot ->
+                    val botId = bot.str("id")
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(botDisplayName(bot), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        Switch(checked = botId !in disabledBots, onCheckedChange = { onToggleBot(botId, it) })
+                    }
                 }
+            } else {
+                Text(stringResource(Res.string.skills_draft_bot_access_hint), style = MaterialTheme.typography.bodySmall)
             }
         }
         Text(skill.str("content") ?: stringResource(Res.string.skills_preview), Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall)
@@ -271,6 +275,11 @@ private fun SkillDetail(skill: JsonObject, bots: List<JsonObject>, modifier: Mod
 }
 
 internal fun skillCanPublish(source: String?): Boolean = source == "draft"
+
+internal fun skillBotAccessAvailable(source: String): Boolean = source != "draft"
+
+internal fun botDisplayName(bot: JsonObject): String =
+    bot.str("label").ifBlank { bot.str("name") }.ifBlank { bot.str("id") }
 
 @Composable
 private fun sourceLabel(source: String): String = when (source) {

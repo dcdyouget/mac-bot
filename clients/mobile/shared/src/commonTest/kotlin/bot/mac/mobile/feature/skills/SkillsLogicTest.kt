@@ -29,6 +29,41 @@ class SkillsLogicTest {
     }
 
     @Test
+    fun botDisplayNameFallsBackFromLabelToNameThenId() {
+        assertEquals(
+            "工程师",
+            botDisplayName(buildJsonObject {
+                put("label", "工程师")
+                put("name", "engineer")
+                put("id", "bot-1")
+            }),
+        )
+        assertEquals(
+            "engineer",
+            botDisplayName(buildJsonObject {
+                put("label", "")
+                put("name", "engineer")
+                put("id", "bot-1")
+            }),
+        )
+        assertEquals(
+            "bot-1",
+            botDisplayName(buildJsonObject {
+                put("label", "")
+                put("name", "")
+                put("id", "bot-1")
+            }),
+        )
+    }
+
+    @Test
+    fun draftSkillDoesNotOfferBotAccessBeforePublish() {
+        assertFalse(skillBotAccessAvailable("draft"))
+        assertTrue(skillBotAccessAvailable("user"))
+        assertTrue(skillBotAccessAvailable("imported"))
+    }
+
+    @Test
     fun saveRefreshReadsTheUpdatedDetailAfterList() = runTest {
         val repository = FakeSkillRepository()
 

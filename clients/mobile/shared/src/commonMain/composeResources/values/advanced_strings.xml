@@ -75,6 +75,7 @@
     <string name="skills_path">路径</string>
     <string name="skills_files">附带文件</string>
     <string name="skills_bot_access">对个别 Bot 启用</string>
+    <string name="skills_draft_bot_access_hint">发布后才能按 Bot 设置启用范围</string>
     <string name="skills_invocations">近 7 天调用</string>
     <string name="skills_no_files">没有附带文件</string>
     <string name="skills_error">技能操作失败：%1$s</string>
