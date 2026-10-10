@@ -2,6 +2,8 @@
 
 状态：**未执行，不能计 S5 通过**。这是可逆操作计划，不是验收记录。
 
+最新候选（2026-10-10）：S0–S3已通过；server `be64802cd08a1401d1ba0ee9e5bae4bee6dd7f43`（PID6301），桌面6eaa91a、Android5e2fbcc。匹配pkg及审计见 [server-pkg-be64802-verified.json](server-pkg-be64802-verified.json)，包SHA `c269e0e1fe5b5e7a967be3a80e5c7e3fade0040358a3d059ec921fe9ba619ac7`，替代此前候选。S4仍需本次Chrome连接授权后完成Android X接管；fresh未执行。用户属于admin但sudo不能免密，安装时需要用户完成管理员认证，管理页新密码按下文交接。历史版本说明不覆盖本段。
+
 当前停止条件：正式服务为 `9c20fc4`，桌面为 `6eaa91a`，Android 为 `5e2fbcc` 同签名 Release。Mac 已解锁。S0、S1、S3 已通过；S2 历史分支的取消确认待用户答复，S4 Chrome 远程调试当前弹窗待用户答复；S5 fresh 未执行。原旧 siblings/未知审批保持，不自动取消或批准。
 
 ## 前置条件与路径

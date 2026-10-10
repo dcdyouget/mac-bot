@@ -1,5 +1,11 @@
 # Mac Bot 集成进度与使用说明
 
+最新结论（2026-10-10）：**S0–S3 通过，S4/S5 未完成**。server `be64802`（PID6301）、桌面 `6eaa91a`、Android `5e2fbcc`。用户已授权精确结束5个旧等待分支，两原项目已用原UUID确认done，5审批expired，其余7pending保持；双端完成状态截图均实看。见 [S2确认记录](S2/production-9c20fc4-confirm-done.json)。
+
+首次确认因项目总结错误占用主Bot记忆额度而失败；426e9b7改为只写项目记忆，不扩额度、不删旧记忆，205项gateway测试及独立审查通过。be64802补浏览器退出码和结构化错误诊断，debug/release各20项通过。升级前8pending/155jobs保持；确认后的唯一job变化属于获授权的并行旧分支。失败证据保留。
+
+S4 Android X连接仍待Chrome本次授权；提示出现后调用失败，原因尚未确定，不把弹窗消失算授权。测试Bot恢复headless，Chrome原设置未改。S5新pkg已审计，见 [包审计](S5/server-pkg-be64802-verified.json)；fresh尚未执行，安装需要用户管理员认证，管理页新密码需用户接手设置。下文较早记录保留为历史，不覆盖本段最新结论。
+
 本文面向在 Mac mini（Apple M4，局域网地址 `192.168.31.162`）上查看 Mac Bot 效果的人。服务端运行在这台 Mac 上，Android 客户端运行在本机的 `macbot_api36` 模拟器里。v1 不包含 iOS。
 
 ## 现在的状态
