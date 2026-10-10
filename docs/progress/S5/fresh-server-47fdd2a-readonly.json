@@ -1,0 +1,124 @@
+{
+  "state": "readonly_success_with_prior_auth_failure",
+  "source": "47fdd2a3df680555774da2fc520c361071c4d4e7",
+  "pid": 97748,
+  "url": "http://127.0.0.1:7788",
+  "started_at": "2026-10-10T18:23:37.705610+00:00",
+  "finished_at": "2026-10-10T18:23:37.762166+00:00",
+  "checks": [
+    {
+      "method": "bootstrap",
+      "ok": false,
+      "elapsed_s": 0.017,
+      "error_type": "RpcTransportError",
+      "http_status": 401
+    },
+    {
+      "method": "workbench.get",
+      "ok": false,
+      "elapsed_s": 0.014,
+      "error_type": "RpcTransportError",
+      "http_status": 401
+    },
+    {
+      "method": "search",
+      "ok": false,
+      "elapsed_s": 0.012,
+      "error_type": "RpcTransportError",
+      "http_status": 401
+    },
+    {
+      "method": "routine.list",
+      "ok": false,
+      "elapsed_s": 0.013,
+      "error_type": "RpcTransportError",
+      "http_status": 401
+    }
+  ],
+  "boundary": "One sequential read-only call per method; all rejected by auth before handler execution; no RPC writes, UI, deployment, password change, or retries.",
+  "auth": {
+    "health_ok": true,
+    "rpc_status": 401,
+    "password_source": "~/.macbot-dev-password",
+    "action": "blocked_without_password_change"
+  },
+  "process_sample": {
+    "pid": 97748,
+    "listener": "127.0.0.1:7788",
+    "cpu_percent_observed": 100.0,
+    "sample_action": "read_only"
+  },
+  "fresh_attempt": {
+    "started_at": "2026-10-10T18:25:23.605812+00:00",
+    "finished_at": "2026-10-10T18:26:45.083279+00:00",
+    "password_source": "~/.macbot-s5-password",
+    "checks": [
+      {
+        "method": "bootstrap",
+        "ok": true,
+        "elapsed_s": 29.802,
+        "result_keys": [
+          "bots",
+          "chats",
+          "hello",
+          "pending",
+          "projects",
+          "seq",
+          "settings"
+        ],
+        "bots_count": 7,
+        "chats_count": 12,
+        "projects_count": 3,
+        "seq": 11927
+      },
+      {
+        "method": "workbench.get",
+        "ok": true,
+        "elapsed_s": 37.318,
+        "result_keys": [
+          "bots",
+          "done_today",
+          "global_limit",
+          "running",
+          "subagents_running",
+          "waiting"
+        ],
+        "bots_count": 6,
+        "waiting_count": 32,
+        "done_today_count": 232
+      },
+      {
+        "method": "search",
+        "ok": true,
+        "elapsed_s": 0.063,
+        "result_keys": [
+          "results"
+        ],
+        "results_count": 20
+      },
+      {
+        "method": "routine.list",
+        "ok": true,
+        "elapsed_s": 14.294,
+        "result_keys": [
+          "routines"
+        ],
+        "routines_count": 1
+      }
+    ],
+    "boundary": "One sequential read-only call per method; no RPC writes, UI, deployment, or retries.",
+    "sample": {
+      "path": "/tmp/macbotd-97748-readonly.sample",
+      "duration_s": 3,
+      "size_bytes": 362051,
+      "observed_hotspot": "ProductionBackend::refresh_project_attention reading files via std::fs::File::read_to_end",
+      "process_cpu_percent_after_sample": 99.2,
+      "interpretation": "Read-only sample; no claim beyond this point observation."
+    }
+  },
+  "external_blockers": {
+    "provider_rate_limit_observed": true,
+    "detail": "Latest server log reports HTTP 429 provider rate limit; no new model task was sent.",
+    "log_path": "/Users/gongshaojie/MacBot/data/macbot.log"
+  }
+}

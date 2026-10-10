@@ -1,0 +1,18 @@
+{
+  "source": "30212bc7282b1646ee817accab2b0ba6bd9eb2ea",
+  "at": "2026-10-10T18:36:15.264179+00:00",
+  "suite": "macbot-gateway library tests, serial",
+  "passed": 233,
+  "failed": 0,
+  "duration_s": 23.32,
+  "log": "fresh-server-30212bc-gateway-tests.log",
+  "log_sha256": "3e4cd1199346971974ea85f5a3871b96faff71b30009f328a87009259de8d52a",
+  "regressions": [
+    "snapshot notice durable row missing restores without duplicate event",
+    "durable notice seq=0 restores valid sequence",
+    "existing attention event repair and dispatch tests"
+  ],
+  "review": "root reviewed patch and log; independent source review passed",
+  "boundary": "Unit/regression evidence only, not native or full S5 acceptance.",
+  "log_normalization": "Trailing empty lines removed; original external log retained."
+}

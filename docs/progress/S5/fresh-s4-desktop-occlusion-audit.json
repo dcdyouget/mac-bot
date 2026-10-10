@@ -1,0 +1,95 @@
+{
+  "schema": "macbot.s5.s4-desktop-occlusion-audit.v1",
+  "captured_at_local": "2026-10-11",
+  "scope": "read-only diagnosis of bdc17cdf async repaint stall; no UI control, source change, environment change, or third-party setting change",
+  "candidate": {
+    "desktop_source": "bdc17cdfa5ba8ac8b0c06fddf67d7b3cdf5abd32",
+    "installed_pid": 50057,
+    "diagnostics_record": "docs/progress/S5/fresh-s4-desktop-input-tool-block.json",
+    "environment_record": "docs/progress/S5/desktop-environment-audit-2026-10-11.md"
+  },
+  "observed_facts": [
+    {
+      "fact": "Async root websocket events call update followed by cx.refresh().",
+      "source": "clients/mac/crates/macbot-desktop/src/app.rs:427-443"
+    },
+    {
+      "fact": "Async screen State/Frame events update Computer and call cx.refresh() after a successful update.",
+      "source": "clients/mac/crates/macbot-desktop/src/app.rs:1128-1185"
+    },
+    {
+      "fact": "The native input diagnostic recorded AX access and visible=true/AXMinimized=false, while coordinate clicks returned noWindowsAvailable; a later keyboard/pointer interaction produced visible content.",
+      "source": "docs/progress/S5/fresh-s4-desktop-input-tool-block.json"
+    },
+    {
+      "fact": "The environment audit recorded Mac Bot onscreen=true, alpha=1, AX focused=true, frontmost=false, plus two BetterDisplay fullscreen alpha=1 windows at a higher layer; the audit did not read in-process NSWindow.occlusionState.",
+      "source": "docs/progress/S5/desktop-environment-audit-2026-10-11.md"
+    },
+    {
+      "fact": "A three-second sample placed the main thread in NSApplication nextEventMatchingMask/CoreFoundation run loop at about 0.5% CPU, with no observed Rust event-bridge starvation.",
+      "source": "docs/progress/S5/desktop-environment-audit-2026-10-11.md"
+    }
+  ],
+  "framework_facts": [
+    {
+      "fact": "AsyncApp::refresh queues App::refresh_windows; it does not directly draw.",
+      "source": "~/.cargo/registry/src/.../gpui-pre-0.3.8/src/app/async_context.rs:148-156"
+    },
+    {
+      "fact": "The GPUI platform trait defaults frame_waker() to None and schedule_frame() to a no-op.",
+      "source": "~/.cargo/registry/src/.../gpui-pre-apple-0.3.8/vendor/gpui/src/platform.rs:1205-1224"
+    },
+    {
+      "fact": "The macOS GPUI start_display_link path returns when NSWindowOcclusionStateVisible is absent.",
+      "source": "~/.cargo/registry/src/.../gpui-pre-macos-0.3.8/src/window.rs:834-850"
+    }
+  ],
+  "inference_status": {
+    "confirmed_client_refresh_bug": false,
+    "confirmed_event_bridge_starvation": false,
+    "confirmed_betterdisplay_cause": false,
+    "environment_candidate": "AppKit occlusion/display-link suspension caused by a higher-layer BetterDisplay window remains plausible; AX/CGWindow visible state is insufficient to prove or disprove it.",
+    "interpretation": "A key event immediately making async content visible is consistent with a parked native frame source, but does not by itself prove occlusion."
+  },
+  "required_ab_verification": {
+    "A": [
+      "User makes Mac Bot genuinely frontmost.",
+      "User temporarily hides or exits BetterDisplay coverage only for the test; do not modify its settings.",
+      "With MACBOT_DIAGNOSTICS=1, trigger one async screen/RPC update and capture timing without pressing a key.",
+      "Record whether frame/state applied and screenshot update occur within the normal update interval."
+    ],
+    "B": [
+      "Restore the prior BetterDisplay coverage state without changing configuration.",
+      "Repeat the identical async update and capture timing without pressing a key."
+    ],
+    "decision_rule": "Only an A pass and B stall with otherwise identical app/server state supports an occlusion/display-link attribution. If both stall, continue platform/runtime diagnosis; if both pass, retain the issue as un-reproduced."
+  },
+  "boundary": "Do not claim S4 desktop continuous repaint is closed until the A/B native observation is completed.",
+  "root_raise_followup": {
+    "at": "2026-10-10T18:11:30.383572+00:00",
+    "actions": [
+      "AX Raise on Mac Bot window",
+      "Navigate Fresh-Screen and open Screen using AX",
+      "Right keyboard event after navigation"
+    ],
+    "ax": "Computer controls and fresh-screen-fixture tab observed",
+    "diagnostic": "generation22 connected, state and frame1 applied, render page=computer logged",
+    "screenshots_actually_viewed": [
+      "fresh-s4-desktop-after-raise-frame.png",
+      "fresh-s4-desktop-after-raise-screen.png"
+    ],
+    "actual_screenshot": "Still previous Fresh-Screen chat view; no screen image visible. Filenames denote attempted probe, not frame success.",
+    "continuous_frame_passed": false,
+    "root_cause_confirmed": false
+  },
+  "latest_observation": {
+    "at": "2026-10-10T18:35:32.872546+00:00",
+    "action": "cua.getApp(/Applications/MacBot.app)",
+    "result": "Computer Use server error -10005: cgWindowNotFound",
+    "process": {
+      "pid": 50057,
+      "running": true
+    },
+    "boundary": "No UI action succeeded; this does not establish a locked screen, a frozen client, or BetterDisplay causality. User foreground/environment A/B remains needed."
+  }
+}

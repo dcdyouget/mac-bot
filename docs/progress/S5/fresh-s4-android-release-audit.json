@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-10-11T02:07:28+08:00",
+  "scope": "Readonly audit of Android takeover.release lease persistence and current server operation history; no adb/UI/RPC write performed",
+  "client": {
+    "deployed_source": "9f9a1cf",
+    "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+    "takeover_record": {
+      "path": "/Users/gongshaojie/MacBot/data/takeovers/browser_takeover_01a12682-a891-742f-bfd8-5a27a3e83715.json",
+      "started_at": "2026-10-10T17:33:07.941Z",
+      "state": "active",
+      "observed_keys": [
+        "assignment_id",
+        "bot_id",
+        "chat_id",
+        "created_at",
+        "group_chat_id",
+        "question_id",
+        "reason",
+        "started_at",
+        "state"
+      ]
+    },
+    "release_ui_payload": {
+      "method": "takeover.release",
+      "params_shape": [
+        "bot_id"
+      ],
+      "note": "absent"
+    },
+    "code_evidence": [
+      "clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/computer/ComputerScreen.kt:366-369",
+      "clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/state/ClientRepository.kt:233-240,272-301",
+      "clients/mobile/shared/src/androidMain/kotlin/bot/mac/mobile/core/platform/AndroidPlatform.kt:112-118"
+    ],
+    "lease_semantics": {
+      "retry_key": "host_id:takeover.release:params-json",
+      "storage_key_prefix": "write_id:",
+      "write_durability": "AndroidPersistentStore uses SharedPreferences commit()",
+      "restart_behavior": "After process restart, the same host id and identical params reload the stored candidate UUID; a successful write removes it, while timeout/failure retains it.",
+      "same_payload_uuid": "Guaranteed by current code if host id, bot id, and note presence/value are identical. The no-note retry must omit note again; adding a note changes retryKey and creates a different UUID.",
+      "install_risk": "adb install -r/process restart preserves SharedPreferences; clearing app data or changing the saved host id would not preserve the lease."
+    }
+  },
+  "operations_scan": {
+    "path": "/Users/gongshaojie/MacBot/data/orchestrator/operations.jsonl",
+    "scan": "streamed all 3611 JSONL records, 3165078184 bytes; unrelated records were not emitted",
+    "bot_release_count": 1,
+    "matches": [
+      {
+        "at": "2026-10-10T15:59:19.629Z",
+        "event_key": "rpc:takeover.release:98441340-744a-4cc9-b3f3-054415fc4452",
+        "client_request_id": "98441340-744a-4cc9-b3f3-054415fc4452",
+        "status": "done",
+        "note_present": true,
+        "relation_to_current_takeover": "before current takeover record started at 2026-10-10T17:33:07.941Z; not evidence for the 17:38Z no-note release"
+      }
+    ],
+    "after_current_takeover_start_count": 0,
+    "conclusion": "No takeover.release operation for this Bot exists after the current takeover started; the current record remains active."
+  },
+  "diagnosis": {
+    "lease_conclusion": "The same no-note retry can safely reuse the persisted UUID after 9f process restart, subject to unchanged host id and app data.",
+    "retry_boundary": "Do not retry with a note or altered params if exact UUID reuse is required. The earlier matched release had a note and predates the current takeover.",
+    "server_conclusion": "The 17:38Z release is absent from operations; this audit does not claim it reached the server.",
+    "s4_passed": false
+  },
+  "native_after_restart": {
+    "screenshot": "fresh-s4-android-9f9a1cf-restart-driver-mismatch.png",
+    "actually_viewed": true,
+    "android_source": "9f9a1cf",
+    "server_source": "cf6b5bb",
+    "screen_frames": "15 fps in AX; 6 fps in later screenshot",
+    "label": "Bot 操作中 / 接管并处理",
+    "stored_takeover": "active",
+    "prior_marker_visible": "s5-android-input from previous953 input; not new9f input",
+    "release_retry_performed": false,
+    "reason": "Native UI offers start rather than release, so do not create another takeover."
+  }
+}

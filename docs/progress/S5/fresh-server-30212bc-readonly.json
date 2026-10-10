@@ -1,0 +1,63 @@
+{
+  "source": "30212bc7282b1646ee817accab2b0ba6bd9eb2ea",
+  "started_at": "2026-10-10T18:37:43.136406+00:00",
+  "password_source": "~/.macbot-s5-password",
+  "checks": [
+    {
+      "method": "bootstrap",
+      "started_at": "2026-10-10T18:37:43.136763+00:00",
+      "ok": true,
+      "elapsed_s": 9.033,
+      "result_keys": [
+        "bots",
+        "chats",
+        "hello",
+        "pending",
+        "projects",
+        "seq",
+        "settings"
+      ],
+      "bots_count": 7,
+      "chats_count": 12,
+      "projects_count": 3
+    },
+    {
+      "method": "workbench.get",
+      "started_at": "2026-10-10T18:37:52.170499+00:00",
+      "ok": true,
+      "elapsed_s": 0.144,
+      "result_keys": [
+        "bots",
+        "done_today",
+        "global_limit",
+        "running",
+        "subagents_running",
+        "waiting"
+      ],
+      "bots_count": 6,
+      "waiting_count": 31,
+      "done_today_count": 232
+    },
+    {
+      "method": "routine.list",
+      "started_at": "2026-10-10T18:37:52.315762+00:00",
+      "ok": true,
+      "elapsed_s": 0.103,
+      "result_keys": [
+        "routines"
+      ],
+      "routines_count": 1
+    }
+  ],
+  "boundary": "One sequential read-only call per method after verified server-only deployment. No RPC writes or model requests; timings are point observations, not full S5 acceptance.",
+  "finished_at": "2026-10-10T18:37:52.419170+00:00",
+  "state": "readonly_completed",
+  "warm_bootstrap": {
+    "at": "2026-10-10T18:38:20.915145+00:00",
+    "elapsed_s": 8.071,
+    "bots": 7,
+    "chats": 12,
+    "projects": 3,
+    "reason": "one repeat to distinguish initial startup latency from ongoing bootstrap cost"
+  }
+}

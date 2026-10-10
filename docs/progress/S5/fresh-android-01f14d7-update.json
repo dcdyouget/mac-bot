@@ -1,0 +1,55 @@
+{
+  "state": "installed_native_takeover_restoration_verified_with_delay",
+  "source": "01f14d78f203456ca9c64d8483578fd02c66d68a",
+  "source_short": "01f14d7",
+  "application_id": "bot.mac.mobile",
+  "variant": "distribution-signed Release with R8/resource shrink",
+  "apk": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/s5/androidApp-release-01f14d7.apk",
+    "bytes": 2128322,
+    "sha256": "7bdc559e9cfb57b42e57eb1dbf8d524ba7208e3a71c1323e5a89f50f4a2122be"
+  },
+  "signature": {
+    "verified": true,
+    "scheme": "APK Signature Scheme v2",
+    "certificate_dn": "CN=Mac Bot Android, OU=Development, O=Mac Bot, C=CN",
+    "certificate_sha256": "f0e092d192020efd8c41c351f8c7d62f7df10ee2c9806f8611b564c18073b161",
+    "certificate_sha1": "3378ede75492246e20442b6e026c4eabd180ea93"
+  },
+  "tests": {
+    "command": "./gradlew --console=plain :shared:commonTest :shared:androidUnitTest :androidApp:assembleRelease",
+    "result": "BUILD SUCCESSFUL",
+    "common_and_android_unit_tests": "passed",
+    "release_lint_and_packaging": "passed",
+    "log": "/Users/gongshaojie/Library/Caches/MacBot/s5/android-01f14d7-build.log"
+  },
+  "build": {
+    "archive": "/Users/gongshaojie/Library/Caches/MacBot/s5/android-source-01f14d78f203456ca9c64d8483578fd02c66d68a",
+    "source_clean": true,
+    "signing_environment": "existing distribution signing env; secret values omitted"
+  },
+  "device": {
+    "serial": "emulator-5554",
+    "avd": "macbot_api36",
+    "install_performed": true,
+    "ui_operated": true,
+    "adb_used": true
+  },
+  "acceptance_boundary": {
+    "installed": true,
+    "candidate_only": false,
+    "s5_fresh_passed": false,
+    "note": "Restored takeover and input UI from server user state without another start; original native release eventually done and driver returned to Bot. Dialog required manual close, latency unresolved; S5 not passed."
+  },
+  "backup": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/s5/android-9f9a1cf-installed-base.apk",
+    "sha256": "a78546695a9ca8da298ce1b91f5f9fa757c1290bd289ff32854d2e0cd9d7a8d3"
+  },
+  "install_at": "2026-10-10T18:18:12.533076+00:00",
+  "install_result": "Performing Streamed Install\nSuccess\n",
+  "native_evidence": [
+    "fresh-s4-android-restored-takeover.png",
+    "fresh-s4-android-native-release-retry.json",
+    "fresh-s4-android-release-driver-bot.png"
+  ]
+}

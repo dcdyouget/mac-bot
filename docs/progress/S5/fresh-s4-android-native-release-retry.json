@@ -1,0 +1,36 @@
+{
+  "at": "2026-10-10T18:25:07.041962+00:00",
+  "state": "durable_and_native_driver_released_with_delayed_dialog_gap",
+  "method": "takeover.release",
+  "params": {
+    "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715"
+  },
+  "uuid_source": "Existing Android write lease persisted before original native request; identical host/payload reuses UUID. No external RPC/new UUID generated. Actual operation UUID to reconcile readonly after action.",
+  "lease_audit": "fresh-s4-android-release-audit.json",
+  "scope": "Original manual takeover active since2026-10-10T17:33:07.941Z; same Fresh-Screen bot and local fixture; note omitted.",
+  "server": "47fdd2a",
+  "android": "01f14d7",
+  "prior_record": "active",
+  "screenshot_before": "fresh-s4-android-restored-takeover.png",
+  "confirmation_observation_at": "2026-10-10T18:25:40.919108+00:00",
+  "action": "Tapped no-note native confirmation exactly once; dialog remains, no repeat",
+  "readonly_reconciled_at": "2026-10-10T18:28:01.871292+00:00",
+  "operation_uuid": "4dfb02dd-6117-492c-b806-6c1067eabd56",
+  "operation_done_at": "2026-10-10T18:26:31.605Z",
+  "record_after": {
+    "state": "done",
+    "started_at": "2026-10-10T17:33:07.941Z",
+    "released_at": "2026-10-10T18:26:31.589Z"
+  },
+  "browser_takeover_after": false,
+  "native_after": {
+    "screenshot": "fresh-s4-android-release-driver-bot.png",
+    "actually_viewed": true,
+    "status": "Bot 操作中",
+    "button": "接管并处理",
+    "input_field_visible": false,
+    "fps_ax": 15,
+    "dialog": "Did not auto-close; root explicitly clicked Close after readonly operation completion. Do not count automatic acknowledgement UX as passed."
+  },
+  "s4_passed": false
+}

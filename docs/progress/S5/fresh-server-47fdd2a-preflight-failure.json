@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-10T18:22:56.609181+00:00",
+  "state": "read_only_preflight_failed_before_deployment",
+  "method": "approval.list",
+  "timeout_seconds": 60,
+  "original_pid": 84786,
+  "deployment_journal_created": false,
+  "service_mutated": false,
+  "followup": "Reuse verified expanded package and capture pending approvals directly from durable orchestrator snapshot; do not repeat any business write."
+}
