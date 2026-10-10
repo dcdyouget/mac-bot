@@ -1016,10 +1016,10 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                 match event {
                     Ok(event) => {
                         let event_name = event.get("event").and_then(Value::as_str).unwrap_or("");
-                        if matches!(event_name, "trace.item" | "memory.updated") {
-                            // Internal durable events are projected to a cursor
-                            // so every client consumes their sequence without
-                            // receiving feature-private payloads.
+                        if event_name == "trace.item" {
+                            // Internal durable trace events are projected to a
+                            // cursor so every client consumes their sequence
+                            // without receiving feature-private payloads.
                             if event.get("seq").and_then(Value::as_u64).is_some()
                                 && sink.send(text_frame(&global_event_frame(&event))).await.is_err()
                             {
@@ -1038,6 +1038,15 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                             }
                             for frame in frames {
                                 if sink.send(text_frame(&frame)).await.is_err() { break; }
+                            }
+                        } else if event_name == "memory.updated" {
+                            // Memory is durable but has no public payload
+                            // contract. It still advances every client's
+                            // cursor and must never enter trace routing.
+                            if event.get("seq").and_then(Value::as_u64).is_some()
+                                && sink.send(text_frame(&global_event_frame(&event))).await.is_err()
+                            {
+                                break;
                             }
                         } else if matches!(event_name, "trace.delta" | "trace.tool_output") {
                             let data = event.get("data").cloned().unwrap_or(Value::Null);
