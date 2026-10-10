@@ -487,3 +487,14 @@
 - 桌面487122a/8d347b6/2f09174修复轨迹和消息的估算高度覆盖、窄栏横向裁切；86客户端测试、真实TraceView首帧/展开/更新布局测试及clippy通过。只更新桌面至2f09174，实际已看长JSON换行、长报告和插话分离、窄窗口滚动及跟随最新，截图已归档。
 - Android仍cac5b12d，mock保持；桌面S3同UTC日期用量与RPC一致，Android同范围及adb输入方式待确认。S0仍唯一整阶段通过；完整S2/双端/S1实时恢复/S4/S5fresh未通过。GitHub推送曾超时，本地main小步合入完成，继续重试远端；文档提交不触发组件重部署。
 - 证据与最短剩余清单：docs/progress/S2/2026-10-10-takeover-closeout.md。根协调单独提交理由：更新解锁后的真实现场、跨组件修复边界和未完成阶段，替代过时的“仍锁屏”阻塞描述。
+
+## integrator：审批浏览器恢复与原生输入续办（2026-10-10）
+
+- d627486 修复项目关注提醒对每条历史消息重复全量扫描事件日志、持有 RPC 写锁过久；正式现场曾 approval.list 10 秒超时，采样定位 events_since 解析。修复后约1.83秒响应；前测处在双 release 构建高负载期间，不宣称受控性能倍数。
+- e78f048 保留 browser_act 数值/布尔 args 并显式拒绝嵌套/空值；0d7c887 在所有执行和审批/问题/消息续跑入口加载持久 Bot 浏览器配置，并清除缺标签错误遗留 busy。188 gateway +17 browser 测试与严格 clippy 通过。仅部署 server 0d7c887，PID6626与7788一致；桌面2f09174和Android安装APK cac5b12未变。
+- 每次升级前后逐项核对16个pending；0d升级同时核对当前Tester job、run request和浏览器session文件原哈希。没有打开Tester屏幕，原审批仍成功恢复t4并返回viewport360×800，证明不再依赖屏幕连接初始化。原无tab失败aseq85保留，不手改映射。
+- Tester第三次run实际完成空输入/错误密码/正确登录/刷新检查；DOMRect返回空对象后因16轮上限failed，不能据此判布局或退出通过。剩余项和报告消息进入既有Tester 01a1237c-7a83…bb49，未新建项目/兄弟任务；逐项allow_once，仅限原本机demo和报告，旧未知siblings不批量处理。TEST-browser.md尚未完成。
+- 桌面本地隔离fixture持续动画、质量切换、真实键盘输入和鼠标提交、释放后Bot操作中局部通过；控制切换用预存UUID的RPC，输入用CUA原生窗口。实际截图已查看；server切换期间断连截图保留，重新打开画面恢复，不把断连截图当成功。
+- 模拟器后来退出，重启因磁盘只余1.4GiB被拒。只清理本轮integrator客户端debug测试缓存后余7.2GiB；新启动host渲染挂起，软件渲染启动成功、原APK哈希和数据保留。当前实际截图为System UI无响应弹窗；CUA无模拟器控制面，adb输入方式仍待用户回应，不能计Android UI恢复。未知旧进程未杀，仅结束本轮明确启动且卡住的模拟器尝试。
+- 已审计0d7c887 pkg及71fddde正式release DMG，候选保存在仓库外release-candidates；未安装、未fresh。S0仍唯一整阶段通过。GitHub main已成功推至d627486，后续归档继续同步；文档提交不重部署。
+- 根协调单独提交理由：更新真实部署来源、恢复缺陷/回归证据及模拟器外部阻塞，避免后续沿用过时PID和锁屏结论。详情见docs/progress/S2/2026-10-10-takeover-closeout.md。
