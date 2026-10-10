@@ -198,7 +198,7 @@ impl ComposedBackend {
         for (approval_id, approval) in approvals {
             if !matches!(
                 approval.get("tool").and_then(Value::as_str),
-                Some("memory" | "memory_search" | "write" | "edit")
+                Some("memory" | "memory_search" | "write" | "edit" | "skill_draft")
             ) || !matches!(
                 approval.get("state").and_then(Value::as_str),
                 Some("pending" | "expired")
@@ -3512,6 +3512,9 @@ fn bot_tool_allowlist(
     if !is_main && files_enabled {
         names.extend(["read", "ls", "find", "grep", "write", "edit"]);
     }
+    if !is_main {
+        names.push("skill_draft");
+    }
     if !is_main
         && config
             .and_then(|value| value.get("bash"))
@@ -5917,6 +5920,9 @@ mod model_resolution_tests {
         for name in ["read", "write", "edit", "bash", "browser_open", "subagent"] {
             assert!(!names.iter().any(|allowed| allowed == name), "{name}");
         }
+        assert!(!names.iter().any(|name| name == "skill_draft"));
+        let worker_names = super::bot_tool_allowlist(Some(&bot), false, true, false).unwrap();
+        assert!(worker_names.iter().any(|name| name == "skill_draft"));
     }
     use super::{
         answered_decision_answer, answered_decision_checkpoint_is_safe,

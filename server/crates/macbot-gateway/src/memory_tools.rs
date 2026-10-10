@@ -8,7 +8,8 @@ use async_trait::async_trait;
 use macbot_memory::{ContextPackage, ContextRequest, MemoryEntry, MemorySource, MemoryTarget};
 use macbot_tools::{Risk, Tool, ToolContext, ToolResult};
 use serde_json::{json, Map, Value};
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 /// Per-run identity and visibility. A runtime must be created with the
 /// gateway's authenticated user and resolved project membership; tools never
@@ -162,7 +163,7 @@ impl FeatureToolRuntime {
     }
 
     pub fn tools(&self) -> Vec<Arc<dyn Tool>> {
-        vec![
+        let mut tools: Vec<Arc<dyn Tool>> = vec![
             Arc::new(SkillTool {
                 runtime: self.clone(),
             }),
@@ -181,7 +182,15 @@ impl FeatureToolRuntime {
             Arc::new(ChatHistoryTool {
                 runtime: self.clone(),
             }),
-        ]
+        ];
+        // Main is a coordination-only Bot. Draft creation is a work-side
+        // mutation and must never be exposed in its model tool set.
+        if !self.run.actor.is_main() {
+            tools.push(Arc::new(SkillDraftTool {
+                runtime: self.clone(),
+            }));
+        }
+        tools
     }
 
     pub fn run_started(&self, run_id: &str) -> Result<(), FeatureError> {
@@ -227,6 +236,7 @@ impl FeatureToolRuntime {
 pub struct FeatureExecutionSink {
     delegate: Arc<dyn crate::execution::ExecutionSink>,
     runtime: FeatureToolRuntime,
+    skill_draft_calls: Arc<Mutex<HashSet<String>>>,
 }
 
 impl FeatureExecutionSink {
@@ -234,7 +244,42 @@ impl FeatureExecutionSink {
         delegate: Arc<dyn crate::execution::ExecutionSink>,
         runtime: FeatureToolRuntime,
     ) -> Self {
-        Self { delegate, runtime }
+        Self {
+            delegate,
+            runtime,
+            skill_draft_calls: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
+    fn skill_updated_event(&self, event: &crate::execution::ExecutionEvent) -> Option<Value> {
+        if event.event != "trace.item" {
+            return None;
+        }
+        let item = event.data.get("item")?;
+        let data = item.get("data")?;
+        match item.get("type").and_then(Value::as_str) {
+            Some("tool.start")
+                if data.get("name").and_then(Value::as_str) == Some("skill_draft") =>
+            {
+                if let Some(call_id) = data.get("call_id").and_then(Value::as_str) {
+                    self.skill_draft_calls
+                        .lock()
+                        .ok()?
+                        .insert(call_id.to_owned());
+                }
+                None
+            }
+            Some("tool.end") => {
+                let call_id = data.get("call_id").and_then(Value::as_str)?;
+                let was_skill_draft = self.skill_draft_calls.lock().ok()?.remove(call_id);
+                if !was_skill_draft || data.get("is_error").and_then(Value::as_bool) != Some(false)
+                {
+                    return None;
+                }
+                data.get("details")?.get("_skill_updated").cloned()
+            }
+            _ => None,
+        }
     }
 
     fn context_request(&self, request: &crate::execution::ExecutionRequest) -> ContextRequest {
@@ -302,6 +347,7 @@ impl FeatureExecutionSink {
 #[async_trait]
 impl crate::execution::ExecutionSink for FeatureExecutionSink {
     async fn emit(&self, event: crate::execution::ExecutionEvent) {
+        let skill_updated = self.skill_updated_event(&event);
         let run_end = if event.event == "run.end" {
             Some(&event.data)
         } else if event.event == "trace.item"
@@ -323,6 +369,18 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
             }
         }
         self.delegate.emit(event).await;
+        if let Some(data) = skill_updated {
+            // The tool mutation has already been persisted by the shared
+            // SkillRegistry. Route the live update through the same sink as
+            // RPC skill mutations so connected clients refresh immediately.
+            self.delegate
+                .emit(crate::execution::ExecutionEvent {
+                    event: "skill.updated".into(),
+                    data,
+                    persistent: true,
+                })
+                .await;
+        }
     }
 
     async fn send_group_message(&self, message: Value) -> Result<Value, String> {
@@ -430,6 +488,59 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
 
 struct SkillTool {
     runtime: FeatureToolRuntime,
+}
+
+struct SkillDraftTool {
+    runtime: FeatureToolRuntime,
+}
+
+#[async_trait]
+impl Tool for SkillDraftTool {
+    fn name(&self) -> &str {
+        "skill_draft"
+    }
+
+    fn description(&self) -> &str {
+        "When the user asks to turn the just-completed approach into a skill, create a draft with valid SKILL.md frontmatter (matching name and description) for review. Never publish or enable it automatically."
+    }
+
+    fn schema(&self) -> Value {
+        json!({
+            "type":"object",
+            "required":["name","content"],
+            "properties":{
+                "name":{"type":"string","minLength":1},
+                "content":{"type":"string","minLength":1}
+            }
+        })
+    }
+
+    fn risk(&self, _: &Value) -> Risk {
+        Risk::Write
+    }
+
+    async fn call(&self, _ctx: &ToolContext, args: Value) -> ToolResult {
+        if self.runtime.run.actor.is_main() {
+            return ToolResult::error("skill_draft is unavailable to the coordination Bot");
+        }
+        if let Err(error) = validate_skill_draft_tool_args(&args) {
+            return ToolResult::error(error);
+        }
+        let result = (|| -> Result<Value, FeatureError> {
+            let object = object(&args)?;
+            let name = required(&object, "name")?;
+            let content = required(&object, "content")?;
+            let skill = self.runtime.service.create_skill_draft(name, content)?;
+            // FeatureExecutionSink consumes this private result metadata and
+            // emits the normal durable/live skill.updated event after the
+            // trace item has been recorded.
+            Ok(json!({
+                "skill": skill,
+                "_skill_updated": {"skill": skill}
+            }))
+        })();
+        into_result(result)
+    }
 }
 
 #[async_trait]
@@ -732,6 +843,24 @@ fn required<'a>(object: &'a Map<String, Value>, key: &str) -> Result<&'a str, Fe
         .ok_or_else(|| FeatureError::Invalid(format!("{key} is required")))
 }
 
+/// Validate draft arguments before the execution engine creates a write
+/// approval. Registry-specific checks (name normalization and filesystem
+/// safety) remain in `SkillRegistry::create_draft`.
+pub fn validate_skill_draft_tool_args(args: &Value) -> Result<(), String> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| "tool arguments must be an object".to_owned())?;
+    let name = required(object, "name").map_err(|error| error.to_string())?;
+    if name.trim().is_empty() {
+        return Err("name is required".into());
+    }
+    let content = required(object, "content").map_err(|error| error.to_string())?;
+    if content.trim().is_empty() {
+        return Err("content is required".into());
+    }
+    Ok(())
+}
+
 fn with_run_id(mut args: Value, run_id: &str) -> Value {
     if let Some(object) = args.as_object_mut() {
         object.insert("run_id".into(), Value::String(run_id.to_string()));
@@ -889,8 +1018,10 @@ fn into_result<T: serde::Serialize>(result: Result<T, FeatureError>) -> ToolResu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::ExecutionSink;
     use chrono::Utc;
     use macbot_memory::{ConversationKind, MemoryScope};
+    use std::sync::Mutex as StdMutex;
     use tempfile::tempdir;
 
     fn runtime() -> FeatureToolRuntime {
@@ -1224,6 +1355,173 @@ mod tests {
             )
             .await;
         assert!(!forced.is_error);
+    }
+
+    #[tokio::test]
+    async fn skill_draft_tool_validates_registers_and_stays_unpublished() {
+        let runtime = runtime();
+        let draft = runtime
+            .tools()
+            .into_iter()
+            .find(|tool| tool.name() == "skill_draft")
+            .expect("worker must receive skill_draft");
+        assert_eq!(draft.risk(&json!({})), Risk::Write);
+        assert!(
+            draft
+                .call(
+                    &ToolContext::new("/tmp", "run-1", "/tmp/runs"),
+                    json!({"name":"draft-only"})
+                )
+                .await
+                .is_error
+        );
+        assert!(validate_skill_draft_tool_args(&json!({
+            "name": " ",
+            "content": "body"
+        }))
+        .is_err());
+
+        let result = draft
+            .call(
+                &ToolContext::new("/tmp", "run-1", "/tmp/runs"),
+                json!({"name":"draft-only","content":"---\nname: draft-only\ndescription: Draft\n---\n# Draft"}),
+            )
+            .await;
+        assert!(!result.is_error, "{:?}", result.content);
+        assert_eq!(result.details["skill"]["source"], "draft");
+        let registry = runtime.service.skill_registry.read().unwrap();
+        let error = registry
+            .load_for_bot("draft-only", Some("bot-a"))
+            .unwrap_err();
+        assert!(error.to_string().contains("must be published"), "{error}");
+        drop(registry);
+
+        let published = runtime
+            .service
+            .skill_rpc("skill.publish", json!({"name":"draft-only"}))
+            .unwrap();
+        assert_eq!(published.result["skill"]["source"], "user");
+        assert!(runtime
+            .service
+            .skill_registry
+            .read()
+            .unwrap()
+            .load_for_bot("draft-only", Some("bot-a"))
+            .is_ok());
+    }
+
+    #[test]
+    fn main_runtime_does_not_register_skill_draft() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        let runtime = FeatureToolRuntime::new(service, FeatureRunContext::main("main", "user-a"));
+        assert!(runtime
+            .tools()
+            .into_iter()
+            .all(|tool| tool.name() != "skill_draft"));
+    }
+
+    #[derive(Default)]
+    struct EventRecordingSink {
+        events: StdMutex<Vec<crate::execution::ExecutionEvent>>,
+    }
+
+    #[async_trait]
+    impl crate::execution::ExecutionSink for EventRecordingSink {
+        async fn emit(&self, event: crate::execution::ExecutionEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+
+        async fn send_group_message(&self, message: Value) -> Result<Value, String> {
+            Ok(message)
+        }
+
+        async fn validate_send_msg_target(&self, _: &Value) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn approval_required(&self, _: Value) {}
+    }
+
+    #[tokio::test]
+    async fn successful_skill_draft_trace_emits_skill_updated_event() {
+        let runtime = runtime();
+        let draft = runtime
+            .tools()
+            .into_iter()
+            .find(|tool| tool.name() == "skill_draft")
+            .unwrap();
+        let result = draft
+            .call(
+                &ToolContext::new("/tmp", "run-1", "/tmp/runs"),
+                json!({"name":"event-draft","content":"---\nname: event-draft\ndescription: Draft\n---\n# Draft"}),
+            )
+            .await;
+        assert!(!result.is_error);
+        let delegate = Arc::new(EventRecordingSink::default());
+        let sink = FeatureExecutionSink::new(delegate.clone(), runtime);
+        sink.emit(crate::execution::ExecutionEvent {
+            event: "trace.item".into(),
+            data: json!({
+                "item": {
+                    "type": "tool.start",
+                    "data": {"call_id":"draft-call","name":"skill_draft"}
+                }
+            }),
+            persistent: true,
+        })
+        .await;
+        sink.emit(crate::execution::ExecutionEvent {
+            event: "trace.item".into(),
+            data: json!({
+                "item": {
+                    "type": "tool.end",
+                    "data": {"call_id":"draft-call","is_error": false, "details": result.details}
+                }
+            }),
+            persistent: true,
+        })
+        .await;
+        let events = delegate.events.lock().unwrap();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[2].event, "skill.updated");
+        assert_eq!(events[2].data["skill"]["name"], "event-draft");
+    }
+
+    #[tokio::test]
+    async fn skill_updated_metadata_from_other_tool_is_ignored() {
+        let runtime = runtime();
+        let delegate = Arc::new(EventRecordingSink::default());
+        let sink = FeatureExecutionSink::new(delegate.clone(), runtime);
+        sink.emit(crate::execution::ExecutionEvent {
+            event: "trace.item".into(),
+            data: json!({
+                "item": {
+                    "type": "tool.start",
+                    "data": {"call_id":"read-call","name":"read"}
+                }
+            }),
+            persistent: true,
+        })
+        .await;
+        sink.emit(crate::execution::ExecutionEvent {
+            event: "trace.item".into(),
+            data: json!({
+                "item": {
+                    "type": "tool.end",
+                    "data": {
+                        "call_id":"read-call",
+                        "is_error":false,
+                        "details":{"_skill_updated":{"skill":{"name":"spoof"}}}
+                    }
+                }
+            }),
+            persistent: true,
+        })
+        .await;
+        let events = delegate.events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| event.event != "skill.updated"));
     }
 
     #[test]

@@ -603,6 +603,9 @@ impl ExecutionEngine {
         name: &str,
         args: &Value,
     ) -> Option<String> {
+        if name == "skill_draft" {
+            return crate::memory_tools::validate_skill_draft_tool_args(args).err();
+        }
         if !matches!(name, "memory" | "memory_search") {
             return None;
         }
@@ -1735,7 +1738,7 @@ impl ExecutionEngine {
                         && (matches!(&risk, Risk::Write | Risk::Exec | Risk::External)
                             || builtin_risky));
                 if risky && !self.risky_call_allowed(&request, &call.name, &call.args) {
-                    let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":tool_calls[call_index..],"approval_detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref())});
+                    let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":tool_calls[call_index..],"approval_detail":approval_detail_with_home(&call.name,&call.args,cwd,actual_user_home().as_deref(),&self.home)});
                     self.state.durable.lock().await.commit(
                         &job.id,
                         JobStatus::Waiting,
@@ -1763,7 +1766,7 @@ impl ExecutionEngine {
                             "tool":call.name,
                             "risk":risk,
                             "summary":format!("Approval required for {}",call.name),
-                            "detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref()).to_string(),
+                            "detail":approval_detail_with_home(&call.name,&call.args,cwd,actual_user_home().as_deref(),&self.home).to_string(),
                             "state":"pending",
                             "created_at":now_rfc3339(),
                             "decided_at":null
@@ -1779,7 +1782,7 @@ impl ExecutionEngine {
                     });
                 }
                 if risky {
-                    let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":tool_calls[call_index..],"approval_detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref())});
+                    let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":tool_calls[call_index..],"approval_detail":approval_detail_with_home(&call.name,&call.args,cwd,actual_user_home().as_deref(),&self.home)});
                     self.state.durable.lock().await.commit(
                         &job.id,
                         JobStatus::Running,
@@ -2438,7 +2441,7 @@ impl ExecutionEngine {
                 self.state.durable.lock().await.commit(
                     &job.id,
                     JobStatus::Waiting,
-                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls,"approval_detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref())}),
+                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls,"approval_detail":approval_detail_with_home(&call.name,&call.args,cwd,actual_user_home().as_deref(),&self.home)}),
                     true,
                 )?;
                 self.trace(
@@ -2462,7 +2465,7 @@ impl ExecutionEngine {
                         "tool":call.name,
                         "risk":risk_name,
                         "summary":format!("Approval required for {}",call.name),
-                        "detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref()).to_string(),
+                        "detail":approval_detail_with_home(&call.name,&call.args,cwd,actual_user_home().as_deref(),&self.home).to_string(),
                         "state":"pending",
                         "created_at":now_rfc3339(),
                         "decided_at":null
@@ -2484,7 +2487,7 @@ impl ExecutionEngine {
                 self.state.durable.lock().await.commit(
                     &job.id,
                     JobStatus::Running,
-                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls,"approval_detail":approval_detail(&call.name,&call.args,cwd,actual_user_home().as_deref())}),
+                    json!({"run_id":request.run_id,"round":turn,"messages":messages,"pending_tool":call,"pending_tools":all_calls,"approval_detail":approval_detail_with_home(&call.name,&call.args,cwd,actual_user_home().as_deref(),&self.home)}),
                     true,
                 )?;
             }
@@ -3086,6 +3089,9 @@ pub(crate) fn invalid_pending_tool_args(
     args: &Value,
     approval_detail: Option<&Value>,
 ) -> Option<String> {
+    if name == "skill_draft" {
+        return crate::memory_tools::validate_skill_draft_tool_args(args).err();
+    }
     if let Some(error) = invalid_memory_tool_args(name, args) {
         return Some(error);
     }
@@ -3109,11 +3115,22 @@ pub(crate) fn invalid_pending_tool_args(
     }
 }
 
+#[cfg(test)]
 fn approval_detail(
     tool_name: &str,
     args: &Value,
     cwd: &std::path::Path,
     user_home: Option<&std::path::Path>,
+) -> Value {
+    approval_detail_with_home(tool_name, args, cwd, user_home, cwd)
+}
+
+fn approval_detail_with_home(
+    tool_name: &str,
+    args: &Value,
+    cwd: &std::path::Path,
+    user_home: Option<&std::path::Path>,
+    execution_home: &std::path::Path,
 ) -> Value {
     let mut detail = args.clone();
     if matches!(tool_name, "read" | "write" | "edit") {
@@ -3123,6 +3140,23 @@ fn approval_detail(
                     object.insert("resolved_path".into(), json!(resolved));
                     object.insert("path_resolution".into(), json!("home-v1"));
                 }
+            }
+        }
+    }
+    if tool_name == "skill_draft" {
+        if let Some(name) = args.get("name").and_then(Value::as_str) {
+            if let Some(object) = detail.as_object_mut() {
+                // Skill drafts are rooted in the server's configured
+                // MACBOT_HOME, never the Bot's task cwd. Keep the requested
+                // name alongside the absolute target for approval review.
+                object.insert(
+                    "effective_target".into(),
+                    json!({
+                        "kind": "skill_draft",
+                        "name": name,
+                        "path": execution_home.join("skills").join(".drafts").join(name)
+                    }),
+                );
             }
         }
     }
@@ -3584,6 +3618,8 @@ fn risky_call_allowed_from_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::features::FeatureService;
+    use crate::memory_tools::{FeatureExecutionSink, FeatureRunContext, FeatureToolRuntime};
     use macbot_providers::{MockProvider, ToolCall};
     use macbot_tools::{BashJobManager, BashTool, ReadTool, WriteTool};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -3617,6 +3653,40 @@ mod tests {
             invalid_memory_tool_args("memory_search", &json!({"query":"lookup"})),
             None
         );
+    }
+
+    #[test]
+    fn skill_draft_arguments_are_rejected_before_approval() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let engine = ExecutionEngine::new(
+            store,
+            Arc::new(MockProvider::new(Vec::new())),
+            Vec::<Arc<dyn Tool>>::new(),
+            Arc::new(RecordingSink::default()),
+            dir.path(),
+        )
+        .unwrap();
+        let request = request(false);
+        assert_eq!(
+            engine.invalid_memory_args_for_request(&request, "skill_draft", &json!({})),
+            Some("invalid feature request: name is required".into())
+        );
+        assert_eq!(
+            engine.invalid_memory_args_for_request(
+                &request,
+                "skill_draft",
+                &json!({"name":"draft"})
+            ),
+            Some("invalid feature request: content is required".into())
+        );
+        assert!(engine
+            .invalid_memory_args_for_request(
+                &request,
+                "skill_draft",
+                &json!({"name":"draft","content":"body"})
+            )
+            .is_none());
     }
 
     #[test]
@@ -4712,6 +4782,18 @@ mod tests {
         assert!(invalid_pending_tool_args("write", &args, None).is_some());
         assert!(invalid_pending_tool_args("edit", &args, Some(&json!({}))).is_some());
         assert!(invalid_pending_tool_args("read", &args, None).is_none());
+        let skill_detail = approval_detail_with_home(
+            "skill_draft",
+            &json!({"name":"review-flow","content":"---\nname: review-flow\ndescription: review\n---\n# Draft"}),
+            &cwd,
+            Some(&user_home),
+            &home,
+        );
+        assert_eq!(
+            skill_detail["effective_target"]["path"],
+            json!(home.join("skills").join(".drafts").join("review-flow"))
+        );
+        assert_eq!(skill_detail["effective_target"]["kind"], "skill_draft");
         assert!(builtin_requires_approval(
             "bash",
             &json!({"command":"rm -rf ~/MacBot/runs/cache"}),
@@ -6806,5 +6888,116 @@ mod tests {
             std::fs::read_to_string(dir.path().join("approved.txt")).unwrap(),
             "approved"
         );
+    }
+
+    #[tokio::test]
+    async fn skill_draft_event_survives_approval_resume_with_rebuilt_sink() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let service =
+            Arc::new(FeatureService::with_store(store.clone(), dir.path(), Vec::new()).unwrap());
+        let delegate = Arc::new(RecordingSink::default());
+        let runtime = FeatureToolRuntime::new(
+            service.clone(),
+            FeatureRunContext::bot("bot_mock", "user-a"),
+        );
+        let first_sink: Arc<dyn ExecutionSink> =
+            Arc::new(FeatureExecutionSink::new(delegate.clone(), runtime));
+        let provider = Arc::new(MockProvider::new(vec![Completion {
+            tool_calls: vec![ToolCall {
+                call_id: "call_skill_draft".into(),
+                name: "skill_draft".into(),
+                args: json!({
+                    "name":"resume-draft",
+                    "content":"---\nname: resume-draft\ndescription: Resume draft\n---\n# Draft"
+                }),
+            }],
+            stop_reason: "tool_calls".into(),
+            ..Default::default()
+        }]));
+        let mut pending = request(false);
+        pending.allow_unsafe = false;
+        let first = ExecutionEngine::new(
+            store.clone(),
+            provider,
+            service_tools(&service, false),
+            first_sink,
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            first.run(pending.clone()).await.unwrap().status,
+            "suspended"
+        );
+
+        let mut durable = macbot_durable::DurableRuntime::from_store(store.clone()).unwrap();
+        let job = durable
+            .jobs()
+            .find(|job| job.checkpoint["run_id"].as_str() == Some("run_mock"))
+            .cloned()
+            .unwrap();
+        durable
+            .commit(&job.id, JobStatus::Suspended, job.checkpoint, true)
+            .unwrap();
+
+        let second_runtime = FeatureToolRuntime::new(
+            service.clone(),
+            FeatureRunContext::bot("bot_mock", "user-a"),
+        );
+        let second_sink: Arc<dyn ExecutionSink> =
+            Arc::new(FeatureExecutionSink::new(delegate.clone(), second_runtime));
+        let provider = Arc::new(MockProvider::new(vec![Completion {
+            text: "draft saved".into(),
+            stop_reason: "stop".into(),
+            ..Default::default()
+        }]));
+        pending.resume_approved = true;
+        let second = ExecutionEngine::new(
+            store,
+            provider,
+            service_tools(&service, false),
+            second_sink,
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(second.run(pending).await.unwrap().status, "done");
+
+        let events = delegate.events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "skill.updated")
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .find(|event| event.event == "skill.updated")
+                .unwrap()
+                .data["skill"]["name"],
+            "resume-draft"
+        );
+        let skill = service
+            .skill_registry
+            .read()
+            .unwrap()
+            .list()
+            .into_iter()
+            .find(|skill| skill.name == "resume-draft")
+            .unwrap();
+        assert_eq!(skill.source, macbot_skills::SkillSource::Draft);
+    }
+
+    fn service_tools(service: &Arc<FeatureService>, is_main: bool) -> Vec<Arc<dyn Tool>> {
+        let runtime = if is_main {
+            FeatureToolRuntime::new(service.clone(), FeatureRunContext::main("main", "user-a"))
+        } else {
+            FeatureToolRuntime::new(
+                service.clone(),
+                FeatureRunContext::bot("bot_mock", "user-a"),
+            )
+        };
+        runtime.tools()
     }
 }
