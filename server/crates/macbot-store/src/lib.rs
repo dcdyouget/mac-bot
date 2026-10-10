@@ -6,7 +6,10 @@
 //! JSONL record; a malformed complete record is reported instead of silently
 //! losing data.
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{
+    de::{DeserializeOwned, IgnoredAny},
+    Deserialize, Serialize,
+};
 use serde_json::Value;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -14,7 +17,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     hash::{Hash, Hasher},
-    io::{self, Read, Write},
+    io::{self, BufRead, BufReader, Read, Write},
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -456,12 +459,55 @@ impl Store {
                     visit(&path, store)?;
                 } else if path.extension().is_some_and(|x| x == "jsonl") {
                     let rel = path.strip_prefix(store.root()).unwrap_or(&path);
-                    let _: Vec<Value> = store.read_jsonl(rel)?;
+                    store.validate_jsonl(rel)?;
                 }
             }
             Ok(())
         }
         visit(&self.root.join("data"), self)
+    }
+
+    /// Validate JSONL syntax while keeping only one line in memory. Startup
+    /// repair needs to detect malformed complete records and truncate a torn
+    /// final record, but it does not need to materialize every historical
+    /// value (some operation logs are hundreds of megabytes).
+    fn validate_jsonl(&self, relative: &Path) -> Result<(), StoreError> {
+        let path = self.resolve(relative)?;
+        if !path.exists() {
+            return Ok(());
+        }
+        let lock = self.file_lock(&path);
+        let _guard = lock.lock().expect("file lock poisoned");
+        let file = File::open(&path)?;
+        let mut reader = BufReader::new(file);
+        let mut line = Vec::new();
+        let mut complete_len = 0u64;
+        let mut line_number = 0usize;
+        loop {
+            line.clear();
+            let read = reader.read_until(b'\n', &mut line)?;
+            if read == 0 {
+                break;
+            }
+            if line.last().copied() != Some(b'\n') {
+                let file = OpenOptions::new().write(true).open(&path)?;
+                file.set_len(complete_len)?;
+                file.sync_data()?;
+                break;
+            }
+            complete_len += read as u64;
+            line_number += 1;
+            let record = &line[..line.len() - 1];
+            if record.is_empty() {
+                continue;
+            }
+            serde_json::from_slice::<IgnoredAny>(record).map_err(|source| StoreError::Json {
+                path: path.clone(),
+                line: line_number,
+                source,
+            })?;
+        }
+        Ok(())
     }
 
     /// Keep the lock file alive for the lifetime of the store.
@@ -809,6 +855,18 @@ mod tests {
         let records: Vec<Value> = store.read_jsonl("data/log.jsonl").unwrap();
         assert_eq!(records, vec![serde_json::json!({"n": 1})]);
         assert_eq!(fs::read_to_string(path).unwrap(), "{\"n\":1}\n");
+    }
+
+    #[test]
+    fn rejects_malformed_complete_jsonl_record_during_open() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("data")).unwrap();
+        fs::write(dir.path().join("data/log.jsonl"), b"{\"n\":1}\n{\"n\":\n").unwrap();
+        let error = match Store::open(dir.path()) {
+            Ok(_) => panic!("malformed JSONL should be rejected"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, StoreError::Json { line: 2, .. }));
     }
 
     #[test]
