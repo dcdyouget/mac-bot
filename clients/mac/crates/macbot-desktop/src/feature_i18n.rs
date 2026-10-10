@@ -120,7 +120,7 @@ pub fn text(key: &str) -> &'static str {
         "skills.description" => "描述",
         "skills.instructions" => "SKILL.md 内容",
         "skills.files" => "附带文件",
-        "skills.bot_scope" => "按 Bot 停用",
+        "skills.bot_scope" => "对个别 Bot 启用",
         "skills.empty" => "还没有技能",
         "settings.title" => "设置",
         "settings.provider" => "模型与服务商",
