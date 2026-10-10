@@ -340,8 +340,13 @@ pub struct ExecutionState {
 
 impl ExecutionState {
     pub fn from_store(store: Store) -> Result<Arc<Self>, ExecutionError> {
-        Ok(Arc::new(Self {
-            durable: Arc::new(Mutex::new(DurableRuntime::from_store(store.clone())?)),
+        let durable = Arc::new(Mutex::new(DurableRuntime::from_store(store.clone())?));
+        Ok(Self::with_durable(store, durable))
+    }
+
+    pub fn with_durable(store: Store, durable: Arc<Mutex<DurableRuntime>>) -> Arc<Self> {
+        Arc::new(Self {
+            durable,
             model_rate_limiter: ModelRateLimiter::new(store),
             aseq: Arc::new(Mutex::new(HashMap::new())),
             cancelled: Arc::new(Mutex::new(HashSet::new())),
@@ -349,7 +354,7 @@ impl ExecutionState {
             usage_ticks: Arc::new(Mutex::new(HashMap::new())),
             recovered: Mutex::new(false),
             run_locks: Mutex::new(HashMap::new()),
-        }))
+        })
     }
 
     async fn cancellation_for(&self, run_id: &str) -> ToolCancellation {

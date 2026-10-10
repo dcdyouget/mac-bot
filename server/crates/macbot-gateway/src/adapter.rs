@@ -5013,12 +5013,31 @@ impl ProductionBackend {
             .orchestrator
             .snapshot()
             .map_err(|error| error.to_string())?;
+        self.enrich_bot_status_from_snapshot(result, &snapshot, None)
+    }
+
+    fn enrich_bot_status_from_snapshot(
+        &self,
+        result: &mut Value,
+        snapshot: &Value,
+        private_counts: Option<&HashMap<String, (u32, u32, u32, bool)>>,
+    ) -> Result<(), String> {
+        let counts = self.bot_counts_from_snapshot(snapshot, private_counts)?;
+        Self::apply_bot_status(result, &counts);
+        Ok(())
+    }
+
+    fn bot_counts_from_snapshot(
+        &self,
+        snapshot: &Value,
+        private_counts: Option<&HashMap<String, (u32, u32, u32, bool)>>,
+    ) -> Result<HashMap<String, (u32, u32, u32, bool)>, String> {
         let Some(assignments) = snapshot
             .get("assignments")
             .and_then(Value::as_object)
             .cloned()
         else {
-            return Ok(());
+            return Ok(HashMap::new());
         };
         let mut counts: HashMap<String, (u32, u32, u32, bool)> = HashMap::new();
         let assignment_status = assignments
@@ -5084,7 +5103,21 @@ impl ProductionBackend {
                 }
             }
         }
-        self.add_private_durable_counts(&snapshot, &mut counts)?;
+        if let Some(private_counts) = private_counts {
+            for (bot_id, (active, queued, waiting, blocked)) in private_counts {
+                let entry = counts.entry(bot_id.clone()).or_default();
+                entry.0 += active;
+                entry.1 += queued;
+                entry.2 += waiting;
+                entry.3 |= blocked;
+            }
+        } else {
+            self.add_private_durable_counts(snapshot, &mut counts)?;
+        }
+        Ok(counts)
+    }
+
+    fn apply_bot_status(result: &mut Value, counts: &HashMap<String, (u32, u32, u32, bool)>) {
         let set = |bot: &mut Value| {
             let Some(id) = bot.get("id").and_then(Value::as_str) else {
                 return;
@@ -5114,7 +5147,6 @@ impl ProductionBackend {
                 set(bot);
             }
         }
-        Ok(())
     }
 
     /// Private chat runs have no orchestrator Assignment. Their durable job
@@ -5146,6 +5178,14 @@ impl ProductionBackend {
                 ))
             })
             .collect::<std::collections::HashSet<_>>();
+        if let Ok(durable) = self.durable.try_lock() {
+            if self.durable_job_set_matches_disk(&durable)? {
+                for job in durable.jobs() {
+                    self.add_private_durable_job(&pending_waits, counts, job)?;
+                }
+                return Ok(());
+            }
+        }
         let jobs_dir = self.store.root().join("data/jobs");
         let entries = match fs::read_dir(&jobs_dir) {
             Ok(entries) => entries,
@@ -5161,49 +5201,87 @@ impl ProductionBackend {
             let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
                 format!("invalid durable job {}: {error}", entry.path().display())
             })?;
-            let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
-                continue;
-            };
-            let request = self
-                .store
-                .read_snapshot::<crate::execution::ExecutionRequest>(format!(
-                    "data/run_requests/{run_id}.json"
-                ))
-                .map_err(|error| error.to_string())?;
-            let Some(request) = request else {
-                continue;
-            };
-            if request.assignment_id.is_some() {
-                continue;
-            }
-            if request.phase.as_deref() == Some("subagent") || request.parent_run_id.is_some() {
-                // Child runs are represented by Workbench.subagents_running;
-                // they must not inflate the parent Bot's ordinary active count.
-                continue;
-            }
-            if matches!(
-                job.status,
-                macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
-            ) && pending_waits.contains(&(request.bot_id.clone(), request.chat_id.clone()))
-            {
-                continue;
-            }
-            let entry = counts.entry(request.bot_id).or_default();
-            match job.status {
-                macbot_durable::JobStatus::Queued => entry.1 += 1,
-                macbot_durable::JobStatus::Running => entry.0 += 1,
-                macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended => {
-                    entry.2 += 1
-                }
-                macbot_durable::JobStatus::Done
+            self.add_private_durable_job(&pending_waits, counts, &job)?;
+        }
+        Ok(())
+    }
+
+    fn add_private_durable_job(
+        &self,
+        pending_waits: &HashSet<(String, String)>,
+        counts: &mut HashMap<String, (u32, u32, u32, bool)>,
+        job: &macbot_durable::Job,
+    ) -> Result<(), String> {
+        let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        if matches!(
+            job.status,
+            macbot_durable::JobStatus::Done
                 | macbot_durable::JobStatus::Failed
-                | macbot_durable::JobStatus::Cancelled => {}
+                | macbot_durable::JobStatus::Cancelled
+        ) {
+            return Ok(());
+        }
+        let request = self
+            .store
+            .read_snapshot::<crate::execution::ExecutionRequest>(format!(
+                "data/run_requests/{run_id}.json"
+            ))
+            .map_err(|error| error.to_string())?;
+        let Some(request) = request else {
+            return Ok(());
+        };
+        if request.assignment_id.is_some() {
+            return Ok(());
+        }
+        if request.phase.as_deref() == Some("subagent") || request.parent_run_id.is_some() {
+            // Child runs are represented by Workbench.subagents_running;
+            // they must not inflate the parent Bot's ordinary active count.
+            return Ok(());
+        }
+        if matches!(
+            job.status,
+            macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
+        ) && pending_waits.contains(&(request.bot_id.clone(), request.chat_id.clone()))
+        {
+            return Ok(());
+        }
+        let entry = counts.entry(request.bot_id).or_default();
+        match job.status {
+            macbot_durable::JobStatus::Queued => entry.1 += 1,
+            macbot_durable::JobStatus::Running => entry.0 += 1,
+            macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended => {
+                entry.2 += 1
             }
+            macbot_durable::JobStatus::Done
+            | macbot_durable::JobStatus::Failed
+            | macbot_durable::JobStatus::Cancelled => {}
         }
         Ok(())
     }
 
     fn private_subagent_count(&self) -> Result<u32, String> {
+        if let Ok(durable) = self.durable.try_lock() {
+            if self.durable_job_set_matches_disk(&durable)? {
+                let mut count = 0;
+                for job in durable.jobs() {
+                    if job.status != macbot_durable::JobStatus::Running {
+                        continue;
+                    }
+                    let Some(request) = self.private_subagent_request(job)? else {
+                        continue;
+                    };
+                    if request.assignment_id.is_none()
+                        && (request.phase.as_deref() == Some("subagent")
+                            || request.parent_run_id.is_some())
+                    {
+                        count += 1;
+                    }
+                }
+                return Ok(count);
+            }
+        }
         let jobs_dir = self.store.root().join("data/jobs");
         let entries = match fs::read_dir(&jobs_dir) {
             Ok(entries) => entries,
@@ -5223,23 +5301,81 @@ impl ProductionBackend {
             if job.status != macbot_durable::JobStatus::Running {
                 continue;
             }
-            let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
-                continue;
-            };
-            let request = self
-                .store
-                .read_snapshot::<crate::execution::ExecutionRequest>(format!(
-                    "data/run_requests/{run_id}.json"
-                ))
-                .map_err(|error| error.to_string())?;
-            let Some(request) = request else { continue };
-            if request.assignment_id.is_none()
-                && (request.phase.as_deref() == Some("subagent") || request.parent_run_id.is_some())
-            {
-                count += 1;
+            if let Some(request) = self.private_subagent_request(&job)? {
+                if request.assignment_id.is_none()
+                    && (request.phase.as_deref() == Some("subagent")
+                        || request.parent_run_id.is_some())
+                {
+                    count += 1;
+                }
             }
         }
         Ok(count)
+    }
+
+    fn private_subagent_request(
+        &self,
+        job: &macbot_durable::Job,
+    ) -> Result<Option<crate::execution::ExecutionRequest>, String> {
+        let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+            return Ok(None);
+        };
+        self.store
+            .read_snapshot::<crate::execution::ExecutionRequest>(format!(
+                "data/run_requests/{run_id}.json"
+            ))
+            .map_err(|error| error.to_string())
+    }
+
+    fn durable_job_set_matches_disk(
+        &self,
+        durable: &macbot_durable::DurableRuntime,
+    ) -> Result<bool, String> {
+        let jobs_dir = self.store.root().join("data/jobs");
+        let entries = match fs::read_dir(&jobs_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(durable.jobs().next().is_none())
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        let mut disk_metadata = HashMap::new();
+        for entry in entries {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(id) = entry
+                .file_name()
+                .to_str()
+                .map(|name| name.trim_end_matches(".json").to_owned())
+            else {
+                return Ok(false);
+            };
+            let metadata = entry.metadata().map_err(|error| error.to_string())?;
+            let modified_nanos = metadata
+                .modified()
+                .ok()
+                .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|value| value.as_nanos())
+                .unwrap_or_default();
+            disk_metadata.insert(id, (metadata.len(), modified_nanos));
+        }
+        let memory_ids = durable
+            .jobs()
+            .map(|job| job.id.clone())
+            .collect::<HashSet<_>>();
+        if disk_metadata.len() != memory_ids.len()
+            || memory_ids.iter().any(|id| !disk_metadata.contains_key(id))
+        {
+            return Ok(false);
+        }
+        Ok(durable.jobs().all(|job| {
+            disk_metadata.get(&job.id).copied()
+                == durable
+                    .job_snapshot_metadata(&job.id)
+                    .map(|metadata| (metadata.len, metadata.modified_nanos))
+        }))
     }
 
     fn workbench(&self) -> Result<Value, String> {
@@ -5247,6 +5383,15 @@ impl ProductionBackend {
             .orchestrator
             .snapshot()
             .map_err(|error| error.to_string())?;
+        self.workbench_from_snapshot(&snapshot, None, None)
+    }
+
+    fn workbench_from_snapshot(
+        &self,
+        snapshot: &Value,
+        counts_override: Option<&HashMap<String, (u32, u32, u32, bool)>>,
+        subagents_override: Option<u32>,
+    ) -> Result<Value, String> {
         let assignments = snapshot
             .get("assignments")
             .and_then(Value::as_object)
@@ -5352,71 +5497,10 @@ impl ProductionBackend {
         } else if takeover_dir.exists() {
             return Err(format!("cannot read {}", takeover_dir.display()));
         }
-        let mut counts = HashMap::new();
-        for assignment in assignments.values() {
-            let Some(bot_id) = assignment.get("bot_id").and_then(Value::as_str) else {
-                continue;
-            };
-            let entry = counts.entry(bot_id.to_owned()).or_insert((0, 0, 0, false));
-            match assignment
-                .get("status")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-            {
-                "working" => entry.0 += 1,
-                "queued" => entry.1 += 1,
-                "waiting_user" | "waiting_bot" => entry.2 += 1,
-                "blocked" => entry.3 = true,
-                _ => {}
-            }
-        }
-        let assignment_status = assignments
-            .iter()
-            .filter_map(|(id, item)| {
-                item.get("status")
-                    .and_then(Value::as_str)
-                    .map(|status| (id.clone(), status.to_owned()))
-            })
-            .collect::<HashMap<_, _>>();
-        if let Some(items) = snapshot.get("approvals").and_then(Value::as_object) {
-            for approval in items
-                .values()
-                .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
-            {
-                let already_waiting = approval
-                    .get("assignment_id")
-                    .and_then(Value::as_str)
-                    .and_then(|id| assignment_status.get(id))
-                    .is_some_and(|status| {
-                        matches!(status.as_str(), "waiting_user" | "waiting_bot")
-                    });
-                if !already_waiting {
-                    if let Some(bot_id) = approval.get("bot_id").and_then(Value::as_str) {
-                        counts.entry(bot_id.into()).or_default().2 += 1;
-                    }
-                }
-            }
-        }
-        if let Some(items) = snapshot.get("questions").and_then(Value::as_object) {
-            for question in items
-                .values()
-                .filter(|item| item.get("state").and_then(Value::as_str) == Some("pending"))
-            {
-                let already_waiting = question
-                    .get("assignment_id")
-                    .and_then(Value::as_str)
-                    .and_then(|id| assignment_status.get(id))
-                    .is_some_and(|status| {
-                        matches!(status.as_str(), "waiting_user" | "waiting_bot")
-                    });
-                if !already_waiting {
-                    if let Some(bot_id) = question.get("bot_id").and_then(Value::as_str) {
-                        counts.entry(bot_id.into()).or_default().2 += 1;
-                    }
-                }
-            }
-        }
-        self.add_private_durable_counts(&snapshot, &mut counts)?;
+        let counts = match counts_override {
+            Some(counts) => counts.clone(),
+            None => self.bot_counts_from_snapshot(snapshot, None)?,
+        };
         let bots = snapshot.get("bots").and_then(Value::as_object).map(|items| items.values().filter(|bot| !bot_is_main(bot)).map(|bot| {
             let bot_id = bot.get("id").and_then(Value::as_str).unwrap_or("");
             let (active, _, _, _) = counts.get(bot_id).copied().unwrap_or_default();
@@ -5462,8 +5546,21 @@ impl ProductionBackend {
             .and_then(|settings| settings.get("global_limit"))
             .and_then(Value::as_u64)
             .unwrap_or(8);
+        let private_subagents = match subagents_override {
+            Some(count) => count,
+            None => self.private_subagent_count()?,
+        };
+        let subagents_running = assignments
+            .values()
+            .map(|item| {
+                item.get("subagents_active")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32
+            })
+            .sum::<u32>()
+            + private_subagents;
         Ok(
-            json!({"running":running,"global_limit":global_limit,"subagents_running":assignments.values().map(|item| item.get("subagents_active").and_then(Value::as_u64).unwrap_or(0) as u32).sum::<u32>() + self.private_subagent_count()?,"waiting":waiting,"bots":bots,"done_today":done_today}),
+            json!({"running":running,"global_limit":global_limit,"subagents_running":subagents_running,"waiting":waiting,"bots":bots,"done_today":done_today}),
         )
     }
 
@@ -5482,8 +5579,13 @@ impl ProductionBackend {
                 .map(|items| items.values().cloned().collect::<Vec<_>>())
                 .unwrap_or_default()
         });
-        self.enrich_bot_status(&mut result)?;
-        let workbench = self.workbench()?;
+        let mut private_counts = HashMap::new();
+        self.add_private_durable_counts(&snapshot, &mut private_counts)?;
+        let counts = self.bot_counts_from_snapshot(&snapshot, Some(&private_counts))?;
+        Self::apply_bot_status(&mut result, &counts);
+        let private_subagents = self.private_subagent_count()?;
+        let workbench =
+            self.workbench_from_snapshot(&snapshot, Some(&counts), Some(private_subagents))?;
         let queued = snapshot
             .get("assignments")
             .and_then(Value::as_object)
@@ -6570,15 +6672,19 @@ mod tests {
             ..Default::default()
         });
         let backend = ProductionBackend::open(home.path()).unwrap();
-        fs::create_dir_all(home.path().join("data/jobs")).unwrap();
         fs::create_dir_all(home.path().join("data/run_requests")).unwrap();
+        let worker = backend
+            .call("bot.create", json!({"name":"状态 worker"}), &gateway.state)
+            .await
+            .unwrap();
+        let worker_id = worker["bot"]["id"].as_str().unwrap().to_owned();
         fs::write(
             home.path().join("data/run_requests/private-status.json"),
             json!({
                 "run_id":"private-status",
                 "assignment_id":null,
                 "chat_id":"chat_main",
-                "bot_id":"main",
+                "bot_id":worker_id,
                 "model":"mock/model",
                 "instruction":"private status",
                 "private":true
@@ -6586,18 +6692,24 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let job_path = home.path().join("data/jobs/private-status.json");
-        let mut job = json!({
-            "id":"private-status-job",
-            "owner":"private-status",
-            "kind":"model",
-            "status":"running",
-            "checkpoint":{"run_id":"private-status"},
-            "unsafe_replay":false,
-            "updated_at":0,
-            "commit_seq":1
-        });
-        fs::write(&job_path, job.to_string()).unwrap();
+        let running = {
+            let mut durable = backend.durable.lock().await;
+            let queued = durable
+                .create_job(
+                    "private-status",
+                    "model",
+                    json!({"run_id":"private-status"}),
+                )
+                .unwrap();
+            durable
+                .commit(
+                    &queued.id,
+                    macbot_durable::JobStatus::Running,
+                    queued.checkpoint,
+                    false,
+                )
+                .unwrap()
+        };
         let bots = backend
             .call("bot.list", json!({}), &gateway.state)
             .await
@@ -6606,13 +6718,27 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|bot| bot["id"] == "main")
+            .find(|bot| bot["id"] == worker_id)
             .unwrap();
         assert_eq!(main["status"]["summary"], "working");
         assert_eq!(main["status"]["active"], 1);
 
-        job["status"] = json!("waiting");
-        fs::write(&job_path, job.to_string()).unwrap();
+        let workbench = backend
+            .call("workbench.get", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        let workbench_bot = workbench["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|bot| bot["bot_id"] == worker_id)
+            .unwrap();
+        assert_eq!(workbench_bot["active"], 1);
+
+        let job_path = home.path().join(format!("data/jobs/{}.json", running.id));
+        let mut external_job = serde_json::to_value(&running).unwrap();
+        external_job["status"] = json!("waiting");
+        fs::write(&job_path, external_job.to_string()).unwrap();
         let bots = backend
             .call("bot.list", json!({}), &gateway.state)
             .await
@@ -6621,10 +6747,21 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|bot| bot["id"] == "main")
+            .find(|bot| bot["id"] == worker_id)
             .unwrap();
         assert_eq!(main["status"]["summary"], "waiting_user");
         assert_eq!(main["status"]["waiting"], 1);
+        let workbench = backend
+            .call("workbench.get", json!({}), &gateway.state)
+            .await
+            .unwrap();
+        let workbench_bot = workbench["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|bot| bot["bot_id"] == worker_id)
+            .unwrap();
+        assert_eq!(workbench_bot["active"], 0);
     }
 
     #[tokio::test]

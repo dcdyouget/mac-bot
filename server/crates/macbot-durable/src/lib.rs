@@ -54,6 +54,12 @@ pub struct Job {
     pub commit_seq: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JobSnapshotMetadata {
+    pub len: u64,
+    pub modified_nanos: u128,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct JobCommit {
     job: Job,
@@ -95,6 +101,7 @@ struct Submission {
 pub struct DurableRuntime {
     store: Store,
     jobs: HashMap<String, Job>,
+    job_metadata: HashMap<String, JobSnapshotMetadata>,
     inbox: Vec<InboxItem>,
     submissions: HashMap<String, SendMsgReceipt>,
 }
@@ -111,6 +118,7 @@ impl DurableRuntime {
         let mut runtime = Self {
             store,
             jobs: HashMap::new(),
+            job_metadata: HashMap::new(),
             inbox: Vec::new(),
             submissions: HashMap::new(),
         };
@@ -155,6 +163,10 @@ impl DurableRuntime {
         self.jobs.values()
     }
 
+    pub fn job_snapshot_metadata(&self, id: &str) -> Option<JobSnapshotMetadata> {
+        self.job_metadata.get(id).copied()
+    }
+
     /// Commit is write-ahead: the durable commit record is synced before the
     /// snapshot. `unsafe_replay` marks a side effect that cannot be repeated.
     pub fn commit(
@@ -194,6 +206,7 @@ impl DurableRuntime {
             .append_jsonl("data/jobs/commits.jsonl", &JobCommit { job: job.clone() })?;
         self.store
             .write_snapshot(format!("data/jobs/{}.json", id), &job)?;
+        self.refresh_job_metadata(id);
         self.jobs.insert(id.into(), job.clone());
         Ok(job)
     }
@@ -237,6 +250,7 @@ impl DurableRuntime {
                 .append_jsonl("data/jobs/commits.jsonl", &JobCommit { job: job.clone() })?;
             self.store
                 .write_snapshot(format!("data/jobs/{}.json", job.id), &job)?;
+            self.refresh_job_metadata(&job.id);
             self.jobs.insert(job.id.clone(), job.clone());
             plan.push(job);
             next_seq += 1;
@@ -346,12 +360,13 @@ impl DurableRuntime {
         Ok((receipt, true))
     }
 
-    fn persist_job(&self, job: Job) -> Result<(), DurableError> {
+    fn persist_job(&mut self, job: Job) -> Result<(), DurableError> {
         validate_id("job", &job.id)?;
         self.store
             .append_jsonl("data/jobs/commits.jsonl", &JobCommit { job: job.clone() })?;
         self.store
             .write_snapshot(format!("data/jobs/{}.json", job.id), &job)?;
+        self.refresh_job_metadata(&job.id);
         Ok(())
     }
 
@@ -373,7 +388,8 @@ impl DurableRuntime {
                         .store
                         .read_snapshot::<Job>(path.strip_prefix(self.store.root()).unwrap())
                     {
-                        self.jobs.insert(job.id.clone(), job);
+                        self.jobs.insert(job.id.clone(), job.clone());
+                        self.refresh_job_metadata(&job.id);
                     }
                 }
             }
@@ -408,6 +424,27 @@ impl DurableRuntime {
             self.submissions.insert(submission.key, submission.receipt);
         }
         Ok(())
+    }
+
+    fn refresh_job_metadata(&mut self, id: &str) {
+        let path = self.store.root().join(format!("data/jobs/{id}.json"));
+        let Ok(metadata) = std::fs::metadata(path) else {
+            self.job_metadata.remove(id);
+            return;
+        };
+        let modified_nanos = metadata
+            .modified()
+            .ok()
+            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+            .map(|value| value.as_nanos())
+            .unwrap_or_default();
+        self.job_metadata.insert(
+            id.to_owned(),
+            JobSnapshotMetadata {
+                len: metadata.len(),
+                modified_nanos,
+            },
+        );
     }
 }
 

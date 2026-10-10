@@ -3677,7 +3677,7 @@ impl RuntimeExecution {
             Arc::new(BashTool::with_jobs(jobs.clone())),
             Arc::new(BashJobTool { jobs }),
         ];
-        let state = ExecutionState::from_store(store.clone())?;
+        let state = ExecutionState::with_durable(store.clone(), backend.durable.clone());
         let base_sink: Arc<dyn ExecutionSink> = sink;
         let engine = ExecutionEngine::new_with_usage_and_state(
             store.clone(),
