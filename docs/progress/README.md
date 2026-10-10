@@ -230,3 +230,5 @@ S3已只读核对原回忆run request，问句确实为“What exact preference 
 搜索缺陷已由 `aa2c99a` 修复并 server-only 部署，PID67422：限制业务数据来源，移除路径子串分类；8项release搜索回归通过。同一测试关键词从4条误分类内部记录+6条真实消息变为仅6条真实消息；Android实际显示消息，“群”筛选为空，截图已查看。12条旧pending和151个旧job哈希保持。本机单次查询从4.158秒降到0.034秒，仅为现场抽样。见 S3/production-aa2c99a-search-path-upgrade-after.json。桌面仍需解锁，最短剩余见 [remaining-native-acceptance](2026-10-10-remaining-native-acceptance.md)。
 
 后续桌面已解锁并恢复截图/输入。桌面已实看两张去重待验收卡、6条真实搜索结果、真实Bot技能草稿，并通过原生发布按钮发布；Android仅对“画面联调-9e70”停用该技能，桌面复核一致。相关截图及操作journal已补入S2/S3。桌面范围标题语义修复6eaa91a已产出Release候选，尚待安装。S1联合恢复继续原run，双端已显示write成功及Bash待审批；未重发请求、尚未kill。S2确认完成会取消5个历史waiting_user assignment，暂不执行。S0仍是唯一整阶段通过；S5fresh未执行。
+
+S1联合恢复现已完成：精确审批write/bash后，在安全checkpoint kill正式PID79740的前任67422；LaunchAgent拉起79740，同run继续read并done。双端真实实时轨迹、重连提示、部分流式输出→完成及回放已截图实看；Bash成功一次，marker不变，12条旧pending及151个旧job哈希保持。见S1/production-aa2c99a-joint-recovery.json。启动监听约54秒，性能问题单独修复中；模型输出的“无重启”等未经证实文字不作为验收依据。桌面6eaa91a已安装并实看范围标题修复，原记忆回忆答案及搜索群筛选为空也已补证。仍不扩大为整阶段通过。

@@ -16,5 +16,12 @@
     "screenshot": "production-5e2fbcc-android-memory-recall.png",
     "screenshot_viewed": true,
     "original_question_and_recalled_preference_visible": true
+  },
+  "desktop_native": {
+    "source": "6eaa91a53331392816ee8f93a58d3126dfdd1ddc",
+    "screenshot": "production-6eaa91a-desktop-memory-recall.jpg",
+    "viewed": true,
+    "surface": "search result shows existing original recall answer; request separately verified marker-free",
+    "new_model_request": false
   }
 }

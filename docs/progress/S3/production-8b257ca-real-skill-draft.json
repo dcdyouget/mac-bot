@@ -1459,5 +1459,13 @@
     "production-5e2fbcc-android-published-skill-scope.png",
     "production-e14d0a8-desktop-skill-scope-label-failed.jpg"
   ],
-  "scope_ui_note": "Both clients show the owned Bot disabled. Desktop heading is reversed relative to checkbox semantics and is being corrected."
+  "scope_ui_note": "Both clients show the owned Bot disabled. Desktop heading is reversed relative to checkbox semantics and is being corrected.",
+  "desktop_scope_label_fixed": {
+    "source": "6eaa91a53331392816ee8f93a58d3126dfdd1ddc",
+    "installed": true,
+    "screenshot": "production-6eaa91a-desktop-skill-scope-fixed.jpg",
+    "viewed": true,
+    "checked_means_enabled": true,
+    "only_test_bot_unchecked": true
+  }
 }

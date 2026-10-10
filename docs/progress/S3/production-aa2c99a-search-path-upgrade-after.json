@@ -253,6 +253,7 @@
     "viewed": true,
     "real_messages_visible": true,
     "result_count": 6,
-    "chat_filter_verified": false
+    "chat_filter_verified": true,
+    "filter_screenshot": "production-6eaa91a-desktop-search-group-empty.jpg"
   }
 }
