@@ -478,3 +478,12 @@
 - 已Cancelled Coder01a122b9-cfd9…0c67的subagent审批01a122ba-359b…1837启动后自动expired，decided_at严格等于原finished_at，bootstrap.pending/workbench消失，exact1 approval.resolved。原run/job/request/checkpoint/args/finished_at/trace hash全部保持，run.start1/tool.start1/tool.end0/run.end1，无重放、恢复、批准或伪造tool.end；未调用旧decision/stop/模型。S2/production-7481d8e-cancelled-approval-{before,after,checkpoint}.json。
 - 其余6个terminal任务遗留pending按原关联expired；14个有效pending保持，原detail hash一致。只有取消审批P1升级专项PASS，不提升完整S2/双端或fresh；旧任务/未知审批仍按各自状态保留。
 - matching pkg source/dirty=false、实际pkg/daemon/官方sidecar SHA独立展开核验通过，S5/server-pkg-7481d8e-verified.json；初次包审计记录截断63字符无效，已按实际文件重算64字符并保留纠正说明。正式运行来自archive构建，未使用installer/payload/fresh。根协调单独提交理由：归档真实升级的终态收敛与有效审批隔离证据。
+
+## integrator：解锁后续办、服务竞态与桌面列表修复（2026-10-10）
+
+- 用户确认解锁后恢复原生桌面验收，沿用 integrator 工作区直接跨组件修复，未向旧开发线派单；main 未跟踪 design/ 未动。
+- 服务 dcd5e36 修复公告随机选旧 done，ff083bc/cc8e6d0 修复 browser_nav 与 wait/get 映射，b7d6c76 以共享 per-run 执行互斥防止审批恢复和调度同时启动模型。orchestrator 57 / gateway 187 测试及严格 clippy 通过；正式只更新服务至 b7d6c76，原14有效 pending保持。7fa39b0仅收紧回归超时，无须重新部署。
+- 原 Tester 真实访问 demo，但 aseq105/106 出现并发模型14/15轮，随后 HTTP400失败；没有 provider 错误体，不断言 HTTP400具体原因。失败run/job/trace保留，不改demo、不伪造tool.end、不confirm_done。主Bot自动派发后，新续测消息在现有 Tester 01a1237c-a9d4…d095 中read，继续真实浏览器测试，没有重复建项目。其他 siblings/unknown approvals 保持。UUID/checkpoint/args/身份核对记录见两个 parallel-tester-browser journals。
+- 桌面487122a/8d347b6/2f09174修复轨迹和消息的估算高度覆盖、窄栏横向裁切；86客户端测试、真实TraceView首帧/展开/更新布局测试及clippy通过。只更新桌面至2f09174，实际已看长JSON换行、长报告和插话分离、窄窗口滚动及跟随最新，截图已归档。
+- Android仍cac5b12d，mock保持；桌面S3同UTC日期用量与RPC一致，Android同范围及adb输入方式待确认。S0仍唯一整阶段通过；完整S2/双端/S1实时恢复/S4/S5fresh未通过。GitHub推送曾超时，本地main小步合入完成，继续重试远端；文档提交不触发组件重部署。
+- 证据与最短剩余清单：docs/progress/S2/2026-10-10-takeover-closeout.md。根协调单独提交理由：更新解锁后的真实现场、跨组件修复边界和未完成阶段，替代过时的“仍锁屏”阻塞描述。
