@@ -1863,6 +1863,26 @@ mod tests {
     }
 
     #[test]
+    fn trace_cursor_unblocks_later_project_updates_without_trace_subscription() {
+        let mut state = AppState::default();
+        state.apply_bootstrap(json!({"seq":40,"projects":[{"id":"p","status":"active"}]}));
+        state.apply_event(ProtocolEvent {
+            seq: Some(42),
+            event: "project.updated".into(),
+            data: json!({"project":{"id":"p","status":"review"}}),
+        });
+        assert_eq!(state.projects["p"]["status"], "active");
+        state.apply_event(ProtocolEvent {
+            seq: Some(41),
+            event: "sync.cursor".into(),
+            data: json!({"seq":41}),
+        });
+        assert_eq!(state.last_seq, 42);
+        assert_eq!(state.projects["p"]["status"], "review");
+        assert!(state.buffered_events.is_empty());
+    }
+
+    #[test]
     fn event_maps_keep_bootstrap_keys_for_announcements_skills_and_models() {
         let mut state = AppState::default();
         state.apply_bootstrap(json!({
