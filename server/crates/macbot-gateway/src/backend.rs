@@ -2898,6 +2898,11 @@ impl crate::RpcBackend for ComposedBackend {
             }
             Err(error) => return Err(error),
         };
+        if matches!(method, "takeover.start" | "takeover.release") {
+            if let Some(request) = result.get("takeover_request") {
+                self.sync_takeover_message_state(request).await;
+            }
+        }
         if method == "routine.test_run" {
             let dispatches = result
                 .get("dispatch")
@@ -3414,6 +3419,91 @@ impl crate::RpcBackend for ComposedBackend {
             self.dispatch_ready_assignments().await;
         }
         Ok(result)
+    }
+}
+
+impl ComposedBackend {
+    async fn sync_takeover_message_state(&self, request: &Value) {
+        let Some(message_id) = request
+            .get("message_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        else {
+            return;
+        };
+        let Some(group_chat_id) = request
+            .get("group_chat_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        else {
+            return;
+        };
+        let dm_chat_id = request
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty());
+        let targets = [
+            Some((group_chat_id.to_owned(), message_id.to_owned())),
+            dm_chat_id.map(|chat_id| {
+                (
+                    chat_id.to_owned(),
+                    format!("msg_takeover_question_{}", safe_component(message_id)),
+                )
+            }),
+        ];
+        for (chat_id, target_message_id) in targets.into_iter().flatten() {
+            if let Err(error) = self
+                .sync_takeover_message(&chat_id, &target_message_id, request)
+                .await
+            {
+                tracing::warn!(%error, %chat_id, message_id = %target_message_id, "failed to project takeover message state");
+            }
+        }
+    }
+
+    async fn sync_takeover_message(
+        &self,
+        chat_id: &str,
+        message_id: &str,
+        request: &Value,
+    ) -> Result<(), String> {
+        let path = format!("data/chats/{}/messages.jsonl", safe_component(chat_id));
+        let messages = self
+            .inner
+            .store
+            .read_jsonl::<Value>(&path)
+            .map_err(|error| error.to_string())?;
+        let Some(mut message) = messages
+            .into_iter()
+            .rev()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+        else {
+            return Ok(());
+        };
+        if !transition_takeover_message(&mut message, request, chat_id, message_id) {
+            return Ok(());
+        }
+        let canonical = self
+            .inner
+            .store
+            .sequence_chat_messages(chat_id, &[message])
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .next()
+            .ok_or_else(|| "chat message sequencing returned no message".to_owned())?;
+        self.inner
+            .store
+            .append_jsonl(&path, &canonical)
+            .map_err(|error| error.to_string())?;
+        let event = self
+            .inner
+            .store
+            .append_event("message.updated", json!({"message": canonical.clone()}))
+            .map_err(|error| error.to_string())?;
+        self.state
+            .publish_event(event.seq, &event.event, event.data)
+            .await;
+        Ok(())
     }
 }
 
@@ -5577,6 +5667,8 @@ impl OrchestratorSink {
                     "bot_id": bot_id,
                     "assignment_id": assignment_id,
                     "chat_id": chat_id,
+                    "message_id": message_id,
+                    "run_id": message_id.strip_prefix("msg_takeover_").unwrap_or(message_id),
                     "reason": reason,
                     "client_request_id": format!("execution:takeover:{message_id}")
                 }),
@@ -5671,6 +5763,60 @@ impl OrchestratorSink {
                 .await;
         }
     }
+}
+
+fn transition_takeover_message(
+    message: &mut Value,
+    request: &Value,
+    chat_id: &str,
+    message_id: &str,
+) -> bool {
+    let Some(request_state) = request.get("state").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(bot_id) = request.get("bot_id").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(assignment_id) = request.get("assignment_id").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(run_id) = request.get("run_id").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(original_message_id) = request.get("message_id").and_then(Value::as_str) else {
+        return false;
+    };
+    let original_message_matches = original_message_id == message_id
+        && original_message_id == format!("msg_takeover_{}", safe_component(run_id));
+    let dm_message_matches = message_id
+        == format!(
+            "msg_takeover_question_{}",
+            safe_component(original_message_id)
+        );
+    if !original_message_matches && !dm_message_matches
+        || message.get("chat_id").and_then(Value::as_str) != Some(chat_id)
+        || message.get("assignment_id").and_then(Value::as_str) != Some(assignment_id)
+        || message.pointer("/sender/bot_id").and_then(Value::as_str) != Some(bot_id)
+    {
+        return false;
+    }
+    let Some(block) = message
+        .get_mut("blocks")
+        .and_then(Value::as_array_mut)
+        .and_then(|blocks| {
+            blocks.iter_mut().find(|block| {
+                block.get("type").and_then(Value::as_str) == Some("takeover_request")
+                    && block.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+            })
+        })
+    else {
+        return false;
+    };
+    if block.get("state").and_then(Value::as_str) == Some(request_state) {
+        return false;
+    }
+    block["state"] = json!(request_state);
+    true
 }
 
 #[async_trait]
@@ -5863,6 +6009,89 @@ impl ModelProvider for UnavailableProvider {
 
 #[cfg(test)]
 mod model_resolution_tests {
+    #[test]
+    fn takeover_message_projection_requires_exact_run_scope_and_updates_lifecycle() {
+        let mut message = serde_json::json!({
+            "id":"msg_takeover_run-1",
+            "chat_id":"group-1",
+            "sender":{"kind":"bot","bot_id":"bot-1"},
+            "assignment_id":"assignment-1",
+            "blocks":[{"type":"takeover_request","bot_id":"bot-1","reason":"登录","state":"pending"}]
+        });
+        let mut request = serde_json::json!({
+            "message_id":"msg_takeover_run-1",
+            "run_id":"run-1",
+            "group_chat_id":"group-1",
+            "bot_id":"bot-1",
+            "assignment_id":"assignment-1",
+            "state":"active"
+        });
+
+        assert!(super::transition_takeover_message(
+            &mut message,
+            &request,
+            "group-1",
+            "msg_takeover_run-1"
+        ));
+        assert_eq!(message["blocks"][0]["state"], "active");
+        assert!(!super::transition_takeover_message(
+            &mut message,
+            &request,
+            "group-1",
+            "msg_takeover_run-1"
+        ));
+
+        request["state"] = serde_json::json!("done");
+        assert!(super::transition_takeover_message(
+            &mut message,
+            &request,
+            "group-1",
+            "msg_takeover_run-1"
+        ));
+        assert_eq!(message["blocks"][0]["state"], "done");
+
+        let mut unrelated = message.clone();
+        unrelated["assignment_id"] = serde_json::json!("other-assignment");
+        assert!(!super::transition_takeover_message(
+            &mut unrelated,
+            &request,
+            "group-1",
+            "msg_takeover_run-1"
+        ));
+        assert_eq!(unrelated["blocks"][0]["state"], "done");
+    }
+
+    #[test]
+    fn takeover_message_projection_updates_private_card_with_same_scope() {
+        let mut message = serde_json::json!({
+            "id":"msg_takeover_question_msg_takeover_run-1",
+            "chat_id":"dm-bot-1",
+            "sender":{"kind":"bot","bot_id":"bot-1"},
+            "assignment_id":"assignment-1",
+            "blocks":[
+                {"type":"question","question_id":"question-1"},
+                {"type":"takeover_request","bot_id":"bot-1","reason":"登录","state":"pending"}
+            ]
+        });
+        let request = serde_json::json!({
+            "message_id":"msg_takeover_run-1",
+            "run_id":"run-1",
+            "group_chat_id":"group-1",
+            "chat_id":"dm-bot-1",
+            "bot_id":"bot-1",
+            "assignment_id":"assignment-1",
+            "state":"done"
+        });
+
+        assert!(super::transition_takeover_message(
+            &mut message,
+            &request,
+            "dm-bot-1",
+            "msg_takeover_question_msg_takeover_run-1"
+        ));
+        assert_eq!(message["blocks"][1]["state"], "done");
+    }
+
     #[test]
     fn group_history_keeps_other_bots_out_of_own_assistant_turns() {
         let message = serde_json::json!({

@@ -2968,7 +2968,7 @@ impl ProductionBackend {
             )
             .await
             .map_err(Self::error)?;
-        let request = json!({
+        let mut request = json!({
             "bot_id": bot_id,
             "assignment_id": assignment_id,
             "chat_id": dm_chat_id,
@@ -2978,6 +2978,20 @@ impl ProductionBackend {
             "state": "pending",
             "created_at": now()
         });
+        if let Some(message_id) = params
+            .get("message_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            request["message_id"] = json!(message_id);
+        }
+        if let Some(run_id) = params
+            .get("run_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            request["run_id"] = json!(run_id);
+        }
         self.store
             .write_snapshot(
                 format!("data/takeovers/{}.json", takeover_component(&assignment_id)),
