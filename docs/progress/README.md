@@ -199,3 +199,11 @@ Mac 再次锁屏，已请求用户解锁；桌面截图/输入暂停，未将其
 `09622d7` 已 server-only 部署，PID 62810，桌面仍 a0b9ddf、Android d613819。状态发布复用单次计数和共享 durable 状态；磁盘 job 文件集合、size/mtime 不一致时回退磁盘，终态 job 不再读取 run_request。gateway 195/195、durable 5/5 及同 ID 外部状态变更专项通过。部署前后 12 条 pending ID、149 个 job 文件哈希完全一致，无任务重放。实际本机 bootstrap 从部署前单次 5230ms 降至部署后三次 89/93/87ms，approval.list 从 2709ms 降至104ms；这是当前现场抽样，不是通用性能保证。证据见 S1/production-09622d7-upgrade-{before,after}.json。
 
 Android 网络受限提示已通过系统通知选择“仍然使用”并对该既有 AndroidWifi 记住选择（noInternetAccessExpected=true），随后重连与恢复验收保持连接。S1 原 Bot 新运行的 Android kill‑9 恢复专项通过：SIGKILL 前核对正式 PID 62810 与安全 checkpoint，LaunchAgent 重启为 PID 65439；同一 run 恢复后 read/marker/done，原 Bash 没有重放，标记文件哈希保持。手机原生页实际显示完整恢复链；12 条旧 pending 与149个旧 job 哈希保持。见 production-09622d7-android-recovery.json 与 running/after.png；整阶段结论仍需对照矩阵复核。
+
+## 2026-10-10 解锁后双端对账与新增缺陷
+
+已核对解锁，桌面进程36391和服务65439保持。CUA键盘与AX可更新页面，但坐标点击返回noWindowsAvailable，截图有时保持旧画面；原生窗口zoom后取得当前截图。代码检查未发现缺少cx.notify的确定性缺陷，暂记工具或窗口可见性限制，不判客户端冻结，不计连续实时验收通过。模拟器已退出，再次按授权启动同一macbot_api36，未wipe、卸载或清数据，既有Production和AndroidWifi恢复。
+
+S3固定日期2026-10-09T00:00:00Z至23:59:59Z：桌面a0b9ddf与Android d613819实际显示5,703,826 token、540次请求、费用未知或未定价，与09622d7 API一致。Android模型明细输入5,531,382、输出172,444、缓存读3,685,100一致；截图均已查看。见S3/production-09622d7-closed-day-usage.json与production-d613819-android-closed-day.json，以及closed-day-detail.png。这是摘要与Android明细专项通过，不是S3整阶段。
+
+S2双端已实际看到原两个项目待验收卡，未confirm_done；原Tester最新alert-observer和report-precision成功证据继续有效，不重复测试。发现Android卡片不显示项目名称，多个待验收卡无法可靠辨识；失败截图和服务端两张review_card保存在S2/production-09622d7-joint-review.json。另查明S3底层draft/publish存在，但模型工具只有只读skill、没有生成草稿入口；正在补受审批约束的草稿工具。两项缺陷修复尚未部署，本记录不宣称解决。
