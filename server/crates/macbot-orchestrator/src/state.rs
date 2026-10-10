@@ -140,6 +140,20 @@ fn slugify(s: &str) -> String {
     }
 }
 
+impl Inner {
+    fn unique_project_slug(&self, base: &str, exclude_project_id: Option<&str>) -> String {
+        let mut candidate = base.to_owned();
+        let mut suffix = 2usize;
+        while self.projects.values().any(|project| {
+            Some(project.id.as_str()) != exclude_project_id && project.slug == candidate
+        }) {
+            candidate = format!("{base}-{suffix}");
+            suffix += 1;
+        }
+        candidate
+    }
+}
+
 fn private_question_scope(chat_id: &str) -> Id {
     let component = chat_id
         .chars()
@@ -1699,11 +1713,12 @@ impl Inner {
         }
         let id = new_id();
         let ts = now();
+        let slug = self.unique_project_slug(&slugify(&name), None);
         let project = Project {
             id: id.clone(),
             chat_id: new_id(),
             name: name.clone(),
-            slug: slugify(&name),
+            slug: slug.clone(),
             goal: str_param(p, "goal")?,
             flow: p
                 .get("flow")
@@ -1715,7 +1730,7 @@ impl Inner {
                 })
                 .unwrap_or_default(),
             deadline: p.get("deadline").and_then(Value::as_str).map(str::to_owned),
-            home_path: format!("~/MacBot/projects/{}/", slugify(&name)),
+            home_path: format!("~/MacBot/projects/{slug}/"),
             status: "active".into(),
             lead_bot_id: "main".into(),
             members: pm,
@@ -1843,7 +1858,7 @@ impl Inner {
             .ok_or_else(|| OrchestratorError::NotFound(format!("project {id}")))?;
         if let Some(name) = patch.get("name").and_then(Value::as_str) {
             project.name = name.into();
-            project.slug = slugify(name);
+            project.slug = self.unique_project_slug(&slugify(name), Some(&id));
             project.home_path = format!("~/MacBot/projects/{}/", project.slug);
         }
         if let Some(goal) = patch.get("goal").and_then(Value::as_str) {
@@ -4244,6 +4259,78 @@ mod tests {
         assert!(artifacts
             .iter()
             .any(|artifact| artifact.project_id.as_deref() == Some(second_id.as_str())));
+    }
+
+    #[test]
+    fn concurrent_projects_with_same_name_get_unique_homes() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "project home worker");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let results = rt.block_on(async {
+            let handles = (0..8)
+                .map(|_| {
+                    let o = o.clone();
+                    let worker = worker.clone();
+                    tokio::spawn(async move {
+                        o.rpc(
+                            "project.create",
+                            json!({
+                                "name": "same fresh project",
+                                "goal": "isolated home",
+                                "member_bot_ids": [worker],
+                            }),
+                        )
+                        .await
+                    })
+                })
+                .collect::<Vec<_>>();
+            let mut values = Vec::new();
+            for handle in handles {
+                values.push(handle.await.unwrap().unwrap());
+            }
+            values
+        });
+        let slugs = results
+            .iter()
+            .map(|value| value["project"]["slug"].as_str().unwrap().to_owned())
+            .collect::<HashSet<_>>();
+        let homes = results
+            .iter()
+            .map(|value| value["project"]["home_path"].as_str().unwrap().to_owned())
+            .collect::<HashSet<_>>();
+        assert_eq!(slugs.len(), results.len());
+        assert_eq!(homes.len(), results.len());
+        assert!(slugs.contains("same-fresh-project"));
+        assert!(slugs.contains("same-fresh-project-8"));
+    }
+
+    #[test]
+    fn renaming_project_does_not_reuse_another_project_home() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "rename home worker");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let first = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"occupied home","goal":"first","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let second = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"other home","goal":"second","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let first_home = first["project"]["home_path"].as_str().unwrap();
+        let second_id = second["project"]["id"].as_str().unwrap();
+        let renamed = rt
+            .block_on(o.rpc(
+                "project.update",
+                json!({"project_id":second_id,"patch":{"name":"occupied home"}}),
+            ))
+            .unwrap();
+        assert_ne!(renamed["project"]["home_path"], first_home);
+        assert_eq!(renamed["project"]["slug"], "occupied-home-2");
     }
 
     #[test]
