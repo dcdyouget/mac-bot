@@ -84,12 +84,85 @@ impl CliRunner for ProcessRunner {
             .output()
             .map_err(|e| BrowserError::Runner(e.to_string()))?;
         if !output.status.success() {
-            return Err(BrowserError::Runner(
-                String::from_utf8_lossy(&output.stderr).trim().to_string(),
-            ));
+            return Err(BrowserError::Runner(process_failure_message(
+                output.status,
+                &output.stderr,
+                &output.stdout,
+            )));
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
+}
+
+const MAX_PROCESS_DIAGNOSTIC_CHARS: usize = 2048;
+
+fn process_failure_message(
+    status: std::process::ExitStatus,
+    stderr: &[u8],
+    stdout: &[u8],
+) -> String {
+    let status = if let Some(code) = status.code() {
+        format!("exit code {code}")
+    } else {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            if let Some(signal) = status.signal() {
+                format!("signal {signal}")
+            } else {
+                "terminated without an exit code".into()
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            "terminated without an exit code".into()
+        }
+    };
+    let stderr = bounded_text(stderr);
+    if !stderr.is_empty() {
+        return format!("{status}; stderr: {stderr}");
+    }
+    if let Some(error) = structured_stdout_error(stdout) {
+        return format!("{status}; stdout error: {error}");
+    }
+    format!("{status}; no diagnostic output")
+}
+
+fn bounded_text(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let mut bounded = text
+        .trim()
+        .chars()
+        .take(MAX_PROCESS_DIAGNOSTIC_CHARS)
+        .collect::<String>();
+    if text.trim().chars().count() > MAX_PROCESS_DIAGNOSTIC_CHARS {
+        bounded.push('…');
+    }
+    bounded
+}
+
+fn structured_stdout_error(stdout: &[u8]) -> Option<String> {
+    let value = serde_json::from_slice::<Value>(stdout).ok()?;
+    let error = value.get("error")?;
+    let message = match error {
+        Value::String(message) => message.clone(),
+        Value::Object(error) => {
+            let code = error.get("code").and_then(Value::as_str);
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| error.get("detail").and_then(Value::as_str));
+            match (code, message) {
+                (Some(code), Some(message)) => format!("{code}: {message}"),
+                (Some(code), None) => code.to_owned(),
+                (None, Some(message)) => message.to_owned(),
+                (None, None) => return None,
+            }
+        }
+        _ => return None,
+    };
+    let bounded = bounded_text(message.as_bytes());
+    (!bounded.is_empty()).then_some(bounded)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1212,6 +1285,52 @@ pub struct Point {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_reports_exit_status_and_stderr_without_command_details() {
+        let error = ProcessRunner
+            .run(
+                std::path::Path::new("/bin/sh"),
+                &[
+                    "-c".into(),
+                    "printf '%s' 'sidecar failed' >&2; exit 17".into(),
+                ],
+            )
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("exit code 17"), "{error}");
+        assert!(error.contains("stderr: sidecar failed"), "{error}");
+        assert!(!error.contains("/bin/sh"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_uses_bounded_structured_stdout_error_when_stderr_is_empty() {
+        let error = ProcessRunner
+            .run(
+                std::path::Path::new("/bin/sh"),
+                &[
+                    "-c".into(),
+                    "printf '%s' '{\"success\":false,\"error\":{\"code\":\"auto_connect\",\"message\":\"permission pending\"},\"page\":\"must not be recorded\"}'; exit 23".into(),
+                ],
+            )
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("exit code 23"), "{error}");
+        assert!(
+            error.contains("stdout error: auto_connect: permission pending"),
+            "{error}"
+        );
+        assert!(!error.contains("must not be recorded"), "{error}");
+        assert!(
+            error.chars().count() <= MAX_PROCESS_DIAGNOSTIC_CHARS + 64,
+            "{error}"
+        );
+    }
+
     #[derive(Default)]
     struct Fake {
         calls: Mutex<Vec<Vec<String>>>,
