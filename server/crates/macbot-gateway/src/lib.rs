@@ -2627,13 +2627,9 @@ fn resolve_file(home: &FsPath, q: &FileQuery) -> Result<PathBuf, Response> {
         }
     };
     let rel = FsPath::new(&q.path);
-    if rel.is_absolute()
-        || rel.components().any(|c| {
-            matches!(
-                c,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        })
+    if rel
+        .components()
+        .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)))
     {
         return Err(error_response(
             StatusCode::BAD_REQUEST,
@@ -2641,7 +2637,18 @@ fn resolve_file(home: &FsPath, q: &FileQuery) -> Result<PathBuf, Response> {
             "path escapes root",
         ));
     }
-    let candidate = if q.path.is_empty() {
+    // Artifact locations can be absolute Host paths. Keep the selected root as
+    // the authority; an absolute location must still be inside that exact root.
+    let candidate = if rel.is_absolute() {
+        if !rel.starts_with(&root) {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_params",
+                "path escapes root",
+            ));
+        }
+        rel.to_path_buf()
+    } else if q.path.is_empty() {
         root.clone()
     } else {
         root.join(rel)
@@ -3916,6 +3923,40 @@ mod tests {
             path: "../escape".into(),
         };
         assert!(resolve_file(dir.path(), &path_escape).is_err());
+    }
+
+    #[test]
+    fn absolute_artifact_paths_stay_inside_selected_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("projects/project-1");
+        std::fs::create_dir_all(&root).unwrap();
+        let artifact = root.join("TEST-browser.md");
+        std::fs::write(&artifact, b"actual browser report").unwrap();
+        let mut query = FileQuery {
+            root: "project".into(),
+            root_id: Some("project-1".into()),
+            path: artifact.to_string_lossy().into_owned(),
+        };
+        assert_eq!(resolve_file(dir.path(), &query).unwrap(), artifact);
+        for outside in [
+            "projects/project-2/report.md",
+            "projects/project-1-other/report.md",
+            "projects/project-1/../secret",
+        ] {
+            query.path = dir.path().join(outside).to_string_lossy().into_owned();
+            assert!(resolve_file(dir.path(), &query).is_err());
+        }
+        #[cfg(unix)]
+        {
+            let secret = dir.path().join("secret");
+            std::fs::write(&secret, b"private").unwrap();
+            let link = root.join("escape.md");
+            std::os::unix::fs::symlink(&secret, &link).unwrap();
+            query.path = link.to_string_lossy().into_owned();
+            assert!(resolve_file(dir.path(), &query).is_err());
+            query.path = "escape.md".into();
+            assert!(resolve_file(dir.path(), &query).is_err());
+        }
     }
 
     #[test]
