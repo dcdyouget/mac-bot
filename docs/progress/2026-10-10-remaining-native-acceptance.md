@@ -1,6 +1,6 @@
 # 剩余原生验收（2026-10-10）
 
-最新结论：S0–S3通过。S2用户已授权，5旧分支与关联审批已精确闭环；修复项目总结错误占用Bot记忆后，两原项目均done、两端已实看完成，见 S2/production-9c20fc4-confirm-done.json。当前server be64802 PID6301、桌面6eaa91a、Android5e2fbcc。最短剩余只有S4 Android真实X接管/交还（等待Chrome本次连接确认）与S5 fresh（pkg已审计，需管理员认证及管理页新密码交接）。测试Bot已恢复headless。下面是保留的上一轮排查记录。
+最新结论：S0–S3通过。S2两原项目按原UUID确认done、精确5分支和审批闭环；其余7pending保持。S4已获得本次Chrome连接授权并完成Android真实X画面、接管、只读滑动和交还同run恢复；仍需修复私聊接管卡片落盘/完成态及workbench问题残留。当前server 6ba7efe、桌面ba0e8f1、Android04b0c3d；当前等待run保持，不重复发请求。S5 fresh未开始，最终server待修复实测冻结，复用已准备的空备份目录。GitHub已通过本机既有代理恢复fetch。以下为保留的历史排查记录，不代表最新阻塞。
 
 S0、S1、S3 已达到 PLAN 第6章联调门槛。S1以 server aa2c99a 的真实双端联合恢复为依据；S3结论见 S3/production-6eaa91a-stage-conclusion.json。启动性能问题单独跟踪，后续服务修复需升级回归。此表保留已有真实证据，不要求重建项目或重跑已完成 Tester。
 

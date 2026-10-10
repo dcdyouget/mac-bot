@@ -1,0 +1,16 @@
+{
+  "created_at": "2026-10-10T13:25:53.410603+00:00",
+  "backup_root": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk",
+  "mode": "0o700",
+  "status": "prepared_empty_only",
+  "offline_backup_completed": false,
+  "fresh_install_started": false,
+  "new_password_setup": "user handoff required by CUA credential-change rule; no password recorded",
+  "preserve": [
+    "original external key source",
+    "original development password file",
+    "Android application data",
+    "unknown pending approvals and jobs"
+  ],
+  "restore_plan": "Stop only new com.macbot.server; preserve fresh artifacts separately; restore each moved path from its distinct backup directory; bootstrap original plist; verify old source and health."
+}

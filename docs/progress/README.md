@@ -1,16 +1,16 @@
 # Mac Bot 集成进度与使用说明
 
-最新结论（2026-10-10）：**S0–S3通过；S4真实执行链路通过，接管卡状态缺陷修复中；S5 fresh未执行**。当前server `bb790b0`、桌面 `6eaa91a`、Android `04b0c3d` 同签名Release。历史版本与失败证据保留，不覆盖本段。
+最新结论（2026-10-10）：**S0–S3通过；S4真实执行链路通过，接管卡状态缺陷修复中；S5 fresh未执行**。当前server `6ba7efe`、桌面 `ba0e8f1`、Android `04b0c3d` 同签名Release；server 后续私聊接管持久化修复仍待部署回归。历史版本与失败证据保留，不覆盖本段。
 
 S2两个原项目已由用户授权结束5个历史等待分支并用原UUID确认done，双端完成状态已实看；其余7pending未改变，见 [S2确认记录](S2/production-9c20fc4-confirm-done.json)。
 
 S4用户已允许本次Chrome远程调试连接。旧sidecar 0.38.2的2秒握手超时已通过升级0.39.0修复，原Bot真实打开已登录X首页；Android显示实际画面、接管、只读滑动、交还，原run恢复并done，driver为bot→user→bot。新增X页已关闭，原登录页保留，Bot恢复headless。见 [本次X验收](S4/production-be64802-authorized-x.json)。交还后原消息block仍pending属于服务端状态投影缺陷，正在修复，未据执行成功提前记整阶段通过。
 
-Android长聊天初始定位竞态已修复；新版首次进入显示最新消息，上滑后保持位置，历史加载继续实测，见 [定位回归](S4/production-04b0c3d-chat-scroll.json)。S5已准备bb790b0 pkg候选，但接管修复后需重建匹配包；fresh未开始。安装需要用户管理员认证，管理页新密码须按CUA凭据变更规则由用户亲自输入、确认和提交。
+Android长聊天初始定位竞态已修复；新版首次进入显示最新消息，上滑后保持位置，142条群历史已实际到达seq1，加载结束保持首条锚点，见 [定位回归](S4/production-04b0c3d-chat-scroll.json)。S5保留历次pkg审计，但最终server尚未冻结，接管修复后需重建匹配包；fresh未开始。安装需要用户管理员认证，管理页新密码须按CUA凭据变更规则由用户亲自输入、确认和提交。
 
 本文面向在 Mac mini（Apple M4，局域网地址 `192.168.31.162`）上查看 Mac Bot 效果的人。服务端运行在这台 Mac 上，Android 客户端运行在本机的 `macbot_api36` 模拟器里。v1 不包含 iOS。
 
-## 现在的状态
+## 历史现场（ee7111a，最新状态以上方结论为准）
 
 当前接手续办：Mac 已解锁。正式服务 `ee7111a`（PID/source 见 [部署校验](S4/production-attach-no-copy-upgrade-after.json)），桌面 `cd81c23`，Android APK `cac5b12d`。修复了浏览器动作/参数和审批恢复、运行互斥、RPC事件扫描、搜索暴露内部对象、全局轨迹序号缺口及实时轨迹/退订路由；attach不复制Chrome profile的修复通过18浏览器与192网关测试。桌面最新修复长消息在右侧Bot信息面板下被裁切，构建与严格Clippy通过，原X摘要在面板打开及窄窗口实际换行通过（[证据](S5/desktop-cd81c23-message-width.json)）。仅更新桌面，服务端与Android保持。服务端严格clippy为此前fe360a2验证；此前协议、34桌面核心和Kotlin生成检查保持。
 
@@ -34,7 +34,7 @@ S3补充桌面原生核对：同一固定时间范围，仪表盘9,636,069 Token
 
 本轮新增：原忙碌 Coder 接收修复插话并在同 run 内完成项目 `index.html` 编辑；[独立实浏览器复验](S2/production-d799dda-first-index-demo.json)确认错误输入提示、登录后仅成功区、刷新保持、退出及375px布局通过。原 `login.html` 未被修改，其表单同时显示的失败记录保留；这是新 `index.html` 的产物专项，不替代 Tester 实测、原文件修复或完整 S2。已取消任务残留 pending 审批的 P1 已在正式 `7481d8e` 升级复验通过，未点击该审批。Mac 锁屏仍为 true，桌面 UI 和 S5 fresh 尚未恢复验收。
 
-### 阶段结论
+### 历史阶段结论（7481d8e 及此前，不代表当前状态）
 
 | 阶段 | 目标 | 联调状态 | 截图目录 |
 |---|---|---|---|

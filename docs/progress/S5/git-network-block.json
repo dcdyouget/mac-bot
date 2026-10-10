@@ -1,0 +1,20 @@
+{
+  "at": "2026-10-10T13:32:27.628556+00:00",
+  "origin_main_cached": "0a79125bfcf28e8da36f42fd995e659444fef914",
+  "fetch_completed": true,
+  "attempts": [
+    "ordinary fetch stalled and interrupted",
+    "noninteractive fetch bounded to25s timed out"
+  ],
+  "network_probe": {
+    "url": "https://github.com",
+    "connect_timeout_seconds": 5,
+    "curl_exit_code": 28,
+    "http_code": 0
+  },
+  "pushed": false,
+  "local_changes_preserved": true,
+  "resolved_at": "2026-10-10T13:39:29.255870+00:00",
+  "resolution": "Used existing macOS system HTTP proxy 127.0.0.1:7890 for this git command only; no global setting changed",
+  "origin_main_after_fetch": "0a79125bfcf28e8da36f42fd995e659444fef914"
+}

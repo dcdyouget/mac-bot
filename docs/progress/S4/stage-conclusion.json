@@ -1,0 +1,28 @@
+{
+  "at": "2026-10-10T13:46:53.079535+00:00",
+  "stage": "S4",
+  "status": "pending_takeover_lifecycle_regression",
+  "evidence": {
+    "desktop_logged_in_x_and_corrected_summary": "production-ee7111a-x-acceptance-summary.json",
+    "desktop_live_x_frames": "production-ee7111a-x-attach.json",
+    "desktop_fixture_mouse_keyboard": "production-e78f048-native-input.json",
+    "android_x_takeover_scroll_release_same_run": "production-be64802-authorized-x.json",
+    "scheduled_real_notification": "production-7189395-cac5b12-android-notification-receipt.json",
+    "native_notification_open": "production-7189395-cac5b12-notification-opened.json",
+    "native_notification_allow_once": "production-98fb4a9-skill-notification-action.json",
+    "isolated_native_notification_capacity": "production-962fb53-isolated-capacity.json",
+    "takeover_lifecycle_regression": "production-9c9cd7d-takeover-state.json"
+  },
+  "boundaries": [
+    "Desktop keyboard and pointer input verified on owned local fixture; logged-in X read/summary and continuous screen separately verified.",
+    "Capacity 50 to 40 tested using actual NotificationManager in isolated package, not 50 real-provider pushes on production package.",
+    "Original generated X summary had fabricated links; original Bot corrected using actual DOM and three URLs independently matched; failed output retained.",
+    "Old completed X request still has historical pending card from missing durable record; no guessed migration or replay.",
+    "Current regression keeps existing waiting run; never infer success from model completion text."
+  ],
+  "pending": [
+    "Exact current waiting request native start/release updates original block pending-active-done.",
+    "Same run resumes and finishes; both native clients hide action for done card.",
+    "No stale corresponding pending question in workbench; unrelated approvals/jobs preserved."
+  ]
+}

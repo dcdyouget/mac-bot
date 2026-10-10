@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-10T13:32:48.087235+00:00",
+  "source": "6ba7efe4d69e10b26988d1128a96007c59dc84b3",
+  "listener": "COMMAND   PID        USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nmacbotd 42012 gongshaojie   10u  IPv4 0x32ae19fa23576bf0      0t0  TCP *:7788 (LISTEN)\n",
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "deploy_exit": 0,
+  "pending_unchanged": true,
+  "jobs_unchanged": true
+}
