@@ -774,79 +774,93 @@ impl ProductionBackend {
         let _guard = self.write_lock.lock().await;
         let mut events = Vec::new();
         for (chat_id, target_message_id) in targets {
-            let path = format!("data/chats/{}/messages.jsonl", takeover_component(&chat_id));
-            let rows = self.store.read_jsonl::<Value>(&path).map_err(store_error)?;
-            let Some(mut message) = rows.into_iter().rev().find(|message| {
-                message.get("id").and_then(Value::as_str) == Some(target_message_id.as_str())
-            }) else {
-                continue;
-            };
-            if !crate::backend::takeover_message_scope_matches(
-                &message,
-                request,
-                &chat_id,
-                &target_message_id,
-            ) {
-                continue;
-            }
-            let changed = crate::backend::transition_takeover_message(
-                &mut message,
-                request,
-                &chat_id,
-                &target_message_id,
-            );
-            if !changed
-                && message
-                    .pointer("/blocks")
-                    .and_then(Value::as_array)
-                    .and_then(|blocks| {
-                        blocks.iter().find(|block| {
-                            block.get("type").and_then(Value::as_str) == Some("takeover_request")
-                                && block.get("bot_id").and_then(Value::as_str)
-                                    == Some(bot_id.as_str())
+            let target_result = (|| -> Result<Option<macbot_store::Event>, RpcError> {
+                let path = format!("data/chats/{}/messages.jsonl", takeover_component(&chat_id));
+                let rows = self.store.read_jsonl::<Value>(&path).map_err(store_error)?;
+                let Some(mut message) = rows.into_iter().rev().find(|message| {
+                    message.get("id").and_then(Value::as_str) == Some(target_message_id.as_str())
+                }) else {
+                    return Ok(None);
+                };
+                if !crate::backend::takeover_message_scope_matches(
+                    &message,
+                    request,
+                    &chat_id,
+                    &target_message_id,
+                ) {
+                    return Ok(None);
+                }
+                let changed = crate::backend::transition_takeover_message(
+                    &mut message,
+                    request,
+                    &chat_id,
+                    &target_message_id,
+                );
+                if !changed
+                    && message
+                        .pointer("/blocks")
+                        .and_then(Value::as_array)
+                        .and_then(|blocks| {
+                            blocks.iter().find(|block| {
+                                block.get("type").and_then(Value::as_str)
+                                    == Some("takeover_request")
+                                    && block.get("bot_id").and_then(Value::as_str)
+                                        == Some(bot_id.as_str())
+                            })
                         })
-                    })
-                    .and_then(|block| block.get("state"))
-                    .and_then(Value::as_str)
-                    != Some(request_state.as_str())
-            {
-                // A row with the same id but a different scope is unrelated
-                // historical data. Leave it untouched and avoid broadening
-                // an old request into a new card.
-                continue;
-            }
-            let canonical = if changed {
-                self.store
-                    .sequence_chat_messages(&chat_id, &[message])
-                    .map_err(store_error)?
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| RpcError {
+                        .and_then(|block| block.get("state"))
+                        .and_then(Value::as_str)
+                        != Some(request_state.as_str())
+                {
+                    // A row with the same id but a different scope is
+                    // unrelated historical data. Leave it untouched and
+                    // avoid broadening an old request into a new card.
+                    return Ok(None);
+                }
+                let canonical = if changed {
+                    self.store
+                        .sequence_chat_messages(&chat_id, &[message])
+                        .map_err(store_error)?
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| RpcError {
+                            code: "internal".into(),
+                            message: "chat message sequencing returned no message".into(),
+                            details: None,
+                        })?
+                } else {
+                    message
+                };
+                if changed {
+                    self.store
+                        .append_jsonl(&path, &canonical)
+                        .map_err(store_error)?;
+                }
+                let data = json!({"message": canonical});
+                let key = format!(
+                    "takeover-message:{}:{}:{}",
+                    target_message_id,
+                    request_state,
+                    serde_json::to_string(&data).map_err(|error| RpcError {
                         code: "internal".into(),
-                        message: "chat message sequencing returned no message".into(),
+                        message: error.to_string(),
                         details: None,
                     })?
-            } else {
-                message
-            };
-            if changed {
-                self.store
-                    .append_jsonl(&path, &canonical)
-                    .map_err(store_error)?;
-            }
-            let data = json!({"message": canonical});
-            let key = format!(
-                "takeover-message:{}:{}:{}",
-                target_message_id,
-                request_state,
-                serde_json::to_string(&data).map_err(|error| RpcError {
-                    code: "internal".into(),
-                    message: error.to_string(),
-                    details: None,
-                })?
-            );
-            if let Some(event) = self.append_repaired_event(&key, "message.updated", data)? {
-                events.push(event);
+                );
+                Ok(self.append_repaired_event(&key, "message.updated", data)?)
+            })();
+            match target_result {
+                Ok(Some(event)) => events.push(event),
+                Ok(None) => {}
+                Err(error) => {
+                    drop(_guard);
+                    for event in events {
+                        state
+                            .publish_event(event.seq, &event.event, event.data)
+                            .await;
+                    }
+                    return Err(error);
+                }
             }
         }
         drop(_guard);
@@ -3078,8 +3092,11 @@ impl ProductionBackend {
 
     async fn takeover_request(&self, params: &Value) -> RpcResult {
         let bot_id = required_text(params, "bot_id")?;
-        let assignment_id = required_text(params, "assignment_id")?;
         let group_chat_id = required_text(params, "chat_id")?;
+        // A private execution request has no orchestrator assignment.  Keep
+        // the question in the bot's direct-chat scope (`null` on the
+        // question RPC), while the durable takeover record gets a stable
+        // synthetic key for start/release lookup.
         let reason = params
             .get("reason")
             .and_then(Value::as_str)
@@ -3097,13 +3114,21 @@ impl ProductionBackend {
             .and_then(Value::as_str)
             .map(str::to_owned)
             .unwrap_or_else(|| format!("dm_{bot_id}"));
+        let private_scope = format!("dm_{}", takeover_component(&group_chat_id));
+        let source_assignment_id = params
+            .get("assignment_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .filter(|value| !(dm_chat_id == group_chat_id && *value == private_scope))
+            .map(str::to_owned);
+        let assignment_id = source_assignment_id.clone().unwrap_or(private_scope);
         let question = self
             .orchestrator
             .rpc(
                 "question.ask",
                 json!({
                     "bot_id": bot_id,
-                    "assignment_id": assignment_id,
+                    "assignment_id": source_assignment_id,
                     "chat_id": dm_chat_id,
                     "text": format!("{reason}。是否接管浏览器？"),
                     "options": ["接管", "取消"],
@@ -3263,48 +3288,205 @@ impl ProductionBackend {
 
         let dir = self.store.root().join("data/takeovers");
         let bot_id = required_text(params, "bot_id")?;
-        let entries = fs::read_dir(&dir).map_err(|error| RpcError {
-            code: "not_found".into(),
-            message: error.to_string(),
-            details: None,
-        })?;
         let mut matches = Vec::new();
-        for entry in entries {
-            let entry = entry.map_err(|error| RpcError {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries {
+                let entry = entry.map_err(|error| RpcError {
+                    code: "internal".into(),
+                    message: error.to_string(),
+                    details: None,
+                })?;
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                    continue;
+                }
+                let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+                    continue;
+                };
+                let Some(request) = self
+                    .store
+                    .read_snapshot::<Value>(format!("data/takeovers/{stem}.json"))
+                    .map_err(store_error)?
+                else {
+                    continue;
+                };
+                if request.get("bot_id").and_then(Value::as_str) == Some(bot_id.as_str())
+                    && request.get("state").and_then(Value::as_str) == Some(expected_state)
+                {
+                    matches.push((stem.to_owned(), request));
+                }
+            }
+        } else if dir.exists() {
+            return Err(RpcError {
                 code: "internal".into(),
-                message: error.to_string(),
+                message: format!("cannot read {}", dir.display()),
                 details: None,
-            })?;
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-                continue;
-            }
-            let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
-                continue;
-            };
-            let Some(request) = self
-                .store
-                .read_snapshot::<Value>(format!("data/takeovers/{stem}.json"))
-                .map_err(store_error)?
-            else {
-                continue;
-            };
-            if request.get("bot_id").and_then(Value::as_str) == Some(bot_id.as_str())
-                && request.get("state").and_then(Value::as_str) == Some(expected_state)
-            {
-                matches.push((stem.to_owned(), request));
-            }
+            });
         }
         matches.sort_by(|left, right| {
             right.1["created_at"]
                 .as_str()
                 .cmp(&left.1["created_at"].as_str())
         });
-        matches.into_iter().next().ok_or_else(|| RpcError {
+        if let Some(match_item) = matches.into_iter().next() {
+            return Ok(match_item);
+        }
+        if expected_state == "pending" {
+            if let Some(recovered) = self.recover_waiting_takeover(&bot_id)? {
+                return Ok(recovered);
+            }
+        }
+        Err(RpcError {
             code: "not_found".into(),
             message: format!("no {expected_state} takeover request for bot {bot_id}"),
             details: None,
         })
+    }
+
+    /// Bind a private execution waiting marker to the browser action without
+    /// replaying the model tool.  Older runtimes wrote the card and durable
+    /// marker before the orchestrator takeover record, so only an exact
+    /// waiting job + message + Bot DM scope may reconstruct that record.
+    fn recover_waiting_takeover(&self, bot_id: &str) -> Result<Option<(String, Value)>, RpcError> {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let Some(bot_chat_id) = snapshot
+            .get("bots")
+            .and_then(Value::as_object)
+            .and_then(|bots| bots.get(bot_id))
+            .and_then(|bot| bot.get("dm_chat_id"))
+            .and_then(Value::as_str)
+        else {
+            return Ok(None);
+        };
+        let waiting_dir = self.store.root().join("data/waiting");
+        let entries = match fs::read_dir(waiting_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(store_error(error.into())),
+        };
+        let jobs_dir = self.store.root().join("data/jobs");
+        let mut matches = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|error| store_error(error.into()))?;
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(marker) = self
+                .store
+                .read_snapshot::<Value>(path.strip_prefix(self.store.root()).unwrap_or(&path))
+                .map_err(store_error)?
+            else {
+                continue;
+            };
+            if marker.get("kind").and_then(Value::as_str) != Some("takeover")
+                || marker
+                    .get("assignment_id")
+                    .is_some_and(|value| !value.is_null())
+                || marker.get("chat_id").and_then(Value::as_str) != Some(bot_chat_id)
+            {
+                continue;
+            }
+            let Some(run_id) = marker.get("run_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let message_id = marker
+                .get("message_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("msg_takeover_{}", takeover_component(run_id)));
+            let rows = self
+                .store
+                .read_jsonl::<Value>(format!(
+                    "data/chats/{}/messages.jsonl",
+                    takeover_component(bot_chat_id)
+                ))
+                .map_err(store_error)?;
+            let Some(message) = rows.into_iter().rev().find(|message| {
+                message.get("id").and_then(Value::as_str) == Some(message_id.as_str())
+                    && message.get("chat_id").and_then(Value::as_str) == Some(bot_chat_id)
+                    && message.pointer("/sender/bot_id").and_then(Value::as_str) == Some(bot_id)
+            }) else {
+                continue;
+            };
+            let Some(block) = message
+                .get("blocks")
+                .and_then(Value::as_array)
+                .and_then(|blocks| {
+                    blocks.iter().find(|block| {
+                        block.get("type").and_then(Value::as_str) == Some("takeover_request")
+                            && block.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                            && block.get("state").and_then(Value::as_str) == Some("pending")
+                    })
+                })
+            else {
+                continue;
+            };
+            let mut exact_job = false;
+            if let Ok(job_entries) = fs::read_dir(&jobs_dir) {
+                for job_entry in job_entries {
+                    let job_entry = job_entry.map_err(|error| store_error(error.into()))?;
+                    if job_entry.path().extension().and_then(|ext| ext.to_str()) != Some("json") {
+                        continue;
+                    }
+                    let file = fs::File::open(job_entry.path())
+                        .map_err(|error| store_error(error.into()))?;
+                    let job: macbot_durable::Job =
+                        serde_json::from_reader(file).map_err(|error| RpcError {
+                            code: "internal".into(),
+                            message: error.to_string(),
+                            details: None,
+                        })?;
+                    if matches!(
+                        job.status,
+                        macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
+                    ) && job.checkpoint.get("run_id").and_then(Value::as_str) == Some(run_id)
+                        && job
+                            .checkpoint
+                            .pointer("/pending_tool/name")
+                            .and_then(Value::as_str)
+                            == Some("request_takeover")
+                        && job
+                            .checkpoint
+                            .pointer("/pending_tool/args/reason")
+                            .and_then(Value::as_str)
+                            == block.get("reason").and_then(Value::as_str)
+                    {
+                        exact_job = true;
+                        break;
+                    }
+                }
+            }
+            if !exact_job {
+                continue;
+            }
+            let assignment_id = format!("dm_{}", takeover_component(bot_chat_id));
+            matches.push((
+                message
+                    .get("created_at")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
+                assignment_id.clone(),
+                json!({
+                    "bot_id": bot_id,
+                    "assignment_id": assignment_id,
+                    "chat_id": bot_chat_id,
+                    "group_chat_id": bot_chat_id,
+                    "reason": block.get("reason").cloned().unwrap_or_else(|| json!("用户接管浏览器")),
+                    "question_id": null,
+                    "state": "pending",
+                    "created_at": message.get("created_at").cloned().unwrap_or_else(|| json!(now())),
+                    "message_id": message_id,
+                    "run_id": run_id
+                }),
+            ));
+        }
+        matches.sort_by(|left, right| right.0.cmp(&left.0));
+        Ok(matches
+            .into_iter()
+            .next()
+            .map(|(_, assignment_id, request)| (assignment_id, request)))
     }
 
     fn read_takeover(&self, assignment_id: &str) -> RpcResult {
@@ -6929,6 +7111,138 @@ mod tests {
                 && event.data["message"]["id"] == "msg_takeover_run-1"
                 && event.data["message"]["blocks"][0]["state"] == "done"
         }));
+    }
+
+    #[tokio::test]
+    async fn execution_takeover_request_creates_private_scope_record_without_assignment() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let result = backend
+            .execution_takeover_request(
+                &gateway.state,
+                json!({
+                    "bot_id":"main",
+                    "assignment_id":null,
+                    "chat_id":"chat_main",
+                    "message_id":"msg_takeover_run-1",
+                    "run_id":"run-1",
+                    "reason":"private takeover"
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["question"]["assignment_id"], "dm_chat_main");
+        assert_eq!(result["takeover_request"]["assignment_id"], "dm_chat_main");
+        let saved = backend
+            .store
+            .read_snapshot::<Value>("data/takeovers/dm_chat_main.json")
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved["message_id"], "msg_takeover_run-1");
+        assert_eq!(saved["run_id"], "run-1");
+    }
+
+    #[tokio::test]
+    async fn waiting_private_takeover_recovery_requires_exact_job_and_card() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let message = json!({
+            "id":"msg_takeover_run-1", "chat_id":"chat_main", "seq":1,
+            "sender":{"kind":"bot","bot_id":"main"}, "assignment_id":null,
+            "created_at":"2026-10-10T13:00:00Z",
+            "blocks":[{"type":"takeover_request","bot_id":"main","reason":"recover me","state":"pending"}]
+        });
+        backend
+            .store
+            .append_jsonl("data/chats/chat_main/messages.jsonl", &message)
+            .unwrap();
+        backend
+            .store
+            .write_snapshot(
+                "data/waiting/msg_takeover_run-1.json",
+                &json!({
+                    "kind":"takeover", "run_id":"run-1", "assignment_id":null,
+                    "chat_id":"chat_main", "message_id":"msg_takeover_run-1"
+                }),
+            )
+            .unwrap();
+        backend
+            .store
+            .write_snapshot(
+                "data/jobs/job-1.json",
+                &json!({
+                    "id":"job-1", "owner":"main", "kind":"chat",
+                    "status":"waiting", "unsafe_replay":true,
+                    "updated_at":0, "commit_seq":1,
+                    "checkpoint":{
+                        "run_id":"run-1",
+                        "pending_tool":{"name":"request_takeover","call_id":"call-1","args":{"reason":"recover me"}}
+                    }
+                }),
+            )
+            .unwrap();
+        let (assignment_id, request) = backend
+            .takeover_for_action(&json!({"bot_id":"main"}), "pending")
+            .unwrap();
+        assert_eq!(assignment_id, "dm_chat_main");
+        assert_eq!(request["message_id"], "msg_takeover_run-1");
+        assert_eq!(request["assignment_id"], "dm_chat_main");
+        assert_eq!(request["run_id"], "run-1");
+        assert_eq!(request["state"], "pending");
+        drop(gateway);
+    }
+
+    #[tokio::test]
+    async fn takeover_projection_publishes_group_before_private_storage_failure() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let group = json!({
+            "id":"msg_takeover_run-1", "chat_id":"group-1", "seq":1,
+            "sender":{"kind":"bot","bot_id":"bot-1"}, "assignment_id":null,
+            "blocks":[{"type":"takeover_request","bot_id":"bot-1","state":"pending"}]
+        });
+        backend
+            .store
+            .append_jsonl("data/chats/group-1/messages.jsonl", &group)
+            .unwrap();
+        std::fs::create_dir_all(home.path().join("data/chats/dm-bot-1/messages.jsonl")).unwrap();
+        let request = json!({
+            "message_id":"msg_takeover_run-1", "run_id":"run-1",
+            "group_chat_id":"group-1", "chat_id":"dm-bot-1",
+            "bot_id":"bot-1", "assignment_id":"dm_group-1", "state":"active"
+        });
+        let mut live = gateway.state.events.subscribe();
+        assert!(backend
+            .project_takeover_message_state(&gateway.state, &request)
+            .await
+            .is_err());
+        let published = tokio::time::timeout(std::time::Duration::from_millis(200), live.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(published["event"], "message.updated");
+        assert_eq!(published["data"]["message"]["id"], "msg_takeover_run-1");
+        let events = backend.store.events_since(0).unwrap();
+        assert!(events.iter().any(|event| {
+            event.event == "message.updated" && event.data["message"]["id"] == "msg_takeover_run-1"
+        }));
+        let rows = backend
+            .store
+            .read_jsonl::<Value>("data/chats/group-1/messages.jsonl")
+            .unwrap();
+        assert_eq!(rows.last().unwrap()["blocks"][0]["state"], "active");
     }
 
     #[tokio::test]
