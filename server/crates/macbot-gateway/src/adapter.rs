@@ -4687,7 +4687,7 @@ impl ProductionBackend {
         Ok(mentions)
     }
 
-    fn load_chat_messages(&self, chat_id: &str) -> Result<Vec<Value>, RpcError> {
+    pub(crate) fn load_chat_messages(&self, chat_id: &str) -> Result<Vec<Value>, RpcError> {
         let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
         let mut messages = snapshot
             .get("messages")
@@ -5500,7 +5500,7 @@ impl ProductionBackend {
         Ok(json!({"chat":chat}))
     }
 
-    fn read_chat_overlay(&self, chat_id: &str) -> Result<Value, RpcError> {
+    pub(crate) fn read_chat_overlay(&self, chat_id: &str) -> Result<Value, RpcError> {
         self.store
             .read_snapshot(format!(
                 "data/chats/{}/metadata.json",

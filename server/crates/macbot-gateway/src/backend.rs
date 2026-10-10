@@ -168,8 +168,179 @@ impl ComposedBackend {
             recovery_backend.recover_allowed_tool_approvals().await;
             recovery_backend.recover_answered_decisions().await;
             recovery_backend.dispatch_ready_assignments().await;
+            recovery_backend.recover_orphan_private_messages().await;
         });
         Ok(backend)
+    }
+
+    /// Recover only user messages which are provably an unstarted private Bot
+    /// turn.  `chat.send` persists the message before the composed scheduler
+    /// creates the execution request, so a task cancellation can leave an
+    /// unread message without a durable job or request.  Recovery deliberately
+    /// does not replay every unread message: it requires a Bot-owned DM,
+    /// excludes messages already represented by an assignment, request, job,
+    /// Bot reply, or pending approval, and uses the message id as the stable
+    /// run id.  This keeps restart recovery idempotent and out of the approval
+    /// replay paths.
+    async fn recover_orphan_private_messages(&self) {
+        let Ok(snapshot) = self.inner.orchestrator.snapshot() else {
+            return;
+        };
+        let dm_chats = snapshot
+            .get("bots")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|bots| bots.values())
+            .filter_map(|bot| {
+                Some((
+                    bot.get("id")?.as_str()?.to_owned(),
+                    bot.get("dm_chat_id")?.as_str()?.to_owned(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        let assigned_message_ids = snapshot
+            .get("assignments")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|assignments| assignments.values())
+            .filter_map(|assignment| {
+                assignment
+                    .get("trigger_message_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .collect::<HashSet<_>>();
+        let pending_approval_chats = snapshot
+            .get("approvals")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|approvals| approvals.values())
+            .filter(|approval| approval.get("state").and_then(Value::as_str) == Some("pending"))
+            .filter_map(|approval| {
+                approval
+                    .get("chat_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .collect::<HashSet<_>>();
+
+        for (_bot_id, chat_id) in dm_chats {
+            if pending_approval_chats.contains(&chat_id) {
+                tracing::info!(%chat_id, "private message recovery skipped while approval is pending");
+                continue;
+            }
+            let last_read_seq = self
+                .inner
+                .read_chat_overlay(&chat_id)
+                .ok()
+                .and_then(|overlay| overlay.get("last_read_seq").and_then(Value::as_u64));
+            let Some(last_read_seq) = last_read_seq else {
+                // A missing cursor is legacy/unknown state.  Do not infer
+                // that all messages in such a chat need execution.
+                continue;
+            };
+            let Ok(messages) = self.inner.load_chat_messages(&chat_id) else {
+                continue;
+            };
+            for message in messages.iter().filter(|message| {
+                message
+                    .get("seq")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|seq| seq > last_read_seq)
+                    && message
+                        .get("sender")
+                        .and_then(|sender| sender.get("kind"))
+                        .and_then(Value::as_str)
+                        == Some("user")
+                    && message.get("deleted").and_then(Value::as_bool) != Some(true)
+                    && message.get("assignment_id").is_none_or(Value::is_null)
+            }) {
+                let Some(message_id) = message.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                if assigned_message_ids.contains(message_id) {
+                    continue;
+                }
+                let run_id = format!(
+                    "run_chat_{}",
+                    message_id
+                        .chars()
+                        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+                        .collect::<String>()
+                );
+                if self.private_execution_exists(&run_id).await {
+                    continue;
+                }
+                let has_matching_bot_reply = messages.iter().any(|reply| {
+                    reply
+                        .get("sender")
+                        .and_then(|sender| sender.get("kind"))
+                        .and_then(Value::as_str)
+                        == Some("bot")
+                        && reply
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .is_some_and(|id| id.contains(&run_id))
+                });
+                if has_matching_bot_reply {
+                    continue;
+                }
+                let text = message
+                    .get("fallback_text")
+                    .and_then(Value::as_str)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_owned);
+                let Some(text) = text else {
+                    continue;
+                };
+                let params = json!({
+                    "chat_id": chat_id,
+                    "text": text,
+                    "mentions": message.get("mentions").cloned().unwrap_or_else(|| json!([])),
+                    "reply_to": message.get("reply_to").cloned().unwrap_or(Value::Null)
+                });
+                let result = json!({"message": message});
+                let Some(request) = self.request_for_chat(&params, &result).await else {
+                    tracing::warn!(%chat_id, %message_id, "orphan private message has no configured model");
+                    continue;
+                };
+                self.scheduled
+                    .lock()
+                    .await
+                    .insert(format!("user-delivery:{message_id}"));
+                tracing::warn!(
+                    %chat_id,
+                    %message_id,
+                    run_id = %request.run_id,
+                    "recovering orphan private message"
+                );
+                self.spawn_request(request);
+            }
+        }
+    }
+
+    async fn private_execution_exists(&self, run_id: &str) -> bool {
+        if self
+            .inner
+            .store
+            .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+            .ok()
+            .flatten()
+            .is_some()
+            || self
+                .runtime
+                .find_request(|request| request.run_id == run_id)
+                .is_some()
+        {
+            return true;
+        }
+        self.runtime
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .any(|job| job.checkpoint.get("run_id").and_then(Value::as_str) == Some(run_id))
     }
 
     /// Invalid target arguments cannot authorize a side effect. Retire only
@@ -7796,6 +7967,200 @@ mod persistence_tests {
         }));
         let snapshot = backend.orchestrator.snapshot().unwrap();
         assert_eq!(snapshot["approvals"][&pending_id]["state"], "pending");
+    }
+
+    #[tokio::test]
+    async fn startup_recovers_only_unread_private_message_without_durable_execution() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"orphan-recovery"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        let provider = backend
+            .call(
+                "provider.create",
+                json!({"name":"Recovery Provider","api_kind":"openai-completions","base_url":"http://127.0.0.1:1","client_request_id":"recovery-provider"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let provider_id = provider["provider"]["id"].as_str().unwrap();
+        backend
+            .call(
+                "model.upsert",
+                json!({"provider_id":provider_id,"model_id":"recovery-model","client_request_id":"recovery-model"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let model_ref = format!("{provider_id}/recovery-model");
+        backend
+            .store
+            .write_snapshot(
+                "data/settings.json",
+                &json!({"models":{"bot_default":model_ref,"main":null}}),
+            )
+            .unwrap();
+        let sent = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":chat_id,"text":"recover this private turn"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let message_id = sent["message"]["id"].as_str().unwrap().to_owned();
+        backend
+            .store
+            .write_snapshot(
+                format!(
+                    "data/chats/{}/metadata.json",
+                    super::safe_component(&chat_id)
+                ),
+                &json!({"last_read_seq":0}),
+            )
+            .unwrap();
+        let composed =
+            ComposedBackend::open(backend.clone(), gateway.state.clone(), path.clone()).unwrap();
+        let run_id = format!(
+            "run_chat_{}",
+            message_id
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+                .collect::<String>()
+        );
+        for _ in 0..500 {
+            if backend
+                .store
+                .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+                .unwrap()
+                .is_some()
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(backend
+            .store
+            .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+            .unwrap()
+            .is_some());
+        // The same recovery pass is idempotent once the request exists.
+        composed.recover_orphan_private_messages().await;
+        let durable = backend.durable.lock().await;
+        assert_eq!(
+            durable
+                .jobs()
+                .filter(|job| job.checkpoint.get("run_id").and_then(Value::as_str) == Some(&run_id))
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn startup_does_not_replay_private_message_while_approval_is_pending() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"orphan-approval"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        let provider = backend
+            .call(
+                "provider.create",
+                json!({"name":"Approval Recovery Provider","api_kind":"openai-completions","base_url":"http://127.0.0.1:1","client_request_id":"approval-recovery-provider"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let provider_id = provider["provider"]["id"].as_str().unwrap();
+        backend
+            .call(
+                "model.upsert",
+                json!({"provider_id":provider_id,"model_id":"recovery-model","client_request_id":"approval-recovery-model"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let model_ref = format!("{provider_id}/recovery-model");
+        backend
+            .store
+            .write_snapshot(
+                "data/settings.json",
+                &json!({"models":{"bot_default":model_ref,"main":null}}),
+            )
+            .unwrap();
+        let sent = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":chat_id,"text":"do not replay while approval is pending"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let message_id = sent["message"]["id"].as_str().unwrap().to_owned();
+        backend
+            .call(
+                "approval.request",
+                json!({
+                    "bot_id":bot_id,
+                    "assignment_id":null,
+                    "chat_id":chat_id,
+                    "tool":"memory",
+                    "risk":"write",
+                    "summary":"pending recovery guard",
+                    "detail":"{}"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .store
+            .write_snapshot(
+                format!(
+                    "data/chats/{}/metadata.json",
+                    super::safe_component(&chat_id)
+                ),
+                &json!({"last_read_seq":0}),
+            )
+            .unwrap();
+        let _composed = ComposedBackend::open(backend.clone(), gateway.state, path).unwrap();
+        let run_id = format!(
+            "run_chat_{}",
+            message_id
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+                .collect::<String>()
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(backend
+            .store
+            .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]
