@@ -1,0 +1,2337 @@
+{
+  "source": "7f0a5dd6ef2de9a6b2ebf13c0ba8b73fbd6e6c1e",
+  "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "marker": "stream-a268571332",
+  "request": {
+    "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+    "text": "First read exactly e2e/macbot-e2e-recovery-aec189dcb6f1.txt and verify the marker macbot-e2e-recovery-aec189dcb6f1. Then produce 80 numbered lines, 001 through 080, in Chinese, describing local application acceptance checks, about 25 Chinese characters per line. These are text suggestions only; do not execute any checks or use any other tools. Begin your final response with stream-a268571332 and end with stream-a268571332-done. This is a real streaming display test; do not claim the suggested checks have been executed.",
+    "mentions": [],
+    "client_request_id": "77008de1-629a-4046-9a9f-3b7469985fae"
+  },
+  "frames": [
+    {
+      "observed_time": 1791605033.8097851,
+      "data": {
+        "message": {
+          "artifacts": [],
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "First read exactly e2e/macbot-e2e-recovery-aec189dcb6f1.txt and verify the marker macbot-e2e-recovery-aec189dcb6f1. Then produce 80 numbered lines, 001 through 080, in Chinese, describing local application acceptance checks, about 25 Chinese characters per line. These are text suggestions only; do not execute any checks or use any other tools. Begin your final response with stream-a268571332 and end with stream-a268571332-done. This is a real streaming display test; do not claim the suggested checks have been executed.",
+              "type": "text"
+            }
+          ],
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "created_at": "2026-10-10T04:03:46.869417+00:00",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "First read exactly e2e/macbot-e2e-recovery-aec189dcb6f1.txt and verify the marker macbot-e2e-recovery-aec189dcb6f1. Then produce 80 numbered lines, 001 through 080, in Chinese, describing local application acceptance checks, about 25 Chinese characters per line. These are text suggestions only; do not execute any checks or use any other tools. Begin your final response with stream-a268571332 and end with stream-a268571332-done. This is a real streaming display test; do not claim the suggested checks have been executed.",
+          "id": "01a123fb-3035-70c9-ae1e-d6a1b40b2368",
+          "intent": "ack",
+          "mentions": [],
+          "options": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 13,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 5456,
+      "v": 1
+    },
+    {
+      "observed_time": 1791605034.064708,
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [],
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "created_at": "2026-10-10T04:03:54.042Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "",
+          "id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "kind": "bot"
+          },
+          "seq": 14,
+          "streaming": true,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 5457,
+      "v": 1
+    },
+    {
+      "observed_time": 1791605034.0675719,
+      "data": {
+        "item": {
+          "aseq": 65,
+          "assignment_id": null,
+          "at": "2026-10-10T04:03:54.054Z",
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "data": {
+            "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+            "parent_run_id": null,
+            "phase": "chat",
+            "subagent_task": null
+          },
+          "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+          "type": "run.start"
+        },
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605041.348991,
+      "data": {
+        "item": {
+          "aseq": 66,
+          "assignment_id": null,
+          "at": "2026-10-10T04:04:01.335Z",
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "data": {
+            "context": {
+              "l0": 2584,
+              "l1": 0,
+              "l2": 0,
+              "l3": 0,
+              "l4": 0,
+              "total": 2584
+            },
+            "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+            "prompt_ref": null,
+            "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+            "tools": [
+              "edit",
+              "subagent",
+              "find",
+              "project_find",
+              "browser_nav",
+              "browser_get",
+              "grep",
+              "memory",
+              "chat_history",
+              "browser_open",
+              "bash_job",
+              "bash",
+              "memory_search",
+              "browser_screenshot",
+              "browser_act",
+              "browser_snapshot",
+              "browser_wait",
+              "read",
+              "browser_tabs",
+              "browser_eval",
+              "request_takeover",
+              "skill",
+              "question",
+              "ls",
+              "write",
+              "session_search",
+              "send_msg"
+            ]
+          },
+          "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+          "type": "llm.request"
+        },
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605048.691273,
+      "data": {
+        "call_id": null,
+        "channel": "thinking",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "The user"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605049.415217,
+      "data": {
+        "call_id": null,
+        "channel": "thinking",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": " wants me to:\n1. First read the file e2e/macbot-e2e-recovery-aec189dcb6f1.txt to verify the marker\n2. Then produce 80 numbered lines (001-080) in Chinese,"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605050.0114849,
+      "data": {
+        "call_id": null,
+        "channel": "thinking",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": " each describing a local application acceptance check, about 25 Chinese characters per line\n3. Begin the final response with \"stream-a268571332\" and end with \"stream-a"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605050.6820328,
+      "data": {
+        "call_id": null,
+        "channel": "thinking",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "268571332-done\"\n4. This is a text suggestion only - no actual checks should be executed\n\nLet me first read the file to verify the marker."
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605050.68483,
+      "data": {
+        "call_id": "call_function_h9ob9epv0kc2_1",
+        "channel": "tool_args",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": ""
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605050.686165,
+      "data": {
+        "call_id": "call_function_h9ob9epv0kc2_1",
+        "channel": "tool_args",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "{\"path\": \"e2e/macbot"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605050.863329,
+      "data": {
+        "call_id": "call_function_h9ob9epv0kc2_1",
+        "channel": "tool_args",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "-e2e-recovery-aec189dcb6f1.txt\"}"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605051.000462,
+      "data": {
+        "item": {
+          "aseq": 67,
+          "assignment_id": null,
+          "at": "2026-10-10T04:04:10.967Z",
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "data": {
+            "latency_ms": 3311,
+            "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+            "stop_reason": "tool_use",
+            "text": "",
+            "thinking": "The user wants me to:\n1. First read the file e2e/macbot-e2e-recovery-aec189dcb6f1.txt to verify the marker\n2. Then produce 80 numbered lines (001-080) in Chinese, each describing a local application acceptance check, about 25 Chinese characters per line\n3. Begin the final response with \"stream-a268571332\" and end with \"stream-a268571332-done\"\n4. This is a text suggestion only - no actual checks should be executed\n\nLet me first read the file to verify the marker.",
+            "tool_calls": [
+              {
+                "args": {
+                  "path": "e2e/macbot-e2e-recovery-aec189dcb6f1.txt"
+                },
+                "call_id": "call_function_h9ob9epv0kc2_1",
+                "name": "read"
+              }
+            ],
+            "ttft_ms": 1041,
+            "usage": {
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "cost": null,
+              "input_tokens": 6342,
+              "output_tokens": 167,
+              "requests": 1
+            }
+          },
+          "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+          "type": "llm.response"
+        },
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605051.011772,
+      "data": {
+        "item": {
+          "aseq": 68,
+          "assignment_id": null,
+          "at": "2026-10-10T04:04:10.980Z",
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "data": {
+            "args": {
+              "path": "e2e/macbot-e2e-recovery-aec189dcb6f1.txt"
+            },
+            "call_id": "call_function_h9ob9epv0kc2_1",
+            "name": "read"
+          },
+          "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+          "type": "tool.start"
+        },
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605051.018112,
+      "data": {
+        "item": {
+          "aseq": 69,
+          "assignment_id": null,
+          "at": "2026-10-10T04:04:10.995Z",
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "data": {
+            "call_id": "call_function_h9ob9epv0kc2_1",
+            "details": {
+              "full_output_path": null,
+              "path": "/Users/gongshaojie/MacBot/bots/01a120b5-4a0f-7499-ac9a-f3d1f227d0ce/e2e/macbot-e2e-recovery-aec189dcb6f1.txt",
+              "truncated": false
+            },
+            "duration_ms": 2,
+            "full_output": null,
+            "is_error": false,
+            "preview": "macbot-e2e-recovery-aec189dcb6f1\n",
+            "truncated": false
+          },
+          "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+          "type": "tool.end"
+        },
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605051.1779158,
+      "data": {
+        "item": {
+          "aseq": 70,
+          "assignment_id": null,
+          "at": "2026-10-10T04:04:11.162Z",
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "data": {
+            "context": {
+              "l0": 2863,
+              "l1": 0,
+              "l2": 0,
+              "l3": 0,
+              "l4": 0,
+              "total": 2863
+            },
+            "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+            "prompt_ref": null,
+            "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+            "tools": [
+              "edit",
+              "subagent",
+              "find",
+              "project_find",
+              "browser_nav",
+              "browser_get",
+              "grep",
+              "memory",
+              "chat_history",
+              "browser_open",
+              "bash_job",
+              "bash",
+              "memory_search",
+              "browser_screenshot",
+              "browser_act",
+              "browser_snapshot",
+              "browser_wait",
+              "read",
+              "browser_tabs",
+              "browser_eval",
+              "request_takeover",
+              "skill",
+              "question",
+              "ls",
+              "write",
+              "session_search",
+              "send_msg"
+            ]
+          },
+          "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+          "type": "llm.request"
+        },
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605058.7358148,
+      "data": {
+        "call_id": null,
+        "channel": "thinking",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "Good"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605059.4274518,
+      "data": {
+        "call_id": null,
+        "channel": "thinking",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": ", the file contains the marker \"macbot-e2e-recovery-aec189dcb6f1\" as expected. Now I need to produce 80 numbered lines in Chinese, describing local application acceptance checks, about 25 Chinese characters per line.\n\nLet me create"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605060.120543,
+      "data": {
+        "call_id": null,
+        "channel": "thinking",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": " 80 lines with numbers 001-080, each line describing a local application acceptance check in Chinese, approximately 25 characters per line.\n\nI'll begin"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605060.863283,
+      "data": {
+        "call_id": null,
+        "channel": "thinking",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": " with \"stream-a268571332\" and end with \"stream-a268571332-done\"."
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605060.866173,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "stream-a268571332\n001. 检查应用程序是否成功安装在本地设备"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605060.869038,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "stream-a268571332\n001. 检查应用程序是否成功安装在本地设备"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605061.5053399,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "上\n002. 验证应用图标是否正确显示在桌面或启动栏\n003. 确认应用启动时无错误弹"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605061.5086951,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "上\n002. 验证应用图标是否正确显示在桌面或启动栏\n003. 确认应用启动时无错误弹"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605062.2650838,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "窗或警告信息\n004. 测试应用主界面是否能够正常加载和渲染\n005. 检查应用窗口的大小和位置是否符合"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605062.268735,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "窗或警告信息\n004. 测试应用主界面是否能够正常加载和渲染\n005. 检查应用窗口的大小和位置是否符合"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605062.9067252,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "预期\n006. 验证所有功能按钮是否可点击且响应正常\n007. 测试应用的菜单位置和内容是否完整"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605062.90902,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "预期\n006. 验证所有功能按钮是否可点击且响应正常\n007. 测试应用的菜单位置和内容是否完整"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605063.551386,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "准确\n008. 检查应用在本地网络中的连接状态是否正常\n009. 验证用户"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605063.553055,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "准确\n008. 检查应用在本地网络中的连接状态是否正常\n009. 验证用户"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605064.1870139,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "登录功能是否能够正常完成验证\n010. 测试数据保存和读取操作是否正确执行\n011. 检查应用设置的"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605064.1880262,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "登录功能是否能够正常完成验证\n010. 测试数据保存和读取操作是否正确执行\n011. 检查应用设置的"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605064.9835289,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "修改是否能被正确应用\n012. 验证消息通知功能是否能够正常推送\n013. 测试应用的搜索"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605064.98573,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "修改是否能被正确应用\n012. 验证消息通知功能是否能够正常推送\n013. 测试应用的搜索"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605065.668266,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "功能返回结果是否准确\n014. 检查文件上传和下载功能是否正常工作\n015. 验证图片和媒体文件的"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605065.6720698,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "功能返回结果是否准确\n014. 检查文件上传和下载功能是否正常工作\n015. 验证图片和媒体文件的"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605066.343165,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "显示是否清晰完整\n016. 测试打印或导出功能是否按预期工作\n017. 检查应用的错误"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605066.345282,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "显示是否清晰完整\n016. 测试打印或导出功能是否按预期工作\n017. 检查应用的错误"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605066.946442,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "日志记录是否完整详细\n018. 验证应用在离线模式下的基本功能可用性\n019. 测试多语言切换功能是否正确显示文本\n020. 检查"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605066.950145,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "日志记录是否完整详细\n018. 验证应用在离线模式下的基本功能可用性\n019. 测试多语言切换功能是否正确显示文本\n020. 检查"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605067.607289,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "应用主题和皮肤切换是否正常生效\n021. 验证应用的数据备份和恢复功能是否可靠\n022. 测试"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605067.6100962,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "应用主题和皮肤切换是否正常生效\n021. 验证应用的数据备份和恢复功能是否可靠\n022. 测试"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605068.2770429,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "应用程序的更新检查功能是否正常\n023. 检查应用与本地其他软件的兼容性表现\n024. 验证数据库"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605068.278111,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "应用程序的更新检查功能是否正常\n023. 检查应用与本地其他软件的兼容性表现\n024. 验证数据库"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605068.973927,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "连接和查询操作是否成功执行\n025. 测试批量操作的处理速度和稳定性如何\n026. 检查应用的缓存清理功能"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605068.976937,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "连接和查询操作是否成功执行\n025. 测试批量操作的处理速度和稳定性如何\n026. 检查应用的缓存清理功能"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605069.65746,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "是否正常工作\n027. 验证历史记录查看和筛选功能是否准确\n028. 测试邮件或短信通知"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605069.662117,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "是否正常工作\n027. 验证历史记录查看和筛选功能是否准确\n028. 测试邮件或短信通知"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605070.337905,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "的发送是否成功\n029. 检查二维码扫描或生成功能是否正常\n030. 验证地理位置服务获取是否准确"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605070.338888,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "的发送是否成功\n029. 检查二维码扫描或生成功能是否正常\n030. 验证地理位置服务获取是否准确"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605071.075566,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "可靠\n031. 测试人脸识别或指纹解锁功能是否灵敏\n032. 检查语音输入和转文字功能"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605071.078698,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "可靠\n031. 测试人脸识别或指纹解锁功能是否灵敏\n032. 检查语音输入和转文字功能"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605071.7246022,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "识别准确率\n033. 验证视频播放的流畅度和画面质量如何\n034. 测试实时通讯"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605071.728043,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "识别准确率\n033. 验证视频播放的流畅度和画面质量如何\n034. 测试实时通讯"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605072.4128058,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "的延迟和稳定性表现\n035. 检查应用的后台运行和唤醒机制是否正常\n036. 验证权限管理设置"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605072.413825,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "的延迟和稳定性表现\n035. 检查应用的后台运行和唤醒机制是否正常\n036. 验证权限管理设置"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605073.09649,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "是否能够正确控制访问\n037. 测试应用在不同屏幕分辨率下的适配效果\n038. 检查键盘快捷键是否都能"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605073.101115,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "是否能够正确控制访问\n037. 测试应用在不同屏幕分辨率下的适配效果\n038. 检查键盘快捷键是否都能"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605073.878678,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "正常工作\n039. 验证鼠标右键菜单选项是否完整且有效\n040. 测试"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605073.882119,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "正常工作\n039. 验证鼠标右键菜单选项是否完整且有效\n040. 测试"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605074.569226,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "触屏操作的反应速度和准确程度\n041. 检查窗口的最大化最小化关闭功能是否正常\n042. 验证窗口拖拽和"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605074.570287,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "触屏操作的反应速度和准确程度\n041. 检查窗口的最大化最小化关闭功能是否正常\n042. 验证窗口拖拽和"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605075.262793,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "调整大小的操作是否流畅\n043. 测试应用的皮肤和主题是否能够自定义"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605075.2674,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "调整大小的操作是否流畅\n043. 测试应用的皮肤和主题是否能够自定义"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605075.93403,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "\n044. 检查应用内的广告或推广内容显示是否合规\n045. 验证用户反馈或帮助文档"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605075.938634,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "\n044. 检查应用内的广告或推广内容显示是否合规\n045. 验证用户反馈或帮助文档"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605076.590278,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "是否易于访问\n046. 测试在线客服或人工支持的响应速度\n047. 检查用户"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605076.5944169,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "是否易于访问\n046. 测试在线客服或人工支持的响应速度\n047. 检查用户"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605077.258584,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "协议的展示和勾选是否规范\n048. 验证隐私政策的说明是否清晰透明\n049. 测试账号绑定"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605077.262463,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "协议的展示和勾选是否规范\n048. 验证隐私政策的说明是否清晰透明\n049. 测试账号绑定"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605077.865108,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "和解绑功能是否正常工作\n050. 检查社交分享功能能否正确调用平台接口\n051. "
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605077.867727,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "和解绑功能是否正常工作\n050. 检查社交分享功能能否正确调用平台接口\n051. "
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605078.58371,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "验证活动报名或预约功能是否成功提交\n052. 测试支付流程的完整性和安全性如何\n053. 检查"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605078.5851572,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "验证活动报名或预约功能是否成功提交\n052. 测试支付流程的完整性和安全性如何\n053. 检查"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605079.351028,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "订单查询和跟踪功能是否显示准确\n054. 验证优惠券或积分兑换"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605079.356884,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "订单查询和跟踪功能是否显示准确\n054. 验证优惠券或积分兑换"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605079.9990542,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "功能是否正常抵扣\n055. 测试会员等级和特权显示是否正确\n056. 检查应用内的动画"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605080.0000901,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "功能是否正常抵扣\n055. 测试会员等级和特权显示是否正确\n056. 检查应用内的动画"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605080.7528782,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "效果是否流畅自然\n057. 验证页面切换的过渡效果是否平滑\n058. 测试加载等待的动画或提示"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605080.7582002,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "效果是否流畅自然\n057. 验证页面切换的过渡效果是否平滑\n058. 测试加载等待的动画或提示"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605081.6214342,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "是否友好\n059. 检查空白页面或无数据时的提示是否清晰\n060. 验证网络异常或超时的错误"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605081.625376,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "是否友好\n059. 检查空白页面或无数据时的提示是否清晰\n060. 验证网络异常或超时的错误"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605082.259817,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "提示是否友好\n061. 测试应用的耗电量和性能占用是否合理\n062. 检查长时间运行的稳定性和内存占用\n063. 验证应用卸载是否"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605082.2632809,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "提示是否友好\n061. 测试应用的耗电量和性能占用是否合理\n062. 检查长时间运行的稳定性和内存占用\n063. 验证应用卸载是否"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605082.9416661,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "彻底无残留文件\n064. 测试数据清除后应用是否能重新初始化\n065. 检查多账号切换功能"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605082.947316,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "彻底无残留文件\n064. 测试数据清除后应用是否能重新初始化\n065. 检查多账号切换功能"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605083.618217,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "是否正常工作\n066. 验证应用内的跳转链接是否都能正常打开\n067. 测试悬浮窗或小"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605083.627826,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "是否正常工作\n066. 验证应用内的跳转链接是否都能正常打开\n067. 测试悬浮窗或小"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605084.310579,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "工具功能是否可正常使用\n068. 检查应用的深色模式是否正确应用主题\n069. 验证字号和行距调整是否"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605084.315184,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "工具功能是否可正常使用\n068. 检查应用的深色模式是否正确应用主题\n069. 验证字号和行距调整是否"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605084.923742,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "影响阅读体验\n070. 测试截屏或录屏功能是否正常工作\n071. 检查系统日历或提醒功能是否同步正常"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605084.9284742,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "影响阅读体验\n070. 测试截屏或录屏功能是否正常工作\n071. 检查系统日历或提醒功能是否同步正常"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605085.5248199,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "\n072. 验证文档协作编辑功能是否实时同步\n073. 测试群组或团队管理功能是否完整可用\n074. 检查文件"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605085.529241,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "\n072. 验证文档协作编辑功能是否实时同步\n073. 测试群组或团队管理功能是否完整可用\n074. 检查文件"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605086.2427342,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "管理器的分类和排序功能\n075. 验证应用的安全验证流程是否严格执行\n076. 测试异常操作的拦截"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605086.24835,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "管理器的分类和排序功能\n075. 验证应用的安全验证流程是否严格执行\n076. 测试异常操作的拦截"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605086.8766139,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "和提示是否及时\n077. 检查数据加密传输是否启用并正常工作\n078. 验证敏感信息的"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605086.8820539,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "和提示是否及时\n077. 检查数据加密传输是否启用并正常工作\n078. 验证敏感信息的"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605087.545862,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "脱敏显示是否正确\n079. 测试应用的使用统计和埋点是否正常上报\n080. 检查"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605087.5471392,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "脱敏显示是否正确\n079. 测试应用的使用统计和埋点是否正常上报\n080. 检查"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605087.894148,
+      "data": {
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "message_id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "text": "最终验收报告的生成内容是否完整\nstream-a268571332-done"
+      },
+      "event": "message.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605087.89977,
+      "data": {
+        "call_id": null,
+        "channel": "text",
+        "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+        "text": "最终验收报告的生成内容是否完整\nstream-a268571332-done"
+      },
+      "event": "trace.delta",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605088.061053,
+      "data": {
+        "item": {
+          "aseq": 71,
+          "assignment_id": null,
+          "at": "2026-10-10T04:04:48.029Z",
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "data": {
+            "latency_ms": 30473,
+            "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+            "stop_reason": "end_turn",
+            "text": "stream-a268571332\n001. 检查应用程序是否成功安装在本地设备上\n002. 验证应用图标是否正确显示在桌面或启动栏\n003. 确认应用启动时无错误弹窗或警告信息\n004. 测试应用主界面是否能够正常加载和渲染\n005. 检查应用窗口的大小和位置是否符合预期\n006. 验证所有功能按钮是否可点击且响应正常\n007. 测试应用的菜单位置和内容是否完整准确\n008. 检查应用在本地网络中的连接状态是否正常\n009. 验证用户登录功能是否能够正常完成验证\n010. 测试数据保存和读取操作是否正确执行\n011. 检查应用设置的修改是否能被正确应用\n012. 验证消息通知功能是否能够正常推送\n013. 测试应用的搜索功能返回结果是否准确\n014. 检查文件上传和下载功能是否正常工作\n015. 验证图片和媒体文件的显示是否清晰完整\n016. 测试打印或导出功能是否按预期工作\n017. 检查应用的错误日志记录是否完整详细\n018. 验证应用在离线模式下的基本功能可用性\n019. 测试多语言切换功能是否正确显示文本\n020. 检查应用主题和皮肤切换是否正常生效\n021. 验证应用的数据备份和恢复功能是否可靠\n022. 测试应用程序的更新检查功能是否正常\n023. 检查应用与本地其他软件的兼容性表现\n024. 验证数据库连接和查询操作是否成功执行\n025. 测试批量操作的处理速度和稳定性如何\n026. 检查应用的缓存清理功能是否正常工作\n027. 验证历史记录查看和筛选功能是否准确\n028. 测试邮件或短信通知的发送是否成功\n029. 检查二维码扫描或生成功能是否正常\n030. 验证地理位置服务获取是否准确可靠\n031. 测试人脸识别或指纹解锁功能是否灵敏\n032. 检查语音输入和转文字功能识别准确率\n033. 验证视频播放的流畅度和画面质量如何\n034. 测试实时通讯的延迟和稳定性表现\n035. 检查应用的后台运行和唤醒机制是否正常\n036. 验证权限管理设置是否能够正确控制访问\n037. 测试应用在不同屏幕分辨率下的适配效果\n038. 检查键盘快捷键是否都能正常工作\n039. 验证鼠标右键菜单选项是否完整且有效\n040. 测试触屏操作的反应速度和准确程度\n041. 检查窗口的最大化最小化关闭功能是否正常\n042. 验证窗口拖拽和调整大小的操作是否流畅\n043. 测试应用的皮肤和主题是否能够自定义\n044. 检查应用内的广告或推广内容显示是否合规\n045. 验证用户反馈或帮助文档是否易于访问\n046. 测试在线客服或人工支持的响应速度\n047. 检查用户协议的展示和勾选是否规范\n048. 验证隐私政策的说明是否清晰透明\n049. 测试账号绑定和解绑功能是否正常工作\n050. 检查社交分享功能能否正确调用平台接口\n051. 验证活动报名或预约功能是否成功提交\n052. 测试支付流程的完整性和安全性如何\n053. 检查订单查询和跟踪功能是否显示准确\n054. 验证优惠券或积分兑换功能是否正常抵扣\n055. 测试会员等级和特权显示是否正确\n056. 检查应用内的动画效果是否流畅自然\n057. 验证页面切换的过渡效果是否平滑\n058. 测试加载等待的动画或提示是否友好\n059. 检查空白页面或无数据时的提示是否清晰\n060. 验证网络异常或超时的错误提示是否友好\n061. 测试应用的耗电量和性能占用是否合理\n062. 检查长时间运行的稳定性和内存占用\n063. 验证应用卸载是否彻底无残留文件\n064. 测试数据清除后应用是否能重新初始化\n065. 检查多账号切换功能是否正常工作\n066. 验证应用内的跳转链接是否都能正常打开\n067. 测试悬浮窗或小工具功能是否可正常使用\n068. 检查应用的深色模式是否正确应用主题\n069. 验证字号和行距调整是否影响阅读体验\n070. 测试截屏或录屏功能是否正常工作\n071. 检查系统日历或提醒功能是否同步正常\n072. 验证文档协作编辑功能是否实时同步\n073. 测试群组或团队管理功能是否完整可用\n074. 检查文件管理器的分类和排序功能\n075. 验证应用的安全验证流程是否严格执行\n076. 测试异常操作的拦截和提示是否及时\n077. 检查数据加密传输是否启用并正常工作\n078. 验证敏感信息的脱敏显示是否正确\n079. 测试应用的使用统计和埋点是否正常上报\n080. 检查最终验收报告的生成内容是否完整\nstream-a268571332-done",
+            "thinking": "Good, the file contains the marker \"macbot-e2e-recovery-aec189dcb6f1\" as expected. Now I need to produce 80 numbered lines in Chinese, describing local application acceptance checks, about 25 Chinese characters per line.\n\nLet me create 80 lines with numbers 001-080, each line describing a local application acceptance check in Chinese, approximately 25 characters per line.\n\nI'll begin with \"stream-a268571332\" and end with \"stream-a268571332-done\".",
+            "tool_calls": [],
+            "ttft_ms": 1185,
+            "usage": {
+              "cache_read_tokens": 6267,
+              "cache_write_tokens": 0,
+              "cost": null,
+              "input_tokens": 6540,
+              "output_tokens": 1088,
+              "requests": 1
+            }
+          },
+          "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+          "type": "llm.response"
+        },
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    },
+    {
+      "observed_time": 1791605088.066435,
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "stream-a268571332\n001. 检查应用程序是否成功安装在本地设备上\n002. 验证应用图标是否正确显示在桌面或启动栏\n003. 确认应用启动时无错误弹窗或警告信息\n004. 测试应用主界面是否能够正常加载和渲染\n005. 检查应用窗口的大小和位置是否符合预期\n006. 验证所有功能按钮是否可点击且响应正常\n007. 测试应用的菜单位置和内容是否完整准确\n008. 检查应用在本地网络中的连接状态是否正常\n009. 验证用户登录功能是否能够正常完成验证\n010. 测试数据保存和读取操作是否正确执行\n011. 检查应用设置的修改是否能被正确应用\n012. 验证消息通知功能是否能够正常推送\n013. 测试应用的搜索功能返回结果是否准确\n014. 检查文件上传和下载功能是否正常工作\n015. 验证图片和媒体文件的显示是否清晰完整\n016. 测试打印或导出功能是否按预期工作\n017. 检查应用的错误日志记录是否完整详细\n018. 验证应用在离线模式下的基本功能可用性\n019. 测试多语言切换功能是否正确显示文本\n020. 检查应用主题和皮肤切换是否正常生效\n021. 验证应用的数据备份和恢复功能是否可靠\n022. 测试应用程序的更新检查功能是否正常\n023. 检查应用与本地其他软件的兼容性表现\n024. 验证数据库连接和查询操作是否成功执行\n025. 测试批量操作的处理速度和稳定性如何\n026. 检查应用的缓存清理功能是否正常工作\n027. 验证历史记录查看和筛选功能是否准确\n028. 测试邮件或短信通知的发送是否成功\n029. 检查二维码扫描或生成功能是否正常\n030. 验证地理位置服务获取是否准确可靠\n031. 测试人脸识别或指纹解锁功能是否灵敏\n032. 检查语音输入和转文字功能识别准确率\n033. 验证视频播放的流畅度和画面质量如何\n034. 测试实时通讯的延迟和稳定性表现\n035. 检查应用的后台运行和唤醒机制是否正常\n036. 验证权限管理设置是否能够正确控制访问\n037. 测试应用在不同屏幕分辨率下的适配效果\n038. 检查键盘快捷键是否都能正常工作\n039. 验证鼠标右键菜单选项是否完整且有效\n040. 测试触屏操作的反应速度和准确程度\n041. 检查窗口的最大化最小化关闭功能是否正常\n042. 验证窗口拖拽和调整大小的操作是否流畅\n043. 测试应用的皮肤和主题是否能够自定义\n044. 检查应用内的广告或推广内容显示是否合规\n045. 验证用户反馈或帮助文档是否易于访问\n046. 测试在线客服或人工支持的响应速度\n047. 检查用户协议的展示和勾选是否规范\n048. 验证隐私政策的说明是否清晰透明\n049. 测试账号绑定和解绑功能是否正常工作\n050. 检查社交分享功能能否正确调用平台接口\n051. 验证活动报名或预约功能是否成功提交\n052. 测试支付流程的完整性和安全性如何\n053. 检查订单查询和跟踪功能是否显示准确\n054. 验证优惠券或积分兑换功能是否正常抵扣\n055. 测试会员等级和特权显示是否正确\n056. 检查应用内的动画效果是否流畅自然\n057. 验证页面切换的过渡效果是否平滑\n058. 测试加载等待的动画或提示是否友好\n059. 检查空白页面或无数据时的提示是否清晰\n060. 验证网络异常或超时的错误提示是否友好\n061. 测试应用的耗电量和性能占用是否合理\n062. 检查长时间运行的稳定性和内存占用\n063. 验证应用卸载是否彻底无残留文件\n064. 测试数据清除后应用是否能重新初始化\n065. 检查多账号切换功能是否正常工作\n066. 验证应用内的跳转链接是否都能正常打开\n067. 测试悬浮窗或小工具功能是否可正常使用\n068. 检查应用的深色模式是否正确应用主题\n069. 验证字号和行距调整是否影响阅读体验\n070. 测试截屏或录屏功能是否正常工作\n071. 检查系统日历或提醒功能是否同步正常\n072. 验证文档协作编辑功能是否实时同步\n073. 测试群组或团队管理功能是否完整可用\n074. 检查文件管理器的分类和排序功能\n075. 验证应用的安全验证流程是否严格执行\n076. 测试异常操作的拦截和提示是否及时\n077. 检查数据加密传输是否启用并正常工作\n078. 验证敏感信息的脱敏显示是否正确\n079. 测试应用的使用统计和埋点是否正常上报\n080. 检查最终验收报告的生成内容是否完整\nstream-a268571332-done",
+              "type": "text"
+            }
+          ],
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "created_at": "2026-10-10T04:03:54.042Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": "2026-10-10T04:04:48.045Z",
+          "fallback_text": "stream-a268571332\n001. 检查应用程序是否成功安装在本地设备上\n002. 验证应用图标是否正确显示在桌面或启动栏\n003. 确认应用启动时无错误弹窗或警告信息\n004. 测试应用主界面是否能够正常加载和渲染\n005. 检查应用窗口的大小和位置是否符合预期\n006. 验证所有功能按钮是否可点击且响应正常\n007. 测试应用的菜单位置和内容是否完整准确\n008. 检查应用在本地网络中的连接状态是否正常\n009. 验证用户登录功能是否能够正常完成验证\n010. 测试数据保存和读取操作是否正确执行\n011. 检查应用设置的修改是否能被正确应用\n012. 验证消息通知功能是否能够正常推送\n013. 测试应用的搜索功能返回结果是否准确\n014. 检查文件上传和下载功能是否正常工作\n015. 验证图片和媒体文件的显示是否清晰完整\n016. 测试打印或导出功能是否按预期工作\n017. 检查应用的错误日志记录是否完整详细\n018. 验证应用在离线模式下的基本功能可用性\n019. 测试多语言切换功能是否正确显示文本\n020. 检查应用主题和皮肤切换是否正常生效\n021. 验证应用的数据备份和恢复功能是否可靠\n022. 测试应用程序的更新检查功能是否正常\n023. 检查应用与本地其他软件的兼容性表现\n024. 验证数据库连接和查询操作是否成功执行\n025. 测试批量操作的处理速度和稳定性如何\n026. 检查应用的缓存清理功能是否正常工作\n027. 验证历史记录查看和筛选功能是否准确\n028. 测试邮件或短信通知的发送是否成功\n029. 检查二维码扫描或生成功能是否正常\n030. 验证地理位置服务获取是否准确可靠\n031. 测试人脸识别或指纹解锁功能是否灵敏\n032. 检查语音输入和转文字功能识别准确率\n033. 验证视频播放的流畅度和画面质量如何\n034. 测试实时通讯的延迟和稳定性表现\n035. 检查应用的后台运行和唤醒机制是否正常\n036. 验证权限管理设置是否能够正确控制访问\n037. 测试应用在不同屏幕分辨率下的适配效果\n038. 检查键盘快捷键是否都能正常工作\n039. 验证鼠标右键菜单选项是否完整且有效\n040. 测试触屏操作的反应速度和准确程度\n041. 检查窗口的最大化最小化关闭功能是否正常\n042. 验证窗口拖拽和调整大小的操作是否流畅\n043. 测试应用的皮肤和主题是否能够自定义\n044. 检查应用内的广告或推广内容显示是否合规\n045. 验证用户反馈或帮助文档是否易于访问\n046. 测试在线客服或人工支持的响应速度\n047. 检查用户协议的展示和勾选是否规范\n048. 验证隐私政策的说明是否清晰透明\n049. 测试账号绑定和解绑功能是否正常工作\n050. 检查社交分享功能能否正确调用平台接口\n051. 验证活动报名或预约功能是否成功提交\n052. 测试支付流程的完整性和安全性如何\n053. 检查订单查询和跟踪功能是否显示准确\n054. 验证优惠券或积分兑换功能是否正常抵扣\n055. 测试会员等级和特权显示是否正确\n056. 检查应用内的动画效果是否流畅自然\n057. 验证页面切换的过渡效果是否平滑\n058. 测试加载等待的动画或提示是否友好\n059. 检查空白页面或无数据时的提示是否清晰\n060. 验证网络异常或超时的错误提示是否友好\n061. 测试应用的耗电量和性能占用是否合理\n062. 检查长时间运行的稳定性和内存占用\n063. 验证应用卸载是否彻底无残留文件\n064. 测试数据清除后应用是否能重新初始化\n065. 检查多账号切换功能是否正常工作\n066. 验证应用内的跳转链接是否都能正常打开\n067. 测试悬浮窗或小工具功能是否可正常使用\n068. 检查应用的深色模式是否正确应用主题\n069. 验证字号和行距调整是否影响阅读体验\n070. 测试截屏或录屏功能是否正常工作\n071. 检查系统日历或提醒功能是否同步正常\n072. 验证文档协作编辑功能是否实时同步\n073. 测试群组或团队管理功能是否完整可用\n074. 检查文件管理器的分类和排序功能\n075. 验证应用的安全验证流程是否严格执行\n076. 测试异常操作的拦截和提示是否及时\n077. 检查数据加密传输是否启用并正常工作\n078. 验证敏感信息的脱敏显示是否正确\n079. 测试应用的使用统计和埋点是否正常上报\n080. 检查最终验收报告的生成内容是否完整\nstream-a268571332-done",
+          "id": "msg_run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "kind": "bot"
+          },
+          "seq": 14,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.updated",
+      "kind": "evt",
+      "seq": 5465,
+      "v": 1
+    },
+    {
+      "observed_time": 1791605088.207809,
+      "data": {
+        "item": {
+          "aseq": 72,
+          "assignment_id": null,
+          "at": "2026-10-10T04:04:48.195Z",
+          "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+          "data": {
+            "error": null,
+            "status": "done"
+          },
+          "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+          "type": "run.end"
+        },
+        "stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  ],
+  "status": "observed",
+  "observer_stream": "stream_01a123fb-27ea-7045-b578-4c1f8892ba28",
+  "send_result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "First read exactly e2e/macbot-e2e-recovery-aec189dcb6f1.txt and verify the marker macbot-e2e-recovery-aec189dcb6f1. Then produce 80 numbered lines, 001 through 080, in Chinese, describing local application acceptance checks, about 25 Chinese characters per line. These are text suggestions only; do not execute any checks or use any other tools. Begin your final response with stream-a268571332 and end with stream-a268571332-done. This is a real streaming display test; do not claim the suggested checks have been executed.",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "created_at": "2026-10-10T04:03:46.869417+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "First read exactly e2e/macbot-e2e-recovery-aec189dcb6f1.txt and verify the marker macbot-e2e-recovery-aec189dcb6f1. Then produce 80 numbered lines, 001 through 080, in Chinese, describing local application acceptance checks, about 25 Chinese characters per line. These are text suggestions only; do not execute any checks or use any other tools. Begin your final response with stream-a268571332 and end with stream-a268571332-done. This is a real streaming display test; do not claim the suggested checks have been executed.",
+      "id": "01a123fb-3035-70c9-ae1e-d6a1b40b2368",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 13,
+      "streaming": false,
+      "thread_count": 0
+    }
+  },
+  "history_after": {
+    "first_aseq": 43,
+    "has_more_before": true,
+    "items": [
+      {
+        "aseq": 43,
+        "assignment_id": null,
+        "at": "2026-10-09T15:45:02.312Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "by_message_id": null
+        },
+        "run_id": "run_chat_01a12156_c8ed_75cb_be80_328c55143bfd",
+        "type": "run.resume"
+      },
+      {
+        "aseq": 44,
+        "assignment_id": null,
+        "at": "2026-10-09T15:45:02.323Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "args": {
+            "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+          },
+          "call_id": "call_function_r9wl6vy8r2a6_1",
+          "name": "browser_open"
+        },
+        "run_id": "run_chat_01a12156_c8ed_75cb_be80_328c55143bfd",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 45,
+        "assignment_id": null,
+        "at": "2026-10-09T15:45:04.604Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "call_id": "call_function_r9wl6vy8r2a6_1",
+          "details": {
+            "active": true,
+            "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "tab_id": "t2",
+            "title": "",
+            "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+          },
+          "duration_ms": 2272,
+          "full_output": null,
+          "is_error": false,
+          "preview": "{\"active\":true,\"assignment_id\":\"dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce\",\"tab_id\":\"t2\",\"title\":\"\",\"url\":\"http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009\"}",
+          "truncated": false
+        },
+        "run_id": "run_chat_01a12156_c8ed_75cb_be80_328c55143bfd",
+        "type": "tool.end"
+      },
+      {
+        "aseq": 46,
+        "assignment_id": null,
+        "at": "2026-10-09T15:45:04.646Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "context": {
+            "l0": 2334,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 2334
+          },
+          "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a12156_c8ed_75cb_be80_328c55143bfd:llm:1",
+          "tools": [
+            "memory",
+            "browser_screenshot",
+            "ls",
+            "find",
+            "chat_history",
+            "memory_search",
+            "browser_wait",
+            "browser_nav",
+            "skill",
+            "subagent",
+            "session_search",
+            "browser_open",
+            "browser_snapshot",
+            "browser_act",
+            "write",
+            "question",
+            "browser_eval",
+            "request_takeover",
+            "edit",
+            "browser_get",
+            "bash_job",
+            "project_find",
+            "bash",
+            "browser_tabs",
+            "read",
+            "grep",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a12156_c8ed_75cb_be80_328c55143bfd",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 47,
+        "assignment_id": null,
+        "at": "2026-10-09T15:45:06.888Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "latency_ms": 2226,
+          "request_id": "run_chat_01a12156_c8ed_75cb_be80_328c55143bfd:llm:1",
+          "stop_reason": "end_turn",
+          "text": "marker=macbot-e2e-frame-7c5e480-20261009 url=http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+          "thinking": "The browser_open was successful. Now I need to reply with the exact text as instructed: \"marker=macbot-e2e-frame-7c5e480-20261009 url=http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009\"",
+          "tool_calls": [],
+          "ttft_ms": 1020,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 5224,
+            "output_tokens": 124,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a12156_c8ed_75cb_be80_328c55143bfd",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 48,
+        "assignment_id": null,
+        "at": "2026-10-09T15:45:06.944Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "error": null,
+          "status": "done"
+        },
+        "run_id": "run_chat_01a12156_c8ed_75cb_be80_328c55143bfd",
+        "type": "run.end"
+      },
+      {
+        "aseq": 49,
+        "assignment_id": null,
+        "at": "2026-10-10T03:54:20.572Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+          "parent_run_id": null,
+          "phase": "chat",
+          "subagent_task": null
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "run.start"
+      },
+      {
+        "aseq": 50,
+        "assignment_id": null,
+        "at": "2026-10-10T03:54:27.895Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "context": {
+            "l0": 2270,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 2270
+          },
+          "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d:llm:0",
+          "tools": [
+            "browser_get",
+            "write",
+            "browser_wait",
+            "browser_eval",
+            "browser_snapshot",
+            "browser_nav",
+            "question",
+            "browser_tabs",
+            "memory_search",
+            "grep",
+            "subagent",
+            "session_search",
+            "read",
+            "browser_act",
+            "chat_history",
+            "bash",
+            "skill",
+            "project_find",
+            "browser_open",
+            "find",
+            "memory",
+            "edit",
+            "ls",
+            "browser_screenshot",
+            "bash_job",
+            "request_takeover",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 51,
+        "assignment_id": null,
+        "at": "2026-10-10T03:54:38.400Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "latency_ms": 4185,
+          "request_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d:llm:0",
+          "stop_reason": "tool_use",
+          "text": "",
+          "thinking": "The user wants me to perform a durable recovery acceptance task. I need to follow the exact instructions:\n\n1. First call bash with exactly this command: sleep 20; mkdir -p e2e; printf '%s\\n' 'macbot-e2e-recovery-aec189dcb6f1' > e2e/macbot-e2e-recovery-aec189dcb6f1.txt\n2. After bash returns, on the next model turn call read on e2e/macbot-e2e-recovery-aec189dcb6f1.txt\n3. Then reply with exactly macbot-e2e-recovery-aec189dcb6f1\n\nThis is the first model turn, so I should call bash with the exact command.",
+          "tool_calls": [
+            {
+              "args": {
+                "command": "sleep 20; mkdir -p e2e; printf '%s\\n' 'macbot-e2e-recovery-aec189dcb6f1' > e2e/macbot-e2e-recovery-aec189dcb6f1.txt"
+              },
+              "call_id": "call_function_fo8p01e6uk2g_1",
+              "name": "bash"
+            }
+          ],
+          "ttft_ms": 1347,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 6056,
+            "output_tokens": 238,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 52,
+        "assignment_id": null,
+        "at": "2026-10-10T03:54:38.412Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "args": {
+            "command": "sleep 20; mkdir -p e2e; printf '%s\\n' 'macbot-e2e-recovery-aec189dcb6f1' > e2e/macbot-e2e-recovery-aec189dcb6f1.txt"
+          },
+          "call_id": "call_function_fo8p01e6uk2g_1",
+          "name": "bash"
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 53,
+        "assignment_id": null,
+        "at": "2026-10-10T03:54:38.566Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "run.wait"
+      },
+      {
+        "aseq": 54,
+        "assignment_id": null,
+        "at": "2026-10-10T03:56:02.311Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "by_message_id": null
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "run.resume"
+      },
+      {
+        "aseq": 55,
+        "assignment_id": null,
+        "at": "2026-10-10T03:56:08.664Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "args": {
+            "command": "sleep 20; mkdir -p e2e; printf '%s\\n' 'macbot-e2e-recovery-aec189dcb6f1' > e2e/macbot-e2e-recovery-aec189dcb6f1.txt"
+          },
+          "call_id": "call_function_fo8p01e6uk2g_1",
+          "name": "bash"
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 56,
+        "assignment_id": null,
+        "at": "2026-10-10T03:56:28.740Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "call_id": "call_function_fo8p01e6uk2g_1",
+          "details": {
+            "exit_code": 0,
+            "full_output_path": null,
+            "truncated": false,
+            "wall_time_seconds": 20.062667167
+          },
+          "duration_ms": 20062,
+          "full_output": null,
+          "is_error": false,
+          "preview": "",
+          "truncated": false
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "tool.end"
+      },
+      {
+        "aseq": 57,
+        "assignment_id": null,
+        "at": "2026-10-10T03:56:58.656Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "by_message_id": null
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "run.resume"
+      },
+      {
+        "aseq": 58,
+        "assignment_id": null,
+        "at": "2026-10-10T03:57:07.663Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "context": {
+            "l0": 2589,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 2589
+          },
+          "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d:llm:1",
+          "tools": [
+            "subagent",
+            "bash",
+            "memory",
+            "browser_wait",
+            "request_takeover",
+            "find",
+            "browser_get",
+            "bash_job",
+            "browser_snapshot",
+            "browser_open",
+            "chat_history",
+            "question",
+            "edit",
+            "browser_tabs",
+            "skill",
+            "memory_search",
+            "session_search",
+            "ls",
+            "browser_eval",
+            "project_find",
+            "browser_nav",
+            "grep",
+            "read",
+            "browser_act",
+            "write",
+            "browser_screenshot",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 59,
+        "assignment_id": null,
+        "at": "2026-10-10T03:57:15.756Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "latency_ms": 1728,
+          "request_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d:llm:1",
+          "stop_reason": "tool_use",
+          "text": "",
+          "thinking": "The bash command completed successfully. Now I need to read the file as instructed in the next model turn.",
+          "tool_calls": [
+            {
+              "args": {
+                "path": "e2e/macbot-e2e-recovery-aec189dcb6f1.txt"
+              },
+              "call_id": "call_function_wspx1bp1oboy_1",
+              "name": "read"
+            }
+          ],
+          "ttft_ms": 1052,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 6304,
+            "output_tokens": 66,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 60,
+        "assignment_id": null,
+        "at": "2026-10-10T03:57:15.768Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "args": {
+            "path": "e2e/macbot-e2e-recovery-aec189dcb6f1.txt"
+          },
+          "call_id": "call_function_wspx1bp1oboy_1",
+          "name": "read"
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 61,
+        "assignment_id": null,
+        "at": "2026-10-10T03:57:15.780Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "call_id": "call_function_wspx1bp1oboy_1",
+          "details": {
+            "full_output_path": null,
+            "path": "/Users/gongshaojie/MacBot/bots/01a120b5-4a0f-7499-ac9a-f3d1f227d0ce/e2e/macbot-e2e-recovery-aec189dcb6f1.txt",
+            "truncated": false
+          },
+          "duration_ms": 0,
+          "full_output": null,
+          "is_error": false,
+          "preview": "macbot-e2e-recovery-aec189dcb6f1\n",
+          "truncated": false
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "tool.end"
+      },
+      {
+        "aseq": 62,
+        "assignment_id": null,
+        "at": "2026-10-10T03:57:15.939Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "context": {
+            "l0": 2775,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 2775
+          },
+          "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d:llm:2",
+          "tools": [
+            "subagent",
+            "bash",
+            "memory",
+            "browser_wait",
+            "request_takeover",
+            "find",
+            "browser_get",
+            "bash_job",
+            "browser_snapshot",
+            "browser_open",
+            "chat_history",
+            "question",
+            "edit",
+            "browser_tabs",
+            "skill",
+            "memory_search",
+            "session_search",
+            "ls",
+            "browser_eval",
+            "project_find",
+            "browser_nav",
+            "grep",
+            "read",
+            "browser_act",
+            "write",
+            "browser_screenshot",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 63,
+        "assignment_id": null,
+        "at": "2026-10-10T03:57:23.971Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "latency_ms": 1672,
+          "request_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d:llm:2",
+          "stop_reason": "end_turn",
+          "text": "macbot-e2e-recovery-aec189dcb6f1",
+          "thinking": "The file has been read and contains exactly \"macbot-e2e-recovery-aec189dcb6f1\". Now I should reply with exactly that text as instructed.",
+          "tool_calls": [],
+          "ttft_ms": 832,
+          "usage": {
+            "cache_read_tokens": 6267,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 6401,
+            "output_tokens": 55,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 64,
+        "assignment_id": null,
+        "at": "2026-10-10T03:57:24.143Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "error": null,
+          "status": "done"
+        },
+        "run_id": "run_chat_01a123f2_723a_767f_baba_1c233583e77d",
+        "type": "run.end"
+      },
+      {
+        "aseq": 65,
+        "assignment_id": null,
+        "at": "2026-10-10T04:03:54.054Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+          "parent_run_id": null,
+          "phase": "chat",
+          "subagent_task": null
+        },
+        "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "type": "run.start"
+      },
+      {
+        "aseq": 66,
+        "assignment_id": null,
+        "at": "2026-10-10T04:04:01.335Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "context": {
+            "l0": 2584,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 2584
+          },
+          "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+          "tools": [
+            "edit",
+            "subagent",
+            "find",
+            "project_find",
+            "browser_nav",
+            "browser_get",
+            "grep",
+            "memory",
+            "chat_history",
+            "browser_open",
+            "bash_job",
+            "bash",
+            "memory_search",
+            "browser_screenshot",
+            "browser_act",
+            "browser_snapshot",
+            "browser_wait",
+            "read",
+            "browser_tabs",
+            "browser_eval",
+            "request_takeover",
+            "skill",
+            "question",
+            "ls",
+            "write",
+            "session_search",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 67,
+        "assignment_id": null,
+        "at": "2026-10-10T04:04:10.967Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "latency_ms": 3311,
+          "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:0",
+          "stop_reason": "tool_use",
+          "text": "",
+          "thinking": "The user wants me to:\n1. First read the file e2e/macbot-e2e-recovery-aec189dcb6f1.txt to verify the marker\n2. Then produce 80 numbered lines (001-080) in Chinese, each describing a local application acceptance check, about 25 Chinese characters per line\n3. Begin the final response with \"stream-a268571332\" and end with \"stream-a268571332-done\"\n4. This is a text suggestion only - no actual checks should be executed\n\nLet me first read the file to verify the marker.",
+          "tool_calls": [
+            {
+              "args": {
+                "path": "e2e/macbot-e2e-recovery-aec189dcb6f1.txt"
+              },
+              "call_id": "call_function_h9ob9epv0kc2_1",
+              "name": "read"
+            }
+          ],
+          "ttft_ms": 1041,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 6342,
+            "output_tokens": 167,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 68,
+        "assignment_id": null,
+        "at": "2026-10-10T04:04:10.980Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "args": {
+            "path": "e2e/macbot-e2e-recovery-aec189dcb6f1.txt"
+          },
+          "call_id": "call_function_h9ob9epv0kc2_1",
+          "name": "read"
+        },
+        "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 69,
+        "assignment_id": null,
+        "at": "2026-10-10T04:04:10.995Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "call_id": "call_function_h9ob9epv0kc2_1",
+          "details": {
+            "full_output_path": null,
+            "path": "/Users/gongshaojie/MacBot/bots/01a120b5-4a0f-7499-ac9a-f3d1f227d0ce/e2e/macbot-e2e-recovery-aec189dcb6f1.txt",
+            "truncated": false
+          },
+          "duration_ms": 2,
+          "full_output": null,
+          "is_error": false,
+          "preview": "macbot-e2e-recovery-aec189dcb6f1\n",
+          "truncated": false
+        },
+        "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "type": "tool.end"
+      },
+      {
+        "aseq": 70,
+        "assignment_id": null,
+        "at": "2026-10-10T04:04:11.162Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "context": {
+            "l0": 2863,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 2863
+          },
+          "model": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+          "tools": [
+            "edit",
+            "subagent",
+            "find",
+            "project_find",
+            "browser_nav",
+            "browser_get",
+            "grep",
+            "memory",
+            "chat_history",
+            "browser_open",
+            "bash_job",
+            "bash",
+            "memory_search",
+            "browser_screenshot",
+            "browser_act",
+            "browser_snapshot",
+            "browser_wait",
+            "read",
+            "browser_tabs",
+            "browser_eval",
+            "request_takeover",
+            "skill",
+            "question",
+            "ls",
+            "write",
+            "session_search",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 71,
+        "assignment_id": null,
+        "at": "2026-10-10T04:04:48.029Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "latency_ms": 30473,
+          "request_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368:llm:1",
+          "stop_reason": "end_turn",
+          "text": "stream-a268571332\n001. 检查应用程序是否成功安装在本地设备上\n002. 验证应用图标是否正确显示在桌面或启动栏\n003. 确认应用启动时无错误弹窗或警告信息\n004. 测试应用主界面是否能够正常加载和渲染\n005. 检查应用窗口的大小和位置是否符合预期\n006. 验证所有功能按钮是否可点击且响应正常\n007. 测试应用的菜单位置和内容是否完整准确\n008. 检查应用在本地网络中的连接状态是否正常\n009. 验证用户登录功能是否能够正常完成验证\n010. 测试数据保存和读取操作是否正确执行\n011. 检查应用设置的修改是否能被正确应用\n012. 验证消息通知功能是否能够正常推送\n013. 测试应用的搜索功能返回结果是否准确\n014. 检查文件上传和下载功能是否正常工作\n015. 验证图片和媒体文件的显示是否清晰完整\n016. 测试打印或导出功能是否按预期工作\n017. 检查应用的错误日志记录是否完整详细\n018. 验证应用在离线模式下的基本功能可用性\n019. 测试多语言切换功能是否正确显示文本\n020. 检查应用主题和皮肤切换是否正常生效\n021. 验证应用的数据备份和恢复功能是否可靠\n022. 测试应用程序的更新检查功能是否正常\n023. 检查应用与本地其他软件的兼容性表现\n024. 验证数据库连接和查询操作是否成功执行\n025. 测试批量操作的处理速度和稳定性如何\n026. 检查应用的缓存清理功能是否正常工作\n027. 验证历史记录查看和筛选功能是否准确\n028. 测试邮件或短信通知的发送是否成功\n029. 检查二维码扫描或生成功能是否正常\n030. 验证地理位置服务获取是否准确可靠\n031. 测试人脸识别或指纹解锁功能是否灵敏\n032. 检查语音输入和转文字功能识别准确率\n033. 验证视频播放的流畅度和画面质量如何\n034. 测试实时通讯的延迟和稳定性表现\n035. 检查应用的后台运行和唤醒机制是否正常\n036. 验证权限管理设置是否能够正确控制访问\n037. 测试应用在不同屏幕分辨率下的适配效果\n038. 检查键盘快捷键是否都能正常工作\n039. 验证鼠标右键菜单选项是否完整且有效\n040. 测试触屏操作的反应速度和准确程度\n041. 检查窗口的最大化最小化关闭功能是否正常\n042. 验证窗口拖拽和调整大小的操作是否流畅\n043. 测试应用的皮肤和主题是否能够自定义\n044. 检查应用内的广告或推广内容显示是否合规\n045. 验证用户反馈或帮助文档是否易于访问\n046. 测试在线客服或人工支持的响应速度\n047. 检查用户协议的展示和勾选是否规范\n048. 验证隐私政策的说明是否清晰透明\n049. 测试账号绑定和解绑功能是否正常工作\n050. 检查社交分享功能能否正确调用平台接口\n051. 验证活动报名或预约功能是否成功提交\n052. 测试支付流程的完整性和安全性如何\n053. 检查订单查询和跟踪功能是否显示准确\n054. 验证优惠券或积分兑换功能是否正常抵扣\n055. 测试会员等级和特权显示是否正确\n056. 检查应用内的动画效果是否流畅自然\n057. 验证页面切换的过渡效果是否平滑\n058. 测试加载等待的动画或提示是否友好\n059. 检查空白页面或无数据时的提示是否清晰\n060. 验证网络异常或超时的错误提示是否友好\n061. 测试应用的耗电量和性能占用是否合理\n062. 检查长时间运行的稳定性和内存占用\n063. 验证应用卸载是否彻底无残留文件\n064. 测试数据清除后应用是否能重新初始化\n065. 检查多账号切换功能是否正常工作\n066. 验证应用内的跳转链接是否都能正常打开\n067. 测试悬浮窗或小工具功能是否可正常使用\n068. 检查应用的深色模式是否正确应用主题\n069. 验证字号和行距调整是否影响阅读体验\n070. 测试截屏或录屏功能是否正常工作\n071. 检查系统日历或提醒功能是否同步正常\n072. 验证文档协作编辑功能是否实时同步\n073. 测试群组或团队管理功能是否完整可用\n074. 检查文件管理器的分类和排序功能\n075. 验证应用的安全验证流程是否严格执行\n076. 测试异常操作的拦截和提示是否及时\n077. 检查数据加密传输是否启用并正常工作\n078. 验证敏感信息的脱敏显示是否正确\n079. 测试应用的使用统计和埋点是否正常上报\n080. 检查最终验收报告的生成内容是否完整\nstream-a268571332-done",
+          "thinking": "Good, the file contains the marker \"macbot-e2e-recovery-aec189dcb6f1\" as expected. Now I need to produce 80 numbered lines in Chinese, describing local application acceptance checks, about 25 Chinese characters per line.\n\nLet me create 80 lines with numbers 001-080, each line describing a local application acceptance check in Chinese, approximately 25 characters per line.\n\nI'll begin with \"stream-a268571332\" and end with \"stream-a268571332-done\".",
+          "tool_calls": [],
+          "ttft_ms": 1185,
+          "usage": {
+            "cache_read_tokens": 6267,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 6540,
+            "output_tokens": 1088,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 72,
+        "assignment_id": null,
+        "at": "2026-10-10T04:04:48.195Z",
+        "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "data": {
+          "error": null,
+          "status": "done"
+        },
+        "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+        "type": "run.end"
+      }
+    ],
+    "last_aseq": 72,
+    "live": false
+  },
+  "run_id": "run_chat_01a123fb_3035_70c9_ae1e_d6a1b40b2368",
+  "checks": {
+    "actual_read_succeeded": true,
+    "message_delta_count": 41,
+    "trace_delta_count": 52,
+    "trace_item_count": 8,
+    "same_run_done": true,
+    "history_after_live": false,
+    "native_stream_growth_observed": true,
+    "native_run_end_appended_without_refresh": true,
+    "android_verified": false,
+    "stage_passed": false,
+    "native_replay_reopened": true,
+    "unsubscribe_before_fix": "method not found; production-7f0a5dd-replay.png retains failure"
+  }
+}

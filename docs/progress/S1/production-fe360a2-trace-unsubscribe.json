@@ -1,0 +1,43 @@
+{
+  "source": "fe360a23c9fe6b26b212c82a524c350606b4a606",
+  "scope": "connection-local trace subscriptions, no business writes",
+  "steps": [
+    {
+      "action": "subscribe",
+      "stream": "stream_01a12400-60d6-7742-b188-8ac91c5a833e"
+    },
+    {
+      "action": "subscribe",
+      "stream": "stream_01a12400-60d7-7530-8d27-70ae01e66b62"
+    },
+    {
+      "action": "subscribe",
+      "stream": "stream_01a12400-60d8-74ab-bbc3-16c55467b122"
+    },
+    {
+      "action": "subscribe",
+      "stream": "stream_01a12400-60d9-715b-81a1-7c3709ed9e57"
+    },
+    {
+      "action": "subscribe",
+      "stream": "stream_01a12400-60da-7796-862a-b0dac09d9167"
+    },
+    {
+      "action": "subscribe",
+      "stream": "stream_01a12400-60dc-77aa-bbf9-66588e92410f"
+    },
+    {
+      "action": "subscribe",
+      "stream": "stream_01a12400-60dd-73d4-b6ac-25cdac91be62"
+    },
+    {
+      "action": "subscribe",
+      "stream": "stream_01a12400-60de-7374-8481-74608b2ad9ab"
+    }
+  ],
+  "ninth_rejected": true,
+  "slot_released": true,
+  "replacement_subscribe_succeeded": true,
+  "all_streams_released": true,
+  "status": "passed"
+}

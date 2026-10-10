@@ -50,3 +50,12 @@
 - 最新07a3245 pkg已审计并存仓库外候选目录，未安装。旧63c140d候选保留为历史；无fresh通过声明。Android/X控制外部条件仍待，S0仍唯一整阶段通过。
 
 - 两群最终公告与主私聊验收卡已核验，截图production-07a3245-first-group-review.png、production-07a3245-main-review-cards.png均实际查看。parallel登记2项；first重复登记同2个路径为4条记录，卡片仍为2个正确链接，保留模型重复操作。first Tester与parallel Main运行重叠112.033秒，见production-07a3245-two-project-run-overlap.json；仅证明两群实际run重叠，不代替双端并行验收。
+
+## S1 同run恢复与实时轨迹缺口（2026-10-10续）
+
+- 复用空闲画面联调-9e70私聊Bot，UUID先落盘；精确核验Bash、cwd/目标、approval-map、run request与waiting checkpoint后单次批准。Bash成功写入唯一marker，safe checkpoint落盘且尚未read时，仅kill核验的正式PID34089。LaunchAgent启动43442，同run在aseq57恢复，60/61实际read原文件，64 done；Bash未重放，marker哈希不变，桌面自动显示最终回复。证据S1/production-07a3245-owned-recovery.json。
+- 实际桌面轨迹停在重连拉取的aseq57，后续read/结束未实时追加；截图保留，不能计实时轨迹通过。根因是production trace.history固定live=false，两端按协议不订阅。7f0a5dd改为分页前按全部run起止判断live，等待/恢复和父子run均覆盖；191 gateway测试及严格clippy通过。首轮游标WebSocket测试误把心跳当JSON而失败，已修测试帧处理并保留失败日志。
+- 仅部署server7f0a5dd，PID46850；原pending及waiting checkpoint/browser session哈希保持。桌面/Android未重装。真实流式复验继续，S0仍唯一整阶段通过。远端GitHub443连接超时，本地main已合入；不得将本地合并说成已推送。
+- 7f0a5dd真实模型只读既有marker后输出80行验收建议（不是执行这些建议）：41个message.delta、52个trace.delta、8个trace.item，实际桌面截图显示正文11行→60行→完整80行，实时轨迹自动追加到aseq72 run.end。关闭重开显示回放及全文，history.live=false。证据production-7f0a5dd-real-stream.json及实际查看的a/b/completed/replay-open截图。
+- 关闭实时面板发现production trace.unsubscribe漏接，错误落入业务RPC。fe360a2修复连接层退订与参数校验，192 gateway测试和严格clippy通过；仅部署server，PID49651，旧pending/checkpoint/browser哈希保持。正式WebSocket实测8订阅、第9个conflict、退订释放后可补第8个、全部释放通过。原生等待任务重连仍显示实时，面板返回公告无退订错误；“收起”按钮本轮未观察到可靠关闭，使用面板返回键，单独按钮行为不计通过。
+- GitHub连接恢复，main已推至fe360a2；最新pkg已审计为干净源码和一致daemon/sidecar，SHA e9d7f4d452286fd6b482be6c96379c578279c81a3e73620d7a3342b50869cf3a，未fresh安装。Android最新截图仍为System UI无响应；双端剩余场景及X登录仍有外部控制条件。S0仍唯一整阶段通过。

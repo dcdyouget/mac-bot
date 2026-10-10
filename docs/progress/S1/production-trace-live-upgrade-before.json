@@ -1,0 +1,55 @@
+{
+  "observed_at": "2026-10-10T04:00:54.949543+00:00",
+  "source": "07a3245a200a71c41dd9961e6d9a58e98ca93869",
+  "identity": {
+    "pid": 43442,
+    "listener_pids": [
+      43442
+    ],
+    "executable": "macbotd",
+    "label": "com.macbot.server",
+    "port": 7788
+  },
+  "pending_ids": [
+    "01a12083-b7ac-74e9-8708-0ec146198ccc",
+    "01a12096-c4f6-74b0-b92d-486195063997",
+    "01a120ca-39c0-7693-9b50-0662a3be0f26",
+    "01a120ca-43c2-70e4-9fec-6c9d14ad455c",
+    "01a121e9-1a8c-761f-85df-6314bc88c1d6",
+    "01a1220e-759a-70fa-9463-b032218ab1a2",
+    "01a1226f-8926-7245-ac5c-2cea982de5b3",
+    "01a1228d-274a-767c-9aeb-be5529d51e9a",
+    "01a1228f-9815-7425-bae8-1782fb8dbe28",
+    "01a12290-a0ca-7464-8f91-a968d8ca66ad",
+    "01a12292-6124-740b-acaa-8a9a6517c8b3",
+    "01a122c3-03e3-72a7-8152-b910a8fd2a55"
+  ],
+  "files": {
+    "data/jobs/job_01a122c2-2753-719f-80ff-c118791dcc5c.json": "97fa29f632efb8d92694e8e0dade5a2e864640b9830e8c05af74e38f00932f18",
+    "data/jobs/job_01a1228f-0052-73ec-982d-db84fbf13327.json": "ebee72c84824646e20495d895b1c5c93c141a83bfea038369278a9d6af65d355",
+    "data/jobs/job_01a1228c-8e5b-725a-b774-7ba5d6014eb8.json": "387c0db70dca2c735dfdd8354c22abdd9f4a643c8d1b854058e74db03d6af49c",
+    "data/jobs/job_01a120ca-0ee7-72cd-b070-e89b184238a3.json": "c632bf6a108f826d0a17bca658a637640357f4497de656a12303b526e8540888",
+    "data/jobs/job_01a120ca-0f91-752c-ab6e-ccb4ee92ab7b.json": "7afd643e13f4826990b8391d6435adf1dabca90d0bfcaa437950918e81a6de9a",
+    "data/jobs/job_01a12094-149b-7549-bc23-8bbbea966a02.json": "edfc30bef1e429607aa741e96e81aa2f5b7af132c6bedb534d24a0838b8c2cd4",
+    "data/jobs/job_01a12202-e886-75de-a687-d4d66cfb1607.json": "3382fbbff16c105bd1ec59fa484d2e714200390d8314b8101e68c252fe052d88",
+    "data/jobs/job_01a120ea-c7ac-7536-9a46-2e3b3ca45f99.json": "b3a0437e58ac3af851136504966beee5c4e63437e2beeaaa4aa5119fc135c7fa",
+    "data/jobs/job_01a1228f-dbfd-7156-8c97-82e1f1906fe4.json": "475e8db832e9aaf2d179449463842deb26ca901a01c07e2cdd6196ec101761b9",
+    "data/jobs/job_01a1226f-28cb-76a6-bc4b-2fa6ed285494.json": "503b181679545526ac98dee6ecf20864df2a0c6890324735749a07d0a29c1a95",
+    "data/jobs/job_01a12083-a9d8-74d4-b351-0a0a2a1fd76a.json": "aaf02f7a7ed7e10902aa86e062cd4a31304db2cf2290aeea7daa1c3b48c4f50e",
+    "data/jobs/job_01a12291-54cb-775d-834e-38bd2fb037fb.json": "f0d405dcbb7aeb43668619a20016ac698314be57ffb1ca01fe12a2bf6f828b11",
+    "data/approval-map/01a120ca-43c2-70e4-9fec-6c9d14ad455c.json": "accc7d8e5f27f0f2aef211394f8ef06a3659d479a036b9e8ff9b2345f8cb08fb",
+    "data/approval-map/01a1220e-759a-70fa-9463-b032218ab1a2.json": "301c1347692fef1a33609b62416265018db32f2503bd45d980289d3d9b7f8b21",
+    "data/approval-map/01a12290-a0ca-7464-8f91-a968d8ca66ad.json": "f113a8502f437002aa239ac2fb4a9ac951a0f68299d630d43044374f3ee6e7f2",
+    "data/approval-map/01a120ca-39c0-7693-9b50-0662a3be0f26.json": "feb8471db2edee074fd667b57fa64136d9d48cdd5f03b45add94b8f1bd1e246f",
+    "data/approval-map/01a12096-c4f6-74b0-b92d-486195063997.json": "c8269dca5caf23d5f302fa6c69acdedd6b82eac7c2761f0ba03b536ec884665f",
+    "data/approval-map/01a12292-6124-740b-acaa-8a9a6517c8b3.json": "009ce44326777143185c53292423a91aaa1f0442a259b05fb02ecb42ab0b8115",
+    "data/approval-map/01a122c3-03e3-72a7-8152-b910a8fd2a55.json": "558fcacdff134234306750408a300d649d013debcd4b6ccf99868bfb6751871f",
+    "data/approval-map/01a1228d-274a-767c-9aeb-be5529d51e9a.json": "363e862a30569910c0042c6ab62232931688b312bef49bdb02986e3f63aa6e84",
+    "data/approval-map/01a12083-b7ac-74e9-8708-0ec146198ccc.json": "08f236ddf37372fc779a49200152bb2e5673470772f74435da475adfb8a3361a",
+    "data/approval-map/01a1226f-8926-7245-ac5c-2cea982de5b3.json": "020e7bc70aa5b945266a867d6438541a0229d7108f83acd165f589f060a17c76",
+    "data/approval-map/01a1228f-9815-7425-bae8-1782fb8dbe28.json": "06fd925dedb19df09d21df3a7299cfeb180305a65a1e9fc846546d783996a654",
+    "data/approval-map/01a121e9-1a8c-761f-85df-6314bc88c1d6.json": "5f5cf097afe6935d6733edf031e449d02c4c0609e66e2d2894f522ea11ffd678",
+    "browser/sessions/01a120c6-2f8b-7045-aeb6-621e949e22ac.json": "521abe4da97d86544a6e3c75fab5bd3dc28fcc8b4c20dc1399072bb6b9f7e7ba",
+    "data/run_requests/run_01a123d4-f6d9-77ce-ae3a-6107b0b59654.json": "eb6607ec7f0ca6b0199243a519cecb8f8b9866eb5e20ec9c8e02ca500e9d8ea6"
+  }
+}

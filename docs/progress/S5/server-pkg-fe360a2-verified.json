@@ -1,0 +1,16 @@
+{
+  "observed_at": "2026-10-10T04:09:47.019527+00:00",
+  "package_path": "/Users/gongshaojie/Library/Application Support/MacBot/release-candidates/20261010/MacBot-Server-fe360a2.pkg",
+  "package_sha256": "e9d7f4d452286fd6b482be6c96379c578279c81a3e73620d7a3342b50869cf3a",
+  "package_bytes": 16092854,
+  "build_info": {
+    "source_dirty": false,
+    "macbotd_sha256": "2ce75b1a751a6597606168fbe4a7a4fd0992a9c2b0513503607b75d647e536b4",
+    "version": "0.1.0",
+    "agent_browser_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+    "source_commit": "fe360a23c9fe6b26b212c82a524c350606b4a606"
+  },
+  "bundle_contents_source_daemon_sidecar_checks": "passed",
+  "installed": false,
+  "fresh_install_pass": false
+}

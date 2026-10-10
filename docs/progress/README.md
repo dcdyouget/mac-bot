@@ -4,15 +4,17 @@
 
 ## 现在的状态
 
-当前接手续办：Mac 已解锁。正式服务 `07a3245`（PID/source 见 [部署校验](S1/production-07a3245-cursor-upgrade-after.json)），桌面 `2f09174`，Android APK `cac5b12d`。修复了浏览器动作/参数和审批恢复、运行互斥、RPC事件扫描、搜索暴露内部对象及全局轨迹序号缺口。最新190 gateway测试、协议测试、34桌面核心测试、Kotlin生成检查通过。
+当前接手续办：Mac 已解锁。正式服务 `fe360a2`（PID/source 见 [部署校验](S1/production-fe360a2-upgrade-after.json)），桌面 `2f09174`，Android APK `cac5b12d`。修复了浏览器动作/参数和审批恢复、运行互斥、RPC事件扫描、搜索暴露内部对象、全局轨迹序号缺口及实时轨迹/退订路由。最新192 gateway测试及严格clippy通过；此前协议、34桌面核心和Kotlin生成检查保持。
 
 实时序号缺口已在正式现场闭环：旧桌面缓存停在4952；server-only更新后，无手动刷新自动显示review/Tester完成。标准库WebSocket观察143条重放游标、8条实时游标无缺号，未订阅连接无轨迹正文（[证据](S1/production-07a3245-live-cursor-after.json)）。旧pending、checkpoint、run request、浏览器session哈希保持。
 
 两群现均有原Tester的真实浏览器执行证据及报告：parallel的TEST-browser.md已纠正草稿错误、保留三项未测/证据不足，主Bot已汇总并置review；first的index.html已实测登录、刷新、退出、375px布局，TEST-index-browser.md已提交，原login.html失败保留且两份demo均未手改。两群主Bot均已汇总并置review，主私聊两张待验收卡各含页面和报告链接，未点击确认完成。first公告有同路径重复登记，保留原记录。任务done和报告不代替真实双端全阶段通过。
 
+S1新增真实专项：安全checkpoint后kill‑9，原run自动恢复读取原文件并完成，Bash未重放（[证据](S1/production-07a3245-owned-recovery.json)）。修复history固定live=false后，桌面实际观察正文逐步增长及轨迹追加到run.end，重开可回放；标准库观察41个正文片段、52个轨迹片段（[证据](S1/production-7f0a5dd-real-stream.json)）。退订释放及8路容量实测通过；原生“收起”按钮未可靠验证，返回键已能关闭。Android未参加本轮专项，不能计S1整阶段通过。
+
 桌面长消息/轨迹布局、持续画面、低清切换及本地fixture真实键鼠输入/释放已局部通过。Android软件渲染恢复启动后仍有System UI无响应弹窗；CUA无模拟器控制面，adb输入方式待用户回应。X登录也仍待用户选择当前Chrome会话的使用方式。
 
-最新server pkg `07a3245`、release DMG `71fddde`已审计，未fresh安装。S0仍唯一整阶段通过，S1–S4完整双端验收及S5 fresh未完成。详见[接手续办记录](S2/2026-10-10-takeover-closeout.md)。
+最新server pkg `fe360a2`、release DMG `71fddde`已审计，未fresh安装。S0仍唯一整阶段通过，S1–S4完整双端验收及S5 fresh未完成。详见[接手续办记录](S2/2026-10-10-takeover-closeout.md)。
 
 ### 历史记录（7481d8e 及此前，以下 PID/锁屏状态不是当前现场）
 
