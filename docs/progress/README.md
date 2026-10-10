@@ -4,7 +4,7 @@
 
 ## 现在的状态
 
-当前接手续办：Mac 已解锁。正式服务 `ee7111a`（PID/source 见 [部署校验](S4/production-attach-no-copy-upgrade-after.json)），桌面 `2f09174`，Android APK `cac5b12d`。修复了浏览器动作/参数和审批恢复、运行互斥、RPC事件扫描、搜索暴露内部对象、全局轨迹序号缺口及实时轨迹/退订路由；本次新增attach不复制Chrome profile的修复，18浏览器与192网关测试通过。严格clippy为此前fe360a2验证；此前协议、34桌面核心和Kotlin生成检查保持。
+当前接手续办：Mac 已解锁。正式服务 `ee7111a`（PID/source 见 [部署校验](S4/production-attach-no-copy-upgrade-after.json)），桌面 `cd81c23`，Android APK `cac5b12d`。修复了浏览器动作/参数和审批恢复、运行互斥、RPC事件扫描、搜索暴露内部对象、全局轨迹序号缺口及实时轨迹/退订路由；attach不复制Chrome profile的修复通过18浏览器与192网关测试。桌面最新修复长消息在右侧Bot信息面板下被裁切，构建与严格Clippy通过，原X摘要在面板打开及窄窗口实际换行通过（[证据](S5/desktop-cd81c23-message-width.json)）。仅更新桌面，服务端与Android保持。服务端严格clippy为此前fe360a2验证；此前协议、34桌面核心和Kotlin生成检查保持。
 
 实时序号缺口已在正式现场闭环：旧桌面缓存停在4952；server-only更新后，无手动刷新自动显示review/Tester完成。标准库WebSocket观察143条重放游标、8条实时游标无缺号，未订阅连接无轨迹正文（[证据](S1/production-07a3245-live-cursor-after.json)）。旧pending、checkpoint、run request、浏览器session哈希保持。
 

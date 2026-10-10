@@ -396,8 +396,8 @@
   },
   "result": "corrected_summary_links_verified",
   "desktop_summary_screenshots": [
-    "production-ee7111a-x-corrected-summary.png",
-    "production-ee7111a-x-corrected-summary-full.png"
+    "production-ee7111a-x-corrected-summary.jpg",
+    "production-ee7111a-x-corrected-summary-full.jpg"
   ],
   "screenshots_visually_reviewed": true,
   "acceptance_scope": "Desktop signed-in X read-only browsing, continuous screen, corrected summary with verified URLs; not full S4 or Android takeover."

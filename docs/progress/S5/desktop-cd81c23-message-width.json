@@ -1,0 +1,36 @@
+{
+  "observed_at": "2026-10-10T05:52:44.211612+00:00",
+  "desktop_source": "cd81c231e9aa054ce7802ca98416db3e9427d9b3",
+  "server_source_unchanged": "ee7111acc2efa9acb74dfafaee9c3dd8442094b9",
+  "service_identity": {
+    "pid": 77450,
+    "listener_pids": [
+      77450
+    ],
+    "executable": "macbotd",
+    "label": "com.macbot.server",
+    "port": 7788
+  },
+  "binary_sha256": "9ba9e8d0c1a73a3834a375d83d3c73c75c01572fba153756c08094d119bda689",
+  "source_dirty_marker": false,
+  "problem": "Long text kept intrinsic width and clipped beneath the Bot inspector.",
+  "change": "Allow message content/bubbles to shrink and constrain rows to viewport width. Four layout declarations only.",
+  "validation": {
+    "desktop_build": "passed",
+    "format_diff_check": "passed",
+    "strict_clippy": "passed",
+    "native_original_x_summary_inspector_open": "passed; full lines and URLs fit",
+    "native_narrower_window": "passed; text reflows and all three URLs remain visible",
+    "screenshots_visually_reviewed": true
+  },
+  "before_screenshot": "../S4/production-ee7111a-x-corrected-summary.jpg",
+  "after_screenshots": [
+    "desktop-cd81c23-inspector-wrap.jpg",
+    "desktop-cd81c23-narrow-inspector-wrap.jpg"
+  ],
+  "deployment": "desktop only; server and Android not installed or restarted",
+  "cache_cleanup": "Only integrator/server/target dev build cache cleaned; no application data removed. Disk recovered from ~600MB to ~5GB.",
+  "android": "CUA surface absent; second read-only screencap timed out after 10s; adb UI/restart permission awaiting reply.",
+  "full_S5_pass": false,
+  "fresh_install_executed": false
+}

@@ -10,7 +10,7 @@
     "enabled_observed": true,
     "restore_required": false,
     "disabled_observed_via_cua": true,
-    "disabled_screenshot": "production-ee7111a-x-debug-disabled.png",
+    "disabled_screenshot": "production-ee7111a-x-debug-disabled.jpg",
     "screenshot_visually_reviewed": true,
     "disabled_at": "2026-10-10T05:40:42.841437+00:00",
     "port_9222_listening_after": false
@@ -1865,8 +1865,8 @@
   ],
   "desktop_live": {
     "screenshots": [
-      "production-ee7111a-x-desktop-live.png",
-      "production-ee7111a-x-desktop-live-second.png"
+      "production-ee7111a-x-desktop-live.jpg",
+      "production-ee7111a-x-desktop-live-second.jpg"
     ],
     "screenshots_visually_reviewed": true,
     "observed": "Native Mac Bot screen shows signed-in X; autoplay video changes speaker and time from 2:04 to 1:37 between screenshots.",
@@ -1927,10 +1927,10 @@
     }
   },
   "desktop_screenshots_visually_reviewed": [
-    "production-ee7111a-x-desktop-live.png",
-    "production-ee7111a-x-desktop-live-second.png",
-    "production-ee7111a-x-summary-correction-request.png",
-    "production-ee7111a-x-corrected-summary.png"
+    "production-ee7111a-x-desktop-live.jpg",
+    "production-ee7111a-x-desktop-live-second.jpg",
+    "production-ee7111a-x-summary-correction-request.jpg",
+    "production-ee7111a-x-corrected-summary.jpg"
   ],
   "owned_x_test_tab_closed_via_cua": true,
   "original_user_x_tab_preserved": true,
