@@ -740,14 +740,28 @@ impl Computer {
         }
         self.ack_scheduled_seq = Some(seq);
         let generation = self.render_generation;
+        let diagnostics = std::env::var_os("MACBOT_DIAGNOSTICS").is_some();
+        if diagnostics {
+            eprintln!(
+                "client: screen render ack scheduled seq={} generation={}",
+                seq, generation
+            );
+        }
         cx.on_next_frame(window, move |this, _window, cx| {
-            if can_complete_render_ack(
+            let eligible = can_complete_render_ack(
                 generation,
                 this.render_generation,
                 seq,
                 this.ack_scheduled_seq,
                 this.acked_render_seq,
-            ) {
+            );
+            if diagnostics {
+                eprintln!(
+                    "client: screen render callback seq={} generation={} eligible={}",
+                    seq, generation, eligible
+                );
+            }
+            if eligible {
                 this.ack_scheduled_seq = None;
                 this.acked_render_seq = Some(seq);
                 for image in this.presentation.retired.drain(..) {
@@ -757,6 +771,9 @@ impl Computer {
                     && received_seq == seq
                 {
                     this.paint_latency_ms = Some(received_at.elapsed().as_secs_f32() * 1_000.0);
+                }
+                if diagnostics {
+                    eprintln!("client: screen rendered seq={seq}");
                 }
                 this.emit(ComputerAction::Rendered(seq), cx);
             }

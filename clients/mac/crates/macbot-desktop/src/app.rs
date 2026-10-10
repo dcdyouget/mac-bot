@@ -18,6 +18,27 @@ use macbot_client_core::{ScreenClient, ScreenEvent, ScreenHandle};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+fn diagnostic_error_class(error: &str) -> &'static str {
+    let error = error.to_ascii_lowercase();
+    if error.contains("broken pipe") || error.contains("os error 32") {
+        "broken_pipe"
+    } else if error.contains("connection reset") || error.contains("os error 54") {
+        "connection_reset"
+    } else if error.contains("timed out") || error.contains("timeout") {
+        "timeout"
+    } else if error.contains("event gap") || error.contains("resync") {
+        "event_gap"
+    } else if error.contains("closed") {
+        "closed"
+    } else if error.contains("websocket") {
+        "websocket"
+    } else if error.is_empty() {
+        "none"
+    } else {
+        "other"
+    }
+}
+
 #[path = "chat.rs"]
 mod chat;
 #[path = "shell_features.rs"]
@@ -499,7 +520,13 @@ impl MacBot {
                     arr(value, "chats").len(),
                     value["seq"]
                 ),
-                ClientEvent::Disconnected { .. } => eprintln!("client: disconnected"),
+                ClientEvent::Disconnected { error } => eprintln!(
+                    "client: disconnected error_class={}",
+                    error
+                        .as_deref()
+                        .map(diagnostic_error_class)
+                        .unwrap_or("none")
+                ),
                 ClientEvent::TransportError(_) => eprintln!("client: transport error"),
                 _ => {}
             }
@@ -1258,7 +1285,25 @@ impl MacBot {
                     self.runtime.spawn(async move {
                         match event {
                             ComputerAction::Rendered(seq) => {
-                                let _ = screen.ack(seq).await;
+                                if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
+                                    eprintln!("client: screen ack enqueue seq={seq}");
+                                }
+                                match screen.ack(seq).await {
+                                    Ok(()) => {
+                                        if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
+                                            eprintln!("client: screen ack queued seq={seq}");
+                                        }
+                                    }
+                                    Err(error) => {
+                                        if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
+                                            eprintln!(
+                                                "client: screen ack queue error seq={} class={}",
+                                                seq,
+                                                diagnostic_error_class(&error.to_string())
+                                            );
+                                        }
+                                    }
+                                }
                             }
                             ComputerAction::SwitchTab(tab) => {
                                 let _ = screen.switch_tab(tab).await;

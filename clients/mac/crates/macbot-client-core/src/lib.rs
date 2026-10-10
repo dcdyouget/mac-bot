@@ -1755,7 +1755,23 @@ async fn run_screen(
         loop {
             tokio::select! {
                 command = commands.recv() => match command {
-                    Some(ScreenControl::Send(command)) => socket.send(Message::Text(serde_json::to_string(&command)?)).await.map_err(|error| CoreError::WebSocket(Box::new(error)))?,
+                    Some(ScreenControl::Send(command)) => {
+                        let diagnostic_command = match &command {
+                            ScreenCommand::Ack { seq } => Some(format!("ack seq={seq}")),
+                            ScreenCommand::SwitchTab { .. } => Some("switch_tab".to_string()),
+                            ScreenCommand::Input { .. } => Some("input".to_string()),
+                        };
+                        let payload = serde_json::to_string(&command)?;
+                        socket
+                            .send(Message::Text(payload))
+                            .await
+                            .map_err(|error| CoreError::WebSocket(Box::new(error)))?;
+                        if diagnostics {
+                            if let Some(command) = diagnostic_command {
+                                eprintln!("client: screen command sent {command}");
+                            }
+                        }
+                    }
                     Some(ScreenControl::Close { completed }) => {
                         let _ = socket.close(None).await;
                         let _ = completed.send(());
