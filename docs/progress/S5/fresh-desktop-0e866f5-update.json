@@ -1,0 +1,12 @@
+{
+  "state": "installed",
+  "source": "0e866f5d255b4a573f538042591e6f66432ab3dd",
+  "dmg": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/clients/mac/dist/MacBot.dmg",
+    "size_bytes": 12872967,
+    "sha256": "4996224bf4d2121f2d445641f1bd828f065ec1e712545115de3cc4781ba522fb",
+    "hdiutil_verify": "passed"
+  },
+  "backup": "/Users/gongshaojie/Library/Caches/MacBot/s5/desktop-before-0e866f5.app",
+  "preserve_client_data": true
+}

@@ -1,0 +1,146 @@
+{
+  "at": "2026-10-10T16:27:59.693812+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a12683-ab69-71bc-bdaf-19fe4ee15fa4",
+    "decision": "allow_once",
+    "client_request_id": "fc65f503-eb08-42c7-869d-98bb09f75bef"
+  },
+  "scope": {
+    "approval": {
+      "assignment_id": "01a12683-34b9-74de-9fce-4768f80ef3e3",
+      "bot_id": "main",
+      "chat_id": "bot_dm_01a1266a-9322-7168-a352-a12f97db891b_01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+      "created_at": "2026-10-10T15:52:05.737543+00:00",
+      "decided_at": null,
+      "detail": "{\"action\":\"add\",\"content\":\"s5-fresh-login-a 项目跟进：Tester Bot (01a1266a-9322-7168-a352-a12f97db891b) 任务失败，已重新指派浏览器测试任务，等待 Tester 响应确认 index.html 是否存在及测试结果。\",\"kind\":\"project\",\"project_id\":\"01a1266b-c4d6-751b-8248-0c99a9b6c8da\",\"scope\":\"project\"}",
+      "id": "01a12683-ab69-71bc-bdaf-19fe4ee15fa4",
+      "risk": "write",
+      "state": "pending",
+      "summary": "Approval required for memory",
+      "tool": "memory"
+    },
+    "project": {
+      "chat_id": "01a1266b-c4d6-751b-8248-0c9ab13dcff6",
+      "created_at": "2026-10-10T15:25:59.382426+00:00",
+      "created_by": {
+        "kind": "user"
+      },
+      "deadline": null,
+      "done_at": null,
+      "flow": [
+        "产品提出decision question并等待回答",
+        "产品根据回答编写PRD.md",
+        "开发者实现index.html",
+        "测试者进行实际浏览器测试并写TEST-browser.md"
+      ],
+      "goal": "交付可实际浏览器测试的本地邮箱登录demo，包含PRD.md、index.html和TEST-browser.md",
+      "home_path": "~/MacBot/projects/s5-fresh-login-a/",
+      "id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+      "lead_bot_id": "main",
+      "members": [
+        {
+          "bot_id": "main",
+          "joined_at": "2026-10-10T15:25:59.382400+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266a-3762-7574-bb9c-c8d77ef90297",
+          "joined_at": "2026-10-10T15:25:59.382409+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+          "joined_at": "2026-10-10T15:25:59.382410+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+          "joined_at": "2026-10-10T15:25:59.382411+00:00",
+          "role_note": ""
+        }
+      ],
+      "name": "s5-fresh-login-a",
+      "slug": "s5-fresh-login-a",
+      "status": "active",
+      "updated_at": "2026-10-10T15:25:59.382426+00:00"
+    },
+    "assignment": {
+      "bot_id": "main",
+      "created_at": "2026-10-10T15:51:35.353958+00:00",
+      "finished_at": null,
+      "from": {
+        "bot_id": "main",
+        "kind": "bot"
+      },
+      "id": "01a12683-34b9-74de-9fce-4768f80ef3e3",
+      "instruction": "主 Bot 跟进任务：Bot 01a1266a-9322-7168-a352-a12f97db891b 的任务失败，主 Bot 请跟进",
+      "loop_hops": 7,
+      "model": "",
+      "origin_chat_id": "bot_dm_01a1266a-9322-7168-a352-a12f97db891b_01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+      "parent_assignment_id": "01a12678-4236-7515-943a-df6cf5fc0704",
+      "priority": 2,
+      "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+      "queue_reason": null,
+      "result_message_id": null,
+      "root_message_id": "01a1266b-d63f-714b-aa9e-4af82df40af7",
+      "started_at": "2026-10-10T15:51:35.353958+00:00",
+      "status": "waiting_user",
+      "steers": [],
+      "subagents_active": 0,
+      "title": "主 Bot 跟进任务",
+      "trigger_message_id": "task_attention:task_no_report:01a12678-4236-7515-943a-df6cf5fc0704",
+      "usage": {
+        "cache_read_tokens": 35810,
+        "cache_write_tokens": 0,
+        "cost": null,
+        "input_tokens": 43369,
+        "output_tokens": 1754,
+        "requests": 0
+      },
+      "wait": {
+        "message_id": null,
+        "reason": "approval"
+      }
+    },
+    "job_id": "job_01a12683-3534-7262-91e5-719cdda07078",
+    "map": {
+      "call_id": "call_function_9ljim5z7cfeg_1"
+    },
+    "run_id": "run_01a12683-34b9-74de-9fce-4768f80ef3e3",
+    "pending_tool": {
+      "args": {
+        "action": "add",
+        "content": "s5-fresh-login-a 项目跟进：Tester Bot (01a1266a-9322-7168-a352-a12f97db891b) 任务失败，已重新指派浏览器测试任务，等待 Tester 响应确认 index.html 是否存在及测试结果。",
+        "kind": "project",
+        "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+        "scope": "project"
+      },
+      "call_id": "call_function_9ljim5z7cfeg_1",
+      "name": "memory"
+    },
+    "effective_memory_target": {
+      "kind": "project",
+      "scope": "project",
+      "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+      "project_home": "~/MacBot/projects/s5-fresh-login-a/"
+    },
+    "review": "A private project memory only; no user/global memory"
+  },
+  "result": {
+    "approval": {
+      "assignment_id": "01a12683-34b9-74de-9fce-4768f80ef3e3",
+      "bot_id": "main",
+      "chat_id": "bot_dm_01a1266a-9322-7168-a352-a12f97db891b_01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+      "created_at": "2026-10-10T15:52:05.737543+00:00",
+      "decided_at": "2026-10-10T16:28:00.942897+00:00",
+      "detail": "{\"action\":\"add\",\"content\":\"s5-fresh-login-a 项目跟进：Tester Bot (01a1266a-9322-7168-a352-a12f97db891b) 任务失败，已重新指派浏览器测试任务，等待 Tester 响应确认 index.html 是否存在及测试结果。\",\"kind\":\"project\",\"project_id\":\"01a1266b-c4d6-751b-8248-0c99a9b6c8da\",\"scope\":\"project\"}",
+      "id": "01a12683-ab69-71bc-bdaf-19fe4ee15fa4",
+      "risk": "write",
+      "state": "allowed_once",
+      "summary": "Approval required for memory",
+      "tool": "memory"
+    }
+  }
+}

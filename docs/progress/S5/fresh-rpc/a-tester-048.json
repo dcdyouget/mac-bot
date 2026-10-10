@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-10T16:55:31.003234+00:00",
+  "state": "returned",
+  "method": "assignment.steer",
+  "params": {
+    "bot_id": "main",
+    "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+    "chat_id": "01a1266b-c4d6-751b-8248-0c9ab13dcff6",
+    "text": "只处理 A 项目的最终验收状态，不创建或重派 Tester、Developer，不创建新项目，不回复 progress，不调用 confirm_done。请先读取原报告 ~/MacBot/projects/s5-fresh-login-a/TEST-browser.md 与 Tester done 消息 01a126a1-10b7-7028-8bab-0c87f6a0d3f9，核对五项真实 Bot 证据：错误密码 PASS、正确登录 PASS、刷新保持 PASS、退出清除 PASS、375x800 viewport PASS（window.innerWidth=375、document.body.scrollWidth=375、origin=file:///Users/gongshaojie/MacBot/projects/s5-fresh-login-a/index.html）。然后在同一 A 项目调用 request_review，参数必须为 project_id=01a1266b-c4d6-751b-8248-0c99a9b6c8da；返回工具调用结果和 project.status，不要只发送文字 review。",
+    "client_request_id": "42eb5d46-d330-4450-9141-8c3c008fadfa"
+  },
+  "scope": {
+    "bot_id": "main",
+    "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+    "chat_id": "01a1266b-c4d6-751b-8248-0c9ab13dcff6",
+    "requested_scope": "single minimal new main feedback assignment for existing A project; request_review only; no new tester/project; no confirm_done"
+  },
+  "at_returned": "2026-10-10T16:56:05.878270+00:00",
+  "result": {
+    "ok": true,
+    "result": {
+      "assignment_id": "01a126ab-be00-7624-97fb-dfe80ec00780",
+      "at": "2026-10-10T16:55:57.041884+00:00",
+      "bot_id": "main",
+      "message_id": "01a126be-2171-72a7-ae7d-3c81c8a2e5a8",
+      "state": "queued"
+    }
+  }
+}

@@ -1,12 +1,8 @@
 # Mac Bot 集成进度与使用说明
 
-最新结论（2026-10-10）：**S0–S3通过；S4真实执行链路通过，接管卡状态缺陷修复中；S5 fresh未执行**。当前server `5b244ea`、桌面 `ba0e8f1`、Android `04b0c3d` 同签名Release。旧等待恢复、新请求落盘、同run交还完成及工作台问题关闭已实际通过；错误审批引用已修复并两端实看，桌面已回答问题按钮/新消息显示仍在修复；正式数据正常重启测得103秒，929MB操作日志整体解析热点正在修复。历史版本与失败证据保留，不覆盖本段。
+最新结论（2026-10-11，fresh续验）：**S0–S4的既有阶段结论保持；S5 fresh仍未通过**。3d6b289 已完成真实 native pkg 安装、管理页设密码和两端初始连接，系统 Installer receipt 仍为 3d6b289。随后 a9527fa 已作为用户服务 App payload 部署并健康，启动恢复已精确取消 denied private run；原始 native candidate 未重新安装。桌面 bdc17cdf 诊断版已部署，但首帧 applied 后未触发重绘，仍在调查；Android 78bafff 已安装并保留数据，当前连接尚未恢复。Fresh S1 工具闭环与真实 kill-9 同 run 恢复已有证据；桌面 cache 已收到 50 段全文，after-layout 图已实际查看，Android 仍有真实 UI 阻塞；Fresh S2 双群并行和同 run 插话已通过，真实 Tester 尚未完成 review；Fresh S3 技能 v2 与禁用同步为局部证据；Fresh S4 首帧/连接问题仍未收口。完整 fresh 场景未完成，不能据此宣称 S5 通过。证据索引见 [fresh-evidence-index](S5/fresh-evidence-index.md)。
 
-S2两个原项目已由用户授权结束5个历史等待分支并用原UUID确认done，双端完成状态已实看；其余7pending未改变，见 [S2确认记录](S2/production-9c20fc4-confirm-done.json)。
-
-S4用户已允许本次Chrome远程调试连接。旧sidecar 0.38.2的2秒握手超时已通过升级0.39.0修复，原Bot真实打开已登录X首页；Android显示实际画面、接管、只读滑动、交还，原run恢复并done，driver为bot→user→bot。新增X页已关闭，原登录页保留，Bot恢复headless。见 [本次X验收](S4/production-be64802-authorized-x.json)。交还后原消息block仍pending属于服务端状态投影缺陷，正在修复，未据执行成功提前记整阶段通过。
-
-Android长聊天初始定位竞态已修复；新版首次进入显示最新消息，上滑后保持位置，142条群历史已实际到达seq1，加载结束保持首条锚点，见 [定位回归](S4/production-04b0c3d-chat-scroll.json)。S5保留历次pkg审计，但最终server尚未冻结，接管修复后需重建匹配包；fresh未开始。安装需要用户管理员认证，管理页新密码须按CUA凭据变更规则由用户亲自输入、确认和提交。
+首次3635008安装因macOS按bundle ID重定位payload失败；3d6b289禁用App级重定位后真实重试成功。旧业务备份164个job哈希保持，但备份服务App曾被失败安装器写入，不能视为原样恢复源。用户已在管理页设置密码；设置前的`setup_required=true`未捕获，明确保留证据缺口，不倒推为已观察。见[安装审计](S5/fresh-install-success-audit.json)、[设置观测边界](S5/fresh-setup-observation-audit.json)、[执行journal](S5/fresh-install-journal.json)。
 
 | 当前阶段 | 结论与主要证据 |
 | --- | --- |
@@ -14,8 +10,8 @@ Android长聊天初始定位竞态已修复；新版首次进入显示最新消�
 | S1 | 已通过：[真实双端流式、轨迹、同run kill-9恢复](S1/production-aa2c99a-joint-recovery.json) |
 | S2 | 已通过：[两原项目与精确旧分支确认闭环](S2/production-9c20fc4-confirm-done.json) |
 | S3 | 已通过：[真实双端数据、技能、记忆与搜索结论](S3/production-6eaa91a-stage-conclusion.json) |
-| S4 | 收尾中：[证据与剩余显示缺陷](S4/stage-conclusion.json) |
-| S5 | 未开始：[可逆安装计划](S5/fresh-install-plan.md)、[写RPC审计](S5/fresh-rpc-journal-audit.md)、[客户端配置隔离](S5/fresh-client-config-plan.md) |
+| S4 | 已通过：[真实双端结论](S4/stage-conclusion.json)、[最终接管状态回归](S4/production-508f325-native-takeover.json) |
+| S5 | 进行中：[可逆安装计划](S5/fresh-install-plan.md)、[写RPC审计](S5/fresh-rpc-journal-audit.md)、[客户端配置隔离](S5/fresh-client-config-plan.md) |
 
 本文面向在 Mac mini（Apple M4，局域网地址 `192.168.31.162`）上查看 Mac Bot 效果的人。服务端运行在这台 Mac 上，Android 客户端运行在本机的 `macbot_api36` 模拟器里。v1 不包含 iOS。
 
@@ -270,4 +266,14 @@ S5已开始：按既定fresh-install-plan退出桌面、bootout已核对的watch
 
 S5首次真实pkg失败已定位：用户管理员认证成功，PackageKit却将payload按bundle ID重定位到备份服务App，postinstall固定源路径缺失后退出。旧业务164job哈希全部保持；备份服务App被installer写过且转为root:wheel，不能再宣称原样备份或盲目用于恢复。新home仅有root-owned空目录。3d6b289补App级不可重定位、写路径前payload检查及真实PackageInfo回归；旧失败包被新smoke拒绝，修复包正在构建。失败截图/日志与备份App现状均留证，S5仍未通过。
 
-修复包3d6b289现已完成clean archive构建、完整smoke和固定路径/空relocate名单审计，并打开新Installer点击安装；等待用户完成本次系统管理员认证。原失败包及受影响备份App保留为证据，尚未宣称真实重试成功。
+修复包3d6b289曾完成clean archive构建、完整smoke和固定路径/空relocate名单审计，并在历史记录中等待系统管理员认证；后续已由用户完成认证、管理页设密码并连接两端。原失败包及受影响备份App保留为证据，fresh完整场景仍未完成。
+
+## 2026-10-10 Fresh 安装后续验收
+
+3d6b289 已由用户完成管理员认证和管理页密码设置，file backend、MiniMax CN / MiniMax-M2.5 以及桌面、Android 连接均已完成；设置密码前的 `setup_required=true` 未捕获，证据缺口保留。之后以 `MACBOT_DEPLOY_SHA` 更新用户服务 App 载荷至 `8e08721`，保留 fresh home、密码、模型和 LaunchAgent；这不是第二次 native pkg 安装，系统 receipt 仍对应 3d6b289，见 [fresh-server-8e08721-update.json](S5/fresh-server-8e08721-update.json)。桌面 Release `3b017b1` 已部署，Android 保持 `04b0c3d`。
+
+Fresh S1 已完成工具 roundtrip 和真实 kill-9 恢复；原生实时流式增长仍缺完整证据。Fresh S2 已完成两群并行与运行中同 assignment/run 插话，Tester 的真实浏览器测试和主 Bot 汇总仍待完成。Fresh S3 已看到技能 v2 双端结果及停用同步的局部证据，完整 CRUD、用量、记忆和搜索仍待收口。Fresh S4 尚未执行，最短剩余清单是：完成 S1 原生实时流式、S2 Tester/主 Bot 待验收闭环、S3 剩余双端场景、S4 全量场景，再按 fresh-install-plan 完成最终联合验收；因此 S5 仍不通过。
+
+## 2026-10-11 Fresh 续验现场
+
+a9527fa user-App payload 已部署并健康；启动恢复对 denied private run 完成精确 cancel，证据见 [fresh-server-a9527fa-update.json](S5/fresh-server-a9527fa-update.json) 与 [fresh-recovery-denied-audit.json](S5/fresh-recovery-denied-audit.json)。桌面 bdc17cdf 诊断版已部署，但首帧 applied 后未触发重绘，仍在调查；Android 78bafff 已安装并保留数据，当前连接尚未恢复。S5 仍不通过。

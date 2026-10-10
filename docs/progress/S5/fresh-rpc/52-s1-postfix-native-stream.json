@@ -1,0 +1,44 @@
+{
+  "at": "2026-10-10T16:05:46.104187+00:00",
+  "state": "returned",
+  "method": "chat.send",
+  "params": {
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "text": "仅验证修复后的实时文本流，不调用工具。请写50个中文编号段落，每段100字，主题为本地软件验收记录方法。请首行写 s5-stream-after-cursor-fix，然后直接连续写正文，最后写 s5-stream-after-cursor-fix 完成。",
+    "attachments": [],
+    "client_request_id": "0c861b66-0fbc-44f4-b95b-768bae9a93ea"
+  },
+  "scope": {
+    "purpose": "native stream retest after server23c34ba recovered missing cursor; previous desktop failed evidence retained"
+  },
+  "result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "仅验证修复后的实时文本流，不调用工具。请写50个中文编号段落，每段100字，主题为本地软件验收记录方法。请首行写 s5-stream-after-cursor-fix，然后直接连续写正文，最后写 s5-stream-after-cursor-fix 完成。",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "created_at": "2026-10-10T16:05:46.174133+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "仅验证修复后的实时文本流，不调用工具。请写50个中文编号段落，每段100字，主题为本地软件验收记录方法。请首行写 s5-stream-after-cursor-fix，然后直接连续写正文，最后写 s5-stream-after-cursor-fix 完成。",
+      "id": "01a12690-303e-77a8-944a-14cabbf834e0",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 7,
+      "streaming": false,
+      "thread_count": 0
+    }
+  }
+}

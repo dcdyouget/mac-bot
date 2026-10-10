@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-10T15:07:43.730499+00:00",
+  "state": "returned",
+  "method": "provider.create",
+  "params": {
+    "name": "MiniMax CN",
+    "api_kind": "anthropic-messages",
+    "base_url": "https://api.minimax.cn/anthropic",
+    "api_key": "[REDACTED]",
+    "client_request_id": "75851097-e352-4c31-bf35-662de9dd2bdf"
+  },
+  "scope": {
+    "node_id": "01a12659-1a1a-76ef-8077-310a4a7ca29e",
+    "key_source": "~/MacBot-dev-secrets/minimax-cn.key",
+    "purpose": "Fresh isolated provider; original backend unchanged"
+  },
+  "result": {
+    "provider": {
+      "api_kind": "anthropic-messages",
+      "base_url": "https://api.minimax.cn/anthropic",
+      "created_at": "2026-10-10T15:07:43.757Z",
+      "has_key": true,
+      "headers": {},
+      "id": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4",
+      "name": "MiniMax CN",
+      "updated_at": "2026-10-10T15:07:43.757Z"
+    }
+  }
+}

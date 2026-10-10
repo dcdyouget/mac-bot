@@ -1,0 +1,49 @@
+{
+  "kind": "mac-desktop-release-candidate",
+  "source_commit": "bdc17cdfa5ba8ac8b0c06fddf67d7b3cdf5abd32",
+  "source": {
+    "method": "git archive",
+    "archive_root": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-bdc17cdfa5ba8ac8b0c06fddf67d7b3cdf5abd32",
+    "source_stamp": "bdc17cdfa5ba8ac8b0c06fddf67d7b3cdf5abd32",
+    "source_dirty_marker": false
+  },
+  "build": {
+    "command": "CARGO_TARGET_DIR=/Users/gongshaojie/Library/Caches/MacBot/integrator/target/desktop CARGO_INCREMENTAL=0 cargo build --manifest-path <archive>/clients/mac/Cargo.toml -p macbot-desktop --release",
+    "profile": "release",
+    "target_cache": "/Users/gongshaojie/Library/Caches/MacBot/integrator/target/desktop",
+    "log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-bdc17cdfa5ba8ac8b0c06fddf67d7b3cdf5abd32/build-release.log",
+    "exit_code": 0
+  },
+  "packaging": {
+    "command": "MACBOT_SOURCE_COMMIT=bdc17cdfa5ba8ac8b0c06fddf67d7b3cdf5abd32 SKIP_BUILD=1 ./packaging/package.sh release all",
+    "log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-bdc17cdfa5ba8ac8b0c06fddf67d7b3cdf5abd32/package-release.log",
+    "exit_code": 0
+  },
+  "artifacts": {
+    "app": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-bdc17cdfa5ba8ac8b0c06fddf67d7b3cdf5abd32/clients/mac/dist/MacBot.app",
+    "dmg": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-bdc17cdfa5ba8ac8b0c06fddf67d7b3cdf5abd32/clients/mac/dist/MacBot.dmg",
+    "target_binary_sha256": "fc4dc6441ca7c4df5117fc1a79140b39b614ae73924168f4251bdceae24d4b64",
+    "signed_app_binary_sha256": "764ba6bb86710a5fda736821bff8093f9cb2fd726f9ed3513cf5aa497bda0470",
+    "dmg_sha256": "e610f981e6bb2156dc0dd18211325f490b223f7a52ffc096da75b09376ecab2c"
+  },
+  "verification": {
+    "bundle_identifier": "bot.mac.desktop",
+    "codesign": "codesign --verify --deep --strict passed",
+    "codesign_mode": "adhoc",
+    "code_directory_hash": "d92496259b91eef91507ebe39cd5680d38f1a595",
+    "hdiutil_verify": "passed",
+    "mach_o_text_offset": 4608,
+    "mach_o_text_size": 16659424,
+    "mach_o_text_sha256_target": "85e1e009871db96ad12848e1b1790a76467e785a00d3a1a288e78d05a4de23f7",
+    "mach_o_text_sha256_signed_app": "85e1e009871db96ad12848e1b1790a76467e785a00d3a1a288e78d05a4de23f7",
+    "installed": false
+  },
+  "validation": {
+    "client_core_tests": "39 passed",
+    "desktop_computer_tests": "7 passed",
+    "strict_clippy": "passed",
+    "cargo_fmt_check": "passed",
+    "git_diff_check": "passed"
+  },
+  "notes": "Diagnostics remain opt-in via MACBOT_DIAGNOSTICS; this candidate records ACK/render timing and does not claim the ACK stall is fixed."
+}

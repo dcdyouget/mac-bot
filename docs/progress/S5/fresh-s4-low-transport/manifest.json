@@ -1,0 +1,29 @@
+{
+  "status": "transport_only_pass",
+  "source": "23c34ba",
+  "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+  "quality": "low",
+  "driver": "bot",
+  "tab_id": "t2",
+  "url": "file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html",
+  "frames": [
+    {
+      "path": "frame-01-seq-1.jpg",
+      "seq": 1,
+      "w": 640,
+      "h": 316,
+      "ts": 1791648171797,
+      "bytes": 8909
+    },
+    {
+      "path": "frame-02-seq-2.jpg",
+      "seq": 2,
+      "w": 640,
+      "h": 316,
+      "ts": 1791648171908,
+      "bytes": 8911
+    }
+  ],
+  "images_viewed": true,
+  "boundary": "No UI input or native low-quality success inferred; root visually verified two different animation positions and submitted marker."
+}

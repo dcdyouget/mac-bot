@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-10T15:59:19.578335+00:00",
+  "state": "returned",
+  "method": "takeover.release",
+  "params": {
+    "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+    "note": "本地页面已实际输入并提交 s5-desktop-input，看到“收到：s5-desktop-input”。桌面切换低画质后空画面，现通过平台交还同一Bot；请只读核验页面回显，不重新输入或改页面。",
+    "client_request_id": "98441340-744a-4cc9-b3f3-054415fc4452"
+  },
+  "scope": {
+    "job_id": "job_01a12682-a91e-7482-9d53-ed418c363162",
+    "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+    "reason": "release known owned local fixture takeover after native quality-switch failure; does not count native release PASS"
+  },
+  "result": {}
+}

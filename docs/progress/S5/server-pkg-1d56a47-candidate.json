@@ -1,0 +1,56 @@
+{
+  "state": "candidate",
+  "at": "2026-10-10T16:10:28.367464+00:00",
+  "source": "1d56a47494d86b670d1dd77aee6188d3d17a2b63",
+  "source_archive": "/Users/gongshaojie/Library/Caches/MacBot/s5/source-1d56a47494d86b670d1dd77aee6188d3d17a2b63",
+  "source_archive_clean": true,
+  "package": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-1d56a47494d86b670d1dd77aee6188d3d17a2b63.pkg",
+  "package_sha256": "3a5eb926371945b20bdf35335e039883f088121f964a3c4b435748ee8e2cf21e",
+  "build_info": {
+    "source_dirty": false,
+    "macbotd_sha256": "a953fc19996f437d3331ff14f31612a0d3dd388e4ea5e95a141c801482d36b21",
+    "version": "0.1.0",
+    "agent_browser_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+    "source_commit": "1d56a47494d86b670d1dd77aee6188d3d17a2b63"
+  },
+  "payload": {
+    "daemon_sha256": "a953fc19996f437d3331ff14f31612a0d3dd388e4ea5e95a141c801482d36b21",
+    "daemon_version": "macbotd 0.1.0",
+    "sidecar_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+    "sidecar_version": "agent-browser 0.39.0",
+    "bundle_id": "com.macbot.server",
+    "source_commit_plist": "1d56a47494d86b670d1dd77aee6188d3d17a2b63"
+  },
+  "package_info": {
+    "install_location": "/",
+    "bundles": [
+      {
+        "path": "./Applications/MacBot Server.app",
+        "id": "com.macbot.server",
+        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleVersion": "0.1.0"
+      }
+    ],
+    "bundle_relocations": [],
+    "relocation_check": "passed"
+  },
+  "smoke": {
+    "command": "python3 /Users/gongshaojie/Library/Caches/MacBot/s5/source-1d56a47494d86b670d1dd77aee6188d3d17a2b63/server/macbotd/tests/smoke_packaging.py --pkg /Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-1d56a47494d86b670d1dd77aee6188d3d17a2b63.pkg",
+    "result": "passed: bundle contents, sidecar digest and atomic update failure/success",
+    "expanded_audit": "/Users/gongshaojie/Library/Caches/MacBot/s5/pkg-1d56a47494d86b670d1dd77aee6188d3d17a2b63-audit"
+  },
+  "signature": {
+    "status": "unsigned development package",
+    "pkgutil_check_signature": "no signature"
+  },
+  "deployment": {
+    "performed": false,
+    "installed": false,
+    "service_touched": false
+  },
+  "notes": [
+    "Built from a clean git archive at the exact full source commit with CARGO_INCREMENTAL=0; the archive target was linked to the integrator server target and the approved 0.39.0 arm64 sidecar cache was reused.",
+    "PackageInfo has relocatable=false and an empty <relocate/> element with no bundle entry.",
+    "This is a package candidate only; runtime acceptance and installation were not performed."
+  ]
+}

@@ -1,12 +1,12 @@
 # S5 fresh 场景最短执行清单
 
-状态：执行前清单，不是通过记录。最终候选为server3635008、desktop508f325、Android04b0c3d；包审计通过，fresh已完成离线备份，正在等待Installer管理员认证。以 [fresh-install-plan.md](fresh-install-plan.md) 的固定完整SHA及哈希为准。
+状态：**现场已执行，仍不是通过记录**。3d6b289 native pkg 已安装并完成密码设置；1d56a47 原始 candidate 未作为 native pkg 安装，later user-App payload update 单独记录，系统 receipt 仍为 3d6b289；桌面当前为已安装 Release 0e866f5，Android 保持 04b0c3d，性能补丁主 worktree 尚待 review。S1 桌面 cache 已收到 50 段全文且 after-layout 图已查看，旧 postfix 桌面图属于旧 scroll/capture，Android UI 仍阻塞；S2 Tester 未完成，S4 当前原生 FreshScreen 无帧、正在诊断；S5 仍未通过。以 [fresh-install-plan.md](fresh-install-plan.md) 和 [fresh-evidence-index.md](fresh-evidence-index.md) 为准。
 
 ## 1. 冻结与备份
 
-1. 核对当前已审计的固定server pkg、desktop DMG及Android同签名Release APK；记录source SHA、dirty=false、SHA-256和包内daemon/sidecar。当前普通升级不计fresh。
+1. 核对当前已审计的固定server pkg、desktop DMG及Android同签名Release APK；记录source SHA、dirty=false、SHA-256和包内daemon/sidecar。3d6b289 是 native fresh 安装入口；1d56a47 candidate 的 native 安装保持未执行，later user-App payload update 不改变该边界；0e866f5 是当前桌面安装版本，Android 保持 04b0c3d。
 2. 暂停 watcher，记录 `scripts/dev/status.sh`、7788/7789 listener、LaunchAgent PID/实际 binary、桌面和 Android 版本。停止并确认 7788 已释放；不批量取消旧 approval/job，不触碰未知进程。
-3. 复用 [fresh-install-journal.json](fresh-install-journal.json) 中现有的 `backup_root`（当前 `prepared_empty_only`），确认分类目录没有业务文件后再移动 `~/MacBot`、LaunchAgent、pkg 安装 App、开发 App/CLI links 和两端连接配置。外部 file secret 目录和 `~/.macbot-dev-password` 只记录路径/权限，不读取、复制、截图或写入文档。
+3. 复用 [fresh-install-journal.json](fresh-install-journal.json) 中现有的 `backup_root`；离线移动和 164 个 job hash 核对已经完成。外部 file secret 目录和 `~/.macbot-dev-password` 只记录路径/权限，不读取、复制、截图或写入文档。
 
 ## 2. 安装与初始化
 
@@ -20,6 +20,8 @@
 - 桌面：安装固定 DMG，打开正式 `.app`，连接 `127.0.0.1:7788`；观察连接页、会话列表、主 Bot 私聊和断线重连后的消息/事件渲染，截图实际窗口。
 - Android：`adb -s emulator-5554 install -r <签名APK>`，保留应用数据；连接 `10.0.2.2:7788`，观察连接页、会话列表、主 Bot 私聊、流式正文和轨迹页，截图实际模拟器画面。
 - `bootstrap.py`、health 或任何 API 返回只能作为协议基线，不能替代上述两端 UI 观察。
+
+当前现场已完成两端连接观察；桌面当前原生 FreshScreen 无帧，Android 性能补丁仍待 review。后续截图和失败边界统一见 [fresh-evidence-index.md](fresh-evidence-index.md)；不要把历史候选、API 结果或低清 transport-only 帧当作 S5 通过。
 
 ## 4. 完整场景顺序
 

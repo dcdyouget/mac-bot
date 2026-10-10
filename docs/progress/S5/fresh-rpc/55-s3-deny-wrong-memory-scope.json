@@ -1,0 +1,56 @@
+{
+  "at": "2026-10-10T16:21:40.807319+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a12698-7905-765a-8047-988aaaffee08",
+    "decision": "deny",
+    "client_request_id": "682b43ba-6d18-467b-8bb9-871e94504f2c"
+  },
+  "scope": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "created_at": "2026-10-10T16:14:49.093547+00:00",
+      "decided_at": null,
+      "detail": "{\"action\":\"add\",\"content\":\"s5-memory-20261011：验收报告先写结论，再写证据。\",\"kind\":\"user_preference\",\"scope\":\"user\"}",
+      "id": "01a12698-7905-765a-8047-988aaaffee08",
+      "risk": "write",
+      "state": "pending",
+      "summary": "Approval required for memory",
+      "tool": "memory"
+    },
+    "map": {
+      "call_id": "call_function_gdui25kekcqs_1"
+    },
+    "job_id": "job_01a12698-51ae-73c5-826e-618d989c00d9",
+    "run_id": "run_chat_01a12698_5136_7431_8f0c_9de3079cb341",
+    "pending_tool": {
+      "args": {
+        "action": "add",
+        "content": "s5-memory-20261011：验收报告先写结论，再写证据。",
+        "kind": "user_preference",
+        "scope": "user"
+      },
+      "call_id": "call_function_gdui25kekcqs_1",
+      "name": "memory"
+    },
+    "reason": "Requested own Bot private memory only; actual user scope is outside this test authorization. user_preference is a valid tool kind for user scope, but does not make this target authorized."
+  },
+  "result": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "created_at": "2026-10-10T16:14:49.093547+00:00",
+      "decided_at": "2026-10-10T16:21:40.834973+00:00",
+      "detail": "{\"action\":\"add\",\"content\":\"s5-memory-20261011：验收报告先写结论，再写证据。\",\"kind\":\"user_preference\",\"scope\":\"user\"}",
+      "id": "01a12698-7905-765a-8047-988aaaffee08",
+      "risk": "write",
+      "state": "denied",
+      "summary": "Approval required for memory",
+      "tool": "memory"
+    }
+  }
+}

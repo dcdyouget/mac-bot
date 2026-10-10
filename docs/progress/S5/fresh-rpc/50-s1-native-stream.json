@@ -1,0 +1,45 @@
+{
+  "at": "2026-10-10T16:00:25.998300+00:00",
+  "state": "returned",
+  "method": "chat.send",
+  "params": {
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "text": "仅用于验证实时文本流，请不要调用任何工具。请依次输出1到40编号的中文段落，每段不少于80字，内容为解释如何记录软件验收证据。直接开始正文，不写前言，最后独立一行输出 s5-native-stream-20261011 完成。",
+    "attachments": [],
+    "client_request_id": "954787ae-9175-4539-8ae8-d19fa29c5d3e"
+  },
+  "scope": {
+    "purpose": "real provider native desktop and Android incremental rendering; no tools",
+    "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0"
+  },
+  "result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "仅用于验证实时文本流，请不要调用任何工具。请依次输出1到40编号的中文段落，每段不少于80字，内容为解释如何记录软件验收证据。直接开始正文，不写前言，最后独立一行输出 s5-native-stream-20261011 完成。",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "created_at": "2026-10-10T16:00:26.084135+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "仅用于验证实时文本流，请不要调用任何工具。请依次输出1到40编号的中文段落，每段不少于80字，内容为解释如何记录软件验收证据。直接开始正文，不写前言，最后独立一行输出 s5-native-stream-20261011 完成。",
+      "id": "01a1268b-4de4-771e-b095-9216237d61fb",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 5,
+      "streaming": false,
+      "thread_count": 0
+    }
+  }
+}

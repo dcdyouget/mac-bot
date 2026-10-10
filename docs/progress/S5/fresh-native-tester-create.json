@@ -1,0 +1,49 @@
+{
+  "state": "native_saved_readonly_verified",
+  "at": "2026-10-10T15:24:38.418348+00:00",
+  "name": "Fresh-Tester",
+  "max_parallel": 2,
+  "tools": {
+    "files": true,
+    "bash": true,
+    "browser": true,
+    "subagent": false,
+    "web": false,
+    "mcp": false
+  },
+  "scope": "fresh Host native desktop; client owns UUID; readonly reconcile before repeat",
+  "bot": {
+    "avatar": {
+      "color": 0,
+      "kind": "bean"
+    },
+    "browser_mode": "headless",
+    "created_at": "2026-10-10T15:24:41.122632+00:00",
+    "description": "必须使用浏览器实际验证项目产物，报告区分实测、失败和未测试；不得将代码阅读声称为浏览器验收。",
+    "dm_chat_id": "dm_01a1266a-9322-7168-a352-a12f97db891b",
+    "hidden": false,
+    "id": "01a1266a-9322-7168-a352-a12f97db891b",
+    "is_main": false,
+    "label": "测试",
+    "max_parallel": 2,
+    "model": null,
+    "name": "Fresh-Tester",
+    "notifications": true,
+    "pinned": false,
+    "status": {
+      "active": 0,
+      "queued": 0,
+      "summary": "idle",
+      "waiting": 0
+    },
+    "tools": {
+      "bash": true,
+      "browser": true,
+      "files": true,
+      "mcp": false,
+      "subagent": false,
+      "web": false
+    },
+    "updated_at": "2026-10-10T15:24:41.122632+00:00"
+  }
+}

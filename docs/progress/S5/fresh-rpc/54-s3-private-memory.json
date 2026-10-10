@@ -1,0 +1,45 @@
+{
+  "at": "2026-10-10T16:14:38.840809+00:00",
+  "state": "returned",
+  "method": "chat.send",
+  "params": {
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "text": "本次 fresh 记忆验收：请只在你自己的 Bot 私有记忆中记住这条测试偏好：“s5-memory-20261011：验收报告先写结论，再写证据。”用合法 memory 工具保存一条即可，然后用 memory_search 搜索 s5-memory-20261011 并报告实际结果。不要写 global 或 project 记忆，不访问其他Bot记忆，不调用Bash或写文件。",
+    "attachments": [],
+    "client_request_id": "96daa215-6768-4a19-9161-df04a4d4dfd0"
+  },
+  "scope": {
+    "purpose": "S3 real private Bot memory write/search; no global/project authorization",
+    "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0"
+  },
+  "result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "本次 fresh 记忆验收：请只在你自己的 Bot 私有记忆中记住这条测试偏好：“s5-memory-20261011：验收报告先写结论，再写证据。”用合法 memory 工具保存一条即可，然后用 memory_search 搜索 s5-memory-20261011 并报告实际结果。不要写 global 或 project 记忆，不访问其他Bot记忆，不调用Bash或写文件。",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "created_at": "2026-10-10T16:14:38.902947+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "本次 fresh 记忆验收：请只在你自己的 Bot 私有记忆中记住这条测试偏好：“s5-memory-20261011：验收报告先写结论，再写证据。”用合法 memory 工具保存一条即可，然后用 memory_search 搜索 s5-memory-20261011 并报告实际结果。不要写 global 或 project 记忆，不访问其他Bot记忆，不调用Bash或写文件。",
+      "id": "01a12698-5136-7431-8f0c-9de3079cb341",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 11,
+      "streaming": false,
+      "thread_count": 0
+    }
+  }
+}

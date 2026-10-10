@@ -1,0 +1,52 @@
+{
+  "at": "2026-10-10T16:21:56.566316+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a1269e-4bb6-77f7-8f6e-80d95b39312a",
+    "decision": "deny",
+    "client_request_id": "10831a92-0dcf-4d85-847c-970110cd3abe"
+  },
+  "scope": {
+    "approval": {
+      "assignment_id": "01a12698-3253-7512-b393-04f5882fea9c",
+      "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+      "chat_id": "bot_dm_01a1266a-9322-7168-a352-a12f97db891b_01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+      "created_at": "2026-10-10T16:21:10.710959+00:00",
+      "decided_at": null,
+      "detail": "{\"command\":\"ls -la ~/MacBot/projects/s5-fresh-login-b/\"}",
+      "id": "01a1269e-4bb6-77f7-8f6e-80d95b39312a",
+      "risk": "exec",
+      "state": "pending",
+      "summary": "Approval required for bash",
+      "tool": "bash"
+    },
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "assignment_id": "01a12698-3253-7512-b393-04f5882fea9c",
+    "job_id": "job_01a12698-3349-76fe-b14f-9eaad40e3d08",
+    "run_id": "run_01a12698-3253-7512-b393-04f5882fea9c",
+    "pending_tool": {
+      "args": {
+        "command": "ls -la ~/MacBot/projects/s5-fresh-login-b/"
+      },
+      "call_id": "call_function_jy6rizjp4vj4_1",
+      "name": "bash"
+    },
+    "reason": "B验收禁止Bash，仅允许本地browser与B Home报告write"
+  },
+  "result": {
+    "approval": {
+      "assignment_id": "01a12698-3253-7512-b393-04f5882fea9c",
+      "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+      "chat_id": "bot_dm_01a1266a-9322-7168-a352-a12f97db891b_01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+      "created_at": "2026-10-10T16:21:10.710959+00:00",
+      "decided_at": "2026-10-10T16:21:56.796313+00:00",
+      "detail": "{\"command\":\"ls -la ~/MacBot/projects/s5-fresh-login-b/\"}",
+      "id": "01a1269e-4bb6-77f7-8f6e-80d95b39312a",
+      "risk": "exec",
+      "state": "denied",
+      "summary": "Approval required for bash",
+      "tool": "bash"
+    }
+  }
+}

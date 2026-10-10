@@ -1,0 +1,478 @@
+{
+  "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+  "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+  "checkpoint": {
+    "commit_seq": 29,
+    "job_id": "job_01a12668-2073-73b5-b115-5ddc615e979e",
+    "mtime": 1791645783.5387378,
+    "path": "/Users/gongshaojie/MacBot/data/jobs/job_01a12668-2073-73b5-b115-5ddc615e979e.json"
+  },
+  "created_at": 1791645783.6288052,
+  "current_job": "job_01a12668-2073-73b5-b115-5ddc615e979e.json",
+  "health_after": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "health_before": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "home": "/Users/gongshaojie/MacBot",
+  "kill_intent": {
+    "label": "com.macbot.server",
+    "pid": 88341,
+    "port": 7788,
+    "signal": "SIGKILL"
+  },
+  "kill_pid": 88341,
+  "kill_sent_at": 1791645783.629228,
+  "marker": "s5-fresh-recovery-isolated",
+  "new_jobs": {
+    "job_01a12662-5302-77e5-83ce-5a22690c1db5.json": "940603e426b50f7122187af1c5ee63996a9d37c7add801c4204fd697e0aca02b",
+    "job_01a12664-ef9c-727b-af2a-ddef6c64eaf4.json": "dcd5e7f1e9365d9c43e5643697aaa7454b8791d9e06212a9f0b74d99d07ff705",
+    "job_01a12666-17d0-7102-b111-51f127c3ea75.json": "b1e9ed71f71b1f43a8be9b7350993020d3afe2618476ad97223ca0b33661814c",
+    "job_01a12668-2073-73b5-b115-5ddc615e979e.json": "0647a33573d2cff68da1f9345cd7a9b9c131bada378f927d8aeaf8b41731ecb2"
+  },
+  "old_jobs": {
+    "job_01a12662-5302-77e5-83ce-5a22690c1db5.json": "940603e426b50f7122187af1c5ee63996a9d37c7add801c4204fd697e0aca02b",
+    "job_01a12664-ef9c-727b-af2a-ddef6c64eaf4.json": "dcd5e7f1e9365d9c43e5643697aaa7454b8791d9e06212a9f0b74d99d07ff705",
+    "job_01a12666-17d0-7102-b111-51f127c3ea75.json": "b1e9ed71f71b1f43a8be9b7350993020d3afe2618476ad97223ca0b33661814c",
+    "job_01a12668-2073-73b5-b115-5ddc615e979e.json": "f3ce365a245d1deab306f644cc852035ecfb4031b227c9c97d388b91567bfb88"
+  },
+  "old_jobs_unchanged_excluding_current": true,
+  "recovery": {
+    "marker_file": "/Users/gongshaojie/MacBot/bots/01a12667-f033-72a4-ad59-9e2aced99bc0/e2e/s5-fresh-recovery-isolated.txt",
+    "reply_observed": true,
+    "trace_items": 17
+  },
+  "relative_path": "e2e/s5-fresh-recovery-isolated.txt",
+  "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+  "service_after": {
+    "executable": "/Users/gongshaojie/Applications/MacBot Server.app/Contents/MacOS/macbotd",
+    "label": "com.macbot.server",
+    "listener_pids": [
+      94592
+    ],
+    "pid": 94592,
+    "port": 7788
+  },
+  "service_before": {
+    "executable": "/Users/gongshaojie/Applications/MacBot Server.app/Contents/MacOS/macbotd",
+    "label": "com.macbot.server",
+    "listener_pids": [
+      88341
+    ],
+    "pid": 88341,
+    "port": 7788
+  },
+  "status": "passed",
+  "target": "/Users/gongshaojie/MacBot/bots/01a12667-f033-72a4-ad59-9e2aced99bc0/e2e/s5-fresh-recovery-isolated.txt",
+  "trace_after": [
+    {
+      "aseq": 1,
+      "assignment_id": null,
+      "at": "2026-10-10T15:22:00.722Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+        "parent_run_id": null,
+        "phase": "chat",
+        "subagent_task": null
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "run.start"
+    },
+    {
+      "aseq": 2,
+      "assignment_id": null,
+      "at": "2026-10-10T15:22:00.757Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "context": {
+          "l0": 711,
+          "l1": 0,
+          "l2": 0,
+          "l3": 0,
+          "l4": 0,
+          "total": 711
+        },
+        "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+        "prompt_ref": null,
+        "request_id": "run_chat_01a12668_203d_7583_a813_496639211dc4:llm:0",
+        "tools": [
+          "bash",
+          "bash_job",
+          "ls",
+          "project_find",
+          "session_search",
+          "chat_history",
+          "grep",
+          "skill",
+          "write",
+          "find",
+          "read",
+          "memory",
+          "question",
+          "edit",
+          "memory_search",
+          "skill_draft",
+          "send_msg"
+        ]
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "llm.request"
+    },
+    {
+      "aseq": 3,
+      "assignment_id": null,
+      "at": "2026-10-10T15:22:03.270Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "latency_ms": 2496,
+        "request_id": "run_chat_01a12668_203d_7583_a813_496639211dc4:llm:0",
+        "stop_reason": "tool_use",
+        "text": "",
+        "thinking": "The user wants me to perform a specific task with multiple steps:\n\n1. First turn: Call bash with a specific command that creates a directory and writes a file\n2. Wait for the next turn\n3. On the next turn: Read the file that was created\n4. Reply with exactly \"s5-fresh-recovery-isolated\"\n\nLet me start with the first step - calling bash with the specified command.",
+        "tool_calls": [
+          {
+            "args": {
+              "command": "sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-isolated' > e2e/s5-fresh-recovery-isolated.txt"
+            },
+            "call_id": "call_function_co0z3zdf19pr_1",
+            "name": "bash"
+          }
+        ],
+        "ttft_ms": 726,
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 2784,
+          "output_tokens": 152,
+          "requests": 1
+        }
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "llm.response"
+    },
+    {
+      "aseq": 4,
+      "assignment_id": null,
+      "at": "2026-10-10T15:22:03.282Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "args": {
+          "command": "sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-isolated' > e2e/s5-fresh-recovery-isolated.txt"
+        },
+        "call_id": "call_function_co0z3zdf19pr_1",
+        "name": "bash"
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "tool.start"
+    },
+    {
+      "aseq": 5,
+      "assignment_id": null,
+      "at": "2026-10-10T15:22:03.303Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "message_id": null,
+        "reason": "approval"
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "run.wait"
+    },
+    {
+      "aseq": 6,
+      "assignment_id": null,
+      "at": "2026-10-10T15:22:43.458Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "by_message_id": null
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "run.resume"
+    },
+    {
+      "aseq": 7,
+      "assignment_id": null,
+      "at": "2026-10-10T15:22:43.474Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "args": {
+          "command": "sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-isolated' > e2e/s5-fresh-recovery-isolated.txt"
+        },
+        "call_id": "call_function_co0z3zdf19pr_1",
+        "name": "bash"
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "tool.start"
+    },
+    {
+      "aseq": 8,
+      "assignment_id": null,
+      "at": "2026-10-10T15:23:03.511Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "call_id": "call_function_co0z3zdf19pr_1",
+        "details": {
+          "exit_code": 0,
+          "full_output_path": null,
+          "truncated": false,
+          "wall_time_seconds": 20.022140791
+        },
+        "duration_ms": 20022,
+        "full_output": null,
+        "is_error": false,
+        "preview": "",
+        "truncated": false
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "tool.end"
+    },
+    {
+      "aseq": 9,
+      "assignment_id": null,
+      "at": "2026-10-10T15:23:03.554Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "context": {
+          "l0": 989,
+          "l1": 0,
+          "l2": 0,
+          "l3": 0,
+          "l4": 0,
+          "total": 989
+        },
+        "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+        "prompt_ref": null,
+        "request_id": "run_chat_01a12668_203d_7583_a813_496639211dc4:llm:1",
+        "tools": [
+          "bash",
+          "grep",
+          "bash_job",
+          "write",
+          "skill_draft",
+          "memory_search",
+          "memory",
+          "skill",
+          "read",
+          "ls",
+          "edit",
+          "question",
+          "find",
+          "session_search",
+          "chat_history",
+          "project_find",
+          "send_msg"
+        ]
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "llm.request"
+    },
+    {
+      "aseq": 10,
+      "assignment_id": null,
+      "at": "2026-10-10T15:23:03.714Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "by_message_id": null
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "run.resume"
+    },
+    {
+      "aseq": 11,
+      "assignment_id": null,
+      "at": "2026-10-10T15:23:03.747Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "context": {
+          "l0": 989,
+          "l1": 0,
+          "l2": 0,
+          "l3": 0,
+          "l4": 0,
+          "total": 989
+        },
+        "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+        "prompt_ref": null,
+        "request_id": "run_chat_01a12668_203d_7583_a813_496639211dc4:llm:1",
+        "tools": [
+          "edit",
+          "ls",
+          "write",
+          "read",
+          "memory",
+          "grep",
+          "bash_job",
+          "question",
+          "bash",
+          "project_find",
+          "session_search",
+          "chat_history",
+          "skill",
+          "skill_draft",
+          "find",
+          "memory_search",
+          "send_msg"
+        ]
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "llm.request"
+    },
+    {
+      "aseq": 12,
+      "assignment_id": null,
+      "at": "2026-10-10T15:23:05.290Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "latency_ms": 1525,
+        "request_id": "run_chat_01a12668_203d_7583_a813_496639211dc4:llm:1",
+        "stop_reason": "tool_use",
+        "text": "",
+        "thinking": "The bash command executed successfully. Now I need to wait for the next turn and then read the file. Let me proceed with reading the file on the next turn.",
+        "tool_calls": [
+          {
+            "args": {
+              "path": "e2e/s5-fresh-recovery-isolated.txt"
+            },
+            "call_id": "call_function_w18vzqt0x4xk_1",
+            "name": "read"
+          }
+        ],
+        "ttft_ms": 804,
+        "usage": {
+          "cache_read_tokens": 443,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 2946,
+          "output_tokens": 71,
+          "requests": 1
+        }
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "llm.response"
+    },
+    {
+      "aseq": 13,
+      "assignment_id": null,
+      "at": "2026-10-10T15:23:05.302Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "args": {
+          "path": "e2e/s5-fresh-recovery-isolated.txt"
+        },
+        "call_id": "call_function_w18vzqt0x4xk_1",
+        "name": "read"
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "tool.start"
+    },
+    {
+      "aseq": 14,
+      "assignment_id": null,
+      "at": "2026-10-10T15:23:05.314Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "call_id": "call_function_w18vzqt0x4xk_1",
+        "details": {
+          "full_output_path": null,
+          "path": "/Users/gongshaojie/MacBot/bots/01a12667-f033-72a4-ad59-9e2aced99bc0/e2e/s5-fresh-recovery-isolated.txt",
+          "truncated": false
+        },
+        "duration_ms": 0,
+        "full_output": null,
+        "is_error": false,
+        "preview": "s5-fresh-recovery-isolated\n",
+        "truncated": false
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "tool.end"
+    },
+    {
+      "aseq": 15,
+      "assignment_id": null,
+      "at": "2026-10-10T15:23:05.343Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "context": {
+          "l0": 1183,
+          "l1": 0,
+          "l2": 0,
+          "l3": 0,
+          "l4": 0,
+          "total": 1183
+        },
+        "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+        "prompt_ref": null,
+        "request_id": "run_chat_01a12668_203d_7583_a813_496639211dc4:llm:2",
+        "tools": [
+          "edit",
+          "ls",
+          "write",
+          "read",
+          "memory",
+          "grep",
+          "bash_job",
+          "question",
+          "bash",
+          "project_find",
+          "session_search",
+          "chat_history",
+          "skill",
+          "skill_draft",
+          "find",
+          "memory_search",
+          "send_msg"
+        ]
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "llm.request"
+    },
+    {
+      "aseq": 16,
+      "assignment_id": null,
+      "at": "2026-10-10T15:23:06.416Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "latency_ms": 1055,
+        "request_id": "run_chat_01a12668_203d_7583_a813_496639211dc4:llm:2",
+        "stop_reason": "end_turn",
+        "text": "s5-fresh-recovery-isolated",
+        "thinking": "The file was read successfully and contains \"s5-fresh-recovery-isolated\". Now I need to reply with exactly \"s5-fresh-recovery-isolated\" as instructed.",
+        "tool_calls": [],
+        "ttft_ms": 417,
+        "usage": {
+          "cache_read_tokens": 2683,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 3041,
+          "output_tokens": 52,
+          "requests": 1
+        }
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "llm.response"
+    },
+    {
+      "aseq": 17,
+      "assignment_id": null,
+      "at": "2026-10-10T15:23:06.459Z",
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "data": {
+        "error": null,
+        "status": "done"
+      },
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4",
+      "type": "run.end"
+    }
+  ],
+  "trace_before_count": 9,
+  "trigger_time": 1791645720.5852191,
+  "version": 1
+}

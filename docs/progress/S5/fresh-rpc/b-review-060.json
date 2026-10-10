@@ -1,0 +1,27 @@
+{
+  "at": "2026-10-10T16:54:10.028856+00:00",
+  "state": "returned",
+  "method": "assignment.steer",
+  "params": {
+    "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "target_assignment_id": "01a126a4-ab2f-769b-9e02-e363956a86b1",
+    "text": "继续当前 B 同 assignment：刚才 viewport 375x667 未批准，因为标准证据沿用 A 的成功参数。请严格执行 browser_act action=set、args=[\"viewport\",375,800]；随后 browser_eval 读取 window.innerWidth 与 document.documentElement.scrollWidth（或 document.body.scrollWidth），必须以真实结果记录；最后只在 B Home 写 TEST-browser.md，引用当前 run 的 wrong-password、logout 与 viewport trace，未观察项不要宣称通过。不要修改 index.html，不调用 Bash，不新建任务。",
+    "client_request_id": "eac4cbff-053d-437e-a993-3a5b0be2b4e9"
+  },
+  "scope": {
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+    "target_assignment": "01a126a4-ab2f-769b-9e02-e363956a86b1",
+    "requested_scope": "same B Tester assignment; exact 375x800 viewport and report only"
+  },
+  "result": {
+    "assignment_id": "01a1269f-8cec-73b7-8eb2-1548cb4bb778",
+    "at": "2026-10-10T16:54:20.734652+00:00",
+    "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+    "message_id": "01a126bc-a93e-7281-80f5-660f2535b1dc",
+    "state": "queued"
+  }
+}

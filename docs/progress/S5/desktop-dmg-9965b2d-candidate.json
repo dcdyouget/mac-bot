@@ -1,0 +1,38 @@
+{
+  "kind": "mac-desktop-release-candidate",
+  "source_commit": "9965b2d243bff1d830f421907db3277950ce0349",
+  "source": {
+    "method": "git archive",
+    "archive_root": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-9965b2d243bff1d830f421907db3277950ce0349",
+    "source_stamp": "9965b2d243bff1d830f421907db3277950ce0349",
+    "source_dirty_marker": false
+  },
+  "build": {
+    "command": "CARGO_TARGET_DIR=/Users/gongshaojie/Library/Caches/MacBot/integrator/target/desktop CARGO_INCREMENTAL=0 cargo build --manifest-path <archive>/clients/mac/Cargo.toml -p macbot-desktop --release",
+    "profile": "release",
+    "target_cache": "/Users/gongshaojie/Library/Caches/MacBot/integrator/target/desktop"
+  },
+  "artifacts": {
+    "app": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-9965b2d243bff1d830f421907db3277950ce0349/clients/mac/dist/MacBot.app",
+    "dmg": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-9965b2d243bff1d830f421907db3277950ce0349/clients/mac/dist/MacBot.dmg",
+    "target_binary_sha256": "5b39f455c587ff91e90fb2a853ffcce929763bb71d10027fec7b590e0c66ce02",
+    "signed_app_binary_sha256": "ac934287daaaebf013d73a9dfd77c1d0918587c220830348ed2553699f460333",
+    "dmg_sha256": "095d5bc0ff034a918ada83a2a5fef8ebe2e89be5a749eff86e26da5e4b3099f2"
+  },
+  "verification": {
+    "bundle_identifier": "bot.mac.desktop",
+    "codesign": "codesign --verify --deep --strict passed",
+    "codesign_mode": "adhoc",
+    "hdiutil_verify": "passed",
+    "mach_o_text_offset": 4608,
+    "mach_o_text_size": 16632824,
+    "mach_o_text_sha256_target": "e7b88226f0a4cfef2f07909a0ad148efd3c8ad468c38b6f0d68ce118fcb8b784",
+    "mach_o_text_sha256_signed_app": "e7b88226f0a4cfef2f07909a0ad148efd3c8ad468c38b6f0d68ce118fcb8b784",
+    "installed": false
+  },
+  "validation": {
+    "client_core_screen_tests": "3 passed",
+    "desktop_screen_notice_tests": "3 passed",
+    "desktop_strict_clippy": "passed"
+  }
+}

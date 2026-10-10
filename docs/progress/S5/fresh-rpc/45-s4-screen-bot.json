@@ -1,0 +1,75 @@
+{
+  "at": "2026-10-10T15:50:59.438643+00:00",
+  "state": "returned",
+  "method": "bot.create",
+  "params": {
+    "name": "Fresh-Screen",
+    "label": "浏览器验收",
+    "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+    "max_parallel": 1,
+    "tools": {
+      "files": false,
+      "bash": false,
+      "browser": true,
+      "subagent": false,
+      "web": false,
+      "mcp": false
+    },
+    "client_request_id": "d69c00f2-fccd-4619-94d9-9cb9df777ba5"
+  },
+  "scope": {
+    "purpose": "fresh local animated screen and native input/takeover validation; separate Bot avoids S2 browser interference"
+  },
+  "result": {
+    "bot": {
+      "avatar": {
+        "color": 0,
+        "kind": "bean"
+      },
+      "browser_mode": "headless",
+      "created_at": "2026-10-10T15:50:59.473140+00:00",
+      "description": "",
+      "dm_chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "hidden": false,
+      "id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "is_main": false,
+      "label": "浏览器验收",
+      "max_parallel": 1,
+      "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+      "name": "Fresh-Screen",
+      "notifications": true,
+      "pinned": false,
+      "status": {
+        "active": 0,
+        "queued": 0,
+        "summary": "idle",
+        "waiting": 0
+      },
+      "tools": {
+        "bash": false,
+        "browser": true,
+        "files": false,
+        "mcp": false,
+        "subagent": false,
+        "web": false
+      },
+      "updated_at": "2026-10-10T15:50:59.473140+00:00"
+    },
+    "dm_chat": {
+      "attention": "none",
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "kind": "direct",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [],
+      "muted": false,
+      "pinned": false,
+      "project_id": null,
+      "title": "Fresh-Screen",
+      "unread": 0,
+      "updated_at": "2026-10-10T15:50:59.473140+00:00"
+    }
+  }
+}

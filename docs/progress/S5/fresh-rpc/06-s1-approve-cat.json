@@ -1,0 +1,54 @@
+{
+  "at": "2026-10-10T15:17:01.940704+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a12662-fff1-7318-b0af-044cf1985590",
+    "decision": "allow_once",
+    "client_request_id": "e7ecf9d0-fabb-422f-ace4-d688aa6bf1a3"
+  },
+  "scope": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "01a12661-e385-7743-b897-2adb25e69f7c",
+      "chat_id": "dm_01a12661-e385-7743-b897-2adb25e69f7c",
+      "created_at": "2026-10-10T15:16:24.689304+00:00",
+      "decided_at": null,
+      "detail": "{\"command\":\"cat e2e/s5-fresh-s1-20261010.txt\"}",
+      "id": "01a12662-fff1-7318-b0af-044cf1985590",
+      "risk": "exec",
+      "state": "pending",
+      "summary": "Approval required for bash",
+      "tool": "bash"
+    },
+    "job_id": "job_01a12662-5302-77e5-83ce-5a22690c1db5",
+    "run_id": "run_chat_01a12662_52cf_77fa_9fcd_9825c3ff68a9",
+    "pending_tool": {
+      "args": {
+        "command": "cat e2e/s5-fresh-s1-20261010.txt"
+      },
+      "call_id": "call_function_0xl9bkmg0b05_1",
+      "name": "bash"
+    },
+    "approval_map": {
+      "call_id": "call_function_0xl9bkmg0b05_1"
+    },
+    "effective_cwd": "/Users/gongshaojie/MacBot/bots/01a12661-e385-7743-b897-2adb25e69f7c",
+    "project_id": null
+  },
+  "result": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "01a12661-e385-7743-b897-2adb25e69f7c",
+      "chat_id": "dm_01a12661-e385-7743-b897-2adb25e69f7c",
+      "created_at": "2026-10-10T15:16:24.689304+00:00",
+      "decided_at": "2026-10-10T15:17:01.961118+00:00",
+      "detail": "{\"command\":\"cat e2e/s5-fresh-s1-20261010.txt\"}",
+      "id": "01a12662-fff1-7318-b0af-044cf1985590",
+      "risk": "exec",
+      "state": "allowed_once",
+      "summary": "Approval required for bash",
+      "tool": "bash"
+    }
+  }
+}

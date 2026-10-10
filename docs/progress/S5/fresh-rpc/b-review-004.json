@@ -1,0 +1,41 @@
+{
+  "scenario": "fresh S2 B local browser tester approval",
+  "created_at": "2026-10-10T15:51:39.833916+00:00",
+  "state": "returned",
+  "rpc_method": "approval.decide",
+  "client_request_id": "6a77b21a-9e78-46ed-8fdd-221c6000582c",
+  "approval_id": "01a12682-f7af-7215-a75b-6f1abdc88d74",
+  "decision": "allow_once",
+  "scope": {
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "home_path": "~/MacBot/projects/s5-fresh-login-b/",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "assignment_id": "01a12672-23cc-75a8-b01f-1aa08ad5d7ed",
+    "run_id": "run_01a12672-23cc-75a8-b01f-1aa08ad5d7ed",
+    "job_id": "job_01a12672-3f15-7223-94e8-b7b8790f7dbf",
+    "bot_id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+    "owner": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+    "tool": "browser_act",
+    "effective_target": "file:///Users/gongshaojie/MacBot/projects/s5-fresh-login-b/index.html",
+    "action": "fill [name=password] with authorized demo password",
+    "unsafe_replay": true,
+    "checkpoint_pending_tool": "browser_act",
+    "checkpoint_run_id": "run_01a12672-23cc-75a8-b01f-1aa08ad5d7ed"
+  },
+  "review": {
+    "local_demo_only": true,
+    "external_navigation": false,
+    "bash": false,
+    "subagent": false,
+    "global_memory": false,
+    "confirm_done": false
+  },
+  "result": {
+    "id": "01a12682-f7af-7215-a75b-6f1abdc88d74",
+    "assignment_id": "01a12672-23cc-75a8-b01f-1aa08ad5d7ed",
+    "bot_id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "state": "allowed_once",
+    "decided_at": "2026-10-10T15:51:42.286685+00:00"
+  }
+}

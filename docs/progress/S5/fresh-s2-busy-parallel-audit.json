@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "at": "2026-10-10T15:39:14.054261+00:00",
+  "source_journal": "docs/progress/S5/fresh-rpc/27-s2-busy-coder-steer.json",
+  "read_only_sources": [
+    "scripts/e2e/rpc.py",
+    "scripts/e2e/s2/busy_user_steer.py",
+    "~/.macbot-s5-password (path only)",
+    "~/MacBot/data/events/events.jsonl",
+    "~/MacBot/data/traces/01a12675-7d68-7333-b4f6-f530e91fe104.jsonl",
+    "~/MacBot/data/orchestrator/state.json"
+  ],
+  "busy_steer": {
+    "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+    "chat_id": "01a1266b-c4d6-751b-8248-0c9ab13dcff6",
+    "bot_id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+    "assignment_id": "01a12675-7d68-7333-b4f6-f530e91fe104",
+    "run_id": "run_01a12675-7d68-7333-b4f6-f530e91fe104",
+    "message_id": "01a12677-e525-7418-ab3a-aeeb3f5a1c18",
+    "message_seq": 18,
+    "client_request_id": "d3f24861-bf4d-4d14-8cdf-f3a50ff7dfc8",
+    "delivery": [
+      {
+        "event_seq": 457,
+        "event": "message.created",
+        "state": "queued",
+        "at": "2026-10-10T15:39:14.086006+00:00"
+      },
+      {
+        "event_seq": 469,
+        "event": "message.updated",
+        "state": "delivered",
+        "at": "2026-10-10T15:39:32.550540+00:00"
+      },
+      {
+        "event_seq": 470,
+        "event": "message.updated",
+        "state": "read",
+        "at": "2026-10-10T15:39:32.579600+00:00"
+      }
+    ],
+    "steer": {
+      "trace_event_seq": 468,
+      "trace_type": "steer",
+      "applied_at": "2026-10-10T15:39:32.579600+00:00",
+      "trace_assignment_id": "01a12675-7d68-7333-b4f6-f530e91fe104",
+      "trace_run_id": "run_01a12675-7d68-7333-b4f6-f530e91fe104"
+    },
+    "same_assignment": true,
+    "same_run": true,
+    "single_run_start": true,
+    "new_assignment_from_steer": false,
+    "result": "PASS"
+  },
+  "parallel": {
+    "snapshot_at": "2026-10-10T15:39:14.054261+00:00",
+    "group_a": {
+      "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+      "chat_id": "01a1266b-c4d6-751b-8248-0c9ab13dcff6",
+      "assignment_id": "01a12675-7d68-7333-b4f6-f530e91fe104",
+      "run_id": "run_01a12675-7d68-7333-b4f6-f530e91fe104",
+      "status_at_snapshot": "waiting_user"
+    },
+    "group_b": {
+      "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "assignment_id": "01a12672-23cc-75a8-b01f-1aa08ad5d7ed",
+      "run_id": "run_01a12672-23cc-75a8-b01f-1aa08ad5d7ed",
+      "status_at_snapshot": "waiting_user"
+    },
+    "distinct_project_chat_pairs": true,
+    "both_active_in_source_snapshot": true,
+    "result": "PASS_OVERLAP_ONLY"
+  },
+  "siblings_excluded": [
+    {
+      "project_id": "01a1266b-d6bf-74a0-9cb2-23a9f4b39632",
+      "assignment_id": "01a1266b-f1f6-747e-9769-a81adcc6b34f",
+      "status": "cancelled",
+      "reason": "old duplicate A2 sibling; not part of the A1 steer"
+    },
+    {
+      "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+      "assignment_id": "01a12675-9476-73c9-a9d6-0722eff4747e",
+      "status": "queued",
+      "reason": "separate A1 follow-up sibling; no matching steer message"
+    },
+    {
+      "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+      "assignment_id": "01a1266b-d63f-714b-aa9e-4af94d0c71d9",
+      "status": "failed",
+      "reason": "earlier A1 root with a different historical steer"
+    }
+  ],
+  "conclusion": {
+    "busy_user_steer": "PASS",
+    "dual_group_parallel": "PASS_OVERLAP_ONLY",
+    "full_s2": false,
+    "gaps": [
+      "This audit proves routing, same-run application, and concurrent A/B assignments only; it does not claim Tester browser evidence or final project review completion.",
+      "Tester browser evidence and final project review completion remain outside this routing/parallel audit."
+    ]
+  },
+  "evidence": {
+    "delivery_event_seqs": [
+      457,
+      469,
+      470
+    ],
+    "trace_event_seq": 468,
+    "assignment_applied_event_seq": 477,
+    "assignment_done_event_seq": 489,
+    "parallel_seed_journals": [
+      "docs/progress/S5/fresh-rpc/12-s2-main-a.json",
+      "docs/progress/S5/fresh-rpc/13-s2-main-b.json",
+      "docs/progress/S5/fresh-rpc/20-approve-prd-a.json",
+      "docs/progress/S5/fresh-rpc/21-approve-prd-b.json",
+      "docs/progress/S5/fresh-rpc/28-approve-demo-b.json",
+      "docs/progress/S5/fresh-rpc/29-approve-demo-a.json"
+    ],
+    "read_only": true
+  },
+  "rpc_readback": {
+    "endpoint": "127.0.0.1:7788",
+    "methods": [
+      "assignment.get",
+      "trace.history",
+      "chat.history"
+    ],
+    "password_source": "~/.macbot-s5-password",
+    "result": "PASS",
+    "checks": {
+      "A_assignment_steer_applied": true,
+      "A_trace_has_single_run_and_steer": true,
+      "A_chat_delivery_read": true,
+      "B_assignment_distinct_and_waiting_approval": true
+    },
+    "read_only": true
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "status": "real_invocation_and_desktop_visible",
+  "skill": {
+    "content": "---\nname: s5-fresh-skill\ndescription: Fresh installation skill validation\n---\n\n# Fresh skill\n\nRevision: v2\nReply with s5-fresh-skill-v2 when explicitly invoked.\n",
+    "description": "Fresh installation skill validation",
+    "disabled_bot_ids": [],
+    "enabled": true,
+    "files": [],
+    "invocations_7d": {
+      "by_bot": [
+        {
+          "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+          "count": 1
+        }
+      ],
+      "total": 1
+    },
+    "name": "s5-fresh-skill",
+    "path": "/Users/gongshaojie/MacBot/skills/s5-fresh-skill",
+    "source": "user",
+    "updated_at": "2026-10-10T16:14:20.644537Z"
+  },
+  "message": {
+    "assignment_id": null,
+    "blocks": [
+      {
+        "markdown": "s5-fresh-skill-v2",
+        "type": "text"
+      }
+    ],
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "created_at": "2026-10-10T16:13:41.940Z",
+    "deleted": false,
+    "delivery": [],
+    "edited_at": "2026-10-10T16:13:46.430Z",
+    "fallback_text": "s5-fresh-skill-v2",
+    "id": "msg_run_chat_01a12697_7216_70bf_8fa6_2f064d80e554",
+    "intent": null,
+    "mentions": [],
+    "reactions": [],
+    "reply_to": null,
+    "sender": {
+      "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "kind": "bot"
+    },
+    "seq": 10,
+    "streaming": false,
+    "thread_count": 0
+  },
+  "desktop": "fresh-s3-desktop-skill-invoked.png",
+  "android": "not yet rechecked; UI performance fix in progress",
+  "android_native_screenshot": "fresh-s3-android-skill-invoked.png",
+  "android_native_screenshot_viewed": true
+}

@@ -1,0 +1,48 @@
+{
+  "at": "2026-10-10T15:29:51.626823+00:00",
+  "state": "returned",
+  "method": "question.answer",
+  "params": {
+    "question_id": "01a1266c-1ea4-7275-a334-a1f2a9c02471",
+    "option_index": 0,
+    "client_request_id": "caa0581b-33a7-4df6-96c1-c6fd5eae4f53"
+  },
+  "scope": {
+    "question": {
+      "allow_free_text": true,
+      "answer": null,
+      "assignment_id": "01a1266b-f243-7096-89db-727b83d25719",
+      "bot_id": "01a1266a-3762-7574-bb9c-c8d77ef90297",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "id": "01a1266c-1ea4-7275-a334-a1f2a9c02471",
+      "options": [
+        "只做邮箱登录",
+        "改为手机登录"
+      ],
+      "state": "pending",
+      "text": "# s5-fresh-login-b 登录方式决策\n\n项目需要确定登录方式，请选择：\n\n**选项：**\n1. 只做邮箱登录\n2. 改为手机登录\n\n请选择其中一个选项，以便我编写对应的 PRD.md。"
+    },
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "assignment_id": "01a1266b-f243-7096-89db-727b83d25719"
+  },
+  "result": {
+    "question": {
+      "allow_free_text": true,
+      "answer": {
+        "at": "2026-10-10T15:29:51.654692+00:00",
+        "option_index": 0,
+        "text": null
+      },
+      "assignment_id": "01a1266b-f243-7096-89db-727b83d25719",
+      "bot_id": "01a1266a-3762-7574-bb9c-c8d77ef90297",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "id": "01a1266c-1ea4-7275-a334-a1f2a9c02471",
+      "options": [
+        "只做邮箱登录",
+        "改为手机登录"
+      ],
+      "state": "answered",
+      "text": "# s5-fresh-login-b 登录方式决策\n\n项目需要确定登录方式，请选择：\n\n**选项：**\n1. 只做邮箱登录\n2. 改为手机登录\n\n请选择其中一个选项，以便我编写对应的 PRD.md。"
+    }
+  }
+}

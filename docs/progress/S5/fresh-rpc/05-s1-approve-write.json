@@ -1,0 +1,55 @@
+{
+  "at": "2026-10-10T15:16:21.494501+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a12662-5b9f-76c9-96b9-83383fd970fa",
+    "decision": "allow_once",
+    "client_request_id": "b387e9fc-a579-4975-be10-add9a1de900e"
+  },
+  "scope": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "01a12661-e385-7743-b897-2adb25e69f7c",
+      "chat_id": "dm_01a12661-e385-7743-b897-2adb25e69f7c",
+      "created_at": "2026-10-10T15:15:42.623440+00:00",
+      "decided_at": null,
+      "detail": "{\"content\":\"s5-fresh-s1-20261010\",\"path\":\"e2e/s5-fresh-s1-20261010.txt\",\"path_resolution\":\"home-v1\",\"resolved_path\":\"/Users/gongshaojie/MacBot/bots/01a12661-e385-7743-b897-2adb25e69f7c/e2e/s5-fresh-s1-20261010.txt\"}",
+      "id": "01a12662-5b9f-76c9-96b9-83383fd970fa",
+      "risk": "write",
+      "state": "pending",
+      "summary": "Approval required for write",
+      "tool": "write"
+    },
+    "job_id": "job_01a12662-5302-77e5-83ce-5a22690c1db5",
+    "run_id": "run_chat_01a12662_52cf_77fa_9fcd_9825c3ff68a9",
+    "pending_tool": {
+      "args": {
+        "content": "s5-fresh-s1-20261010",
+        "path": "e2e/s5-fresh-s1-20261010.txt"
+      },
+      "call_id": "call_function_irwm2jv8hyrt_1",
+      "name": "write"
+    },
+    "approval_map": {
+      "call_id": "call_function_irwm2jv8hyrt_1"
+    },
+    "effective_target": "/Users/gongshaojie/MacBot/bots/01a12661-e385-7743-b897-2adb25e69f7c/e2e/s5-fresh-s1-20261010.txt",
+    "project_id": null
+  },
+  "result": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "01a12661-e385-7743-b897-2adb25e69f7c",
+      "chat_id": "dm_01a12661-e385-7743-b897-2adb25e69f7c",
+      "created_at": "2026-10-10T15:15:42.623440+00:00",
+      "decided_at": "2026-10-10T15:16:21.510909+00:00",
+      "detail": "{\"content\":\"s5-fresh-s1-20261010\",\"path\":\"e2e/s5-fresh-s1-20261010.txt\",\"path_resolution\":\"home-v1\",\"resolved_path\":\"/Users/gongshaojie/MacBot/bots/01a12661-e385-7743-b897-2adb25e69f7c/e2e/s5-fresh-s1-20261010.txt\"}",
+      "id": "01a12662-5b9f-76c9-96b9-83383fd970fa",
+      "risk": "write",
+      "state": "allowed_once",
+      "summary": "Approval required for write",
+      "tool": "write"
+    }
+  }
+}

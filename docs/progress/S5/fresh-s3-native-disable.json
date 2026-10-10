@@ -1,0 +1,59 @@
+{
+  "state": "disabled_on_desktop_reenabled_on_android_both_ui_verified",
+  "action": "desktop disable only s5-fresh-skill",
+  "before": {
+    "skill": {
+      "content": "---\nname: s5-fresh-skill\ndescription: Fresh installation skill validation\n---\n\n# Fresh skill\n\nRevision: v2\nReply with s5-fresh-skill-v2 when explicitly invoked.\n",
+      "description": "Fresh installation skill validation",
+      "disabled_bot_ids": [],
+      "enabled": true,
+      "files": [],
+      "invocations_7d": {
+        "by_bot": [],
+        "total": 0
+      },
+      "name": "s5-fresh-skill",
+      "path": "/Users/gongshaojie/MacBot/skills/s5-fresh-skill",
+      "source": "user",
+      "updated_at": "2026-10-10T15:47:31.648471Z"
+    }
+  },
+  "request_uuid": "native client generated; reconcile readonly",
+  "after": {
+    "skill": {
+      "content": "---\nname: s5-fresh-skill\ndescription: Fresh installation skill validation\n---\n\n# Fresh skill\n\nRevision: v2\nReply with s5-fresh-skill-v2 when explicitly invoked.\n",
+      "description": "Fresh installation skill validation",
+      "disabled_bot_ids": [],
+      "enabled": false,
+      "files": [],
+      "invocations_7d": {
+        "by_bot": [],
+        "total": 0
+      },
+      "name": "s5-fresh-skill",
+      "path": "/Users/gongshaojie/MacBot/skills/s5-fresh-skill",
+      "source": "user",
+      "updated_at": "2026-10-10T15:47:46.696012Z"
+    }
+  },
+  "android_verified_screenshot": "fresh-s3-android-skill-disabled.png",
+  "next_action": "Android enable same test skill; native UUID, reconcile readonly",
+  "android_reenable_server": {
+    "skill": {
+      "content": "---\nname: s5-fresh-skill\ndescription: Fresh installation skill validation\n---\n\n# Fresh skill\n\nRevision: v2\nReply with s5-fresh-skill-v2 when explicitly invoked.\n",
+      "description": "Fresh installation skill validation",
+      "disabled_bot_ids": [],
+      "enabled": true,
+      "files": [],
+      "invocations_7d": {
+        "by_bot": [],
+        "total": 0
+      },
+      "name": "s5-fresh-skill",
+      "path": "/Users/gongshaojie/MacBot/skills/s5-fresh-skill",
+      "source": "user",
+      "updated_at": "2026-10-10T15:48:45.713861Z"
+    }
+  },
+  "desktop_reenable_screenshot": "fresh-s3-desktop-reenabled.png"
+}

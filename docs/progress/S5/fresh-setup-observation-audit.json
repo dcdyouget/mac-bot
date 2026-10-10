@@ -1,0 +1,95 @@
+{
+  "captured_at": "2026-10-10T15:16:57.496207+00:00",
+  "scope": "read-only setup_required timeline audit; no credential contents or write RPCs",
+  "observation": {
+    "setup_required_before_password": "not_observed",
+    "setup_required_before_value": null,
+    "reason": "No pre-password /api/v1/health response or equivalent setup probe was captured before management-page password entry; current setup_required=false cannot be projected backward.",
+    "plan_gate": "fresh-install-plan.md and fresh-scene-checklist.md require setup_required=true before password setup; this prerequisite remains an evidence gap, not a false observation."
+  },
+  "timeline": {
+    "installer_log": "/var/log/install.log",
+    "install_started": "2026-10-10T23:05:34+08:00",
+    "postinstall_started": "2026-10-10T23:05:35+08:00",
+    "install_receipt_and_bundle_touched": "2026-10-10T23:05:35+08:00",
+    "install_succeeded_ui": "2026-10-10T23:05:36+08:00",
+    "install_time_daemon_pid": 87562,
+    "node_id_mtime": "2026-10-10T23:05:36+08:00",
+    "file_backend_journal": "fresh-file-backend.json",
+    "file_backend_configured_and_restarted_at": "2026-10-10T23:07:02.374794+00:00",
+    "current_daemon_pid": 88341,
+    "current_daemon_started": "2026-10-10T23:07:02+08:00",
+    "password_file_mtime": "2026-10-10T23:07:02+08:00",
+    "provider_create_journal": "fresh-rpc/01-provider-create.json",
+    "provider_create_at": "2026-10-10T23:07:43.730499+00:00",
+    "model_upsert_journal": "fresh-rpc/02-model-upsert.json",
+    "model_upsert_at": "2026-10-10T23:07:54.620102+00:00",
+    "defaults_journal": "fresh-rpc/03-model-defaults.json",
+    "defaults_at": "2026-10-10T23:07:54.688700+00:00",
+    "admin_screenshot": "fresh-admin-configured.png",
+    "admin_screenshot_mtime": "2026-10-10T23:08:28+08:00"
+  },
+  "runtime_after_configuration": {
+    "health_url": "http://127.0.0.1:7788/api/v1/health",
+    "http_status": 200,
+    "ok": true,
+    "protocol": 1,
+    "version": "0.1.0",
+    "setup_required": false,
+    "current_listener_pid": 88341,
+    "install_pid_is_current_pid": false,
+    "launchagent_program": "/Users/gongshaojie/Applications/MacBot Server.app/Contents/MacOS/macbotd",
+    "new_home_data_dir": {
+      "owner": "501:20",
+      "mode": "0o755",
+      "size": 736,
+      "mtime_epoch": 1791645342
+    },
+    "auth_file_metadata_only": {
+      "owner": "501:20",
+      "mode": "0o600",
+      "size": 122,
+      "mtime_epoch": 1791644822
+    },
+    "node_id_file_metadata": {
+      "owner": "501:20",
+      "mode": "0o644",
+      "size": 36,
+      "mtime_epoch": 1791644736
+    },
+    "credential_contents_read": false
+  },
+  "configuration_evidence": {
+    "file_backend": "fresh-file-backend.json",
+    "provider": "fresh-rpc/01-provider-create.json",
+    "model": "fresh-rpc/02-model-upsert.json",
+    "defaults": "fresh-rpc/03-model-defaults.json",
+    "key_value_or_hash_recorded": false,
+    "management_page_password_value_recorded": false
+  },
+  "plan_review": {
+    "file": "fresh-install-plan.md",
+    "stale_status_lines": [
+      1,
+      7,
+      11,
+      33,
+      61,
+      102
+    ],
+    "stale_claims": [
+      "still awaiting administrator authentication",
+      "3635008 remains current install candidate",
+      "backup is prepared_empty_only",
+      "fresh home is still root-owned empty"
+    ],
+    "required_followup": "Update plan status and candidate references to 3d6b289 after full fresh scenes are complete; preserve the relocation failure history and keep the setup_required-before observation explicitly unknown.",
+    "modified": false
+  },
+  "conclusion": {
+    "install_and_post_config_runtime_verified": true,
+    "setup_before_gate_verified": false,
+    "full_s5_pass": false,
+    "next_gate": "dual-client and complete fresh scene evidence"
+  }
+}

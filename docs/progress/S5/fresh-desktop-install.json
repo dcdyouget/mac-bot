@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-10T15:08:50.986244+00:00",
+  "source": "508f325db682ea802386fbc844badf1b44b0a9b0",
+  "dmg": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-508f325db682ea802386fbc844badf1b44b0a9b0/clients/mac/dist/MacBot.dmg",
+  "installed_app": "/Applications/MacBot.app",
+  "installed_from_mounted_dmg": true,
+  "codesign_verified": true,
+  "executable_sha256": "0b31e94bbbc7e28280939c18aee710dd274492b22e79ea1537b60110ed5bb1ae",
+  "old_config_in_offline_backup": true
+}

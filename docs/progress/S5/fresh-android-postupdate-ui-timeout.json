@@ -1,0 +1,33 @@
+{
+  "at": "2026-10-10T16:31:02.470205+00:00",
+  "screenshot_timeout_seconds": 20,
+  "uiautomator_timeout_seconds": 20,
+  "checks": {
+    "shell getprop sys.boot_completed": {
+      "rc": 0,
+      "stdout": "1\n"
+    },
+    "shell pidof bot.mac.mobile": {
+      "rc": 0,
+      "stdout": "12770\n"
+    },
+    "emu avd name": {
+      "rc": 0,
+      "stdout": "macbot_api36\nOK\n"
+    }
+  },
+  "state": "system_ui_recovered_ui_navigation_resumed_performance_not_yet_passed",
+  "reboot": {
+    "at": "2026-10-10T16:31:11.652357+00:00",
+    "serial": "emulator-5554",
+    "avd_verified": "macbot_api36",
+    "preserve_application_and_data": true,
+    "state": "requested",
+    "returncode": 0
+  },
+  "system_ui_anr_observed": true,
+  "system_ui_anr_screenshot": "fresh-android-78bafff-after-reboot.png",
+  "screenshot_viewed": true,
+  "system_ui_wait_clicked": true,
+  "application_data_preserved_observation": "S5-fresh host, prior projects and Bots visible after reboot"
+}

@@ -1,0 +1,41 @@
+{
+  "state": "native_saved_readonly_verified",
+  "at": "2026-10-10T15:24:13.677712+00:00",
+  "name": "Fresh-Product",
+  "max_parallel": 2,
+  "scope": "fresh Host native desktop; client owns UUID; readonly reconcile before repeat",
+  "bot": {
+    "avatar": {
+      "color": 0,
+      "kind": "bean"
+    },
+    "browser_mode": "headless",
+    "created_at": "2026-10-10T15:24:17.634127+00:00",
+    "description": "负责需求和验收标准，产物写入项目 Home。",
+    "dm_chat_id": "dm_01a1266a-3762-7574-bb9c-c8d77ef90297",
+    "hidden": false,
+    "id": "01a1266a-3762-7574-bb9c-c8d77ef90297",
+    "is_main": false,
+    "label": "产品",
+    "max_parallel": 2,
+    "model": null,
+    "name": "Fresh-Product",
+    "notifications": true,
+    "pinned": false,
+    "status": {
+      "active": 0,
+      "queued": 0,
+      "summary": "idle",
+      "waiting": 0
+    },
+    "tools": {
+      "bash": true,
+      "browser": false,
+      "files": true,
+      "mcp": false,
+      "subagent": false,
+      "web": false
+    },
+    "updated_at": "2026-10-10T15:24:17.634127+00:00"
+  }
+}

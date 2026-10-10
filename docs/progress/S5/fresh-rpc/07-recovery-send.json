@@ -1,0 +1,48 @@
+{
+  "at": "2026-10-10T15:18:31.462652+00:00",
+  "state": "returned",
+  "method": "chat.send",
+  "params": {
+    "chat_id": "dm_01a12661-e385-7743-b897-2adb25e69f7c",
+    "text": "Durable recovery acceptance marker s5-fresh-recovery-20261010. Use exactly one tool call per model turn. First call bash with `sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-20261010' > e2e/s5-fresh-recovery-20261010.txt`. After that bash call returns, stop and wait for the next model turn; do not call read in the same turn. On the next turn call the read tool on e2e/s5-fresh-recovery-20261010.txt, then reply with exactly s5-fresh-recovery-20261010.",
+    "mentions": [],
+    "client_request_id": "400b73d4-c20f-4c8c-86a6-223015f27493"
+  },
+  "scope": {
+    "marker": "s5-fresh-recovery-20261010",
+    "relative_path": "e2e/s5-fresh-recovery-20261010.txt",
+    "command": "sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-20261010' > e2e/s5-fresh-recovery-20261010.txt",
+    "trigger_time": 1791645511.462623,
+    "bot_id": "01a12661-e385-7743-b897-2adb25e69f7c"
+  },
+  "result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "Durable recovery acceptance marker s5-fresh-recovery-20261010. Use exactly one tool call per model turn. First call bash with `sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-20261010' > e2e/s5-fresh-recovery-20261010.txt`. After that bash call returns, stop and wait for the next model turn; do not call read in the same turn. On the next turn call the read tool on e2e/s5-fresh-recovery-20261010.txt, then reply with exactly s5-fresh-recovery-20261010.",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a12661-e385-7743-b897-2adb25e69f7c",
+      "created_at": "2026-10-10T15:18:31.513528+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "Durable recovery acceptance marker s5-fresh-recovery-20261010. Use exactly one tool call per model turn. First call bash with `sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-20261010' > e2e/s5-fresh-recovery-20261010.txt`. After that bash call returns, stop and wait for the next model turn; do not call read in the same turn. On the next turn call the read tool on e2e/s5-fresh-recovery-20261010.txt, then reply with exactly s5-fresh-recovery-20261010.",
+      "id": "01a12664-ef59-7300-ad4e-93b304feaab9",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 3,
+      "streaming": false,
+      "thread_count": 0
+    }
+  }
+}

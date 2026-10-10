@@ -2,10 +2,10 @@
   "created_at": "2026-10-10T13:25:53.410603+00:00",
   "backup_root": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk",
   "mode": "0o700",
-  "status": "fixed_pkg_awaiting_native_admin_auth",
+  "status": "installed_password_model_configured_dual_client_and_scenes_in_progress",
   "offline_backup_completed": true,
   "fresh_install_started": true,
-  "new_password_setup": "user handoff required by CUA credential-change rule; no password recorded",
+  "new_password_setup": "completed by user on the management page; password value not recorded",
   "preserve": [
     "original external key source",
     "original development password file",
@@ -84,16 +84,16 @@
   "offline_backup_completed_at": "2026-10-10T14:39:35.276435+00:00",
   "formal_port_closed": true,
   "mock_preserved": true,
-  "pkg_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-3635008f6c8c60e9fbd32747e140990496f4d029.pkg",
-  "pkg_sha256": "567810aa9be65737b37870dceeed32cc8cce9b38a59ddede4b4e4407ff7f1e60",
+  "pkg_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-3d6b289c3af61111e0004d8bf300330461528ef7.pkg",
+  "pkg_sha256": "120af2fa8a2890da3806679b052f8d7adb1f1697e02e6c69ee7b0efff99af00a",
   "installer_opened": true,
   "installer_install_clicked": true,
-  "pkg_install_completed": false,
+  "pkg_install_completed": true,
   "offline_job_hashes_verified": 164,
   "auth_handoff_reason": "CUA rejected com.apple.SecurityAgent: Computer Use is not allowed to use the app for safety reasons.",
   "installer_screenshot": "fresh-installer-awaiting-auth.png",
   "installer_screenshot_viewed": true,
-  "updated_at": "2026-10-10T14:41:14.932399+00:00",
+  "updated_at": "2026-10-10T15:15:17.942526+00:00",
   "admin_authorization_completed": true,
   "failed_install_evidence": "fresh-installer-relocation-failure.json",
   "backup_app_may_have_been_replaced_by_installer": true,
@@ -105,8 +105,130 @@
   "retry_pkg_sha256": "120af2fa8a2890da3806679b052f8d7adb1f1697e02e6c69ee7b0efff99af00a",
   "retry_installer_opened": true,
   "retry_install_clicked": true,
-  "retry_pkg_install_completed": false,
+  "retry_pkg_install_completed": true,
   "retry_screenshot": "fresh-fixed-installer-awaiting-auth.png",
   "retry_screenshot_viewed": true,
-  "retry_at": "2026-10-10T15:00:13.209637+00:00"
+  "retry_at": "2026-10-10T15:00:13.209637+00:00",
+  "initial_failed_pkg_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-3635008f6c8c60e9fbd32747e140990496f4d029.pkg",
+  "initial_failed_pkg_sha256": "567810aa9be65737b37870dceeed32cc8cce9b38a59ddede4b4e4407ff7f1e60",
+  "initial_pkg_install_completed": false,
+  "setup_required_before_observation": {
+    "status": "not_observed",
+    "value": null,
+    "note": "No health response was captured before the management-page password setup; do not infer the pre-password setup_required state."
+  },
+  "successful_install_audit": "fresh-install-success-audit.json",
+  "admin_configured_screenshot": "fresh-admin-configured.png",
+  "post_install": {
+    "server": {
+      "source": "3d6b289c3af61111e0004d8bf300330461528ef7",
+      "pkg_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-3d6b289c3af61111e0004d8bf300330461528ef7.pkg",
+      "pkg_sha256": "120af2fa8a2890da3806679b052f8d7adb1f1697e02e6c69ee7b0efff99af00a",
+      "install_log": "/var/log/install.log",
+      "install_result": "success",
+      "listener_pid": 87562,
+      "health": {
+        "http_status": 200,
+        "ok": true,
+        "protocol": 1,
+        "version": "0.1.0",
+        "setup_required": false
+      },
+      "node_id": "01a12659-1a1a-76ef-8077-310a4a7ca29e"
+    },
+    "password": {
+      "result": "configured",
+      "value_recorded": false,
+      "screenshot": "fresh-admin-configured.png",
+      "setup_required_after": false
+    },
+    "file_backend": {
+      "journal": "fresh-file-backend.json",
+      "state": "configured_and_restarted",
+      "secret_backend": "file",
+      "secret_dir": "/Users/gongshaojie/MacBot-s5-secrets",
+      "key_source": "/Users/gongshaojie/MacBot-dev-secrets/minimax-cn.key",
+      "key_contents_read": false,
+      "original_key_untouched": true
+    },
+    "model_configuration": {
+      "provider_journal": "fresh-rpc/01-provider-create.json",
+      "model_journal": "fresh-rpc/02-model-upsert.json",
+      "defaults_journal": "fresh-rpc/03-model-defaults.json",
+      "provider_name": "MiniMax CN",
+      "provider_base_url": "https://api.minimax.cn/anthropic",
+      "provider_test_passed": true,
+      "model_ref": "MiniMax-M2.5",
+      "defaults_updated": true,
+      "key_value_recorded": false
+    },
+    "clients_and_scenes": {
+      "desktop_install_journal": "fresh-desktop-install.json",
+      "android_install_journal": "fresh-android-install.json",
+      "status": "in_progress",
+      "full_fresh_scenes_passed": false
+    }
+  },
+  "notes_after_retry": "Fixed 3d6b289 package installed successfully and management-page password/model configuration completed. Pre-password setup_required was not observed. Desktop/Android and full fresh scenes remain in progress; this journal does not mark S5 passed.",
+  "post_install_followup": {
+    "server_user_app_payload": {
+      "source": "1d56a47494d86b670d1dd77aee6188d3d17a2b63",
+      "deployment": "Later verified user-owned service App payload update while preserving fresh home, auth, model configuration, environment, and LaunchAgent; this is not a native package installation. The system native Installer receipt remains 3d6b289.",
+      "native_pkg_reinstalled": false,
+      "candidate_artifact": "server-pkg-1d56a47-candidate.json",
+      "candidate_native_installation": "not performed",
+      "system_installer_receipt_source": "3d6b289c3af61111e0004d8bf300330461528ef7",
+      "previous_user_app_payload": "23c34baa4652e9fb24ee2c015b5feb56dc301ebe",
+      "previous_user_app_payload_evidence": [
+        "fresh-server-23c34ba-update.json",
+        "fresh-memory-cursor-postdeploy.json"
+      ],
+      "evidence": [
+        "fresh-server-1d56a47-update.json",
+        "fresh-evidence-index.md"
+      ]
+    },
+    "desktop": {
+      "source": "0e866f5d255b4a573f538042591e6f66432ab3dd",
+      "status": "Release DMG installed; current native FreshScreen opens without frames and is under diagnosis; no S4 pass inferred",
+      "evidence": [
+        "desktop-dmg-0e866f5-candidate.json",
+        "fresh-desktop-0e866f5-update.json",
+        "fresh-s4-native-takeover.json",
+        "fresh-evidence-index.md"
+      ]
+    },
+    "android": {
+      "source": "04b0c3d515cabbc55681f1c630b115674c8edb94",
+      "status": "Same-signed Release retained with fresh Host connection"
+    },
+    "fresh_acceptance": {
+      "s1": "Tool roundtrip and real kill-9 same-run recovery have evidence; desktop cache received the full 50-segment body and the after-layout capture was reviewed, while earlier postfix desktop screenshots are old scroll/capture evidence; Android has a real UI block, so S1 remains open.",
+      "s2": "Two-group parallel work and in-run insertion have evidence; real Tester browser review is not complete, with failure boundaries recorded, and main-Bot review remains to be completed.",
+      "s3": "Skill v2 and disable synchronization have partial dual-client evidence; remaining fresh S3 scenarios are open.",
+      "s4": "With current desktop 0e866f5, native FreshScreen opens without a frame and is under diagnosis; prior ad2d915 native input/readback and low-quality boundary remain historical evidence, so full S4 remains open.",
+      "s5": "not_passed"
+    },
+    "evidence_index": "fresh-evidence-index.md"
+  }
+  ,"latest_followup": {
+    "observed_at": "2026-10-10T16:53:39+00:00",
+    "server": {
+      "source": "a9527fa4a0f52b5ff6e47c380ac0819e8292127d",
+      "user_app_payload": "deployed_and_healthy",
+      "denied_private_run_recovery": "exact_job_cancelled",
+      "evidence": ["fresh-server-a9527fa-update.json", "fresh-recovery-denied-audit.json"]
+    },
+    "desktop": {
+      "source": "bdc17cdfa5ba8ac8b0c06fddf67d7b3cdf5abd32",
+      "status": "diagnostic_release_deployed_first_frame_applied_but_not_repainted_investigation_continues",
+      "evidence": ["fresh-desktop-bdc17cdf-update.json", "fresh-s4-bdc-first-frame-stalled.png"]
+    },
+    "android": {
+      "source": "78bafffa39e4b531a65af76af79dab6d2a791212",
+      "status": "installed_data_preserved_connection_not_recovered",
+      "evidence": ["fresh-android-78bafff-update.json", "fresh-android-postupdate-ui-timeout.json"]
+    },
+    "fresh_acceptance": "not_passed"
+  }
 }

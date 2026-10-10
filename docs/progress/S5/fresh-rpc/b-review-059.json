@@ -1,0 +1,43 @@
+{
+  "at": "2026-10-10T16:53:48.593697+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a126bb-5a90-747e-91f3-16a837fcae85",
+    "decision": "deny",
+    "client_request_id": "af268e43-ba67-443e-b36b-981df8848c19"
+  },
+  "scope": {
+    "approval": {
+      "assignment_id": "01a126a4-ab2f-769b-9e02-e363956a86b1",
+      "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "created_at": "2026-10-10T16:52:55.057165+00:00",
+      "decided_at": null,
+      "detail": "{\"action\":\"set\",\"args\":[\"viewport\",375,667],\"assignment_id\":\"01a126a4-ab2f-769b-9e02-e363956a86b1\"}",
+      "id": "01a126bb-5a90-747e-91f3-16a837fcae85",
+      "risk": "external",
+      "state": "pending",
+      "summary": "Approval required for browser_act",
+      "tool": "browser_act"
+    },
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "assignment_id": "01a126a4-ab2f-769b-9e02-e363956a86b1",
+    "reason": "按A已通过证据要求使用375x800；当前375x667不作为本轮标准viewport证据"
+  },
+  "result": {
+    "approval": {
+      "assignment_id": "01a126a4-ab2f-769b-9e02-e363956a86b1",
+      "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "created_at": "2026-10-10T16:52:55.057165+00:00",
+      "decided_at": "2026-10-10T16:53:55.756312+00:00",
+      "detail": "{\"action\":\"set\",\"args\":[\"viewport\",375,667],\"assignment_id\":\"01a126a4-ab2f-769b-9e02-e363956a86b1\"}",
+      "id": "01a126bb-5a90-747e-91f3-16a837fcae85",
+      "risk": "external",
+      "state": "denied",
+      "summary": "Approval required for browser_act",
+      "tool": "browser_act"
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "at": "2026-10-10T15:29:39.738056+00:00",
+  "state": "returned",
+  "method": "project.archive",
+  "params": {
+    "project_id": "01a1266b-d6bf-74a0-9cb2-23a9f4b39632",
+    "client_request_id": "92219924-31ca-4061-8084-a3e67da73adb"
+  },
+  "scope": {
+    "reason": "Duplicate test project retained as archived failure, not accepted/done",
+    "stopped_assignment_id": "01a1266b-f1f6-747e-9769-a81adcc6b34f"
+  },
+  "result": {
+    "project": {
+      "chat_id": "01a1266b-d6bf-74a0-9cb2-23aa1e5ac057",
+      "created_at": "2026-10-10T15:26:03.967428+00:00",
+      "created_by": {
+        "kind": "user"
+      },
+      "deadline": null,
+      "done_at": null,
+      "flow": [
+        "Product Bot writes PRD.md in project Home",
+        "Developer Bot implements index.html",
+        "Tester Bot performs actual browser testing and writes TEST-browser.md"
+      ],
+      "goal": "交付可实际浏览器测试的本地邮箱登录demo",
+      "home_path": "~/MacBot/projects/s5-fresh-login-a-duplicate-preserved/",
+      "id": "01a1266b-d6bf-74a0-9cb2-23a9f4b39632",
+      "lead_bot_id": "main",
+      "members": [
+        {
+          "bot_id": "main",
+          "joined_at": "2026-10-10T15:26:03.967396+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266a-3762-7574-bb9c-c8d77ef90297",
+          "joined_at": "2026-10-10T15:26:03.967406+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+          "joined_at": "2026-10-10T15:26:03.967408+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+          "joined_at": "2026-10-10T15:26:03.967409+00:00",
+          "role_note": ""
+        }
+      ],
+      "name": "s5-fresh-login-a-duplicate-preserved",
+      "slug": "s5-fresh-login-a-duplicate-preserved",
+      "status": "archived",
+      "updated_at": "2026-10-10T15:29:39.761808+00:00"
+    }
+  }
+}

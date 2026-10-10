@@ -1,0 +1,9 @@
+{
+  "at": "2026-10-10T15:07:02.374794+00:00",
+  "state": "configured_and_restarted",
+  "label": "com.macbot.server",
+  "secret_backend": "file",
+  "secret_dir": "/Users/gongshaojie/MacBot-s5-secrets",
+  "existing_key_source": "/Users/gongshaojie/MacBot-dev-secrets/minimax-cn.key",
+  "original_key_untouched": true
+}

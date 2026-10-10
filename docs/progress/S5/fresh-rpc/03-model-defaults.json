@@ -1,0 +1,76 @@
+{
+  "at": "2026-10-10T15:07:54.688700+00:00",
+  "state": "returned",
+  "method": "settings.update",
+  "params": {
+    "patch": {
+      "models": {
+        "bot_default": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+        "main": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+        "subagent": "inherit",
+        "maintenance": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5"
+      }
+    },
+    "client_request_id": "419a0451-953f-4e13-ad33-eaed47ae27ba"
+  },
+  "scope": {
+    "fresh_node": "01a12659-1a1a-76ef-8077-310a4a7ca29e"
+  },
+  "result": {
+    "settings": {
+      "approvals": {
+        "mode": "require",
+        "rules": []
+      },
+      "browser": {
+        "chrome_profile": "Default",
+        "default_mode": "headless",
+        "stream": {
+          "desktop": {
+            "max_fps": 15,
+            "max_width": 1280,
+            "quality": 70
+          },
+          "mobile": {
+            "max_fps": 10,
+            "max_width": 720,
+            "quality": 50
+          }
+        }
+      },
+      "concurrency": {
+        "bot_default": 3,
+        "global": 8,
+        "loop_hops": 8,
+        "subagent_global": 12,
+        "subagent_per_run": 4
+      },
+      "currency": "CNY",
+      "host_name": "Mac Bot",
+      "main_bot": {
+        "auto_create_project": true
+      },
+      "models": {
+        "bot_default": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+        "main": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+        "maintenance": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+        "subagent": "inherit"
+      },
+      "push": {
+        "apns_configured": false
+      },
+      "skills": {
+        "extra_dirs": []
+      },
+      "timezone": "Asia/Shanghai",
+      "trace": {
+        "save_full_requests": false
+      },
+      "web_search": {
+        "endpoint": null,
+        "has_key": false,
+        "provider": null
+      }
+    }
+  }
+}

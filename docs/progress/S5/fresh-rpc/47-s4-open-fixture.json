@@ -1,0 +1,53 @@
+{
+  "at": "2026-10-10T15:51:39.947973+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a12682-b35f-759a-8c7e-010da15e7c60",
+    "decision": "allow_once",
+    "client_request_id": "15179213-4f17-4de1-baf0-826116fbfaea"
+  },
+  "scope": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "created_at": "2026-10-10T15:51:02.239536+00:00",
+      "decided_at": null,
+      "detail": "{\"url\":\"file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html\"}",
+      "id": "01a12682-b35f-759a-8c7e-010da15e7c60",
+      "risk": "external",
+      "state": "pending",
+      "summary": "Approval required for browser_open",
+      "tool": "browser_open"
+    },
+    "map": {
+      "call_id": "call_function_loe478tqkslo_1"
+    },
+    "job_id": "job_01a12682-a91e-7482-9d53-ed418c363162",
+    "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+    "pending_tool": {
+      "args": {
+        "url": "file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html"
+      },
+      "call_id": "call_function_loe478tqkslo_1",
+      "name": "browser_open"
+    },
+    "effective_target": "file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html"
+  },
+  "result": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "created_at": "2026-10-10T15:51:02.239536+00:00",
+      "decided_at": "2026-10-10T15:51:39.968149+00:00",
+      "detail": "{\"url\":\"file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html\"}",
+      "id": "01a12682-b35f-759a-8c7e-010da15e7c60",
+      "risk": "external",
+      "state": "allowed_once",
+      "summary": "Approval required for browser_open",
+      "tool": "browser_open"
+    }
+  }
+}

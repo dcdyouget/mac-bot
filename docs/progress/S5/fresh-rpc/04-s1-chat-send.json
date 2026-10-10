@@ -1,0 +1,47 @@
+{
+  "at": "2026-10-10T15:15:40.323454+00:00",
+  "state": "returned",
+  "method": "chat.send",
+  "params": {
+    "chat_id": "dm_01a12661-e385-7743-b897-2adb25e69f7c",
+    "text": "S1 fresh acceptance marker s5-fresh-s1-20261010. Use file tools to write EXACTLY s5-fresh-s1-20261010 to e2e/s5-fresh-s1-20261010.txt, then use the read tool to read e2e/s5-fresh-s1-20261010.txt, then use bash to run `cat e2e/s5-fresh-s1-20261010.txt`. Only after all three successful tool calls, reply with s5-fresh-s1-20261010 and the path.",
+    "mentions": [],
+    "client_request_id": "cab0ab73-5943-4f5c-9994-eba38b9f053a"
+  },
+  "scope": {
+    "bot_id": "01a12661-e385-7743-b897-2adb25e69f7c",
+    "chat_id": "dm_01a12661-e385-7743-b897-2adb25e69f7c",
+    "marker": "s5-fresh-s1-20261010",
+    "path": "e2e/s5-fresh-s1-20261010.txt"
+  },
+  "result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "S1 fresh acceptance marker s5-fresh-s1-20261010. Use file tools to write EXACTLY s5-fresh-s1-20261010 to e2e/s5-fresh-s1-20261010.txt, then use the read tool to read e2e/s5-fresh-s1-20261010.txt, then use bash to run `cat e2e/s5-fresh-s1-20261010.txt`. Only after all three successful tool calls, reply with s5-fresh-s1-20261010 and the path.",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a12661-e385-7743-b897-2adb25e69f7c",
+      "created_at": "2026-10-10T15:15:40.367833+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "S1 fresh acceptance marker s5-fresh-s1-20261010. Use file tools to write EXACTLY s5-fresh-s1-20261010 to e2e/s5-fresh-s1-20261010.txt, then use the read tool to read e2e/s5-fresh-s1-20261010.txt, then use bash to run `cat e2e/s5-fresh-s1-20261010.txt`. Only after all three successful tool calls, reply with s5-fresh-s1-20261010 and the path.",
+      "id": "01a12662-52cf-77fa-9fcd-9825c3ff68a9",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 1,
+      "streaming": false,
+      "thread_count": 0
+    }
+  }
+}

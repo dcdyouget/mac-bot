@@ -1,0 +1,28 @@
+{
+  "source": "a9527fa",
+  "range": {
+    "from": "2026-10-09T16:00:00Z",
+    "to": "2026-10-10T16:00:00Z"
+  },
+  "elapsed_s": 0.10826533299999999,
+  "result": {
+    "current": {
+      "cache_read_tokens": 365168,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 964753,
+      "output_tokens": 31614,
+      "requests": 127,
+      "tasks_done": 0
+    },
+    "previous": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "requests": 0,
+      "tasks_done": 0
+    }
+  }
+}

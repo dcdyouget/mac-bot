@@ -1,0 +1,53 @@
+{
+  "at": "2026-10-10T15:52:43.860117+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a12683-55cf-7420-bc26-c52aebfe6ed8",
+    "decision": "allow_once",
+    "client_request_id": "f07d85bb-e8c5-40f5-a1fe-6feece79de80"
+  },
+  "scope": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "created_at": "2026-10-10T15:51:43.823607+00:00",
+      "decided_at": null,
+      "detail": "{\"property\":\"title\"}",
+      "id": "01a12683-55cf-7420-bc26-c52aebfe6ed8",
+      "risk": "external",
+      "state": "pending",
+      "summary": "Approval required for browser_get",
+      "tool": "browser_get"
+    },
+    "map": {
+      "call_id": "call_function_7kvegwrhhj35_1"
+    },
+    "job_id": "job_01a12682-a91e-7482-9d53-ed418c363162",
+    "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+    "pending_tool": {
+      "args": {
+        "property": "title"
+      },
+      "call_id": "call_function_7kvegwrhhj35_1",
+      "name": "browser_get"
+    },
+    "effective_target": "Fresh-Screen isolated local fixture session"
+  },
+  "result": {
+    "approval": {
+      "assignment_id": null,
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "created_at": "2026-10-10T15:51:43.823607+00:00",
+      "decided_at": "2026-10-10T15:52:43.882647+00:00",
+      "detail": "{\"property\":\"title\"}",
+      "id": "01a12683-55cf-7420-bc26-c52aebfe6ed8",
+      "risk": "external",
+      "state": "allowed_once",
+      "summary": "Approval required for browser_get",
+      "tool": "browser_get"
+    }
+  }
+}

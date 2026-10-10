@@ -1,0 +1,10 @@
+{
+  "state": "installed",
+  "source": "3b017b1a021e8e2b18d66f2a26d50861275c2a8b",
+  "dmg": "/Users/gongshaojie/Library/Caches/MacBot/s5/source-3b017b1a021e8e2b18d66f2a26d50861275c2a8b/clients/mac/dist/MacBot.dmg",
+  "old_app": "/Applications/MacBot.app",
+  "old_pid": 89077,
+  "new_destination": "/Applications/MacBot.app",
+  "preserve_client_data": true,
+  "backup": "/Users/gongshaojie/Library/Caches/MacBot/s5/desktop-before-3b017b1.app"
+}

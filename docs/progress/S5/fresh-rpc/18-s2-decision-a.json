@@ -1,0 +1,48 @@
+{
+  "at": "2026-10-10T15:29:51.554156+00:00",
+  "state": "returned",
+  "method": "question.answer",
+  "params": {
+    "question_id": "01a1266b-e44d-735a-991f-877e20f88211",
+    "option_index": 0,
+    "client_request_id": "b4da1daf-5f6e-4f46-b035-ca9ea86f99b7"
+  },
+  "scope": {
+    "question": {
+      "allow_free_text": true,
+      "answer": null,
+      "assignment_id": "01a1266b-d63f-714b-aa9e-4af94d0c71d9",
+      "bot_id": "01a1266a-3762-7574-bb9c-c8d77ef90297",
+      "chat_id": "01a1266b-c4d6-751b-8248-0c9ab13dcff6",
+      "id": "01a1266b-e44d-735a-991f-877e20f88211",
+      "options": [
+        "只做邮箱登录",
+        "改为手机登录"
+      ],
+      "state": "pending",
+      "text": "项目s5-fresh-login-a的登录方式应该选择什么？"
+    },
+    "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+    "assignment_id": "01a1266b-d63f-714b-aa9e-4af94d0c71d9"
+  },
+  "result": {
+    "question": {
+      "allow_free_text": true,
+      "answer": {
+        "at": "2026-10-10T15:29:51.574075+00:00",
+        "option_index": 0,
+        "text": null
+      },
+      "assignment_id": "01a1266b-d63f-714b-aa9e-4af94d0c71d9",
+      "bot_id": "01a1266a-3762-7574-bb9c-c8d77ef90297",
+      "chat_id": "01a1266b-c4d6-751b-8248-0c9ab13dcff6",
+      "id": "01a1266b-e44d-735a-991f-877e20f88211",
+      "options": [
+        "只做邮箱登录",
+        "改为手机登录"
+      ],
+      "state": "answered",
+      "text": "项目s5-fresh-login-a的登录方式应该选择什么？"
+    }
+  }
+}

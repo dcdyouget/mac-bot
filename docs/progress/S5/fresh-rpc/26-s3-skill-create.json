@@ -1,0 +1,30 @@
+{
+  "at": "2026-10-10T15:36:31.727336+00:00",
+  "state": "returned",
+  "method": "skill.create",
+  "params": {
+    "name": "s5-fresh-skill",
+    "content": "---\nname: s5-fresh-skill\ndescription: Fresh installation skill validation\n---\n\n# Fresh skill\n\nRevision: v1\nReply with s5-fresh-skill-v1 when explicitly invoked.\n",
+    "client_request_id": "2f86cd5b-f6a9-42bf-9ccf-31daaaf6780d"
+  },
+  "scope": {
+    "purpose": "S5 fresh real two-client skill CRUD",
+    "name": "s5-fresh-skill"
+  },
+  "result": {
+    "skill": {
+      "description": "Fresh installation skill validation",
+      "disabled_bot_ids": [],
+      "enabled": true,
+      "files": [],
+      "invocations_7d": {
+        "by_bot": [],
+        "total": 0
+      },
+      "name": "s5-fresh-skill",
+      "path": "/Users/gongshaojie/MacBot/skills/s5-fresh-skill",
+      "source": "user",
+      "updated_at": "2026-10-10T15:36:31.766121Z"
+    }
+  }
+}

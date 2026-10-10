@@ -1,0 +1,46 @@
+{
+  "at": "2026-10-10T16:13:41.717356+00:00",
+  "state": "returned",
+  "method": "chat.send",
+  "params": {
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "text": "/s5-fresh-skill 请执行该技能，只回复指定marker。不调用其他工具，不写文件。",
+    "attachments": [],
+    "client_request_id": "9871c668-d0ee-4d5a-9735-e82845d6978c"
+  },
+  "scope": {
+    "purpose": "fresh skill native v2 content invocation and usage propagation",
+    "skill": "s5-fresh-skill",
+    "version": "v2"
+  },
+  "result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "/s5-fresh-skill 请执行该技能，只回复指定marker。不调用其他工具，不写文件。",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "created_at": "2026-10-10T16:13:41.782010+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "/s5-fresh-skill 请执行该技能，只回复指定marker。不调用其他工具，不写文件。",
+      "id": "01a12697-7216-70bf-8fa6-2f064d80e554",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 9,
+      "streaming": false,
+      "thread_count": 0
+    }
+  }
+}

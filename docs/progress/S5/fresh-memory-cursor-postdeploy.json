@@ -1,0 +1,3287 @@
+{
+  "state": "verified",
+  "at": "2026-10-10T16:06:28.618762+00:00",
+  "source": "23c34baa4652e9fb24ee2c015b5feb56dc301ebe",
+  "package_sha256": "516a71d41dcc2545c784ca8aeedc5f8f80d6a140f0d34b86a84cf968d8867f0d",
+  "service_pid": "16684",
+  "event_log": "/Users/gongshaojie/MacBot/data/events/events.jsonl",
+  "observer": {
+    "started_at": "2026-10-10T16:05:43.065615+00:00",
+    "ended_at": "2026-10-10T16:06:28.618762+00:00",
+    "endpoint": "ws://127.0.0.1:7788/ws",
+    "password_source": "/Users/gongshaojie/.macbot-s5-password",
+    "rpc_writes": false,
+    "ui_control": false,
+    "memory_content_transmitted": false,
+    "memory_content_recorded": false
+  },
+  "resume": {
+    "requested_last_seq": 454,
+    "mode": "replay",
+    "hello_last_seq": 1097,
+    "sync_done_seq": 1097,
+    "event_frames": [
+      {
+        "seq": 455,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 456,
+        "event": "skill.updated"
+      },
+      {
+        "seq": 457,
+        "event": "message.created"
+      },
+      {
+        "seq": 458,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 459,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 460,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 461,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 462,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 463,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 464,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 465,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 466,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 467,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 468,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 469,
+        "event": "message.updated"
+      },
+      {
+        "seq": 470,
+        "event": "message.updated"
+      },
+      {
+        "seq": 471,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 472,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 473,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 474,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 475,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 476,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 477,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 478,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 479,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 480,
+        "event": "chat.created"
+      },
+      {
+        "seq": 481,
+        "event": "message.created"
+      },
+      {
+        "seq": 482,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 483,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 484,
+        "event": "message.created"
+      },
+      {
+        "seq": 485,
+        "event": "message.created"
+      },
+      {
+        "seq": 486,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 487,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 488,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 489,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 490,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 491,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 492,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 493,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 494,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 495,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 496,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 497,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 498,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 499,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 500,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 501,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 502,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 503,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 504,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 505,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 506,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 507,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 508,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 509,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 510,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 511,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 512,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 513,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 514,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 515,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 516,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 517,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 518,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 519,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 520,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 521,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 522,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 523,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 524,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 525,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 526,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 527,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 528,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 529,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 530,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 531,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 532,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 533,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 534,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 535,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 536,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 537,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 538,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 539,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 540,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 541,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 542,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 543,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 544,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 545,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 546,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 547,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 548,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 549,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 550,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 551,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 552,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 553,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 554,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 555,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 556,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 557,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 558,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 559,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 560,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 561,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 562,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 563,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 564,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 565,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 566,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 567,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 568,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 569,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 570,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 571,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 572,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 573,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 574,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 575,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 576,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 577,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 578,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 579,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 580,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 581,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 582,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 583,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 584,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 585,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 586,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 587,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 588,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 589,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 590,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 591,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 592,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 593,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 594,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 595,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 596,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 597,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 598,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 599,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 600,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 601,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 602,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 603,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 604,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 605,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 606,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 607,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 608,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 609,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 610,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 611,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 612,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 613,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 614,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 615,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 616,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 617,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 618,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 619,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 620,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 621,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 622,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 623,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 624,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 625,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 626,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 627,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 628,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 629,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 630,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 631,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 632,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 633,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 634,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 635,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 636,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 637,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 638,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 639,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 640,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 641,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 642,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 643,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 644,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 645,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 646,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 647,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 648,
+        "event": "skill.updated"
+      },
+      {
+        "seq": 649,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 650,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 651,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 652,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 653,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 654,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 655,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 656,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 657,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 658,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 659,
+        "event": "skill.updated"
+      },
+      {
+        "seq": 660,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 661,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 662,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 663,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 664,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 665,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 666,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 667,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 668,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 669,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 670,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 671,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 672,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 673,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 674,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 675,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 676,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 677,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 678,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 679,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 680,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 681,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 682,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 683,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 684,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 685,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 686,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 687,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 688,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 689,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 690,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 691,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 692,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 693,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 694,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 695,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 696,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 697,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 698,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 699,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 700,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 701,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 702,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 703,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 704,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 705,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 706,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 707,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 708,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 709,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 710,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 711,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 712,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 713,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 714,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 715,
+        "event": "bot.created"
+      },
+      {
+        "seq": 716,
+        "event": "chat.created"
+      },
+      {
+        "seq": 717,
+        "event": "message.created"
+      },
+      {
+        "seq": 718,
+        "event": "message.created"
+      },
+      {
+        "seq": 719,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 720,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 721,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 722,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 723,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 724,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 725,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 726,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 727,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 728,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 729,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 730,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 731,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 732,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 733,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 734,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 735,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 736,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 737,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 738,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 739,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 740,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 741,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 742,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 743,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 744,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 745,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 746,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 747,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 748,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 749,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 750,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 751,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 752,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 753,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 754,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 755,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 756,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 757,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 758,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 759,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 760,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 761,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 762,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 763,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 764,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 765,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 766,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 767,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 768,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 769,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 770,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 771,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 772,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 773,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 774,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 775,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 776,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 777,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 778,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 779,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 780,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 781,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 782,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 783,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 784,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 785,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 786,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 787,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 788,
+        "event": "message.created"
+      },
+      {
+        "seq": 789,
+        "event": "message.created"
+      },
+      {
+        "seq": 790,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 791,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 792,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 793,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 794,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 795,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 796,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 797,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 798,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 799,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 800,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 801,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 802,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 803,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 804,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 805,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 806,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 807,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 808,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 809,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 810,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 811,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 812,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 813,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 814,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 815,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 816,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 817,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 818,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 819,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 820,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 821,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 822,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 823,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 824,
+        "event": "message.created"
+      },
+      {
+        "seq": 825,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 826,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 827,
+        "event": "message.created"
+      },
+      {
+        "seq": 828,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 829,
+        "event": "message.created"
+      },
+      {
+        "seq": 830,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 831,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 832,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 833,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 834,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 835,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 836,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 837,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 838,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 839,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 840,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 841,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 842,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 843,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 844,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 845,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 846,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 847,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 848,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 849,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 850,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 851,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 852,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 853,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 854,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 855,
+        "event": "message.created"
+      },
+      {
+        "seq": 856,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 857,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 858,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 859,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 860,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 861,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 862,
+        "event": "message.created"
+      },
+      {
+        "seq": 863,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 864,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 865,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 866,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 867,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 868,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 869,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 870,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 871,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 872,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 873,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 874,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 875,
+        "event": "chat.created"
+      },
+      {
+        "seq": 876,
+        "event": "message.created"
+      },
+      {
+        "seq": 877,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 878,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 879,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 880,
+        "event": "message.created"
+      },
+      {
+        "seq": 881,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 882,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 883,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 884,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 885,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 886,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 887,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 888,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 889,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 890,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 891,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 892,
+        "event": "message.created"
+      },
+      {
+        "seq": 893,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 894,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 895,
+        "event": "message.created"
+      },
+      {
+        "seq": 896,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 897,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 898,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 899,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 900,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 901,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 902,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 903,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 904,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 905,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 906,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 907,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 908,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 909,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 910,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 911,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 912,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 913,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 914,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 915,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 916,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 917,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 918,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 919,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 920,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 921,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 922,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 923,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 924,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 925,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 926,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 927,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 928,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 929,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 930,
+        "event": "message.created"
+      },
+      {
+        "seq": 931,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 932,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 933,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 934,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 935,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 936,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 937,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 938,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 939,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 940,
+        "event": "message.created"
+      },
+      {
+        "seq": 941,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 942,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 943,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 944,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 945,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 946,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 947,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 948,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 949,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 950,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 951,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 952,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 953,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 954,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 955,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 956,
+        "event": "message.created"
+      },
+      {
+        "seq": 957,
+        "event": "message.created"
+      },
+      {
+        "seq": 958,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 959,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 960,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 961,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 962,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 963,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 964,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 965,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 966,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 967,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 968,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 969,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 970,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 971,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 972,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 973,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 974,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 975,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 976,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 977,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 978,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 979,
+        "event": "message.created"
+      },
+      {
+        "seq": 980,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 981,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 982,
+        "event": "message.created"
+      },
+      {
+        "seq": 983,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 984,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 985,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 986,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 987,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 988,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 989,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 990,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 991,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 992,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 993,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 994,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 995,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 996,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 997,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 998,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 999,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1000,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1001,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1002,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 1003,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 1004,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1005,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1006,
+        "event": "message.created"
+      },
+      {
+        "seq": 1007,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 1008,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1009,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1010,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 1011,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1012,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1013,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 1014,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1015,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1016,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1017,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1018,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 1019,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1020,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1021,
+        "event": "message.created"
+      },
+      {
+        "seq": 1022,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 1023,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1024,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1025,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 1026,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1027,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1028,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1029,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1030,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 1031,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1032,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1033,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1034,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1035,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 1036,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1037,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1038,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1039,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 1040,
+        "event": "announcement.updated"
+      },
+      {
+        "seq": 1041,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1042,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1043,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1044,
+        "event": "message.created"
+      },
+      {
+        "seq": 1045,
+        "event": "message.created"
+      },
+      {
+        "seq": 1046,
+        "event": "assignment.updated"
+      },
+      {
+        "seq": 1047,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1048,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1049,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1050,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 1051,
+        "event": "read.updated"
+      },
+      {
+        "seq": 1052,
+        "event": "question.answered"
+      },
+      {
+        "seq": 1053,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1054,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1055,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1056,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1057,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1058,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1059,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1060,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1061,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1062,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 1063,
+        "event": "message.created"
+      },
+      {
+        "seq": 1064,
+        "event": "message.created"
+      },
+      {
+        "seq": 1065,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1066,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1067,
+        "event": "read.updated"
+      },
+      {
+        "seq": 1068,
+        "event": "read.updated"
+      },
+      {
+        "seq": 1069,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1070,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1071,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1072,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 1073,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1074,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1075,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1076,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1077,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1078,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1079,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1080,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1081,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1082,
+        "event": "message.created"
+      },
+      {
+        "seq": 1083,
+        "event": "message.created"
+      },
+      {
+        "seq": 1084,
+        "event": "message.created"
+      },
+      {
+        "seq": 1085,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1086,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1087,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1088,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1089,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1090,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1091,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1092,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1093,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1094,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1095,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1096,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1097,
+        "event": "assignment.created"
+      }
+    ],
+    "seq455": {
+      "seq": 455,
+      "event": "sync.cursor"
+    },
+    "seq455_is_sync_cursor": true,
+    "rpc_writes": false
+  },
+  "live_observation": {
+    "event_frames": [
+      {
+        "seq": 1098,
+        "event": "message.created"
+      },
+      {
+        "seq": 1099,
+        "event": "message.created"
+      },
+      {
+        "seq": 1100,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1101,
+        "event": "sync.cursor"
+      },
+      {
+        "seq": 1102,
+        "event": "announcement.updated"
+      }
+    ],
+    "maintenance_events_after_baseline": [],
+    "natural_maintenance_observed": false,
+    "observation_seconds": 45,
+    "errors": []
+  },
+  "disk_before": {
+    "exists": true,
+    "line_count": 1097,
+    "seq_min": 1,
+    "seq_max": 1097,
+    "gaps": [],
+    "tail": [
+      {
+        "seq": 1058,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1059,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1060,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1061,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1062,
+        "event": "approval.requested"
+      },
+      {
+        "seq": 1063,
+        "event": "message.created"
+      },
+      {
+        "seq": 1064,
+        "event": "message.created"
+      },
+      {
+        "seq": 1065,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1066,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1067,
+        "event": "read.updated"
+      },
+      {
+        "seq": 1068,
+        "event": "read.updated"
+      },
+      {
+        "seq": 1069,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1070,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1071,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1072,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 1073,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1074,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1075,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1076,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1077,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1078,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1079,
+        "event": "memory.updated"
+      },
+      {
+        "seq": 1080,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1081,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1082,
+        "event": "message.created"
+      },
+      {
+        "seq": 1083,
+        "event": "message.created"
+      },
+      {
+        "seq": 1084,
+        "event": "message.created"
+      },
+      {
+        "seq": 1085,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1086,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1087,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1088,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1089,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1090,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1091,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1092,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1093,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1094,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1095,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1096,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1097,
+        "event": "assignment.created"
+      }
+    ],
+    "maintenance": [
+      {
+        "seq": 36,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 68,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 70,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 97,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 149,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 170,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 197,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 204,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 206,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 257,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 295,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 365,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 385,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 422,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 446,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 455,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 487,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 865,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 884,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 951,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 1037,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 1079,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      }
+    ]
+  },
+  "disk_after": {
+    "exists": true,
+    "line_count": 1102,
+    "seq_min": 1,
+    "seq_max": 1102,
+    "gaps": [],
+    "tail": [
+      {
+        "seq": 1063,
+        "event": "message.created"
+      },
+      {
+        "seq": 1064,
+        "event": "message.created"
+      },
+      {
+        "seq": 1065,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1066,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1067,
+        "event": "read.updated"
+      },
+      {
+        "seq": 1068,
+        "event": "read.updated"
+      },
+      {
+        "seq": 1069,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1070,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1071,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1072,
+        "event": "approval.resolved"
+      },
+      {
+        "seq": 1073,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1074,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1075,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1076,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1077,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1078,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1079,
+        "event": "memory.updated"
+      },
+      {
+        "seq": 1080,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1081,
+        "event": "message.updated"
+      },
+      {
+        "seq": 1082,
+        "event": "message.created"
+      },
+      {
+        "seq": 1083,
+        "event": "message.created"
+      },
+      {
+        "seq": 1084,
+        "event": "message.created"
+      },
+      {
+        "seq": 1085,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1086,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1087,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1088,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1089,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1090,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1091,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1092,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1093,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1094,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1095,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1096,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1097,
+        "event": "assignment.created"
+      },
+      {
+        "seq": 1098,
+        "event": "message.created"
+      },
+      {
+        "seq": 1099,
+        "event": "message.created"
+      },
+      {
+        "seq": 1100,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1101,
+        "event": "trace.item"
+      },
+      {
+        "seq": 1102,
+        "event": "announcement.updated"
+      }
+    ],
+    "maintenance": [
+      {
+        "seq": 36,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 68,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 70,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 97,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 149,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 170,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 197,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 204,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 206,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 257,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 295,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 365,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 385,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 422,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 446,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 455,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 487,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 865,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 884,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 951,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 1037,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      },
+      {
+        "seq": 1079,
+        "event": "memory.updated",
+        "source_session_id": null,
+        "source_run_id_present": false,
+        "target_scope": null
+      }
+    ]
+  },
+  "disk_tail_contiguous": true,
+  "notes": [
+    "Resume validation records only sequence and event names; memory payload/content is intentionally omitted.",
+    "Natural maintenance is reported only when a newly appended memory.updated has source session_id=maintenance; no write RPC was sent."
+  ]
+}

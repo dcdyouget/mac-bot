@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-10T16:32:37.983337+00:00",
+  "state": "returned",
+  "method": "assignment.steer",
+  "params": {
+    "bot_id": "main",
+    "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+    "chat_id": "01a1266b-c4d6-751b-8248-0c9ab13dcff6",
+    "text": "仅汇总 A 项目待验收，不再重派 Tester/Developer，不回复 progress、不生成新的交接任务，也不要调用 confirm_done。请核对并在项目群自然发布一条简洁 review：Tester 真实 done 消息 01a126a1-10b7-7028-8bab-0c87f6a0d3f9（assignment 01a1269d-d197-70cb-a60d-6f0bc2377c19）；报告 ~/MacBot/projects/s5-fresh-login-a/TEST-browser.md；五项证据为 wrong password PASS、correct login PASS、refresh PASS、logout PASS、375x800 viewport PASS，其中 viewport trace 为 innerWidth=375、document.body.scrollWidth=375，origin=file:///Users/gongshaojie/MacBot/projects/s5-fresh-login-a/index.html。请在 review 中列出这五项、报告路径、done 消息 ID，并将 A 标记为待验收；不得凭代码阅读替代 trace，不处理 B/旧 pending。",
+    "client_request_id": "94e603f2-655e-4cde-aaeb-e368fabb710b"
+  },
+  "scope": {
+    "target_assignment": {
+      "id": "01a126a4-8a1e-733a-802d-9004c7684780",
+      "bot_id": "main",
+      "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+      "origin_chat_id": "01a1266b-c4d6-751b-8248-0c9ab13dcff6",
+      "status": "working"
+    },
+    "requested_scope": "single existing main working assignment; A project review only; no new assignment, no confirm_done"
+  },
+  "result": {
+    "assignment_id": "01a126a4-8a1e-733a-802d-9004c7684780",
+    "at": "2026-10-10T16:32:39.703256+00:00",
+    "bot_id": "main",
+    "message_id": "01a126a8-cf17-7549-bb33-de1d02097261",
+    "state": "queued"
+  }
+}

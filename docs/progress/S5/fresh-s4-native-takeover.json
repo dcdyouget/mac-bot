@@ -1,0 +1,751 @@
+{
+  "state": "desktop_input_pass_quality_switch_failed_native_release_not_verified",
+  "desktop_source": "ad2d915bca6d69d90ee988e002e88fb6fa3a5901",
+  "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+  "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+  "question_id": "01a12684-4d7e-7455-80bf-80a3b3b5a283",
+  "action": "native desktop takeover owned local fixture; type s5-desktop-input and submit; release",
+  "request_uuid": "native generated; read-only reconcile",
+  "desktop_pid": 9740,
+  "observed_fps": 33.2,
+  "note": "typeText produced exact input after delayed frame; noWindowsAvailable transient resolved by rebind, no lock flag",
+  "trace": {
+    "first_aseq": 1,
+    "has_more_before": false,
+    "items": [
+      {
+        "aseq": 1,
+        "assignment_id": null,
+        "at": "2026-10-10T15:50:59.638Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+          "parent_run_id": null,
+          "phase": "chat",
+          "subagent_task": null
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "run.start"
+      },
+      {
+        "aseq": 2,
+        "assignment_id": null,
+        "at": "2026-10-10T15:50:59.673Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "context": {
+            "l0": 735,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 735
+          },
+          "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1:llm:0",
+          "tools": [
+            "question",
+            "browser_open",
+            "browser_snapshot",
+            "browser_act",
+            "request_takeover",
+            "browser_nav",
+            "chat_history",
+            "memory_search",
+            "memory",
+            "skill",
+            "project_find",
+            "browser_eval",
+            "skill_draft",
+            "browser_get",
+            "browser_tabs",
+            "browser_screenshot",
+            "browser_wait",
+            "session_search",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 3,
+        "assignment_id": null,
+        "at": "2026-10-10T15:51:02.186Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "latency_ms": 2492,
+          "request_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1:llm:0",
+          "stop_reason": "tool_use",
+          "text": "我来打开本地浏览器文件并确认标题。\n",
+          "thinking": "用户要求我执行以下步骤：\n1. 使用 browser_open 打开本地文件 file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html\n2. 确认标题\n3. 调用 request_takeover 请用户在页面输入 s5-desktop-input 并提交\n4. 用户会在桌面接管和交还\n5. 交还后读取页面\"收到：\"的实际文本并回复\n\n让我先打开这个本地HTML文件。",
+          "tool_calls": [
+            {
+              "args": {
+                "url": "file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html"
+              },
+              "call_id": "call_function_loe478tqkslo_1",
+              "name": "browser_open"
+            }
+          ],
+          "ttft_ms": 700,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 3495,
+            "output_tokens": 157,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 4,
+        "assignment_id": null,
+        "at": "2026-10-10T15:51:02.198Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "args": {
+            "url": "file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html"
+          },
+          "call_id": "call_function_loe478tqkslo_1",
+          "name": "browser_open"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 5,
+        "assignment_id": null,
+        "at": "2026-10-10T15:51:02.223Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "run.wait"
+      },
+      {
+        "aseq": 6,
+        "assignment_id": null,
+        "at": "2026-10-10T15:51:40.188Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "by_message_id": null
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "run.resume"
+      },
+      {
+        "aseq": 7,
+        "assignment_id": null,
+        "at": "2026-10-10T15:51:40.200Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "args": {
+            "url": "file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html"
+          },
+          "call_id": "call_function_loe478tqkslo_1",
+          "name": "browser_open"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 8,
+        "assignment_id": null,
+        "at": "2026-10-10T15:51:41.152Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "call_id": "call_function_loe478tqkslo_1",
+          "details": {
+            "active": true,
+            "assignment_id": "dm_dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+            "tab_id": "t2",
+            "title": "",
+            "url": "file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html"
+          },
+          "duration_ms": 941,
+          "full_output": null,
+          "is_error": false,
+          "preview": "{\"active\":true,\"assignment_id\":\"dm_dm_01a12682-a891-742f-bfd8-5a27a3e83715\",\"tab_id\":\"t2\",\"title\":\"\",\"url\":\"file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html\"}",
+          "truncated": false
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.end"
+      },
+      {
+        "aseq": 9,
+        "assignment_id": null,
+        "at": "2026-10-10T15:51:41.203Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "context": {
+            "l0": 1091,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 1091
+          },
+          "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1:llm:1",
+          "tools": [
+            "request_takeover",
+            "project_find",
+            "chat_history",
+            "browser_tabs",
+            "memory",
+            "skill",
+            "memory_search",
+            "session_search",
+            "question",
+            "browser_get",
+            "browser_act",
+            "browser_nav",
+            "browser_wait",
+            "browser_eval",
+            "browser_snapshot",
+            "browser_screenshot",
+            "browser_open",
+            "skill_draft",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 10,
+        "assignment_id": null,
+        "at": "2026-10-10T15:51:43.769Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "latency_ms": 2547,
+          "request_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1:llm:1",
+          "stop_reason": "tool_use",
+          "text": "页面已打开，让我确认标题：\n",
+          "thinking": "页面已打开。现在让我获取页面标题来确认。",
+          "tool_calls": [
+            {
+              "args": {
+                "property": "title"
+              },
+              "call_id": "call_function_7kvegwrhhj35_1",
+              "name": "browser_get"
+            }
+          ],
+          "ttft_ms": 1864,
+          "usage": {
+            "cache_read_tokens": 443,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 3737,
+            "output_tokens": 45,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 11,
+        "assignment_id": null,
+        "at": "2026-10-10T15:51:43.781Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "args": {
+            "property": "title"
+          },
+          "call_id": "call_function_7kvegwrhhj35_1",
+          "name": "browser_get"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 12,
+        "assignment_id": null,
+        "at": "2026-10-10T15:51:43.809Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "run.wait"
+      },
+      {
+        "aseq": 13,
+        "assignment_id": null,
+        "at": "2026-10-10T15:52:44.154Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "by_message_id": null
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "run.resume"
+      },
+      {
+        "aseq": 14,
+        "assignment_id": null,
+        "at": "2026-10-10T15:52:44.166Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "args": {
+            "property": "title"
+          },
+          "call_id": "call_function_7kvegwrhhj35_1",
+          "name": "browser_get"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 15,
+        "assignment_id": null,
+        "at": "2026-10-10T15:52:44.191Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "call_id": "call_function_7kvegwrhhj35_1",
+          "details": {
+            "data": {
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 11677035664275010974
+                },
+                "launched": false,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              },
+              "title": "MacBot S4 验收 · 本地画面"
+            },
+            "error": null,
+            "success": true
+          },
+          "duration_ms": 14,
+          "full_output": null,
+          "is_error": false,
+          "preview": "{\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":11677035664275010974},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"title\":\"MacBot S4 验收 · 本地画面\"},\"error\":null,\"success\":true}",
+          "truncated": false
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.end"
+      },
+      {
+        "aseq": 16,
+        "assignment_id": null,
+        "at": "2026-10-10T15:52:44.238Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "context": {
+            "l0": 1366,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 1366
+          },
+          "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1:llm:2",
+          "tools": [
+            "memory",
+            "session_search",
+            "project_find",
+            "browser_act",
+            "browser_wait",
+            "browser_snapshot",
+            "skill",
+            "request_takeover",
+            "browser_eval",
+            "question",
+            "browser_tabs",
+            "browser_screenshot",
+            "chat_history",
+            "skill_draft",
+            "browser_open",
+            "browser_nav",
+            "memory_search",
+            "browser_get",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 17,
+        "assignment_id": null,
+        "at": "2026-10-10T15:52:47.148Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "latency_ms": 2886,
+          "request_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1:llm:2",
+          "stop_reason": "tool_use",
+          "text": "标题已确认为 \"MacBot S4 验收 · 本地画面\"。现在请求您接管浏览器，请在页面输入 **s5-desktop-input** 并提交。\n",
+          "thinking": "标题是 \"MacBot S4 验收 · 本地画面\"，这应该是正确的。现在我需要调用 request_takeover 请用户在页面输入 s5-desktop-input 并提交。\n\n用户说会先在桌面接管和交还，所以让我请求接管。",
+          "tool_calls": [
+            {
+              "args": {
+                "reason": "请在页面输入框中输入 \"s5-desktop-input\" 并提交表单"
+              },
+              "call_id": "call_function_qmjjsaem7xpj_1",
+              "name": "request_takeover"
+            }
+          ],
+          "ttft_ms": 984,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 3886,
+            "output_tokens": 129,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 18,
+        "assignment_id": null,
+        "at": "2026-10-10T15:52:47.164Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "args": {
+            "reason": "请在页面输入框中输入 \"s5-desktop-input\" 并提交表单"
+          },
+          "call_id": "call_function_qmjjsaem7xpj_1",
+          "name": "request_takeover"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 19,
+        "assignment_id": null,
+        "at": "2026-10-10T15:52:47.192Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "message_id": null,
+          "reason": "takeover"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "run.wait"
+      },
+      {
+        "aseq": 20,
+        "assignment_id": null,
+        "at": "2026-10-10T15:59:19.920Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "by_message_id": null
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "run.resume"
+      },
+      {
+        "aseq": 21,
+        "assignment_id": null,
+        "at": "2026-10-10T15:59:19.935Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "args": {
+            "reason": "请在页面输入框中输入 \"s5-desktop-input\" 并提交表单"
+          },
+          "call_id": "call_function_qmjjsaem7xpj_1",
+          "name": "request_takeover"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 22,
+        "assignment_id": null,
+        "at": "2026-10-10T15:59:19.945Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "call_id": "call_function_qmjjsaem7xpj_1",
+          "details": {},
+          "duration_ms": 0,
+          "full_output": null,
+          "is_error": false,
+          "preview": "用户已完成接管",
+          "truncated": false
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.end"
+      },
+      {
+        "aseq": 23,
+        "assignment_id": null,
+        "at": "2026-10-10T15:59:19.995Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "context": {
+            "l0": 1682,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 1682
+          },
+          "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1:llm:3",
+          "tools": [
+            "browser_eval",
+            "skill_draft",
+            "browser_act",
+            "session_search",
+            "browser_wait",
+            "browser_nav",
+            "browser_screenshot",
+            "skill",
+            "chat_history",
+            "memory_search",
+            "project_find",
+            "memory",
+            "question",
+            "browser_open",
+            "request_takeover",
+            "browser_get",
+            "browser_snapshot",
+            "browser_tabs",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 24,
+        "assignment_id": null,
+        "at": "2026-10-10T15:59:21.665Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "latency_ms": 1648,
+          "request_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1:llm:3",
+          "stop_reason": "tool_use",
+          "text": "您已交还浏览器，现在让我读取页面\"收到：\"的实际文本：\n",
+          "thinking": "用户已经接管并交还了。现在我需要读取页面\"收到：\"的实际文本。让我获取页面的文本内容。",
+          "tool_calls": [
+            {
+              "args": {
+                "expression": "document.body.innerText"
+              },
+              "call_id": "call_function_y42rkufomwfh_1",
+              "name": "browser_eval"
+            }
+          ],
+          "ttft_ms": 757,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 4034,
+            "output_tokens": 70,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 25,
+        "assignment_id": null,
+        "at": "2026-10-10T15:59:21.679Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "args": {
+            "expression": "document.body.innerText"
+          },
+          "call_id": "call_function_y42rkufomwfh_1",
+          "name": "browser_eval"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 26,
+        "assignment_id": null,
+        "at": "2026-10-10T15:59:21.702Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "message_id": null,
+          "reason": "approval"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "run.wait"
+      },
+      {
+        "aseq": 27,
+        "assignment_id": null,
+        "at": "2026-10-10T16:04:20.962Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "by_message_id": null
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "run.resume"
+      },
+      {
+        "aseq": 28,
+        "assignment_id": null,
+        "at": "2026-10-10T16:04:20.972Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "args": {
+            "expression": "document.body.innerText"
+          },
+          "call_id": "call_function_y42rkufomwfh_1",
+          "name": "browser_eval"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.start"
+      },
+      {
+        "aseq": 29,
+        "assignment_id": null,
+        "at": "2026-10-10T16:04:21.009Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "call_id": "call_function_y42rkufomwfh_1",
+          "details": {
+            "data": {
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 11677035664275010974
+                },
+                "launched": false,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              },
+              "origin": "file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html",
+              "result": "MacBot S4 浏览器验收\n\n本地 fixture · s5-fresh-screen-20261010\n\n输入测试文本\n提交\n\n收到：s5-desktop-input\n\n仅用于本机画面、键盘和点击验收；不连接外部登录或通知服务。"
+            },
+            "error": null,
+            "success": true
+          },
+          "duration_ms": 26,
+          "full_output": null,
+          "is_error": false,
+          "preview": "{\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":11677035664275010974},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"origin\":\"file:///Users/gongshaojie/Library/Caches/MacBot/s5/fresh-screen-fixture.html\",\"result\":\"MacBot S4 浏览器验收\\n\\n本地 fixture · s5-fresh-screen-20261010\\n\\n输入测试文本\\n提交\\n\\n收到：s5-desktop-input\\n\\n仅用于本机画面、键盘和点击验收；不连接外部登录或通知服务。\"},\"error\":null,\"success\":true}",
+          "truncated": false
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "tool.end"
+      },
+      {
+        "aseq": 30,
+        "assignment_id": null,
+        "at": "2026-10-10T16:04:21.054Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "context": {
+            "l0": 2077,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "total": 2077
+          },
+          "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+          "prompt_ref": null,
+          "request_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1:llm:4",
+          "tools": [
+            "browser_nav",
+            "browser_snapshot",
+            "session_search",
+            "question",
+            "browser_screenshot",
+            "browser_eval",
+            "request_takeover",
+            "chat_history",
+            "memory_search",
+            "browser_open",
+            "browser_wait",
+            "skill",
+            "skill_draft",
+            "project_find",
+            "browser_get",
+            "browser_act",
+            "memory",
+            "browser_tabs",
+            "send_msg"
+          ]
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "llm.request"
+      },
+      {
+        "aseq": 31,
+        "assignment_id": null,
+        "at": "2026-10-10T16:04:22.787Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "latency_ms": 1711,
+          "request_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1:llm:4",
+          "stop_reason": "end_turn",
+          "text": "验收完成。页面\"收到：\"后的实际文本是：\n\n**s5-desktop-input**",
+          "thinking": "我已经读取到了页面的完整文本。\"收到：\"后面的实际文本是 \"s5-desktop-input\"。让我回复用户。",
+          "tool_calls": [],
+          "ttft_ms": 789,
+          "usage": {
+            "cache_read_tokens": 443,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 4281,
+            "output_tokens": 46,
+            "requests": 1
+          }
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "llm.response"
+      },
+      {
+        "aseq": 32,
+        "assignment_id": null,
+        "at": "2026-10-10T16:04:22.890Z",
+        "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+        "data": {
+          "error": null,
+          "status": "done"
+        },
+        "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+        "type": "run.end"
+      }
+    ],
+    "last_aseq": 32,
+    "live": false
+  },
+  "evidence": {
+    "frame": "fresh-s4-desktop-frame-1.png",
+    "submit_visible": "fresh-s4-desktop-input-submitted.png",
+    "delayed_before_submit": "fresh-s4-desktop-input-before-submit-visible.png",
+    "quality_failure": "fresh-s4-desktop-low-empty.png",
+    "low_transport_only": "fresh-s4-low-transport/manifest.json",
+    "rpc_release_journal": "fresh-rpc/49-s4-release-after-quality-failure.json"
+  },
+  "boundaries": [
+    "Native pointer/text input and submit return visibly confirmed; same Bot readback confirmed exact marker",
+    "Low quality switch native failed, transport separately passed640x316; not S4 PASS",
+    "Release used exact scoped RPC after native failure, not native release pass"
+  ]
+}

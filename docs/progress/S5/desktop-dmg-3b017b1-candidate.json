@@ -1,0 +1,13 @@
+{
+  "source_commit": "3b017b1a021e8e2b18d66f2a26d50861275c2a8b",
+  "configuration": "release",
+  "clean_archive": true,
+  "dmg_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/source-3b017b1a021e8e2b18d66f2a26d50861275c2a8b/clients/mac/dist/MacBot.dmg",
+  "dmg_sha256": "1b4306e34945551cec1ff35cd1a7a472eeed7f9373d35d2dcd55bc29ce2a1dbb",
+  "binary_sha256": "22c709a941c70e72335785d81694d95fcec3e69c31baaee2fc5cc14469f50c7c",
+  "codesign_verify": "passed",
+  "hdiutil_verify": "passed",
+  "core_release_tests": 38,
+  "strict_clippy": "passed",
+  "state": "candidate_verified_not_installed"
+}

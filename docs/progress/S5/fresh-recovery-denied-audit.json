@@ -1,0 +1,107 @@
+{
+  "audit_type": "readonly_denied_approval_startup_recovery",
+  "observed_at": "2026-10-10T16:53:39+00:00",
+  "service": {
+    "source": "a9527fa4a0f52b5ff6e47c380ac0819e8292127d",
+    "pid_after_health": 49406,
+    "health_snapshot": "fresh-server-a9527fa-update.json",
+    "health_snapshot_at": "2026-10-10T16:51:07.333019+00:00",
+    "health_snapshot_jobs_after_hash": "7e490134273a434ab182f9098621b7aad2b0170103c12c0a0edad6d8a464af6e",
+    "interpretation": "health returned before asynchronous denied-approval recovery completed"
+  },
+  "approval": {
+    "id": "01a12698-7905-765a-8047-988aaaffee08",
+    "state": "denied",
+    "decided_at": "2026-10-10T16:21:40.834973+00:00",
+    "tool": "memory",
+    "assignment_id": null,
+    "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "detail": {
+      "action": "add",
+      "content": "s5-memory-20261011：验收报告先写结论，再写证据。",
+      "kind": "user_preference",
+      "scope": "user"
+    }
+  },
+  "job": {
+    "id": "job_01a12698-51ae-73c5-826e-618d989c00d9",
+    "path": "~/MacBot/data/jobs/job_01a12698-51ae-73c5-826e-618d989c00d9.json",
+    "status_after": "cancelled",
+    "cancelled_at": "2026-10-10T16:51:48.321Z",
+    "updated_at_epoch_ms": 1791651108321,
+    "sha256_after": "e268660763633f42b6f041ba80e448e1f70121eb0ef4313924f992838615afcc",
+    "run_id": "run_chat_01a12698_5136_7431_8f0c_9de3079cb341",
+    "pending_tool": {
+      "args": {
+        "action": "add",
+        "content": "s5-memory-20261011：验收报告先写结论，再写证据。",
+        "kind": "user_preference",
+        "scope": "user"
+      },
+      "call_id": "call_function_gdui25kekcqs_1",
+      "name": "memory"
+    },
+    "unsafe_replay_after": false
+  },
+  "exact_match_checks": {
+    "approval_map_path": "~/MacBot/data/approval-map/01a12698-7905-765a-8047-988aaaffee08.json",
+    "approval_map_sha256": "cc7e6e18bab9c9e9ed2cb44a5348b97f00a7e4f1780d09eec339a6a53cbdaae0",
+    "approval_map_call_id": "call_function_gdui25kekcqs_1",
+    "checkpoint_call_id": "call_function_gdui25kekcqs_1",
+    "map_call_id_matches_checkpoint": true,
+    "approval_detail_matches_checkpoint": true,
+    "request_path": "~/MacBot/data/run_requests/run_chat_01a12698_5136_7431_8f0c_9de3079cb341.json",
+    "request_sha256": "f0461358fe941339ffd2a234ec4fdd1268037b5a99925eec8ed9d03b7219598b",
+    "request_run_id": "run_chat_01a12698_5136_7431_8f0c_9de3079cb341",
+    "request_bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "request_chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "request_is_private": true,
+    "request_assignment_id": null,
+    "request_project_id": null,
+    "request_scope_matches_approval": true
+  },
+  "event_evidence": [
+    {
+      "events_jsonl_line": 1571,
+      "aseq": null,
+      "at": "2026-10-10T16:14:49.093547+00:00",
+      "kind": "approval",
+      "state": "pending",
+      "approval_id": "01a12698-7905-765a-8047-988aaaffee08"
+    },
+    {
+      "events_jsonl_line": 2229,
+      "aseq": null,
+      "at": "2026-10-10T16:21:40.834973+00:00",
+      "kind": "approval",
+      "state": "denied",
+      "approval_id": "01a12698-7905-765a-8047-988aaaffee08"
+    },
+    {
+      "events_jsonl_line": 7186,
+      "at": "2026-10-10T16:51:48.359Z",
+      "kind": "message.updated",
+      "message_id": "msg_run_chat_01a12698_5136_7431_8f0c_9de3079cb341",
+      "streaming": false,
+      "fallback_text": "已停止"
+    },
+    {
+      "events_jsonl_line": 7187,
+      "aseq": 47,
+      "at": "2026-10-10T16:51:48.414Z",
+      "kind": "run.end",
+      "run_id": "run_chat_01a12698_5136_7431_8f0c_9de3079cb341",
+      "status": "cancelled",
+      "error": null
+    }
+  ],
+  "safety_checks": {
+    "no_tool_execution_after_denial_observed": true,
+    "no_replay_observed": true,
+    "private_message_streaming_false": true,
+    "other_jobs_cancelled": false,
+    "rpc_or_process_mutation_performed": false
+  },
+  "conclusion": "最终收敛为精确取消 denied private run；早期 jobs_after 旧 hash 是 health 后立即落盘的快照，不代表 recovery 失败。验收读取应在 health 后轮询目标 job 至终态。"
+}

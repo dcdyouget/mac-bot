@@ -1,0 +1,48 @@
+{
+  "at": "2026-10-10T15:22:00.585255+00:00",
+  "state": "returned",
+  "method": "chat.send",
+  "params": {
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "text": "Durable recovery acceptance marker s5-fresh-recovery-isolated. Use exactly one tool call per model turn. First call bash with `sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-isolated' > e2e/s5-fresh-recovery-isolated.txt`. After that bash call returns, stop and wait for the next model turn; do not call read in the same turn. On the next turn call the read tool on e2e/s5-fresh-recovery-isolated.txt, then reply with exactly s5-fresh-recovery-isolated.",
+    "mentions": [],
+    "client_request_id": "69912191-30fd-449c-966f-5fd7560b645c"
+  },
+  "scope": {
+    "marker": "s5-fresh-recovery-isolated",
+    "relative_path": "e2e/s5-fresh-recovery-isolated.txt",
+    "command": "sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-isolated' > e2e/s5-fresh-recovery-isolated.txt",
+    "trigger_time": 1791645720.5852191,
+    "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0"
+  },
+  "result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "Durable recovery acceptance marker s5-fresh-recovery-isolated. Use exactly one tool call per model turn. First call bash with `sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-isolated' > e2e/s5-fresh-recovery-isolated.txt`. After that bash call returns, stop and wait for the next model turn; do not call read in the same turn. On the next turn call the read tool on e2e/s5-fresh-recovery-isolated.txt, then reply with exactly s5-fresh-recovery-isolated.",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "created_at": "2026-10-10T15:22:00.637149+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "Durable recovery acceptance marker s5-fresh-recovery-isolated. Use exactly one tool call per model turn. First call bash with `sleep 20; mkdir -p e2e; printf '%s\\n' 's5-fresh-recovery-isolated' > e2e/s5-fresh-recovery-isolated.txt`. After that bash call returns, stop and wait for the next model turn; do not call read in the same turn. On the next turn call the read tool on e2e/s5-fresh-recovery-isolated.txt, then reply with exactly s5-fresh-recovery-isolated.",
+      "id": "01a12668-203d-7583-a813-496639211dc4",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 1,
+      "streaming": false,
+      "thread_count": 0
+    }
+  }
+}

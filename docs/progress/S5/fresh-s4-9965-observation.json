@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-10T16:40:53.490993+00:00",
+  "source": "9965b2d243bff1d830f421907db3277950ce0349",
+  "state": "partial_quality_target_preserved_continuity_unresolved",
+  "screenshots_viewed": [
+    "fresh-s4-9965-auto-frame-1.png",
+    "fresh-s4-9965-auto-frame-2.png",
+    "fresh-s4-9965-low-with-main-reconnect.png"
+  ],
+  "observations": [
+    "First auto frame appeared without additional input after opening screen",
+    "Two subsequent screenshots showed identical visual frame; continuous native output not established",
+    "Low quality shows 640x316 fixture and prior input marker; did not reset to empty state",
+    "Main connection displayed websocket IO error Broken pipe os32",
+    "Diagnostic log confirms earlier seq117-199 applied and later reconnect seq1; investigating Rendered/ACK scheduling"
+  ],
+  "full_s4_pass": false
+}

@@ -1,0 +1,76 @@
+{
+  "observed_at": "2026-10-10T16:15:03.859759+00:00",
+  "source_commit": "0e866f5d255b4a573f538042591e6f66432ab3dd",
+  "source_commit_full": "0e866f5d255b4a573f538042591e6f66432ab3dd",
+  "clean_archive": {
+    "root": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd",
+    "git_directory_present": false,
+    "source_commit_file": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/clients/mac/dist/MacBot.app/Contents/Resources/source-commit",
+    "source_commit_file_contents": "0e866f5d255b4a573f538042591e6f66432ab3dd",
+    "source_commit_file_sha256": "3f3d31dad4b37d438cd22c09ab8e703081d11354979096d67c3380820715f077",
+    "source_dirty_marker_present": false
+  },
+  "build": {
+    "configuration": "release",
+    "command": "CARGO_TARGET_DIR=/Users/gongshaojie/Library/Caches/MacBot/integrator/target/desktop CARGO_INCREMENTAL=0 cargo build --manifest-path clients/mac/Cargo.toml -p macbot-desktop --release",
+    "actual_cargo_build": true,
+    "skip_build": false,
+    "shared_target": "/Users/gongshaojie/Library/Caches/MacBot/integrator/target/desktop",
+    "target_link_in_archive": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/clients/mac/target",
+    "package_command": "MACBOT_SOURCE_COMMIT=0e866f5d255b4a573f538042591e6f66432ab3dd CARGO_TARGET_DIR=/Users/gongshaojie/Library/Caches/MacBot/integrator/target/desktop clients/mac/packaging/package.sh release all",
+    "build_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/logs/build-release.log",
+    "package_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/logs/package-release-final.log",
+    "initial_package_attempt_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/logs/package-release.log"
+  },
+  "tests": {
+    "desktop_release_passed": true,
+    "desktop_release_count": 64,
+    "desktop_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/logs/desktop-release-tests.log",
+    "core_release_passed": true,
+    "core_release_count": 39,
+    "core_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/logs/core-release-tests.log",
+    "strict_clippy_passed": true,
+    "clippy_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/logs/desktop-release-clippy.log"
+  },
+  "app": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/clients/mac/dist/MacBot.app",
+    "bundle_id": "bot.mac.desktop",
+    "version": "0.1.0",
+    "binary_path": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/clients/mac/dist/MacBot.app/Contents/MacOS/macbot-desktop",
+    "binary_size_bytes": 30550864,
+    "binary_sha256_signed": "82ecb6f8716967bd053064781ac96a0a8c2fcc79738fcc534725d9870934b7cd",
+    "binary_sha256_unsigned_target": "dfb17a51e0c50f8a73103471b887ce09715bd0c4470b289656c0642244e0c7bf",
+    "mach_o_text_region": {
+      "section": "__TEXT,__text",
+      "offset": 4608,
+      "size": 16629368,
+      "unsigned_sha256": "1b7f2c9c1249ca40d65626439980224055f90ded24ead656054269beb80dd9b6",
+      "signed_sha256": "1b7f2c9c1249ca40d65626439980224055f90ded24ead656054269beb80dd9b6",
+      "match": true
+    }
+  },
+  "codesign": {
+    "identity": "ad hoc",
+    "app_deep_strict": "passed",
+    "dmg_mounted_app_deep_strict": "passed",
+    "identifier": "bot.mac.desktop",
+    "code_directory_hash_full": "4850e85faa893653d482213ad457e47ee1727d5d66e744fcd09f7a41339221ae",
+    "verification_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/logs/artifact-verification.log"
+  },
+  "dmg": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-0e866f5d255b4a573f538042591e6f66432ab3dd/clients/mac/dist/MacBot.dmg",
+    "size_bytes": 12872967,
+    "sha256": "4996224bf4d2121f2d445641f1bd828f065ec1e712545115de3cc4781ba522fb",
+    "hdiutil_verify": "passed"
+  },
+  "validation": {
+    "source_stamp_matches_full_sha": true,
+    "source_dirty_marker_absent": true,
+    "hdiutil_mount_source_stamp_check": "passed",
+    "mounted_source_commit": "0e866f5d255b4a573f538042591e6f66432ab3dd",
+    "mounted_source_dirty_marker_absent": true,
+    "installed": false,
+    "ui_operated": false,
+    "deployment": "candidate_verified_not_installed"
+  }
+}

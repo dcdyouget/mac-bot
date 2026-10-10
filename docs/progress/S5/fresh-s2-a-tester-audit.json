@@ -1,0 +1,125 @@
+{
+  "stage": "S2",
+  "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+  "assignment_id": "01a12678-4236-7515-943a-df6cf5fc0704",
+  "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+  "home": "~/MacBot/projects/s5-fresh-login-a/",
+  "status": "passed_browser_trace_pending_project_acceptance",
+  "tester_completion": {
+    "tester_assignment_id": "01a1269d-d197-70cb-a60d-6f0bc2377c19",
+    "done_message_id": "01a126a1-10b7-7028-8bab-0c87f6a0d3f9",
+    "report_path": "~/MacBot/projects/s5-fresh-login-a/TEST-browser.md",
+    "report_write_journal": "fresh-rpc/a-tester-045.json",
+    "review_steer_journal": "fresh-rpc/a-tester-047.json",
+    "cases": [
+      {
+        "case": "wrong_password",
+        "result": "passed",
+        "assignment_id": "01a12678-4236-7515-943a-df6cf5fc0704",
+        "journals": [
+          "fresh-rpc/a-tester-001.json",
+          "fresh-rpc/a-tester-002.json"
+        ],
+        "evidence": "Bot browser trace read errorMessage after wrong password; displayed 邮箱或密码错误。"
+      },
+      {
+        "case": "correct_login",
+        "result": "passed",
+        "assignment_id": "01a12678-4236-7515-943a-df6cf5fc0704",
+        "journals": [
+          "fresh-rpc/a-tester-003.json",
+          "fresh-rpc/a-tester-004.json",
+          "fresh-rpc/a-tester-005.json",
+          "fresh-rpc/a-tester-006.json"
+        ],
+        "evidence": "Bot browser trace submitted demo@example.test / DemoPass2026 and evaluated userInfo.show=true."
+      },
+      {
+        "case": "refresh_persistence",
+        "result": "passed",
+        "assignment_id": "01a12683-7d0e-7444-8cc9-ea2c35a0786d",
+        "journals": [
+          "fresh-rpc/a-tester-007.json",
+          "fresh-rpc/a-tester-009.json",
+          "fresh-rpc/a-tester-010.json",
+          "fresh-rpc/a-tester-011.json",
+          "fresh-rpc/a-tester-012.json"
+        ],
+        "evidence": "Tester report records same Bot assignment reload and localStorage login persistence; the earlier a-tester-007-only attempt remains preserved below as unobserved history."
+      },
+      {
+        "case": "logout_clears_session",
+        "result": "passed",
+        "assignment_id": "01a12683-7d0e-7444-8cc9-ea2c35a0786d",
+        "journals": [
+          "fresh-rpc/a-tester-013.json",
+          "fresh-rpc/a-tester-014.json",
+          "fresh-rpc/a-tester-015.json",
+          "fresh-rpc/a-tester-016.json",
+          "fresh-rpc/a-tester-017.json",
+          "fresh-rpc/a-tester-018.json",
+          "fresh-rpc/a-tester-019.json"
+        ],
+        "evidence": "Bot browser trace clicked the logout control and evaluated the resulting login page/state; report records cleared session and return to login."
+      },
+      {
+        "case": "viewport_375_no_overflow",
+        "result": "passed",
+        "assignment_id": "01a1269d-d197-70cb-a60d-6f0bc2377c19",
+        "journals": [
+          "fresh-rpc/a-tester-042.json",
+          "fresh-rpc/a-tester-043.json",
+          "fresh-rpc/a-tester-044.json",
+          "fresh-rpc/a-tester-045.json"
+        ],
+        "evidence": "Bot browser trace used file:///Users/gongshaojie/MacBot/projects/s5-fresh-login-a/index.html, set viewport 375x800, then returned window.innerWidth=375 and document.body.scrollWidth=375."
+      }
+    ]
+  },
+  "project_status_boundary": {
+    "main_review_message_id": "01a126a9-5cdc-723f-a385-22c5832c07e2",
+    "main_review_result": "待验收",
+    "project_get_status": "active",
+    "project_get_readonly": true,
+    "meaning": "Main review text and Tester report are evidence for review only. project.get still reports active, so this audit does not claim user acceptance or project completion."
+  },
+  "excluded_evidence": [
+    "fresh-s2-a-reload-current.png from the separate native Chrome user window is excluded as Bot browser evidence; it is not used to establish refresh success or failure.",
+    "The earlier failed run and its no-report/model-turn-limit result remain preserved under historical_attempt."
+  ],
+  "historical_attempt": {
+    "status": "failed_no_report_refresh_unobserved",
+    "observations": [
+      {
+        "case": "wrong_password",
+        "result": "passed",
+        "evidence": "fresh-rpc/a-tester-001.json through a-tester-002.json; browser_eval returned 邮箱或密码错误"
+      },
+      {
+        "case": "correct_login",
+        "result": "passed_before_reload",
+        "evidence": "fresh-rpc/a-tester-003.json through a-tester-006.json; browser_eval returned true for userInfo.show"
+      },
+      {
+        "case": "refresh_persistence",
+        "result": "unobserved",
+        "evidence": "fresh-rpc/a-tester-007.json; the Bot browser_nav reload returned the same file URL, then the Tester run hit the model turn limit before post-reload evaluation. No post-reload Bot browser_screenshot exists. fresh-s2-a-reload-current.png was captured from the separate native Chrome window and is excluded from this result."
+      }
+    ],
+    "run_status": "failed",
+    "run_failure": "run exceeded tool/model turn limit",
+    "report_written_by_tester": false,
+    "next_action": "Main Bot must follow up in the existing project; do not edit index.html manually or claim refresh/logout/375px as passed."
+  },
+  "main_request_review_followup": {
+    "journal": "fresh-rpc/a-tester-048.json",
+    "client_request_id": "42eb5d46-d330-4450-9141-8c3c008fadfa",
+    "assignment_id": "01a126ab-be00-7624-97fb-dfe80ec00780",
+    "steer_message_id": "01a126be-2171-72a7-ae7d-3c81c8a2e5a8",
+    "write_result": "queued",
+    "requested_tool": "request_review",
+    "requested_project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+    "scope": "existing A project only; main feedback assignment; no new Tester/Developer/project; no confirm_done",
+    "readonly_followup": "assignment.get timed out while the server RPC queue was busy; no second write was attempted, and queued is the only confirmed post-write state."
+  }
+}

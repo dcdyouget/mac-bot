@@ -1,0 +1,68 @@
+{
+  "observed_at": "2026-10-10T15:51:19.004099+00:00",
+  "source_commit": "ad2d915bca6d69d90ee988e002e88fb6fa3a5901",
+  "source_commit_full": "ad2d915bca6d69d90ee988e002e88fb6fa3a5901",
+  "clean_archive": {
+    "root": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901",
+    "git_directory_present": false,
+    "source_commit_file": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901/clients/mac/dist/MacBot.app/Contents/Resources/source-commit",
+    "source_commit_file_contents": "ad2d915bca6d69d90ee988e002e88fb6fa3a5901",
+    "source_commit_file_sha256": "d9ec0d0a84eb2f3880333a921b9187462f1a3eaaee7d57743e28c16c01f269a1",
+    "source_dirty_marker_present": false
+  },
+  "build": {
+    "configuration": "release",
+    "command": "CARGO_TARGET_DIR=/Users/gongshaojie/Library/Caches/MacBot/integrator/target/desktop MACBOT_SOURCE_COMMIT=ad2d915bca6d69d90ee988e002e88fb6fa3a5901 clients/mac/packaging/package.sh release all",
+    "actual_cargo_build": true,
+    "skip_build": false,
+    "shared_target": "/Users/gongshaojie/Library/Caches/MacBot/integrator/target/desktop",
+    "target_link_in_archive": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901/clients/mac/target",
+    "package_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901/logs/package-release.log"
+  },
+  "tests": {
+    "desktop_release_passed": true,
+    "desktop_release_count": 61,
+    "desktop_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901/logs/desktop-release-tests.log",
+    "core_release_passed": true,
+    "core_release_count": 38,
+    "core_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901/logs/core-release-tests.log",
+    "strict_clippy_passed": true,
+    "clippy_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901/logs/desktop-release-clippy.log"
+  },
+  "app": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901/clients/mac/dist/MacBot.app",
+    "bundle_id": "bot.mac.desktop",
+    "version": "0.1.0",
+    "binary_path": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901/clients/mac/dist/MacBot.app/Contents/MacOS/macbot-desktop",
+    "binary_size_bytes": 30528304,
+    "binary_sha256_signed": "bc097da4ff4efdfbc1699155137325028aa325acf6b1b9d1fc390dcfc5183f86",
+    "binary_sha256_unsigned_target": "9082160e49bed54858d9ea3adddd14e84a536eaf1f66af51a9c08202852bacb5",
+    "mach_o_text_region": {
+      "offset": 4608,
+      "size": 16609776,
+      "unsigned_sha256": "3a27a1a35db06e61f9356ed49890d4c621ae5e290994662fa2eaab2d81cb3d3d",
+      "signed_sha256": "3a27a1a35db06e61f9356ed49890d4c621ae5e290994662fa2eaab2d81cb3d3d",
+      "match": true
+    }
+  },
+  "codesign": {
+    "identity": "ad hoc",
+    "app_deep_strict": "passed",
+    "dmg_mounted_app_deep_strict": "passed",
+    "verification_log": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901/logs/artifact-verification.log"
+  },
+  "dmg": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-ad2d915bca6d69d90ee988e002e88fb6fa3a5901/clients/mac/dist/MacBot.dmg",
+    "size_bytes": 12852981,
+    "sha256": "fd9c405ca91ee25ad8e75742a66a086467ebf42d25343da3f3afe57224f910ce",
+    "hdiutil_verify": "passed"
+  },
+  "validation": {
+    "source_stamp_matches_full_sha": true,
+    "source_dirty_marker_absent": true,
+    "hdiutil_mount_source_stamp_check": "passed",
+    "installed": false,
+    "ui_operated": false,
+    "deployment": "candidate_verified_not_installed"
+  }
+}

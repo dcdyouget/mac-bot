@@ -1,0 +1,33 @@
+{
+  "status": "confirmed_server_gap_and_local_fix",
+  "observed_at": "2026-10-10T15:43:55Z",
+  "service": {
+    "pid": 884,
+    "event_log": "~/MacBot/data/events/events.jsonl",
+    "observer": "scripts/e2e/s0/connection_replay.py MiniWebSocket",
+    "rpc_writes": false,
+    "ui_control": false
+  },
+  "disk_vs_ws": {
+    "resume_last_seq": 65,
+    "disk_memory_updated_seqs_checked": [68, 70, 97, 149, 170, 197, 204, 206, 257, 295, 365, 385, 422, 446, 455, 487],
+    "missing_disk_seq": 455,
+    "missing_event": "memory.updated",
+    "ws_projection_for_other_memory_events": "sync.cursor",
+    "replay_sequence_observed": "454_then_456"
+  },
+  "root_cause": {
+    "maintenance_commit": "server/crates/macbot-gateway/src/features.rs",
+    "scheduler": "server/crates/macbot-gateway/src/backend.rs",
+    "detail": "maintenance appended the durable memory.updated Event but discarded it before GatewayState live fan-out"
+  },
+  "fix": {
+    "detail": "maintenance returns already durable Events; tick_features publishes each exact Event without re-appending",
+    "protocol_change": false,
+    "business_data_changed": false
+  },
+  "validation": [
+    "cargo test --manifest-path server/Cargo.toml -p macbot-gateway --lib maintenance_adapter_uses_model_provider_and_commits_summary",
+    "cargo test --manifest-path server/Cargo.toml -p macbot-gateway --lib unsubscribed_socket_receives_trace_cursor_in_live_and_replay"
+  ]
+}

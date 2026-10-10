@@ -1,0 +1,291 @@
+{
+  "captured_at": "2026-10-10T15:07:33.031807+00:00",
+  "source_commit": "3d6b289c3af61111e0004d8bf300330461528ef7",
+  "package_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-3d6b289c3af61111e0004d8bf300330461528ef7.pkg",
+  "package_sha256": "120af2fa8a2890da3806679b052f8d7adb1f1697e02e6c69ee7b0efff99af00a",
+  "installation": {
+    "status": "succeeded",
+    "log_source": "/var/log/install.log",
+    "sanitized_success_lines": [
+      "2026-10-10 23:05:35+08 installd: PackageKit: Writing receipt for com.macbot.server to /",
+      "2026-10-10 23:05:35+08 installd: PackageKit: Touched bundle /Applications/MacBot Server.app",
+      "2026-10-10 23:05:35+08 installd: PackageKit: Installed \"MacBot-Server-3d6b289c3af61111e0004d8bf300330461528ef7\"",
+      "2026-10-10 23:05:36+08 Installer: Displaying Install Succeeded UI."
+    ],
+    "receipt": "com.macbot.server 0.1.0",
+    "system_app": {
+      "path": "/Applications/MacBot Server.app",
+      "owner": {
+        "owner": "0:0",
+        "mode": "0o755",
+        "size": 96,
+        "mtime_epoch": 1791644735
+      },
+      "daemon_sha256": "5cf769ee882b1b9289fe3d407268ab0a5d63a0681d1cdb137c2a02a9531bb65e",
+      "sidecar_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+      "source_commit": "3d6b289c3af61111e0004d8bf300330461528ef7",
+      "build_info": {
+        "source_commit": "3d6b289c3af61111e0004d8bf300330461528ef7",
+        "source_dirty": false,
+        "version": "0.1.0",
+        "macbotd_sha256": "5cf769ee882b1b9289fe3d407268ab0a5d63a0681d1cdb137c2a02a9531bb65e",
+        "agent_browser_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa"
+      },
+      "info_plist": {
+        "CFBundleIdentifier": "com.macbot.server",
+        "CFBundleVersion": "0.1.0",
+        "MacBotSourceCommit": "3d6b289c3af61111e0004d8bf300330461528ef7"
+      }
+    },
+    "user_app": {
+      "path": "/Users/gongshaojie/Applications/MacBot Server.app",
+      "owner": {
+        "owner": "501:20",
+        "mode": "0o755",
+        "size": 96,
+        "mtime_epoch": 1791644302
+      },
+      "daemon_sha256": "5cf769ee882b1b9289fe3d407268ab0a5d63a0681d1cdb137c2a02a9531bb65e",
+      "sidecar_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+      "source_commit": "3d6b289c3af61111e0004d8bf300330461528ef7",
+      "build_info": {
+        "source_commit": "3d6b289c3af61111e0004d8bf300330461528ef7",
+        "source_dirty": false,
+        "version": "0.1.0",
+        "macbotd_sha256": "5cf769ee882b1b9289fe3d407268ab0a5d63a0681d1cdb137c2a02a9531bb65e",
+        "agent_browser_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa"
+      },
+      "info_plist": {
+        "CFBundleIdentifier": "com.macbot.server",
+        "CFBundleVersion": "0.1.0",
+        "MacBotSourceCommit": "3d6b289c3af61111e0004d8bf300330461528ef7"
+      }
+    },
+    "candidate_app": {
+      "path": "/Users/gongshaojie/Library/Caches/MacBot/s5/pkg-3d6b289c3af61111e0004d8bf300330461528ef7-audit/Payload/Applications/MacBot Server.app",
+      "owner": {
+        "owner": "501:20",
+        "mode": "0o755",
+        "size": 96,
+        "mtime_epoch": 1791644302
+      },
+      "daemon_sha256": "5cf769ee882b1b9289fe3d407268ab0a5d63a0681d1cdb137c2a02a9531bb65e",
+      "sidecar_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+      "source_commit": "3d6b289c3af61111e0004d8bf300330461528ef7",
+      "build_info": {
+        "source_commit": "3d6b289c3af61111e0004d8bf300330461528ef7",
+        "source_dirty": false,
+        "version": "0.1.0",
+        "macbotd_sha256": "5cf769ee882b1b9289fe3d407268ab0a5d63a0681d1cdb137c2a02a9531bb65e",
+        "agent_browser_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa"
+      },
+      "info_plist": {
+        "CFBundleIdentifier": "com.macbot.server",
+        "CFBundleVersion": "0.1.0",
+        "MacBotSourceCommit": "3d6b289c3af61111e0004d8bf300330461528ef7"
+      }
+    },
+    "system_app_matches_candidate": true,
+    "user_app_matches_candidate": true,
+    "cli": {
+      "macbotd_symlink": "/Users/gongshaojie/Applications/MacBot Server.app/Contents/MacOS/macbotd",
+      "macbot_symlink": "macbotd",
+      "macbotd_mode": {
+        "owner": "501:20",
+        "mode": "0o755",
+        "size": 24005616,
+        "mtime_epoch": 1791644302
+      },
+      "macbot_mode": {
+        "owner": "501:20",
+        "mode": "0o755",
+        "size": 24005616,
+        "mtime_epoch": 1791644302
+      }
+    },
+    "launchagent": {
+      "path": "/Users/gongshaojie/Library/LaunchAgents/com.macbot.server.plist",
+      "owner_mode": {
+        "owner": "501:20",
+        "mode": "0o644",
+        "size": 942,
+        "mtime_epoch": 1791644822
+      },
+      "label": "com.macbot.server",
+      "program_arguments": [
+        "/Users/gongshaojie/Applications/MacBot Server.app/Contents/MacOS/macbotd"
+      ],
+      "macbot_home": "/Users/gongshaojie/MacBot",
+      "run_at_load": true,
+      "keep_alive": true,
+      "stdout": "/Users/gongshaojie/MacBot/data/macbot.log",
+      "stderr": "/Users/gongshaojie/MacBot/data/macbot.log",
+      "runtime_pid": 87562,
+      "launchctl_state": "running"
+    },
+    "listener": {
+      "pid": 87562,
+      "address": "*:7788",
+      "owner": "gongshaojie"
+    },
+    "health": {
+      "url": "http://127.0.0.1:7788/api/v1/health",
+      "http_status": 200,
+      "ok": true,
+      "protocol": 1,
+      "version": "0.1.0",
+      "setup_required": false
+    }
+  },
+  "fresh_home": {
+    "path": "/Users/gongshaojie/MacBot",
+    "owner_mode": {
+      "owner": "501:20",
+      "mode": "0o755",
+      "size": 128,
+      "mtime_epoch": 1791644736
+    },
+    "node_id": "01a12659-1a1a-76ef-8077-310a4a7ca29e",
+    "old_preflight_node_id": "01a11fa3-345e-77a7-8e00-b6585c090f37",
+    "new_node": true,
+    "node_id_file": {
+      "owner": "501:20",
+      "mode": "0o644",
+      "size": 36,
+      "mtime_epoch": 1791644736
+    },
+    "auth_file_metadata": {
+      "owner": "501:20",
+      "mode": "0o600",
+      "size": 122,
+      "mtime_epoch": 1791644822
+    },
+    "credential_contents_read": false,
+    "data_paths": [
+      "data/.lock",
+      "data/auth.json",
+      "data/features/skills.json",
+      "data/macbot.log",
+      "data/node_id"
+    ]
+  },
+  "old_business_data": {
+    "backup_root": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk",
+    "jobs_expected": 164,
+    "jobs_actual": 164,
+    "missing": 0,
+    "extra": 0,
+    "mismatched": 0,
+    "jobs_aggregate_sha256": "ab8496a1aee0773d2b0d7a8c7a46f80dc84f96267cdd461a15eab98a9016851b",
+    "critical_files": {
+      "jobs/commits.jsonl": {
+        "sha256": "4d012b53bcd1c8e8e4b2d825f1b7ca2b4d533304fe98c3409b3651e470132a61",
+        "bytes": 92403920
+      },
+      "orchestrator/operations.jsonl": {
+        "sha256": "27086f229eb83cd81725953f737314a5c13ec41769998421896d4af2f93e501b",
+        "bytes": 946114123
+      },
+      "events/events.jsonl": {
+        "sha256": "8e251bb34215cbab45a827d890460a5b6311a95d7f341fdcac2c1c018b502539",
+        "bytes": 8950724
+      },
+      "inbox.jsonl": {
+        "sha256": "ad47dabc0dadc50b9497358559e6f927ceec7dffea473bcdb72280adfaa3d649",
+        "bytes": 16614
+      },
+      "submissions.jsonl": {
+        "sha256": "24f3f6594a71427418aacb05c16bb9e5cdcb35680e96d41d8e2f75140bbf7fc7",
+        "bytes": 244886
+      }
+    },
+    "preflight_job_hashes_used": "/Users/gongshaojie/Project/mac-bot-integrator/docs/progress/S5/fresh-preflight.json",
+    "unchanged": true
+  },
+  "failed_install_backup_app": {
+    "path": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/user-app/MacBotServer.app",
+    "reference": "post-failure readonly audit values",
+    "unchanged_from_post_failure_snapshot": true,
+    "owner_after_failed_install": "root:wheel",
+    "current_file_hashes": {
+      "Contents/Info.plist": {
+        "sha256": "8a5a5e23e65c117934508d0609697ed60f743f206e75ce0b42cc4577463739fc",
+        "matches_post_failure_snapshot": true,
+        "stat": {
+          "owner": "0:0",
+          "mode": "0o644",
+          "size": 726,
+          "mtime_epoch": 1791642778
+        }
+      },
+      "Contents/MacOS/macbotd": {
+        "sha256": "4d0bd021b6cd51ee8571536d47a55c2c55cd39ddc68279605ad1859ad08b6d82",
+        "matches_post_failure_snapshot": true,
+        "stat": {
+          "owner": "0:0",
+          "mode": "0o755",
+          "size": 24005360,
+          "mtime_epoch": 1791642776
+        }
+      },
+      "Contents/MacOS/agent-browser": {
+        "sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+        "matches_post_failure_snapshot": true,
+        "stat": {
+          "owner": "0:0",
+          "mode": "0o755",
+          "size": 15803424,
+          "mtime_epoch": 1791642778
+        }
+      },
+      "Contents/Resources/build-info.json": {
+        "sha256": "91b1a8d90659bffbf66fa240b2008702af8a361167cf157a1873b887a752742a",
+        "matches_post_failure_snapshot": true,
+        "stat": {
+          "owner": "0:0",
+          "mode": "0o644",
+          "size": 273,
+          "mtime_epoch": 1791642778
+        }
+      },
+      "Contents/Resources/source-commit.txt": {
+        "sha256": "e505144b9e8b2684e1c35bdb3be92473500a6180e73ea6522d64d8e2246430e9",
+        "matches_post_failure_snapshot": true,
+        "stat": {
+          "owner": "0:0",
+          "mode": "0o644",
+          "size": 41,
+          "mtime_epoch": 1791642778
+        }
+      },
+      "Contents/Resources/com.macbot.server.plist": {
+        "sha256": "0072db300ba41f345257d78a44c948cada2037494343ecec130fca800146d64b",
+        "matches_post_failure_snapshot": true,
+        "stat": {
+          "owner": "0:0",
+          "mode": "0o644",
+          "size": 701,
+          "mtime_epoch": 1791642778
+        }
+      },
+      "Contents/Resources/update-manifest.json": {
+        "sha256": "0fa354fc96d134064e39f657495254c05c55bd6e0885fe8d233000307e149d6b",
+        "matches_post_failure_snapshot": true,
+        "stat": {
+          "owner": "0:0",
+          "mode": "0o644",
+          "size": 40,
+          "mtime_epoch": 1791642778
+        }
+      }
+    },
+    "business_data_path_not_relocated": true
+  },
+  "security": {
+    "credentials_read": false,
+    "write_rpc_sent": false,
+    "configuration_modified": false
+  },
+  "fresh_install_pass": false,
+  "notes": "Installer installation succeeded with fixed non-relocatable package; setup password was entered natively by user. This records install/runtime integrity only; full S5 UI scenes remain separate."
+}

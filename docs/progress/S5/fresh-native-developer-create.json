@@ -1,0 +1,41 @@
+{
+  "state": "native_saved_readonly_verified",
+  "at": "2026-10-10T15:25:29.826274+00:00",
+  "name": "Fresh-Developer",
+  "max_parallel": 2,
+  "scope": "fresh Host native desktop; client owns UUID; readonly reconcile before repeat",
+  "bot": {
+    "avatar": {
+      "color": 0,
+      "kind": "bean"
+    },
+    "browser_mode": "headless",
+    "created_at": "2026-10-10T15:25:35.870129+00:00",
+    "description": "实现项目 Home 内的本地 demo，依据真实 Tester 反馈修复；仅交付已写入的文件。",
+    "dm_chat_id": "dm_01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+    "hidden": false,
+    "id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+    "is_main": false,
+    "label": "编码",
+    "max_parallel": 2,
+    "model": null,
+    "name": "Fresh-Developer",
+    "notifications": true,
+    "pinned": false,
+    "status": {
+      "active": 0,
+      "queued": 0,
+      "summary": "idle",
+      "waiting": 0
+    },
+    "tools": {
+      "bash": true,
+      "browser": true,
+      "files": true,
+      "mcp": false,
+      "subagent": false,
+      "web": false
+    },
+    "updated_at": "2026-10-10T15:25:35.870129+00:00"
+  }
+}

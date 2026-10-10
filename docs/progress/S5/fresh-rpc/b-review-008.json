@@ -1,0 +1,133 @@
+{
+  "at": "2026-10-10T16:13:51.155913+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a12696-4128-7695-a4c9-5cf830fcc92e",
+    "decision": "allow_once",
+    "client_request_id": "1b41af1d-eae1-48de-81d6-0350d806a562"
+  },
+  "scope": {
+    "approval": {
+      "assignment_id": "01a12672-23cc-75a8-b01f-1aa08ad5d7ed",
+      "bot_id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "created_at": "2026-10-10T16:12:23.720097+00:00",
+      "decided_at": null,
+      "detail": "{}",
+      "id": "01a12696-4128-7695-a4c9-5cf830fcc92e",
+      "risk": "external",
+      "state": "pending",
+      "summary": "Approval required for browser_snapshot",
+      "tool": "browser_snapshot"
+    },
+    "project": {
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "created_at": "2026-10-10T15:26:04.058482+00:00",
+      "created_by": {
+        "kind": "user"
+      },
+      "deadline": null,
+      "done_at": null,
+      "flow": [
+        "Product Bot writes PRD.md in project Home",
+        "Developer Bot implements index.html",
+        "Tester Bot performs actual browser testing and writes TEST-browser.md"
+      ],
+      "goal": "交付可实际浏览器测试的本地邮箱登录demo",
+      "home_path": "~/MacBot/projects/s5-fresh-login-b/",
+      "id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+      "lead_bot_id": "main",
+      "members": [
+        {
+          "bot_id": "main",
+          "joined_at": "2026-10-10T15:26:04.058451+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266a-3762-7574-bb9c-c8d77ef90297",
+          "joined_at": "2026-10-10T15:26:04.058460+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+          "joined_at": "2026-10-10T15:26:04.058461+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+          "joined_at": "2026-10-10T15:26:04.058462+00:00",
+          "role_note": ""
+        }
+      ],
+      "name": "s5-fresh-login-b",
+      "slug": "s5-fresh-login-b",
+      "status": "active",
+      "updated_at": "2026-10-10T15:26:04.058482+00:00"
+    },
+    "assignment": {
+      "bot_id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+      "created_at": "2026-10-10T15:32:56.908823+00:00",
+      "finished_at": null,
+      "from": {
+        "bot_id": "main",
+        "kind": "bot"
+      },
+      "id": "01a12672-23cc-75a8-b01f-1aa08ad5d7ed",
+      "instruction": "@Fresh-Developer 请开始编码实现。\n\n**完整指令：**\n1. 只在项目Home目录 `~/MacBot/projects/s5-fresh-login-b/` 内实现 `index.html`\n2. 使用固定demo账号：`demo@example.test` / `DemoPass2026`\n3. 功能要求：\n   - 错误密码必须拒绝登录\n   - 刷新页面保持登录状态\n   - 退出登录清除状态\n   - 375px窄屏宽度无溢出\n4. 纯本地file页面，不连接外部网络\n5. 禁止git提交或部署\n\n完成后，请 `send_msg(done)` 明确@测试员 @Fresh-Tester，要求：\n- 实际浏览器操作验证\n- 写 `TEST-browser.md` 测试报告\n- 然后@主Bot汇总review\n\n请开始编码。",
+      "loop_hops": 1,
+      "model": "",
+      "origin_chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "parent_assignment_id": null,
+      "priority": 2,
+      "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+      "queue_reason": null,
+      "result_message_id": null,
+      "root_message_id": "01a12672-23cc-75a8-b01f-1a9f7df31b65",
+      "started_at": "2026-10-10T15:32:56.908823+00:00",
+      "status": "waiting_user",
+      "steers": [],
+      "subagents_active": 0,
+      "title": "交接：progress",
+      "trigger_message_id": "01a12672-23cc-75a8-b01f-1a9f7df31b65",
+      "usage": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost": null,
+        "input_tokens": 11628,
+        "output_tokens": 30,
+        "requests": 0
+      },
+      "wait": {
+        "message_id": null,
+        "reason": "approval"
+      }
+    },
+    "job_id": "job_01a12672-3f15-7223-94e8-b7b8790f7dbf",
+    "map": {
+      "call_id": "call_function_cskjwy70l7zu_1"
+    },
+    "run_id": "run_01a12672-23cc-75a8-b01f-1aa08ad5d7ed",
+    "pending_tool": {
+      "args": {},
+      "call_id": "call_function_cskjwy70l7zu_1",
+      "name": "browser_snapshot"
+    },
+    "reviewed_effective_target": {}
+  },
+  "result": {
+    "approval": {
+      "assignment_id": "01a12672-23cc-75a8-b01f-1aa08ad5d7ed",
+      "bot_id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "created_at": "2026-10-10T16:12:23.720097+00:00",
+      "decided_at": "2026-10-10T16:13:51.179275+00:00",
+      "detail": "{}",
+      "id": "01a12696-4128-7695-a4c9-5cf830fcc92e",
+      "risk": "external",
+      "state": "allowed_once",
+      "summary": "Approval required for browser_snapshot",
+      "tool": "browser_snapshot"
+    }
+  }
+}

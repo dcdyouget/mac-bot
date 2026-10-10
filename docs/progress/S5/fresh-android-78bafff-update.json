@@ -1,0 +1,19 @@
+{
+  "state": "installed",
+  "at": "2026-10-10T16:28:24.048465+00:00",
+  "source": "78bafffa39e4b531a65af76af79dab6d2a791212",
+  "apk": "/Users/gongshaojie/Project/mac-bot-integrator/clients/mobile/androidApp/build/outputs/apk/release/androidApp-release.apk",
+  "sha256": "b7ae2af6ca2488eb0aaab060fcc99682d821b2d459a809df2a638c00e47e5cc8",
+  "certificate_matches_installed_release_source": true,
+  "preserve_data": true,
+  "serial": "emulator-5554",
+  "tests": "shared commonTest passed including blocked snapshot/cursor ordering",
+  "note": "Mobile source clean; unrelated desktop/server/doc work in same worktree not part of APK.",
+  "install_output": "Performing Streamed Install\nSuccess\n",
+  "after_reboot": {
+    "application_pid_last_observed": "1823",
+    "host_records_and_projects_visible": true,
+    "performance_acceptance": "pending; system UI ANR and server reconnect delays kept as separate evidence",
+    "observation": "fresh-android-postupdate-ui-timeout.json"
+  }
+}

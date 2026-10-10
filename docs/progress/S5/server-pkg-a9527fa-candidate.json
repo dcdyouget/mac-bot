@@ -1,0 +1,58 @@
+{
+  "state": "candidate",
+  "at": "2026-10-10T16:47:35+0000",
+  "source": "a9527fa4a0f52b5ff6e47c380ac0819e8292127d",
+  "source_archive": "/Users/gongshaojie/Library/Caches/MacBot/s5/source-a9527fa4a0f52b5ff6e47c380ac0819e8292127d",
+  "source_archive_clean": true,
+  "package": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-a9527fa4a0f52b5ff6e47c380ac0819e8292127d.pkg",
+  "package_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-a9527fa4a0f52b5ff6e47c380ac0819e8292127d.pkg",
+  "package_sha256": "03d681685bc068da25e79580cacb2af6f1e68b4351d2437c69590de9f8b03246",
+  "package_bytes": 16279414,
+  "build_info": {
+    "source_dirty": false,
+    "macbotd_sha256": "218237b07a4a666e0732eb106183cbf6fcadef06a4ce1b18d57b793f2c0793b7",
+    "version": "0.1.0",
+    "agent_browser_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+    "source_commit": "a9527fa4a0f52b5ff6e47c380ac0819e8292127d"
+  },
+  "payload": {
+    "daemon_sha256": "218237b07a4a666e0732eb106183cbf6fcadef06a4ce1b18d57b793f2c0793b7",
+    "daemon_version": "macbotd 0.1.0",
+    "sidecar_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+    "sidecar_version": "agent-browser 0.39.0",
+    "bundle_id": "com.macbot.server",
+    "source_commit_plist": "a9527fa4a0f52b5ff6e47c380ac0819e8292127d"
+  },
+  "package_info": {
+    "install_location": "/",
+    "bundles": [
+      {
+        "path": "./Applications/MacBot Server.app",
+        "id": "com.macbot.server",
+        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleVersion": "0.1.0"
+      }
+    ],
+    "bundle_relocations": [],
+    "relocation_check": "passed"
+  },
+  "smoke": {
+    "command": "python3 /Users/gongshaojie/Library/Caches/MacBot/s5/source-a9527fa4a0f52b5ff6e47c380ac0819e8292127d/server/macbotd/tests/smoke_packaging.py --pkg /Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-a9527fa4a0f52b5ff6e47c380ac0819e8292127d.pkg",
+    "result": "passed: bundle contents, sidecar digest and atomic update failure/success",
+    "expanded_audit": "/Users/gongshaojie/Library/Caches/MacBot/s5/pkg-a9527fa4a0f52b5ff6e47c380ac0819e8292127d-audit"
+  },
+  "signature": {
+    "status": "unsigned development package",
+    "pkgutil_check_signature": "no signature"
+  },
+  "deployment": {
+    "performed": false,
+    "installed": false,
+    "service_touched": false
+  },
+  "notes": [
+    "Built from a clean git archive at the exact full source commit with CARGO_INCREMENTAL=0; the archive server/target reused the integrator server target and the approved 0.39.0 arm64 sidecar cache was reused.",
+    "PackageInfo has relocatable=false and no bundle relocation entry; persistent expanded audit passed.",
+    "This is a package candidate only; installation and deployment were not performed."
+  ]
+}

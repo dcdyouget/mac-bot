@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-10T16:59:47.355145+00:00",
+  "state": "started_waiting_for_boot",
+  "avd": "macbot_api36",
+  "serial": "emulator-5554",
+  "pid_before": 84220,
+  "reason": "Second system-level ANR after guest reboot; preserve app and userdata",
+  "wipe_data": false,
+  "screenshot": "fresh-android-system-anr-before-avd-restart.png",
+  "pid_after": 55507,
+  "restarted_at": "2026-10-10T17:00:30.674826+00:00"
+}

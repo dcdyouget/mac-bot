@@ -1,0 +1,45 @@
+{
+  "at": "2026-10-10T15:27:49.707215+00:00",
+  "state": "returned",
+  "method": "chat.send",
+  "params": {
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "text": "这是 s5-fresh-stream 专项。不要调用任何工具。请用中文连续写20条编号说明，每条至少60字，介绍如何给本地邮箱登录demo做浏览器测试。末尾写 s5-fresh-stream 完成。",
+    "mentions": [],
+    "client_request_id": "af636fed-012a-45ab-90d8-931d558d6a47"
+  },
+  "scope": {
+    "purpose": "Real streamed text and trace on both clients",
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0"
+  },
+  "result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "这是 s5-fresh-stream 专项。不要调用任何工具。请用中文连续写20条编号说明，每条至少60字，介绍如何给本地邮箱登录demo做浏览器测试。末尾写 s5-fresh-stream 完成。",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "created_at": "2026-10-10T15:27:49.749237+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "这是 s5-fresh-stream 专项。不要调用任何工具。请用中文连续写20条编号说明，每条至少60字，介绍如何给本地邮箱登录demo做浏览器测试。末尾写 s5-fresh-stream 完成。",
+      "id": "01a1266d-73f5-73a6-9a25-f6bb81d3da18",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 3,
+      "streaming": false,
+      "thread_count": 0
+    }
+  }
+}

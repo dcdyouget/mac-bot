@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-10T15:07:54.620102+00:00",
+  "state": "returned",
+  "method": "model.upsert",
+  "params": {
+    "provider_id": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4",
+    "model_id": "MiniMax-M2.5",
+    "display_name": "MiniMax-M2.5",
+    "context_window": 204800,
+    "max_output": 8192,
+    "caps": {
+      "vision": false,
+      "tools": true,
+      "reasoning": true
+    },
+    "enabled": true,
+    "client_request_id": "697e8699-62db-4243-b5ce-df1be8e907b1"
+  },
+  "scope": {
+    "provider_id": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4",
+    "provider_test_passed": true
+  },
+  "result": {
+    "model": {
+      "caps": {
+        "reasoning": true,
+        "tools": true,
+        "vision": false
+      },
+      "context_window": 204800,
+      "display_name": "MiniMax-M2.5",
+      "enabled": true,
+      "max_output": 8192,
+      "model_id": "MiniMax-M2.5",
+      "price": null,
+      "provider_id": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4",
+      "ref": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5"
+    }
+  }
+}
