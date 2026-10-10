@@ -1294,7 +1294,8 @@ impl FeatureService {
         }
         let filter = kinds.iter().map(String::as_str).collect::<HashSet<_>>();
         let mut hits = BTreeMap::new();
-        collect_search_files(&self.shared_store.root().join("data"), &filter, &mut hits)?;
+        let data_root = self.shared_store.root().join("data");
+        collect_search_files(&data_root, &data_root, &filter, &mut hits)?;
         let current_ids = current_orchestrator_ids(&self.shared_store.root().join("data"));
         let query = query.to_lowercase();
         Ok(hits
@@ -1645,6 +1646,7 @@ fn upload_path(home: &Path, id: &str) -> FeatureResult<PathBuf> {
 }
 
 fn collect_search_files(
+    data_root: &Path,
     root: &Path,
     kinds: &HashSet<&str>,
     hits: &mut BTreeMap<(String, String), SearchRecord>,
@@ -1655,7 +1657,10 @@ fn collect_search_files(
     for entry in fs::read_dir(root)? {
         let path = entry?.path();
         if path.is_dir() {
-            collect_search_files(&path, kinds, hits)?;
+            collect_search_files(data_root, &path, kinds, hits)?;
+            continue;
+        }
+        if !is_canonical_search_source(data_root, &path) {
             continue;
         }
         if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
@@ -1671,6 +1676,31 @@ fn collect_search_files(
         }
     }
     Ok(())
+}
+
+fn is_canonical_search_source(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    let Some(top_level) = relative
+        .components()
+        .next()
+        .and_then(|component| component.as_os_str().to_str())
+    else {
+        return false;
+    };
+    match top_level {
+        "chats" => matches!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("messages.jsonl" | "metadata.json")
+        ),
+        "orchestrator" => matches!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("state.json" | "history.json")
+        ),
+        "messages" | "artifacts" | "routines" | "bots" => true,
+        _ => false,
+    }
 }
 
 fn collect_search_value(
@@ -1696,7 +1726,7 @@ fn collect_search_value_inner(
         if deleted {
             return;
         }
-        let kind = search_kind(object, path);
+        let kind = search_kind(object);
         let serialized = serde_json::to_string(value).unwrap_or_default();
         let is_envelope = object.contains_key("type") && object.contains_key("data");
         let has_nested = object
@@ -1874,7 +1904,7 @@ fn readable_snippet(
     parts.join(" · ").chars().take(240).collect()
 }
 
-fn search_kind(object: &serde_json::Map<String, Value>, path: &Path) -> String {
+fn search_kind(object: &serde_json::Map<String, Value>) -> String {
     if object.contains_key("fallback_text") || object.contains_key("blocks") {
         return "message".into();
     }
@@ -1890,12 +1920,9 @@ fn search_kind(object: &serde_json::Map<String, Value>, path: &Path) -> String {
     if object.contains_key("schedules") || object.contains_key("routine_id") {
         return "routine".into();
     }
-    let path = path.to_string_lossy();
-    for kind in ["message", "chat", "bot", "artifact", "routine"] {
-        if path.contains(kind) {
-            return kind.into();
-        }
-    }
+    // Only explicit entity fields may classify a record. Path names are not
+    // entity metadata, and inferring from them can expose internal records as
+    // user-facing search hits.
     "object".into()
 }
 
@@ -2529,6 +2556,84 @@ mod tests {
         let typed: Vec<SearchHit> = serde_json::from_value(filtered["results"].clone()).unwrap();
         assert_eq!(typed.len(), 1);
         assert_eq!(typed[0].kind, "artifact");
+    }
+
+    #[test]
+    fn search_indexes_chat_messages_without_path_classifying_internal_records() {
+        let service = service();
+        let marker = "search-memory-regression-marker";
+        service
+            .shared_store
+            .append_jsonl(
+                "data/chats/chat_main/messages.jsonl",
+                &json!({
+                    "id": "chat-message-1",
+                    "chat_id": "chat_main",
+                    "fallback_text": marker,
+                    "created_at": "2026-01-01T00:00:00Z"
+                }),
+            )
+            .unwrap();
+        service
+            .shared_store
+            .append_jsonl(
+                "data/traces/chat_main.jsonl",
+                &json!({
+                    "type": "trace.item",
+                    "data": {
+                        "details": {
+                            "entries": [
+                                {
+                                    "id": "memory-entry-1",
+                                    "kind": "user_preference",
+                                    "content": marker
+                                },
+                                {
+                                    "id": "internal-message-1",
+                                    "fallback_text": marker
+                                }
+                            ]
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        service
+            .shared_store
+            .write_snapshot(
+                "data/run_requests/run_chat_internal.json",
+                &json!({"messages":[{"role":"user","content":marker}]}),
+            )
+            .unwrap();
+
+        let result = service
+            .search_rpc(json!({"query": marker, "limit": 20}))
+            .unwrap();
+        let hits: Vec<SearchHit> = serde_json::from_value(result["results"].clone()).unwrap();
+        assert_eq!(
+            hits.iter().filter(|hit| hit.id == "chat-message-1").count(),
+            1
+        );
+        assert!(hits.iter().any(|hit| hit.id == "chat-message-1"
+            && hit.kind == "message"
+            && hit.chat_id.as_deref() == Some("chat_main")));
+        assert!(!hits.iter().any(|hit| hit.id == "memory-entry-1"));
+        assert!(!hits.iter().any(|hit| hit.id == "internal-message-1"));
+        assert!(!hits.iter().any(|hit| hit.id == "run_chat_internal"));
+
+        let filtered = service
+            .search_rpc(json!({"query": marker, "kinds":["message"], "limit": 20}))
+            .unwrap();
+        let message_hits: Vec<SearchHit> =
+            serde_json::from_value(filtered["results"].clone()).unwrap();
+        assert_eq!(message_hits.len(), 1);
+        assert_eq!(message_hits[0].id, "chat-message-1");
+        assert!(service
+            .search_rpc(json!({"query": marker, "kinds":["chat"], "limit": 20}))
+            .unwrap()["results"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
