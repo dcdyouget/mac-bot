@@ -962,11 +962,33 @@ impl ProductionBackend {
                     latest.insert(id.to_owned(), row);
                 }
             }
-            for message in latest.into_values() {
-                let Some(id) = message.get("id").and_then(Value::as_str) else {
+            for mut message in latest.into_values() {
+                let Some(id) = message.get("id").and_then(Value::as_str).map(str::to_owned) else {
                     continue;
                 };
-                persisted_message_ids.insert(id.to_owned());
+                if self.repair_takeover_approval_ref(&mut message)? {
+                    let chat_id = message
+                        .get("chat_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("chat_main")
+                        .to_owned();
+                    let canonical = self
+                        .store
+                        .sequence_chat_messages(&chat_id, &[message])
+                        .map_err(store_error)?
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| RpcError {
+                            code: "internal".into(),
+                            message: "chat message sequencing returned no message".into(),
+                            details: None,
+                        })?;
+                    self.store
+                        .append_jsonl(relative, &canonical)
+                        .map_err(store_error)?;
+                    message = canonical;
+                }
+                persisted_message_ids.insert(id.clone());
                 let data = json!({"message":message});
                 if events.iter().any(|event| {
                     matches!(event.event.as_str(), "message.created" | "message.updated")
@@ -1038,6 +1060,82 @@ impl ProductionBackend {
                 .replace(events);
         }
         Ok(())
+    }
+
+    /// Remove only the legacy takeover projection that mislabeled its private
+    /// question id as a tool approval. The durable takeover record is the
+    /// authority; unknown approval blocks remain untouched.
+    fn repair_takeover_approval_ref(&self, message: &mut Value) -> Result<bool, RpcError> {
+        let (Some(message_id), Some(chat_id)) = (
+            message.get("id").and_then(Value::as_str),
+            message.get("chat_id").and_then(Value::as_str),
+        ) else {
+            return Ok(false);
+        };
+        if !message_id.starts_with("msg_takeover_")
+            || !message
+                .get("blocks")
+                .and_then(Value::as_array)
+                .is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block.get("type").and_then(Value::as_str) == Some("approval_ref")
+                    })
+                })
+        {
+            return Ok(false);
+        }
+        let takeover_dir = self.store.root().join("data/takeovers");
+        let entries = match fs::read_dir(takeover_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(store_error(error.into())),
+        };
+        let mut question_id = None;
+        for entry in entries {
+            let entry = entry.map_err(|error| store_error(error.into()))?;
+            if entry.path().extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let entry_path = entry.path();
+            let relative = entry_path
+                .strip_prefix(self.store.root())
+                .unwrap_or(&entry_path)
+                .to_owned();
+            let Some(request) = self
+                .store
+                .read_snapshot::<Value>(relative)
+                .map_err(store_error)?
+            else {
+                continue;
+            };
+            let Some(run_id) = request.get("run_id").and_then(Value::as_str) else {
+                continue;
+            };
+            if request.get("message_id").and_then(Value::as_str) != Some(message_id)
+                || request.get("group_chat_id").and_then(Value::as_str) != Some(chat_id)
+                || takeover_component(run_id) != run_id
+                || message_id != format!("msg_takeover_{run_id}")
+            {
+                continue;
+            }
+            let Some(id) = request.get("question_id").and_then(Value::as_str) else {
+                continue;
+            };
+            question_id = Some(id.to_owned());
+            break;
+        }
+        let Some(question_id) = question_id else {
+            return Ok(false);
+        };
+        let Some(blocks) = message.get_mut("blocks").and_then(Value::as_array_mut) else {
+            return Ok(false);
+        };
+        let before = blocks.len();
+        blocks.retain(|block| {
+            !(block.get("type").and_then(Value::as_str) == Some("approval_ref")
+                && block.get("approval_id").and_then(Value::as_str) == Some(question_id.as_str()))
+        });
+        Ok(blocks.len() != before)
     }
 
     fn repair_card_event(
@@ -3167,18 +3265,7 @@ impl ProductionBackend {
                 &request,
             )
             .map_err(store_error)?;
-        Ok(json!({
-            "takeover_request": request,
-            "question": question,
-            // `approval_ref` is the protocol's group-side pointer.  The
-            // private question is the approval object users act on, so its
-            // id is exposed under the protocol field name `approval_id`.
-            "approval_ref": {
-                "approval_id": request["question_id"],
-                "chat_id": group_chat_id,
-                "question_id": request["question_id"]
-            }
-        }))
+        Ok(json!({"takeover_request": request, "question": question}))
     }
 
     async fn takeover_start(&self, state: &GatewayState, params: &Value) -> RpcResult {
@@ -7229,6 +7316,51 @@ mod tests {
             .unwrap();
         assert_eq!(saved["message_id"], "msg_takeover_run-1");
         assert_eq!(saved["run_id"], "run-1");
+    }
+
+    #[test]
+    fn legacy_takeover_approval_ref_repair_requires_exact_record() {
+        let home = tempdir().unwrap();
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        backend
+            .store
+            .write_snapshot(
+                "data/takeovers/dm_group-1.json",
+                &json!({
+                    "message_id":"msg_takeover_run-1", "run_id":"run-1",
+                    "group_chat_id":"group-1", "question_id":"question-1",
+                    "bot_id":"bot-1", "assignment_id":"dm_group-1", "state":"done"
+                }),
+            )
+            .unwrap();
+        let message = json!({
+            "id":"msg_takeover_run-1", "chat_id":"group-1",
+            "blocks":[
+                {"type":"approval_ref","approval_id":"question-1"},
+                {"type":"approval_ref","approval_id":"real-approval"}
+            ]
+        });
+        backend
+            .store
+            .append_jsonl("data/chats/group-1/messages.jsonl", &message)
+            .unwrap();
+        backend.repair_persisted_message_events().unwrap();
+        let repaired = backend
+            .store
+            .read_jsonl::<Value>("data/chats/group-1/messages.jsonl")
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert!(repaired["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|block| block["approval_id"] != "question-1"));
+        assert!(repaired["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|block| block["approval_id"] == "real-approval"));
     }
 
     #[tokio::test]

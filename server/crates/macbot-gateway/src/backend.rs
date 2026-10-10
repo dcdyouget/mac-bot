@@ -5647,39 +5647,6 @@ impl OrchestratorSink {
                 persistent: true,
             })
             .await;
-        if let Some(approval_ref) = result.get("approval_ref") {
-            let mut group_message = message.clone();
-            if let Some(blocks) = group_message
-                .get_mut("blocks")
-                .and_then(Value::as_array_mut)
-            {
-                blocks.push(json!({
-                    "type": "approval_ref",
-                    "approval_id": approval_ref.get("approval_id").cloned().unwrap_or(Value::Null),
-                    "chat_id": approval_ref.get("chat_id").cloned().unwrap_or(Value::Null)
-                }));
-            }
-            let group_message = match self.canonical_chat_message(chat_id, &group_message) {
-                Ok(message) => message,
-                Err(error) => {
-                    tracing::error!(%error, chat_id, "failed to sequence takeover group card");
-                    return;
-                }
-            };
-            if let Err(error) = self.store.append_jsonl(
-                format!("data/chats/{}/messages.jsonl", safe_component(chat_id)),
-                &group_message,
-            ) {
-                tracing::error!(%error, chat_id, "failed to persist takeover group card");
-            }
-            self.inner
-                .emit(ExecutionEvent {
-                    event: "message.updated".into(),
-                    data: json!({"message":group_message}),
-                    persistent: true,
-                })
-                .await;
-        }
     }
 }
 
@@ -5698,6 +5665,18 @@ pub(crate) fn transition_takeover_message(
     if !takeover_message_scope_matches(message, request, chat_id, message_id) {
         return false;
     }
+    let mut changed = false;
+    let question_id = request.get("question_id").and_then(Value::as_str);
+    if let Some(question_id) = question_id {
+        if let Some(blocks) = message.get_mut("blocks").and_then(Value::as_array_mut) {
+            let before = blocks.len();
+            blocks.retain(|block| {
+                !(block.get("type").and_then(Value::as_str) == Some("approval_ref")
+                    && block.get("approval_id").and_then(Value::as_str) == Some(question_id))
+            });
+            changed |= blocks.len() != before;
+        }
+    }
     let Some(block) = message
         .get_mut("blocks")
         .and_then(Value::as_array_mut)
@@ -5708,13 +5687,13 @@ pub(crate) fn transition_takeover_message(
             })
         })
     else {
-        return false;
+        return changed;
     };
-    if block.get("state").and_then(Value::as_str) == Some(request_state) {
-        return false;
+    if block.get("state").and_then(Value::as_str) != Some(request_state) {
+        block["state"] = json!(request_state);
+        changed = true;
     }
-    block["state"] = json!(request_state);
-    true
+    changed
 }
 
 pub(crate) fn takeover_message_scope_matches(
@@ -5948,7 +5927,11 @@ mod model_resolution_tests {
             "chat_id":"group-1",
             "sender":{"kind":"bot","bot_id":"bot-1"},
             "assignment_id":"assignment-1",
-            "blocks":[{"type":"takeover_request","bot_id":"bot-1","reason":"登录","state":"pending"}]
+            "blocks":[
+                {"type":"takeover_request","bot_id":"bot-1","reason":"登录","state":"pending"},
+                {"type":"approval_ref","approval_id":"question-1","chat_id":"dm-bot-1"},
+                {"type":"approval_ref","approval_id":"real-approval","chat_id":"group-1"}
+            ]
         });
         let mut request = serde_json::json!({
             "message_id":"msg_takeover_run-1",
@@ -5956,6 +5939,7 @@ mod model_resolution_tests {
             "group_chat_id":"group-1",
             "bot_id":"bot-1",
             "assignment_id":"assignment-1",
+            "question_id":"question-1",
             "state":"active"
         });
 
@@ -5966,6 +5950,16 @@ mod model_resolution_tests {
             "msg_takeover_run-1"
         ));
         assert_eq!(message["blocks"][0]["state"], "active");
+        assert!(message["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|block| block["approval_id"] != "question-1"));
+        assert!(message["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|block| block["approval_id"] == "real-approval"));
         assert!(!super::transition_takeover_message(
             &mut message,
             &request,
