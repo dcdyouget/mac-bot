@@ -90,7 +90,6 @@ private enum class Quality { AUTO, LOW, HIGH }
 fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? = null, onBack: () -> Unit) {
     LandscapeScreen(enabled = true)
     var quality by remember { mutableStateOf(Quality.AUTO) }
-    var takeover by remember { mutableStateOf(false) }
     var takeoverError by remember { mutableStateOf<String?>(null) }
     var screenError by remember { mutableStateOf<String?>(null) }
     var activeConnection by remember { mutableStateOf<ScreenConnection?>(null) }
@@ -111,12 +110,17 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
     val activeHost by repository.activeHost.collectAsState()
     val emptyState = remember { MutableStateFlow<ScreenState?>(null) }
     val screenState by (activeConnection?.state ?: emptyState).collectAsState()
+    val takeoverActive = screenState?.driver == "user"
     val decoder = remember { platformScreenImageDecoder() }
     val frameClockError = stringResource(Res.string.computer_frame_clock_error)
     val decodeError = stringResource(Res.string.computer_decode_error)
     val connectionError = stringResource(Res.string.computer_connection_error)
     val requestError = stringResource(Res.string.computer_request_failed)
-    val canInput = takeover && screenState?.driver == "user"
+    // A resumed screen may already belong to the user after a process/page
+    // restart. The server's driver=user is the authoritative result of
+    // takeover.start, so it restores input and offers release without a
+    // second takeover.start.
+    val canInput = takeoverActive
     // Keep stable State holders so the long-lived pointer coroutine always reads
     // the latest Compose values without restarting on every frame or pan update.
     val currentCanInput = rememberUpdatedState(canInput)
@@ -187,7 +191,6 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                 if (takeoverHostId == connectionHostId && connectionHostId != null) {
                     releaseTakeover(repository, connectionHostId, botId)
                     takeoverHostId = null
-                    takeover = false
                 }
                 try { connection.stop() } catch (_: Throwable) { }
             }
@@ -195,10 +198,10 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
         }
     }
 
-    LaunchedEffect(selectedTab, takeover) {
+    LaunchedEffect(selectedTab, takeoverActive) {
         val connection = activeConnection ?: return@LaunchedEffect
         val stateTab = selectedTab ?: return@LaunchedEffect
-        if (takeover) try { connection.switchTab(stateTab) } catch (_: Throwable) { }
+        if (takeoverActive) try { connection.switchTab(stateTab) } catch (_: Throwable) { }
     }
 
     val tabs = screenState?.tabs.orEmpty()
@@ -208,7 +211,7 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                 Text("‹", color = Color.White, style = MaterialTheme.typography.headlineSmall)
             }
             Text(stringResource(Res.string.computer_title), Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium)
-            Text(statusLabel(takeover, screenState?.driver), color = if (takeover) MaterialTheme.colorScheme.primary else Color.White, style = MaterialTheme.typography.labelMedium)
+            Text(statusLabel(screenState?.driver), color = if (takeoverActive) MaterialTheme.colorScheme.primary else Color.White, style = MaterialTheme.typography.labelMedium)
         }
         HorizontalDivider(color = Color.DarkGray)
         if (tabs.isNotEmpty()) {
@@ -341,32 +344,31 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
         Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(Res.string.computer_quality), color = Color.LightGray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 4.dp))
             Quality.entries.forEach { candidate ->
-                FilterChip(quality == candidate, { if (!takeover) quality = candidate }, enabled = !takeover, label = { Text(candidate.label()) })
+                FilterChip(quality == candidate, { if (!takeoverActive) quality = candidate }, enabled = !takeoverActive, label = { Text(candidate.label()) })
             }
             Text("×${zoom.toString().take(4)}", color = Color.LightGray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 4.dp))
             Text(stringResource(Res.string.computer_fps, fps.toInt(), frameAgeMs), color = Color.LightGray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 4.dp))
             Text(
-                takeoverError ?: statusLabel(takeover, screenState?.driver),
+                takeoverError ?: statusLabel(screenState?.driver),
                 color = if (takeoverError != null) MaterialTheme.colorScheme.error else Color.Gray,
                 maxLines = 1,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
             Button(onClick = {
-                if (!takeover) scope.launch {
+                if (!takeoverActive) scope.launch {
                     takeoverError = captureError(requestError) { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
                     if (takeoverError == null) {
                         takeoverHostId = activeHost?.id
-                        takeover = true
                     }
                 } else releaseDialog = true
-            }, modifier = Modifier.height(36.dp)) { Text(if (takeover) stringResource(Res.string.computer_release) else stringResource(Res.string.computer_takeover)) }
+            }, modifier = Modifier.height(36.dp)) { Text(if (takeoverActive) stringResource(Res.string.computer_release) else stringResource(Res.string.computer_takeover)) }
         }
     }
     if (releaseDialog) AlertDialog(onDismissRequest = { releaseDialog = false }, title = { Text(stringResource(Res.string.computer_release)) }, text = { OutlinedTextField(releaseNote, { releaseNote = it }, label = { Text(stringResource(Res.string.computer_release_note)) }) }, confirmButton = { Button(onClick = {
         scope.launch {
             takeoverError = captureError(requestError) { repository.call("takeover.release", buildJsonObject { put("bot_id", botId); if (releaseNote.isNotBlank()) put("note", releaseNote) }) }
-            if (takeoverError == null) { takeoverHostId = null; takeover = false; releaseDialog = false; releaseNote = "" }
+            if (takeoverError == null) { takeoverHostId = null; releaseDialog = false; releaseNote = "" }
         }
     }) { Text(stringResource(Res.string.computer_release)) } }, dismissButton = { TextButton(onClick = { releaseDialog = false }) { Text(stringResource(Res.string.common_close)) } })
 }
@@ -459,5 +461,5 @@ internal fun mapToFrame(offset: Offset, viewport: IntSize, frame: ScreenFrame?, 
     val localY = (offset.y - viewport.height / 2f - pan.y) / zoom + viewport.height / 2f
     return Offset(((localX - left) / scale).coerceIn(0f, header.width.toFloat()), ((localY - top) / scale).coerceIn(0f, header.height.toFloat()))
 }
-@Composable private fun statusLabel(takeover: Boolean, driver: String?): String = when { takeover && driver == "user" -> stringResource(Res.string.computer_takeover_active); driver == "idle" || driver == null -> stringResource(Res.string.computer_idle); else -> stringResource(Res.string.computer_bot_working) }
+@Composable private fun statusLabel(driver: String?): String = when { driver == "user" -> stringResource(Res.string.computer_takeover_active); driver == "idle" || driver == null -> stringResource(Res.string.computer_idle); else -> stringResource(Res.string.computer_bot_working) }
 @Composable private fun Quality.label(): String = when (this) { Quality.AUTO -> stringResource(Res.string.computer_auto); Quality.LOW -> stringResource(Res.string.computer_quality_low); Quality.HIGH -> stringResource(Res.string.computer_quality_high) }
