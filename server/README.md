@@ -59,7 +59,7 @@ macbotd update
 
 ## LaunchAgent 和分发包
 
-源码安装会为当前用户构建 release，安装无界面的 `~/Applications/MacBot Server.app`（`LSUIElement=true`）、`~/.local/bin/macbotd`/`macbot`，并加载 `~/Library/LaunchAgents/com.macbot.server.plist`。源码安装和 `.pkg` 都将 agent-browser 0.38.2 sidecar 及其 Apache-2.0 许可证放入 App；首次构建下载固定版本并校验 SHA256，以后复用 `server/target/sidecars/` 缓存。可设置 `MACBOT_BROWSER_BIN` 使用已有 sidecar：
+源码安装会为当前用户构建 release，安装无界面的 `~/Applications/MacBot Server.app`（`LSUIElement=true`）、`~/.local/bin/macbotd`/`macbot`，并加载 `~/Library/LaunchAgents/com.macbot.server.plist`。源码安装和 `.pkg` 都将 agent-browser 0.39.0 sidecar 及其 Apache-2.0 许可证放入 App；该版本包含 Chrome 144+ 远程调试确认框的等待和重复弹窗修复。首次构建下载固定版本并校验 SHA256，以后复用 `server/target/sidecars/` 缓存。可设置 `MACBOT_BROWSER_BIN` 使用已有 sidecar：
 
 ```sh
 MACBOT_HOME="$HOME/MacBot" server/macbotd/packaging/install-launchagent.sh

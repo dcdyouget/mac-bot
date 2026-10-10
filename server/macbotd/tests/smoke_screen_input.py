@@ -582,7 +582,7 @@ def main() -> None:
     parser.add_argument("--url", default=f"http://127.0.0.1:{DEFAULT_PORT}")
     parser.add_argument("--password", default="dev")
     parser.add_argument("--home", type=Path, default=Path("/tmp/macbot-screen-input-20261010b"))
-    parser.add_argument("--browser-bin", default="/tmp/macbot-agent-browser-0.38.2")
+    parser.add_argument("--browser-bin", default="/tmp/macbot-agent-browser-0.39.0")
     parser.add_argument("--daemon-command", required=True)
     parser.add_argument("--quality", choices=("low", "high"), default="low")
     parser.add_argument("--diagnose", action="store_true", help="record failed submit checks and exit successfully")

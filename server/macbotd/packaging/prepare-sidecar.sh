@@ -2,10 +2,10 @@
 set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 DESTINATION="${1:?usage: prepare-sidecar.sh destination}"
-VERSION=0.38.2
+VERSION=0.39.0
 case "$(uname -m)" in
-  arm64) ARCH=arm64; EXPECTED=8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9 ;;
-  x86_64) ARCH=x64; EXPECTED=787cb40e086a188d0bb13ff29a99a0b2380aff3aa5e8600b8f8131a0b98ca69c ;;
+  arm64) ARCH=arm64; EXPECTED=636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa ;;
+  x86_64) ARCH=x64; EXPECTED=0be38dcda754379adb6494edad8da1ab935de4482e9911881abecf2c2dde8a7d ;;
   *) echo "unsupported sidecar architecture" >&2; exit 1 ;;
 esac
 if [ -n "${MACBOT_BROWSER_BIN:-}" ]; then

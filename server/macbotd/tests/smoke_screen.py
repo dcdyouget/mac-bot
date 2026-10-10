@@ -8,7 +8,7 @@ API key is used.
 
 Use a port different from the takeover smoke (the default is 7815):
 
-  MACBOT_BROWSER_BIN=/tmp/macbot-agent-browser-0.38.2 \
+  MACBOT_BROWSER_BIN=/tmp/macbot-agent-browser-0.39.0 \
     server/target/debug/macbotd --port 7815 --password dev \
       --home /tmp/macbot-screen-smoke
   python3 server/macbotd/tests/smoke_screen.py --url http://127.0.0.1:7815 \
@@ -808,7 +808,7 @@ def main() -> None:
     parser.add_argument("--url", default=f"http://127.0.0.1:{DEFAULT_PORT}")
     parser.add_argument("--password", default="dev")
     parser.add_argument("--home", type=Path, default=None)
-    parser.add_argument("--browser-bin", default="/tmp/macbot-agent-browser-0.38.2")
+    parser.add_argument("--browser-bin", default="/tmp/macbot-agent-browser-0.39.0")
     parser.add_argument("--daemon-command")
     parser.add_argument("--keep-home", action="store_true")
     args = parser.parse_args()
