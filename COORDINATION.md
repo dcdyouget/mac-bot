@@ -517,3 +517,10 @@
 - 两个原项目均由实际Tester形成浏览器报告，demo未手改；parallel报告保留未测项，first index登录/刷新/退出/375px实测。主Bot均汇总至review，两张原生主私聊待验收卡各含页面与报告，未确认完成。first公告重复登记同路径产物保留；运行重叠112.033秒仅为局部并行证据。
 - 最新07a3245 pkg审计通过、未fresh安装；Android System UI无响应且CUA无控制面，adb控制方式及X会话使用待用户回应。S0仍唯一整阶段通过。证据见docs/progress/S1/production-07a3245-*与S2两群journal。
 - 根协调单独提交理由：更新已部署序号缺口修复和实际待验收状态，避免继续沿用旧失败/未交付结论；文档不触发组件部署。
+
+## integrator：真实kill‑9恢复、流式轨迹及退订修复（2026-10-10）
+
+- 07a3245正式单Bot安全checkpoint后kill‑9，核验PID34089→43442；同run恢复read并done，Bash未重放、marker哈希不变，原生消息自动更新。真实轨迹检查发现history固定live=false，7f0a5dd修复未结束run状态；随后实际桌面11行→60行→80行、轨迹自动追加run.end及回放通过，41正文片段/52轨迹片段证据已留档。
+- 原生关闭又发现trace.unsubscribe漏接production，fe360a2修复；192 gateway测试和严格clippy通过。仅部署server，PID49651，桌面2f09174与Android cac5b12保持。待审批/等待checkpoint/browser哈希保持；正式8订阅容量、第9拒绝、退订释放后补订阅与全部退订通过。原生返回键可退出且无错误，“收起”按钮未可靠验证，不计通过。
+- main代码已推至fe360a2；最新fe360a2 pkg源码/daemon/sidecar审计通过，未fresh安装。Android最新实看仍为System UI无响应，CUA无模拟器控制面、adb输入方式及X会话使用仍待用户回应；fresh管理页新密码需用户接手输入。S0仍唯一整阶段通过，S1/S2新增为真实局部证据。
+- 根协调单独提交理由：记录当前运行版本、真实恢复/流式结论、失败证据及外部条件，避免把单端测试当作全阶段完成；不因文档提交重部署。详情见docs/progress/S2/2026-10-10-takeover-closeout.md。
