@@ -24,6 +24,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
@@ -209,7 +210,7 @@ class ClientRepositoryMultiHostTest {
     }
 
     @Test
-    fun durableSnapshotPrecedesCursorAndSerializesStateWhileSnapshotIsBlocked(): Unit = runBlocking {
+    fun durableSnapshotDoesNotBlockEventApplicationWhilePreservingCursorOrdering(): Unit = runBlocking {
         val hostA = TestHost("node-a")
         val hostB = TestHost("node-b")
         val (repository, storage) = repositoryWithStorage(hostA, hostB)
@@ -225,28 +226,28 @@ class ClientRepositoryMultiHostTest {
             }, 1))
             withTimeout(2_000) { storage.snapshotWriteStarted.await() }
 
-            socket.send(event("bot.updated", buildJsonObject {
-                put("bot", buildJsonObject { put("id", "race-bot"); put("name", "second") })
-            }, 2))
-            delay(100)
+            for (seq in 2L..20L) {
+                socket.send(event("bot.updated", buildJsonObject {
+                    put("bot", buildJsonObject { put("id", "race-bot"); put("name", "event-$seq") })
+                }, seq))
+            }
+            withTimeout(2_000) {
+                while (repository.hostStates.value.getValue("a").bots.single { it.str("id") == "race-bot" }.str("name") != "event-20") delay(10)
+            }
             assertEquals(0L, storage.lastSeq("a"))
-            assertEquals(
-                "first",
-                repository.hostStates.value.getValue("a").bots.single { it.str("id") == "race-bot" }.str("name"),
-            )
 
             storage.releaseSnapshotWrites.complete(Unit)
             withTimeout(3_000) {
-                while (storage.lastSeq("a") < 2L) delay(10)
+                while (storage.lastSeq("a") < 20L) delay(10)
             }
             withTimeout(3_000) {
-                while (repository.hostStates.value.getValue("a").bots.single { it.str("id") == "race-bot" }.str("name") != "second") delay(10)
+                while (repository.hostStates.value.getValue("a").bots.single { it.str("id") == "race-bot" }.str("name") != "event-20") delay(10)
             }
             val relevant = storage.writes().filter { it == "snapshot:a" || it == "last_seq:a" }
             assertTrue(relevant.indexOf("snapshot:a") < relevant.indexOf("last_seq:a"))
-            assertEquals(2L, protocolJson.decodeFromString<MobileState>(storage.read("snapshot:a")!!).lastSeq)
+            assertEquals(20L, protocolJson.decodeFromString<MobileState>(storage.read("snapshot:a")!!).lastSeq)
             assertEquals(
-                "second",
+                "event-20",
                 protocolJson.decodeFromString<MobileState>(storage.read("snapshot:a")!!).bots.single { it.str("id") == "race-bot" }.str("name"),
             )
         } finally {
@@ -257,18 +258,111 @@ class ClientRepositoryMultiHostTest {
         }
     }
 
+    @Test
+    fun failedDurableSnapshotDoesNotAdvanceCursor(): Unit = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val (repository, storage) = repositoryWithStorage(hostA, hostB)
+        try {
+            awaitConnected(repository, "a", "b")
+            val socket = withTimeout(2_000) { hostA.sockets.receive() }
+            storage.failSnapshotWrites = true
+            socket.send(event("bot.updated", buildJsonObject {
+                put("bot", buildJsonObject { put("id", "failed-bot"); put("name", "not-durable") })
+            }, 1))
+            withTimeout(3_000) { storage.snapshotWriteStarted.await() }
+            delay(100)
+            assertEquals(0L, storage.lastSeq("a"))
+            assertFalse(storage.read("snapshot:a").orEmpty().contains("failed-bot"))
+        } finally {
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
+    @Test
+    fun resetFenceRejectsSnapshotCapturedBeforeReconnectReset(): Unit = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        hostA.bootstrapBots = listOf(buildJsonObject { put("id", "fresh-bot") })
+        val captured = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val armed = AtomicBoolean(false)
+        val barrier: suspend () -> Unit = {
+            if (armed.compareAndSet(true, false)) {
+                captured.complete(Unit)
+                release.await()
+            }
+        }
+        val (repository, storage) = repositoryWithStorage(hostA, hostB, barrier)
+        try {
+            awaitConnected(repository, "a", "b")
+            val socket = withTimeout(2_000) { hostA.sockets.receive() }
+            // The initial reset and refresh writes are complete before arming
+            // the one-shot barrier for the event under test.
+            delay(500)
+            storage.drainLastSeqWrites()
+            // First establish a durable high cursor. The reconnect bootstrap
+            // below deliberately returns seq 0 and must replace this snapshot.
+            socket.send(event("bot.updated", buildJsonObject {
+                put("bot", buildJsonObject { put("id", "old-bot"); put("name", "old") })
+            }, 1))
+            withTimeout(3_000) {
+                while (storage.lastSeq("a") != 1L) delay(10)
+            }
+            storage.drainLastSeqWrites()
+            delay(300)
+
+            armed.set(true)
+            socket.send(event("bot.updated", buildJsonObject {
+                put("bot", buildJsonObject { put("id", "pre-reset-bot"); put("name", "stale") })
+            }, 2))
+            withTimeout(3_000) { captured.await() }
+
+            // Reconnect drives the real MainConnection reset path. The reset
+            // writes its lower cursor while the old snapshot is still paused
+            // before the per-host fence; only then may that snapshot continue.
+            hostA.enqueueConnection()
+            socket.close(1000, "test reconnect")
+            withTimeout(5_000) {
+                while (storage.lastSeqWrites.receive() != 0L) Unit
+            }
+            release.complete(Unit)
+
+            awaitConnected(repository, "a", "b")
+            withTimeout(3_000) {
+                while (storage.lastSeq("a") != 0L) delay(10)
+            }
+            val snapshot = storage.read("snapshot:a").orEmpty()
+            assertTrue(snapshot.contains("fresh-bot"))
+            assertFalse(snapshot.contains("old-bot"))
+            assertFalse(snapshot.contains("pre-reset-bot"))
+            assertEquals(0L, protocolJson.decodeFromString<MobileState>(snapshot).lastSeq)
+        } finally {
+            if (!release.isCompleted) release.complete(Unit)
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
     private suspend fun repository(hostA: TestHost, hostB: TestHost): ClientRepository {
         return repositoryWithStorage(hostA, hostB).first
     }
 
-    private suspend fun repositoryWithStorage(hostA: TestHost, hostB: TestHost): Pair<ClientRepository, MemoryPersistentStore> {
+    private suspend fun repositoryWithStorage(
+        hostA: TestHost,
+        hostB: TestHost,
+        beforeSnapshotWrite: (suspend () -> Unit)? = null,
+    ): Pair<ClientRepository, MemoryPersistentStore> {
         val storage = MemoryPersistentStore()
         val credentials = MemoryCredentialStore(mapOf("a" to "dev", "b" to "dev"))
         storage.write("host_records", protocolJson.encodeToString(listOf(
             SavedHost("a", "A", listOf(hostA.address())),
             SavedHost("b", "B", listOf(hostB.address())),
         )))
-        val repository = ClientRepository(storage, credentials)
+        val repository = ClientRepository(storage, credentials, beforeSnapshotWrite)
         repository.initialize()
         return repository to storage
     }
@@ -296,6 +390,7 @@ class ClientRepositoryMultiHostTest {
         var blockChatSends = false
         val releaseChatSends = CountDownLatch(1)
         val failNextChatSend = AtomicBoolean(false)
+        var bootstrapBots: List<JsonObject> = emptyList()
         private val allSockets = mutableListOf<WebSocket>()
 
         init {
@@ -347,7 +442,10 @@ class ClientRepositoryMultiHostTest {
             val id = request["id"]?.toString()?.trim('"') ?: return
             when (request["method"]?.toString()?.trim('"')) {
                 "session.resume" -> webSocket.send(response(id, buildJsonObject { put("mode", "reset") }))
-                "bootstrap" -> webSocket.send(response(id, buildJsonObject { put("seq", 0) }))
+                "bootstrap" -> webSocket.send(response(id, buildJsonObject {
+                    put("seq", 0)
+                    put("bots", buildJsonArray { host.bootstrapBots.forEach { add(it) } })
+                }))
                 "chat.send" -> {
                     host.writeRequests.trySend(request)
                     if (host.failNextChatSend.compareAndSet(true, false)) {
@@ -395,11 +493,14 @@ class ClientRepositoryMultiHostTest {
         private val values = mutableMapOf<String, String>()
         private val writeLog = mutableListOf<String>()
         var blockSnapshotWrites = false
+        var failSnapshotWrites = false
         val snapshotWriteStarted = CompletableDeferred<Unit>()
         val releaseSnapshotWrites = CompletableDeferred<Unit>()
+        val lastSeqWrites = Channel<Long>(Channel.UNLIMITED)
 
         override suspend fun read(key: String): String? = synchronized(this) { values[key] }
         override suspend fun write(key: String, value: String) {
+            if (key.startsWith("last_seq:")) value.toLongOrNull()?.let { lastSeqWrites.trySend(it) }
             synchronized(this) {
                 values[key] = value
                 writeLog += key
@@ -411,11 +512,18 @@ class ClientRepositoryMultiHostTest {
                 releaseSnapshotWrites.await()
                 blockSnapshotWrites = false
             }
+            if (failSnapshotWrites && key == "snapshot:a") {
+                snapshotWriteStarted.complete(Unit)
+                throw IllegalStateException("snapshot write failed")
+            }
             write(key, value)
         }
         override suspend fun delete(key: String) { synchronized(this) { values.remove(key) } }
         fun clearWrites() = synchronized(this) { writeLog.clear() }
         fun writes(): List<String> = synchronized(this) { writeLog.toList() }
+        fun drainLastSeqWrites() {
+            while (lastSeqWrites.tryReceive().isSuccess) Unit
+        }
     }
 
     private class MemoryCredentialStore(initial: Map<String, String>) : CredentialStore {

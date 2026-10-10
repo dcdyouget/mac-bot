@@ -19,6 +19,7 @@ internal class DurableSnapshotGate(
     private val flush: suspend (seq: Long) -> Unit,
 ) {
     private val mutex = Mutex()
+    private val flushMutex = Mutex()
     private var pendingSeq: Long? = null
     private var pendingCount = 0
     private var timer: Job? = null
@@ -39,18 +40,23 @@ internal class DurableSnapshotGate(
                 }
             }
         }
-        if (flushNow) flushPending()
+        // Never make the websocket receive coroutine wait for snapshot I/O.
+        // flushPending serializes the actual writes separately and reset/close
+        // still await that serializer when ordering matters.
+        if (flushNow) scope.launch { flushPending() }
     }
 
     suspend fun flushPending() {
-        val seq = mutex.withLock {
-            val value = pendingSeq
-            pendingSeq = null
-            pendingCount = 0
-            timer = null
-            value
-        } ?: return
-        flush(seq)
+        flushMutex.withLock {
+            val seq = mutex.withLock {
+                val value = pendingSeq
+                pendingSeq = null
+                pendingCount = 0
+                timer = null
+                value
+            } ?: return@withLock
+            flush(seq)
+        }
     }
 
     suspend fun close() {
