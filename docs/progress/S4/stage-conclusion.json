@@ -1,7 +1,7 @@
 {
-  "at": "2026-10-10T13:57:01.351502+00:00",
+  "at": "2026-10-10T14:37:03.014099+00:00",
   "stage": "S4",
-  "status": "pending_takeover_lifecycle_regression",
+  "status": "passed_real_joint_acceptance",
   "evidence": {
     "desktop_logged_in_x_and_corrected_summary": "production-ee7111a-x-acceptance-summary.json",
     "desktop_live_x_frames": "production-ee7111a-x-attach.json",
@@ -12,7 +12,8 @@
     "native_notification_allow_once": "production-98fb4a9-skill-notification-action.json",
     "isolated_native_notification_capacity": "production-962fb53-isolated-capacity.json",
     "takeover_lifecycle_regression": "production-9c9cd7d-takeover-state.json",
-    "new_question_runtime": "production-b037662-new-takeover.json"
+    "new_question_runtime": "production-b037662-new-takeover.json",
+    "live_cursor_gap": "production-53abef3-memory-cursor-gap.json"
   },
   "boundaries": [
     "Desktop keyboard and pointer input verified on owned local fixture; logged-in X read/summary and continuous screen separately verified.",
@@ -21,15 +22,28 @@
     "Old completed X request still has historical pending card from missing durable record; no guessed migration or replay.",
     "Current regression keeps existing waiting run; never infer success from model completion text."
   ],
-  "pending": [
-    "Remove incorrect approval_ref carrying question_id; both native histories must not falsely show pending approval.",
-    "Desktop answered question card must not offer submission; investigate new-message live update gap."
-  ],
+  "pending": [],
   "runtime_pass": {
     "source": "b037662",
     "existing_waiting_recovery": "production-b037662-card-done.json",
     "new_request_question_closed_same_run": "production-b037662-new-done.json",
     "unrelated_pending_unchanged": 7,
-    "unrelated_baseline_jobs_unchanged": 160
+    "unrelated_baseline_jobs_unchanged": 160,
+    "incorrect_approval_ref_removed": "production-5b244ea-card-repaired.json",
+    "final_server": "3635008f6c8c60e9fbd32747e140990496f4d029",
+    "final_desktop": "508f325db682ea802386fbc844badf1b44b0a9b0",
+    "final_android": "04b0c3d515cabbc55681f1c630b115674c8edb94",
+    "native_same_run": "production-508f325-native-takeover.json",
+    "old_cursor_replay": "production-3635008-old-cursor-replay.json",
+    "native_desktop_old_cursor_recovered": "production-3635008-desktop-recovered.png"
+  },
+  "operational_issue": {
+    "evidence": "production-5b244ea-restart.json",
+    "normal_restart_seconds": 103,
+    "root_cause": "ProductionBackend::open parses entire 929MB orchestrator operations JSONL",
+    "fix_in_progress": false,
+    "fix_source": "90e637a",
+    "validation": "Server-only deployment passed 30-second health deadline; precise restart timing is not asserted.",
+    "fix_evidence": "production-90e637a-upgrade-after.json"
   }
 }

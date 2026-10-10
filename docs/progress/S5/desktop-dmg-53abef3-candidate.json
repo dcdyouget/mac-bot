@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-10T14:16:08.928386+00:00",
+  "source_commit": "53abef3f368843d77255805ffda3502e31562dd6",
+  "source_dirty": false,
+  "app": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-53abef3f368843d77255805ffda3502e31562dd6/clients/mac/dist/MacBot.app",
+  "dmg": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-53abef3f368843d77255805ffda3502e31562dd6/clients/mac/dist/MacBot.dmg",
+  "dmg_sha256": "f0c573d20f7ffe7e8f37595b8abc42d20daac04d34f8fbcf3e02e2d9915a7aaa",
+  "signed_binary_sha256": "bef8f2004435f875f7c74623fa6510b838281adb2b9732a01b0aa5909563c5d7",
+  "unsigned_binary_sha256": "4742e1f2295ac03607afd210db88ffa99880e4c063b503edc005dada8cfb8935",
+  "actual_build": "CARGO_TARGET_DIR=~/Library/Caches/MacBot/integrator/target/desktop cargo build --release -p macbot-desktop from clean53 archive; completed64sec",
+  "targeted_tests": [
+    "question_answered_event_updates_cached_question_state passed on current source",
+    "answered_question_does_not_render_pending_controls passed on current source"
+  ],
+  "codesign_strict": true,
+  "hdiutil_verify": true,
+  "first_attempt": {
+    "status": "failed native verification; stale code despite matching source stamp",
+    "dmg_sha256": "f764e48b4bf835c44740a3e7e52b67fcea8797736556767a2039cdd2c08d449f",
+    "signed_binary_sha256": "ed8eab5d386dc4785f29d96e1426f1d395ebc1881e95145c77974c4ec02a35b6",
+    "saved_directory": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/failed-attempt-desktop-53abef3f368843d77255805ffda3502e31562dd6",
+    "independent_check": "LC_CODE_SIGNATURE prefix byte-identical to pre-53 app; different signatures did not prove updated code"
+  },
+  "fresh_install_pass": false,
+  "native_verification": "pending corrected binary UI check"
+}

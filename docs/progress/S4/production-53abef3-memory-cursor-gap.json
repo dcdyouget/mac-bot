@@ -1,0 +1,170 @@
+{
+  "at": "2026-10-10T14:20:36.181040+00:00",
+  "desktop_source": "53abef3",
+  "installed_signed_binary_sha256": "bef8f2004435f875f7c74623fa6510b838281adb2b9732a01b0aa5909563c5d7",
+  "server_source": "90e637a",
+  "desktop_cached_last_seq": 6387,
+  "server_bootstrap_seq": 6401,
+  "events_metadata_only": [
+    {
+      "seq": 6384,
+      "event": "trace.item",
+      "data_keys": [
+        "item",
+        "stream"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6385,
+      "event": "read.updated",
+      "data_keys": [
+        "chat_id",
+        "last_read_seq"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6386,
+      "event": "trace.item",
+      "data_keys": [
+        "item",
+        "stream"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6387,
+      "event": "message.updated",
+      "data_keys": [
+        "message"
+      ],
+      "message_id": "msg_run_chat_01a1262d_eb6a_755a_828e_bfd3fb9f77c3"
+    },
+    {
+      "seq": 6388,
+      "event": "memory.updated",
+      "data_keys": [
+        "entry"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6389,
+      "event": "trace.item",
+      "data_keys": [
+        "item",
+        "stream"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6390,
+      "event": "message.created",
+      "data_keys": [
+        "message"
+      ],
+      "message_id": "01a1262e-54ba-77c7-923c-30ea3b284236"
+    },
+    {
+      "seq": 6391,
+      "event": "read.updated",
+      "data_keys": [
+        "chat_id",
+        "last_read_seq"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6392,
+      "event": "message.created",
+      "data_keys": [
+        "message"
+      ],
+      "message_id": "msg_run_chat_01a1262e_54ba_77c7_923c_30ea3b284236"
+    },
+    {
+      "seq": 6393,
+      "event": "trace.item",
+      "data_keys": [
+        "item",
+        "stream"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6394,
+      "event": "trace.item",
+      "data_keys": [
+        "item",
+        "stream"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6395,
+      "event": "read.updated",
+      "data_keys": [
+        "chat_id",
+        "last_read_seq"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6396,
+      "event": "trace.item",
+      "data_keys": [
+        "item",
+        "stream"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6397,
+      "event": "trace.item",
+      "data_keys": [
+        "item",
+        "stream"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6398,
+      "event": "trace.item",
+      "data_keys": [
+        "item",
+        "stream"
+      ],
+      "message_id": null
+    },
+    {
+      "seq": 6399,
+      "event": "message.created",
+      "data_keys": [
+        "message"
+      ],
+      "message_id": "msg_takeover_question_msg_takeover_run_chat_01a1262e_54ba_77c7_923c_30ea3b284236"
+    },
+    {
+      "seq": 6400,
+      "event": "message.created",
+      "data_keys": [
+        "message"
+      ],
+      "message_id": "msg_takeover_run_chat_01a1262e_54ba_77c7_923c_30ea3b284236"
+    },
+    {
+      "seq": 6401,
+      "event": "read.updated",
+      "data_keys": [
+        "chat_id",
+        "last_read_seq"
+      ],
+      "message_id": null
+    }
+  ],
+  "memory_content_excluded": true,
+  "waiting_run": "run_chat_01a1262e_54ba_77c7_923c_30ea3b284236",
+  "question_id": "01a1262e-6f7a-7280-b06b-ac6df1d43dc9",
+  "action": "Do not resend, resume current native request after event compatibility repair."
+}

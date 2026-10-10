@@ -1,16 +1,15 @@
 # S5 全新安装演练计划
 
-状态：**未执行，不能计 S5 通过**。这是可逆操作计划，不是验收记录。
-
-最新候选（2026-10-10）：S0–S3已通过；S4 核心链路已有真实证据，但当前复审仍发现 question 残留 P1，最终 server SHA 尚未冻结。6ba7efe pkg 仅作中间审计证据，不能安装或计入 fresh；待后续修复完成并通过 runtime 实测后再冻结最终 pkg。桌面候选为 `ba0e8f17b5dfd779efc5cd4b41c7168a57d70b72`，sidecar 为 agent-browser 0.39.0。Android `04b0c3d515cabbc55681f1c630b115674c8edb94` Release APK 已同签名 `install -r` 保留数据并完成长聊天最新消息/上滑实看，但仍仅作后续 S5 候选（见 [android-04b0c3d-release-candidate.json](android-04b0c3d-release-candidate.json)）；未执行 fresh。用户属于admin但sudo不能免密，安装时需要用户完成管理员认证，管理页新密码按下文交接。历史版本说明不覆盖本段。
-
-当前停止条件：最终 server SHA/pkg 尚未冻结；6ba7efe、08c73a0 与更早包仅保留为中间证据，均不安装。当前 P1 是 question 状态残留，需后续修复并实测。桌面候选为 `ba0e8f17b5dfd779efc5cd4b41c7168a57d70b72`；Android `04b0c3d` 已完成保留数据的常规 `install -r` 聊天实看，但未计入 S5 fresh 实测。Mac 已解锁。S0、S1、S3 已通过；S4 X/Android 核心链路有证据但交还后的 pending block/UI 残留仍待 server/client 修复与回归；S5 fresh 未执行。原旧 siblings/未知审批保持，不自动取消或批准。
+状态：**未执行，不能计 S5 通过**。S0–S4通过，详见各阶段结论及真实双端证据。旧现场完整，现有仓库外备份目录仍为空。以下版本为本次已审计候选；旧版本及失败证据保留在相应 JSON 和 Git 历史，不再作为安装入口。
 
 ## 前置条件与路径
 
-- server 最终 fresh pkg 尚未冻结；最近的 6ba7efe `.pkg` SHA-256 为 `4ee0685c34fb56e48ff021bbf7f6fd21c2a1d4f9d7fc400eeabd0b1a7b364d4c`，source/build-info/dirty=false、daemon/sidecar SHA 和包 smoke 已核对，见 [server-pkg-6ba7efe-verified.json](server-pkg-6ba7efe-verified.json)，但 question P1 runtime 复审未闭环，不能安装或计 fresh。历史 `08c73a0`、`9c9cd7d`、`bb790b0`、`9c20fc4`、`7481d8e4` 等 pkg 审计记录继续保留。
-- client-mac 当前候选为 `ba0e8f17b5dfd779efc5cd4b41c7168a57d70b72`，DMG SHA-256 为 `51e022be7bb6cc974369ec45256ea79e142aeda7ea854307a75adec87c4ae014`，已通过签名校验并作为普通更新安装；不计 fresh，见 [desktop-dmg-ba0e8f1-candidate.json](desktop-dmg-ba0e8f1-candidate.json)。历史 `6eaa91a`、`71fddde` 记录继续保留。
-- client-android `04b0c3d` Release APK 为待验收候选，SHA-256 为 `245ff19c9a1e94052d9b01a6f25ac31ff865d73ddb7b4044a97af6cb576098da`，已完成同签名 `adb install -r` 的常规升级实看；正式 fresh 仍未执行，且只允许同签名 `adb install -r`，不卸载、不清空现有数据。
+- server：`3635008f6c8c60e9fbd32747e140990496f4d029`，pkg SHA-256 `567810aa9be65737b37870dceeed32cc8cce9b38a59ddede4b4e4407ff7f1e60`。clean archive、dirty=false、daemon/sidecar、LaunchAgent、包 smoke 通过；见 [server-pkg-3635008-verified.json](server-pkg-3635008-verified.json)。当前正式服务已仅服务升级，旧审批/任务保持；pkg尚未安装。
+- desktop：`508f325db682ea802386fbc844badf1b44b0a9b0`，DMG SHA-256 `56636f8d8c222e1462bd03973f95eedfe489e5a98a7212e0456e31114017e019`。干净归档实际Release构建、签名/镜像校验通过，已作为普通更新安装；见 [desktop-dmg-508f325-candidate.json](desktop-dmg-508f325-candidate.json)。普通更新不计fresh。
+- Android：`04b0c3d515cabbc55681f1c630b115674c8edb94`，Release APK SHA-256 `245ff19c9a1e94052d9b01a6f25ac31ff865d73ddb7b4044a97af6cb576098da`。同签名install-r普通更新已实看；fresh继续保留应用和数据，只增加新的Host。
+- sidecar：agent-browser 0.39.0。pkg为未签名开发候选，桌面为ad hoc签名；不冒充Developer ID签名公证分发。
+- 安装需要用户在具体Installer认证提示处接手；管理页首次新密码的输入、确认和提交也按CUA工具要求由用户完成。准备页面之前不重复请求授权。测试密码值不写入日志、截图或提交。
+
 - PLAN 第 6 章 S5 权威顺序是 `pkg → 设置密码 → 两端连接 → 完整场景`（`docs/PLAN.md:524-531`）；服务端安装见 `server/README.md:60-97`，桌面 DMG 见 `clients/mac/README.md:37-52`。
 
 必须区分服务 App 路径：
@@ -97,9 +96,3 @@ adb -s emulator-5554 shell pm path bot.mac.mobile
 3. S5 通过条件是 pkg 安装、管理页设密码、两端连接、完整场景和截图全部完成。失败时保留新现场和证据；停止新 LaunchAgent 后，从仓库外备份恢复 `~/MacBot`、plist、对应 App 路径和 CLI links，恢复原外部 file secret 目录，Keychain 不变，再核对 source/PID/health。不要清空 Android 数据或密钥，也不要混用新旧数据。
 
 当前状态：S5 fresh install 未执行。当前业务部署不构成 fresh；执行前需冻结最终版本并核对本计划列出的 server pkg，本计划文件本身不构成安装或验收通过。
-
-2026-10-10 历史现场补充：server `14a3b18`、桌面 `e14d0a8` Release、Android `5e2fbcc` 签名 Release。桌面 App/DMG 已从干净归档构建并通过签名与镜像校验，正常更新安装不计 fresh；当时的锁屏和搜索误分类记录保留，前文历史版本和停止条件不代表最新部署。
-
-2026-10-10 历史现场补充（不代表当前阻塞）：server `9c20fc4`、桌面 `6eaa91a`、Android `5e2fbcc`；Mac 已解锁。该快照中的 S2/S4 待答记录保留，当前最终 server SHA 需以后续修复和 runtime 实测为准；S5 fresh 仍未执行。
-
-后续只读核对：Chrome授权弹窗已消失，不能等同于批准连接；X验收仍未通过，测试Bot已恢复原headless模式。server9c20fc4正常重启后8.673秒健康，12pending/154jobs保持，当前PID94543。

@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-10T14:29:41.293207+00:00",
+  "source": "508f325db682ea802386fbc844badf1b44b0a9b0",
+  "app": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-508f325db682ea802386fbc844badf1b44b0a9b0/clients/mac/dist/MacBot.app",
+  "dmg": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-508f325db682ea802386fbc844badf1b44b0a9b0/clients/mac/dist/MacBot.dmg",
+  "executable_sha256": "0b31e94bbbc7e28280939c18aee710dd274492b22e79ea1537b60110ed5bb1ae",
+  "dmg_sha256": "56636f8d8c222e1462bd03973f95eedfe489e5a98a7212e0456e31114017e019",
+  "actual_release_build": true,
+  "build_seconds": 55.73,
+  "source_dirty": false,
+  "codesign_verified": true,
+  "targeted_tests_passed": 2,
+  "fresh_installed": false,
+  "installed": false
+}

@@ -67,5 +67,16 @@
     "after_reopen_result": "New completed message and done takeover visible; incorrect approval_ref and answered question submission still displayed.",
     "all_screenshots_viewed": true,
     "client_investigation_pending": true
+  },
+  "approval_ref_repair": {
+    "server": "5b244ead500166dc877fc39f5c8da64c1c81d72f",
+    "same_message_id_preserved": true,
+    "wrong_ref_removed": true,
+    "unknown_pending_and_jobs_unchanged": true,
+    "screenshots_viewed": [
+      "production-5b244ea-android-repaired.png",
+      "production-5b244ea-desktop-repaired.png"
+    ],
+    "desktop_answered_question_action_still_visible": true
   }
 }

@@ -12,5 +12,18 @@
     "Android application data",
     "unknown pending approvals and jobs"
   ],
-  "restore_plan": "Stop only new com.macbot.server; preserve fresh artifacts separately; restore each moved path from its distinct backup directory; bootstrap original plist; verify old source and health."
+  "restore_plan": "Stop only new com.macbot.server; preserve fresh artifacts separately; restore each moved path from its distinct backup directory; bootstrap original plist; verify old source and health.",
+  "preflight": {
+    "server_candidate": "3635008f6c8c60e9fbd32747e140990496f4d029",
+    "server_runtime": "3635008 healthy; old cursor replay restored, 7 approvals and164 jobs unchanged through deploy",
+    "desktop_candidate": "508f325db682ea802386fbc844badf1b44b0a9b0 actual Release built and installed; same-run native takeover/release passed",
+    "android_candidate": "04b0c3d515cabbc55681f1c630b115674c8edb94",
+    "fresh_gate": "S0-S4 passed; final fixed packages audited; ready for reversible offline backup then native Installer authentication",
+    "rpc_audit": "fresh-rpc-journal-audit.md",
+    "password_request": "User specified a development test value; value not stored here; native credential entry handoff remains required."
+  },
+  "prepared_empty_client_backup_dirs": [
+    "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-client",
+    "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-fresh"
+  ]
 }

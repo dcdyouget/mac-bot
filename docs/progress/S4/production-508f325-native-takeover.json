@@ -1,0 +1,98 @@
+{
+  "at": "2026-10-10T14:33:35.126495+00:00",
+  "server": "3635008f6c8c60e9fbd32747e140990496f4d029",
+  "desktop": "508f325db682ea802386fbc844badf1b44b0a9b0",
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "run_id": "run_chat_01a1262e_54ba_77c7_923c_30ea3b284236",
+  "question_id": "01a1262e-6f7a-7280-b06b-ac6df1d43dc9",
+  "reason": "desktop-live-53abef3",
+  "native_action": "takeover.start via installed desktop, then release same Bot",
+  "rpc_id_owner": "Installed client creates and persists its outbox UUID; no external write RPC sent by harness.",
+  "state": "passed_native_same_run",
+  "browser_input_authorized_for_this_regression": false,
+  "trace_resume": 297,
+  "trace_tool_end": 299,
+  "trace_run_done": 302,
+  "desktop_question_title": "已回答",
+  "desktop_action_controls_absent": true,
+  "android_takeover_controls_absent": true,
+  "waiting_for_bot": 0,
+  "desktop_last_seq": 6411,
+  "server_seq": 6415,
+  "post_fix_events": [
+    {
+      "seq": 6403,
+      "event": "question.answered"
+    },
+    {
+      "seq": 6404,
+      "event": "message.updated"
+    },
+    {
+      "seq": 6405,
+      "event": "message.updated"
+    },
+    {
+      "seq": 6406,
+      "event": "message.updated"
+    },
+    {
+      "seq": 6407,
+      "event": "message.updated"
+    },
+    {
+      "seq": 6408,
+      "event": "trace.item"
+    },
+    {
+      "seq": 6409,
+      "event": "trace.item"
+    },
+    {
+      "seq": 6410,
+      "event": "trace.item"
+    },
+    {
+      "seq": 6411,
+      "event": "trace.item"
+    },
+    {
+      "seq": 6412,
+      "event": "trace.item"
+    },
+    {
+      "seq": 6413,
+      "event": "message.updated"
+    },
+    {
+      "seq": 6414,
+      "event": "memory.updated"
+    },
+    {
+      "seq": 6415,
+      "event": "trace.item"
+    }
+  ],
+  "approval_unchanged": true,
+  "changed_jobs": [
+    "job_01a1262e-56bd-76a2-838f-1f77bcafccf9.json"
+  ],
+  "new_jobs": [],
+  "screenshots_viewed": [
+    "production-3635008-desktop-recovered.png",
+    "production-508f325-pending.png",
+    "production-508f325-native-active.png",
+    "production-508f325-native-done.png",
+    "production-508f325-android-done.png"
+  ],
+  "boundary": "This regression validates takeover lifecycle only. Headless restored chrome-error page had no screencast; actual X and local-fixture input evidence remain separate.",
+  "cache_observation": {
+    "conclusion": "disk cache last_seq6411 is a 5-second throttled snapshot, not live UI failure",
+    "cache_mtime_local": "2026-10-10T22:34:16.010",
+    "next_event6412_at_local": "2026-10-10T22:34:16.048",
+    "event6415_at_local": "2026-10-10T22:34:16.094",
+    "source": "clients/mac/crates/macbot-desktop/src/shell_features.rs persist_cache(false)",
+    "recovery": "On next client start session.resume replays remaining events; no cursor was manually changed."
+  }
+}

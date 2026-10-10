@@ -1,0 +1,48 @@
+{
+  "source_commit": "5b244ea",
+  "service_label": "com.macbot.server",
+  "pid_before": 55656,
+  "data_root": "/Users/gongshaojie/MacBot",
+  "waiting": {
+    "count": 7,
+    "sha256": "134ef0d35cab705d046296aad7ef1bda90f98ed122c17e85779339402d854888"
+  },
+  "jobs": {
+    "count": 162,
+    "sha256": "7f76cfee356892a9d609ee461f7867fb93729efc70cdee4f36a1d69e23ada996"
+  },
+  "takeovers": {
+    "count": 2,
+    "sha256": "c51439631de5517ea0c036d3912ee7d5d35a97dd34b03026110ef113739bb1ba"
+  },
+  "captured_at_unix": 1791640915.249272,
+  "pid_after": 57696,
+  "ready_at_local": "2026-10-10T22:03:46+0800",
+  "process_started_at_local": "2026-10-10T22:02:03+0800",
+  "startup_seconds_from_process_start": 103,
+  "health_http": 200,
+  "post_restart": {
+    "waiting": {
+      "count": 7,
+      "sha256": "134ef0d35cab705d046296aad7ef1bda90f98ed122c17e85779339402d854888"
+    },
+    "jobs": {
+      "count": 162,
+      "sha256": "7f76cfee356892a9d609ee461f7867fb93729efc70cdee4f36a1d69e23ada996"
+    },
+    "takeovers": {
+      "count": 2,
+      "sha256": "c51439631de5517ea0c036d3912ee7d5d35a97dd34b03026110ef113739bb1ba"
+    }
+  },
+  "largest_startup_input": {
+    "path": "data/orchestrator/operations.jsonl",
+    "bytes": 929691555
+  },
+  "sample": {
+    "pid": 57696,
+    "top_frame": "macbot_gateway::adapter::ProductionBackend::open",
+    "hot_frame": "macbot_store::Store::read_jsonl / serde_json::Value deserialization"
+  },
+  "conclusion": "service recovered and health=200 after ~103s; no crash. Startup delay is dominated by 929MB operations.jsonl replay in ProductionBackend::open, not the 5b takeover approval-ref repair path."
+}

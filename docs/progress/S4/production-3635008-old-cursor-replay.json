@@ -1,0 +1,85 @@
+{
+  "at": "2026-10-10T14:32:21.433521+00:00",
+  "request": {
+    "v": 1,
+    "kind": "req",
+    "id": "24855162-e073-445c-991c-a5a64fc6ff9d",
+    "method": "session.resume",
+    "params": {
+      "last_seq": 6387,
+      "client": {
+        "platform": "macos",
+        "app_version": "e2e-cursor-replay",
+        "device_name": "MacBot cursor replay audit",
+        "device_id": "61f70949-2ea1-45de-bb34-96911c9d5c32"
+      }
+    }
+  },
+  "status": "observed",
+  "sync_seq": 6402,
+  "sequence_gaps": [],
+  "frames": [
+    {
+      "seq": 6388,
+      "event": "sync.cursor"
+    },
+    {
+      "seq": 6389,
+      "event": "sync.cursor"
+    },
+    {
+      "seq": 6390,
+      "event": "message.created"
+    },
+    {
+      "seq": 6391,
+      "event": "read.updated"
+    },
+    {
+      "seq": 6392,
+      "event": "message.created"
+    },
+    {
+      "seq": 6393,
+      "event": "sync.cursor"
+    },
+    {
+      "seq": 6394,
+      "event": "sync.cursor"
+    },
+    {
+      "seq": 6395,
+      "event": "read.updated"
+    },
+    {
+      "seq": 6396,
+      "event": "sync.cursor"
+    },
+    {
+      "seq": 6397,
+      "event": "sync.cursor"
+    },
+    {
+      "seq": 6398,
+      "event": "sync.cursor"
+    },
+    {
+      "seq": 6399,
+      "event": "message.created"
+    },
+    {
+      "seq": 6400,
+      "event": "message.created"
+    },
+    {
+      "seq": 6401,
+      "event": "read.updated"
+    },
+    {
+      "seq": 6402,
+      "event": "message.updated"
+    }
+  ],
+  "old_memory_projected_to_cursor": true,
+  "raw_memory_event_present": false
+}

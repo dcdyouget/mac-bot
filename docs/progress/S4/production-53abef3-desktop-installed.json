@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-10T14:09:50.670599+00:00",
+  "source": "53abef3f368843d77255805ffda3502e31562dd6",
+  "path": "/Users/gongshaojie/Applications/MacBot.app",
+  "previous_app_backup": "/Users/gongshaojie/Library/Caches/MacBot/s5/pre-53abef3-desktop/MacBot.app",
+  "codesign": true,
+  "installation": "normal update; not fresh",
+  "native_verification": {
+    "at": "2026-10-10T14:12:09.031718+00:00",
+    "status": "failed_expected_question_action_removal",
+    "screenshot": "production-53abef3-question-history.png",
+    "screenshot_viewed": true,
+    "observed": "empty question content and submit button still present, inconsistent with source fallback and pending predicate",
+    "investigation": "checking actual executable build provenance; source stamp/codesign alone insufficient"
+  },
+  "corrected_install": {
+    "at": "2026-10-10T14:14:40.776770+00:00",
+    "binary_sha256": "bef8f2004435f875f7c74623fa6510b838281adb2b9732a01b0aa5909563c5d7",
+    "failed_installed_backup": "/Users/gongshaojie/Library/Caches/MacBot/s5/failed-53abef3-installed-desktop/MacBot.app",
+    "normal_update_not_fresh": true
+  }
+}

@@ -1,12 +1,21 @@
 # Mac Bot 集成进度与使用说明
 
-最新结论（2026-10-10）：**S0–S3通过；S4真实执行链路通过，接管卡状态缺陷修复中；S5 fresh未执行**。当前server `6ba7efe`、桌面 `ba0e8f1`、Android `04b0c3d` 同签名Release；server 后续私聊接管持久化修复仍待部署回归。历史版本与失败证据保留，不覆盖本段。
+最新结论（2026-10-10）：**S0–S3通过；S4真实执行链路通过，接管卡状态缺陷修复中；S5 fresh未执行**。当前server `5b244ea`、桌面 `ba0e8f1`、Android `04b0c3d` 同签名Release。旧等待恢复、新请求落盘、同run交还完成及工作台问题关闭已实际通过；错误审批引用已修复并两端实看，桌面已回答问题按钮/新消息显示仍在修复；正式数据正常重启测得103秒，929MB操作日志整体解析热点正在修复。历史版本与失败证据保留，不覆盖本段。
 
 S2两个原项目已由用户授权结束5个历史等待分支并用原UUID确认done，双端完成状态已实看；其余7pending未改变，见 [S2确认记录](S2/production-9c20fc4-confirm-done.json)。
 
 S4用户已允许本次Chrome远程调试连接。旧sidecar 0.38.2的2秒握手超时已通过升级0.39.0修复，原Bot真实打开已登录X首页；Android显示实际画面、接管、只读滑动、交还，原run恢复并done，driver为bot→user→bot。新增X页已关闭，原登录页保留，Bot恢复headless。见 [本次X验收](S4/production-be64802-authorized-x.json)。交还后原消息block仍pending属于服务端状态投影缺陷，正在修复，未据执行成功提前记整阶段通过。
 
 Android长聊天初始定位竞态已修复；新版首次进入显示最新消息，上滑后保持位置，142条群历史已实际到达seq1，加载结束保持首条锚点，见 [定位回归](S4/production-04b0c3d-chat-scroll.json)。S5保留历次pkg审计，但最终server尚未冻结，接管修复后需重建匹配包；fresh未开始。安装需要用户管理员认证，管理页新密码须按CUA凭据变更规则由用户亲自输入、确认和提交。
+
+| 当前阶段 | 结论与主要证据 |
+| --- | --- |
+| S0 | 已通过，两端 mock 会话列表验收见 `S0/` |
+| S1 | 已通过：[真实双端流式、轨迹、同run kill-9恢复](S1/production-aa2c99a-joint-recovery.json) |
+| S2 | 已通过：[两原项目与精确旧分支确认闭环](S2/production-9c20fc4-confirm-done.json) |
+| S3 | 已通过：[真实双端数据、技能、记忆与搜索结论](S3/production-6eaa91a-stage-conclusion.json) |
+| S4 | 收尾中：[证据与剩余显示缺陷](S4/stage-conclusion.json) |
+| S5 | 未开始：[可逆安装计划](S5/fresh-install-plan.md)、[写RPC审计](S5/fresh-rpc-journal-audit.md)、[客户端配置隔离](S5/fresh-client-config-plan.md) |
 
 本文面向在 Mac mini（Apple M4，局域网地址 `192.168.31.162`）上查看 Mac Bot 效果的人。服务端运行在这台 Mac 上，Android 客户端运行在本机的 `macbot_api36` 模拟器里。v1 不包含 iOS。
 
@@ -244,3 +253,13 @@ S1联合恢复现已完成：精确审批write/bash后，在安全checkpoint kil
 S3按最新真实双端证据判功能联调通过，见S3/production-6eaa91a-stage-conclusion.json；当前通过S0、S1、S3。S4通知容量已在隔离应用包运行真实NotificationManager专项：50→40、FGS/summary保护、marker/ledger/pending断言通过，正式包3条通知keys不变，隔离包已移除。见S4/production-962fb53-isolated-capacity.json；不将其描述为真实provider50连发。Android X仍待Chrome本次连接确认。server 4f4893a已安装且最终健康，12pending/154jobs保持；30秒部署健康期限曾失败，采样发现剩余operation修复热点，继续修复，不隐去失败。
 
 server `9c20fc4` 已仅服务升级并完成空闲现场正常重启回归：PID91534→94543，正确 `/api/v1/health` 8.673秒恢复，12条旧pending、154个旧job哈希全部保持；见 S1/production-9c20fc4-upgrade.json。首次观测误用 `/health` 的超时已明确排除，不作性能证据；一次7.789秒bootstrap后续两次为0.081/0.058秒，未确定其单次慢响应原因。最终9c20fc4开发pkg审计已归档，仍未执行fresh。Chrome权限弹窗现已消失，不能据此认定授权；Android X未通过，测试Bot已恢复原headless模式。S2精确5个旧分支结束确认仍待用户答复。当前通过S0/S1/S3，剩余S2/S4/S5。
+
+
+## 2026-10-10 接管问题卡与实时游标收尾
+
+S0–S3通过，S4尚未整阶段关闭。server90e637a流式读取启动日志，server-only部署已在30秒健康期限内恢复，旧审批和任务保持；不把秒级时间戳测得0秒解释为精确启动性能。桌面53abef3首次打包误复用旧二进制，失败产物和截图保留；随后实际Release构建并重装，历史问题卡提交按钮已消失。3933e1a补状态标题，508f325补sync.done缺口恢复，新的实际Release正在构建。
+
+当前原接管run仍等待，服务端已落盘question/card；桌面停在6387，内部memory.updated占用6388导致后续事件缺口。正在补服务端live和旧历史重放的游标投影，并沿用原run验证，不重发请求或修改数据游标。S5未开始，离线备份目录为空，旧业务现场完整。
+
+
+S4最终通过：server3635008补齐内部memory事件的live与replay游标，旧桌面从6387自动显示原等待卡；独立重放无缺口且memory正文未下发。升级前后7pending、164jobs一致。桌面508f325实际Release安装后从原生接管并交还原run，trace297恢复、299工具结束、302 done；两端接管按钮消失，桌面显示已回答，workbench等待归零，仅该job发生预期变化。磁盘cache6411为5秒节流快照，实际落盘早于尾部6412–6415；并非新的live缺口。截图均实看，详见S4/production-508f325-native-takeover.json、stage-conclusion.json。当前S0–S4通过，S5 fresh未开始。冻结候选server3635008/pkg、desktop508f325/DMG、Android04b0c3d/APK；开发签名边界保持。

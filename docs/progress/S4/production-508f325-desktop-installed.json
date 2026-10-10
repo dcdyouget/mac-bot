@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-10T14:32:58.031695+00:00",
+  "source": "508f325db682ea802386fbc844badf1b44b0a9b0",
+  "action": "replace_known_installed_desktop_preserving_data",
+  "old_pid": 65130,
+  "backup": "/Users/gongshaojie/Library/Caches/MacBot/s5/pre-508f325-desktop/MacBot.app",
+  "state": "installed_launched_native_verified",
+  "executable_sha256": "0b31e94bbbc7e28280939c18aee710dd274492b22e79ea1537b60110ed5bb1ae",
+  "verification": "production-508f325-native-takeover.json"
+}

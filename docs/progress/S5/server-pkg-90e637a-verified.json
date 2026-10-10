@@ -1,0 +1,86 @@
+{
+  "package_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-90e637a7aacdf6286bfefaed09d0c54e3c18b661.pkg",
+  "package_sha256": "500bef001fb59b2dd949bc38303e80c0a4da190bab554a58679c570a9a247143",
+  "package_bytes": 16216918,
+  "source_commit_expected": "90e637a7aacdf6286bfefaed09d0c54e3c18b661",
+  "source_commit_txt": "90e637a7aacdf6286bfefaed09d0c54e3c18b661",
+  "source_snapshot": "/Users/gongshaojie/Library/Caches/MacBot/s5/pkg-90e637a7aacdf6286bfefaed09d0c54e3c18b661",
+  "expanded_audit_root": "/Users/gongshaojie/Library/Caches/MacBot/s5/pkg-90e637a7aacdf6286bfefaed09d0c54e3c18b661-audit",
+  "build_info": {
+    "source_dirty": false,
+    "macbotd_sha256": "c9fb7d5af40a82d55e0dee0087cec8d49ea2080f11d37d1fee9e50c9db12ce9c",
+    "version": "0.1.0",
+    "agent_browser_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+    "source_commit": "90e637a7aacdf6286bfefaed09d0c54e3c18b661"
+  },
+  "info_plist": {
+    "CFBundleIdentifier": "com.macbot.server",
+    "CFBundleShortVersionString": "0.1.0",
+    "CFBundleVersion": "0.1.0",
+    "MacBotSourceCommit": "90e637a7aacdf6286bfefaed09d0c54e3c18b661"
+  },
+  "hashes": {
+    "macbotd_actual": "c9fb7d5af40a82d55e0dee0087cec8d49ea2080f11d37d1fee9e50c9db12ce9c",
+    "agent_browser_actual": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+    "macbotd_expected": "c9fb7d5af40a82d55e0dee0087cec8d49ea2080f11d37d1fee9e50c9db12ce9c",
+    "agent_browser_expected": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa"
+  },
+  "hash_checks": {
+    "package_sha256": true,
+    "source_commit": true,
+    "source_dirty_false": true,
+    "macbotd": true,
+    "agent_browser": true
+  },
+  "package_info": {
+    "identifier": "com.macbot.server",
+    "version": "0.1.0",
+    "install_location": "/",
+    "payload_number_of_files": 29,
+    "postinstall_present": true
+  },
+  "launchagent_template": {
+    "label": "com.macbot.server",
+    "run_at_load": true,
+    "keep_alive": true,
+    "has_home_placeholder": true,
+    "has_bin_placeholder": true
+  },
+  "review": {
+    "status": "no_deployment_blocker_found",
+    "scope": "read-only review of store startup JSONL validation, adapter operation-log replay, recovery and client-request idempotency",
+    "complete_malformed_record": "rejected with path and line",
+    "torn_final_record": "truncated to the last newline as prior read_jsonl semantics",
+    "latest_operation_snapshot": "only latest full snapshot is materialized; non-snapshot fields remain available for idempotency replay",
+    "done_and_rolled_back": "done results restore idempotency entries; rolled_back entries remove them",
+    "credentials_read": false
+  },
+  "verification": {
+    "packaging_smoke": "passed: bundle contents, sidecar digest and atomic update failure/success",
+    "macbotd_version": {
+      "returncode": 0,
+      "output": "macbotd 0.1.0"
+    },
+    "sidecar_version": {
+      "returncode": 0,
+      "output": "agent-browser 0.39.0"
+    },
+    "daemon_architecture": "Mach-O 64-bit executable arm64",
+    "sidecar_license_present": true,
+    "update_manifest": {
+      "sha256": "",
+      "url": "",
+      "version": "0.1.0"
+    }
+  },
+  "signature": {
+    "pkg": {
+      "returncode": 1,
+      "output": "Status: no signature"
+    }
+  },
+  "installed": false,
+  "deployed": false,
+  "fresh_install_pass": false,
+  "notes": "Unsigned development package candidate. Built from clean archived source at 90e637a with shared release target and cached agent-browser 0.39.0; not installed or deployed. Runtime and review acceptance remain separate gates."
+}

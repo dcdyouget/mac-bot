@@ -1,0 +1,51 @@
+{
+  "source_commit": "90e637a7aacdf6286bfefaed09d0c54e3c18b661",
+  "service_label": "com.macbot.server",
+  "pid_before": 65480,
+  "pid_after": 65813,
+  "data_root": "/Users/gongshaojie/MacBot",
+  "process_path": "/Users/gongshaojie/Applications/MacBotServer.app/Contents/MacOS/macbotd",
+  "process_sha256": "a30d82dd11d62b4a41a322c1ab938eab36945973c004cd638fe360098bae4f3e",
+  "restart_requested_at_utc": "2026-10-10T14:16:07.020578Z",
+  "process_started_at_local": "2026-10-10T22:16:07+0800",
+  "ready_at_local": "2026-10-10T22:16:07+0800",
+  "startup_seconds_from_process_start": 0,
+  "health_http": 200,
+  "pre_restart": {
+    "waiting": {
+      "count": 7,
+      "sha256": "e546f3ef87f18c1e5f0b5196e53f8be544252b245237b3491ae104ec917bdd58"
+    },
+    "jobs": {
+      "count": 162,
+      "sha256": "ce0bbae22989dc252acd853c618fd3f30bcadecf5741dd130d3a8833725abfbb"
+    },
+    "takeovers": {
+      "count": 2,
+      "sha256": "c9358e4beff4c6207209f4f20172f5d378319b48ad8d8652a08b065a9c6ab4ed"
+    }
+  },
+  "post_restart": {
+    "waiting": {
+      "count": 7,
+      "sha256": "e546f3ef87f18c1e5f0b5196e53f8be544252b245237b3491ae104ec917bdd58"
+    },
+    "jobs": {
+      "count": 162,
+      "sha256": "ce0bbae22989dc252acd853c618fd3f30bcadecf5741dd130d3a8833725abfbb"
+    },
+    "takeovers": {
+      "count": 2,
+      "sha256": "c9358e4beff4c6207209f4f20172f5d378319b48ad8d8652a08b065a9c6ab4ed"
+    }
+  },
+  "hash_method": "sha256 over sorted selected filenames and bytes, with filename and content NUL separators; waiting/*.json, job_*.json, takeovers/*.json",
+  "comparison": "Previous source-5b244ea controlled restart required about 103 seconds. Source-90 reached health=200 in the first post-kickstart poll window (<1s upper bound at this measurement precision); do not interpret this as an exact zero-second duration.",
+  "conclusion": "Controlled restart of the authorized com.macbot.server LaunchAgent succeeded in the first health poll window; selected waiting/jobs/takeovers counts and hashes were unchanged. No model run or other process was touched.",
+  "startup_measurement": {
+    "script": "inline shell command in integrator turn; no standalone script was created",
+    "method": "after launchctl kickstart returned, poll pgrep for /Applications/MacBotServer.app/Contents/MacOS/macbotd and curl http://127.0.0.1:7788/api/v1/health once per second; record first PID/HTTP 200 transition",
+    "poll_result": "first poll elapsed=0s, PID=65813, HTTP=200",
+    "precision": "both process start and ready timestamp are only second-resolution; evidence supports same-second readiness (<1s upper bound from the first poll window), not an exact 0.000s duration"
+  }
+}

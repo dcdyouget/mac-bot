@@ -1,10 +1,10 @@
 # S5 fresh 场景最短执行清单
 
-状态：执行前清单，不是通过记录。只有安装、初始化、两端连接和真实 UI 场景全部完成，才可把 S5 标为通过。最终 server SHA/pkg 尚未冻结；6ba7efe 仅为中间审计包，question P1 修复并通过 runtime 实测前不得开始。
+状态：执行前清单，不是通过记录。最终候选为server3635008、desktop508f325、Android04b0c3d；包审计通过，fresh尚未开始。以 [fresh-install-plan.md](fresh-install-plan.md) 的固定完整SHA及哈希为准。
 
 ## 1. 冻结与备份
 
-1. 等待 server 修复后冻结一组完整产物：最终 server pkg、desktop `ba0e8f17b5dfd779efc5cd4b41c7168a57d70b72` DMG、Android 同签名 Release APK；核对各自 source SHA、`dirty=false`、SHA-256 和包内 daemon/sidecar。6ba7efe 审计见 [server-pkg-6ba7efe-verified.json](server-pkg-6ba7efe-verified.json)，但不作为最终包；桌面候选见 [desktop-dmg-ba0e8f1-candidate.json](desktop-dmg-ba0e8f1-candidate.json)。
+1. 核对当前已审计的固定server pkg、desktop DMG及Android同签名Release APK；记录source SHA、dirty=false、SHA-256和包内daemon/sidecar。当前普通升级不计fresh。
 2. 暂停 watcher，记录 `scripts/dev/status.sh`、7788/7789 listener、LaunchAgent PID/实际 binary、桌面和 Android 版本。停止并确认 7788 已释放；不批量取消旧 approval/job，不触碰未知进程。
 3. 复用 [fresh-install-journal.json](fresh-install-journal.json) 中现有的 `backup_root`（当前 `prepared_empty_only`），确认分类目录没有业务文件后再移动 `~/MacBot`、LaunchAgent、pkg 安装 App、开发 App/CLI links 和两端连接配置。外部 file secret 目录和 `~/.macbot-dev-password` 只记录路径/权限，不读取、复制、截图或写入文档。
 
@@ -33,7 +33,7 @@
    在桌面和 Android 同时观察私聊流式消息、`write/read/bash` 消息块、实时 trace 和历史回放；确认 marker 文件、回复、`run.end=done`。恢复场景在确认本次任务和 checkpoint 后，由外部 runner 单独执行；该操作会 kill 已核验的正式 7788 LaunchAgent PID，只能在外部 journal 已记录本次任务、checkpoint 和精确 PID 后使用。验收点是同一 `run_id` 的 `run.resume`、文件 marker、消息和最终 done。
 
 2. **S2 主 Bot/双群（fresh clean home 重新执行；历史旧 pending 不续办）**：先在客户端原生 UI 创建并核对 product/coding/test Bot，再把三个精确 Bot ID 提供给外部 runner。
-   `login_feature.py` 只有 `chat.send` partial journal 入口可复用；其 `question.answer`、`approval.decide`、`project.confirm_done` 不满足本清单的写前 journal。两个群的时间区间必须实际重叠；由外部 runner 逐项记录并发送精确写 RPC。question、approval 和 confirm_done 继续人工核对，当前 `approval_ref` 残留未修复前不得执行；不要用 `project.create` 或 API 状态代替主 Bot 理解和 UI 证据。中断后只用同一 partial journal 恢复。
+   `login_feature.py` 只有 `chat.send` partial journal 入口可复用；其 `question.answer`、`approval.decide`、`project.confirm_done` 不满足本清单的写前 journal。两个群的时间区间必须实际重叠；由外部 runner 逐项记录并发送精确写 RPC。question、approval 和 confirm_done 继续人工核对，本次仍须逐项核对作用域；不要用 `project.create` 或 API 状态代替主 Bot 理解和 UI 证据。中断后只用同一 partial journal 恢复。
 
 3. **S3 技能/仪表盘/记忆**：
    ```sh

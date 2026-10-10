@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-10T14:32:38.826196+00:00",
+  "source": "3635008f6c8c60e9fbd32747e140990496f4d029",
+  "deploy_exit_code": 0,
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "pending_count": 7,
+  "pending_unchanged": true,
+  "job_count": 164,
+  "job_hashes_unchanged": true,
+  "desktop_last_seq": 6401,
+  "listener_pid": "73765"
+}
