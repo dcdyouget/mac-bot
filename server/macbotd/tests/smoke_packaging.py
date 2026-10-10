@@ -9,6 +9,7 @@ import plistlib
 import re
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 
 
 SERVER = Path(__file__).resolve().parents[2]
@@ -20,6 +21,16 @@ def digest(path):
 
 def inspect_pkg(pkg, destination):
     subprocess.run(["pkgutil", "--expand-full", str(pkg), str(destination)], check=True)
+    package_infos = list(destination.glob("**/PackageInfo"))
+    assert len(package_infos) == 1, package_infos
+    package_info = ET.parse(package_infos[0]).getroot()
+    assert package_info.get("install-location") == "/"
+    bundles = package_info.findall("./bundle")
+    assert len(bundles) == 1 and bundles[0].get("id") == "com.macbot.server"
+    assert bundles[0].get("path", "").removeprefix("./") == "Applications/MacBot Server.app"
+    # The package-level relocatable=false does not prevent bundle relocation.
+    # A backed-up app with the same ID must never become the install target.
+    assert not package_info.findall("./relocate/bundle"), "bundle relocation must be disabled"
     apps = list(destination.glob("**/Applications/MacBot Server.app"))
     assert len(apps) == 1, apps
     app = apps[0]

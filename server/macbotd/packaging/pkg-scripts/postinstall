@@ -18,6 +18,15 @@ PLIST_DIR="$CONSOLE_HOME/Library/LaunchAgents"
 PLIST="$PLIST_DIR/com.macbot.server.plist"
 APP_BIN="$APP_DST/Contents/MacOS/macbotd"
 
+# Reject a missing payload before creating directories or replacing an app.
+# Bundle relocation must remain disabled in the package component metadata.
+if [ ! -x "$APP_SRC/Contents/MacOS/macbotd" ] || \
+   [ ! -x "$APP_SRC/Contents/MacOS/agent-browser" ] || \
+   [ ! -f "$APP_SRC/Contents/Resources/com.macbot.server.plist" ]; then
+  echo "Mac Bot payload is missing or incomplete at $APP_SRC" >&2
+  exit 1
+fi
+
 mkdir -p "$CONSOLE_HOME/Applications" "$BIN_DIR" "$PLIST_DIR" "$HOME_DIR/data"
 rm -rf "$APP_DST"
 ditto "$APP_SRC" "$APP_DST"

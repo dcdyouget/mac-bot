@@ -47,6 +47,7 @@ plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Inf
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
 mkdir -p "$(dirname -- "$OUT")"
 pkgbuild --root "$STAGE" \
+  --component-plist "$ROOT/macbotd/packaging/components.plist" \
   --scripts "$ROOT/macbotd/packaging/pkg-scripts" \
   --identifier com.macbot.server \
   --version "$VERSION" \

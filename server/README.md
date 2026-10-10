@@ -96,6 +96,8 @@ MACBOT_SOURCE_COMMIT=<40位SHA> server/macbotd/packaging/build-pkg.sh target/Mac
 
 `.pkg` 安装 `/Applications/MacBot Server.app`，由 postinstall 复制到当前登录用户的 `~/Applications`、创建用户级 CLI，并通过 `launchctl bootstrap gui/<uid>` 注册 LaunchAgent；没有登录用户时只安装文件。
 
+包的 `components.plist` 禁用 App 级别重定位，确保磁盘上同 bundle ID 的旧版或备份不会被选作安装目标。包校验会检查 `PackageInfo` 中没有 `relocate/bundle`；仅检查顶层 `relocatable=false` 不足以验证这一点。postinstall 在修改用户路径前核对固定位置的 payload。
+
 ## 验证
 
 ```sh
