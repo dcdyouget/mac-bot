@@ -1,10 +1,12 @@
 # Mac Bot 集成进度与使用说明
 
-最新结论（2026-10-10）：**S0–S3 通过，S4/S5 未完成**。server `be64802`（PID6301）、桌面 `6eaa91a`、Android `5e2fbcc`。用户已授权精确结束5个旧等待分支，两原项目已用原UUID确认done，5审批expired，其余7pending保持；双端完成状态截图均实看。见 [S2确认记录](S2/production-9c20fc4-confirm-done.json)。
+最新结论（2026-10-10）：**S0–S3通过；S4真实执行链路通过，接管卡状态缺陷修复中；S5 fresh未执行**。当前server `bb790b0`、桌面 `6eaa91a`、Android `04b0c3d` 同签名Release。历史版本与失败证据保留，不覆盖本段。
 
-首次确认因项目总结错误占用主Bot记忆额度而失败；426e9b7改为只写项目记忆，不扩额度、不删旧记忆，205项gateway测试及独立审查通过。be64802补浏览器退出码和结构化错误诊断，debug/release各20项通过。升级前8pending/155jobs保持；确认后的唯一job变化属于获授权的并行旧分支。失败证据保留。
+S2两个原项目已由用户授权结束5个历史等待分支并用原UUID确认done，双端完成状态已实看；其余7pending未改变，见 [S2确认记录](S2/production-9c20fc4-confirm-done.json)。
 
-S4 Android X连接仍待Chrome本次授权；提示出现后调用失败，原因尚未确定，不把弹窗消失算授权。测试Bot恢复headless，Chrome原设置未改。S5新pkg已审计，见 [包审计](S5/server-pkg-be64802-verified.json)；fresh尚未执行，安装需要用户管理员认证，管理页新密码需用户接手设置。下文较早记录保留为历史，不覆盖本段最新结论。
+S4用户已允许本次Chrome远程调试连接。旧sidecar 0.38.2的2秒握手超时已通过升级0.39.0修复，原Bot真实打开已登录X首页；Android显示实际画面、接管、只读滑动、交还，原run恢复并done，driver为bot→user→bot。新增X页已关闭，原登录页保留，Bot恢复headless。见 [本次X验收](S4/production-be64802-authorized-x.json)。交还后原消息block仍pending属于服务端状态投影缺陷，正在修复，未据执行成功提前记整阶段通过。
+
+Android长聊天初始定位竞态已修复；新版首次进入显示最新消息，上滑后保持位置，历史加载继续实测，见 [定位回归](S4/production-04b0c3d-chat-scroll.json)。S5已准备bb790b0 pkg候选，但接管修复后需重建匹配包；fresh未开始。安装需要用户管理员认证，管理页新密码须按CUA凭据变更规则由用户亲自输入、确认和提交。
 
 本文面向在 Mac mini（Apple M4，局域网地址 `192.168.31.162`）上查看 Mac Bot 效果的人。服务端运行在这台 Mac 上，Android 客户端运行在本机的 `macbot_api36` 模拟器里。v1 不包含 iOS。
 

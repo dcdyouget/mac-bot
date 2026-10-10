@@ -2,15 +2,15 @@
 
 状态：**未执行，不能计 S5 通过**。这是可逆操作计划，不是验收记录。
 
-最新候选（2026-10-10）：S0–S3已通过；server `be64802cd08a1401d1ba0ee9e5bae4bee6dd7f43`（PID6301），桌面6eaa91a、Android5e2fbcc。匹配pkg及审计见 [server-pkg-be64802-verified.json](server-pkg-be64802-verified.json)，包SHA `c269e0e1fe5b5e7a967be3a80e5c7e3fade0040358a3d059ec921fe9ba619ac7`，替代此前候选。S4仍需本次Chrome连接授权后完成Android X接管；fresh未执行。用户属于admin但sudo不能免密，安装时需要用户完成管理员认证，管理页新密码按下文交接。历史版本说明不覆盖本段。
+最新候选（2026-10-10）：S0–S3已通过；S4 的 X/Android 接管核心链路已有真实证据，但交还后原聊天 block 仍 pending、Android 接管按钮残留，UX 尚未闭环。server 候选为 `9c9cd7d5e4d154b24ba0aed793325158fe67ff0a`，桌面候选为 `ba0e8f17b5dfd779efc5cd4b41c7168a57d70b72`；pkg 及审计见 [server-pkg-9c9cd7d-verified.json](server-pkg-9c9cd7d-verified.json)，包SHA `f88b41044e6af99b115e751cbab4284a33a998bf261bd087006a17e093882814`，sidecar 为 agent-browser 0.39.0。Android `04b0c3d515cabbc55681f1c630b115674c8edb94` Release APK 已同签名 `install -r` 保留数据并完成长聊天最新消息/上滑实看，但仍仅作后续 S5 候选（见 [android-04b0c3d-release-candidate.json](android-04b0c3d-release-candidate.json)）；未执行 fresh。用户属于admin但sudo不能免密，安装时需要用户完成管理员认证，管理页新密码按下文交接。历史版本说明不覆盖本段。
 
-当前停止条件：正式服务为 `9c20fc4`，桌面为 `6eaa91a`，Android 为 `5e2fbcc` 同签名 Release。Mac 已解锁。S0、S1、S3 已通过；S2 历史分支的取消确认待用户答复，S4 Chrome 远程调试当前弹窗待用户答复；S5 fresh 未执行。原旧 siblings/未知审批保持，不自动取消或批准。
+当前停止条件：server 以 `9c9cd7d5e4d154b24ba0aed793325158fe67ff0a` pkg 作为待安装候选，桌面候选为 `ba0e8f17b5dfd779efc5cd4b41c7168a57d70b72`；Android `04b0c3d` 已完成保留数据的常规 `install -r` 聊天实看，但未计入 S5 fresh 实测。Mac 已解锁。S0、S1、S3 已通过；S4 X/Android 核心链路有证据但交还后的 pending block/UI 残留仍待 server/client 修复与回归；S5 fresh 未执行。原旧 siblings/未知审批保持，不自动取消或批准。
 
 ## 前置条件与路径
 
-- server 当前 ready 候选为 `9c20fc409797d9f3b38a826ee8079bf17635125d`，`.pkg` SHA-256 为 `509c947415653f12fa57063817c5ddd9ffe46795b0beec7e0fb48dedc7aa5462`，source/build-info/dirty=false、daemon/sidecar SHA 和包 smoke 已核对，见 [server-pkg-9c20fc4-verified.json](server-pkg-9c20fc4-verified.json)；这是 unsigned development package，未安装或计 fresh。历史 `7481d8e4b988e866bb3feade18db7e603b6aba5e` pkg 已完成候选审计，SHA-256 为 `f3cf7bae9010a7f0c0fce092eee2272c4d5c4725d383d21783fef70d3fec8de3`，见 [server-pkg-7481d8e-verified.json](server-pkg-7481d8e-verified.json)；其他历史候选审计记录继续保留，均不可替代当前包。
-- client-mac 当前现场为 `6eaa91a`，Mac 已解锁并完成范围标题修复、技能发布和记忆/搜索原生复核；既有 `71fddde` 干净归档 release DMG 的签名和镜像校验记录继续保留（见 [desktop-dmg-71fddde-verified.json](desktop-dmg-71fddde-verified.json)）。
-- client-android 当前现场为 `5e2fbcc` 同签名 Release；只允许同签名 `adb install -r`，不卸载、不清空现有数据。
+- server 当前 fresh 候选为 `9c9cd7d5e4d154b24ba0aed793325158fe67ff0a`，`.pkg` SHA-256 为 `f88b41044e6af99b115e751cbab4284a33a998bf261bd087006a17e093882814`，source/build-info/dirty=false、daemon/sidecar SHA 和包 smoke 已核对，见 [server-pkg-9c9cd7d-verified.json](server-pkg-9c9cd7d-verified.json)；这是 unsigned development package，未安装或计 fresh。历史 `bb790b0`、`9c20fc4`、`7481d8e4` 等 pkg 审计记录继续保留。
+- client-mac 当前候选为 `ba0e8f17b5dfd779efc5cd4b41c7168a57d70b72`，DMG SHA-256 为 `51e022be7bb6cc974369ec45256ea79e142aeda7ea854307a75adec87c4ae014`，已通过签名校验并作为普通更新安装；不计 fresh，见 [desktop-dmg-ba0e8f1-candidate.json](desktop-dmg-ba0e8f1-candidate.json)。历史 `6eaa91a`、`71fddde` 记录继续保留。
+- client-android `04b0c3d` Release APK 为待验收候选，SHA-256 为 `245ff19c9a1e94052d9b01a6f25ac31ff865d73ddb7b4044a97af6cb576098da`，已完成同签名 `adb install -r` 的常规升级实看；正式 fresh 仍未执行，且只允许同签名 `adb install -r`，不卸载、不清空现有数据。
 - PLAN 第 6 章 S5 权威顺序是 `pkg → 设置密码 → 两端连接 → 完整场景`（`docs/PLAN.md:524-531`）；服务端安装见 `server/README.md:60-97`，桌面 DMG 见 `clients/mac/README.md:37-52`。
 
 必须区分服务 App 路径：

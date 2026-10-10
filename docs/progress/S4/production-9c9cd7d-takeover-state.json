@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-10T13:19:47.787930+00:00",
+  "purpose": "real native takeover message active/done regression; local fixture only, does not replace real X acceptance",
+  "fixture": {
+    "url": "http://127.0.0.1:63459/?marker=takeover-state-9c9cd7d",
+    "exec_session": 16676
+  },
+  "request": {
+    "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+    "text": "Platform regression takeover-state-9c9cd7d: call browser_open exactly once for http://127.0.0.1:63459/?marker=takeover-state-9c9cd7d in your configured headless mode. Only after it succeeds, call request_takeover exactly once with reason \"takeover-state-9c9cd7d\". Use no other tools, wait for native user release, then acknowledge completion without more tools. This is an owned local fixture, not X.",
+    "mentions": [],
+    "client_request_id": "1763d6f3-b8f5-4455-bbae-288f61843ecf"
+  }
+}

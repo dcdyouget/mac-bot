@@ -1,0 +1,29 @@
+{
+  "source": "04b0c3d515cabbc55681f1c630b115674c8edb94",
+  "artifact": "/Users/gongshaojie/Project/mac-bot/clients/mobile/androidApp/build/outputs/apk/release/androidApp-release.apk",
+  "sha256": "245ff19c9a1e94052d9b01a6f25ac31ff865d73ddb7b4044a97af6cb576098da",
+  "recorded_at": "2026-10-10T13:08:39.611248+00:00",
+  "artifact_kind": "same-signature Android Release upgrade candidate",
+  "candidate_only": true,
+  "installed_for_s5": false,
+  "real_device_acceptance": false,
+  "preserve_app_data": true,
+  "notes": "同签名 adb install -r 已成功并保留应用数据；首次长聊天最新消息和上滑位置已实看。旧聊天共45条且 has_more=false，没有伪造 load-older UI 通过；逻辑测试证据另存。该升级验收不等于 S5 fresh install。",
+  "installed_via_install_r": true,
+  "installed_for_s4_chat": true,
+  "real_device_chat_acceptance": true,
+  "s5_fresh_acceptance": false,
+  "evidence": {
+    "source_file": "../S4/production-04b0c3d-chat-scroll.json",
+    "install_exit_code": 0,
+    "screenshots": [
+      "../S4/production-04b0c3d-chat-initial.png",
+      "../S4/production-04b0c3d-chat-up.png"
+    ],
+    "screenshots_viewed": true,
+    "latest_message_verified": true,
+    "up_scroll_stable": true,
+    "message_count": 45,
+    "has_more": false
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "source": "9c9cd7d5e4d154b24ba0aed793325158fe67ff0a",
+  "pid": 36276,
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "deployment_exit_code": 130,
+  "note": "Interrupted after review findings; despite buffered output only showing compilation, source/PID prove app replacement and restart had completed. No new test request sent. Further fix pending.",
+  "pending_ids": [
+    "01a12083-b7ac-74e9-8708-0ec146198ccc",
+    "01a12096-c4f6-74b0-b92d-486195063997",
+    "01a120ca-39c0-7693-9b50-0662a3be0f26",
+    "01a120ca-43c2-70e4-9fec-6c9d14ad455c",
+    "01a121e9-1a8c-761f-85df-6314bc88c1d6",
+    "01a1220e-759a-70fa-9463-b032218ab1a2",
+    "01a1226f-8926-7245-ac5c-2cea982de5b3"
+  ],
+  "pending_unchanged": true,
+  "jobs_unchanged": true
+}

@@ -1,0 +1,15 @@
+{
+  "source": "bb790b0e9950af1daeca7d72c4c148a33884cf0d",
+  "service": {
+    "pid": 23934,
+    "listener_pids": [
+      23934
+    ],
+    "executable": "macbotd",
+    "label": "com.macbot.server",
+    "port": 7788
+  },
+  "pending_count": 8,
+  "changed_jobs": [],
+  "job_count": 157
+}

@@ -1,0 +1,73 @@
+{
+  "stage": "S4",
+  "recorded_at": "2026-10-10T13:09:01.382117+00:00",
+  "stage_passed": false,
+  "core_x_takeover_flow_passed": true,
+  "ux_closed": false,
+  "server_source": "bb790b0e9950af1daeca7d72c4c148a33884cf0d",
+  "desktop_source": "6eaa91a",
+  "android_source_candidate": "04b0c3d515cabbc55681f1c630b115674c8edb94",
+  "basis": "真实已登录 Chrome attach、Android 原生接管/只读滑动/交还截图，以及同一聊天中的 run.trace 与 run.done；不是 API 或 mock 单独通过。",
+  "evidence": {
+    "old_browser_failure_preserved": {
+      "file": "production-be64802-authorized-x.json",
+      "tool_end_aseq": 225,
+      "error": "browser runner failed: exit code 1; stdout error: No running Chrome instance found. Launch Chrome with --remote-debugging-port or use --cdp."
+    },
+    "successful_browser_open": {
+      "file": "production-be64802-authorized-x.json",
+      "run_id": "run_chat_01a125dc_fd9e_713a_be67_3a7c5f600224",
+      "tool_end_aseq": 236,
+      "run_end_aseq": 239,
+      "tab_id": "t3",
+      "url": "https://x.com/home",
+      "is_error": false
+    },
+    "android_takeover_release_same_run_done": {
+      "file": "production-be64802-authorized-x.json",
+      "run_id": "run_chat_01a125e6_429a_77b3_9513_81689851c711",
+      "tool_end_aseq": 247,
+      "run_end_aseq": 250,
+      "actions": [
+        "open_screen",
+        "takeover_start",
+        "readonly_x_timeline_swipe",
+        "release_to_bot",
+        "confirm_release_to_bot"
+      ]
+    },
+    "continuous_screen_observer": "production-bb790b0-x-screen-observer.jsonl",
+    "android_screenshots": [
+      "production-bb790b0-android-x-before.png",
+      "production-bb790b0-android-x-takeover.png",
+      "production-bb790b0-android-x-scrolled.png",
+      "production-bb790b0-android-x-released.png",
+      "production-bb790b0-android-x-release-confirmed.png"
+    ],
+    "sidecar_upgrade": [
+      "production-sidecar-039-upgrade-before.json",
+      "production-bb790b0-upgrade-after.json"
+    ]
+  },
+  "open_blockers": [
+    {
+      "area": "Android takeover UX/state projection",
+      "observation": "release 的 run 已正常 done，但原聊天 block 仍为 pending，Android 接管按钮在交还后残留。",
+      "impact": "核心接管动作已完成，S4 全阶段不能标通过；需要 server start/release 状态持久化与 message.updated 回归后重新验收。",
+      "status": "open"
+    },
+    {
+      "area": "S5",
+      "observation": "fresh install 未执行。",
+      "impact": "不计 S5 通过。",
+      "status": "open"
+    }
+  ],
+  "scope_limits": [
+    "X 场景仅做已登录只读打开、画面观察和只读滑动；没有发帖、点赞、关注或其他账号变更。",
+    "Android 04b0c3d APK 当前只作候选记录，未作为 S5 安装实测结论。",
+    "bb790b0 pkg 为 unsigned development candidate，后续 server 修复后必须替换并重新审计。"
+  ],
+  "historical_failure_records_preserved": true,
+  "later_revisions_require_regression": true
+}

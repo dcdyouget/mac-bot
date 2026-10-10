@@ -1,0 +1,58 @@
+{
+  "source": "04b0c3d515cabbc55681f1c630b115674c8edb94",
+  "apk": "/Users/gongshaojie/Project/mac-bot/clients/mobile/androidApp/build/outputs/apk/release/androidApp-release.apk",
+  "sha256": "245ff19c9a1e94052d9b01a6f25ac31ff865d73ddb7b4044a97af6cb576098da",
+  "at": "2026-10-10T13:08:39.611248+00:00",
+  "action": "same-signature install -r; preserve app data",
+  "install": {
+    "exit_code": 0,
+    "stdout": "Performing Streamed Install\nSuccess\n",
+    "stderr": ""
+  },
+  "initial_latest_verified": true,
+  "manual_up_stable": true,
+  "screenshots": [
+    "production-04b0c3d-chat-initial.png",
+    "production-04b0c3d-chat-up.png"
+  ],
+  "screenshots_viewed": true,
+  "history": {
+    "message_count": 45,
+    "has_more": false,
+    "seq_range": [
+      1,
+      45
+    ],
+    "load_older_native_test": "not applicable in this original chat; no older-page control exists",
+    "load_older_policy_test": "ChatScrollLogicTest covers sentinel index; not claimed as UI acceptance"
+  },
+  "group_history_probe": {
+    "count": 100,
+    "has_more": true,
+    "min_seq": 43,
+    "older_count": 42,
+    "older_has_more": false
+  },
+  "group_native": {
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "initial_latest_visible": true,
+    "load_older_clicked": true,
+    "loading_visible": true,
+    "loading_finished": true,
+    "same_task_started_item_remained_visible": true,
+    "older_messages_accessible": true,
+    "status": "passed: visible task-start text exactly matches seq1; already at earliest message. Initial cached history included older messages, so load-older deduplicated and removed sentinel without jumping to latest.",
+    "screenshots": [
+      "production-04b0c3d-group-initial.png",
+      "production-04b0c3d-group-before-older.png",
+      "production-04b0c3d-group-after-older.png",
+      "production-04b0c3d-group-older-loaded.png",
+      "production-04b0c3d-group-older-visible.png",
+      "production-04b0c3d-group-older-edge-drag.png"
+    ],
+    "screenshots_viewed": true,
+    "earliest_message_id": "01a12236-9689-7737-b4fe-3abe938123af",
+    "earliest_seq": 1,
+    "correction": "Earlier suspicion of inaccessible old messages rejected after comparing actual visible text against seq1 and seq43; no message loss. Fresh insertion anchor path remains covered by policy tests, not claimed as an uncached UI run."
+  }
+}

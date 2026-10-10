@@ -1,0 +1,10 @@
+{
+  "source": "ba0e8f17b5dfd779efc5cd4b41c7168a57d70b72",
+  "artifact": "/Users/gongshaojie/Project/mac-bot-integrator/clients/mac/dist/MacBot.dmg",
+  "sha256": "51e022be7bb6cc974369ec45256ea79e142aeda7ea854307a75adec87c4ae014",
+  "recorded_at": "2026-10-10T13:17:12.258804+00:00",
+  "codesign_verify_pass": true,
+  "installed_as_normal_update": true,
+  "fresh_install_pass": false,
+  "notes": "Desktop candidate was installed as a normal update; this does not count as S5 fresh installation. Existing app data was retained."
+}
