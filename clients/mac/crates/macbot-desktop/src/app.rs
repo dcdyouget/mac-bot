@@ -539,12 +539,7 @@ impl MacBot {
                 self.resync_requested = false;
                 self.state.apply_bootstrap(value);
                 self.retry_outbox(cx);
-                if !self.state.chats.contains_key(&self.selected_chat) {
-                    self.selected_chat.clear();
-                    self.select_main(cx);
-                } else {
-                    self.rpc("chat.history", json!({"chat_id":self.selected_chat}), cx);
-                }
+                self.restore_after_bootstrap(cx);
             }
             ClientEvent::Protocol(event) => {
                 let d = &event.data;
@@ -639,7 +634,7 @@ impl MacBot {
             "bootstrap" => {
                 self.state.apply_bootstrap(value.clone());
                 self.resync_requested = false;
-                self.select_main(cx);
+                self.restore_after_bootstrap(cx);
             }
             "chat.history" => {
                 for v in arr(&value, "messages") {
@@ -936,6 +931,20 @@ impl MacBot {
             if self.connected {
                 self.rpc("chat.history", json!({"chat_id":id}), cx);
             }
+        }
+    }
+
+    fn restore_after_bootstrap(&mut self, cx: &mut Context<Self>) {
+        match bootstrap_chat_selection(&self.state.chats, &self.selected_chat, &self.page) {
+            Some((_, true)) => {
+                self.selected_chat.clear();
+                self.select_main(cx);
+            }
+            Some((chat_id, _)) => {
+                self.selected_chat = chat_id.clone();
+                self.rpc("chat.history", json!({"chat_id":chat_id}), cx);
+            }
+            None => self.selected_chat.clear(),
         }
     }
     fn select_chat(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -1815,12 +1824,28 @@ fn arr<'a>(v: &'a Value, key: &str) -> &'a [Value] {
         .map(Vec::as_slice)
         .unwrap_or(&[])
 }
+
+fn bootstrap_chat_selection(
+    chats: &BTreeMap<String, Value>,
+    selected_chat: &str,
+    page: &str,
+) -> Option<(String, bool)> {
+    if !selected_chat.is_empty() && chats.contains_key(selected_chat) {
+        return Some((selected_chat.to_owned(), false));
+    }
+    chats
+        .values()
+        .find(|chat| s(chat, "kind") == "main")
+        .map(|chat| (s(chat, "id").to_owned(), page == "chat"))
+}
+
 fn insert(map: &mut BTreeMap<String, Value>, value: &Value, key: &str) {
     let id = s(value, key);
     if !id.is_empty() {
         map.insert(id.to_string(), value.clone());
     }
 }
+
 fn bean(bot: &Value, size: f32, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let avatar = &bot["avatar"];
@@ -1853,4 +1878,50 @@ fn bean(bot: &Value, size: f32, cx: &App) -> AnyElement {
             )
         })
         .into_any_element()
+}
+
+#[cfg(test)]
+mod bootstrap_navigation_tests {
+    use super::bootstrap_chat_selection;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    fn chats() -> BTreeMap<String, serde_json::Value> {
+        BTreeMap::from([
+            ("chat_main".into(), json!({"id":"chat_main", "kind":"main"})),
+            ("chat_bot".into(), json!({"id":"chat_bot", "kind":"dm"})),
+        ])
+    }
+
+    #[test]
+    fn bootstrap_keeps_valid_chat_without_navigation_on_feature_page() {
+        assert_eq!(
+            bootstrap_chat_selection(&chats(), "chat_bot", "skills"),
+            Some(("chat_bot".into(), false))
+        );
+    }
+
+    #[test]
+    fn bootstrap_replaces_missing_chat_without_leaving_feature_page() {
+        assert_eq!(
+            bootstrap_chat_selection(&chats(), "stale", "skills"),
+            Some(("chat_main".into(), false))
+        );
+    }
+
+    #[test]
+    fn bootstrap_replaces_missing_chat_and_navigates_only_from_chat_page() {
+        assert_eq!(
+            bootstrap_chat_selection(&chats(), "stale", "chat"),
+            Some(("chat_main".into(), true))
+        );
+    }
+
+    #[test]
+    fn bootstrap_without_main_chat_clears_selection() {
+        assert_eq!(
+            bootstrap_chat_selection(&BTreeMap::new(), "stale", "skills"),
+            None
+        );
+    }
 }
