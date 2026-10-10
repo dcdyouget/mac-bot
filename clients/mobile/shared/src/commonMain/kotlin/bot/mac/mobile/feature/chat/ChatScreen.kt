@@ -586,6 +586,10 @@ private fun BlockView(
         }
         "review_card" -> {
             val projectId = block.str("project_id")
+            Text(
+                stringResource(Res.string.feature_review_project, reviewProjectLabel(block, state.projects)),
+                style = MaterialTheme.typography.titleSmall,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(Res.string.feature_review_state, ""), style = MaterialTheme.typography.bodyMedium)
                 StatusLabel(block.str("state"))

@@ -2,6 +2,7 @@
     <string name="feature_mention_everyone">@所有人</string>
     <string name="feature_preview_file">预览</string>
     <string name="feature_export_file">保存文件</string>
+    <string name="feature_review_project">项目：%1$s</string>
     <string name="feature_review_state">验收状态：%1$s</string>
     <string name="feature_approval_ref">审批在私聊中等待</string>
     <string name="feature_open_chat">打开私聊</string>
