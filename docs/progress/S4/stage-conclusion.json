@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-10T13:46:53.079535+00:00",
+  "at": "2026-10-10T13:57:01.351502+00:00",
   "stage": "S4",
   "status": "pending_takeover_lifecycle_regression",
   "evidence": {
@@ -11,7 +11,8 @@
     "native_notification_open": "production-7189395-cac5b12-notification-opened.json",
     "native_notification_allow_once": "production-98fb4a9-skill-notification-action.json",
     "isolated_native_notification_capacity": "production-962fb53-isolated-capacity.json",
-    "takeover_lifecycle_regression": "production-9c9cd7d-takeover-state.json"
+    "takeover_lifecycle_regression": "production-9c9cd7d-takeover-state.json",
+    "new_question_runtime": "production-b037662-new-takeover.json"
   },
   "boundaries": [
     "Desktop keyboard and pointer input verified on owned local fixture; logged-in X read/summary and continuous screen separately verified.",
@@ -21,8 +22,14 @@
     "Current regression keeps existing waiting run; never infer success from model completion text."
   ],
   "pending": [
-    "Exact current waiting request native start/release updates original block pending-active-done.",
-    "Same run resumes and finishes; both native clients hide action for done card.",
-    "No stale corresponding pending question in workbench; unrelated approvals/jobs preserved."
-  ]
+    "Remove incorrect approval_ref carrying question_id; both native histories must not falsely show pending approval.",
+    "Desktop answered question card must not offer submission; investigate new-message live update gap."
+  ],
+  "runtime_pass": {
+    "source": "b037662",
+    "existing_waiting_recovery": "production-b037662-card-done.json",
+    "new_request_question_closed_same_run": "production-b037662-new-done.json",
+    "unrelated_pending_unchanged": 7,
+    "unrelated_baseline_jobs_unchanged": 160
+  }
 }

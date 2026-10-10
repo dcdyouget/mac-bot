@@ -665,5 +665,45 @@
     "run_waiting": true,
     "native_start_not_clicked": true,
     "status": "platform runtime persistence path under repair; do not count done"
+  },
+  "native_regression_plan": {
+    "at": "2026-10-10T13:49:30.423820+00:00",
+    "candidate": "b037662a21cf734ca9cb11053af4ff416ccc95d2",
+    "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+    "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+    "run_id": "run_chat_01a12607_1822_74d8_b99c_67ea54752954",
+    "job_id": "job_01a12607-192d-71af-8c84-d863bd13bf08",
+    "request_tool_call_id": "call_function_jt2jmaqknapw_1",
+    "message_id": "msg_takeover_run_chat_01a12607_1822_74d8_b99c_67ea54752954",
+    "reason": "takeover-state-6ba7efe-card-only",
+    "actions": [
+      "After fixed server deploy, Android existing card takeover/open screen",
+      "Inspect durable request and original block active",
+      "Release and confirm native dialog",
+      "Inspect same run resume-tool.end-run.end; original card done in both clients"
+    ],
+    "constraints": [
+      "No new chat.send for this existing pending run",
+      "No navigation/input on screen",
+      "No unknown approvals",
+      "Native client generates request IDs; do not invent RPC UUID for native actions"
+    ]
+  },
+  "native_regression_result": {
+    "status": "PASS_existing_waiting_recovered_same_run",
+    "source": "b037662a21cf734ca9cb11053af4ff416ccc95d2",
+    "run_resume_aseq": 271,
+    "tool_end_aseq": 273,
+    "run_done_aseq": 276,
+    "screenshots_viewed": [
+      "production-b037662-android-card-active.png",
+      "production-b037662-android-card-active-confirmed.png",
+      "production-b037662-android-card-done.png",
+      "production-b037662-desktop-card-done.png"
+    ],
+    "both_chat_takeover_buttons_removed": true,
+    "screen_boundary": "Headless restored prior X URL yields403; no navigation/input used and this is not new X content acceptance. First active screenshot captured before async driver user update; confirmed screenshot shows user control.",
+    "pending_records_recovered_without_model_replay": true,
+    "workbench_same_bot_waiting_after": 0
   }
 }

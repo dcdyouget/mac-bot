@@ -1,0 +1,71 @@
+{
+  "created_at": "2026-10-10T13:53:27.983530+00:00",
+  "purpose": "Real newly created private takeover durable record and question lifecycle, separate from old marker recovery; no browser content acceptance",
+  "params": {
+    "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+    "mentions": [],
+    "client_request_id": "44cbf43b-a1ba-4169-a0f6-6a12971dda5a",
+    "text": "这是一次新的平台回归，仅验证新接管请求的持久化及工作台问题关闭，不测试浏览器内容。请现在实际调用一次 request_takeover，reason 精确为 takeover-new-b037662。等待用户在客户端接管并交还后再回复完成。不要打开网页、导航、输入或调用其他工具，不要提前声称完成。"
+  },
+  "result": {
+    "message": {
+      "artifacts": [],
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "这是一次新的平台回归，仅验证新接管请求的持久化及工作台问题关闭，不测试浏览器内容。请现在实际调用一次 request_takeover，reason 精确为 takeover-new-b037662。等待用户在客户端接管并交还后再回复完成。不要打开网页、导航、输入或调用其他工具，不要提前声称完成。",
+          "type": "text"
+        }
+      ],
+      "chat_id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+      "created_at": "2026-10-10T13:53:28.039652+00:00",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "这是一次新的平台回归，仅验证新接管请求的持久化及工作台问题关闭，不测试浏览器内容。请现在实际调用一次 request_takeover，reason 精确为 takeover-new-b037662。等待用户在客户端接管并交还后再回复完成。不要打开网页、导航、输入或调用其他工具，不要提前声称完成。",
+      "id": "01a12617-0fe7-70da-b36d-63dd7e481b3d",
+      "intent": "ack",
+      "mentions": [],
+      "options": [],
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 53,
+      "streaming": false,
+      "thread_count": 0
+    }
+  },
+  "run_id": "run_chat_01a12617_0fe7_70da_b36d_63dd7e481b3d",
+  "runtime_result": {
+    "at": "2026-10-10T13:55:26.021939+00:00",
+    "new_record_saved": true,
+    "question_id": "01a12617-2427-7176-a58a-da4452bc56f9",
+    "same_run_done": true,
+    "question_not_in_workbench": true,
+    "run_resume_aseq": 282,
+    "tool_end_aseq": 284,
+    "run_end_aseq": 287,
+    "pending_unchanged": true,
+    "baseline_jobs_changed": [
+      "job_01a12607-192d-71af-8c84-d863bd13bf08.json"
+    ],
+    "new_job_count": 1,
+    "native_card_buttons_removed": true,
+    "remaining_defect": "Original card includes approval_ref whose approval_id is question_id, yielding false pending approval text. Screenshot actually viewed; platform repair requested.",
+    "screenshot": "production-b037662-android-new-done.png"
+  },
+  "desktop_observation": {
+    "before_reopen": [
+      "production-b037662-desktop-new-done.png",
+      "production-b037662-desktop-new-done-visible.png",
+      "production-b037662-desktop-new-done-follow.png"
+    ],
+    "before_reopen_result": "Still displayed old 6ba7efe card, not new-request evidence despite filenames. Scroll and follow did not reveal new request.",
+    "after_reopen": "production-b037662-desktop-new-reopened.png",
+    "after_reopen_result": "New completed message and done takeover visible; incorrect approval_ref and answered question submission still displayed.",
+    "all_screenshots_viewed": true,
+    "client_investigation_pending": true
+  }
+}

@@ -23,45 +23,31 @@
 
 ## 4. 完整场景顺序
 
-所有脚本使用 Python 3 标准库，正式服务显式传 `--url http://127.0.0.1:7788`，输出写入新的 `docs/progress/S5/` 证据文件；RPC 前先保存 UUID/journal，结果不明绝不换 UUID 重发。
+所有脚本使用 Python 3 标准库，正式服务显式传 `--url http://127.0.0.1:7788`，输出写入新的 `docs/progress/S5/` 证据文件。执行前必须阅读 [fresh-rpc-journal-audit.md](fresh-rpc-journal-audit.md)：不得直接运行其中列出的未满足写前 journal 的脚本。Fresh 写操作由逐项标准库 RPC runner 完成，先把 UUID、方法、脱敏参数和精确作用域写入外部 journal，再发送一次；结果不明只读核验，绝不换 UUID 重发。provider key 只记录来源路径，不记录 key 或其哈希。
 
 1. **S1 单 Bot**：
    ```sh
    python3 scripts/e2e/s0/bootstrap.py --url http://127.0.0.1:7788 --json
-   python3 scripts/e2e/s1/private_chat.py --url http://127.0.0.1:7788 --create-worker --json
    ```
-   在桌面和 Android 同时观察私聊流式消息、`write/read/bash` 消息块、实时 trace 和历史回放；确认 marker 文件、回复、`run.end=done`。恢复场景在确认本次任务和 checkpoint 后单独执行：
-   ```sh
-   python3 scripts/e2e/s1/recovery.py --url http://127.0.0.1:7788 --create-worker --restart-service --json
-   ```
-   该参数会 kill 已核验的正式 7788 LaunchAgent PID，只能用于本次明确的恢复验收；验收点是同一 `run_id` 的 `run.resume`、文件 marker、消息和最终 done。
+   `private_chat.py --create-worker`、`recovery.py --create-worker/--restart-service` 含未 journal 的写调用，fresh 不直接运行；由外部 runner 逐项记录 `bot.create`、`chat.send` 和必要的 approval 后执行。已有运行的恢复仍只允许对已核验的正式 LaunchAgent PID 操作。
+   在桌面和 Android 同时观察私聊流式消息、`write/read/bash` 消息块、实时 trace 和历史回放；确认 marker 文件、回复、`run.end=done`。恢复场景在确认本次任务和 checkpoint 后，由外部 runner 单独执行；该操作会 kill 已核验的正式 7788 LaunchAgent PID，只能在外部 journal 已记录本次任务、checkpoint 和精确 PID 后使用。验收点是同一 `run_id` 的 `run.resume`、文件 marker、消息和最终 done。
 
-2. **S2 主 Bot/双群（fresh clean home 重新执行；历史旧 pending 不续办）**：先在客户端原生 UI 创建并核对 product/coding/test Bot，再把三个精确 Bot ID 传给：
-   ```sh
-   python3 scripts/e2e/s2/login_feature.py --url http://127.0.0.1:7788 \
-     --product-bot-id <product> --coding-bot-id <coding> --test-bot-id <test> \
-     --partial-output docs/progress/S5/s2-login-partial.json --json
-   ```
-   两个群的时间区间必须实际重叠；桌面和 Android 观察公告、任务卡片、运行中插话、送达 `read`、assignment steer、交接和待验收。只有真实产物检查完成后才允许追加 `--confirm-projects`；不要用 `project.create` 或 API 状态代替主 Bot 理解和 UI 证据。中断后只用同一 partial journal `--resume-partial` 恢复。
+2. **S2 主 Bot/双群（fresh clean home 重新执行；历史旧 pending 不续办）**：先在客户端原生 UI 创建并核对 product/coding/test Bot，再把三个精确 Bot ID 提供给外部 runner。
+   `login_feature.py` 只有 `chat.send` partial journal 入口可复用；其 `question.answer`、`approval.decide`、`project.confirm_done` 不满足本清单的写前 journal。两个群的时间区间必须实际重叠；由外部 runner 逐项记录并发送精确写 RPC。question、approval 和 confirm_done 继续人工核对，当前 `approval_ref` 残留未修复前不得执行；不要用 `project.create` 或 API 状态代替主 Bot 理解和 UI 证据。中断后只用同一 partial journal 恢复。
 
 3. **S3 技能/仪表盘/记忆**：
    ```sh
-   python3 scripts/e2e/s3/skills_usage_search.py --url http://127.0.0.1:7788 --bot-id <non-main> --json
    python3 scripts/e2e/s3/usage_readonly.py --url http://127.0.0.1:7788 \
      --from <closed-rfc3339-start> --to <closed-rfc3339-end> --json
    ```
-   在两端分别打开仪表盘、技能页、搜索页，核对同一固定 UTC 范围、技能新增/编辑/停用/启用/删除和搜索 marker；从非主 Bot 写入偏好，再在主 Bot 私聊读取，两端都看见真实消息和结果。usage 脚本只算 API 局部检查。
+   `skills_usage_search.py` 的技能 CRUD 和 chat.send 未逐项 journal，fresh 不直接运行；技能新增/编辑/停用/启用/删除及记忆写入由外部 runner 执行。`usage_readonly.py`只算 API 局部检查。在两端分别打开仪表盘、技能页、搜索页，核对同一固定 UTC 范围和真实消息/结果。
 
 4. **S4 浏览器/定时/通知**：API 部分仅用于自己的 routine 和 scheduler：
    ```sh
-   python3 scripts/e2e/s4/routines_browser.py --url http://127.0.0.1:7788 --bot-id <bot> --json
-   python3 scripts/e2e/s4/scheduled_routine.py --url http://127.0.0.1:7788 --bot-id <bot> --json
-   python3 scripts/e2e/s4/screen_transport.py --url http://127.0.0.1:7788 --bot-id <bot> \
-     --output docs/progress/S5/screen-transport --takeover --json
    python3 scripts/e2e/s4/android_notification_probe.py --serial emulator-5554 \
      --marker <unique-marker> --output docs/progress/S5/notification.json
    ```
-   另需人工在已登录 Chrome 中只读打开 X、观察真实画面；Android 观察接管、只读滑动、交还后按钮消失、同一 run/message 的状态更新和通知容量。不得发帖、点赞、关注或改账号；不得把 transport/API probe 当成 Chrome 登录、画面绘制或 Android UI 通过。question 或 takeover pending block 未清除时停止，不进入 S5 通过结论。
+   `routines_browser.py`、`scheduled_routine.py` 和 `screen_transport.py --takeover` 含未 journal 的 routine/takeover 写调用，fresh 不直接运行；由外部 runner 逐项记录 routine、assignment 和 takeover start/release。另需人工在已登录 Chrome 中只读打开 X、观察真实画面；Android 观察接管、只读滑动、交还后按钮消失、同一 run/message 的状态更新和通知容量。不得发帖、点赞、关注或改账号；不得把 transport/API probe 当成 Chrome 登录、画面绘制或 Android UI 通过。question 或 takeover pending block 未清除时停止，不进入 S5 通过结论。
 
 5. **S5 现场收尾**：保留安装日志、管理页首次设置截图、桌面/Android 连接与完整场景截图、RPC/journal、最终 PID/source stamp 和备份路径。任何一端只显示健康/API 成功而没有实际 UI/截图，均不计完整场景通过。
 

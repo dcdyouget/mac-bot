@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-10T13:51:12.547659+00:00",
+  "source": "b037662a21cf734ca9cb11053af4ff416ccc95d2",
+  "deploy_exit": 0,
+  "health": {
+    "ok": true,
+    "protocol": 1,
+    "setup_required": false,
+    "version": "0.1.0"
+  },
+  "listener": "COMMAND   PID        USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nmacbotd 50498 gongshaojie   11u  IPv4 0x8d571bfd64161dd9      0t0  TCP *:7788 (LISTEN)\n",
+  "pending_unchanged": true,
+  "jobs_unchanged": true,
+  "pending_count": 7,
+  "jobs_count": 161,
+  "initial_order_sensitive_comparison": false,
+  "comparison_note": "approval.list ordering changed; compare exact records keyed by id"
+}
