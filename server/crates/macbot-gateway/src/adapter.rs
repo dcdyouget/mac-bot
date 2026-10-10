@@ -27,7 +27,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex},
 };
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -58,6 +58,7 @@ pub struct ProductionBackend {
     persist_lock: Arc<Mutex<()>>,
     event_lock: Arc<Mutex<()>>,
     idempotency: Arc<Mutex<HashMap<String, Value>>>,
+    startup_repair_events: Arc<StdMutex<Option<Vec<macbot_store::Event>>>>,
 }
 
 #[derive(Clone)]
@@ -162,6 +163,7 @@ impl ProductionBackend {
             persist_lock: Arc::new(Mutex::new(())),
             event_lock: Arc::new(Mutex::new(())),
             idempotency: Arc::new(Mutex::new(idempotency)),
+            startup_repair_events: Arc::new(StdMutex::new(None)),
         };
         if terminal_approvals_migrated {
             // Constructor-only: persist normalized terminal approvals before
@@ -174,10 +176,19 @@ impl ProductionBackend {
         }
         backend.reconcile_durable_decision_waits()?;
         backend.repair_decision_question_messages()?;
+        *backend
+            .startup_repair_events
+            .lock()
+            .expect("startup event cache lock poisoned") = Some(backend.store.events_since(0)?);
         backend.repair_completed_operation_events(&operations)?;
         backend
             .terminal_approval_events(None)
             .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+        backend
+            .startup_repair_events
+            .lock()
+            .expect("startup event cache lock poisoned")
+            .take();
         Ok(backend)
     }
 
@@ -704,12 +715,32 @@ impl ProductionBackend {
     }
 
     fn repair_completed_operation_events(&self, operations: &[Value]) -> Result<(), AdapterError> {
+        // Completed-operation repair only reads the restored state. Keep one
+        // snapshot for the pass and refresh it after the sole repair path
+        // that may add a task-stopped message to the orchestrator.
+        let mut snapshot = self
+            .orchestrator
+            .snapshot()
+            .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
         for operation in operations {
             if operation.get("status").and_then(Value::as_str) != Some("done") {
                 continue;
             }
-            self.repair_operation_events(operation)
+            self.repair_operation_events_with_snapshot(operation, &snapshot)
                 .map_err(|error| AdapterError::OrchestratorSnapshot(error.message))?;
+            if operation.get("method").and_then(Value::as_str) == Some("approval.decide")
+                && operation
+                    .get("result")
+                    .and_then(|result| result.get("approval"))
+                    .and_then(|approval| approval.get("state"))
+                    .and_then(Value::as_str)
+                    == Some("denied")
+            {
+                snapshot = self
+                    .orchestrator
+                    .snapshot()
+                    .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+            }
         }
         self.repair_persisted_message_events()
             .map_err(|error| AdapterError::OrchestratorSnapshot(error.message))?;
@@ -730,10 +761,19 @@ impl ProductionBackend {
                 })
             }
         };
-        // The repair runs during backend construction.  Load the event WAL
-        // once and keep newly repaired events in the same view so each chat
-        // does not decode the complete history again.
-        let mut events = self.store.events_since(0).map_err(store_error)?;
+        // Reuse the startup event cache when the constructor has already
+        // loaded it for operation repair. Direct callers retain the same
+        // one-load behavior as before.
+        let (mut events, restore_startup_cache) = {
+            let mut cache = self
+                .startup_repair_events
+                .lock()
+                .expect("startup event cache lock poisoned");
+            match cache.take() {
+                Some(events) => (events, true),
+                None => (self.store.events_since(0).map_err(store_error)?, false),
+            }
+        };
         for entry in entries {
             let entry = entry.map_err(|error| RpcError {
                 code: "internal".into(),
@@ -833,6 +873,12 @@ impl ProductionBackend {
                 }
             }
         }
+        if restore_startup_cache {
+            self.startup_repair_events
+                .lock()
+                .expect("startup event cache lock poisoned")
+                .replace(events);
+        }
         Ok(())
     }
 
@@ -880,6 +926,7 @@ impl ProductionBackend {
         base_key: &str,
         params: &Value,
         canonical: &Value,
+        snapshot: &Value,
     ) -> Result<Vec<macbot_store::Event>, RpcError> {
         let mut events = Vec::new();
         if method == "project.create" {
@@ -1003,7 +1050,6 @@ impl ProductionBackend {
                     .get("chat_id")
                     .and_then(Value::as_str)
                     .unwrap_or("chat_main");
-                let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
                 let artifacts = snapshot
                     .get("artifacts")
                     .and_then(Value::as_object)
@@ -1052,19 +1098,42 @@ impl ProductionBackend {
         if self.store.has_event_key(key) {
             return Ok(None);
         }
-        if self.store.event_payload_might_contain(event_name, &data)
-            && self
-                .store
-                .events_since(0)
-                .map_err(store_error)?
-                .iter()
-                .any(|event| event.event == event_name && event.data == data)
-        {
-            return Ok(None);
+        if self.store.event_payload_might_contain(event_name, &data) {
+            let found = {
+                let cache = self
+                    .startup_repair_events
+                    .lock()
+                    .expect("startup event cache lock poisoned");
+                match cache.as_ref() {
+                    Some(events) => events
+                        .iter()
+                        .any(|event| event.event == event_name && event.data == data),
+                    None => self
+                        .store
+                        .events_since(0)
+                        .map_err(store_error)?
+                        .iter()
+                        .any(|event| event.event == event_name && event.data == data),
+                }
+            };
+            if found {
+                return Ok(None);
+            }
         }
-        self.store
+        let event = self
+            .store
             .append_event_once(key, event_name, data)
-            .map_err(store_error)
+            .map_err(store_error)?;
+        if let Some(event) = event.as_ref() {
+            let mut cache = self
+                .startup_repair_events
+                .lock()
+                .expect("startup event cache lock poisoned");
+            if let Some(events) = cache.as_mut() {
+                events.push(event.clone());
+            }
+        }
+        Ok(event)
     }
 
     fn append_repaired_event_with_events(
@@ -1092,13 +1161,23 @@ impl ProductionBackend {
             .map_err(store_error)
     }
 
+    fn remember_startup_repair_event(&self, event: &macbot_store::Event) {
+        let mut cache = self
+            .startup_repair_events
+            .lock()
+            .expect("startup event cache lock poisoned");
+        if let Some(events) = cache.as_mut() {
+            events.push(event.clone());
+        }
+    }
+
     fn canonical_operation_result(
         &self,
         method: &str,
         params: &Value,
         result: &Value,
+        snapshot: &Value,
     ) -> Result<Value, RpcError> {
-        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
         let mut canonical = result.clone();
         let current = |collection: &str, id: Option<&str>| {
             id.and_then(|id| {
@@ -1240,6 +1319,14 @@ impl ProductionBackend {
         assignment_id: Option<&str>,
     ) -> Result<Vec<macbot_store::Event>, RpcError> {
         let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        self.terminal_approval_events_with_snapshot(assignment_id, &snapshot)
+    }
+
+    fn terminal_approval_events_with_snapshot(
+        &self,
+        assignment_id: Option<&str>,
+        snapshot: &Value,
+    ) -> Result<Vec<macbot_store::Event>, RpcError> {
         let mut events = Vec::new();
         for approval in snapshot
             .get("approvals")
@@ -1282,6 +1369,15 @@ impl ProductionBackend {
         &self,
         operation: &Value,
     ) -> Result<Vec<macbot_store::Event>, RpcError> {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        self.repair_operation_events_with_snapshot(operation, &snapshot)
+    }
+
+    fn repair_operation_events_with_snapshot(
+        &self,
+        operation: &Value,
+        snapshot: &Value,
+    ) -> Result<Vec<macbot_store::Event>, RpcError> {
         let method = operation
             .get("method")
             .and_then(Value::as_str)
@@ -1295,7 +1391,7 @@ impl ProductionBackend {
             .cloned()
             .unwrap_or_else(|| json!({}));
         let result = operation.get("result").cloned().unwrap_or(Value::Null);
-        let canonical = self.canonical_operation_result(method, &params, &result)?;
+        let canonical = self.canonical_operation_result(method, &params, &result, snapshot)?;
         let base_key = operation
             .get("event_key")
             .and_then(Value::as_str)
@@ -1312,7 +1408,6 @@ impl ProductionBackend {
         }
         if method == "approval.decide" && canonical["approval"]["state"] == "denied" {
             if let Some(id) = canonical["approval"]["assignment_id"].as_str() {
-                let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
                 if let Some(assignment) =
                     snapshot.get("assignments").and_then(|items| items.get(id))
                 {
@@ -1326,7 +1421,7 @@ impl ProductionBackend {
                         events.push(event);
                     }
                 }
-                events.extend(self.terminal_approval_events(Some(id))?);
+                events.extend(self.terminal_approval_events_with_snapshot(Some(id), snapshot)?);
                 let message = self
                     .orchestrator
                     .create_task_stopped_message(id)
@@ -1348,9 +1443,10 @@ impl ProductionBackend {
             }
         }
         if method == "assignment.stop" {
-            events.extend(
-                self.terminal_approval_events(params.get("assignment_id").and_then(Value::as_str))?,
-            );
+            events.extend(self.terminal_approval_events_with_snapshot(
+                params.get("assignment_id").and_then(Value::as_str),
+                snapshot,
+            )?);
         }
         if matches!(method, "bot.create" | "bot.duplicate") {
             if let Some(chat) = canonical.get("dm_chat").filter(|value| value.is_object()) {
@@ -1415,9 +1511,9 @@ impl ProductionBackend {
                 }
             }
         }
-        events.extend(self.repair_operation_cards(method, &base_key, &params, &canonical)?);
+        events
+            .extend(self.repair_operation_cards(method, &base_key, &params, &canonical, snapshot)?);
         if method == "send_msg" {
-            let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
             for block in canonical
                 .get("blocks")
                 .and_then(Value::as_array)
@@ -1446,6 +1542,7 @@ impl ProductionBackend {
                         )
                         .map_err(store_error)?
                     {
+                        self.remember_startup_repair_event(&event);
                         events.push(event);
                     }
                 }
