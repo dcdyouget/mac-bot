@@ -1,0 +1,15 @@
+{
+  "observed_at": "2026-10-10T07:39:42.559099+00:00",
+  "android_source_commit": "d61381904e18c35f727d9150399ac75ddb0f3680",
+  "variant": "release",
+  "adb_install": "-r; Success",
+  "data_preserved": "Native saved Hosts Mock and Production observed after update",
+  "unit_tests": {
+    "tests": 56,
+    "failures": 0,
+    "errors": 0
+  },
+  "live_ui_retest": "pending network reconnection",
+  "full_stage_pass": false,
+  "apk_sha256": "c9d1bbcd220b5a6989fb3488a40efabf5bdc1b661fe3af8c27e8426270a9189c"
+}

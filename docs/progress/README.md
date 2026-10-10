@@ -184,6 +184,18 @@ S3 已实际核对 Android 技能页四项及 3 开/1 关，与桌面相同，�
 
 原并行项目 Tester 已实测补齐无效邮箱原生验证、正确登录后 360×800 卡片边界，以及调用原 alert 时的真实错误密码消息；报告由原 Tester 修改，早先被拒绝或测量不准的记录保留。主 Bot 最新汇总已在 Android 实际显示，项目仍待验收，未 confirm_done。报告轨迹编号及弹窗观察范围已由原 Tester 修正；旧测量历史的概括仍需保守解读，不能以其“全部通过”文字替代阶段验收。见 production-d398bc4-parallel-alert-observer.json、production-d398bc4-parallel-report-precision.json、production-d398bc4-android-main-review.png。
 
-模拟器随后自行退出（原因未知），按用户授权重启同一 macbot_api36，未 wipe、卸载或清空数据。冷启动后点击已保存 AndroidWifi 恢复网络，Production 配置及原群保留；截图已查看，见 production-d398bc4-android-reconnected.json。Android 新一轮真实流式测试已有服务端事件，但轨迹 UI 仍显示旧运行，正在定位，尚不计通过（S1/production-d398bc4-android-real-stream.json）。
+模拟器随后自行退出（原因未知），按用户授权重启同一 macbot_api36，未 wipe、卸载或清空数据。冷启动后点击已保存 AndroidWifi 恢复网络，Production 配置及原群保留；截图已查看，见 production-d398bc4-android-reconnected.json。Android 新一轮真实流式测试已有服务端事件，最终消息及标记搜索后的轨迹回放已实际看到；最初打开页面时尚无 live run，不能据旧画面判定丢事件，实时 UI 仍需专项验证（S1/production-d398bc4-android-real-stream.json）。
 
 当前仅 S0 整阶段通过；S1/S3/S4 双端补验及 S5 fresh 仍待完成。GitHub 推送遇到网络超时，当前改动已合本地 main，尚未确认远端更新。主仓库根文档的其他会话改动保持不动。
+
+## 2026-10-10 Android 实时轨迹开关修复
+
+已在原私聊 Bot 上看到 Android 实时追加模型请求、read 工具结果及正文。原 cac5b12 的实时思考片段不受“显示思考”开关约束；`d613819` 修复实时 thinking/tool 输出过滤，56 项 shared 测试通过，同签名 Release `adb install -r` 成功且保留两个 Host 与旧群。新版原生截图显示关闭思考时仍能实时追加正文，见 S1/production-d613819-android-live-verified.json 与 live-partial.png。一次完成态截图误导航到聊天输入框，失败截图保留，不计完成态证据；此前新运行的最终消息及轨迹回放已另存。S1 整阶段仍未通过，Android kill‑9 恢复等仍待验。
+
+Mac 再次锁屏，已请求用户解锁；桌面截图/输入暂停，未将其判作客户端冻结。模拟器 AndroidWifi 被系统标记 NETWORK_SELECTION_DISABLED_NO_INTERNET_PERMANENT，重新连接可短暂访问主机，正在处理其持续连接；不清空应用或 AVD 数据。
+
+## 2026-10-10 正式服务状态计数性能修复
+
+`09622d7` 已 server-only 部署，PID 62810，桌面仍 a0b9ddf、Android d613819。状态发布复用单次计数和共享 durable 状态；磁盘 job 文件集合、size/mtime 不一致时回退磁盘，终态 job 不再读取 run_request。gateway 195/195、durable 5/5 及同 ID 外部状态变更专项通过。部署前后 12 条 pending ID、149 个 job 文件哈希完全一致，无任务重放。实际本机 bootstrap 从部署前单次 5230ms 降至部署后三次 89/93/87ms，approval.list 从 2709ms 降至104ms；这是当前现场抽样，不是通用性能保证。证据见 S1/production-09622d7-upgrade-{before,after}.json。
+
+Android 网络受限提示已通过系统通知选择“仍然使用”并对该既有 AndroidWifi 记住选择（noInternetAccessExpected=true），随后重连与恢复验收保持连接。S1 原 Bot 新运行的 Android kill‑9 恢复专项通过：SIGKILL 前核对正式 PID 62810 与安全 checkpoint，LaunchAgent 重启为 PID 65439；同一 run 恢复后 read/marker/done，原 Bash 没有重放，标记文件哈希保持。手机原生页实际显示完整恢复链；12 条旧 pending 与149个旧 job 哈希保持。见 production-09622d7-android-recovery.json 与 running/after.png；整阶段结论仍需对照矩阵复核。

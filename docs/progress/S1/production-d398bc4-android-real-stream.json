@@ -2844,6 +2844,9 @@
   "android_observation": {
     "trace_screen": "Still showed old X run.end at 2026-10-10T05:38:59.139Z after scroll to bottom and reopen",
     "screenshot_viewed": true,
-    "status": "investigating; not a streaming pass"
+    "status": "replay passed; live UI not yet verified",
+    "followup": "New final message and trace replay found by native marker search at 07:27:52.535Z; earlier old-run screenshot does not establish lost events. Live=false at initial opening disables subscription by protocol; live streaming still needs controlled observation.",
+    "replay_verified": true,
+    "replay_screenshot": "production-d398bc4-android-trace-replay.png"
   }
 }
