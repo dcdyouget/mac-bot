@@ -774,79 +774,93 @@ impl ProductionBackend {
         let _guard = self.write_lock.lock().await;
         let mut events = Vec::new();
         for (chat_id, target_message_id) in targets {
-            let path = format!("data/chats/{}/messages.jsonl", takeover_component(&chat_id));
-            let rows = self.store.read_jsonl::<Value>(&path).map_err(store_error)?;
-            let Some(mut message) = rows.into_iter().rev().find(|message| {
-                message.get("id").and_then(Value::as_str) == Some(target_message_id.as_str())
-            }) else {
-                continue;
-            };
-            if !crate::backend::takeover_message_scope_matches(
-                &message,
-                request,
-                &chat_id,
-                &target_message_id,
-            ) {
-                continue;
-            }
-            let changed = crate::backend::transition_takeover_message(
-                &mut message,
-                request,
-                &chat_id,
-                &target_message_id,
-            );
-            if !changed
-                && message
-                    .pointer("/blocks")
-                    .and_then(Value::as_array)
-                    .and_then(|blocks| {
-                        blocks.iter().find(|block| {
-                            block.get("type").and_then(Value::as_str) == Some("takeover_request")
-                                && block.get("bot_id").and_then(Value::as_str)
-                                    == Some(bot_id.as_str())
+            let target_result = (|| -> Result<Option<macbot_store::Event>, RpcError> {
+                let path = format!("data/chats/{}/messages.jsonl", takeover_component(&chat_id));
+                let rows = self.store.read_jsonl::<Value>(&path).map_err(store_error)?;
+                let Some(mut message) = rows.into_iter().rev().find(|message| {
+                    message.get("id").and_then(Value::as_str) == Some(target_message_id.as_str())
+                }) else {
+                    return Ok(None);
+                };
+                if !crate::backend::takeover_message_scope_matches(
+                    &message,
+                    request,
+                    &chat_id,
+                    &target_message_id,
+                ) {
+                    return Ok(None);
+                }
+                let changed = crate::backend::transition_takeover_message(
+                    &mut message,
+                    request,
+                    &chat_id,
+                    &target_message_id,
+                );
+                if !changed
+                    && message
+                        .pointer("/blocks")
+                        .and_then(Value::as_array)
+                        .and_then(|blocks| {
+                            blocks.iter().find(|block| {
+                                block.get("type").and_then(Value::as_str)
+                                    == Some("takeover_request")
+                                    && block.get("bot_id").and_then(Value::as_str)
+                                        == Some(bot_id.as_str())
+                            })
                         })
-                    })
-                    .and_then(|block| block.get("state"))
-                    .and_then(Value::as_str)
-                    != Some(request_state.as_str())
-            {
-                // A row with the same id but a different scope is unrelated
-                // historical data. Leave it untouched and avoid broadening
-                // an old request into a new card.
-                continue;
-            }
-            let canonical = if changed {
-                self.store
-                    .sequence_chat_messages(&chat_id, &[message])
-                    .map_err(store_error)?
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| RpcError {
+                        .and_then(|block| block.get("state"))
+                        .and_then(Value::as_str)
+                        != Some(request_state.as_str())
+                {
+                    // A row with the same id but a different scope is
+                    // unrelated historical data. Leave it untouched and
+                    // avoid broadening an old request into a new card.
+                    return Ok(None);
+                }
+                let canonical = if changed {
+                    self.store
+                        .sequence_chat_messages(&chat_id, &[message])
+                        .map_err(store_error)?
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| RpcError {
+                            code: "internal".into(),
+                            message: "chat message sequencing returned no message".into(),
+                            details: None,
+                        })?
+                } else {
+                    message
+                };
+                if changed {
+                    self.store
+                        .append_jsonl(&path, &canonical)
+                        .map_err(store_error)?;
+                }
+                let data = json!({"message": canonical});
+                let key = format!(
+                    "takeover-message:{}:{}:{}",
+                    target_message_id,
+                    request_state,
+                    serde_json::to_string(&data).map_err(|error| RpcError {
                         code: "internal".into(),
-                        message: "chat message sequencing returned no message".into(),
+                        message: error.to_string(),
                         details: None,
                     })?
-            } else {
-                message
-            };
-            if changed {
-                self.store
-                    .append_jsonl(&path, &canonical)
-                    .map_err(store_error)?;
-            }
-            let data = json!({"message": canonical});
-            let key = format!(
-                "takeover-message:{}:{}:{}",
-                target_message_id,
-                request_state,
-                serde_json::to_string(&data).map_err(|error| RpcError {
-                    code: "internal".into(),
-                    message: error.to_string(),
-                    details: None,
-                })?
-            );
-            if let Some(event) = self.append_repaired_event(&key, "message.updated", data)? {
-                events.push(event);
+                );
+                Ok(self.append_repaired_event(&key, "message.updated", data)?)
+            })();
+            match target_result {
+                Ok(Some(event)) => events.push(event),
+                Ok(None) => {}
+                Err(error) => {
+                    drop(_guard);
+                    for event in events {
+                        state
+                            .publish_event(event.seq, &event.event, event.data)
+                            .await;
+                    }
+                    return Err(error);
+                }
             }
         }
         drop(_guard);
@@ -6929,6 +6943,51 @@ mod tests {
                 && event.data["message"]["id"] == "msg_takeover_run-1"
                 && event.data["message"]["blocks"][0]["state"] == "done"
         }));
+    }
+
+    #[tokio::test]
+    async fn takeover_projection_publishes_group_before_private_storage_failure() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let group = json!({
+            "id":"msg_takeover_run-1", "chat_id":"group-1", "seq":1,
+            "sender":{"kind":"bot","bot_id":"bot-1"}, "assignment_id":null,
+            "blocks":[{"type":"takeover_request","bot_id":"bot-1","state":"pending"}]
+        });
+        backend
+            .store
+            .append_jsonl("data/chats/group-1/messages.jsonl", &group)
+            .unwrap();
+        std::fs::create_dir_all(home.path().join("data/chats/dm-bot-1/messages.jsonl")).unwrap();
+        let request = json!({
+            "message_id":"msg_takeover_run-1", "run_id":"run-1",
+            "group_chat_id":"group-1", "chat_id":"dm-bot-1",
+            "bot_id":"bot-1", "assignment_id":"dm_group-1", "state":"active"
+        });
+        let mut live = gateway.state.events.subscribe();
+        assert!(backend
+            .project_takeover_message_state(&gateway.state, &request)
+            .await
+            .is_err());
+        let published = tokio::time::timeout(std::time::Duration::from_millis(200), live.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(published["event"], "message.updated");
+        assert_eq!(published["data"]["message"]["id"], "msg_takeover_run-1");
+        let events = backend.store.events_since(0).unwrap();
+        assert!(events.iter().any(|event| {
+            event.event == "message.updated" && event.data["message"]["id"] == "msg_takeover_run-1"
+        }));
+        let rows = backend
+            .store
+            .read_jsonl::<Value>("data/chats/group-1/messages.jsonl")
+            .unwrap();
+        assert_eq!(rows.last().unwrap()["blocks"][0]["state"], "active");
     }
 
     #[tokio::test]
