@@ -5411,7 +5411,11 @@ impl RuntimeExecution {
             .unwrap_or_else(|| json!({}));
         ProductionBrowserBridge::new(self.gateway_state.clone())
             .configure_bot_from_snapshots(bot_id, &snapshot, &settings)
+            .await?;
+        self.backend
+            .reconcile_browser_takeover(&self.gateway_state, bot_id)
             .await
+            .map_err(|error| error.to_string())
     }
 
     /// Apply the same live Bot browser configuration used by execution before
@@ -7792,6 +7796,7 @@ mod persistence_tests {
     use async_trait::async_trait;
     use macbot_memory::{AsyncMaintenanceProvider, MemoryError, MemorySource, MemoryTarget};
     use serde_json::{json, Value};
+    use std::fs;
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -8970,6 +8975,58 @@ mod persistence_tests {
             config.state_path,
             Some(path.join("browser/sessions").join(format!("{bot_id}.json")))
         );
+        assert!(gateway.state.browser.lock().await.state(&bot_id).is_err());
+    }
+
+    #[tokio::test]
+    async fn screen_takeover_restore_reads_durable_active_state() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"screen-takeover-restore"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+        let record = json!({
+            "bot_id": bot_id,
+            "assignment_id": format!("browser_takeover_{bot_id}"),
+            "state": "active"
+        });
+        fs::create_dir_all(path.join("data/takeovers")).unwrap();
+        fs::write(
+            path.join("data/takeovers")
+                .join(format!("browser_takeover_{bot_id}.json")),
+            serde_json::to_vec(&record).unwrap(),
+        )
+        .unwrap();
+        backend
+            .reconcile_browser_takeover(&gateway.state, &bot_id)
+            .await
+            .unwrap();
+        assert!(gateway.state.browser.lock().await.state(&bot_id).is_err());
+
+        let mut released = record;
+        released["state"] = json!("done");
+        fs::write(
+            path.join("data/takeovers")
+                .join(format!("browser_takeover_{bot_id}.json")),
+            serde_json::to_vec(&released).unwrap(),
+        )
+        .unwrap();
+        backend
+            .reconcile_browser_takeover(&gateway.state, &bot_id)
+            .await
+            .unwrap();
+        assert!(gateway.state.browser.lock().await.state(&bot_id).is_err());
     }
 
     #[tokio::test]

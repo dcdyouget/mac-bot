@@ -829,6 +829,67 @@ impl ProductionBackend {
         Ok(result)
     }
 
+    /// Reconcile browser ownership while holding the same writer lock used by
+    /// takeover.start/release. The durable request records are authoritative;
+    /// the browser session file only carries tab metadata across restarts.
+    pub(crate) async fn reconcile_browser_takeover(
+        &self,
+        state: &GatewayState,
+        bot_id: &str,
+    ) -> Result<(), RpcError> {
+        let _guard = self.write_lock.lock().await;
+        let active = self.durable_browser_takeover_active(bot_id)?;
+        state
+            .browser
+            .lock()
+            .await
+            .set_takeover_override(bot_id, active)
+            .map_err(browser_error)
+    }
+
+    fn durable_browser_takeover_active(&self, bot_id: &str) -> Result<bool, RpcError> {
+        let directory = self.store.root().join("data/takeovers");
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => {
+                return Err(RpcError {
+                    code: "internal".into(),
+                    message: format!("read durable takeover records: {error}"),
+                    details: None,
+                })
+            }
+        };
+        for entry in entries {
+            let entry = entry.map_err(|error| RpcError {
+                code: "internal".into(),
+                message: format!("read durable takeover entry: {error}"),
+                details: None,
+            })?;
+            if !entry
+                .file_type()
+                .map(|kind| kind.is_file())
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let bytes = fs::read(entry.path()).map_err(|error| RpcError {
+                code: "internal".into(),
+                message: format!("read durable takeover record: {error}"),
+                details: None,
+            })?;
+            let Ok(record) = serde_json::from_slice::<Value>(&bytes) else {
+                continue;
+            };
+            if record.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                && record.get("state").and_then(Value::as_str) == Some("active")
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Project the durable takeover lifecycle onto the original group card
     /// and its private question card.  The JSONL row and its corresponding
     /// event are committed under the same writer lock so two concurrent
@@ -4987,7 +5048,7 @@ impl ProductionBackend {
         state: &GatewayState,
         assignment: &Value,
         method: &str,
-        mut event_index: Option<&mut AssignmentCardEventIndex>,
+        event_index: Option<&mut AssignmentCardEventIndex>,
     ) -> Result<(), RpcError> {
         assignment
             .get("id")
@@ -5000,25 +5061,15 @@ impl ProductionBackend {
         let is_delegation =
             method == "delegate" && assignment.get("project_id").is_none_or(Value::is_null);
         if is_delegation {
-            self.ensure_assignment_card_with_event_index(
-                state,
-                assignment,
-                true,
-                event_index.as_deref_mut(),
-            )
-            .await?;
+            self.ensure_assignment_card_with_event_index(state, assignment, true, event_index)
+                .await?;
         } else if assignment
             .get("origin_chat_id")
             .and_then(Value::as_str)
             .is_some_and(|chat_id| !chat_id.starts_with("dm_"))
         {
-            self.ensure_assignment_card_with_event_index(
-                state,
-                assignment,
-                false,
-                event_index.as_deref_mut(),
-            )
-            .await?;
+            self.ensure_assignment_card_with_event_index(state, assignment, false, event_index)
+                .await?;
         }
         Ok(())
     }
@@ -5028,7 +5079,7 @@ impl ProductionBackend {
         state: &GatewayState,
         assignment: &Value,
         delegation: bool,
-        mut event_index: Option<&mut AssignmentCardEventIndex>,
+        event_index: Option<&mut AssignmentCardEventIndex>,
     ) -> Result<(), RpcError> {
         let assignment_id = assignment
             .get("id")
@@ -5141,7 +5192,7 @@ impl ProductionBackend {
             .append_event(event_name, data.clone())
             .map_err(store_error)?;
         state.publish_event(event.seq, &event.event, data).await;
-        if let Some(index) = event_index.as_deref_mut() {
+        if let Some(index) = event_index {
             index
                 .message_blocks
                 .insert(message_id, canonical["blocks"].clone());

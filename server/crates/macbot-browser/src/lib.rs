@@ -214,6 +214,7 @@ pub struct BrowserManager<R: CliRunner = ProcessRunner> {
     runner: Arc<R>,
     config: SessionConfig,
     bot_configs: HashMap<BotId, SessionConfig>,
+    takeover_overrides: HashMap<BotId, bool>,
     sessions: HashMap<BotId, Session>,
 }
 
@@ -223,6 +224,7 @@ impl<R: CliRunner> BrowserManager<R> {
             runner,
             config,
             bot_configs: HashMap::new(),
+            takeover_overrides: HashMap::new(),
             sessions: HashMap::new(),
         }
     }
@@ -454,6 +456,7 @@ impl<R: CliRunner> BrowserManager<R> {
 
     pub fn takeover_start(&mut self, bot_id: &str) -> Result<(), BrowserError> {
         self.ensure_session(bot_id)?;
+        self.takeover_overrides.insert(bot_id.to_owned(), true);
         let s = self
             .sessions
             .get_mut(bot_id)
@@ -463,6 +466,7 @@ impl<R: CliRunner> BrowserManager<R> {
         self.persist_session(bot_id)
     }
     pub fn takeover_release(&mut self, bot_id: &str) -> Result<(), BrowserError> {
+        self.takeover_overrides.insert(bot_id.to_owned(), false);
         let s = self
             .sessions
             .get_mut(bot_id)
@@ -654,6 +658,26 @@ impl<R: CliRunner> BrowserManager<R> {
         self.ensure_session(bot_id)
     }
 
+    /// Apply durable takeover ownership without starting a browser session.
+    /// Execution configuration is intentionally lazy; a real screen or
+    /// browser action will consume this override when it first ensures the
+    /// session.
+    pub fn set_takeover_override(
+        &mut self,
+        bot_id: &str,
+        takeover: bool,
+    ) -> Result<(), BrowserError> {
+        self.takeover_overrides.insert(bot_id.to_owned(), takeover);
+        if let Some(session) = self.sessions.get_mut(bot_id) {
+            if session.state.takeover != takeover {
+                session.state.takeover = takeover;
+                session.last_activity = SystemTime::now();
+                self.persist_session(bot_id)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Keep the browser session alive while at least one gateway screen
     /// connection is attached. This is separate from `active`, which tracks a
     /// single CLI action and may return to false while the screen remains open.
@@ -767,11 +791,27 @@ impl<R: CliRunner> BrowserManager<R> {
     }
 
     fn ensure_session(&mut self, bot_id: &str) -> Result<(), BrowserError> {
+        let takeover = self
+            .takeover_overrides
+            .get(bot_id)
+            .copied()
+            .unwrap_or(false);
+        self.ensure_session_with_takeover(bot_id, takeover)
+    }
+
+    fn ensure_session_with_takeover(
+        &mut self,
+        bot_id: &str,
+        takeover: bool,
+    ) -> Result<(), BrowserError> {
         if self.sessions.contains_key(bot_id) {
             return Ok(());
         }
         let result = (|| {
             self.session(bot_id);
+            if let Some(session) = self.sessions.get_mut(bot_id) {
+                session.state.takeover = takeover;
+            }
             let config = self
                 .sessions
                 .get(bot_id)
@@ -784,7 +824,7 @@ impl<R: CliRunner> BrowserManager<R> {
             }
             let args = self.global_args(&config, bot_id, "session", &["info".into()]);
             let _ = self.runner.run(&config.executable, &args);
-            self.restore_session(bot_id)
+            self.restore_session(bot_id, takeover)
         })();
         if result.is_err() {
             // Do not leave a half-restored session that would make a later
@@ -894,7 +934,7 @@ impl<R: CliRunner> BrowserManager<R> {
         Ok(config)
     }
 
-    fn restore_session(&mut self, bot_id: &str) -> Result<(), BrowserError> {
+    fn restore_session(&mut self, bot_id: &str, takeover: bool) -> Result<(), BrowserError> {
         let Some(path) = self
             .sessions
             .get(bot_id)
@@ -969,7 +1009,7 @@ impl<R: CliRunner> BrowserManager<R> {
             }
             if let Some(session) = self.sessions.get_mut(bot_id) {
                 session.state.tabs = tabs;
-                session.state.takeover = false;
+                session.state.takeover = takeover;
                 session.state.last_activity_ms = epoch_ms();
             }
             self.persist_session(bot_id)
@@ -1875,6 +1915,84 @@ mod tests {
             browser.state("bot").unwrap().tabs[0].url,
             "https://example.com"
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn screen_restore_uses_durable_takeover_override() {
+        let root = std::env::temp_dir().join(format!("macbot-browser-takeover-{}", Uuid::now_v7()));
+        let state = root.join("state/bot.json");
+        seed_state(&state, "saved", "https://example.com");
+        let fake = Arc::new(Fake::default());
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake);
+        browser
+            .set_bot_config("bot", reconcile_config(state, BrowserMode::Headless))
+            .unwrap();
+
+        browser.set_takeover_override("bot", true).unwrap();
+        browser.ensure_session_for_screen("bot").unwrap();
+        assert!(browser.state("bot").unwrap().takeover);
+
+        // A durable release/expiry must clear a stale in-memory/session-file
+        // takeover rather than letting the old browser snapshot regain input.
+        browser.set_takeover_override("bot", false).unwrap();
+        browser.ensure_session_for_screen("bot").unwrap();
+        assert!(!browser.state("bot").unwrap().takeover);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn takeover_override_stays_lazy_until_screen_restore() {
+        let root =
+            std::env::temp_dir().join(format!("macbot-browser-lazy-takeover-{}", Uuid::now_v7()));
+        let state = root.join("state/bot.json");
+        let fake = Arc::new(Fake::default());
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake.clone());
+        browser
+            .set_bot_config("bot", reconcile_config(state, BrowserMode::Headless))
+            .unwrap();
+
+        browser.set_takeover_override("bot", true).unwrap();
+        assert!(browser.state("bot").is_err());
+        assert!(fake.calls.lock().unwrap().is_empty());
+
+        browser.ensure_session_for_screen("bot").unwrap();
+        assert!(browser.state("bot").unwrap().takeover);
+        browser.set_takeover_override("bot", false).unwrap();
+        browser.ensure_session_for_screen("bot").unwrap();
+        assert!(!browser.state("bot").unwrap().takeover);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn takeover_start_and_release_survive_idle_session_recreation() {
+        let root =
+            std::env::temp_dir().join(format!("macbot-browser-takeover-idle-{}", Uuid::now_v7()));
+        let state = root.join("state/bot.json");
+        let fake = Arc::new(Fake::default());
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake);
+        browser
+            .set_bot_config("bot", reconcile_config(state, BrowserMode::Headless))
+            .unwrap();
+
+        browser.takeover_start("bot").unwrap();
+        assert!(browser.state("bot").unwrap().takeover);
+        browser
+            .close_idle(SystemTime::now() + Duration::from_secs(901))
+            .unwrap();
+        assert!(browser.state("bot").is_err());
+
+        browser.ensure_session_for_screen("bot").unwrap();
+        assert!(browser.state("bot").unwrap().takeover);
+
+        browser.takeover_release("bot").unwrap();
+        browser
+            .close_idle(SystemTime::now() + Duration::from_secs(901))
+            .unwrap();
+        assert!(browser.state("bot").is_err());
+
+        browser.ensure_session_for_screen("bot").unwrap();
+        assert!(!browser.state("bot").unwrap().takeover);
         let _ = std::fs::remove_dir_all(root);
     }
 
