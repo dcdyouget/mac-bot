@@ -173,6 +173,16 @@ struct BotDmContext {
     route: BotDmRoute,
 }
 
+/// Event ids and message payloads observed before a batch of assignment cards
+/// is repaired.  A single attention poll can repair several cards; keeping
+/// this index for that batch avoids reparsing the complete event log for every
+/// card while retaining the crash-recovery check against durable events.
+#[derive(Default)]
+struct AssignmentCardEventIndex {
+    assignment_ids: HashSet<String>,
+    message_blocks: HashMap<String, Value>,
+}
+
 impl ProductionBackend {
     pub(crate) async fn update_assignment_usage(
         &self,
@@ -2536,23 +2546,27 @@ impl ProductionBackend {
         // Repair from one durable snapshot. Re-reading the complete event log
         // for every historical notice holds the RPC write lock for O(N * log)
         // parsing work on each attention tick.
-        let mut assignment_event_ids = HashSet::new();
-        let mut message_event_ids = HashSet::new();
+        let mut event_index = AssignmentCardEventIndex::default();
         for event in self.store.events_since(0).map_err(store_error)? {
-            let target = match event.event.as_str() {
-                "assignment.created" => Some((&mut assignment_event_ids, "assignment")),
-                "message.created" | "message.updated" => Some((&mut message_event_ids, "message")),
-                _ => None,
-            };
-            if let Some((ids, field)) = target {
-                if let Some(id) = event.data[field]["id"].as_str() {
-                    ids.insert(id.to_owned());
+            match event.event.as_str() {
+                "assignment.created" => {
+                    if let Some(id) = event.data["assignment"]["id"].as_str() {
+                        event_index.assignment_ids.insert(id.to_owned());
+                    }
                 }
+                "message.created" | "message.updated" => {
+                    if let Some(id) = event.data["message"]["id"].as_str() {
+                        event_index
+                            .message_blocks
+                            .insert(id.to_owned(), event.data["message"]["blocks"].clone());
+                    }
+                }
+                _ => {}
             }
         }
         for assignment in created_assignments {
             let assignment_id = assignment.get("id").and_then(Value::as_str).unwrap_or("");
-            let event_exists = !assignment_event_ids.insert(assignment_id.to_owned());
+            let event_exists = !event_index.assignment_ids.insert(assignment_id.to_owned());
             if !event_exists {
                 let data = json!({"assignment":assignment});
                 let event = self
@@ -2561,13 +2575,21 @@ impl ProductionBackend {
                     .map_err(store_error)?;
                 state.publish_event(event.seq, &event.event, data).await;
             }
-            self.ensure_assignment_cards(state, &assignment, "assignment.create")
-                .await?;
+            self.ensure_assignment_cards_with_event_index(
+                state,
+                &assignment,
+                "assignment.create",
+                Some(&mut event_index),
+            )
+            .await?;
         }
         let mut emitted_messages = Vec::new();
         for message in canonical_messages.iter() {
             let message_id = message.get("id").and_then(Value::as_str).unwrap_or("");
-            let event_exists = !message_event_ids.insert(message_id.to_owned());
+            let event_exists = event_index
+                .message_blocks
+                .insert(message_id.to_owned(), message["blocks"].clone())
+                .is_some();
             if event_exists {
                 continue;
             }
@@ -4844,7 +4866,19 @@ impl ProductionBackend {
                 message: "chat message has no chat_id".into(),
                 details: None,
             })?;
-        let mut messages = self.load_chat_messages(chat_id)?;
+        self.persist_client_message_with_messages(
+            chat_id,
+            self.load_chat_messages(chat_id)?,
+            message,
+        )
+    }
+
+    fn persist_client_message_with_messages(
+        &self,
+        chat_id: &str,
+        mut messages: Vec<Value>,
+        message: &Value,
+    ) -> Result<Value, RpcError> {
         let mut wire = message.clone();
         normalize_message(&mut wire);
         let message_id = wire.get("id").cloned();
@@ -4944,6 +4978,17 @@ impl ProductionBackend {
         assignment: &Value,
         method: &str,
     ) -> Result<(), RpcError> {
+        self.ensure_assignment_cards_with_event_index(state, assignment, method, None)
+            .await
+    }
+
+    async fn ensure_assignment_cards_with_event_index(
+        &self,
+        state: &GatewayState,
+        assignment: &Value,
+        method: &str,
+        mut event_index: Option<&mut AssignmentCardEventIndex>,
+    ) -> Result<(), RpcError> {
         assignment
             .get("id")
             .and_then(Value::as_str)
@@ -4955,23 +5000,35 @@ impl ProductionBackend {
         let is_delegation =
             method == "delegate" && assignment.get("project_id").is_none_or(Value::is_null);
         if is_delegation {
-            self.ensure_assignment_card(state, assignment, true).await?;
+            self.ensure_assignment_card_with_event_index(
+                state,
+                assignment,
+                true,
+                event_index.as_deref_mut(),
+            )
+            .await?;
         } else if assignment
             .get("origin_chat_id")
             .and_then(Value::as_str)
             .is_some_and(|chat_id| !chat_id.starts_with("dm_"))
         {
-            self.ensure_assignment_card(state, assignment, false)
-                .await?;
+            self.ensure_assignment_card_with_event_index(
+                state,
+                assignment,
+                false,
+                event_index.as_deref_mut(),
+            )
+            .await?;
         }
         Ok(())
     }
 
-    async fn ensure_assignment_card(
+    async fn ensure_assignment_card_with_event_index(
         &self,
         state: &GatewayState,
         assignment: &Value,
         delegation: bool,
+        mut event_index: Option<&mut AssignmentCardEventIndex>,
     ) -> Result<(), RpcError> {
         let assignment_id = assignment
             .get("id")
@@ -5057,18 +5114,24 @@ impl ProductionBackend {
         };
         card["fallback_text"] = json!(fallback);
         normalize_message(&mut card);
-        let canonical = self.persist_client_message(&card)?;
-        let event_exists = self
-            .store
-            .events_since(0)
-            .map_err(store_error)?
-            .into_iter()
-            .rev()
-            .find(|event| {
-                matches!(event.event.as_str(), "message.created" | "message.updated")
-                    && event.data["message"]["id"] == message_id
-            })
-            .is_some_and(|event| event.data["message"]["blocks"] == canonical["blocks"]);
+        let canonical = self.persist_client_message_with_messages(chat_id, messages, &card)?;
+        let event_exists = match event_index.as_deref() {
+            Some(index) => index
+                .message_blocks
+                .get(&message_id)
+                .is_some_and(|blocks| blocks == &canonical["blocks"]),
+            None => self
+                .store
+                .events_since(0)
+                .map_err(store_error)?
+                .into_iter()
+                .rev()
+                .find(|event| {
+                    matches!(event.event.as_str(), "message.created" | "message.updated")
+                        && event.data["message"]["id"] == message_id
+                })
+                .is_some_and(|event| event.data["message"]["blocks"] == canonical["blocks"]),
+        };
         if event_exists {
             return Ok(());
         }
@@ -5078,6 +5141,11 @@ impl ProductionBackend {
             .append_event(event_name, data.clone())
             .map_err(store_error)?;
         state.publish_event(event.seq, &event.event, data).await;
+        if let Some(index) = event_index.as_deref_mut() {
+            index
+                .message_blocks
+                .insert(message_id, canonical["blocks"].clone());
+        }
         Ok(())
     }
 
