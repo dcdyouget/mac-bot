@@ -1,0 +1,35 @@
+{
+  "at": "2026-10-10T10:17:44.752449+00:00",
+  "server_source": "09622d769f3285247f70a43326310bf94e5152ca",
+  "android_source": "d61381904e18c35f727d9150399ac75ddb0f3680",
+  "range": {
+    "from": "2026-10-09T00:00:00Z",
+    "to": "2026-10-09T23:59:59Z"
+  },
+  "native_observed": {
+    "tokens": 5703826,
+    "requests": 540,
+    "cost": "未定价"
+  },
+  "matches_api_summary": true,
+  "screenshot": "production-d613819-android-closed-day.png",
+  "screenshot_viewed": true,
+  "full_s3_pass": false,
+  "desktop_same_range_pending": false,
+  "note": "Authorized same-AVD restart without wipe; saved Production profile and WiFi preserved. Partial date entry first produced validation error; complete valid date refreshed successfully.",
+  "desktop_source": "a0b9ddfabb8b959819989c102b2f038bd05737dd",
+  "desktop_screenshot": "production-a0b9ddf-desktop-closed-day.jpg",
+  "desktop_screenshot_viewed": true,
+  "desktop_native_observed": {
+    "tokens": 5703826,
+    "requests": 540,
+    "cost": "未知",
+    "tasks_done": 1,
+    "cache_hit_rate": "40%"
+  },
+  "summary_parity_pass": true,
+  "limitations": [
+    "Detailed breakdown cross-client verification pending",
+    "CUA mouse noWindowsAvailable; keyboard refresh works; screenshot only updated after native window zoom. No freeze conclusion."
+  ]
+}

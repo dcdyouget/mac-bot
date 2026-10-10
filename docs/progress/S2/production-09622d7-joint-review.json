@@ -1,0 +1,99 @@
+{
+  "at": "2026-10-10T10:22:23.542188+00:00",
+  "read_only": true,
+  "server_source": "09622d7",
+  "desktop_source": "a0b9ddf",
+  "android_source": "d613819",
+  "cards": [
+    {
+      "message_id": "msg_project_review_01a12236-b308-7080-9877-6fc078239999",
+      "seq": 30,
+      "block": {
+        "artifacts": [
+          {
+            "artifact_id": "01a124a2-47b6-702f-8d36-8d8934c765d1",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/TEST-browser.md",
+            "title": "真实浏览器报告（含未测项）"
+          },
+          {
+            "artifact_id": "01a124b2-9369-739d-9640-edbc1cee7194",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/login.html",
+            "title": "本地登录演示"
+          },
+          {
+            "artifact_id": "01a12495-9a63-7051-a633-7506f678b478",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/TEST-browser.md",
+            "title": "真实浏览器报告（含未测项）"
+          },
+          {
+            "artifact_id": "01a123ec-7aae-7040-ac4b-2d148ccb5f5a",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/login.html",
+            "title": "本地登录演示"
+          },
+          {
+            "artifact_id": "01a124ab-3a42-76b6-a152-6834e3d88600",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/login.html",
+            "title": "本地登录演示"
+          },
+          {
+            "artifact_id": "01a12495-9a63-7051-a633-7505a6efc754",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/login.html",
+            "title": "本地登录演示"
+          },
+          {
+            "artifact_id": "01a124a2-47b6-702f-8d36-8d88d95bb8f2",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/login.html",
+            "title": "本地登录演示"
+          },
+          {
+            "artifact_id": "01a123ec-7aae-7040-ac4b-2d15ef45a592",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/TEST-browser.md",
+            "title": "真实浏览器报告（含未测项）"
+          },
+          {
+            "artifact_id": "01a124b2-9369-739d-9640-edbdf303c276",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/TEST-browser.md",
+            "title": "真实浏览器报告"
+          },
+          {
+            "artifact_id": "01a124ab-3a42-76b6-a152-6835de3088e8",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/TEST-browser.md",
+            "title": "真实浏览器报告（含未测项）"
+          }
+        ],
+        "project_id": "01a12236-b308-7080-9877-6fc078239999",
+        "state": "pending",
+        "type": "review_card"
+      }
+    },
+    {
+      "message_id": "msg_project_review_01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "seq": 31,
+      "block": {
+        "artifacts": [
+          {
+            "artifact_id": "01a123ea-b3c3-70fb-9880-946511c75421",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/index.html",
+            "title": "登录演示 index.html"
+          },
+          {
+            "artifact_id": "01a123ea-b3c3-70fb-9880-94664a253285",
+            "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/TEST-index-browser.md",
+            "title": "实际浏览器测试报告"
+          }
+        ],
+        "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+        "state": "pending",
+        "type": "review_card"
+      }
+    }
+  ],
+  "screenshots_viewed": [
+    "production-a0b9ddf-main-review-cards.jpg",
+    "production-d613819-main-first-review.png",
+    "production-d613819-main-parallel-review.png"
+  ],
+  "confirmed_done": false,
+  "full_s2_pass": false,
+  "finding": "Desktop card shows project name, Android current card only review status/actions/artifacts without project identity; fix pending."
+}
