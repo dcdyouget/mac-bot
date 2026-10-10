@@ -971,7 +971,7 @@ impl ComposedBackend {
             .await
             .ok();
         let mut messages =
-            self.chat_model_messages(&snapshot, &chat_id, message_id, history.as_ref());
+            self.chat_model_messages(&snapshot, &chat_id, &bot_id, message_id, history.as_ref());
         messages.push(json!({"role":"user","content":instruction}));
         let price = self.runtime.price_for_model(&model);
         let cwd = self.runtime.cwd_for(project_id.as_deref(), &bot_id);
@@ -1014,6 +1014,7 @@ impl ComposedBackend {
         &self,
         snapshot: &Value,
         chat_id: &str,
+        bot_id: &str,
         current_message_id: Option<&str>,
         history: Option<&Value>,
     ) -> Vec<Value> {
@@ -1054,7 +1055,7 @@ impl ComposedBackend {
                     message.get("id").and_then(Value::as_str) != Some(current)
                 })
             })
-            .filter_map(Self::chat_message_to_model)
+            .filter_map(|message| Self::chat_message_to_model(message, bot_id))
             .collect::<Vec<_>>();
         messages.sort_by(|left, right| {
             let left_created = left
@@ -1088,7 +1089,7 @@ impl ComposedBackend {
         messages
     }
 
-    fn chat_message_to_model(message: Value) -> Option<Value> {
+    fn chat_message_to_model(message: Value, bot_id: &str) -> Option<Value> {
         let id = message.get("id").and_then(Value::as_str)?.to_owned();
         let created_at = message
             .get("created_at")
@@ -1104,7 +1105,15 @@ impl ComposedBackend {
                     .or_else(|| sender.get("kind").and_then(Value::as_str))
             })
             .unwrap_or("bot");
-        let role =
+        let sender_bot_id = message
+            .get("sender")
+            .and_then(|sender| sender.get("bot_id"))
+            .and_then(Value::as_str);
+        let other_sender =
+            sender_kind == "system" || (sender_kind == "bot" && sender_bot_id != Some(bot_id));
+        let role = if other_sender {
+            "user"
+        } else {
             message
                 .get("role")
                 .and_then(Value::as_str)
@@ -1112,7 +1121,8 @@ impl ComposedBackend {
                     "user"
                 } else {
                     "assistant"
-                });
+                })
+        };
         let content = message
             .get("content")
             .and_then(Value::as_str)
@@ -1122,6 +1132,16 @@ impl ComposedBackend {
         if content.is_empty() && message.get("tool_calls").is_none() {
             return None;
         }
+        // Another Bot's group message is incoming context, never this Bot's
+        // own assistant turn. Preserve attribution to prevent role confusion.
+        let content = if other_sender {
+            format!(
+                "[Incoming chat message; sender={sender_kind}; bot_id={}; message_id={id}]\n{content}",
+                sender_bot_id.unwrap_or("none")
+            )
+        } else {
+            content.to_owned()
+        };
         let mut model = json!({
             "role": role,
             "content": content,
@@ -1136,7 +1156,7 @@ impl ComposedBackend {
             "is_error",
             "assistant_content",
         ] {
-            if let Some(value) = message.get(key) {
+            if let Some(value) = message.get(key).filter(|_| !other_sender) {
                 model[key] = value.clone();
             }
         }
@@ -1189,7 +1209,7 @@ impl ComposedBackend {
             .and_then(Value::as_str)
             .map(str::to_owned);
         let private = chat_id == "chat_main" || chat_id.starts_with("dm_");
-        let mut messages = self.chat_model_messages(&snapshot, &chat_id, None, None);
+        let mut messages = self.chat_model_messages(&snapshot, &chat_id, &bot_id, None, None);
         messages.push(json!({"role":"user","content":instruction}));
         let run_id = format!("run_{assignment_id}");
         let price = self.runtime.price_for_model(&model);
@@ -5840,6 +5860,52 @@ impl ModelProvider for UnavailableProvider {
 
 #[cfg(test)]
 mod model_resolution_tests {
+    #[test]
+    fn group_history_keeps_other_bots_out_of_own_assistant_turns() {
+        let message = serde_json::json!({
+            "id":"message-1", "sender":{"kind":"bot","bot_id":"main"},
+            "fallback_text":"Tester will run the browser checks.",
+            "role":"assistant", "tool_calls":[{"id":"unrelated-call"}]
+        });
+        let incoming =
+            super::ComposedBackend::chat_message_to_model(message.clone(), "tester").unwrap();
+        assert_eq!(incoming["role"], "user");
+        let content = incoming["content"].as_str().unwrap();
+        assert!(content.contains("bot_id=main"));
+        assert!(content.contains("message_id=message-1"));
+        assert!(content.ends_with("Tester will run the browser checks."));
+        assert!(incoming.get("tool_calls").is_none());
+        let own = super::ComposedBackend::chat_message_to_model(message, "main").unwrap();
+        assert_eq!(own["role"], "assistant");
+        assert_eq!(own["content"], "Tester will run the browser checks.");
+        assert!(own.get("tool_calls").is_some());
+    }
+
+    #[test]
+    fn group_history_distinguishes_user_and_system_notifications() {
+        let user = super::ComposedBackend::chat_message_to_model(
+            serde_json::json!({
+                "id":"user-1", "sender":{"kind":"user"}, "text":"Run the actual test."
+            }),
+            "tester",
+        )
+        .unwrap();
+        assert_eq!(user["role"], "user");
+        assert_eq!(user["content"], "Run the actual test.");
+        let notification = super::ComposedBackend::chat_message_to_model(
+            serde_json::json!({
+                "id":"notice-1", "sender":{"kind":"system"}, "text":"Project is waiting."
+            }),
+            "tester",
+        )
+        .unwrap();
+        assert_eq!(notification["role"], "user");
+        assert!(notification["content"]
+            .as_str()
+            .unwrap()
+            .contains("sender=system"));
+    }
+
     #[test]
     fn main_can_report_from_a_dm_but_never_acquires_worker_tools() {
         let bot = serde_json::json!({"tools":{
