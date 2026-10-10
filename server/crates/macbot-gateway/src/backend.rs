@@ -92,6 +92,7 @@ pub struct ComposedBackend {
     active_runs: Arc<std::sync::Mutex<HashSet<String>>>,
     waiting_runs: Arc<std::sync::Mutex<HashSet<String>>>,
     approved_recovery_claims: Arc<std::sync::Mutex<HashSet<String>>>,
+    denied_cancellation_claims: Arc<std::sync::Mutex<HashSet<String>>>,
 }
 
 impl ComposedBackend {
@@ -122,6 +123,7 @@ impl ComposedBackend {
             active_runs: Arc::new(std::sync::Mutex::new(HashSet::new())),
             waiting_runs: Arc::new(std::sync::Mutex::new(HashSet::new())),
             approved_recovery_claims: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            denied_cancellation_claims: Arc::new(std::sync::Mutex::new(HashSet::new())),
         };
         // Recovery must happen before the first client request.  A suspended
         // unsafe job is left for approval; ordinary working jobs resume from
@@ -162,6 +164,7 @@ impl ComposedBackend {
                 Err(error) => tracing::error!(%error, "durable execution recovery failed"),
             }
             recovery_backend.recover_invalid_tool_approvals().await;
+            recovery_backend.recover_denied_tool_approvals().await;
             recovery_backend.recover_allowed_tool_approvals().await;
             recovery_backend.recover_answered_decisions().await;
             recovery_backend.dispatch_ready_assignments().await;
@@ -364,6 +367,45 @@ impl ComposedBackend {
                     }
                 }
             }
+        }
+    }
+
+    /// A denied private approval must terminate its waiting durable run. This
+    /// is a separate recovery path from approved continuations: it never
+    /// enters the model again and only cancels a uniquely matched checkpoint.
+    async fn recover_denied_tool_approvals(&self) {
+        let Ok(snapshot) = self.inner.orchestrator.snapshot() else {
+            return;
+        };
+        let Some(approvals) = snapshot.get("approvals").and_then(Value::as_object) else {
+            return;
+        };
+        for (approval_id, approval) in approvals {
+            if approval.get("state").and_then(Value::as_str) != Some("denied")
+                || approval
+                    .get("assignment_id")
+                    .is_some_and(|value| !value.is_null())
+            {
+                continue;
+            }
+            if !self.claim_denied_cancellation(approval_id) {
+                continue;
+            }
+            match self.runtime.cancel_denied_approval(approval_id).await {
+                Ok(Some(outcome)) => {
+                    tracing::info!(
+                        %approval_id,
+                        run_id = %outcome.run_id,
+                        status = %outcome.status,
+                        "reconciled denied private approval"
+                    );
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(%approval_id, %error, "denied private approval reconciliation failed")
+                }
+            }
+            self.release_denied_cancellation(approval_id);
         }
     }
 
@@ -1877,6 +1919,19 @@ impl ComposedBackend {
 
     fn release_approved_continuation(&self, approval_id: &str) {
         if let Ok(mut claims) = self.approved_recovery_claims.lock() {
+            claims.remove(approval_id);
+        }
+    }
+
+    fn claim_denied_cancellation(&self, approval_id: &str) -> bool {
+        self.denied_cancellation_claims
+            .lock()
+            .map(|mut claims| claims.insert(approval_id.to_owned()))
+            .unwrap_or(false)
+    }
+
+    fn release_denied_cancellation(&self, approval_id: &str) {
+        if let Ok(mut claims) = self.denied_cancellation_claims.lock() {
             claims.remove(approval_id);
         }
     }
@@ -3470,6 +3525,41 @@ impl crate::RpcBackend for ComposedBackend {
                 });
             }
         }
+        if method == "approval.decide"
+            && matches!(
+                params.get("decision").and_then(Value::as_str),
+                Some("deny" | "reject" | "decline")
+            )
+        {
+            if let Some(approval_id) = params
+                .get("approval_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+            {
+                let approval_assignment = approval_assignment_id(self, &approval_id).ok().flatten();
+                if approval_assignment.is_none() && self.claim_denied_cancellation(&approval_id) {
+                    let runtime = self.runtime.clone();
+                    let scheduler = self.clone();
+                    tokio::spawn(async move {
+                        match runtime.cancel_denied_approval(&approval_id).await {
+                            Ok(Some(outcome)) => {
+                                tracing::info!(
+                                    %approval_id,
+                                    run_id = %outcome.run_id,
+                                    status = %outcome.status,
+                                    "cancelled denied private approval"
+                                );
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                tracing::warn!(%approval_id, %error, "denied private approval cancellation failed")
+                            }
+                        }
+                        scheduler.release_denied_cancellation(&approval_id);
+                    });
+                }
+            }
+        }
         if method == "question.answer" {
             if let Some(question) = result.get("question") {
                 let question_id = question
@@ -3717,9 +3807,49 @@ fn allowed_tool_approval_matches(
     request: &ExecutionRequest,
     allow_suspended: bool,
 ) -> bool {
-    if !matches!(
-        approval.get("state").and_then(Value::as_str),
-        Some("allowed_once" | "always_allowed")
+    tool_approval_matches(
+        snapshot,
+        approval,
+        mapped_call_id,
+        job,
+        request,
+        &["allowed_once", "always_allowed"],
+        allow_suspended,
+    )
+}
+
+fn denied_tool_approval_matches(
+    snapshot: &Value,
+    approval: &Value,
+    mapped_call_id: Option<&str>,
+    job: &macbot_durable::Job,
+    request: &ExecutionRequest,
+) -> bool {
+    tool_approval_matches(
+        snapshot,
+        approval,
+        mapped_call_id,
+        job,
+        request,
+        &["denied"],
+        false,
+    )
+}
+
+fn tool_approval_matches(
+    snapshot: &Value,
+    approval: &Value,
+    mapped_call_id: Option<&str>,
+    job: &macbot_durable::Job,
+    request: &ExecutionRequest,
+    approval_states: &[&str],
+    allow_suspended: bool,
+) -> bool {
+    if !approval_states.contains(
+        &approval
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
     ) || (job.status != macbot_durable::JobStatus::Waiting
         && (!allow_suspended || job.status != macbot_durable::JobStatus::Suspended))
         || !job.unsafe_replay
@@ -4129,6 +4259,111 @@ impl RuntimeExecution {
             return Ok(None);
         };
         Ok(self.engine_for(&request)?.cancel(&request).await?)
+    }
+
+    /// Cancel a denied private approval only when its approval map, waiting
+    /// checkpoint, and persisted request all identify the same run. This is
+    /// intentionally separate from approved continuation and never executes
+    /// the pending tool or asks the model for another turn.
+    async fn cancel_denied_approval(
+        &self,
+        approval_id: &str,
+    ) -> Result<Option<ExecutionOutcome>, RuntimeError> {
+        let snapshot = self
+            .backend
+            .orchestrator
+            .snapshot()
+            .map_err(|error| RuntimeError::Orchestrator(error.to_string()))?;
+        let Some(approval) = snapshot
+            .get("approvals")
+            .and_then(Value::as_object)
+            .and_then(|approvals| approvals.get(approval_id))
+        else {
+            return Ok(None);
+        };
+        if approval.get("state").and_then(Value::as_str) != Some("denied")
+            || approval
+                .get("assignment_id")
+                .is_some_and(|value| !value.is_null())
+        {
+            return Ok(None);
+        }
+        let mapped_call_id = self
+            .store
+            .read_snapshot::<Value>(format!(
+                "data/approval-map/{}.json",
+                safe_component(approval_id)
+            ))
+            .map_err(|error| RuntimeError::Execution(error.into()))?
+            .and_then(|value| {
+                value
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
+        let Some(mapped_call_id) = mapped_call_id else {
+            return Ok(None);
+        };
+        let entries = match fs::read_dir(self.home.join("data/jobs")) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(RuntimeError::Execution(ExecutionError::Durable(
+                    error.into(),
+                )))
+            }
+        };
+        let mut candidate = None;
+        for entry in entries {
+            let entry = entry
+                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
+            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let file = fs::File::open(entry.path())
+                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
+            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
+                RuntimeError::Execution(ExecutionError::Durable(
+                    macbot_durable::DurableError::Invalid(error.to_string()),
+                ))
+            })?;
+            if !matches!(job.status, macbot_durable::JobStatus::Waiting) {
+                continue;
+            }
+            let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(request) = self
+                .store
+                .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+                .map_err(|error| RuntimeError::Execution(error.into()))?
+            else {
+                continue;
+            };
+            if request.assignment_id.is_some()
+                || !denied_tool_approval_matches(
+                    &snapshot,
+                    approval,
+                    Some(mapped_call_id.as_str()),
+                    &job,
+                    &request,
+                )
+            {
+                continue;
+            }
+            if candidate.is_some() {
+                tracing::warn!(%approval_id, "denied approval matched multiple private waiting jobs");
+                return Ok(None);
+            }
+            candidate = Some(request);
+        }
+        let Some(request) = candidate else {
+            return Ok(None);
+        };
+        self.engine
+            .cancel(&request)
+            .await
+            .map_err(RuntimeError::from)
     }
 
     pub(crate) async fn finalize_project_summary_before_confirmation(
@@ -6342,6 +6577,33 @@ mod model_resolution_tests {
             &request,
             false
         ));
+        assert!(super::denied_tool_approval_matches(
+            &snapshot,
+            &denied,
+            Some("call-1"),
+            &job(macbot_durable::JobStatus::Waiting),
+            &request
+        ));
+        // A stale approval-map receipt must never cancel a different run.
+        assert!(!super::denied_tool_approval_matches(
+            &snapshot,
+            &denied,
+            Some("other-call"),
+            &job(macbot_durable::JobStatus::Waiting),
+            &request
+        ));
+        // Matching the call id alone is insufficient when the checkpoint args
+        // no longer equal the approved args.
+        let mut wrong_args_job = job(macbot_durable::JobStatus::Waiting);
+        wrong_args_job.checkpoint["pending_tool"]["args"] = json!({"action":"other"});
+        wrong_args_job.checkpoint["pending_tools"][0]["args"] = json!({"action":"other"});
+        assert!(!super::denied_tool_approval_matches(
+            &snapshot,
+            &denied,
+            Some("call-1"),
+            &wrong_args_job,
+            &request
+        ));
         assert!(!super::allowed_tool_approval_matches(
             &snapshot,
             &approval,
@@ -7299,6 +7561,241 @@ mod persistence_tests {
         }
     }
 
+    async fn seed_private_waiting_approval(
+        backend: &Arc<ProductionBackend>,
+        state: &crate::GatewayState,
+        suffix: &str,
+    ) -> (String, String, String) {
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":format!("deny-private-{suffix}")}),
+                state,
+            )
+            .await
+            .expect("create private bot");
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        let args = json!({
+            "action":"add",
+            "content":format!("private-deny-{suffix}"),
+            "kind":"user_preference",
+            "scope":"user"
+        });
+        let approval = backend
+            .call(
+                "approval.request",
+                json!({
+                    "bot_id":bot_id,
+                    "assignment_id":null,
+                    "chat_id":chat_id,
+                    "tool":"memory",
+                    "risk":"write",
+                    "summary":"private deny",
+                    "detail":args.to_string()
+                }),
+                state,
+            )
+            .await
+            .expect("create private approval");
+        let approval_id = approval["approval"]["id"]
+            .as_str()
+            .or_else(|| approval["id"].as_str())
+            .unwrap()
+            .to_owned();
+        let run_id = format!("run-private-deny-{suffix}");
+        let call_id = format!("call-private-deny-{suffix}");
+        let request: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":run_id,
+            "assignment_id":null,
+            "chat_id":chat_id,
+            "bot_id":bot_id,
+            "model":"mock/model",
+            "provider_id":"mock",
+            "instruction":"private deny",
+            "private":true,
+            "allow_unsafe":true
+        }))
+        .unwrap();
+        backend
+            .store
+            .append_jsonl(
+                format!(
+                    "data/chats/{}/messages.jsonl",
+                    super::safe_component(&request.chat_id)
+                ),
+                &json!({
+                    "id":format!("msg_{}", super::safe_component(&request.run_id)),
+                    "chat_id":request.chat_id,
+                    "seq":0,
+                    "sender":{"kind":"bot","bot_id":request.bot_id},
+                    "created_at":crate::now(),
+                    "edited_at":null,
+                    "deleted":false,
+                    "reply_to":null,
+                    "thread_count":0,
+                    "mentions":[],
+                    "blocks":[],
+                    "fallback_text":"",
+                    "intent":null,
+                    "assignment_id":null,
+                    "streaming":true,
+                    "delivery":[],
+                    "reactions":[]
+                }),
+            )
+            .unwrap();
+        backend
+            .store
+            .write_snapshot(
+                format!("data/run_requests/{}.json", request.run_id),
+                &request,
+            )
+            .unwrap();
+        let checkpoint = json!({
+            "run_id":request.run_id,
+            "messages":[],
+            "round":1,
+            "pending_tool":{"name":"memory","call_id":call_id,"args":args},
+            "pending_tools":[{"name":"memory","call_id":call_id,"args":args}],
+            "approval_detail":args
+        });
+        let job = {
+            let mut durable = backend.durable.lock().await;
+            let queued = durable
+                .create_job(&request.bot_id, "model_run", checkpoint.clone())
+                .unwrap();
+            durable
+                .commit(
+                    &queued.id,
+                    macbot_durable::JobStatus::Waiting,
+                    checkpoint,
+                    true,
+                )
+                .unwrap()
+        };
+        backend
+            .store
+            .write_snapshot(
+                format!("data/approval-map/{approval_id}.json"),
+                &json!({"call_id":call_id}),
+            )
+            .unwrap();
+        (approval_id, job.id, chat_id)
+    }
+
+    async fn wait_for_job_status(
+        backend: &Arc<ProductionBackend>,
+        job_id: &str,
+        expected: macbot_durable::JobStatus,
+    ) {
+        for _ in 0..100 {
+            if backend
+                .durable
+                .lock()
+                .await
+                .job(job_id)
+                .is_some_and(|job| job.status == expected)
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("job {job_id} did not reach {expected:?}");
+    }
+
+    #[tokio::test]
+    async fn denied_private_approval_cancels_waiting_job_without_tool_execution() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let composed = ComposedBackend::open(backend.clone(), gateway.state.clone(), path).unwrap();
+        let (approval_id, job_id, chat_id) =
+            seed_private_waiting_approval(&backend, &gateway.state, "live").await;
+        let result = composed
+            .call(
+                "approval.decide",
+                json!({"approval_id":approval_id,"decision":"deny"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["approval"]["state"], "denied");
+        wait_for_job_status(&backend, &job_id, macbot_durable::JobStatus::Cancelled).await;
+        let trace = backend
+            .store
+            .read_jsonl::<Value>(format!("data/traces/{chat_id}.jsonl"))
+            .unwrap();
+        assert!(trace.iter().any(|item| {
+            item["run_id"] == "run-private-deny-live"
+                && item["type"] == "run.end"
+                && item["data"]["status"] == "cancelled"
+        }));
+        assert!(!trace.iter().any(|item| {
+            item["run_id"] == "run-private-deny-live"
+                && item["type"]
+                    .as_str()
+                    .is_some_and(|kind| kind.starts_with("tool."))
+        }));
+        let messages = backend
+            .store
+            .read_jsonl::<Value>(format!("data/chats/{chat_id}/messages.jsonl"))
+            .unwrap();
+        assert_eq!(messages.last().unwrap()["streaming"], false);
+        assert_eq!(messages.last().unwrap()["fallback_text"], "已停止");
+    }
+
+    #[tokio::test]
+    async fn denied_private_waiting_recovery_cancels_only_exact_job() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let (denied_id, denied_job, denied_chat) =
+            seed_private_waiting_approval(&backend, &gateway.state, "recovery-denied").await;
+        backend
+            .call(
+                "approval.decide",
+                json!({"approval_id":denied_id,"decision":"deny"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let (pending_id, pending_job, _) =
+            seed_private_waiting_approval(&backend, &gateway.state, "recovery-pending").await;
+        let reopened = ComposedBackend::open(backend.clone(), gateway.state.clone(), path).unwrap();
+        let _ = reopened;
+        wait_for_job_status(&backend, &denied_job, macbot_durable::JobStatus::Cancelled).await;
+        assert_eq!(
+            backend
+                .durable
+                .lock()
+                .await
+                .job(&pending_job)
+                .unwrap()
+                .status,
+            macbot_durable::JobStatus::Waiting
+        );
+        let trace = backend
+            .store
+            .read_jsonl::<Value>(format!("data/traces/{denied_chat}.jsonl"))
+            .unwrap();
+        assert!(trace.iter().any(|item| {
+            item["run_id"] == "run-private-deny-recovery-denied"
+                && item["type"] == "run.end"
+                && item["data"]["status"] == "cancelled"
+        }));
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        assert_eq!(snapshot["approvals"][&pending_id]["state"], "pending");
+    }
+
     #[tokio::test]
     async fn approved_recovery_claim_has_one_owner_until_release() {
         let home = tempdir().unwrap();
@@ -7313,6 +7810,10 @@ mod persistence_tests {
         assert!(!composed.claim_approved_continuation("approval-1"));
         composed.release_approved_continuation("approval-1");
         assert!(composed.claim_approved_continuation("approval-1"));
+        assert!(composed.claim_denied_cancellation("approval-2"));
+        assert!(!composed.claim_denied_cancellation("approval-2"));
+        composed.release_denied_cancellation("approval-2");
+        assert!(composed.claim_denied_cancellation("approval-2"));
     }
 
     #[tokio::test]
