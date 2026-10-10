@@ -314,7 +314,16 @@ impl<R: CliRunner> BrowserManager<R> {
                 .cloned()
                 .ok_or_else(|| {
                     BrowserError::Invalid(format!("no tab for assignment {}", action.assignment_id))
-                })?
+                })
+        };
+        let tab = match tab {
+            Ok(tab) => tab,
+            Err(error) => {
+                if let Some(session) = self.sessions.get_mut(bot_id) {
+                    session.active = false;
+                }
+                return Err(error);
+            }
         };
         // `tab <id>` is a standalone command in agent-browser; actions are
         // issued by the following command against that session's active tab.
@@ -1725,6 +1734,39 @@ mod tests {
             .unwrap();
         assert!(browser.state("bot").is_err());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn missing_assignment_tab_does_not_leave_session_busy() {
+        let fake = Arc::new(Fake::default());
+        let mut browser = BrowserManager::new(SessionConfig::default(), fake);
+        assert!(browser
+            .enqueue(
+                "bot",
+                BrowserAction {
+                    assignment_id: "missing".into(),
+                    operation: "snapshot".into(),
+                    args: vec![],
+                }
+            )
+            .is_err());
+        browser
+            .set_bot_config("bot", SessionConfig::default())
+            .unwrap();
+        browser
+            .open_tab("bot", "valid", "https://valid.example")
+            .unwrap();
+        assert!(browser
+            .enqueue(
+                "bot",
+                BrowserAction {
+                    assignment_id: "valid".into(),
+                    operation: "snapshot".into(),
+                    args: vec![],
+                }
+            )
+            .unwrap()
+            .is_some());
     }
 
     #[test]

@@ -287,7 +287,7 @@ impl ComposedBackend {
             if !claimed_runs.insert(request.run_id.clone()) {
                 continue;
             }
-            let Ok(engine) = self.runtime.engine_for(&request) else {
+            let Ok(engine) = self.runtime.configured_engine_for(&request).await else {
                 continue;
             };
             let Some(active_key) = self.reserve_run(&request) else {
@@ -1660,9 +1660,6 @@ impl ComposedBackend {
                 }
                 scheduler.dispatch_ready_assignments().await;
                 return;
-            }
-            if let Err(error) = runtime.configure_browser_for_request(&request).await {
-                tracing::warn!(bot_id = %request.bot_id, %error, "failed to apply Bot browser configuration");
             }
             match runtime.run(request).await {
                 Ok(outcome) if outcome.status == "done" => {
@@ -3748,7 +3745,11 @@ impl RuntimeExecution {
         // A duplicate durable run may already own the transaction after a
         // crash, which is safe to leave untouched.
         let _ = self.feature_service.begin_memory_run(&request.run_id);
-        Ok(self.engine_for(&request)?.run(request).await?)
+        Ok(self
+            .configured_engine_for(&request)
+            .await?
+            .run(request)
+            .await?)
     }
 
     /// Cancel the durable execution owned by an assignment.  Assignment.stop
@@ -3999,7 +4000,8 @@ impl RuntimeExecution {
             let assignment_id = request.assignment_id.clone();
             let _ = self.feature_service.begin_memory_run(&request.run_id);
             let outcome = self
-                .engine_for(&request)?
+                .configured_engine_for(&request)
+                .await?
                 .continue_approved(request)
                 .await?;
             return Ok(Some((assignment_id, outcome)));
@@ -4125,7 +4127,8 @@ impl RuntimeExecution {
             let assignment = request.assignment_id.clone();
             let _ = self.feature_service.begin_memory_run(&request.run_id);
             let outcome = self
-                .engine_for(&request)?
+                .configured_engine_for(&request)
+                .await?
                 .continue_message(request, answer.to_owned())
                 .await?;
             return Ok(Some((assignment, outcome)));
@@ -4288,7 +4291,8 @@ impl RuntimeExecution {
                 message
             };
             let outcome = self
-                .engine_for(&request)?
+                .configured_engine_for(&request)
+                .await?
                 .continue_message(request, resume_text)
                 .await?;
             return Ok(Some((assignment, outcome)));
@@ -4394,7 +4398,8 @@ impl RuntimeExecution {
             let _ = self.feature_service.begin_memory_run(&request.run_id);
             let outcome = match continuation {
                 WaitingContinuation::Question(answer) => {
-                    self.engine_for(&request)?
+                    self.configured_engine_for(&request)
+                        .await?
                         .continue_question(request, answer)
                         .await?
                 }
@@ -4403,7 +4408,8 @@ impl RuntimeExecution {
                     if let Some(note) = note {
                         request.instruction = note;
                     }
-                    self.engine_for(&request)?
+                    self.configured_engine_for(&request)
+                        .await?
                         .continue_takeover(request)
                         .await?
                 }
@@ -4768,6 +4774,20 @@ impl RuntimeExecution {
                 tracing::warn!(chat_id = %request.chat_id, %error, "failed to sync recent feature message");
             }
         }
+    }
+
+    // Every execution entry, including approval/question/message restoration,
+    // needs the persisted browser configuration before any tool can create a
+    // session. Otherwise a continuation after restart uses the default config
+    // without its assignment-to-tab state path.
+    async fn configured_engine_for(
+        &self,
+        request: &ExecutionRequest,
+    ) -> Result<ExecutionEngine, RuntimeError> {
+        self.configure_browser_for_request(request)
+            .await
+            .map_err(RuntimeError::Provider)?;
+        self.engine_for(request)
     }
 
     fn engine_for(&self, request: &ExecutionRequest) -> Result<ExecutionEngine, RuntimeError> {
@@ -6641,6 +6661,51 @@ mod persistence_tests {
             config.state_path,
             Some(path.join("browser/sessions").join(format!("{bot_id}.json")))
         );
+    }
+
+    #[tokio::test]
+    async fn continuation_engine_prepares_browser_without_scheduler_or_screen() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"continuation-restore"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let composed = ComposedBackend::open(backend, gateway.state.clone(), path.clone()).unwrap();
+        let request: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":"restored-run", "assignment_id":"restored-assignment",
+            "chat_id":"restored-chat", "bot_id":bot_id, "model":"mock", "instruction":"continue"
+        }))
+        .unwrap();
+        assert!(gateway
+            .state
+            .browser
+            .lock()
+            .await
+            .bot_config(bot_id)
+            .state_path
+            .is_none());
+        composed
+            .runtime
+            .configured_engine_for(&request)
+            .await
+            .unwrap();
+        let config = gateway.state.browser.lock().await.bot_config(bot_id);
+        assert_eq!(
+            config.state_path,
+            Some(path.join("browser/sessions").join(format!("{bot_id}.json")))
+        );
+        assert_eq!(config.mode, macbot_browser::BrowserMode::Headless);
     }
 
     #[tokio::test]
