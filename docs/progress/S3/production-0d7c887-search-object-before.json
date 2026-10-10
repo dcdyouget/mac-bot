@@ -1,0 +1,43 @@
+{
+  "observed_at": "2026-10-10T03:03:20.101573+00:00",
+  "source": "0d7c8874bb79eb180df00f201ed10cbe3d9e6d0d",
+  "query": "画面联调-9e70",
+  "kind_counts": {
+    "bot": 1,
+    "chat": 1,
+    "object": 5
+  },
+  "result_ids": [
+    {
+      "kind": "bot",
+      "id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce"
+    },
+    {
+      "kind": "chat",
+      "id": "dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce"
+    },
+    {
+      "kind": "object",
+      "id": "job_01a120b5-4b5c-71ac-a363-df74c01c4374"
+    },
+    {
+      "kind": "object",
+      "id": "job_01a120eb-31d6-7019-907a-da0fb3b69623"
+    },
+    {
+      "kind": "object",
+      "id": "job_01a12141-ed6c-73f4-add2-d255d47aefe4"
+    },
+    {
+      "kind": "object",
+      "id": "job_01a12156-c953-7375-b221-2abecbb1f6ea"
+    },
+    {
+      "kind": "object",
+      "id": "job_01a1226e-3343-716d-9f4b-1244870d46f5"
+    }
+  ],
+  "screenshot": "production-0d7c887-search-object-before.png",
+  "screenshot_visually_reviewed": true,
+  "failure": "Default search exposes internal checkpoint object JSON outside the five documented result categories"
+}

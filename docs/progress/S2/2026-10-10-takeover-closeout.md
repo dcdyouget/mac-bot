@@ -27,6 +27,8 @@
 
 所有写 RPC 先记录 UUID；审批逐次核对实际 args、map、checkpoint、run/asg/Bot/project/chat，仅 allow_once。仅操作本机 52205 的 demo 页面，不手改 demo、不放宽 Bash/subagent/全局 memory。旧 TEST.md 未实际浏览器测试的失败边界仍保留；TEST-browser.md 尚未完成；第三次 run 在 aseq101 因16轮上限失败，aseq100 的 DOMRect={} 不算边界通过。剩余退出/数值边界/报告插话进入既有 Tester 01a1237c-7a83-75fb-bf4d-a209b7f1bb49（queued），没有新任务。第三次实测已观察空输入错误提示、错误密码保持未登录、正确登录成功、刷新后仍显示用户且存储保持；aseq85 在 server 重启后的续跑报 no tab for assignment，磁盘仍保留正确 t4 归属。
 
+当前续办任务已实测：aseq62 返回 innerWidth=scrollWidth=360，但选择到隐藏容器、边界全0，不能计边界通过；aseq69 实际点击退出，aseq83 返回 loginFormVisible=true、userInfoVisible=false、localStorage=null。同任务aseq91已取得可见登录表单x=20、width=320、right=340、scrollWidth=360，窄屏表单通过。aseq94报告草稿把源码当实测、把错误密码拒绝当失败，纠正反馈后仅拒绝该write；aseq96按拒绝语义cancelled，报告尚未生成。新证据和修正要求已送入本项目Main跟进，旧失败与demo保持。搜索默认返回内部object/checkpoint已在63c140d修复，188 gateway测试及clippy通过；仅部署server，PID21455，旧pending/等待checkpoint保持，同查询API与原生截图确认只剩Bot和chat。
+
 ## 最短剩余清单
 
 1. 完成原两群 Tester 实测、双群并行和主 Bot 汇总到待验收；不要提前 confirm_done。

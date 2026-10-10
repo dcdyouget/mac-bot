@@ -4,11 +4,11 @@
 
 ## 现在的状态
 
-当前接手续办：Mac 已解锁。正式服务 `0d7c887`（PID/source 见 [部署记录](S1/server-0d7c887-deployed.json)），桌面 `2f09174`，Android 安装 APK 仍为已核验的 `cac5b12d`。新增修复：关注提醒重复扫描事件日志造成 RPC 锁占用；浏览器数值参数丢失；重启后审批续跑缺浏览器配置。188 gateway、17 browser 测试及严格 clippy 通过；真实原审批已恢复 t4 并返回 360×800。
+当前接手续办：Mac 已解锁。正式服务 `63c140d`（PID/source 见 [搜索修复部署记录](S3/production-63c140d-search-upgrade-after.json)），桌面 `2f09174`，Android 安装 APK 仍为已核验的 `cac5b12d`。新增修复：关注提醒重复扫描事件日志造成 RPC 锁占用；浏览器数值参数丢失；重启后审批续跑缺浏览器配置。188 gateway、17 browser 测试及严格 clippy 通过；真实原审批已恢复 t4 并返回 360×800。
 
 桌面长消息/轨迹布局、持续画面、低清切换及本地 fixture 真实键鼠输入/释放已局部通过，见 [输入证据](S4/production-e78f048-native-input.json)。Android 曾因虚拟网络失联而重连，恢复网络后自动补上消息；随后模拟器退出，启动受磁盘不足阻断。清理本轮可重建客户端测试缓存后软件渲染启动成功，原 APK 数据保持，但实际截图有 System UI 无响应弹窗；CUA 无模拟器控制面，adb 输入方式待用户回应。
 
-第三次实际 Tester 已验证空输入、错误密码未登录、正确登录和刷新；窄屏测量返回空 DOMRect 后触及16轮上限，失败保留。仅剩项和报告已插入既有 Tester …bb49 任务，继续真实测试，不创建新项目、不提前确认完成。正式 pkg `0d7c887` 与 release DMG `71fddde` 已校验，均未 fresh 安装。S0 仍是唯一整阶段通过；S1–S4 未提升，S5 fresh 未执行。详细记录见 [接手续办记录](S2/2026-10-10-takeover-closeout.md)。
+第三次实际 Tester 已验证空输入、错误密码未登录、正确登录和刷新；该轮上限失败保留。既有 Tester …bb49 实际完成退出（存储清除）与360px可见登录表单边界测量；报告草稿错误解读轨迹，该write已拒绝，任务按拒绝语义停止，报告尚未交付。纠正证据已提交本项目现有Main跟进任务。搜索泄露内部object/checkpoint已修复，188 gateway测试/clippy及同查询原生/API复验通过，旧pending与等待checkpoint哈希保持。正式 pkg `0d7c887` 与 release DMG `71fddde` 已校验，均未 fresh 安装。S0 仍是唯一整阶段通过；S1–S4 未提升，S5 fresh 未执行。详细记录见 [接手续办记录](S2/2026-10-10-takeover-closeout.md)。
 
 ### 历史记录（7481d8e 及此前，以下 PID/锁屏状态不是当前现场）
 
