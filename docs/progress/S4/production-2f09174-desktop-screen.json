@@ -1,0 +1,30 @@
+{
+  "observed_at": "2026-10-10T02:22:16.036704+00:00",
+  "server_source": "b7d6c766e8d2f217db91ee63ecb6220ad12a3b95",
+  "desktop_source": "2f091744ec4bb5da0774a715fea02628330c5ebf",
+  "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+  "driver": "bot",
+  "origin": "http://127.0.0.1:52205/login.html",
+  "native_ui_observations": [
+    {
+      "quality": "auto",
+      "resolution": "1280x633",
+      "fps_range": [
+        3.8,
+        4.7
+      ],
+      "displayed_latency_ms": 114,
+      "screenshot": "production-2f09174-screen-auto.png"
+    },
+    {
+      "quality": "low",
+      "resolution": "640x316",
+      "fps": 4.8,
+      "screenshot": "production-2f09174-screen-low.png"
+    }
+  ],
+  "screenshots_visually_reviewed": true,
+  "restored_quality": "auto",
+  "result": "Desktop continuous rendered frames and quality switching locally verified. No takeover input, X login, or full notification scenario verified by these screenshots.",
+  "full_s4_pass": false
+}

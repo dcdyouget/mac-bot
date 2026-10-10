@@ -1,0 +1,26 @@
+{
+  "observed_at": "2026-10-10T02:13:11.066856+00:00",
+  "android_source": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "server_source": "b7d6c766e8d2f217db91ee63ecb6220ad12a3b95",
+  "before": {
+    "route": "empty",
+    "wlan0": "NO-CARRIER, state DOWN",
+    "airplane_mode": 0,
+    "wifi_enabled": true,
+    "saved_ssid": "AndroidWifi",
+    "health_from_emulator": "Network is unreachable",
+    "screenshot": "production-b7d6c76-android-live-followup.png"
+  },
+  "action": "Reconnect existing saved AndroidWifi open virtual network with adb shell cmd wifi connect-network AndroidWifi open; no app restart, data clearing, or installation.",
+  "after": {
+    "wlan0": "connected",
+    "ip": "10.0.2.16",
+    "route": "10.0.2.0/24 dev wlan0",
+    "health_from_emulator": "HTTP 200, ok=true, setup_required=false",
+    "screenshot": "production-b7d6c76-android-network-restored.png",
+    "visual_review": "Reconnect banner gone; newer Tester progress and Main follow-up task visible."
+  },
+  "conclusion": "Emulator networking caused this reconnect outage; application automatically recovered once networking returned.",
+  "full_s1_pass": false,
+  "full_s2_pass": false
+}
