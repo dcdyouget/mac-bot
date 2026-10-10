@@ -171,3 +171,9 @@ python3 scripts/dev/provider.py --set-defaults
 ```
 
 该命令通过 `provider.create/update` 写入密钥、`provider.test` 检查接入、`model.upsert` 注册模型，再设置主 Bot 和普通 Bot 默认模型。持续部署是否自动执行 provider 配置仍由集成负责人通过本机 gate 标记控制；现有 Bot 如果显式指定了其他模型，仍需在客户端设置中改为默认模型。M2.5 不支持图片输入，配置中的 `vision` 为 false。
+
+## 2026-10-10 Android 恢复与产物下载修复
+
+用户授权 adb 点击/滑动/输入后，macbot_api36 已自行恢复，无需重启；保留 cac5b12 签名 Release 与全部应用数据。实际进入原并行群，确认待验收状态及两个产物链接，未 confirm_done。点击 TEST-browser.md 复现 HTTP 400：产物为绝对 Host 路径，文件接口原先拒绝所有绝对路径。server 6afbff9 仅允许选定根目录内的绝对路径，保留跨项目、父目录及符号链接越界限制；193 项 gateway 测试通过。仅部署 server 后，Android 原报告实际打开成功，下载内容哈希与原文件一致，12 条 pending 审批（按 ID 比较）及全部 job 文件保持不变。证据见 S2/production-6afbff9-artifact-upgrade.json；失败截图同目录保留。
+
+S3 已实际核对 Android 技能页四项及 3 开/1 关，与桌面相同，见 S3/production-ee7111a-android-skills.json。以上为局部验收；S1–S5 均未整阶段通过，fresh-install 未执行。主仓库 COORDINATION.md 与权威文档有其他会话未提交修改，本轮协调记录暂记此处，避免混入他人改动。

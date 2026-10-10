@@ -1,0 +1,28 @@
+{
+  "observed_at": "2026-10-10T06:47:22.507620+00:00",
+  "android_source": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "desktop_comparison": "production-ee7111a-desktop-skills.json",
+  "native_skills": [
+    {
+      "name": "agent-browser",
+      "enabled": true
+    },
+    {
+      "name": "integrator-native-ae3009b",
+      "enabled": false
+    },
+    {
+      "name": "macbot-collab",
+      "enabled": true
+    },
+    {
+      "name": "project-home",
+      "enabled": true
+    }
+  ],
+  "desktop_match": true,
+  "screenshot": "production-ee7111a-android-skills.png",
+  "screenshot_visually_reviewed": true,
+  "read_only": true,
+  "full_S3_pass": false
+}

@@ -1,0 +1,26 @@
+{
+  "observed_at": "2026-10-10T06:48:51.869796+00:00",
+  "source": "6afbff96b3de64e854af2b589c96c68285d68207",
+  "identity": {
+    "pid": 29244,
+    "listener_pids": [
+      29244
+    ],
+    "executable": "macbotd",
+    "label": "com.macbot.server",
+    "port": 7788
+  },
+  "pending_count": 12,
+  "all_job_files_unchanged": true,
+  "download_http_status": 200,
+  "download_sha256": "a3146c553f1954e6b6beaf3fb0a88a2f41d64096ab5e20490a79e739847bd8fe",
+  "matches_original_report": true,
+  "gateway_tests_passed": 193,
+  "pending_unchanged_by_id": true,
+  "pending_order_changed": true,
+  "android_native_report_open": "PASS",
+  "screenshot": "production-6afbff9-android-report-open.png",
+  "screenshot_visually_reviewed": true,
+  "deploy_scope": "server only; existing Android and desktop unchanged",
+  "full_S2_pass": false
+}
