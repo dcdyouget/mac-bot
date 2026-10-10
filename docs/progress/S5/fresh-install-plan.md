@@ -2,11 +2,11 @@
 
 状态：**未执行，不能计 S5 通过**。这是可逆操作计划，不是验收记录。
 
-当前停止条件：正式服务已更新为 `fe360a2`，桌面为 `2f09174`，Android 仍为通知修复 `cac5b12` 同签名 Release。Mac 已解锁，桌面专项验收已恢复；S2 实际 Tester/两群完整验收尚未闭环，S1/S3/S4 仍有真实双端场景待验。原旧 siblings/未知审批保持；先完成现有场景，再执行本演练。
+当前停止条件：正式服务为 `09622d7`，桌面为 `a0b9ddf`，Android 为 `d613819` 同签名 Release。Mac 再次锁屏，已请求用户解锁；Android 真实流式及安全 checkpoint 后 kill‑9 同 run 恢复已补证。S2 原 Tester 缺失测试已补齐、主 Bot 待验收汇总已在 Android 显示，完整阶段仍需矩阵核验；S3/S4 双端场景尚未完成。原旧 siblings/未知审批保持；先完成现有场景，再执行本演练。
 
 ## 前置条件与路径
 
-- server 必须交付最新 ready 完整 SHA、`.pkg`、source/build-info/dirty=false 和 daemon/sidecar SHA。历史 `7481d8e4b988e866bb3feade18db7e603b6aba5e` pkg 已完成候选审计，SHA-256 为 `f3cf7bae9010a7f0c0fce092eee2272c4d5c4725d383d21783fef70d3fec8de3`，见 [server-pkg-7481d8e-verified.json](server-pkg-7481d8e-verified.json)；并未安装或计 fresh。历史 `0d7c887` pkg 已完成干净源码、daemon/sidecar 哈希及包内容审计，见 [server-pkg-0d7c887-verified.json](server-pkg-0d7c887-verified.json)，未安装；`63c140d` pkg审计已保留；历史 `07a3245` pkg 已重新完成相同审计，见 [server-pkg-07a3245-verified.json](server-pkg-07a3245-verified.json)。最新 `fe360a2` pkg 已完成同样审计，见 [server-pkg-fe360a2-verified.json](server-pkg-fe360a2-verified.json)。旧候选不可代替当前包。
+- server 必须交付最新 ready 完整 SHA、`.pkg`、source/build-info/dirty=false 和 daemon/sidecar SHA。历史 `7481d8e4b988e866bb3feade18db7e603b6aba5e` pkg 已完成候选审计，SHA-256 为 `f3cf7bae9010a7f0c0fce092eee2272c4d5c4725d383d21783fef70d3fec8de3`，见 [server-pkg-7481d8e-verified.json](server-pkg-7481d8e-verified.json)；并未安装或计 fresh。历史 `0d7c887` pkg 已完成干净源码、daemon/sidecar 哈希及包内容审计，见 [server-pkg-0d7c887-verified.json](server-pkg-0d7c887-verified.json)，未安装；`63c140d` pkg审计已保留；历史 `07a3245` pkg 已重新完成相同审计，见 [server-pkg-07a3245-verified.json](server-pkg-07a3245-verified.json)。历史 `fe360a2` pkg 已完成同样审计，见 [server-pkg-fe360a2-verified.json](server-pkg-fe360a2-verified.json)。旧候选不可代替当前包；执行前须基于最终 server 提交重建并审计 pkg。
 - client-mac 已从 `71fddde` 干净归档构建正式 release DMG，签名和镜像校验通过（见 [desktop-dmg-71fddde-verified.json](desktop-dmg-71fddde-verified.json)），source/binary SHA、DMG SHA、`codesign --verify --deep --strict` 和 `hdiutil` 均已核验；仍未安装。
 - client-android 必须交付签名 Release APK；只允许同签名 `adb install -r`，不卸载、不清空现有数据。
 - PLAN 第 6 章 S5 权威顺序是 `pkg → 设置密码 → 两端连接 → 完整场景`（`docs/PLAN.md:524-531`）；服务端安装见 `server/README.md:60-97`，桌面 DMG 见 `clients/mac/README.md:37-52`。
