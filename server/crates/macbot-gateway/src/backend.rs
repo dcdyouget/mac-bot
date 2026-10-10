@@ -17,8 +17,8 @@ use crate::{
         GatewayStateSink, GroupMessageBridge, ProviderResolver,
     },
     features::{
-        FeatureService, MaintenanceUsageContext, MaintenanceUsageSink, ModelMaintenanceAdapter,
-        SharedFeatureService,
+        FeatureService, MaintenanceTickReport, MaintenanceUsageContext, MaintenanceUsageSink,
+        ModelMaintenanceAdapter, SharedFeatureService,
     },
     memory_tools::{FeatureExecutionSink, FeatureRunContext, FeatureToolRuntime},
     GatewayState, RpcBackend,
@@ -805,10 +805,12 @@ impl ComposedBackend {
         let (committed, maintenance_error) = if let Some(error) = configure_error {
             (0, Some(error))
         } else {
-            match self.feature_service.maintenance_tick(&targets).await {
-                Ok(entries) => (entries.len(), None),
-                Err(error) => (0, Some(error.to_string())),
-            }
+            self.publish_maintenance_report(
+                self.feature_service
+                    .maintenance_tick_with_events(&targets)
+                    .await,
+            )
+            .await
         };
         let flush_error = self
             .runtime
@@ -844,6 +846,24 @@ impl ComposedBackend {
         self.dispatch_ready_assignments().await;
         Ok(
             json!({"maintenance_commits":committed,"maintenance_error":maintenance_error,"usage_flushed":true}),
+        )
+    }
+
+    async fn publish_maintenance_report(
+        &self,
+        report: MaintenanceTickReport,
+    ) -> (usize, Option<String>) {
+        // Maintenance commits its memory records before returning them.
+        // Publish every exact durable event even when a later target in the
+        // same pass fails, so a partial pass cannot create a cursor hole.
+        for event in report.events {
+            self.state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
+        (
+            report.committed.len(),
+            report.error.map(|error| error.to_string()),
         )
     }
 
@@ -6699,9 +6719,20 @@ mod persistence_tests {
     use super::{ComposedBackend, ExecutionRequest, ProductionBackend, RuntimeExecution};
     use crate::features::FeatureService;
     use crate::{Gateway, GatewayConfig, RpcBackend};
+    use async_trait::async_trait;
+    use macbot_memory::{AsyncMaintenanceProvider, MemoryError, MemorySource, MemoryTarget};
     use serde_json::{json, Value};
     use std::sync::Arc;
     use tempfile::tempdir;
+
+    struct TestMaintenance;
+
+    #[async_trait]
+    impl AsyncMaintenanceProvider for TestMaintenance {
+        async fn summarize(&self, _: &str) -> Result<String, MemoryError> {
+            Ok("maintenance summary".into())
+        }
+    }
 
     async fn seeded_backend() -> (Arc<ProductionBackend>, crate::GatewayState, Vec<String>) {
         let home = tempdir().expect("temporary home");
@@ -6822,6 +6853,43 @@ mod persistence_tests {
             assert_eq!(result["live"], false);
             assert_eq!(result["items"].as_array().unwrap().len(), 2);
         }
+    }
+
+    #[tokio::test]
+    async fn maintenance_report_publishes_durable_event_through_gateway_state() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let inner = Arc::new(ProductionBackend::open(&path).unwrap());
+        let composed = ComposedBackend::open(inner, gateway.state.clone(), path).unwrap();
+        for content in ["first", "second"] {
+            composed
+                .feature_service
+                .shared_memory
+                .append_worklog(MemoryTarget::bot("bot-a"), content, MemorySource::default())
+                .unwrap();
+        }
+        composed
+            .feature_service
+            .set_maintenance_provider(Some(Arc::new(TestMaintenance)))
+            .unwrap();
+        let mut live = gateway.state.events.subscribe();
+        let report = composed
+            .feature_service
+            .maintenance_tick_with_events(&[MemoryTarget::bot("bot-a")])
+            .await;
+        let (committed, error) = composed.publish_maintenance_report(report).await;
+        assert_eq!(committed, 1);
+        assert!(error.is_none());
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), live.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(event["event"], "memory.updated");
+        assert!(event["seq"].as_u64().is_some());
     }
 
     #[tokio::test]

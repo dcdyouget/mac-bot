@@ -73,6 +73,15 @@ pub struct FeatureResponse {
     pub events: Vec<Event>,
 }
 
+/// Result of one maintenance scheduler pass.  Each event is already durable;
+/// an error from a later target must not hide events committed by earlier
+/// targets in the same pass.
+pub struct MaintenanceTickReport {
+    pub committed: Vec<MemoryEntry>,
+    pub events: Vec<Event>,
+    pub error: Option<FeatureError>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct IdempotencyRecord {
     key: String,
@@ -989,6 +998,19 @@ impl FeatureService {
         &self,
         target: &MemoryTarget,
     ) -> FeatureResult<Option<MemoryEntry>> {
+        Ok(self
+            .maintain_worklog_with_events(target)
+            .await?
+            .map(|(entry, _)| entry))
+    }
+
+    /// Run idle maintenance and return the durable events produced by the
+    /// commit.  The gateway publishes these events after this method returns;
+    /// the feature service never appends them a second time.
+    pub async fn maintain_worklog_with_events(
+        &self,
+        target: &MemoryTarget,
+    ) -> FeatureResult<Option<(MemoryEntry, Vec<Event>)>> {
         if target.scope != macbot_memory::MemoryScope::Bot {
             return Err(FeatureError::Invalid(
                 "automatic maintenance only accepts private Bot worklogs".into(),
@@ -1050,7 +1072,7 @@ impl FeatureService {
             run_id: Some(run_id.clone()),
             session_id: Some("maintenance".into()),
         };
-        let commit = (|| -> FeatureResult<Vec<MemoryEntry>> {
+        let commit = (|| -> FeatureResult<(Vec<MemoryEntry>, Vec<Event>)> {
             self.begin_memory_run(&run_id)?;
             for row in rows {
                 self.shared_memory.stage(
@@ -1103,17 +1125,20 @@ impl FeatureService {
                     },
                 )?;
             }
-            self.commit_memory_run(&run_id)
+            self.commit_memory_run_with_events(&run_id)
         })();
-        let entries = match commit {
-            Ok(entries) => entries,
+        let (entries, events) = match commit {
+            Ok(result) => result,
             Err(error) => {
                 let _ = self.rollback_memory_run(&run_id);
                 self.release_maintenance(&target.owner_id)?;
                 return Err(error);
             }
         };
-        Ok(entries.into_iter().find(|entry| entry.target == *target))
+        Ok(entries
+            .into_iter()
+            .find(|entry| entry.target == *target)
+            .map(|entry| (entry, events)))
     }
 
     /// Persist a compacted context segment through the same atomic run path
@@ -1183,8 +1208,18 @@ impl FeatureService {
         &self,
         target: &MemoryTarget,
     ) -> FeatureResult<Option<MemoryEntry>> {
+        Ok(self
+            .run_maintenance_if_due_with_events(target)
+            .await?
+            .map(|(entry, _)| entry))
+    }
+
+    async fn run_maintenance_if_due_with_events(
+        &self,
+        target: &MemoryTarget,
+    ) -> FeatureResult<Option<(MemoryEntry, Vec<Event>)>> {
         if self.maintenance_due(target, chrono::Utc::now())? {
-            self.maintain_worklog(target).await
+            self.maintain_worklog_with_events(target).await
         } else {
             Ok(None)
         }
@@ -1203,6 +1238,36 @@ impl FeatureService {
             }
         }
         Ok(committed)
+    }
+
+    /// Scheduler entrypoint variant that preserves the already durable event
+    /// records for the gateway live fan-out and resume buffer.
+    pub async fn maintenance_tick_with_events(
+        &self,
+        targets: &[MemoryTarget],
+    ) -> MaintenanceTickReport {
+        let mut committed = Vec::new();
+        let mut events = Vec::new();
+        let mut error = None;
+        for target in targets {
+            match self.run_maintenance_if_due_with_events(target).await {
+                Ok(Some((entry, entry_events))) => {
+                    committed.push(entry);
+                    events.extend(entry_events);
+                }
+                Ok(None) => {}
+                Err(target_error) => {
+                    if error.is_none() {
+                        error = Some(target_error);
+                    }
+                }
+            }
+        }
+        MaintenanceTickReport {
+            committed,
+            events,
+            error,
+        }
     }
 
     /// Ask the configured provider to compact only when context assembly
@@ -2349,6 +2414,18 @@ mod tests {
         }
     }
 
+    struct FailAfterFirst(Arc<std::sync::atomic::AtomicUsize>);
+    #[async_trait]
+    impl AsyncMaintenanceProvider for FailAfterFirst {
+        async fn summarize(&self, _: &str) -> Result<String, MemoryError> {
+            if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                Ok("summarized work".into())
+            } else {
+                Err(MemoryError::Provider("maintenance target failed".into()))
+            }
+        }
+    }
+
     struct RecordingUsage(Arc<std::sync::Mutex<Vec<String>>>);
     #[async_trait]
     impl MaintenanceUsageSink for RecordingUsage {
@@ -2412,12 +2489,24 @@ mod tests {
                 "mock-model",
             ))))
             .unwrap();
-        let result = service
-            .maintain_worklog(&MemoryTarget::bot("bot-a"))
+        let (result, events) = service
+            .maintain_worklog_with_events(&MemoryTarget::bot("bot-a"))
             .await
             .unwrap()
             .unwrap();
         assert_eq!(result.content, "summarized work");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event, "memory.updated");
+        assert_eq!(
+            service
+                .shared_store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| event.event == "memory.updated")
+                .count(),
+            1
+        );
         assert!(service
             .maintain_worklog(&MemoryTarget::bot("bot-a"))
             .await
@@ -2427,6 +2516,45 @@ mod tests {
             .maintain_worklog(&MemoryTarget::user("user-a"))
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn maintenance_tick_keeps_prior_events_when_a_later_target_fails() {
+        let service = service();
+        for bot in ["bot-a", "bot-b"] {
+            service
+                .shared_memory
+                .append_worklog(MemoryTarget::bot(bot), "first", MemorySource::default())
+                .unwrap();
+            service
+                .shared_memory
+                .append_worklog(MemoryTarget::bot(bot), "second", MemorySource::default())
+                .unwrap();
+        }
+        service
+            .set_maintenance_provider(Some(Arc::new(FailAfterFirst(Arc::new(
+                std::sync::atomic::AtomicUsize::new(0),
+            )))))
+            .unwrap();
+
+        let report = service
+            .maintenance_tick_with_events(&[MemoryTarget::bot("bot-a"), MemoryTarget::bot("bot-b")])
+            .await;
+
+        assert_eq!(report.committed.len(), 1);
+        assert_eq!(report.events.len(), 1);
+        assert_eq!(report.events[0].event, "memory.updated");
+        assert!(report.error.is_some());
+        assert_eq!(
+            service
+                .shared_store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| event.event == "memory.updated")
+                .count(),
+            1
+        );
     }
 
     #[test]
