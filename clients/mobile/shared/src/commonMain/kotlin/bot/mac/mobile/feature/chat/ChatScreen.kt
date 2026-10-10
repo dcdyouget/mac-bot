@@ -93,7 +93,8 @@ fun ChatScreen(
     var threadRoot by remember(chatId) { mutableStateOf<JsonObject?>(null) }
     var threadReplies by remember(chatId) { mutableStateOf(emptyList<JsonObject>()) }
     var threadLoading by remember(chatId) { mutableStateOf(false) }
-    var stickToBottom by remember(chatId) { mutableStateOf(true) }
+    var scrollState by remember(chatId) { mutableStateOf(ChatScrollState()) }
+    var historyLoaded by remember(chatId) { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val hostId = repository.activeHost.collectAsState().value?.id ?: "active"
@@ -113,6 +114,8 @@ fun ChatScreen(
     }
 
     LaunchedEffect(chatId) {
+        historyLoaded = false
+        scrollState = ChatScrollState()
         runCatching {
             repository.call("chat.history", buildJsonObject { put("chat_id", chatId); put("limit", 100) })
 
@@ -120,7 +123,9 @@ fun ChatScreen(
             historyHasMore = result.boolean("has_more")
             historyBeforeSeq = result.objects("messages").minOfOrNull { it.longValue("seq") ?: Long.MAX_VALUE }
                 ?.takeIf { it != Long.MAX_VALUE }
+            historyLoaded = true
         }.onFailure { error = it.message ?: loadingError }
+            .also { if (it.isFailure) historyLoaded = true }
     }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), pendingAnchor) {
@@ -136,17 +141,26 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(chatId, historyHasMore) {
+    LaunchedEffect(chatId, historyHasMore, scrollState.initialPositioned) {
         snapshotFlow {
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
             val lastIndex = listState.layoutInfo.totalItemsCount - 1
             lastVisible == null || lastIndex < 0 || lastVisible >= lastIndex - 1
-        }.collect { stickToBottom = it }
+        }.collect { scrollState = scrollState.onViewportChanged(it) }
     }
 
-    LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), historyHasMore) {
-        if (messages.isEmpty() || !stickToBottom) return@LaunchedEffect
-        val lastIndex = messages.lastIndex + if (historyHasMore) 1 else 0
+    LaunchedEffect(chatId, historyLoaded, messages.size, historyHasMore) {
+        if (!historyLoaded || scrollState.initialPositioned) return@LaunchedEffect
+        val lastIndex = latestChatItemIndex(messages.size, historyHasMore) ?: return@LaunchedEffect
+        withFrameNanos { }
+        listState.scrollToItem(lastIndex)
+        scrollState = scrollState.afterInitialPosition()
+    }
+
+    LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), historyHasMore, scrollState) {
+        if (!scrollState.shouldScrollToLatest(messages.size)) return@LaunchedEffect
+        val lastIndex = latestChatItemIndex(messages.size, historyHasMore) ?: return@LaunchedEffect
+        withFrameNanos { }
         listState.scrollToItem(lastIndex)
     }
 
