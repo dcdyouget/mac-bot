@@ -1589,6 +1589,24 @@ impl ComposedBackend {
             .store
             .read_jsonl::<Value>(format!("data/traces/{scope}.jsonl"))
             .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+        // Determine liveness from the entire scope, before paging. Waiting
+        // runs can resume, and an ended child does not finish its parent.
+        let mut unfinished_runs = HashSet::new();
+        for item in &items {
+            let Some(run_id) = item.get("run_id").and_then(Value::as_str) else {
+                continue;
+            };
+            match item.get("type").and_then(Value::as_str) {
+                Some("run.start" | "run.resume") => {
+                    unfinished_runs.insert(run_id);
+                }
+                Some("run.end") => {
+                    unfinished_runs.remove(run_id);
+                }
+                _ => {}
+            }
+        }
+        let live = !unfinished_runs.is_empty();
         let before = params.get("before_aseq").and_then(Value::as_u64);
         let after = params.get("after_aseq").and_then(Value::as_u64);
         items.retain(|item| {
@@ -1615,7 +1633,7 @@ impl ComposedBackend {
             "first_aseq": first_aseq,
             "last_aseq": last_aseq,
             "has_more_before": has_more,
-            "live": false
+            "live": live
         }))
     }
 
@@ -6494,6 +6512,66 @@ mod persistence_tests {
         match Arc::try_unwrap(value) {
             Ok(value) => value,
             Err(_) => panic!("all persistence test tasks must be joined before reopen"),
+        }
+    }
+
+    #[tokio::test]
+    async fn trace_history_keeps_waiting_and_parent_runs_live_across_paging() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let composed = ComposedBackend::open(backend.clone(), gateway.state, path).unwrap();
+        for key in ["chat_id", "assignment_id"] {
+            let scope = format!("live-{key}");
+            let trace_path = format!("data/traces/{scope}.jsonl");
+            assert_eq!(
+                composed.trace_history(&json!({key:&scope})).unwrap()["live"],
+                false
+            );
+            for (index, (run_id, kind)) in [
+                ("parent", "run.start"),
+                ("parent", "run.wait"),
+                ("parent", "run.resume"),
+                ("child", "run.start"),
+                ("child", "run.end"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                backend
+                    .store
+                    .append_jsonl(
+                        &trace_path,
+                        &json!({
+                            "aseq":index+1,"run_id":run_id,"type":kind,"data":{}
+                        }),
+                    )
+                    .unwrap();
+                let result = composed
+                    .trace_history(&json!({key:&scope,"tail":true,"limit":1}))
+                    .unwrap();
+                assert_eq!(result["live"], true, "{kind}");
+                assert_eq!(result["items"].as_array().unwrap().len(), 1);
+            }
+            backend
+                .store
+                .append_jsonl(
+                    &trace_path,
+                    &json!({
+                        "aseq":6,"run_id":"parent","type":"run.end","data":{"status":"done"}
+                    }),
+                )
+                .unwrap();
+            // The requested page excludes the end, but this is still replay.
+            let result = composed
+                .trace_history(&json!({key:&scope,"before_aseq":3}))
+                .unwrap();
+            assert_eq!(result["live"], false);
+            assert_eq!(result["items"].as_array().unwrap().len(), 2);
         }
     }
 

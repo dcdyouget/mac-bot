@@ -3453,6 +3453,20 @@ mod tests {
     #[tokio::test]
     async fn unsubscribed_socket_receives_trace_cursor_in_live_and_replay() {
         use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+        async fn next_json(
+            socket: &mut tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+        ) -> Value {
+            loop {
+                match socket.next().await.unwrap().unwrap() {
+                    Message::Text(text) => return serde_json::from_str(&text).unwrap(),
+                    Message::Ping(payload) => socket.send(Message::Pong(payload)).await.unwrap(),
+                    Message::Pong(_) => {}
+                    frame => panic!("unexpected websocket frame: {frame:?}"),
+                }
+            }
+        }
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
             let dir = tempfile::tempdir().unwrap();
             let gw = Gateway::new(GatewayConfig {
@@ -3468,7 +3482,7 @@ mod tests {
             let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
             request.headers_mut().insert("Authorization", "Bearer dev".parse().unwrap());
             let (mut socket, _) = tokio_tungstenite::connect_async(request.clone()).await.unwrap();
-            let hello: Value = serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+            let hello: Value = next_json(&mut socket).await;
             let base = hello["data"]["last_seq"].as_u64().unwrap();
             assert!(base > 0);
             gw.state.publish_event(base + 1, "trace.item", json!({"item":{
@@ -3478,7 +3492,7 @@ mod tests {
             gw.state.publish_event(base + 2, "project.updated", json!({"project":{"id":"prj_login","status":"review"}})).await;
             let mut live = Vec::new();
             for _ in 0..2 {
-                live.push(serde_json::from_str::<Value>(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap());
+                live.push(next_json(&mut socket).await);
             }
             assert_eq!(live[0]["event"], "sync.cursor");
             assert_eq!(live[0]["seq"], base + 1);
@@ -3487,14 +3501,14 @@ mod tests {
             assert_eq!(live[1]["seq"], base + 2);
             socket.close(None).await.unwrap();
             let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
-            socket.next().await.unwrap().unwrap(); // hello
+            next_json(&mut socket).await; // hello
             socket.send(Message::Text(json!({"v":1,"kind":"req","id":"resume","method":"session.resume","params":{
                 "last_seq":base,"client":{"platform":"macos","app_version":"test","device_name":"cursor test","device_id":"cursor-test"}
             }}).to_string().into())).await.unwrap();
             let mut replay = Vec::new();
             let mut mode = Value::Null;
             loop {
-                let frame: Value = serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+                let frame: Value = next_json(&mut socket).await;
                 if frame["kind"] == "res" { mode = frame["result"]["mode"].clone(); }
                 if frame["event"] == "sync.done" { break; }
                 if frame["seq"].is_u64() { replay.push(frame); }
