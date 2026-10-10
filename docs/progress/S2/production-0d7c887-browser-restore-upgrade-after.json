@@ -1,0 +1,24 @@
+{
+  "observed_at": "2026-10-10T02:46:52.041649+00:00",
+  "source": "0d7c8874bb79eb180df00f201ed10cbe3d9e6d0d",
+  "all_previous_pending_identical": true,
+  "pending_count": 16,
+  "files": [
+    {
+      "path": "data/jobs/job_01a12392-b2e2-7562-85f6-4bdb5b7164eb.json",
+      "sha256": "3de735b60e077d08107dcf459992fe8021528b17b9c8bbf2c1543a87f3d4b705",
+      "unchanged": true
+    },
+    {
+      "path": "data/run_requests/run_01a12391-e424-75cb-8cab-255f083fa287.json",
+      "sha256": "efa9cc783cbca0ad57370df70cbbb8b8da640ac9112fff10c7ebe2af487ab84f",
+      "unchanged": true
+    },
+    {
+      "path": "browser/sessions/01a120c6-2f8b-7045-aeb6-621e949e22ac.json",
+      "sha256": "93187ee275f5a97f374282f5d58daace9111af2688a9fb45c38c1f706a6484e2",
+      "unchanged": true
+    }
+  ],
+  "tester_screen_opened_before_continuation": false
+}

@@ -12,6 +12,11 @@
 
 - 2f09174：聊天消息同样改为绘制前测量，保留历史/待发消息顺序和追加/前插锚点；历史按钮和消息列表共用纵向布局，避免侵入输入区。86 测试与严格 clippy 通过；实际长消息滚动、窄窗口及“跟随最新消息”通过，截图 production-2f09174-desktop-chat-{after,narrow}.png。
 
+- d627486：项目关注提醒每轮只扫描一次事件日志，修复每条历史提醒重复全量解析、长时间持有 RPC 写锁的问题。187 gateway 测试及严格 clippy 通过；升级后 approval.list 约 1.83 秒，16 个 pending 及当前 Tester job 哈希未变。前测发生在双 release 构建高负载期间，不据此宣称精确性能倍数。
+
+- e78f048：浏览器命令保留数值/布尔参数，拒绝 null/对象/数组而不静默丢弃。187 gateway + 最终 10 工具专项及 clippy 通过。原 360×800 审批在部署后执行时遇到独立的恢复缺陷，不能算窄屏通过。
+- 0d7c887：所有执行与续跑入口先应用 Bot 持久浏览器配置，避免审批恢复使用没有 state_path 的默认配置；缺标签错误会清除 busy 标记。188 gateway、17 browser 测试及 clippy 通过；已仅部署 server，未打开 Tester 屏幕，原审批 aseq92 实际返回 viewport=360×800；16个pending、job/run request/browser session原哈希保持。
+
 ## 真实 Tester 的失败与续办
 
 原任务 01a12365-0d0f-7514-b461-ec9aa2006a89 实际执行了浏览器打开、输入和快照；无效邮箱的浏览器校验可见。升级恢复后输入被清空，已向原 run 提供纠正反馈，不将空输入结果当作错误密码通过。
@@ -20,14 +25,14 @@
 
 主 Bot 随后自动创建续办任务。b7d6c76 部署后的用户续测消息 UUID ddbbff26-ec3d-4ea2-abda-c4f99c7afd30、seq34 被送入既有 Tester 01a1237c-a9d4-75cd-89f9-39689ebdd095，delivery=read；不是新建项目或重复历史请求。该任务已实际读取原 HTML 并打开 t3，最终 aseq99 因工具/模型轮次上限失败，失败证据保留。第三次续办复用 Main 已建立的 Tester 01a12391-e424-75cb-8cab-255f083fa287、tab t4；未调用的函数表达式返回空对象，不算通过，已在同任务追加纠正反馈。其他自动产生的 siblings/pending 未批量取消或批准。
 
-所有写 RPC 先记录 UUID；审批逐次核对实际 args、map、checkpoint、run/asg/Bot/project/chat，仅 allow_once。仅操作本机 52205 的 demo 页面，不手改 demo、不放宽 Bash/subagent/全局 memory。旧 TEST.md 未实际浏览器测试的失败边界仍保留；TEST-browser.md 尚未完成。
+所有写 RPC 先记录 UUID；审批逐次核对实际 args、map、checkpoint、run/asg/Bot/project/chat，仅 allow_once。仅操作本机 52205 的 demo 页面，不手改 demo、不放宽 Bash/subagent/全局 memory。旧 TEST.md 未实际浏览器测试的失败边界仍保留；TEST-browser.md 尚未完成；第三次 run 在 aseq101 因16轮上限失败，aseq100 的 DOMRect={} 不算边界通过。剩余退出/数值边界/报告插话进入既有 Tester 01a1237c-7a83-75fb-bf4d-a209b7f1bb49（queued），没有新任务。第三次实测已观察空输入错误提示、错误密码保持未登录、正确登录成功、刷新后仍显示用户且存储保持；aseq85 在 server 重启后的续跑报 no tab for assignment，磁盘仍保留正确 t4 归属。
 
 ## 最短剩余清单
 
 1. 完成原两群 Tester 实测、双群并行和主 Bot 汇总到待验收；不要提前 confirm_done。
 2. 桌面列表重叠已修复并完成原生专项；S1 两端真实流式/实时轨迹/回放与 kill-9 恢复。
 3. S3 同一时间范围两端用量、技能、仪表盘一致性。桌面 2026-10-09 UTC 已实际显示 5,703,826 tokens / 540 requests，与 RPC 一致；Android 待同范围复核。
-4. S4 桌面持续画面及自动/低清切换已局部通过（见 S4/production-2f09174-desktop-screen.json）；接管输入、X 登录、通知容量及动作仍待。Android 模拟器不能绑定为 CUA 原生窗口，adb 输入方式的确认待用户回应。
+4. S4 桌面持续画面及自动/低清切换已局部通过（见 S4/production-2f09174-desktop-screen.json）；桌面真实鼠标/键盘接管输入及释放已通过（S4/production-e78f048-native-input.json；切换控制使用记账 RPC，输入使用 CUA 原生窗口）。X 登录、Android 同场景、通知容量及动作仍待。Android 模拟器不能绑定为 CUA 原生窗口，adb 输入方式的确认待用户回应。
 5. 最后执行 fresh-install-plan 的可逆备份、pkg、管理页设密码、两端连接与完整场景。当前未执行 fresh；旧 pkg 不能替代当前源码安装验收。
 
 ## Android 网络恢复

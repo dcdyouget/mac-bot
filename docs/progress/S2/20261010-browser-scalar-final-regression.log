@@ -1,0 +1,18 @@
+   Compiling macbot-gateway v0.1.0 (/Users/gongshaojie/Project/mac-bot-integrator/server/crates/macbot-gateway)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.55s
+     Running unittests src/lib.rs (server/target/debug/deps/macbot_gateway-94b45247763fd7de)
+
+running 10 tests
+test collaboration_tools::tests::project_creation_guides_real_group_opening ... ok
+test collaboration_tools::tests::schemas_and_risk_are_stable ... ok
+test collaboration_tools::tests::web_fetch_strips_markup_and_search_normalizes_provider_shapes ... ok
+test collaboration_tools::tests::subagent_dispatch_receives_independent_context_metadata ... ok
+test collaboration_tools::tests::takeover_requests_are_pending_and_private_browser_scope_is_stable ... ok
+test collaboration_tools::tests::create_project_requires_bot_ids_and_ordered_flow ... ok
+test collaboration_tools::tests::assign_and_routine_inject_run_identity ... ok
+test collaboration_tools::tests::role_tool_sets_keep_main_and_worker_capabilities_separate ... ok
+test collaboration_tools::tests::browser_stream_is_dispatched_through_the_assignment_bridge ... ok
+test collaboration_tools::tests::browser_commands_are_scoped_to_supported_agent_browser_operations ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 177 filtered out; finished in 0.01s
+

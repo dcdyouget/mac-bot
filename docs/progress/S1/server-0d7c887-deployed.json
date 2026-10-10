@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-10-10T02:48:12.047114+00:00",
+  "service": {
+    "pid": 6626,
+    "listener_pids": [
+      6626
+    ],
+    "executable": "macbotd",
+    "label": "com.macbot.server",
+    "port": 7788
+  },
+  "source_commit": "0d7c8874bb79eb180df00f201ed10cbe3d9e6d0d",
+  "deploy_exit_code": 0,
+  "desktop_source": "2f091744ec4bb5da0774a715fea02628330c5ebf",
+  "deployment_scope": "server only; desktop and Android skipped",
+  "full_s1_pass": false,
+  "android_deploy_cache_source": "80d8a42e6418e7f14840f7cf630efe12136d518c",
+  "android_last_verified_source": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "android_current_verification": {
+    "at": "2026-10-10T02:53:56.423081+00:00",
+    "apk_sha256": "c1b2e2fbbe3b305f0ac2f643311188265a50c08042da3438fb47e6c382872f2a",
+    "source": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+    "method": "Read installed base.apk bytes over adb and compare previously audited release; no reinstallation or data clearing"
+  }
+}

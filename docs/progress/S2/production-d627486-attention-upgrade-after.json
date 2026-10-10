@@ -1,0 +1,15 @@
+{
+  "observed_at": "2026-10-10T02:32:42.999125+00:00",
+  "source": "d627486d363aab5522542193d28379510e6f4d2e",
+  "approval_list_seconds": 1.8268,
+  "pending_count": 16,
+  "all_previous_pending_identical": true,
+  "jobs": [
+    {
+      "path": "data/jobs/job_01a12392-b2e2-7562-85f6-4bdb5b7164eb.json",
+      "sha256": "ba0a1d235debc90dc577c5414e5ca8ae1c02626d700e9353a4bfae421a4cdd5e",
+      "unchanged": true
+    }
+  ],
+  "performance_note": "Before measurement occurred during two packaging builds; this is a functional latency observation, not a controlled speedup benchmark."
+}

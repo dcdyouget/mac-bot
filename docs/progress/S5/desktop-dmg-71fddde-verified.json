@@ -1,0 +1,15 @@
+{
+  "observed_at": "2026-10-10T02:30:56.006944+00:00",
+  "source_commit": "71fdddedb5ee0f49a7006a1c9ccca8eb369ca4b5",
+  "source_dirty": false,
+  "configuration": "release",
+  "app_path": "/tmp/macbot-s5-package-71fddde/clients/mac/dist/MacBot.app",
+  "dmg_path": "/Users/gongshaojie/Library/Application Support/MacBot/release-candidates/20261010/MacBot-Desktop-71fddde.dmg",
+  "binary_sha256": "37bfeba420a1c50848cbc178fc24adff9e3e5230414a339aa5e36d87011c119c",
+  "dmg_sha256": "643c3861269ef1d7447e53582b39e7a4b4d9efd97416aa80bc9f7eda789aac56",
+  "codesign_verify_deep_strict": "passed",
+  "hdiutil_verify": "passed",
+  "installed": false,
+  "fresh_install_pass": false,
+  "note": "Distribution artifact preparation only; native UI evidence remains from installed 2f09174 debug app. Server d627486 requires a newer server pkg; desktop code is unchanged."
+}

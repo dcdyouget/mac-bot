@@ -1,0 +1,97 @@
+{
+  "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+  "desktop_source": "2f091744ec4bb5da0774a715fea02628330c5ebf",
+  "server_source": "e78f048d6c22fed119cd02930a8a27e6dce45bed",
+  "requests": [
+    {
+      "method": "takeover.start",
+      "client_request_id": "7f9d012d-5c4d-49d3-9cbf-3c9d4002277f",
+      "before": {
+        "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "driver": "bot",
+        "height": 720,
+        "tabs": [
+          {
+            "active": true,
+            "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "tab_id": "t2",
+            "title": "127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+            "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+          }
+        ],
+        "width": 1280
+      },
+      "status": "returned",
+      "at": "2026-10-10T02:39:04.280118+00:00",
+      "result": {},
+      "after": {
+        "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "driver": "user",
+        "height": 720,
+        "tabs": [
+          {
+            "active": true,
+            "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "tab_id": "t2",
+            "title": "127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+            "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+          }
+        ],
+        "width": 1280
+      }
+    },
+    {
+      "method": "takeover.release",
+      "client_request_id": "ab7387a8-f5b3-4252-b681-8c6b5c6e02a7",
+      "before": {
+        "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "driver": "user",
+        "height": 720,
+        "tabs": [
+          {
+            "active": true,
+            "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "tab_id": "t2",
+            "title": "127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+            "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+          }
+        ],
+        "width": 1280
+      },
+      "status": "returned",
+      "at": "2026-10-10T02:39:38.040735+00:00",
+      "result": {},
+      "after": {
+        "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+        "driver": "bot",
+        "height": 720,
+        "tabs": [
+          {
+            "active": true,
+            "assignment_id": "dm_dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+            "tab_id": "t2",
+            "title": "127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009",
+            "url": "http://127.0.0.1:52200/?marker=macbot-e2e-frame-7c5e480-20261009"
+          }
+        ],
+        "width": 1280
+      }
+    }
+  ],
+  "note": "Control transition uses journaled RPC; all actual mouse/keyboard input uses native MacBot window via CUA. This does not test native takeover button submission.",
+  "native_ui": {
+    "marker": "macbot-native-input-e78f048",
+    "input_method": "CUA click and typeText through native MacBot Agent Computer image",
+    "result_visible": "收到：macbot-native-input-e78f048",
+    "mouse_keyboard": "passed",
+    "release_visible": "Bot 操作中",
+    "screenshots": [
+      "production-e78f048-native-input.png",
+      "production-e78f048-native-release.png"
+    ],
+    "screenshots_visually_reviewed": true,
+    "animation_observed": "Orb position changes across native captures",
+    "restart_observation": "Earlier frame-b captured the deliberate server redeploy disconnect; screen was explicitly closed and reopened per visible error message. That screenshot is not a success capture."
+  },
+  "full_s4_pass": false
+}

@@ -1,0 +1,17 @@
+{
+  "observed_at": "2026-10-10T02:28:16.186181+00:00",
+  "server_source": "b7d6c766e8d2f217db91ee63ecb6220ad12a3b95",
+  "pid": 75646,
+  "event_log_bytes": 6195696,
+  "events": 4712,
+  "historical_attention_messages": 16,
+  "assignment_events": 78,
+  "sampling": "refresh_project_attention -> Store::events_since -> serde_json parsing, while holding ProductionBackend write_lock",
+  "conditions": "Two release packaging builds active; high CPU load may amplify issue. No restart or write retry performed.",
+  "rpc": {
+    "status": "failed",
+    "error_type": "RpcTransportError",
+    "message": "read-only approval.list timed out",
+    "elapsed_seconds": 10.031
+  }
+}

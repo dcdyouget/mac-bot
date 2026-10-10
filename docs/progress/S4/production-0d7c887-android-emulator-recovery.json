@@ -1,0 +1,37 @@
+{
+  "observed_at": "2026-10-10T02:54:56.782262+00:00",
+  "avd": "macbot_api36",
+  "serial": "emulator-5554",
+  "old_emulator_pid": 28038,
+  "old_pid_present": false,
+  "initial_boot_failure": "insufficient disk space, 1.4 GiB available",
+  "cleanup": "Removed only integrator clients/mac/target/debug rebuildable test outputs; available space became 7.2 GiB",
+  "attempts": [
+    {
+      "renderer": "host",
+      "owned_pid": 8639,
+      "result": "QEMU main-loop hang; terminated owned attempt"
+    },
+    {
+      "renderer": "software",
+      "owned_pid": 9040,
+      "result": "blocked on previous crash consent dialog; CUA could not bind executable; TERM did not exit, killed only owned new attempt"
+    },
+    {
+      "renderer": "software",
+      "crash_report_mode": "never",
+      "result": "boot completed; incompatible GPU snapshot skipped, existing user data retained"
+    }
+  ],
+  "installed_apk_sha256": "c1b2e2fbbe3b305f0ac2f643311188265a50c08042da3438fb47e6c382872f2a",
+  "installed_source": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "app_reinstalled": false,
+  "data_cleared": false,
+  "screenshot": "production-0d7c887-android-recovered.png",
+  "cua_app_binding": "unavailable; no emulator surface in inventory",
+  "android_ui_input": "pending requested adb input authorization",
+  "full_s4_pass": false,
+  "screenshot_visually_reviewed": true,
+  "visible_ui_blocker": "System UI is not responding dialog on launcher; boot completion and adb connectivity are not application UI recovery",
+  "app_ui_verified": false
+}
