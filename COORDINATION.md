@@ -577,3 +577,12 @@ S5已开始，未通过：旧home、开发App、plist、桌面配置已一次性
 3d6b289禁用App级重定位并在写路径前检查payload。新增包测试直接检查PackageInfo的relocate/bundle名单，正确拒绝旧包；新clean archive包完整smoke通过、名单为空、路径固定。修复已合main，新Installer已打开并点击安装，等待本次系统管理员认证。真实重试及S5完整场景尚未通过；正式服务仍停机，mock、旧业务备份、外部凭据和Android数据保持。
 
 根协调独立提交理由：记录真实安装失败及备份App受影响事实、修复证据和具体交接点，避免误报全备份原样或安装成功；保留他人未提交根文档和design。
+
+
+## integrator：fresh 安装续验与平台回归（2026-10-11）
+
+用户已完成原生安装和管理页密码设置。新鲜数据目录、两端连接、真实 Bot 工具回合、精确 kill-9 恢复、A 项目五项真实 Tester 浏览器测试已有证据，详见 `docs/progress/S5/fresh-evidence-index.md`；S5 仍未通过，不把历史阶段验收替代 fresh 场景。
+
+当前 server 用户 App payload 为 a9527fa（系统 Installer receipt 仍为初始 3d6b289）：拒绝私聊审批已在后台恢复阶段精确取消，无工具重放；usage 查询脱离全局写锁后，同范围 996367 tokens / 127 requests 不变，单次观测从 9.24s 降至 0.11s。桌面 bdc17cdf 为诊断版，画面首帧已收到但 native 重绘未完成，BetterDisplay 高层窗口/平台 display-link 是待核验环境因素，尚不能断言根因。Android78 保留数据更新后仍有连接恢复问题，并记录模拟器系统 ANR 与可逆重启；正在补定位与回归。
+
+已合入消息索引批量持久化 c6e74bf，尚未因文档提交部署；进一步性能修复和双端真实复测继续。A 文本“待验收”不代表 project 状态已转换，B 仍沿原 Tester 任务完成窄屏与报告，未知审批及旧任务均未批量取消。根文档本次单独提交仅用于纠正安装/部署/验收状态，其他会话未提交内容保留。
