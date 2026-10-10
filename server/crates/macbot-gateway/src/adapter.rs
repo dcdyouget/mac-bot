@@ -2411,8 +2411,7 @@ impl ProductionBackend {
             let message_id = message.get("id").and_then(Value::as_str).unwrap_or("");
             let message = Self::canonical_attention_message(&message, &notice.code)?;
             seen_message_ids.insert(message_id.to_owned());
-            let canonical = self.persist_client_message(&message)?;
-            canonical_messages.push(canonical);
+            canonical_messages.push(message);
         }
         let after = self.orchestrator.snapshot().map_err(Self::error)?;
         if let Some(messages) = after.get("messages").and_then(Value::as_object) {
@@ -2429,10 +2428,14 @@ impl ProductionBackend {
                 };
                 let canonical = Self::canonical_attention_message(message, code)?;
                 seen_message_ids.insert(message_id.to_owned());
-                let canonical = self.persist_client_message(&canonical)?;
                 canonical_messages.push(canonical);
             }
         }
+        // Attention polling can return a large historical set after restart.
+        // Load each chat once and sequence changed rows once per chat; the old
+        // per-message path reread and rewrote the same large JSONL chat for
+        // every historical attention message.
+        canonical_messages = self.persist_attention_messages(canonical_messages)?;
         let previous_ids = before
             .get("assignments")
             .and_then(Value::as_object)
@@ -4805,6 +4808,14 @@ impl ProductionBackend {
     }
 
     pub(crate) fn load_chat_messages(&self, chat_id: &str) -> Result<Vec<Value>, RpcError> {
+        self.load_chat_messages_with_durable_ids(chat_id)
+            .map(|(messages, _)| messages)
+    }
+
+    fn load_chat_messages_with_durable_ids(
+        &self,
+        chat_id: &str,
+    ) -> Result<(Vec<Value>, HashSet<String>), RpcError> {
         let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
         let mut messages = snapshot
             .get("messages")
@@ -4821,9 +4832,13 @@ impl ProductionBackend {
                 takeover_component(chat_id)
             ))
             .map_err(store_error)?;
+        let mut durable_ids = HashSet::new();
         for message in persisted {
             if message.get("chat_id").and_then(Value::as_str) != Some(chat_id) {
                 continue;
+            }
+            if let Some(id) = message.get("id").and_then(Value::as_str) {
+                durable_ids.insert(id.to_owned());
             }
             if let Some(existing) = messages
                 .iter_mut()
@@ -4867,7 +4882,7 @@ impl ProductionBackend {
                         .cmp(&right.get("id").and_then(Value::as_str))
                 })
         });
-        Ok(messages)
+        Ok((messages, durable_ids))
     }
 
     fn attachment_blocks(&self, params: &Value) -> Result<Vec<Value>, RpcError> {
@@ -4932,6 +4947,115 @@ impl ProductionBackend {
             self.load_chat_messages(chat_id)?,
             message,
         )
+    }
+
+    fn persist_attention_messages(&self, messages: Vec<Value>) -> Result<Vec<Value>, RpcError> {
+        if messages.is_empty() {
+            return Ok(messages);
+        }
+        let mut chat_messages: HashMap<String, (Vec<Value>, HashSet<String>)> = HashMap::new();
+        let mut dirty_chats = HashSet::new();
+        let mut message_ids = HashSet::new();
+        for message in &messages {
+            let chat_id = message
+                .get("chat_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError {
+                    code: "internal".into(),
+                    message: "chat message has no chat_id".into(),
+                    details: None,
+                })?;
+            let message_id = message
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError {
+                    code: "internal".into(),
+                    message: "chat message has no id".into(),
+                    details: None,
+                })?;
+            message_ids.insert(message_id.to_owned());
+            if !chat_messages.contains_key(chat_id) {
+                chat_messages.insert(
+                    chat_id.to_owned(),
+                    self.load_chat_messages_with_durable_ids(chat_id)?,
+                );
+            }
+            let (rows, durable_ids) = chat_messages
+                .get_mut(chat_id)
+                .expect("chat message cache inserted above");
+            if let Some(existing) = rows
+                .iter_mut()
+                .find(|item| item.get("id").and_then(Value::as_str) == Some(message_id))
+            {
+                let sequence_missing = existing
+                    .get("seq")
+                    .and_then(Value::as_u64)
+                    .is_none_or(|seq| seq == 0);
+                if !durable_ids.contains(message_id)
+                    || sequence_missing
+                    || !Self::messages_match_without_seq(existing, message)
+                {
+                    *existing = message.clone();
+                    dirty_chats.insert(chat_id.to_owned());
+                }
+            } else {
+                rows.push(message.clone());
+                dirty_chats.insert(chat_id.to_owned());
+            }
+        }
+
+        let mut canonical_by_id = chat_messages
+            .values()
+            .flat_map(|(rows, _)| rows.iter())
+            .filter_map(|message| {
+                let id = message.get("id").and_then(Value::as_str)?;
+                message_ids
+                    .contains(id)
+                    .then(|| (id.to_owned(), message.clone()))
+            })
+            .collect::<HashMap<_, _>>();
+        for chat_id in dirty_chats {
+            let (rows, _) = chat_messages
+                .remove(&chat_id)
+                .expect("dirty chat remains in message cache");
+            for message in self.sequence_chat_messages(&chat_id, rows)? {
+                if let Some(id) = message.get("id").and_then(Value::as_str) {
+                    if message_ids.contains(id) {
+                        canonical_by_id.insert(id.to_owned(), message);
+                    }
+                }
+            }
+        }
+        messages
+            .into_iter()
+            .map(|message| {
+                let id = message
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| RpcError {
+                        code: "internal".into(),
+                        message: "chat message has no id".into(),
+                        details: None,
+                    })?;
+                canonical_by_id.remove(id).ok_or_else(|| RpcError {
+                    code: "internal".into(),
+                    message: "attention message disappeared".into(),
+                    details: None,
+                })
+            })
+            .collect()
+    }
+
+    fn messages_match_without_seq(left: &Value, right: &Value) -> bool {
+        let mut left = left.clone();
+        let mut right = right.clone();
+        if let Some(object) = left.as_object_mut() {
+            object.remove("seq");
+        }
+        if let Some(object) = right.as_object_mut() {
+            object.remove("seq");
+        }
+        left == right
     }
 
     fn persist_client_message_with_messages(
@@ -9959,6 +10083,128 @@ mod tests {
                 0
             );
         }
+    }
+
+    #[tokio::test]
+    async fn project_attention_restores_snapshot_notice_when_chat_row_is_missing() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call("bot.create", json!({"name":"缺失 row Bot"}), &gateway.state)
+            .await
+            .unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"缺失 row 关注","goal":"row recovery","member_bot_ids":[bot["bot"]["id"]]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project["project"]["id"],
+                    "origin_chat_id":project["project"]["chat_id"],
+                    "bot_id":bot["bot"]["id"],
+                    "title":"缺失 row 任务",
+                    "instruction":"等待",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .orchestrator
+            .finish_assignment(assignment["id"].as_str().unwrap(), "blocked")
+            .unwrap();
+        let first = backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        let notice_id = first["notices"][0]["id"].as_str().unwrap().to_owned();
+        let chat_id = project["project"]["chat_id"].as_str().unwrap();
+        let path = format!("data/chats/{}/messages.jsonl", takeover_component(chat_id));
+        let rows = backend.store.read_jsonl::<Value>(&path).unwrap();
+        assert!(rows.iter().any(|row| row["id"] == notice_id));
+        let retained = rows
+            .into_iter()
+            .filter(|row| row["id"] != notice_id)
+            .collect::<Vec<_>>();
+        fs::write(
+            home.path().join(&path),
+            retained
+                .iter()
+                .map(|row| serde_json::to_string(row).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+                + if retained.is_empty() { "" } else { "\n" },
+        )
+        .unwrap();
+        let event_seq = backend.store.last_event_seq().unwrap();
+
+        let repaired = backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        assert!(repaired["notices"].as_array().unwrap().is_empty());
+        let restored = backend
+            .store
+            .read_jsonl::<Value>(&path)
+            .unwrap()
+            .into_iter()
+            .find(|row| row["id"] == notice_id)
+            .expect("snapshot-only attention message should be persisted");
+        assert!(restored["seq"].as_u64().unwrap_or(0) > 0);
+        assert_eq!(backend.store.last_event_seq().unwrap(), event_seq);
+        assert_eq!(
+            backend
+                .store
+                .events_since(0)
+                .unwrap()
+                .into_iter()
+                .filter(|event| {
+                    event.event == "message.created" && event.data["message"]["id"] == notice_id
+                })
+                .count(),
+            1
+        );
+        // A durable row with a missing/zero sequence is also incomplete even
+        // when its payload matches the orchestrator snapshot.
+        let mut zero_seq_rows = backend.store.read_jsonl::<Value>(&path).unwrap();
+        zero_seq_rows
+            .iter_mut()
+            .find(|row| row["id"] == notice_id)
+            .unwrap()["seq"] = json!(0);
+        fs::write(
+            home.path().join(&path),
+            zero_seq_rows
+                .iter()
+                .map(|row| serde_json::to_string(row).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n",
+        )
+        .unwrap();
+        backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        let resequenced = backend
+            .store
+            .read_jsonl::<Value>(&path)
+            .unwrap()
+            .into_iter()
+            .filter(|row| row["id"] == notice_id)
+            .last()
+            .unwrap();
+        assert!(resequenced["seq"].as_u64().unwrap_or(0) > 0);
     }
 
     #[tokio::test]
