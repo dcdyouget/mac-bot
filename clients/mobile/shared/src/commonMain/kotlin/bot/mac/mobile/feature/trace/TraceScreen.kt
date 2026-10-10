@@ -284,10 +284,8 @@ private fun TraceItemCard(
         }
         val requestId = data.str("request_id")
         val callId = data.str("call_id")
-        fragments.filterKeys { key ->
-            (requestId.isNotBlank() && key.contains(":$requestId:")) ||
-                (callId.isNotBlank() && key.contains(":$callId:"))
-        }.values.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        visibleTraceFragments(fragments, requestId, callId, showThinking, showOutput)
+            .forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         if (type == "takeover") {
             val botId = data.str("bot_id")
             Button(onClick = { onOpenScreen(botId, data.str("tab_id").takeIf { it.isNotBlank() }) }) { Text(stringResource(Res.string.feature_open_screen)) }
