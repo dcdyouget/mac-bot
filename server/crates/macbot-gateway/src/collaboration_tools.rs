@@ -393,17 +393,18 @@ fn browser_command(operation: &str, args: &Value) -> Result<(String, Vec<String>
             _ => Err("browser_nav.action must be open, reload, back or forward".into()),
         };
     }
-    let list = args
-        .get("args")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let list = match args.get("args") {
+        None => Vec::new(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| match item {
+                Value::String(value) => Ok(value.clone()),
+                Value::Number(_) | Value::Bool(_) => Ok(item.to_string()),
+                _ => Err("browser args must contain only strings, numbers or booleans".to_owned()),
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => return Err("browser args must be an array".into()),
+    };
     let command = match operation {
         "browser_snapshot" => "snapshot",
         "browser_act" => args
@@ -1053,7 +1054,7 @@ fn description(name: &str) -> &'static str {
         "question" | "ask_user" => "Ask the user a question and wait for an answer.",
         "web_fetch" => "Fetch a web page and return readable content.",
         "browser_nav" => "Navigate the current task tab: action open with url, or action reload/back/forward without url or args.",
-        "browser_act" => "Run an agent-browser interaction command on the current task tab. Examples: action fill with args [selector, text], click with args [selector], dialog with args [accept], set with args [viewport, width, height].",
+        "browser_act" => "Run an agent-browser interaction command on the current task tab. Examples: action fill with args [selector, text], click with args [selector], dialog with args [accept], set with args [viewport, width, height]. Argument values may be strings, numbers or booleans; numeric viewport dimensions are preserved.",
         "browser_wait" => "Wait on the current task tab. Use timeout as milliseconds, selector to wait for an element, or args matching agent-browser wait (for example [--text, Welcome]).",
         "browser_get" => "Read the current task tab. Use property (text/html/value/title/url/count) and optional selector, or args matching agent-browser get.",
         "web_search" => "Search the configured web provider.",
@@ -1127,7 +1128,7 @@ fn schema(name: &str) -> Value {
             &[],
         ),
         _ if name.starts_with("browser_") => object(
-            json!({"assignment_id":{"type":"string"},"tab_id":{"type":"string"},"url":{"type":"string"},"action":{"type":"string"},"port":{"type":"integer"},"args":{"type":"array"},"expression":{"type":"string"},"timeout":{"type":"integer"}}),
+            json!({"assignment_id":{"type":"string"},"tab_id":{"type":"string"},"url":{"type":"string"},"action":{"type":"string"},"port":{"type":"integer"},"args":{"type":"array","items":{"type":["string","number","boolean"]}},"expression":{"type":"string"},"timeout":{"type":"integer"}}),
             &[],
         ),
         _ => object(json!({}), &[]),
@@ -1422,6 +1423,34 @@ mod tests {
         );
         assert!(browser_command("browser_eval", &json!({})).is_err());
         assert!(browser_command("browser_act", &json!({"action":"click","args":["#go"]})).is_ok());
+        assert_eq!(
+            browser_command(
+                "browser_act",
+                &json!({"action":"set","args":["viewport",360,800]})
+            )
+            .unwrap(),
+            (
+                "set".into(),
+                vec!["viewport".into(), "360".into(), "800".into()]
+            )
+        );
+        assert_eq!(
+            browser_command(
+                "browser_act",
+                &json!({"action":"fill","args":["#input", ""]})
+            )
+            .unwrap(),
+            ("fill".into(), vec!["#input".into(), "".into()])
+        );
+        for args in [
+            json!(["viewport", null, 800]),
+            json!(["#input", {}]),
+            json!([[]]),
+            json!("#input"),
+        ] {
+            assert!(browser_command("browser_act", &json!({"action":"set","args":args})).is_err());
+        }
+
         for action in ["reload", "back", "forward"] {
             assert_eq!(
                 browser_command("browser_nav", &json!({"action":action,"tab_id":"t2"})).unwrap(),
