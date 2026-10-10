@@ -1,0 +1,77 @@
+{
+  "observed_at": "2026-10-10T05:45:25.746497+00:00",
+  "source": "ee7111acc2efa9acb74dfafaee9c3dd8442094b9",
+  "skills_api": [
+    {
+      "description": "Use the agent-browser sidecar for web pages and browser interaction.",
+      "disabled_bot_ids": [],
+      "enabled": true,
+      "files": [],
+      "invocations_7d": {
+        "by_bot": [],
+        "total": 0
+      },
+      "name": "agent-browser",
+      "path": "builtin://agent-browser",
+      "source": "builtin",
+      "updated_at": "2026-10-10T05:45:02.526295Z"
+    },
+    {
+      "description": "本机技能编辑验收样例",
+      "disabled_bot_ids": [],
+      "enabled": false,
+      "files": [],
+      "invocations_7d": {
+        "by_bot": [],
+        "total": 0
+      },
+      "name": "integrator-native-ae3009b",
+      "path": "/Users/gongshaojie/MacBot/skills/integrator-native-ae3009b",
+      "source": "user",
+      "updated_at": "2026-10-10T05:45:02.526665Z"
+    },
+    {
+      "description": "Send self-contained messages to other Bots and hand off work safely.",
+      "disabled_bot_ids": [],
+      "enabled": true,
+      "files": [],
+      "invocations_7d": {
+        "by_bot": [],
+        "total": 0
+      },
+      "name": "macbot-collab",
+      "path": "builtin://macbot-collab",
+      "source": "builtin",
+      "updated_at": "2026-10-10T05:45:02.526295Z"
+    },
+    {
+      "description": "Follow the MacBot project and Bot Home directory conventions.",
+      "disabled_bot_ids": [],
+      "enabled": true,
+      "files": [],
+      "invocations_7d": {
+        "by_bot": [],
+        "total": 0
+      },
+      "name": "project-home",
+      "path": "builtin://project-home",
+      "source": "builtin",
+      "updated_at": "2026-10-10T05:45:02.526295Z"
+    }
+  ],
+  "desktop_visible_rows": 4,
+  "desktop_actions_in_row_order": [
+    "disable",
+    "enable",
+    "disable",
+    "disable"
+  ],
+  "screenshot": "production-ee7111a-desktop-skills.png",
+  "screenshot_visually_reviewed": true,
+  "limitations": [
+    "Names ellipsized in native list",
+    "This observation does not verify create/edit/delete",
+    "Android parity not verified"
+  ],
+  "full_S3_pass": false
+}

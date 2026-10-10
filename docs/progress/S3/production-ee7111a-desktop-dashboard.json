@@ -1,0 +1,97 @@
+{
+  "observed_at": "2026-10-10T05:43:55.864462+00:00",
+  "source": "ee7111acc2efa9acb74dfafaee9c3dd8442094b9",
+  "range_observed_in_native_ui": {
+    "from": "2026-09-10T05:43:25.961273+00:00",
+    "to": "2026-10-10T05:43:25.961273+00:00"
+  },
+  "summary": {
+    "current": {
+      "cache_read_tokens": 5759591,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 9407001,
+      "output_tokens": 229068,
+      "requests": 718,
+      "tasks_done": 1
+    },
+    "previous": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "requests": 0,
+      "tasks_done": 0
+    }
+  },
+  "breakdown": {
+    "rows": [
+      {
+        "key": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "label": "prv_01a1204f-5654-7576-ba57-281f6ef55d71/MiniMax-M2.5",
+        "phases": {
+          "chat": 452379,
+          "compact": 0,
+          "coordinate": 3817265,
+          "memory": 5069,
+          "subagent": 139298,
+          "work": 5222058
+        },
+        "sparkline": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          257571,
+          9378498
+        ],
+        "usage": {
+          "cache_read_tokens": 5759591,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 9407001,
+          "output_tokens": 229068,
+          "requests": 718
+        }
+      }
+    ]
+  },
+  "desktop_observed": {
+    "tokens": 9636069,
+    "requests": 718,
+    "cost": "unknown",
+    "tasks_done": 1,
+    "cache_hit_percent": 38
+  },
+  "android_verified": false,
+  "full_S3_pass": false,
+  "summary_and_breakdown_match_desktop": true,
+  "screenshot": "production-ee7111a-desktop-dashboard.png",
+  "screenshot_visually_reviewed": true
+}

@@ -16,6 +16,8 @@ S1新增真实专项：安全checkpoint后kill‑9，原run自动恢复读取原
 
 最新server pkg `fe360a2`、release DMG `71fddde`已审计，未fresh安装。S0仍唯一整阶段通过，S1–S4完整双端验收及S5 fresh未完成。详见[接手续办记录](S2/2026-10-10-takeover-closeout.md)。
 
+S3补充桌面原生核对：同一固定时间范围，仪表盘9,636,069 Token、718请求、费用未知、1完成任务与正式summary/breakdown一致（[证据](S3/production-ee7111a-desktop-dashboard.json)）；技能列表4项、3启用1停用与API相符，但名称被省略，未重验增删改（[证据](S3/production-ee7111a-desktop-skills.json)）。Android同范围原生核对仍待完成，不计S3整阶段通过。
+
 ### 历史记录（7481d8e 及此前，以下 PID/锁屏状态不是当前现场）
 
 7481d8e 历史进展（下述锁屏/PID为当时现场）：正式服务已固定部署 `7481d8e`；取消任务遗留审批自动过期，原 checkpoint/工具参数/轨迹不变、没有重放，14个有效待审批项保持（[证据](S2/production-7481d8e-cancelled-approval-after.json)）。此前 `d799dda` 的真实专项保持：旧无效 memory 审批已过期，原参数/run 保持，经同 run 参数错误后生成合法新调用；仅该新 project/add 审批经精确范围和 checkpoint 核对后单次批准。新 @Tester 用户消息真实走 `chat.send`，在原 assignment/run 内完成 queued→delivered→read、applied/trace，未另建任务且未自动放行审批（[证据](S2/production-d799dda-busy-tester-steer.json)）。parallel 的 `login.html` 已在隔离真实浏览器验证正确/错误密码、刷新保持、退出和390px布局（[证据与截图](S2/production-d799dda-parallel-demo.json)）；first 续办已真实生成 login.html；浏览器检查发现登录成功后表单仍同时可见，已反馈原项目 Coder 修复，失败证据保留；完整双群/Tester/验收闭环未完成。Android 私聊工具回放、仪表盘、技能、通知打开及本地页触摸均是局部通过；桌面原生验收仍被 Mac 锁屏阻断。S0 是唯一整阶段通过，S5 全新安装尚未开始。
