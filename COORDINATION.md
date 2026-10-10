@@ -505,3 +505,8 @@
 - 原Tester …bb49 实测退出后loginForm=true、userInfo=false、localStorage=null；360px可见表单x20/width320/right340，scrollWidth360。报告草稿错误引用源码和错误密码结果，已向原Bot回传实际证据，仅拒绝该报告write；任务按拒绝语义停止，原失败保留，未手改demo/报告。修正要求进入现有Main跟进任务…1573并read，报告交付/主Bot待验收仍未闭环。
 - 搜索回归、部署前后与实际截图见S3/production-63c140d-search-*；S2证据见production-0d7c887-parallel-tester-finish.json及production-63c140d-parallel-report-handoff.json。S0仍唯一整阶段通过；Android控制方式/X登录外部条件待回应，fresh仍未执行。桌面2f09174、Android cac5b12未更新。
 - 根协调单独提交理由：记录最新正式服务来源、搜索泄露修复和报告被拒后的真实未完成状态，防止将模型草稿计为验收通过；文档提交不触发部署。
+
+## integrator：协议补充请求——过滤轨迹的全局游标（2026-10-10）
+
+- 现场桌面缓存停在seq4952，下一条4953为trace.item；实时路由只向轨迹订阅者发无seq条目，导致全局序号缺口，后续公告/任务/项目状态被客户端持续缓存。API已review而桌面仍active，证据见S1/production-63c140d-live-cursor-gap-before.json。
+- 新增兼容持久事件sync.cursor，data={seq:number}，只占用被过滤轨迹的原全局seq，无轨迹内容。实时与session.resume统一投影，trace.item仍仅通过订阅的aseq流发送；未知事件兼容客户端仍按全局seq推进。同步PROTOCOL、Rust、schema、fixture、Kotlin模型，补连续游标和不泄露未订阅轨迹回归。
