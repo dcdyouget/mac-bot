@@ -2429,6 +2429,30 @@ impl ProductionBackend {
                 Some(assignment.get("trigger_message_id")?.as_str()?.to_owned())
             })
             .collect::<HashSet<_>>();
+        // `poll_project_attention` already routes the first worker notice
+        // through the orchestrator.  Historical notices are repaired below,
+        // so keep a project-level view while deriving assignments here too;
+        // otherwise every worker notice bypasses the orchestrator's active
+        // main gate and creates another queued coordination assignment.
+        let mut active_main_projects = after
+            .get("assignments")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|assignments| assignments.values())
+            .filter(|assignment| {
+                assignment.get("bot_id").and_then(Value::as_str) == Some("main")
+                    && matches!(
+                        assignment.get("status").and_then(Value::as_str),
+                        Some("queued" | "working" | "waiting_user" | "waiting_bot" | "blocked")
+                    )
+            })
+            .filter_map(|assignment| {
+                assignment
+                    .get("project_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .collect::<HashSet<_>>();
         let mut derived_assignment = false;
         for message in &canonical_messages {
             let Some(message_id) = message.get("id").and_then(Value::as_str) else {
@@ -2463,6 +2487,9 @@ impl ProductionBackend {
             else {
                 continue;
             };
+            if active_main_projects.contains(project_id) {
+                continue;
+            }
             let assignment = self
                 .orchestrator
                 .rpc(
@@ -2490,6 +2517,7 @@ impl ProductionBackend {
             normalize_assignment(&mut assignment);
             created_assignments.push(assignment);
             assignment_triggers.insert(message_id.to_owned());
+            active_main_projects.insert(project_id.to_owned());
             derived_assignment = true;
         }
         if canonical_messages.is_empty() && created_assignments.is_empty() {
@@ -9512,15 +9540,24 @@ mod tests {
                     .count(),
                 1
             );
-            assert_eq!(
-                events
-                    .iter()
-                    .filter(|event| event.event == "assignment.created"
-                        && event.data["assignment"]["trigger_message_id"] == message["id"])
-                    .count(),
-                1
-            );
         }
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "assignment.created"
+                    && event.data["assignment"]["trigger_message_id"]
+                        == refreshed["notices"][0]["id"])
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "assignment.created"
+                    && event.data["assignment"]["trigger_message_id"] == next["notices"][0]["id"])
+                .count(),
+            0
+        );
     }
 
     #[tokio::test]
@@ -9594,7 +9631,8 @@ mod tests {
             .unwrap();
         assert_eq!(refreshed["notices"].as_array().unwrap().len(), 1);
         assert_eq!(refreshed["notices"][0]["id"], attention_id);
-        let assignments = backend.orchestrator.snapshot().unwrap()["assignments"]
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        let assignments = snapshot["assignments"]
             .as_object()
             .unwrap()
             .values()
@@ -9644,6 +9682,158 @@ mod tests {
             .filter(|assignment| assignment["trigger_message_id"] == worker_notice_id)
             .count();
         assert_eq!(worker_followups, 1);
+    }
+
+    #[tokio::test]
+    async fn project_attention_does_not_derive_main_siblings_for_multiple_worker_notices() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let mut workers = Vec::new();
+        for index in 1..=3 {
+            workers.push(
+                backend
+                    .call(
+                        "bot.create",
+                        json!({"name":format!("attention worker {index}")}),
+                        &gateway.state,
+                    )
+                    .await
+                    .unwrap()["bot"]["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+        }
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"active main attention",
+                    "goal":"reuse one main coordination",
+                    "member_bot_ids":workers
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let chat_id = project["project"]["chat_id"].as_str().unwrap();
+        let main_working = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":chat_id,
+                    "bot_id":"main",
+                    "title":"working main",
+                    "instruction":"coordinate",
+                    "from":"system"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let main_queued = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":chat_id,
+                    "bot_id":"main",
+                    "title":"queued main",
+                    "instruction":"wait for the first coordinator",
+                    "from":"system"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(main_working["status"], "working");
+        assert_eq!(main_queued["status"], "queued");
+        let main_waiting = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":chat_id,
+                    "bot_id":"main",
+                    "title":"waiting main",
+                    "instruction":"wait for a decision",
+                    "from":"system"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let mut snapshot = backend.orchestrator.snapshot().unwrap();
+        snapshot["assignments"][main_waiting["id"].as_str().unwrap()]["status"] =
+            json!("waiting_user");
+        snapshot["assignments"][main_waiting["id"].as_str().unwrap()]["wait"] =
+            json!({"reason":"question","message_id":null});
+        backend.orchestrator.restore(snapshot).unwrap();
+
+        let mut worker_assignment_ids = Vec::new();
+        for worker in &workers {
+            let assignment = backend
+                .call(
+                    "assignment.create",
+                    json!({
+                        "project_id":project_id,
+                        "origin_chat_id":chat_id,
+                        "bot_id":worker,
+                        "title":"worker no-report",
+                        "instruction":"work",
+                        "from":"main"
+                    }),
+                    &gateway.state,
+                )
+                .await
+                .unwrap();
+            worker_assignment_ids.push(assignment["id"].as_str().unwrap().to_owned());
+        }
+        for assignment_id in &worker_assignment_ids {
+            backend
+                .orchestrator
+                .finish_assignment(assignment_id, "done")
+                .unwrap();
+        }
+
+        let refreshed = backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        let notices = refreshed["notices"].as_array().unwrap();
+        assert_eq!(notices.len(), workers.len());
+
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        let assignments = snapshot["assignments"]
+            .as_object()
+            .unwrap()
+            .values()
+            .filter(|assignment| {
+                assignment["project_id"] == project_id
+                    && assignment["bot_id"] == "main"
+                    && matches!(
+                        assignment["status"].as_str(),
+                        Some("queued" | "working" | "waiting_user" | "waiting_bot" | "blocked")
+                    )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(assignments.len(), 3);
+        for notice in notices {
+            let notice_id = notice["id"].as_str().unwrap();
+            assert_eq!(
+                assignments
+                    .iter()
+                    .filter(|assignment| assignment["trigger_message_id"] == notice_id)
+                    .count(),
+                0
+            );
+        }
     }
 
     #[tokio::test]
