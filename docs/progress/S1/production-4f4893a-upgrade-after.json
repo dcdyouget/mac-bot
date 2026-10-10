@@ -1,0 +1,15 @@
+{
+  "at_epoch": 1791632091.033379,
+  "service": {
+    "pid": 86986,
+    "listener_pids": [
+      86986
+    ],
+    "executable": "macbotd",
+    "label": "com.macbot.server",
+    "port": 7788
+  },
+  "pending_preserved": true,
+  "jobs_preserved": true,
+  "startup_latency_issue_remains": true
+}

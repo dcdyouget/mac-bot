@@ -1,0 +1,9 @@
+{
+  "at_epoch": 1791632029.698406,
+  "source": "4f4893aebaf88a057c6fdfdacc7dbf5fd1b5ef13",
+  "pid": 86986,
+  "listeners": [],
+  "deploy_script_exit": 1,
+  "failure": "health check exceeded 30-second deployment window",
+  "investigation_pending": true
+}

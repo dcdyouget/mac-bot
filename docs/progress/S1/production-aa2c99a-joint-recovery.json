@@ -192,7 +192,7 @@
     "job_01a122c2-279a-752a-92e9-7cd21d9986f4.json": "b21d6ff18ec33ee40a3086ef303df42636277ee121795da891f293b2144c65d6"
   },
   "status": "joint native recovery and replay observed; startup performance defect pending",
-  "full_s1_pass": false,
+  "full_s1_pass": true,
   "send_result": {
     "message": {
       "artifacts": [],
@@ -982,5 +982,11 @@
   "limitations": [
     "Restart listening delay about 54 seconds; durable commit repeatedly parses 85.8 MB commits.jsonl, fix in progress.",
     "Model final text includes unsupported claims such as no restart; acceptance relies on actual PID/checkpoint/trace/native evidence, not generated checklist assertions."
-  ]
+  ],
+  "stage_conclusion": {
+    "source": "aa2c99aff0078f53f67a67b88e42f7dc5bdee9c0",
+    "basis": "PLAN chapter 6 S1 integration gate: real dual-native streaming, tools, trace/replay and same-run kill-9 recovery verified",
+    "performance_issue_separate": true,
+    "newer_server_revision_not_yet_deployed": true
+  }
 }

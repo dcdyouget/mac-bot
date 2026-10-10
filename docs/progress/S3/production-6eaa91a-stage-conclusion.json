@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-10T11:31:48.321520+00:00",
+  "stage": "S3",
+  "functional_integration_passed": true,
+  "basis": "PLAN chapter 6 integration gate; actual native screenshots reviewed, not API-only or generated claims",
+  "server_source": "aa2c99aff0078f53f67a67b88e42f7dc5bdee9c0",
+  "desktop_source": "6eaa91a53331392816ee8f93a58d3126dfdd1ddc",
+  "android_source": "5e2fbcc0659be0b33a373d758b503c8a20c755e5",
+  "evidence": {
+    "usage": [
+      "production-09622d7-closed-day-usage.json",
+      "production-d613819-android-closed-day.json",
+      "production-e14d0a8-bot-range-fixed.jpg",
+      "production-e14d0a8-project-range-fixed.jpg"
+    ],
+    "skill": [
+      "production-8b257ca-real-skill-draft.json",
+      "production-d97e48f-android-skill-crud.json",
+      "production-1f771c7-skill-update-scope.json"
+    ],
+    "memory": [
+      "production-8b257ca-memory-request-audit.json",
+      "production-5e2fbcc-android-memory-recall.png",
+      "production-6eaa91a-desktop-memory-recall.jpg"
+    ],
+    "search": [
+      "production-aa2c99a-search-path-upgrade-after.json"
+    ]
+  },
+  "historical_failure_records_preserved": true,
+  "later_revisions_require_upgrade_regression": true
+}

@@ -1,0 +1,35 @@
+{
+  "test_source": "962fb538347177b5e45369238ff7c0a9515e3c62",
+  "scope": "isolated real Android NotificationManager capacity test; not real-provider 50-event scenario",
+  "production_package": "bot.mac.mobile",
+  "production_notification_keys_before": [
+    "0|bot.mac.mobile|0|0|bot.mac.mobile|g:Aggregate_AlertingSection|10219|0|bot.mac.mobile|g:Aggregate_AlertingSection:",
+    "0|bot.mac.mobile|100|null|10219:",
+    "0|bot.mac.mobile|1406029784|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:chat:dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce|10219:"
+  ],
+  "apks": [
+    {
+      "path": "clients/mobile/androidApp/build/outputs/apk/debug/androidApp-debug.apk",
+      "package": "bot.mac.mobile.capacitytest",
+      "sha256": "d97fd388beaadc9b95143e6bed4b6f7fc00f2f96c0da48660e0c3d00de0c2214"
+    },
+    {
+      "path": "clients/mobile/androidApp/build/outputs/apk/androidTest/debug/androidApp-debug-androidTest.apk",
+      "package": "bot.mac.mobile.capacitytest.test",
+      "sha256": "51639daef9e34a96ddb551617e4429104b821149138f6851d7d38b0abeca99ee"
+    }
+  ],
+  "status": "passed isolated device capacity; not provider-generated events",
+  "production_notification_keys_after": [
+    "0|bot.mac.mobile|0|0|bot.mac.mobile|g:Aggregate_AlertingSection|10219|0|bot.mac.mobile|g:Aggregate_AlertingSection:",
+    "0|bot.mac.mobile|100|null|10219:",
+    "0|bot.mac.mobile|1406029784|macbot:d152bb68-f2b3-40c4-85eb-e68535af71d2:chat:dm_01a120b5-4a0f-7499-ac9a-f3d1f227d0ce|10219:"
+  ],
+  "production_notifications_preserved": true,
+  "instrumentation_result": "OK (1 test), 0.208s",
+  "real_manager_seed_count": 50,
+  "real_manager_final_count": 40,
+  "protected_fgs_and_summary_retained": true,
+  "marker_ledger_and_pending_verified": true,
+  "isolated_packages_removed": true
+}

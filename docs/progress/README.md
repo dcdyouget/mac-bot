@@ -231,4 +231,6 @@ S3已只读核对原回忆run request，问句确实为“What exact preference 
 
 后续桌面已解锁并恢复截图/输入。桌面已实看两张去重待验收卡、6条真实搜索结果、真实Bot技能草稿，并通过原生发布按钮发布；Android仅对“画面联调-9e70”停用该技能，桌面复核一致。相关截图及操作journal已补入S2/S3。桌面范围标题语义修复6eaa91a已产出Release候选，尚待安装。S1联合恢复继续原run，双端已显示write成功及Bash待审批；未重发请求、尚未kill。S2确认完成会取消5个历史waiting_user assignment，暂不执行。S0仍是唯一整阶段通过；S5fresh未执行。
 
-S1联合恢复现已完成：精确审批write/bash后，在安全checkpoint kill正式PID79740的前任67422；LaunchAgent拉起79740，同run继续read并done。双端真实实时轨迹、重连提示、部分流式输出→完成及回放已截图实看；Bash成功一次，marker不变，12条旧pending及151个旧job哈希保持。见S1/production-aa2c99a-joint-recovery.json。启动监听约54秒，性能问题单独修复中；模型输出的“无重启”等未经证实文字不作为验收依据。桌面6eaa91a已安装并实看范围标题修复，原记忆回忆答案及搜索群筛选为空也已补证。仍不扩大为整阶段通过。
+S1联合恢复现已完成：精确审批write/bash后，在安全checkpoint kill正式PID67422；LaunchAgent拉起79740，同run继续read并done。双端真实实时轨迹、重连提示、部分流式输出→完成及回放已截图实看；Bash成功一次，marker不变，12条旧pending及151个旧job哈希保持。见S1/production-aa2c99a-joint-recovery.json。按PLAN第6章联调门槛，S1现判通过（server aa2c99a）；启动监听约54秒作为独立性能缺陷修复，后续服务版本仍需升级回归。模型输出的“无重启”等未经证实文字不作为验收依据。桌面6eaa91a已安装并实看范围标题修复，原记忆回忆答案及搜索群筛选为空也已补证。当前通过阶段为S0、S1，S2–S5未整阶段通过。
+
+S3按最新真实双端证据判功能联调通过，见S3/production-6eaa91a-stage-conclusion.json；当前通过S0、S1、S3。S4通知容量已在隔离应用包运行真实NotificationManager专项：50→40、FGS/summary保护、marker/ledger/pending断言通过，正式包3条通知keys不变，隔离包已移除。见S4/production-962fb53-isolated-capacity.json；不将其描述为真实provider50连发。Android X仍待Chrome本次连接确认。server 4f4893a已安装且最终健康，12pending/154jobs保持；30秒部署健康期限曾失败，采样发现剩余operation修复热点，继续修复，不隐去失败。
