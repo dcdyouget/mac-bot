@@ -91,6 +91,57 @@ class MainConnectionHostIntegrationTest {
     }
 
     @Test
+    fun replayDeduplicatesPersistentSequencesAndKeepsEphemeralOrder() {
+        runBlocking {
+            val server = MockWebServer()
+            server.enqueue(upgrade { socket, request ->
+                when (request.string("method")) {
+                    "session.resume" -> {
+                        socket.send(response(request.id(), buildJsonObject { put("mode", "replay") }))
+                        socket.send(event("persistent", buildJsonObject { put("label", "three") }, 3))
+                        socket.send(event("ephemeral", buildJsonObject { put("label", "first") }))
+                        socket.send(event("persistent", buildJsonObject { put("label", "two") }, 2))
+                        socket.send(event("persistent", buildJsonObject { put("label", "duplicate") }, 2))
+                        socket.send(event("ephemeral", buildJsonObject { put("label", "second") }))
+                        socket.send(event("sync.done", buildJsonObject { put("seq", 3) }, 3))
+                    }
+                }
+            })
+            server.start()
+            val client = HttpClient(OkHttp) { install(WebSockets) }
+            val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val store = InMemoryLastSeqStore()
+            val received = Channel<MainEvent>(Channel.UNLIMITED)
+            val connection = MainConnection(
+                client, host(server), identity(), store, scope,
+                onEvent = { received.send(it) },
+            )
+            try {
+                connection.start()
+                withTimeout(5_000) { connection.status.first { it == ConnectionStatus.CONNECTED } }
+                val events = withTimeout(2_000) { buildList { repeat(5) { add(received.receive()) } } }
+                assertTrue(events[0] is MainEvent.Hello)
+                assertEquals(
+                    listOf("two", "three", "first", "second"),
+                    events.drop(1).map { event ->
+                        when (event) {
+                            is MainEvent.Persistent -> event.data.string("label")
+                            is MainEvent.Ephemeral -> event.data.string("label")
+                            else -> error("unexpected replay event: $event")
+                        }
+                    },
+                )
+                assertEquals(3L, store.get("integration"))
+            } finally {
+                connection.stop()
+                scope.cancel()
+                client.close()
+                server.close()
+            }
+        }
+    }
+
+    @Test
     fun reconnectReplaysWriteWithStableClientRequestId() {
         runBlocking {
         val server = MockWebServer()

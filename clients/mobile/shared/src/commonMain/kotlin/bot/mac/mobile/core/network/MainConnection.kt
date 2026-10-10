@@ -53,6 +53,7 @@ private class SessionEvents {
     val mutex = Mutex()
     var buffering = true
     val buffered = mutableListOf<MainEvent>()
+    val bufferedPersistentSeqs = mutableSetOf<Long>()
 }
 
 /**
@@ -406,7 +407,7 @@ class MainConnection(
         sessionEvents.mutex.withLock {
             val seq = (event as? MainEvent.Persistent)?.seq
             if (sessionEvents.buffering) {
-                if (seq == null || sessionEvents.buffered.none { (it as? MainEvent.Persistent)?.seq == seq }) {
+                if (seq == null || sessionEvents.bufferedPersistentSeqs.add(seq)) {
                     sessionEvents.buffered += event
                 }
                 return@withLock
@@ -422,6 +423,7 @@ class MainConnection(
             val buffered = sessionEvents.buffered.toList()
                 .sortedWith(compareBy<MainEvent> { (it as? MainEvent.Persistent)?.seq ?: Long.MAX_VALUE })
             sessionEvents.buffered.clear()
+            sessionEvents.bufferedPersistentSeqs.clear()
             for (event in buffered) {
                 val seq = (event as? MainEvent.Persistent)?.seq
                 if (seq != null && (seq <= dropThrough || seq <= currentCursor())) continue
