@@ -416,6 +416,10 @@ impl MacBot {
                         }
                         return;
                     }
+                    // Main websocket events mutate the root view from a GPUI
+                    // async task. Refresh explicitly so a parked native loop
+                    // does not wait for unrelated input to present the change.
+                    cx.refresh();
                 }
                 executor.timer(std::time::Duration::from_millis(50)).await;
             }
@@ -450,31 +454,36 @@ impl MacBot {
         };
         cx.spawn(async move |this, cx| {
             let result = receiver.await;
-            let _ = this.update(cx, |view, cx| {
-                if view.connection_generation != generation {
-                    return;
-                }
-                if matches!(method.as_str(), "trace.history" | "trace.subscribe")
-                    && view.trace_epoch != trace_epoch
-                {
-                    if method == "trace.subscribe"
-                        && let Ok(Ok(value)) = &result
+            if this
+                .update(cx, |view, cx| {
+                    if view.connection_generation != generation {
+                        return;
+                    }
+                    if matches!(method.as_str(), "trace.history" | "trace.subscribe")
+                        && view.trace_epoch != trace_epoch
                     {
-                        view.rpc("trace.unsubscribe", json!({"stream":value["stream"]}), cx);
+                        if method == "trace.subscribe"
+                            && let Ok(Ok(value)) = &result
+                        {
+                            view.rpc("trace.unsubscribe", json!({"stream":value["stream"]}), cx);
+                        }
+                        return;
                     }
-                    return;
-                }
-                match result {
-                    Ok(Ok(value)) => view.rpc_result(&method, &params_copy, value, cx),
-                    Ok(Err(error)) => {
-                        view.rpc_failed(&method, &params_copy, error.to_string(), cx);
+                    match result {
+                        Ok(Ok(value)) => view.rpc_result(&method, &params_copy, value, cx),
+                        Ok(Err(error)) => {
+                            view.rpc_failed(&method, &params_copy, error.to_string(), cx);
+                        }
+                        Err(error) => {
+                            view.rpc_failed(&method, &params_copy, error.to_string(), cx);
+                        }
                     }
-                    Err(error) => {
-                        view.rpc_failed(&method, &params_copy, error.to_string(), cx);
-                    }
-                }
-                cx.notify();
-            });
+                    cx.notify();
+                })
+                .is_ok()
+            {
+                cx.refresh();
+            }
         })
         .detach();
     }
@@ -1055,20 +1064,32 @@ impl MacBot {
         cx: &mut Context<Self>,
     ) {
         let _guard = self.runtime.enter();
+        let diagnostics = std::env::var_os("MACBOT_DIAGNOSTICS").is_some();
         let handle = ScreenHandle::spawn(config, bot, quality, preserved_tab);
         self.screen_client = Some(handle.client);
         let generation = self.screen_notice.generation();
         let mut events = handle.events;
         let executor = cx.background_executor().clone();
+        if diagnostics {
+            eprintln!(
+                "client: screen bridge started generation={} page={}",
+                generation, self.page
+            );
+        }
         self.screen_task = Some(cx.spawn(async move |this, cx| {
             loop {
                 for _ in 0..64 {
                     let event = match events.try_recv() {
                         Ok(event) => event,
                         Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
-                        Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => return,
+                        Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                            if diagnostics {
+                                eprintln!("client: screen bridge event channel disconnected");
+                            }
+                            return;
+                        }
                     };
-                    if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
+                    if diagnostics {
                         let kind = match &event {
                             ScreenEvent::State(_) => "state",
                             ScreenEvent::Frame(_) => "frame",
@@ -1077,10 +1098,17 @@ impl MacBot {
                         };
                         eprintln!("client: screen bridge received {kind}");
                     }
-                    if this
-                        .update(cx, |view, cx| {
+                    let applied = match this.update(cx, |view, cx| {
                             if !view.screen_notice.is_current(generation, &view.page) {
-                                return;
+                                if diagnostics {
+                                    eprintln!(
+                                        "client: screen bridge ignored stale event generation={} current={} page={}",
+                                        generation,
+                                        view.screen_notice.generation(),
+                                        view.page
+                                    );
+                                }
+                                return false;
                             }
                             match event {
                                 ScreenEvent::State(mut state) => {
@@ -1093,17 +1121,24 @@ impl MacBot {
                                     }
                                     view.computer
                                         .update(cx, |screen, cx| screen.set_state_in(state, cx));
+                                    if diagnostics {
+                                        eprintln!("client: screen bridge applied state");
+                                    }
                                 }
                                 ScreenEvent::Frame(frame) => {
+                                    let seq = frame.header.seq;
                                     view.computer.update(cx, |screen, cx| {
                                         screen.set_frame(
-                                            frame.header.seq,
+                                            seq,
                                             frame.header.w,
                                             frame.header.h,
                                             frame.jpeg,
                                             cx,
                                         )
-                                    })
+                                    });
+                                    if diagnostics {
+                                        eprintln!("client: screen bridge applied frame seq={seq}");
+                                    }
                                 }
                                 ScreenEvent::Error(_) => view
                                     .screen_notice
@@ -1113,13 +1148,21 @@ impl MacBot {
                                     .record(generation, crate::screen_notice::ScreenStatus::Closed),
                             }
                             cx.notify();
-                        })
-                        .is_err()
-                    {
-                        if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
-                            eprintln!("client: screen bridge entity released");
+                            true
+                        }) {
+                        Ok(applied) => applied,
+                        Err(_) => {
+                            if diagnostics {
+                                eprintln!("client: screen bridge entity released");
+                            }
+                            return;
                         }
-                        return;
+                    };
+                    if applied {
+                        // The stream is consumed from a GPUI async task. Explicitly
+                        // flush the window after applying a frame/state so a parked
+                        // native event loop cannot wait for an unrelated input event.
+                        cx.refresh();
                     }
                 }
                 executor.timer(std::time::Duration::from_millis(50)).await;

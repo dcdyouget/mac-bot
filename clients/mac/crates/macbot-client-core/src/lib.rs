@@ -1732,6 +1732,15 @@ async fn run_screen(
     mut commands: mpsc::Receiver<ScreenControl>,
     events: mpsc::Sender<ScreenEvent>,
 ) {
+    let diagnostics = std::env::var_os("MACBOT_DIAGNOSTICS").is_some();
+    if diagnostics {
+        eprintln!(
+            "client: screen connecting bot={} quality={} tab={}",
+            bot_id,
+            quality,
+            tab_id.as_deref().unwrap_or("")
+        );
+    }
     let result: Result<()> = async {
         let mut url = config.websocket_url("/ws/screen")?.parse::<reqwest::Url>().map_err(|e| CoreError::InvalidEndpoint(e.to_string()))?;
         url.query_pairs_mut().append_pair("bot_id", &bot_id).append_pair("quality", &quality);
@@ -1740,6 +1749,9 @@ async fn run_screen(
         let auth = format!("Bearer {}", config.password);
         request.headers_mut().insert(AUTHORIZATION, HeaderValue::from_str(&auth).map_err(|e| CoreError::InvalidEndpoint(e.to_string()))?);
         let (mut socket, _) = connect_async(request).await.map_err(|error| CoreError::WebSocket(Box::new(error)))?;
+        if diagnostics {
+            eprintln!("client: screen connected");
+        }
         loop {
             tokio::select! {
                 command = commands.recv() => match command {
@@ -1762,12 +1774,27 @@ async fn run_screen(
                         }
                         let Some(state) = envelope.get("state").filter(|value| value.is_object())
                         else {
+                            if diagnostics {
+                                eprintln!("client: screen ignored malformed state envelope");
+                            }
                             continue;
                         };
+                        if diagnostics {
+                            eprintln!(
+                                "client: screen state tabs={}",
+                                state.get("tabs").and_then(Value::as_array).map_or(0, Vec::len)
+                            );
+                        }
                         let _ = events.send(ScreenEvent::State(state.clone())).await;
                     }
                     Some(Ok(Message::Binary(bytes))) => {
                         let frame = parse_screen_frame(&bytes)?;
+                        if diagnostics {
+                            eprintln!(
+                                "client: screen frame seq={} size={}x{}",
+                                frame.header.seq, frame.header.w, frame.header.h
+                            );
+                        }
                         let _ = events.send(ScreenEvent::Frame(frame)).await;
                     }
                     Some(Ok(Message::Ping(payload))) => socket.send(Message::Pong(payload)).await.map_err(|error| CoreError::WebSocket(Box::new(error)))?,
@@ -1780,9 +1807,15 @@ async fn run_screen(
     }.await;
     match result {
         Ok(()) | Err(CoreError::Closed) => {
+            if diagnostics {
+                eprintln!("client: screen worker closed");
+            }
             let _ = events.send(ScreenEvent::Closed).await;
         }
         Err(error) => {
+            if diagnostics {
+                eprintln!("client: screen worker error={error}");
+            }
             let _ = events.send(ScreenEvent::Error(error.to_string())).await;
         }
     }
