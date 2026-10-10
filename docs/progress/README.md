@@ -269,3 +269,5 @@ S5已开始：按既定fresh-install-plan退出桌面、bootout已核对的watch
 
 
 S5首次真实pkg失败已定位：用户管理员认证成功，PackageKit却将payload按bundle ID重定位到备份服务App，postinstall固定源路径缺失后退出。旧业务164job哈希全部保持；备份服务App被installer写过且转为root:wheel，不能再宣称原样备份或盲目用于恢复。新home仅有root-owned空目录。3d6b289补App级不可重定位、写路径前payload检查及真实PackageInfo回归；旧失败包被新smoke拒绝，修复包正在构建。失败截图/日志与备份App现状均留证，S5仍未通过。
+
+修复包3d6b289现已完成clean archive构建、完整smoke和固定路径/空relocate名单审计，并打开新Installer点击安装；等待用户完成本次系统管理员认证。原失败包及受影响备份App保留为证据，尚未宣称真实重试成功。

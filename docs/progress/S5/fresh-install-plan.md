@@ -1,3 +1,5 @@
+> 修复包重试：3d6b289c3af61111e0004d8bf300330461528ef7，SHA-256 `120af2fa8a2890da3806679b052f8d7adb1f1697e02e6c69ee7b0efff99af00a`；包内relocate名单为空，完整smoke通过。已打开新Installer并点击安装，等待本次系统管理员认证；尚未确认安装成功。旧3635008包不再重试。
+
 > 首次真实安装失败：macOS将payload重定位到备份App，postinstall找不到固定源路径。原业务数据164job哈希保持，但备份App已被写过，不再作为原样恢复来源；空的新home为root所有。修复包冻结之前不得重试旧包。见 [fresh-installer-relocation-failure.json](fresh-installer-relocation-failure.json)。
 
 # S5 全新安装演练计划

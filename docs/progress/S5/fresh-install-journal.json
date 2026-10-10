@@ -2,7 +2,7 @@
   "created_at": "2026-10-10T13:25:53.410603+00:00",
   "backup_root": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk",
   "mode": "0o700",
-  "status": "fixed_pkg_verified_ready_to_retry",
+  "status": "fixed_pkg_awaiting_native_admin_auth",
   "offline_backup_completed": true,
   "fresh_install_started": true,
   "new_password_setup": "user handoff required by CUA credential-change rule; no password recorded",
@@ -12,7 +12,7 @@
     "Android application data",
     "unknown pending approvals and jobs"
   ],
-  "restore_plan": "Stop only new com.macbot.server; preserve fresh artifacts separately; restore each moved path from its distinct backup directory; bootstrap original plist; verify old source and health.",
+  "restore_plan": "Stop only new com.macbot.server; preserve fresh artifacts separately; restore original data/plist/client paths from backup. The service App was modified by failed Installer relocation: reconstruct it from separately verified matching artifact instead of blindly restoring that App. Restore permissions, bootstrap original plist, verify source/health.",
   "preflight": {
     "server_candidate": "3635008f6c8c60e9fbd32747e140990496f4d029",
     "server_runtime": "3635008 healthy; old cursor replay restored, 7 approvals and164 jobs unchanged through deploy",
@@ -102,5 +102,11 @@
   "partial_fresh_home": "root-owned empty ~/MacBot/data, no business files; fixed postinstall must restore ownership",
   "retry_pkg_source": "3d6b289c3af61111e0004d8bf300330461528ef7",
   "retry_pkg_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-3d6b289c3af61111e0004d8bf300330461528ef7.pkg",
-  "retry_pkg_sha256": "120af2fa8a2890da3806679b052f8d7adb1f1697e02e6c69ee7b0efff99af00a"
+  "retry_pkg_sha256": "120af2fa8a2890da3806679b052f8d7adb1f1697e02e6c69ee7b0efff99af00a",
+  "retry_installer_opened": true,
+  "retry_install_clicked": true,
+  "retry_pkg_install_completed": false,
+  "retry_screenshot": "fresh-fixed-installer-awaiting-auth.png",
+  "retry_screenshot_viewed": true,
+  "retry_at": "2026-10-10T15:00:13.209637+00:00"
 }
