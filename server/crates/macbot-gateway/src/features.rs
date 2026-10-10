@@ -644,14 +644,27 @@ impl FeatureService {
     }
 
     pub fn commit_memory_run(&self, run_id: &str) -> FeatureResult<Vec<MemoryEntry>> {
+        self.commit_memory_run_with_events(run_id)
+            .map(|(entries, _)| entries)
+    }
+
+    /// Commit staged memory and return the already durable public events so
+    /// the gateway can fan them out without appending duplicate records.
+    pub fn commit_memory_run_with_events(
+        &self,
+        run_id: &str,
+    ) -> FeatureResult<(Vec<MemoryEntry>, Vec<Event>)> {
         let entries = self
             .shared_memory
             .commit_run_persisted(run_id, &self.memory_path)?;
+        let mut events = Vec::with_capacity(entries.len());
         for entry in &entries {
-            self.shared_store
-                .append_event("memory.updated", json!({"entry":entry}))?;
+            events.push(
+                self.shared_store
+                    .append_event("memory.updated", json!({"entry":entry}))?,
+            );
         }
-        Ok(entries)
+        Ok((entries, events))
     }
 
     pub fn rollback_memory_run(&self, run_id: &str) -> FeatureResult<bool> {
@@ -734,6 +747,17 @@ impl FeatureService {
         worklog: Option<&str>,
         source: MemorySource,
     ) -> FeatureResult<Vec<MemoryEntry>> {
+        self.complete_run_with_worklog_events(run_id, target, worklog, source)
+            .map(|(entries, _)| entries)
+    }
+
+    pub fn complete_run_with_worklog_events(
+        &self,
+        run_id: &str,
+        target: Option<MemoryTarget>,
+        worklog: Option<&str>,
+        source: MemorySource,
+    ) -> FeatureResult<(Vec<MemoryEntry>, Vec<Event>)> {
         if let (Some(target), Some(worklog)) = (target, worklog) {
             self.shared_memory.stage(
                 run_id,
@@ -747,7 +771,7 @@ impl FeatureService {
                 },
             )?;
         }
-        self.commit_memory_run(run_id)
+        self.commit_memory_run_with_events(run_id)
     }
 
     /// Stage a compaction summary in the active model run. It is committed

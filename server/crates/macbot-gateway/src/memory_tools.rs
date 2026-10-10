@@ -6,6 +6,7 @@
 use crate::features::{FeatureError, FeatureService, MemoryAccess, MemoryActor};
 use async_trait::async_trait;
 use macbot_memory::{ContextPackage, ContextRequest, MemoryEntry, MemorySource, MemoryTarget};
+use macbot_store::Event;
 use macbot_tools::{Risk, Tool, ToolContext, ToolResult};
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
@@ -212,6 +213,17 @@ impl FeatureToolRuntime {
             .complete_run_with_worklog(run_id, target, worklog, source)
     }
 
+    pub fn run_succeeded_with_worklog_events(
+        &self,
+        run_id: &str,
+        target: Option<MemoryTarget>,
+        worklog: Option<&str>,
+        source: MemorySource,
+    ) -> Result<(Vec<MemoryEntry>, Vec<Event>), FeatureError> {
+        self.service
+            .complete_run_with_worklog_events(run_id, target, worklog, source)
+    }
+
     pub fn run_failed(&self, run_id: &str) -> Result<bool, FeatureError> {
         self.service.rollback_memory_run(run_id)
     }
@@ -383,6 +395,10 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
         }
     }
 
+    async fn publish_persisted(&self, event: Event) {
+        self.delegate.publish_persisted(event).await;
+    }
+
     async fn send_group_message(&self, message: Value) -> Result<Value, String> {
         self.delegate.send_group_message(message).await
     }
@@ -475,13 +491,20 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
             run_id: Some(request.run_id.clone()),
             session_id: Some(request.chat_id.clone()),
         };
-        if let Err(error) = self.runtime.run_succeeded_with_worklog(
+        match self.runtime.run_succeeded_with_worklog_events(
             &request.run_id,
             target,
             (!text.trim().is_empty()).then_some(text),
             source,
         ) {
-            tracing::error!(run_id = %request.run_id, %error, "failed to commit run memory");
+            Ok((_, events)) => {
+                for event in events {
+                    self.delegate.publish_persisted(event).await;
+                }
+            }
+            Err(error) => {
+                tracing::error!(run_id = %request.run_id, %error, "failed to commit run memory");
+            }
         }
     }
 }

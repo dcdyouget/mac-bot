@@ -30,7 +30,7 @@ use macbot_orchestrator::Orchestrator;
 use macbot_providers::{
     registry::ProviderRegistry, Completion, ModelEvent, ModelProvider, ModelRequest, TokenUsage,
 };
-use macbot_store::Store;
+use macbot_store::{Event, Store};
 use macbot_tools::{
     BashJobManager, BashJobTool, BashTool, EditTool, FileMutationQueue, FindTool, GrepTool, LsTool,
     Part, ReadTool, Tool, ToolContext, ToolResult, WriteTool,
@@ -5785,6 +5785,10 @@ impl ExecutionSink for OrchestratorSink {
         if refresh_status {
             publish_live_status(self.backend.clone(), &self.state).await;
         }
+    }
+
+    async fn publish_persisted(&self, event: Event) {
+        self.inner.publish_persisted(event).await;
     }
 
     async fn send_group_message(&self, message: Value) -> Result<Value, String> {
