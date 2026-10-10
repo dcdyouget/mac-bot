@@ -96,3 +96,5 @@ adb -s emulator-5554 shell pm path bot.mac.mobile
 2026-10-10 历史现场补充：server `14a3b18`、桌面 `e14d0a8` Release、Android `5e2fbcc` 签名 Release。桌面 App/DMG 已从干净归档构建并通过签名与镜像校验，正常更新安装不计 fresh；当时的锁屏和搜索误分类记录保留，前文历史版本和停止条件不代表最新部署。
 
 2026-10-10 当前现场补充：server `9c20fc4`、桌面 `6eaa91a`、Android `5e2fbcc`；Mac 已解锁。S0、S1、S3 已通过；S2 历史分支取消确认待用户答复，S4 Chrome 远程调试当前弹窗待用户答复；S5 fresh 仍未执行。
+
+后续只读核对：Chrome授权弹窗已消失，不能等同于批准连接；X验收仍未通过，测试Bot已恢复原headless模式。server9c20fc4正常重启后8.673秒健康，12pending/154jobs保持，当前PID94543。

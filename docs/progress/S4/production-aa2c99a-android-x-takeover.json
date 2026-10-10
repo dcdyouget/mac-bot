@@ -18,7 +18,7 @@
     },
     "client_request_id": "bd003906-8e20-4f92-b638-d5aa8e6429ef"
   },
-  "status": "prepared",
+  "status": "blocked_pending_browser_connection_consent",
   "mode_update_result": {
     "bot": {
       "avatar": {
@@ -558,5 +558,23 @@
     "wiped_data": false,
     "boot_completed": true,
     "app_launch_verified": true
+  },
+  "latest_chrome_observation": {
+    "at_epoch": 1791632877.5908558,
+    "permission_modal_visible": false,
+    "remote_debugging_setting_already_enabled": true,
+    "acceptance_pass": false,
+    "note": "Modal disappeared; absence does not prove connection authorization. No permission clicked."
+  },
+  "mode_restore_request": {
+    "bot_id": "01a120b5-4a0f-7499-ac9a-f3d1f227d0ce",
+    "patch": {
+      "browser_mode": "headless"
+    },
+    "client_request_id": "b46bb8ff-c0cb-48a1-9821-7aeb91f842b7"
+  },
+  "mode_restore_result": {
+    "browser_mode": "headless",
+    "updated_at": "2026-10-10T11:47:57.617606+00:00"
   }
 }
