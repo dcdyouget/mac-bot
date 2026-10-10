@@ -12,7 +12,7 @@
 
 S1新增真实专项：安全checkpoint后kill‑9，原run自动恢复读取原文件并完成，Bash未重放（[证据](S1/production-07a3245-owned-recovery.json)）。修复history固定live=false后，桌面实际观察正文逐步增长及轨迹追加到run.end，重开可回放；标准库观察41个正文片段、52个轨迹片段（[证据](S1/production-7f0a5dd-real-stream.json)）。退订释放及8路容量实测通过；原生“收起”按钮未可靠验证，返回键已能关闭。Android未参加本轮专项，不能计S1整阶段通过。
 
-桌面长消息/轨迹布局、持续画面、低清切换及本地fixture真实键鼠输入/释放已局部通过。Android软件渲染恢复启动后仍有System UI无响应弹窗；CUA无模拟器控制面，adb输入方式待用户回应。X登录也仍待用户选择当前Chrome会话的使用方式。
+桌面长消息/轨迹布局、持续画面、低清切换及本地fixture真实键鼠输入/释放已局部通过。Android软件渲染恢复启动后仍有System UI无响应弹窗；CUA无模拟器控制面，adb输入方式待用户回应。用户已授权X验收使用当前浏览器登录会话；实际在当前Chrome新标签打开x.com/home后跳转登录页，已留页待用户登录，未复制profile或发起Bot请求（[证据](S4/production-fe360a2-x-current-chrome.json)）。
 
 最新server pkg `fe360a2`、release DMG `71fddde`已审计，未fresh安装。S0仍唯一整阶段通过，S1–S4完整双端验收及S5 fresh未完成。详见[接手续办记录](S2/2026-10-10-takeover-closeout.md)。
 

@@ -1,0 +1,17 @@
+{
+  "observed_at": "2026-10-10T04:53:39.083058+00:00",
+  "server_source": "fe360a23c9fe6b26b212c82a524c350606b4a606",
+  "authorization": "User authorized X acceptance using the current browser logged-in session.",
+  "browser": "Google Chrome",
+  "observed_initial_page": "local Mac Bot design prototype; preserved",
+  "action": "Opened a new tab at https://x.com/home in the current Chrome profile through native CUA.",
+  "observed_url": "https://x.com/i/jf/onboarding/web?redirect_after_login=%2Fhome&mode=login",
+  "result": "login_required",
+  "screenshot": "production-fe360a2-x-current-chrome-login-required.png",
+  "screenshot_visually_reviewed": true,
+  "bot_request_sent": false,
+  "credentials_entered": false,
+  "profile_copied": false,
+  "x_acceptance_passed": false,
+  "next": "User completes X login in the prepared Chrome tab or identifies the browser with the existing signed-in session."
+}
