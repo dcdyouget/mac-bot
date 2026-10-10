@@ -1,0 +1,57 @@
+{
+  "at": "2026-10-10T14:52:57.639818+00:00",
+  "source": "3635008f6c8c60e9fbd32747e140990496f4d029",
+  "status": "failed_real_pkg_install",
+  "installer_admin_authorization": "granted at22:51:47",
+  "root_cause": "Default bundle relocation selected backup App instead of fixed /Applications destination; postinstall source path did not exist.",
+  "selected_install_log": [
+    "2026-10-10 22:51:47+08 gongshaiedeMini Installer[77293]: Administrator authorization granted.",
+    "2026-10-10 22:51:48+08 gongshaiedeMini installd[54533]: PackageKit: Applications/MacBot Server.app relocated to Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/user-app/MacBotServer.app",
+    "2026-10-10 22:51:49+08 gongshaiedeMini package_script_service[81582]: ./postinstall: ditto: Cannot get the real path for source '/Applications/MacBot Server.app'",
+    "2026-10-10 22:51:49+08 gongshaiedeMini installd[54533]: PackageKit: Install Failed: Error Domain=PKInstallErrorDomain Code=112 \"运行软件包“MacBot-Server-3635008f6c8c60e9fbd32747e140990496f4d029.pkg”的脚本时出错。\" UserInfo={NSFilePath=./postinstall, NSURL=file://localhost/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-3635008f6c8c60e9fbd32747e140990496f4d029.pkg, PKInstallPackageIdentifier=com.macbot.server, NSLocalizedDescription=运行软件包“MacBot-Server-3635008f6c8c60e9fbd32747e140990496f4d029.pkg”的脚本时出错。} {",
+    "2026-10-10 22:51:50+08 gongshaiedeMini Installer[77293]: Install failed: 安装器遇到了一个错误，导致安装失败。请联系软件生产企业以获得帮助。"
+  ],
+  "screenshot": "fresh-installer-relocation-failed.png",
+  "screenshot_viewed": true,
+  "backup_app_integrity": {
+    "installer_replaced_app": true,
+    "owner_after": "root:wheel",
+    "source_after": "3635008f6c8c60e9fbd32747e140990496f4d029",
+    "seven_candidate_files_match": true,
+    "original_bytes_snapshot_unavailable": true,
+    "restore_policy": "Keep affected App as failed-install evidence. Restore service only from separately verified artifact, never assert this App is original unchanged backup."
+  },
+  "business_data_integrity": {
+    "job_files": 164,
+    "hashes_match_preflight": true,
+    "data_files": 932,
+    "data_bytes": 1074125688,
+    "data_owner": "gongshaojie",
+    "job_aggregate_sha256": "ab8496a1aee0773d2b0d7a8c7a46f80dc84f96267cdd461a15eab98a9016851b"
+  },
+  "next_action": "Fix pkg relocation metadata and regression tests; rebuild fixed candidate before retry.",
+  "partial_home": {
+    "path": "/Users/gongshaojie/MacBot",
+    "contains": "empty root-owned home/data directories only",
+    "business_files": 0
+  },
+  "old_package_metadata": {
+    "package_relocatable": "false",
+    "relocate_bundle_ids": [
+      "com.macbot.server"
+    ],
+    "note": "Top-level relocatable=false did not disable bundle relocation; regression must inspect relocate/bundle."
+  },
+  "fix": {
+    "source": "3d6b289c3af61111e0004d8bf300330461528ef7",
+    "scope": "App component relocation disabled; fixed payload guard before mutation; actual PackageInfo smoke assertion",
+    "validation": [
+      "shell syntax passed",
+      "components plist lint passed",
+      "updated smoke rejects original failed pkg",
+      "missing payload guard rejects before creating isolated home",
+      "independent review no blockers"
+    ],
+    "new_pkg": "server-pkg-3d6b289-verified.json; full smoke passed, relocate bundle list empty"
+  }
+}

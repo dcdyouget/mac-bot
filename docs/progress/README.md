@@ -266,3 +266,6 @@ S4最终通过：server3635008补齐内部memory事件的live与replay游标，�
 
 
 S5已开始：按既定fresh-install-plan退出桌面、bootout已核对的watcher与正式LaunchAgent，7788关闭后一次性离线移动旧home、App、plist及已知桌面配置到原0700备份目录；164个任务哈希与preflight完全一致，旧凭据外部文件、Android数据及mock PID66750保持。已打开固定3635008 pkg并点击安装，CUA拒绝操作com.apple.SecurityAgent，当前需用户在Mac完成系统管理员认证；安装未确认成功，正式服务暂时停机。见S5/fresh-install-journal.json、fresh-preflight.json、fresh-installer-awaiting-auth.png。不得据此计S5通过。
+
+
+S5首次真实pkg失败已定位：用户管理员认证成功，PackageKit却将payload按bundle ID重定位到备份服务App，postinstall固定源路径缺失后退出。旧业务164job哈希全部保持；备份服务App被installer写过且转为root:wheel，不能再宣称原样备份或盲目用于恢复。新home仅有root-owned空目录。3d6b289补App级不可重定位、写路径前payload检查及真实PackageInfo回归；旧失败包被新smoke拒绝，修复包正在构建。失败截图/日志与备份App现状均留证，S5仍未通过。

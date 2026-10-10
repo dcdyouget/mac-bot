@@ -2,7 +2,7 @@
   "created_at": "2026-10-10T13:25:53.410603+00:00",
   "backup_root": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk",
   "mode": "0o700",
-  "status": "awaiting_native_installer_admin_auth",
+  "status": "fixed_pkg_verified_ready_to_retry",
   "offline_backup_completed": true,
   "fresh_install_started": true,
   "new_password_setup": "user handoff required by CUA credential-change rule; no password recorded",
@@ -93,5 +93,14 @@
   "auth_handoff_reason": "CUA rejected com.apple.SecurityAgent: Computer Use is not allowed to use the app for safety reasons.",
   "installer_screenshot": "fresh-installer-awaiting-auth.png",
   "installer_screenshot_viewed": true,
-  "updated_at": "2026-10-10T14:41:14.932399+00:00"
+  "updated_at": "2026-10-10T14:41:14.932399+00:00",
+  "admin_authorization_completed": true,
+  "failed_install_evidence": "fresh-installer-relocation-failure.json",
+  "backup_app_may_have_been_replaced_by_installer": true,
+  "backup_app_integrity": "Installer relocated payload into backed-up App; no longer pristine. Preserve it as evidence; restore from separately verified artifact if required.",
+  "offline_business_job_hashes_still_match": 164,
+  "partial_fresh_home": "root-owned empty ~/MacBot/data, no business files; fixed postinstall must restore ownership",
+  "retry_pkg_source": "3d6b289c3af61111e0004d8bf300330461528ef7",
+  "retry_pkg_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-3d6b289c3af61111e0004d8bf300330461528ef7.pkg",
+  "retry_pkg_sha256": "120af2fa8a2890da3806679b052f8d7adb1f1697e02e6c69ee7b0efff99af00a"
 }

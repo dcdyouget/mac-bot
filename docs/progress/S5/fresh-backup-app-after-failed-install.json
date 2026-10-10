@@ -1,0 +1,61 @@
+{
+  "at": "2026-10-10T14:57:48.510978+00:00",
+  "purpose": "Snapshot of installer-modified backup app; not proof of original pre-install bytes. Verify fixed package leaves this failed-install evidence untouched.",
+  "path": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/user-app/MacBotServer.app",
+  "files": {
+    "Contents/Info.plist": {
+      "sha256": "8a5a5e23e65c117934508d0609697ed60f743f206e75ce0b42cc4577463739fc",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o644"
+    },
+    "Contents/MacOS/agent-browser": {
+      "sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o755"
+    },
+    "Contents/MacOS/macbotd": {
+      "sha256": "4d0bd021b6cd51ee8571536d47a55c2c55cd39ddc68279605ad1859ad08b6d82",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o755"
+    },
+    "Contents/Resources/build-info.json": {
+      "sha256": "91b1a8d90659bffbf66fa240b2008702af8a361167cf157a1873b887a752742a",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o644"
+    },
+    "Contents/Resources/agent-browser.LICENSE": {
+      "sha256": "014bb31e83d5c2e76aea1cc6e82217346ab41362f32cb355ad0f5c10aa0aeaff",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o644"
+    },
+    "Contents/Resources/source-commit.txt": {
+      "sha256": "e505144b9e8b2684e1c35bdb3be92473500a6180e73ea6522d64d8e2246430e9",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o644"
+    },
+    "Contents/Resources/com.macbot.server.plist": {
+      "sha256": "0072db300ba41f345257d78a44c948cada2037494343ecec130fca800146d64b",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o644"
+    },
+    "Contents/Resources/update-installed.sh": {
+      "sha256": "70c514ca26336d04c707f778b5839bd93f7edec526487bc0304f90fe69fd018f",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o755"
+    },
+    "Contents/Resources/update-manifest.json": {
+      "sha256": "0fa354fc96d134064e39f657495254c05c55bd6e0885fe8d233000307e149d6b",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o644"
+    }
+  }
+}
