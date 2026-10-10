@@ -524,3 +524,11 @@
 - 原生关闭又发现trace.unsubscribe漏接production，fe360a2修复；192 gateway测试和严格clippy通过。仅部署server，PID49651，桌面2f09174与Android cac5b12保持。待审批/等待checkpoint/browser哈希保持；正式8订阅容量、第9拒绝、退订释放后补订阅与全部退订通过。原生返回键可退出且无错误，“收起”按钮未可靠验证，不计通过。
 - main代码已推至fe360a2；最新fe360a2 pkg源码/daemon/sidecar审计通过，未fresh安装。Android最新实看仍为System UI无响应，CUA无模拟器控制面、adb输入方式及X会话使用仍待用户回应；fresh管理页新密码需用户接手输入。S0仍唯一整阶段通过，S1/S2新增为真实局部证据。
 - 根协调单独提交理由：记录当前运行版本、真实恢复/流式结论、失败证据及外部条件，避免把单端测试当作全阶段完成；不因文档提交重部署。详情见docs/progress/S2/2026-10-10-takeover-closeout.md。
+
+## integrator：解锁后双端阶段验收更新（2026-10-10）
+
+- S0、S1、S3已达到PLAN第6章联调门槛。S1真实双端同run完成write/bash/read、流式/实时轨迹/回放及kill-9恢复，Bash成功一次，12条旧审批与151个旧job保持；S3固定UTC日仪表盘、真实技能草稿发布与指定Bot范围同步、原记忆回忆、搜索修复均有双端实看证据。见docs/progress/2026-10-10-remaining-native-acceptance.md。
+- S2两个原项目已由真实Tester测试并有双端去重待验收卡；确认完成将停止精确5个历史waiting_user分支，因用户此前要求保留旧siblings，已请求本次确认，尚未执行。没有批准旧审批或手改demo。
+- S4真实通知送达/打开/审批动作已有证据；独立capacitytest应用真实NotificationManager容量50→40通过，正式包3条旧通知keys保持，测试包已移除。Android X等待Chrome本次远程连接确认，Bot首次空tool_calls误报READY与后续浏览器授权超时均保留，不计通过。
+- 当前正式server为4f4893a、桌面6eaa91a、Android5e2fbcc。服务启动延迟仍在修复，失败健康检查与采样均已归档；S5最终pkg候选准备中，fresh尚未执行。开发包无Developer ID签名不冒充正式分发包，PLAN约定签名公证由用户负责。
+- 根协调单独提交理由：同步新的真实阶段结论与外部确认点；仅追加本节，保留其他会话未提交的设计/协议改动和design目录，不因文档提交重新部署。
