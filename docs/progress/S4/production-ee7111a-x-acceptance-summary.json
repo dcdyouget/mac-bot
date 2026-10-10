@@ -1,0 +1,33 @@
+{
+  "observed_at": "2026-10-10T05:42:47.877561+00:00",
+  "source": "ee7111acc2efa9acb74dfafaee9c3dd8442094b9",
+  "desktop_x_read_and_summary": "PASS_AFTER_ORIGINAL_BOT_CORRECTION",
+  "initial_attempt": "FAIL: invented three status IDs; retained unchanged",
+  "correction": "Original Bot read current page DOM and returned three matching hrefs",
+  "real_browser_tools": [
+    "browser_open",
+    "browser_get (failed invalid property)",
+    "browser_snapshot",
+    "browser_eval (read-only DOM)"
+  ],
+  "approval_scope": "Each tool approval allowed once after matching actual args, Bot/chat/run, map, checkpoint and effective X task-tab target. No blanket allowance.",
+  "desktop_continuous_screen": "PASS_LOCAL: actual changing video frames, 1280x580, displayed fps 6.5 and 6.7",
+  "restoration": {
+    "bot_browser_mode": "headless",
+    "remote_debugging_checkbox": false,
+    "port_9222_listening": false,
+    "owned_x_test_tab_closed": true,
+    "original_signed_in_x_tab_preserved": true
+  },
+  "journals": [
+    "production-ee7111a-x-attach.json",
+    "production-ee7111a-x-attach-correction.json"
+  ],
+  "screenshots_visually_reviewed": true,
+  "android": "Not verified: no native CUA surface; read-only adb screencap timed out, only exact owned screenshot subprocess terminated. Alternative UI control authorization requested.",
+  "whole_S4_passed": false,
+  "whole_stage_passes": [
+    "S0"
+  ],
+  "root_coordination": "Not edited: other session has uncommitted changes in COORDINATION.md/DESIGN/PLAN/PROTOCOL/design."
+}

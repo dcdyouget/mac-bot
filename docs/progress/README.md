@@ -12,7 +12,7 @@
 
 S1新增真实专项：安全checkpoint后kill‑9，原run自动恢复读取原文件并完成，Bash未重放（[证据](S1/production-07a3245-owned-recovery.json)）。修复history固定live=false后，桌面实际观察正文逐步增长及轨迹追加到run.end，重开可回放；标准库观察41个正文片段、52个轨迹片段（[证据](S1/production-7f0a5dd-real-stream.json)）。退订释放及8路容量实测通过；原生“收起”按钮未可靠验证，返回键已能关闭。Android未参加本轮专项，不能计S1整阶段通过。
 
-桌面长消息/轨迹布局、持续画面、低清切换及本地fixture真实键鼠输入/释放已局部通过。Android软件渲染恢复启动后仍有System UI无响应弹窗；CUA无模拟器控制面，adb输入方式待用户回应。X当前Chrome会话已登录，已用原生CUA和实际查看的截图确认（[证据](S4/production-fe360a2-x-signed-in.json)），旧登录失败证据保留。远程调试仍关闭，临时开启浏览器级权限待明确确认，Bot侧X验收尚未执行。`ee7111a`将profile复制限定于headless_profile，attach不再复制当前Chrome数据；18浏览器、192网关测试通过。
+桌面持续画面、低清切换及本地fixture真实键鼠输入/释放已局部通过。用户确认后临时开启Chrome远程调试，原Bot真实读取登录后的X首页，桌面显示连续视频；首次摘要编造链接，失败原文保留，同Bot重新读取DOM后更正，三条链接逐一匹配实际href，桌面更正摘要已实看（[完整证据](S4/production-ee7111a-x-acceptance-summary.json)）。验收后远程调试关闭、9222不再监听、Bot恢复headless，原用户X标签保留。此为桌面X只读专项通过，不计手机接管或S4整阶段。`ee7111a`将profile复制限定于headless_profile；18浏览器、192网关测试通过。Android仍无CUA控制面，最新只读adb截图超时；adb替代操作及保留数据重启待用户明确授权。
 
 最新server pkg `fe360a2`、release DMG `71fddde`已审计，未fresh安装。S0仍唯一整阶段通过，S1–S4完整双端验收及S5 fresh未完成。详见[接手续办记录](S2/2026-10-10-takeover-closeout.md)。
 
