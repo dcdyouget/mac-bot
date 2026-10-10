@@ -5981,10 +5981,10 @@ impl ProductionBackend {
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let file = fs::File::open(entry.path()).map_err(|error| error.to_string())?;
-            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
-                format!("invalid durable job {}: {error}", entry.path().display())
-            })?;
+            let path = entry.path();
+            let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+            let job: macbot_durable::Job = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("invalid durable job {}: {error}", path.display()))?;
             self.add_private_durable_job(&pending_waits, counts, &job)?;
         }
         Ok(())
@@ -7918,6 +7918,11 @@ mod tests {
         let job_path = home.path().join(format!("data/jobs/{}.json", running.id));
         let mut external_job = serde_json::to_value(&running).unwrap();
         external_job["status"] = json!("waiting");
+        // Exercise the disk fallback with a large checkpoint while preserving
+        // the complete durable Job representation.
+        external_job["checkpoint"]["messages"] = json!({
+            "transcript": "x".repeat(128 * 1024)
+        });
         fs::write(&job_path, external_job.to_string()).unwrap();
         let bots = backend
             .call("bot.list", json!({}), &gateway.state)
@@ -7942,6 +7947,24 @@ mod tests {
             .find(|bot| bot["bot_id"] == worker_id)
             .unwrap();
         assert_eq!(workbench_bot["active"], 0);
+
+        // Durable checkpoints are arbitrary JSON.  Legacy jobs without an
+        // object-shaped run_id must remain ignorable during disk fallback.
+        for checkpoint in [Value::Null, json!([]), json!("legacy-checkpoint")] {
+            external_job["checkpoint"] = checkpoint;
+            fs::write(&job_path, external_job.to_string()).unwrap();
+            let bots = backend
+                .call("bot.list", json!({}), &gateway.state)
+                .await
+                .unwrap();
+            let main = bots["bots"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|bot| bot["id"] == worker_id)
+                .unwrap();
+            assert_eq!(main["status"]["waiting"], 0);
+        }
     }
 
     #[tokio::test]
