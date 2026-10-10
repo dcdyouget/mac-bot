@@ -1,0 +1,79 @@
+{
+  "at": "2026-10-10T19:03:04.100938+00:00",
+  "state": "returned",
+  "method": "bot.create",
+  "params": {
+    "name": "Fresh-X-Readonly",
+    "description": "S5 fresh X acceptance: only read the existing logged-in Chrome session at https://x.com/home; never post, like, follow, open messages or change account settings.",
+    "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+    "max_parallel": 1,
+    "tools": {
+      "bash": false,
+      "browser": true,
+      "files": false,
+      "mcp": false,
+      "subagent": false,
+      "web": false
+    },
+    "browser_mode": "attach",
+    "client_request_id": "db9b9333-a177-4444-b433-db57fd0c882e"
+  },
+  "scope": {
+    "purpose": "New S4 fresh X scenario; no prior fresh X Bot/journal exists; leave Fresh-Screen old unsafe waiting jobs untouched",
+    "chrome": "Existing user-authorized logged-in Chrome, PID82443, loopback9222",
+    "allowed_url": "https://x.com/home",
+    "read_only": true
+  },
+  "result": {
+    "bot": {
+      "avatar": {
+        "color": 0,
+        "kind": "bean"
+      },
+      "browser_mode": "attach",
+      "created_at": "2026-10-10T19:03:04.151189+00:00",
+      "description": "S5 fresh X acceptance: only read the existing logged-in Chrome session at https://x.com/home; never post, like, follow, open messages or change account settings.",
+      "dm_chat_id": "dm_01a12732-82d7-7290-9cbc-f1cafd83baa0",
+      "hidden": false,
+      "id": "01a12732-82d7-7290-9cbc-f1cafd83baa0",
+      "is_main": false,
+      "label": "",
+      "max_parallel": 1,
+      "model": "prv_01a1265b-0d03-77ba-bb64-9c7d97a6aae4/MiniMax-M2.5",
+      "name": "Fresh-X-Readonly",
+      "notifications": true,
+      "pinned": false,
+      "status": {
+        "active": 0,
+        "queued": 0,
+        "summary": "idle",
+        "waiting": 0
+      },
+      "tools": {
+        "bash": false,
+        "browser": true,
+        "files": false,
+        "mcp": false,
+        "subagent": false,
+        "web": false
+      },
+      "updated_at": "2026-10-10T19:03:04.151189+00:00"
+    },
+    "dm_chat": {
+      "attention": "none",
+      "bot_id": "01a12732-82d7-7290-9cbc-f1cafd83baa0",
+      "id": "dm_01a12732-82d7-7290-9cbc-f1cafd83baa0",
+      "kind": "direct",
+      "last_message": null,
+      "last_read_seq": 0,
+      "last_seq": 0,
+      "member_bot_ids": [],
+      "muted": false,
+      "pinned": false,
+      "project_id": null,
+      "title": "Fresh-X-Readonly",
+      "unread": 0,
+      "updated_at": "2026-10-10T19:03:04.151189+00:00"
+    }
+  }
+}

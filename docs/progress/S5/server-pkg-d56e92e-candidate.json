@@ -1,0 +1,73 @@
+{
+  "state": "candidate",
+  "at": "2026-10-11T03:03:38.708729+08:00",
+  "source": "d56e92e703ce3e1a49dc37c080c8eea42cee3f9c",
+  "source_archive": "/Users/gongshaojie/Library/Caches/MacBot/s5/source-d56e92e703ce3e1a49dc37c080c8eea42cee3f9c",
+  "source_archive_clean": true,
+  "package": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-d56e92e703ce3e1a49dc37c080c8eea42cee3f9c.pkg",
+  "package_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-d56e92e703ce3e1a49dc37c080c8eea42cee3f9c.pkg",
+  "package_sha256": "18ee89be68367a1becefa5ba14f1dbd8c30053de6b2388c39ad4f980c3a61472",
+  "package_bytes": 16344854,
+  "build_info": {
+    "source_dirty": false,
+    "macbotd_sha256": "3235e6b8c41e5a81ed5a26817c4beed53d9ab66394d3aabecb849ccab83cdb75",
+    "version": "0.1.0",
+    "agent_browser_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+    "source_commit": "d56e92e703ce3e1a49dc37c080c8eea42cee3f9c"
+  },
+  "payload": {
+    "daemon_sha256": "3235e6b8c41e5a81ed5a26817c4beed53d9ab66394d3aabecb849ccab83cdb75",
+    "daemon_version": "macbotd 0.1.0",
+    "sidecar_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+    "sidecar_version": "agent-browser 0.39.0",
+    "bundle_id": "com.macbot.server",
+    "source_commit_plist": "d56e92e703ce3e1a49dc37c080c8eea42cee3f9c"
+  },
+  "browser_tests": {
+    "count": 23,
+    "status": "inherited_validation",
+    "source": "47fdd2a3df680555774da2fc520c361071c4d4e7",
+    "review": "Root-reviewed inherited browser validation; not rerun for d56e92e."
+  },
+  "gateway_tests": {
+    "count": 236,
+    "status": "passed",
+    "duration_s": 25.77,
+    "log": "/tmp/macbot-gateway-full-tests-20261011-idempotency.log",
+    "review": "root and independent review completed before packaging"
+  },
+  "package_info": {
+    "install_location": "/",
+    "bundles": [
+      {
+        "path": "./Applications/MacBot Server.app",
+        "id": "com.macbot.server",
+        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleVersion": "0.1.0"
+      }
+    ],
+    "bundle_relocations": [],
+    "relocation_check": "passed"
+  },
+  "smoke": {
+    "command": "python3 /Users/gongshaojie/Library/Caches/MacBot/s5/source-d56e92e703ce3e1a49dc37c080c8eea42cee3f9c/server/macbotd/tests/smoke_packaging.py --pkg /Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-d56e92e703ce3e1a49dc37c080c8eea42cee3f9c.pkg",
+    "result": "passed: bundle contents, sidecar digest and atomic update failure/success",
+    "expanded_audit": "/Users/gongshaojie/Library/Caches/MacBot/s5/pkg-d56e92e703ce3e1a49dc37c080c8eea42cee3f9c-audit"
+  },
+  "signature": {
+    "status": "unsigned development package",
+    "pkgutil_check_signature": "no signature"
+  },
+  "deployment": {
+    "performed": false,
+    "installed": false,
+    "service_touched": false
+  },
+  "notes": [
+    "Built from a clean git archive at the exact full source commit with CARGO_INCREMENTAL=0; existing server/target and approved 0.39.0 arm64 sidecar cache reused.",
+    "Gateway 236 idempotency regression log was reviewed by root and independent review before packaging; older gateway logs are not used as evidence for this candidate.",
+    "The 23 browser checks are inherited validation from 47fdd2a and were not rerun for d56e92e; this candidate does not claim new browser test coverage.",
+    "Packaging smoke, payload daemon/sidecar hashes, source commit markers and PackageInfo relocation checks passed after build.",
+    "This is a package candidate only; no installation, deployment, UI operation or service touch was performed."
+  ]
+}

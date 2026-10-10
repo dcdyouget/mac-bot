@@ -1,0 +1,13 @@
+{
+  "source": "83c8ef0443ca366c6ddb7d680bb18e21d3c6a5f3",
+  "suite": "gateway library tests serial",
+  "passed": 233,
+  "failed": 0,
+  "duration_s": 24.64,
+  "log": "fresh-server-83c8ef0-gateway-tests.log",
+  "log_sha256": "7c7a788fee0ca250039dba296176179e491e497fb0d6a072be68cce773fd4b87",
+  "log_normalization": "Trailing empty lines removed; original /tmp log retained",
+  "root_review": true,
+  "independent_review": "passed",
+  "boundary": "Tests and source review only; not deployed independently and not full acceptance."
+}

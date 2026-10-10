@@ -1,0 +1,107 @@
+{
+  "at": "2026-10-10T18:56:05.071875+00:00",
+  "state": "native_release_completed_but_duplicate_uuid_reexecuted_different_scope",
+  "method": "takeover.release",
+  "params": {
+    "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715"
+  },
+  "uuid_source": "Android ClientRepository persists and reuses write UUID before send; preserve prior no-note lease if present. Reconcile server result before any new intent.",
+  "prior_browser_release_uuid": "4dfb02dd-6117-492c-b806-6c1067eabd56",
+  "server": "133890fdb14ff0d9c5c4d958aa342b7da99eb1c4",
+  "android": "01f14d7",
+  "records_before": [
+    {
+      "assignment_id": "browser_takeover_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "created_at": "2026-10-10T17:33:07.660Z",
+      "group_chat_id": null,
+      "question_id": null,
+      "reason": "用户接管浏览器",
+      "released_at": "2026-10-10T18:26:31.589Z",
+      "started_at": "2026-10-10T17:33:07.941Z",
+      "state": "done"
+    },
+    {
+      "assignment_id": "dm_dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "created_at": "2026-10-10T15:52:47.231Z",
+      "group_chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "message_id": "msg_takeover_run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+      "question_id": "01a12684-4d7e-7455-80bf-80a3b3b5a283",
+      "reason": "请在页面输入框中输入 \"s5-desktop-input\" 并提交表单",
+      "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+      "started_at": "2026-10-10T15:54:35.449Z",
+      "state": "active"
+    }
+  ],
+  "exact_expected_scope": "dm_dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+  "exact_run": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+  "job_path": "/Users/gongshaojie/MacBot/data/jobs/job_01a12682-a91e-7482-9d53-ed418c363162.json",
+  "job_hash_before": "221d5c05a9083ade4e0253ec98314f66b50087a1fadebcf146af3a525ada286c",
+  "job_status_before": "done",
+  "question_state_before": "answered",
+  "operations_offset_before": 3575493361,
+  "action": "Native Android handback, no note. Never create another takeover or resend unknown result with another UUID.",
+  "records_after": [
+    {
+      "assignment_id": "browser_takeover_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "created_at": "2026-10-10T17:33:07.660Z",
+      "group_chat_id": null,
+      "question_id": null,
+      "reason": "用户接管浏览器",
+      "released_at": "2026-10-10T18:26:31.589Z",
+      "started_at": "2026-10-10T17:33:07.941Z",
+      "state": "done"
+    },
+    {
+      "assignment_id": "dm_dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "created_at": "2026-10-10T15:52:47.231Z",
+      "group_chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "message_id": "msg_takeover_run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+      "question_id": "01a12684-4d7e-7455-80bf-80a3b3b5a283",
+      "reason": "请在页面输入框中输入 \"s5-desktop-input\" 并提交表单",
+      "released_at": "2026-10-10T18:56:27.032Z",
+      "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+      "started_at": "2026-10-10T15:54:35.449Z",
+      "state": "done"
+    }
+  ],
+  "remaining_active_count": 0,
+  "job_hash_unchanged": true,
+  "browser_takeover_after": false,
+  "matching_operations": [
+    {
+      "client_request_id": "4dfb02dd-6117-492c-b806-6c1067eabd56",
+      "status": "done",
+      "at": "2026-10-10T18:56:27.053Z",
+      "event_key": "rpc:takeover.release:4dfb02dd-6117-492c-b806-6c1067eabd56",
+      "result": {}
+    }
+  ],
+  "native_after": {
+    "dialog_closed_automatically": true,
+    "label": "Bot 操作中",
+    "input_visible": false,
+    "button": "接管并处理",
+    "fps_label": 20
+  },
+  "verified_at": "2026-10-10T18:56:46.320173+00:00",
+  "s4_passed": false,
+  "screenshot": "fresh-s4-android-133890f-released.png",
+  "screenshot_actually_viewed": true,
+  "idempotency_defect": {
+    "uuid": "4dfb02dd-6117-492c-b806-6c1067eabd56",
+    "first_done_at": "2026-10-10T18:26:31.605Z",
+    "second_done_at": "2026-10-10T18:56:27.053Z",
+    "first_scope": "browser_takeover_01a12682-a891-742f-bfd8-5a27a3e83715",
+    "second_scope": "dm_dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+    "cause": "execution_takeover_start/release bypass generic adapter call idempotency lookup",
+    "boundary": "Native preserved its UUID; server executed the same write again. Both scopes are now done but this is failed idempotency acceptance, not a clean native pass."
+  }
+}

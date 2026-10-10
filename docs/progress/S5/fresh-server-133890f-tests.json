@@ -1,0 +1,16 @@
+{
+  "source": "133890fdb14ff0d9c5c4d958aa342b7da99eb1c4",
+  "suite": "gateway library tests serial",
+  "passed": 235,
+  "failed": 0,
+  "duration_s": 24.24,
+  "log": "fresh-server-133890f-gateway-tests.log",
+  "log_sha256": "e95b5748f5e6ece85cd2bfda1d34e1f0636ec86eb1f41bedb1b9ee8fd8397fe9",
+  "normalization": "Trailing empty lines removed; original /tmp log retained",
+  "review": "Root and independent review passed after fixing transient false driver and active retry pending-question recovery",
+  "boundaries": [
+    "Actual browser manager process runner regression uses /usr/bin/true, not live X or UI acceptance",
+    "Strict clippy earlier reported pre-existing needless_question_mark/type_complexity outside patch; no claim of clippy pass",
+    "No full S5 pass claim"
+  ]
+}

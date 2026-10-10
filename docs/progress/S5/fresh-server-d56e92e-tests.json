@@ -1,0 +1,8 @@
+{
+  "source_commit": "d56e92e703ce3e1a49dc37c080c8eea42cee3f9c",
+  "gateway_tests": 236,
+  "failed": 0,
+  "log": "fresh-server-d56e92e-gateway-tests.log",
+  "sha256": "dcfa6cf4742ffad4b477dbd650df0dcfb07d1b313927a99adb7fae3b18ece2c0",
+  "full_s4_or_s5_acceptance": false
+}

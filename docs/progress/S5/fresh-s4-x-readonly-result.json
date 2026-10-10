@@ -1,0 +1,30 @@
+{
+  "observed_at": "2026-10-10T19:08:21.509707+00:00",
+  "state": "blocked_provider_http_429_before_browser_call",
+  "request_journal": "fresh-rpc/x-002-readonly-home-request.json",
+  "job": {
+    "id": "job_01a12734-89ec-722b-a8f1-421e75678b3c",
+    "owner": "01a12732-82d7-7290-9cbc-f1cafd83baa0",
+    "kind": "model_run",
+    "status": "failed",
+    "checkpoint": {
+      "error": "provider: provider response error: HTTP 429",
+      "messages": [
+        {
+          "content": "本次只读验收当前已经登录的 Chrome X 会话。使用已配置的 attach 模式，只调用 browser_open 打开 https://x.com/home，再调用 browser_snapshot 核对是否为已登录首页。若出现登录页、连接/授权失败或限流，立即如实说明并停止，不重试。不要发帖、点赞、关注、私信，不读取或填写密码，不访问其他 URL，不调用 Bash 或其他 Bot。最终只报告工具实际看到的登录状态，不引用时间线内容，不把任务完成当作浏览器验收通过。",
+          "role": "user"
+        }
+      ],
+      "round": 0,
+      "run_id": "run_chat_01a12734_869f_7549_847e_5676d6bddf82"
+    },
+    "unsafe_replay": false,
+    "updated_at": 1791659117849,
+    "commit_seq": 2993
+  },
+  "job_sha256": "0fb3565e9b4a6b11ac678e10424e59ef05c15248b61f895d0e712a1c986cb843",
+  "browser_called": false,
+  "x_acceptance_passed": false,
+  "retry_sent": false,
+  "scope": "Existing authorized Chrome session; no X account action performed"
+}

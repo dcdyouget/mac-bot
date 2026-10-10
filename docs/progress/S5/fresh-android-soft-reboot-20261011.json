@@ -1,0 +1,33 @@
+{
+  "at": "2026-10-10T18:49:16.748411+00:00",
+  "state": "booted_app_data_preserved_screen_reopened_after_system_ui_wait",
+  "serial": "emulator-5554",
+  "avd": "macbot_api36",
+  "verified_emulator_pid": 55507,
+  "reason": "screenshot took >36 seconds; emulator CPU >500 percent point observation",
+  "action": "adb -s emulator-5554 reboot",
+  "data_policy": "no wipe, no uninstall, no clear data, no stop of unknown processes",
+  "authorization": "User explicitly permits restarting macbot_api36 while preserving apps and data",
+  "command_returncode": 0,
+  "first_poll_finished_at": "2026-10-10T18:50:32.759129+00:00",
+  "readonly_guest_top": {
+    "guest_ram_kb": 4014920,
+    "guest_free_kb": 2171356,
+    "graphics_composer_cpu_percent": 94.2,
+    "system_server_cpu_percent": 51.4,
+    "macbot_in_top8": false,
+    "boundary": "Boot-stage point sample; does not establish Mac Bot app cause."
+  },
+  "boot_completed_at": "2026-10-10T18:51:03.819289+00:00",
+  "system_ui_anr_after_boot": true,
+  "ax_dialog": "System UI isn't responding / Close app / Wait",
+  "anr_at": "2026-10-10T18:51:32.067585+00:00",
+  "screenshot": "fresh-android-soft-reboot-system-ui-anr.png",
+  "verified_at": "2026-10-10T18:53:23.529602+00:00",
+  "selected_host": "S5-fresh-20261010",
+  "screen_bot": "Fresh-Screen",
+  "screen_driver": "user",
+  "screen_fps_label": 14,
+  "action_after_anr": "Clicked System UI Wait once; navigated original Fresh-Screen DM and Open Screen; no takeover.start or release",
+  "screenshot_actually_viewed": true
+}

@@ -1,0 +1,39 @@
+{
+  "at": "2026-10-10T19:04:09.685688+00:00",
+  "state": "same_uuid_returned_without_reexecution",
+  "source": "d56e92e703ce3e1a49dc37c080c8eea42cee3f9c",
+  "method": "takeover.release",
+  "params": {
+    "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+    "client_request_id": "4dfb02dd-6117-492c-b806-6c1067eabd56"
+  },
+  "intent": "Replay the already-completed exact native UUID after service restart; do not generate another UUID or start another takeover.",
+  "hashes_before": {
+    "data/takeovers/browser_takeover_01a12682-a891-742f-bfd8-5a27a3e83715.json": "47cc6ab207a61e79f18bc33873f5b0397c6f085ce9d3e6a35e440691c309b10a",
+    "data/takeovers/dm_dm_01a12682-a891-742f-bfd8-5a27a3e83715.json": "44d5de67c000b4e99a17d3d2d2e270c2a3db37b00097cbf0a5c3377ca444fc98",
+    "data/jobs/job_01a12682-a91e-7482-9d53-ed418c363162.json": "221d5c05a9083ade4e0253ec98314f66b50087a1fadebcf146af3a525ada286c"
+  },
+  "operations_offset": 3582949242,
+  "result": {},
+  "elapsed_s": 0.038,
+  "hashes_after": {
+    "data/takeovers/browser_takeover_01a12682-a891-742f-bfd8-5a27a3e83715.json": "47cc6ab207a61e79f18bc33873f5b0397c6f085ce9d3e6a35e440691c309b10a",
+    "data/takeovers/dm_dm_01a12682-a891-742f-bfd8-5a27a3e83715.json": "44d5de67c000b4e99a17d3d2d2e270c2a3db37b00097cbf0a5c3377ca444fc98",
+    "data/jobs/job_01a12682-a91e-7482-9d53-ed418c363162.json": "221d5c05a9083ade4e0253ec98314f66b50087a1fadebcf146af3a525ada286c"
+  },
+  "records_and_job_unchanged": true,
+  "browser_takeover": false,
+  "new_matching_operations": [],
+  "full_s4_pass": false,
+  "native_after_restart": {
+    "at": "2026-10-10T19:04:55.853204+00:00",
+    "screenshot": "fresh-s4-android-d56e92e-restart-bot-driver.png",
+    "label": "Bot 操作中",
+    "input_visible": false,
+    "button": "接管并处理",
+    "fps_label": 15,
+    "opened_original_screen_without_start": true,
+    "screenshot_actually_viewed": true,
+    "observed": "Bot操作中; no input field; 接管并处理 button; screenshot viewed by root; no new typing acceptance"
+  }
+}

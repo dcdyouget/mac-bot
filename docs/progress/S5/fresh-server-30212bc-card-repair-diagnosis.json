@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-10T18:41:00.137599+00:00",
+  "source": "30212bc7282b1646ee817accab2b0ba6bd9eb2ea",
+  "pid": 4843,
+  "readonly": true,
+  "observed": {
+    "bootstrap_seconds": [
+      9.033,
+      8.071
+    ],
+    "attention_notices": 240,
+    "all_notice_rows_durable_with_matching_payload_and_positive_seq": true,
+    "historical_attention_assignments": 124,
+    "assignment_cards_repeated_load_and_sequence": true
+  },
+  "diagnosis": "Historical attention assignments are all passed to ensure_assignment_card_with_event_index, which loads and sequences chat messages before checking existing events. Warm bootstrap remains slow; this is not established as first-tick-only latency.",
+  "planned_fix": "Cache durable chat rows per refresh and skip sequence only when row has positive seq and canonical content matches; preserve missing card/sequence/event repair.",
+  "samples": [
+    {
+      "path": "/tmp/macbotd-4843-bootstrap-readonly.sample",
+      "sha256": "ddabad6332ec510753fbcf0c8e14aeff9a4b4db0d724721e2b528d77c5ef0524"
+    },
+    {
+      "path": "/tmp/macbotd-4843-bootstrap-warm-readonly.sample",
+      "sha256": "78a5d20419d5ce2f8052b14732dcacbae1c0b941cb0cdc4144c2773f4c8bddfe"
+    }
+  ],
+  "boundary": "Read-only sample/source diagnosis; no cancellation or model request. Does not establish full UI or performance acceptance."
+}

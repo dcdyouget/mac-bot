@@ -1,0 +1,45 @@
+{
+  "at": "2026-10-10T18:42:52.815825+00:00",
+  "server": "30212bc",
+  "android": "01f14d7",
+  "screenshot": "fresh-s4-android-after-30212bc.png",
+  "screenshot_actually_viewed": true,
+  "capture_note": "adb capture took over 36 seconds. Own adb process exited before termination attempt; no kill was performed.",
+  "native_observed": [
+    "user driver label",
+    "input visible",
+    "handback button",
+    "6fps point observation",
+    "old s5-android-input marker retained"
+  ],
+  "records": [
+    {
+      "assignment_id": "browser_takeover_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "created_at": "2026-10-10T17:33:07.660Z",
+      "group_chat_id": null,
+      "question_id": null,
+      "reason": "用户接管浏览器",
+      "released_at": "2026-10-10T18:26:31.589Z",
+      "started_at": "2026-10-10T17:33:07.941Z",
+      "state": "done"
+    },
+    {
+      "assignment_id": "dm_dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+      "chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "created_at": "2026-10-10T15:52:47.231Z",
+      "group_chat_id": "dm_01a12682-a891-742f-bfd8-5a27a3e83715",
+      "message_id": "msg_takeover_run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+      "question_id": "01a12684-4d7e-7455-80bf-80a3b3b5a283",
+      "reason": "请在页面输入框中输入 \"s5-desktop-input\" 并提交表单",
+      "run_id": "run_chat_01a12682_a8c8_71e9_8525_af885c0815b1",
+      "started_at": "2026-10-10T15:54:35.449Z",
+      "state": "active"
+    }
+  ],
+  "browser_takeover": true,
+  "conclusion": "Browser-scoped release is done, but older run-scoped active takeover remains; restart restored user driver. Scope semantics under review; do not claim full handback/restart acceptance.",
+  "s4_passed": false
+}
