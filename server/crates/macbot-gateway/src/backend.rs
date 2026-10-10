@@ -5567,11 +5567,7 @@ impl OrchestratorSink {
             .get("chat_id")
             .and_then(Value::as_str)
             .unwrap_or("chat_main");
-        let assignment_id = message
-            .get("assignment_id")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("dm_{}", safe_component(chat_id)));
+        let source_assignment_id = message.get("assignment_id").cloned().unwrap_or(Value::Null);
         let reason = block
             .get("reason")
             .and_then(Value::as_str)
@@ -5582,7 +5578,7 @@ impl OrchestratorSink {
                 &self.state,
                 json!({
                     "bot_id": bot_id,
-                    "assignment_id": assignment_id,
+                    "assignment_id": source_assignment_id,
                     "chat_id": chat_id,
                     "message_id": message_id,
                     "run_id": message_id.strip_prefix("msg_takeover_").unwrap_or(message_id),
@@ -5605,6 +5601,7 @@ impl OrchestratorSink {
         let Some(dm_chat_id) = request.get("chat_id").and_then(Value::as_str) else {
             return;
         };
+        let effective_assignment_id = request.get("assignment_id").cloned().unwrap_or(Value::Null);
         let dm_id = format!("msg_takeover_question_{}", safe_component(message_id));
         let dm_message = json!({
             "id": dm_id,
@@ -5624,7 +5621,7 @@ impl OrchestratorSink {
             // source card has no assignment (private model messages use the
             // synthetic dm_<chat> scope). Keep the generated DM card in that
             // same scope so lifecycle projection cannot silently skip it.
-            "assignment_id": assignment_id,
+            "assignment_id": effective_assignment_id,
             "streaming": false,
             "delivery": [],
             "reactions": []

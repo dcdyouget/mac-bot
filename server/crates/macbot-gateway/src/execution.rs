@@ -2768,7 +2768,14 @@ impl ExecutionEngine {
         // present on ExecutionRequest.
         self.store.write_snapshot(
             format!("data/waiting/{}.json", safe_id(&message_id)),
-            &json!({"kind":"takeover","run_id":request.run_id,"assignment_id":request.assignment_id,"chat_id":request.chat_id}),
+            &json!({
+                "kind":"takeover",
+                "run_id":request.run_id,
+                "assignment_id":request.assignment_id,
+                "chat_id":request.chat_id,
+                "bot_id":request.bot_id,
+                "message_id":message_id
+            }),
         )?;
         self.sink
             .emit(ExecutionEvent {
