@@ -1001,7 +1001,7 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                                     let state = gw.state.inner.read().await;
                                     state.events.iter().filter(|event| event.get("seq").and_then(Value::as_u64).unwrap_or(0) > last).cloned().collect::<Vec<_>>()
                                 };
-                                for event in events { if sink.send(text_frame(&event)).await.is_err() { return; } }
+                                for event in events { if sink.send(text_frame(&global_event_frame(&event))).await.is_err() { return; } }
                             }
                             let seq = gw.state.inner.read().await.seq;
                             if sink.send(text_frame(&json!({"v":1,"kind":"evt","event":"sync.done","data":{"seq":seq}}))).await.is_err() { break; }
@@ -1017,6 +1017,13 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                     Ok(event) => {
                         let event_name = event.get("event").and_then(Value::as_str).unwrap_or("");
                         if event_name == "trace.item" {
+                            // Every client must consume the durable sequence even
+                            // when it has no matching trace subscription.
+                            if event.get("seq").and_then(Value::as_u64).is_some()
+                                && sink.send(text_frame(&global_event_frame(&event))).await.is_err()
+                            {
+                                break;
+                            }
                             let item = event.get("data").and_then(|data| data.get("item")).cloned().or_else(|| event.get("data").cloned()).unwrap_or(Value::Null);
                             let aseq = item.get("aseq").and_then(Value::as_u64).unwrap_or(0);
                             let mut frames = Vec::new();
@@ -1074,6 +1081,19 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                 if sink.send(axum::extract::ws::Message::Ping(Vec::new().into())).await.is_err() { break; }
             }
         }
+    }
+}
+
+/// Project internal trace records onto the public persistent event stream.
+/// Trace payloads travel separately through assignment-scoped subscriptions.
+fn global_event_frame(event: &Value) -> Value {
+    if let (Some("trace.item"), Some(seq)) = (
+        event.get("event").and_then(Value::as_str),
+        event.get("seq").and_then(Value::as_u64),
+    ) {
+        json!({"v":1,"kind":"evt","seq":seq,"event":"sync.cursor","data":{"seq":seq}})
+    } else {
+        event.clone()
     }
 }
 
@@ -3429,6 +3449,88 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn unsubscribed_socket_receives_trace_cursor_in_live_and_replay() {
+        use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let dir = tempfile::tempdir().unwrap();
+            let gw = Gateway::new(GatewayConfig {
+                home: dir.path().into(),
+                password: Some("dev".into()),
+                mock: true,
+                ..Default::default()
+            });
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let app = gw.router().into_make_service_with_connect_info::<SocketAddr>();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
+            request.headers_mut().insert("Authorization", "Bearer dev".parse().unwrap());
+            let (mut socket, _) = tokio_tungstenite::connect_async(request.clone()).await.unwrap();
+            let hello: Value = serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+            let base = hello["data"]["last_seq"].as_u64().unwrap();
+            assert!(base > 0);
+            gw.state.publish_event(base + 1, "trace.item", json!({"item":{
+                "assignment_id":"a", "chat_id":"c", "run_id":"r", "aseq":1,
+                "type":"llm.request", "data":{"request_id":"r:llm:1","private":"hidden"}
+            }})).await;
+            gw.state.publish_event(base + 2, "project.updated", json!({"project":{"id":"prj_login","status":"review"}})).await;
+            let mut live = Vec::new();
+            for _ in 0..2 {
+                live.push(serde_json::from_str::<Value>(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap());
+            }
+            assert_eq!(live[0]["event"], "sync.cursor");
+            assert_eq!(live[0]["seq"], base + 1);
+            assert_eq!(live[0]["data"], json!({"seq":base + 1}));
+            assert_eq!(live[1]["event"], "project.updated");
+            assert_eq!(live[1]["seq"], base + 2);
+            socket.close(None).await.unwrap();
+            let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+            socket.next().await.unwrap().unwrap(); // hello
+            socket.send(Message::Text(json!({"v":1,"kind":"req","id":"resume","method":"session.resume","params":{
+                "last_seq":base,"client":{"platform":"macos","app_version":"test","device_name":"cursor test","device_id":"cursor-test"}
+            }}).to_string().into())).await.unwrap();
+            let mut replay = Vec::new();
+            let mut mode = Value::Null;
+            loop {
+                let frame: Value = serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+                if frame["kind"] == "res" { mode = frame["result"]["mode"].clone(); }
+                if frame["event"] == "sync.done" { break; }
+                if frame["seq"].is_u64() { replay.push(frame); }
+            }
+            assert_eq!(mode, "replay");
+            assert_eq!(replay, live);
+            assert!(!serde_json::to_string(&replay).unwrap().contains("hidden"));
+            socket.close(None).await.unwrap();
+            server.abort();
+        }).await.expect("websocket cursor regression timed out");
+    }
+
+    #[test]
+    fn global_trace_projection_preserves_cursor_without_disclosing_payload() {
+        let assignment = json!({"v":1,"kind":"evt","seq":43,"event":"assignment.updated","data":{"assignment":{"id":"a","status":"done"}}});
+        let events = [
+            json!({"v":1,"kind":"evt","seq":41,"event":"trace.item","data":{"item":{"aseq":1,"data":{"text":"private trace"}}}}),
+            json!({"v":1,"kind":"evt","seq":42,"event":"trace.item","data":{"item":{"aseq":2,"data":{"text":"private output"}}}}),
+            assignment.clone(),
+        ];
+        let frames: Vec<_> = events.iter().map(global_event_frame).collect();
+        assert_eq!(
+            frames[0],
+            json!({"v":1,"kind":"evt","seq":41,"event":"sync.cursor","data":{"seq":41}})
+        );
+        assert_eq!(
+            frames[1],
+            json!({"v":1,"kind":"evt","seq":42,"event":"sync.cursor","data":{"seq":42}})
+        );
+        assert_eq!(frames[2], assignment);
+        assert!(!serde_json::to_string(&frames).unwrap().contains("private"));
+        // Projection must not alter the internal replay source used to
+        // reconstruct assignment-scoped trace subscriptions after restart.
+        assert_eq!(events[0]["data"]["item"]["aseq"], 1);
+    }
+
     #[tokio::test]
     async fn configured_admin_requires_basic_even_on_loopback() {
         let dir = tempfile::tempdir().unwrap();
