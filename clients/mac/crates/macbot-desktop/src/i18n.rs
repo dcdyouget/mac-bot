@@ -136,6 +136,8 @@ pub fn tr(key: &str) -> SharedString {
         "block.completion" => "完成报告",
         "block.approval" => "需要审批",
         "block.question" => "需要你决定",
+        "block.question_answered" => "已回答",
+        "block.question_record" => "问题记录",
         "block.blocked" => "卡住报告",
         "block.progress" => "阶段进展",
         "block.delegation" => "已转交",

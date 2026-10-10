@@ -7,8 +7,8 @@ use gpui_kit::prelude::FluentBuilder;
 #[cfg(test)]
 mod tests {
     use super::{
-        known_block, message_display_text, pending_message, question_is_pending, question_text, s,
-        takeover_request_is_actionable, text_block_markdown,
+        known_block, message_display_text, pending_message, question_is_pending, question_label,
+        question_text, s, takeover_request_is_actionable, text_block_markdown,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -77,6 +77,18 @@ mod tests {
         assert!(question_is_pending(&json!({"state": "pending"})));
         assert!(!question_is_pending(&json!({"state": "answered"})));
         assert!(!question_is_pending(&json!({"state": "failed"})));
+        assert_eq!(
+            question_label(&json!({"state": "pending"})),
+            "block.question"
+        );
+        assert_eq!(
+            question_label(&json!({"state": "answered"})),
+            "block.question_answered"
+        );
+        assert_eq!(
+            question_label(&json!({"state": "unknown"})),
+            "block.question_record"
+        );
         assert_eq!(
             question_text(&json!({}), &json!({"question_id":"question-1"})),
             "question-1"
@@ -232,6 +244,14 @@ fn message_display_text(message: &Value) -> &str {
 
 fn question_is_pending(question: &Value) -> bool {
     s(question, "state") == "pending"
+}
+
+fn question_label(question: &Value) -> &'static str {
+    match s(question, "state") {
+        "pending" => "block.question",
+        "answered" => "block.question_answered",
+        _ => "block.question_record",
+    }
 }
 
 fn question_text<'a>(question: &'a Value, block: &'a Value) -> &'a str {
@@ -1257,7 +1277,7 @@ impl MacBot {
                     .child(
                         div()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(tr("block.question")),
+                            .child(tr(question_label(&q))),
                     )
                     .child(question_text(&q, block).to_string());
                 if pending {
