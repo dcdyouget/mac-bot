@@ -8,12 +8,14 @@ import bot.mac.mobile.core.protocol.protocolJson
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -206,7 +208,60 @@ class ClientRepositoryMultiHostTest {
         }
     }
 
+    @Test
+    fun durableSnapshotPrecedesCursorAndSerializesStateWhileSnapshotIsBlocked(): Unit = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val (repository, storage) = repositoryWithStorage(hostA, hostB)
+        try {
+            awaitConnected(repository, "a", "b")
+            val socket = withTimeout(2_000) { hostA.sockets.receive() }
+            delay(500)
+            storage.clearWrites()
+            storage.blockSnapshotWrites = true
+
+            socket.send(event("bot.updated", buildJsonObject {
+                put("bot", buildJsonObject { put("id", "race-bot"); put("name", "first") })
+            }, 1))
+            withTimeout(2_000) { storage.snapshotWriteStarted.await() }
+
+            socket.send(event("bot.updated", buildJsonObject {
+                put("bot", buildJsonObject { put("id", "race-bot"); put("name", "second") })
+            }, 2))
+            delay(100)
+            assertEquals(0L, storage.lastSeq("a"))
+            assertEquals(
+                "first",
+                repository.hostStates.value.getValue("a").bots.single { it.str("id") == "race-bot" }.str("name"),
+            )
+
+            storage.releaseSnapshotWrites.complete(Unit)
+            withTimeout(3_000) {
+                while (storage.lastSeq("a") < 2L) delay(10)
+            }
+            withTimeout(3_000) {
+                while (repository.hostStates.value.getValue("a").bots.single { it.str("id") == "race-bot" }.str("name") != "second") delay(10)
+            }
+            val relevant = storage.writes().filter { it == "snapshot:a" || it == "last_seq:a" }
+            assertTrue(relevant.indexOf("snapshot:a") < relevant.indexOf("last_seq:a"))
+            assertEquals(2L, protocolJson.decodeFromString<MobileState>(storage.read("snapshot:a")!!).lastSeq)
+            assertEquals(
+                "second",
+                protocolJson.decodeFromString<MobileState>(storage.read("snapshot:a")!!).bots.single { it.str("id") == "race-bot" }.str("name"),
+            )
+        } finally {
+            if (!storage.releaseSnapshotWrites.isCompleted) storage.releaseSnapshotWrites.complete(Unit)
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
     private suspend fun repository(hostA: TestHost, hostB: TestHost): ClientRepository {
+        return repositoryWithStorage(hostA, hostB).first
+    }
+
+    private suspend fun repositoryWithStorage(hostA: TestHost, hostB: TestHost): Pair<ClientRepository, MemoryPersistentStore> {
         val storage = MemoryPersistentStore()
         val credentials = MemoryCredentialStore(mapOf("a" to "dev", "b" to "dev"))
         storage.write("host_records", protocolJson.encodeToString(listOf(
@@ -215,7 +270,7 @@ class ClientRepositoryMultiHostTest {
         )))
         val repository = ClientRepository(storage, credentials)
         repository.initialize()
-        return repository
+        return repository to storage
     }
 
     private suspend fun awaitConnected(repository: ClientRepository, vararg ids: String) {
@@ -338,9 +393,29 @@ class ClientRepositoryMultiHostTest {
 
     private class MemoryPersistentStore : PersistentStore {
         private val values = mutableMapOf<String, String>()
-        override suspend fun read(key: String): String? = values[key]
-        override suspend fun write(key: String, value: String) { values[key] = value }
-        override suspend fun delete(key: String) { values.remove(key) }
+        private val writeLog = mutableListOf<String>()
+        var blockSnapshotWrites = false
+        val snapshotWriteStarted = CompletableDeferred<Unit>()
+        val releaseSnapshotWrites = CompletableDeferred<Unit>()
+
+        override suspend fun read(key: String): String? = synchronized(this) { values[key] }
+        override suspend fun write(key: String, value: String) {
+            synchronized(this) {
+                values[key] = value
+                writeLog += key
+            }
+        }
+        override suspend fun writeSnapshot(key: String, value: String) {
+            if (blockSnapshotWrites && key == "snapshot:a") {
+                snapshotWriteStarted.complete(Unit)
+                releaseSnapshotWrites.await()
+                blockSnapshotWrites = false
+            }
+            write(key, value)
+        }
+        override suspend fun delete(key: String) { synchronized(this) { values.remove(key) } }
+        fun clearWrites() = synchronized(this) { writeLog.clear() }
+        fun writes(): List<String> = synchronized(this) { writeLog.toList() }
     }
 
     private class MemoryCredentialStore(initial: Map<String, String>) : CredentialStore {

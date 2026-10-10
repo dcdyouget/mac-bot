@@ -135,7 +135,7 @@ object StateReducer {
             "host.status" -> result = current.copy(workbench = JsonObject(current.workbench + data))
             "trace.item" -> {
                 val item = data.obj("item"); val key = traceKey(item)
-                val traces = (current.traces[key].orEmpty() + item).associateBy { it.long("aseq") }.values.sortedBy { it.long("aseq") }
+                val traces = mergeTraceItem(current.traces[key].orEmpty(), item)
                 val prefix = data.str("stream") + ":" + item.obj("data").str("request_id") + ":"
                 result = current.copy(traces = current.traces + (key to traces), traceFragments = if (item.str("type") == "llm.response") current.traceFragments.filterKeys { !it.startsWith(prefix) } else current.traceFragments)
             }
@@ -149,5 +149,21 @@ object StateReducer {
             }
         }
         return result.copy(lastSeq = seq ?: result.lastSeq)
+    }
+
+    /**
+     * Trace items are normally delivered in aseq order. Keep that fast path
+     * append-only, while still replacing duplicates and inserting a late item
+     * in order for replay and reconnect boundaries.
+     */
+    private fun mergeTraceItem(existing: List<JsonObject>, item: JsonObject): List<JsonObject> {
+        val aseq = item.long("aseq") ?: return existing + item
+        val lastAseq = existing.lastOrNull()?.long("aseq")
+        if (lastAseq != null && aseq > lastAseq) return existing + item
+        val duplicate = existing.indexOfFirst { it.long("aseq") == aseq }
+        if (duplicate >= 0) return existing.toMutableList().also { it[duplicate] = item }
+        if (lastAseq?.let { it <= aseq } != false) return existing + item
+        val insertAt = existing.indexOfFirst { (it.long("aseq") ?: Long.MAX_VALUE) > aseq }
+        return existing.toMutableList().also { it.add(if (insertAt < 0) it.size else insertAt, item) }
     }
 }

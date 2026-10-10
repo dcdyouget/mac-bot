@@ -12,6 +12,8 @@ interface CredentialStore {
 interface PersistentStore {
     suspend fun read(key: String): String?
     suspend fun write(key: String, value: String)
+    /** Snapshot writes may be coalesced by a platform without weakening config writes. */
+    suspend fun writeSnapshot(key: String, value: String) = write(key, value)
     suspend fun delete(key: String)
 
     suspend fun lastSeq(hostId: String): Long = read("last_seq:$hostId")?.toLongOrNull() ?: 0L

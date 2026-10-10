@@ -53,6 +53,9 @@ class ClientRepository(
     private val hostGeneration = mutableMapOf<String, Long>()
     private val hostSessions = mutableMapOf<String, HostSession>()
     private val writeMutex = Mutex()
+    private val durableGateMutex = Mutex()
+    private val durableGates = mutableMapOf<String, DurableSnapshotGate>()
+    private val durableWriteLocks = mutableMapOf<String, Mutex>()
     /**
      * A write id is a retry lease, rather than an id for the request's payload.
      * Multiple identical user actions may be in flight at the same time, so each
@@ -125,6 +128,9 @@ class ClientRepository(
             old
         }
         removed?.let { stopSession(it) }
+        val gate = durableGateMutex.withLock { durableGates.remove(id) }
+        gate?.close()
+        durableGateMutex.withLock { durableWriteLocks.remove(id) }
         credentials.delete(id)
         storage.delete("snapshot:" + id)
         storage.delete("last_seq:" + id)
@@ -397,7 +403,11 @@ class ClientRepository(
                     is MainEvent.Persistent -> StateReducer.event(current, event.event, event.data, event.seq)
                     is MainEvent.Ephemeral -> StateReducer.event(current, event.event, event.data)
                 }
-                if (event is MainEvent.Persistent || event is MainEvent.Ephemeral && event.event == "bootstrap") persist(session.id, next)
+                // Persistent events are snapshotted by cursorStore.put after this
+                // callback returns. That gate coalesces trace bursts and writes
+                // the snapshot before the matching durable cursor. Bootstrap has
+                // no persistent cursor callback, so it remains an immediate write.
+                if (event is MainEvent.Ephemeral && event.event == "bootstrap") persist(session.id, next)
                 _hostStates.value = _hostStates.value + (session.id to next)
                 publishActiveState(session.id, next)
                 _hostEvents.emit(HostEvent(session.id, event, next))
@@ -415,8 +425,11 @@ class ClientRepository(
 
     private fun cursorStore(): LastSeqStore = object : LastSeqStore {
         override suspend fun get(hostId: String): Long = minOf(storage.lastSeq(hostId), loadState(hostId).lastSeq)
-        override suspend fun reset(hostId: String, seq: Long) { storage.write("last_seq:" + hostId, seq.toString()) }
-        override suspend fun put(hostId: String, seq: Long) { storage.setLastSeq(hostId, seq) }
+        override suspend fun reset(hostId: String, seq: Long) {
+            durableGate(hostId).flushPending()
+            durableWriteLock(hostId).withLock { storage.write("last_seq:" + hostId, seq.toString()) }
+        }
+        override suspend fun put(hostId: String, seq: Long) { durableGate(hostId).record(seq) }
     }
 
     private suspend fun loadState(hostId: String): MobileState =
@@ -424,8 +437,49 @@ class ClientRepository(
 
     private suspend fun persist(hostId: String, value: MobileState) {
         withTimeout(5_000) {
-            storage.write("snapshot:" + hostId, protocolJson.encodeToString(value.copy(connected = false, error = null, traces = emptyMap(), traceFragments = emptyMap(), typing = emptyMap())))
+            // RPC callers may originate from Compose's Main dispatcher; keep
+            // the full-state JSON encoding off that dispatcher as well.
+            val encoded = withContext(Dispatchers.Default) { encodeSnapshot(value) }
+            durableWriteLock(hostId).withLock {
+                // A delayed event flush may already have committed a newer
+                // cursor. Never let an RPC response overwrite that snapshot.
+                if (value.lastSeq >= storage.lastSeq(hostId)) storage.writeSnapshot("snapshot:" + hostId, encoded)
+            }
         }
+    }
+
+    private suspend fun persistDurable(hostId: String, seq: Long) {
+        withTimeout(5_000) {
+            // Keep the state lock through the write. Otherwise an older gate
+            // callback could capture seq N, let an RPC write seq N+1, then
+            // overwrite that newer snapshot after its encoding completes.
+            mutex.withLock {
+                durableWriteLock(hostId).withLock {
+                    val value = _hostStates.value[hostId] ?: return@withLock
+                    if (seq < storage.lastSeq(hostId)) return@withLock
+                    val encoded = withContext(Dispatchers.Default) { encodeSnapshot(value) }
+                    storage.writeSnapshot("snapshot:" + hostId, encoded)
+                    // This is deliberately after the snapshot write. A crash
+                    // can replay a small pending window, but can never skip
+                    // its state.
+                    storage.setLastSeq(hostId, seq)
+                }
+            }
+        }
+    }
+
+    private fun encodeSnapshot(value: MobileState): String = protocolJson.encodeToString(
+        value.copy(connected = false, error = null, traces = emptyMap(), traceFragments = emptyMap(), typing = emptyMap()),
+    )
+
+    private suspend fun durableGate(hostId: String): DurableSnapshotGate = durableGateMutex.withLock {
+        durableGates.getOrPut(hostId) {
+            DurableSnapshotGate(scope) { seq -> persistDurable(hostId, seq) }
+        }
+    }
+
+    private suspend fun durableWriteLock(hostId: String): Mutex = durableGateMutex.withLock {
+        durableWriteLocks.getOrPut(hostId) { Mutex() }
     }
 
     private suspend fun deviceId(): String =

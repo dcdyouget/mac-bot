@@ -116,6 +116,12 @@ private class AndroidPersistentStore(context: Context) : PersistentStore {
     override suspend fun write(key: String, value: String) = withContext(Dispatchers.IO) {
         check(prefs.edit().putString(key, value).commit()) { "Unable to persist state" }
     }
+    override suspend fun writeSnapshot(key: String, value: String) = withContext(Dispatchers.IO) {
+        // ClientRepository coalesces these writes. apply() updates the
+        // in-memory view immediately; the following cursor commit waits for
+        // pending applies before recording a cursor for this snapshot.
+        prefs.edit().putString(key, value).apply()
+    }
     override suspend fun delete(key: String) = withContext(Dispatchers.IO) {
         check(prefs.edit().remove(key).commit()) { "Unable to delete state" }
     }
