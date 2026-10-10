@@ -101,6 +101,10 @@ impl<T> FramePresentation<T> {
         self.seq = None;
         self.receive();
     }
+
+    fn prepare_reconnect(&mut self) {
+        self.receive();
+    }
 }
 
 /// A decoded screen frame supplied by the screen websocket transport.
@@ -178,6 +182,7 @@ pub struct Computer {
     last_frame_received: Option<Instant>,
     frame_received_at: Option<(u64, Instant)>,
     paint_latency_ms: Option<f32>,
+    awaiting_first_frame: bool,
 }
 
 impl Computer {
@@ -205,6 +210,7 @@ impl Computer {
             last_frame_received: None,
             frame_received_at: None,
             paint_latency_ms: None,
+            awaiting_first_frame: false,
         }
     }
 
@@ -226,13 +232,39 @@ impl Computer {
         self.frame_count = 0;
         self.frames_per_second = 0.0;
         self.paint_latency_ms = None;
+        self.awaiting_first_frame = false;
         self.frame_window_started = Instant::now();
         *self.canvas_bounds.borrow_mut() = None;
         cx.notify();
     }
 
+    /// Prepare a quality reconnect without dropping the last usable screen.
+    /// The server sends the authoritative driver/tab state and the next frame
+    /// on the new websocket; until then the previous state remains visible.
+    pub fn prepare_reconnect(&mut self, cx: &mut Context<Self>) {
+        if let Some((_, image)) = self.decoding_image.take() {
+            cx.remove_asset::<ScreenImageAsset>(&image);
+        }
+        self.presentation.prepare_reconnect();
+        self.ack_scheduled_seq = None;
+        self.acked_render_seq = None;
+        self.render_generation = self.render_generation.wrapping_add(1);
+        self.frame_received_at = None;
+        self.last_frame_received = None;
+        self.frame_count = 0;
+        self.frames_per_second = 0.0;
+        self.paint_latency_ms = None;
+        self.awaiting_first_frame = true;
+        self.frame_window_started = Instant::now();
+        cx.notify();
+    }
+
     pub fn quality(&self) -> &str {
         &self.quality
+    }
+
+    pub fn active_tab_id(&self) -> Option<String> {
+        active_tab_id_from_state(&self.state)
     }
 
     pub fn is_user_driver(&self) -> bool {
@@ -278,8 +310,15 @@ impl Computer {
         jpeg: impl Into<Arc<[u8]>>,
         cx: &mut Context<Self>,
     ) {
-        if self.frame.as_ref().is_some_and(|frame| frame.seq == seq) {
+        if !self.awaiting_first_frame && self.frame.as_ref().is_some_and(|frame| frame.seq == seq) {
             return;
+        }
+        if self.awaiting_first_frame {
+            // A restarted screen stream may begin its sequence at the same
+            // value as the previous stream. Keep the old image until this
+            // frame is accepted, then let the new image decode normally.
+            self.awaiting_first_frame = false;
+            self.presentation.seq = None;
         }
         let received_at = Instant::now();
         let elapsed = received_at.duration_since(self.frame_window_started);
@@ -1018,6 +1057,26 @@ fn quality_label(value: &str) -> &'static str {
     }
 }
 
+fn active_tab_id_from_state(state: &Value) -> Option<String> {
+    state_tabs(state).and_then(|tabs| {
+        tabs.iter().find_map(|tab| {
+            (tab.get("active").and_then(Value::as_bool) == Some(true))
+                .then(|| tab.get("tab_id").and_then(Value::as_str))
+                .flatten()
+                .map(str::to_owned)
+        })
+    })
+}
+
+/// `ScreenState.tabs` is an array in the wire protocol.  Keep accepting the
+/// old nested shape while older fixtures or a rolling server are still in use.
+fn state_tabs(state: &Value) -> Option<&[Value]> {
+    let tabs = state.get("tabs")?;
+    tabs.as_array()
+        .or_else(|| tabs.get("tabs").and_then(Value::as_array))
+        .map(Vec::as_slice)
+}
+
 fn should_schedule_render_ack(
     requested_seq: u64,
     acked_seq: Option<u64>,
@@ -1042,10 +1101,11 @@ fn can_complete_render_ack(
 #[cfg(test)]
 mod tests {
     use super::{
-        FramePresentation, can_complete_render_ack, decode_screen_image, map_contain_point,
-        should_schedule_render_ack,
+        FramePresentation, active_tab_id_from_state, can_complete_render_ack, decode_screen_image,
+        map_contain_point, should_schedule_render_ack,
     };
     use gpui_kit::{Image, ImageFormat, SvgRenderer};
+    use serde_json::json;
     use std::sync::Arc;
 
     #[test]
@@ -1073,6 +1133,36 @@ mod tests {
         assert!(!should_schedule_render_ack(12, None, Some(12)));
         assert!(!should_schedule_render_ack(11, Some(12), None));
         assert!(!should_schedule_render_ack(11, None, Some(12)));
+    }
+
+    #[test]
+    fn reconnect_preserves_presented_frame_until_new_stream_frame() {
+        let mut presentation = FramePresentation {
+            image: Some("visible-frame"),
+            seq: Some(7),
+            ..Default::default()
+        };
+        presentation.prepare_reconnect();
+        assert_eq!(presentation.image, Some("visible-frame"));
+        assert_eq!(presentation.seq, Some(7));
+        assert!(presentation.error.is_none());
+    }
+
+    #[test]
+    fn active_tab_selection_is_preserved_for_quality_reconnect() {
+        let state: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../protocol/fixtures/frames/screen-state.json"
+        ))
+        .expect("screen-state fixture is valid JSON");
+        assert_eq!(active_tab_id_from_state(&state).as_deref(), Some("tab_1"));
+        assert_eq!(active_tab_id_from_state(&json!({"tabs":[]})), None);
+        assert_eq!(
+            active_tab_id_from_state(
+                &json!({"tabs":{"tabs":[{"tab_id":"legacy", "active":true}]}})
+            )
+            .as_deref(),
+            Some("legacy")
+        );
     }
     #[test]
     fn incoming_and_failed_decodes_preserve_the_presented_frame_and_ack_sequence() {

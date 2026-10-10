@@ -1661,7 +1661,7 @@ pub struct ScreenClient {
 
 enum ScreenControl {
     Send(ScreenCommand),
-    Close,
+    Close { completed: oneshot::Sender<()> },
 }
 
 pub struct ScreenHandle {
@@ -1709,10 +1709,12 @@ impl ScreenClient {
         self.send(ScreenCommand::Input { event }).await
     }
     pub async fn close(&self) -> Result<()> {
+        let (completed, closed) = oneshot::channel();
         self.command_tx
-            .send(ScreenControl::Close)
+            .send(ScreenControl::Close { completed })
             .await
-            .map_err(|_| CoreError::Closed)
+            .map_err(|_| CoreError::Closed)?;
+        closed.await.map_err(|_| CoreError::Closed)
     }
     async fn send(&self, command: ScreenCommand) -> Result<()> {
         self.command_tx
@@ -1742,7 +1744,11 @@ async fn run_screen(
             tokio::select! {
                 command = commands.recv() => match command {
                     Some(ScreenControl::Send(command)) => socket.send(Message::Text(serde_json::to_string(&command)?)).await.map_err(|error| CoreError::WebSocket(Box::new(error)))?,
-                    Some(ScreenControl::Close) => { let _ = socket.close(None).await; return Ok(()); }
+                    Some(ScreenControl::Close { completed }) => {
+                        let _ = socket.close(None).await;
+                        let _ = completed.send(());
+                        return Ok(());
+                    }
                     None => {
                         let _ = socket.close(None).await;
                         return Ok(());
@@ -2970,6 +2976,25 @@ mod tests {
         assert!(ack_rx.try_recv().is_err());
         handle.client.ack(frame.header.seq).await.unwrap();
         assert_eq!(ack_rx.recv().await.unwrap(), r#"{"type":"ack","seq":42}"#);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn screen_close_waits_until_worker_has_closed_socket() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let endpoint = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            assert!(matches!(socket.next().await, Some(Ok(Message::Close(_)))));
+            let _ = socket.close(None).await;
+        });
+
+        let handle = ScreenHandle::spawn(ClientConfig::new(&endpoint, "dev"), "bot_a", "low", None);
+        timeout(Duration::from_secs(2), handle.client.close())
+            .await
+            .expect("screen worker close timed out")
+            .expect("screen worker close failed");
+        server.await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

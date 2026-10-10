@@ -82,4 +82,18 @@ mod tests {
             Some("computer.disconnected")
         );
     }
+
+    #[test]
+    fn late_close_from_old_session_cannot_replace_current_status() {
+        let mut notice = ScreenNotice::default();
+        let old_session = notice.generation();
+        notice.close();
+        let current_session = notice.generation();
+        notice.record(current_session, ScreenStatus::Error);
+        notice.record(old_session, ScreenStatus::Closed);
+        assert_eq!(
+            notice.visible_key("computer"),
+            Some("computer.connection_error")
+        );
+    }
 }

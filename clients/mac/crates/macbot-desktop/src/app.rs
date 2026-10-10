@@ -67,6 +67,7 @@ pub struct MacBot {
     computer: Entity<Computer>,
     screen_client: Option<ScreenClient>,
     screen_task: Option<Task<()>>,
+    screen_start_task: Option<Task<()>>,
     screen_notice: crate::screen_notice::ScreenNotice,
     screen_bot: String,
     active_endpoint: Option<String>,
@@ -184,6 +185,7 @@ impl MacBot {
             computer,
             screen_client: None,
             screen_task: None,
+            screen_start_task: None,
             screen_notice: crate::screen_notice::ScreenNotice::default(),
             screen_bot: String::new(),
             active_endpoint: None,
@@ -978,11 +980,32 @@ impl MacBot {
         cx.notify();
     }
     fn open_computer(&mut self, bot: String, cx: &mut Context<Self>) {
-        self.close_screen();
+        self.open_computer_with_options(bot, false, cx);
+    }
+    fn reopen_computer(&mut self, bot: String, cx: &mut Context<Self>) {
+        self.open_computer_with_options(bot, true, cx);
+    }
+    fn open_computer_with_options(
+        &mut self,
+        bot: String,
+        preserve_stream: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let preserve_stream =
+            preserve_stream && self.screen_client.is_some() && self.screen_bot == bot;
+        let preserved_tab = preserve_stream
+            .then(|| self.computer.read(cx).active_tab_id())
+            .flatten();
+        let previous_screen = self.detach_screen();
         self.close_trace(cx);
         self.context.clear();
-        self.computer
-            .update(cx, |screen, cx| screen.reset_connection(cx));
+        self.computer.update(cx, |screen, cx| {
+            if preserve_stream {
+                screen.prepare_reconnect(cx);
+            } else {
+                screen.reset_connection(cx);
+            }
+        });
         self.screen_bot = bot.clone();
         self.sync_screen_request(cx);
         self.page = "computer".into();
@@ -1007,8 +1030,32 @@ impl MacBot {
             config.device_id = device_id;
         }
         let quality = self.computer.read(cx).quality().to_string();
+        let generation = self.screen_notice.generation();
+        if let Some(previous_screen) = previous_screen {
+            self.screen_start_task = Some(cx.spawn(async move |this, cx| {
+                let _ = previous_screen.close().await;
+                let _ = this.update(cx, |view, cx| {
+                    if !view.screen_notice.is_current(generation, &view.page) {
+                        return;
+                    }
+                    view.start_screen_stream(config, bot, quality, preserved_tab, cx);
+                });
+            }));
+        } else {
+            self.start_screen_stream(config, bot, quality, preserved_tab, cx);
+        }
+        cx.notify();
+    }
+    fn start_screen_stream(
+        &mut self,
+        config: ClientConfig,
+        bot: String,
+        quality: String,
+        preserved_tab: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         let _guard = self.runtime.enter();
-        let handle = ScreenHandle::spawn(config, bot, quality, None);
+        let handle = ScreenHandle::spawn(config, bot, quality, preserved_tab);
         self.screen_client = Some(handle.client);
         let generation = self.screen_notice.generation();
         let mut events = handle.events;
@@ -1127,10 +1174,14 @@ impl MacBot {
         self.computer
             .update(cx, |screen, cx| screen.set_request_reason(reason, cx));
     }
-    fn close_screen(&mut self) {
+    fn detach_screen(&mut self) -> Option<ScreenClient> {
         self.screen_notice.close();
         self.screen_task = None;
-        if let Some(screen) = self.screen_client.take() {
+        self.screen_start_task = None;
+        self.screen_client.take()
+    }
+    fn close_screen(&mut self) {
+        if let Some(screen) = self.detach_screen() {
             self.runtime.spawn(async move {
                 let _ = screen.close().await;
             });
@@ -1156,7 +1207,7 @@ impl MacBot {
             }
             ComputerAction::Quality(_) => {
                 let bot = self.screen_bot.clone();
-                self.open_computer(bot, cx);
+                self.reopen_computer(bot, cx);
             }
             _ => {
                 if let Some(screen) = self.screen_client.as_ref().cloned() {
