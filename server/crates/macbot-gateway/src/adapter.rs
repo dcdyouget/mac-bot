@@ -180,7 +180,8 @@ struct BotDmContext {
 #[derive(Default)]
 struct AssignmentCardEventIndex {
     assignment_ids: HashSet<String>,
-    message_blocks: HashMap<String, Value>,
+    message_rows: HashMap<String, Value>,
+    chat_messages: HashMap<String, (Vec<Value>, HashSet<String>)>,
 }
 
 impl ProductionBackend {
@@ -2621,8 +2622,8 @@ impl ProductionBackend {
                 "message.created" | "message.updated" => {
                     if let Some(id) = event.data["message"]["id"].as_str() {
                         event_index
-                            .message_blocks
-                            .insert(id.to_owned(), event.data["message"]["blocks"].clone());
+                            .message_rows
+                            .insert(id.to_owned(), event.data["message"].clone());
                     }
                 }
                 _ => {}
@@ -2650,10 +2651,7 @@ impl ProductionBackend {
         let mut emitted_messages = Vec::new();
         for message in canonical_messages.iter() {
             let message_id = message.get("id").and_then(Value::as_str).unwrap_or("");
-            let event_exists = event_index
-                .message_blocks
-                .insert(message_id.to_owned(), message["blocks"].clone())
-                .is_some();
+            let event_exists = event_index.message_rows.contains_key(message_id);
             if event_exists {
                 continue;
             }
@@ -5203,7 +5201,7 @@ impl ProductionBackend {
         state: &GatewayState,
         assignment: &Value,
         delegation: bool,
-        event_index: Option<&mut AssignmentCardEventIndex>,
+        mut event_index: Option<&mut AssignmentCardEventIndex>,
     ) -> Result<(), RpcError> {
         let assignment_id = assignment
             .get("id")
@@ -5227,11 +5225,38 @@ impl ProductionBackend {
         } else {
             format!("msg_task_card_{assignment_id}")
         };
-        let messages = self.load_chat_messages(chat_id)?;
-        let existing = messages
-            .iter()
-            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id.as_str()))
-            .cloned();
+        let mut uncached_messages = if event_index.is_none() {
+            Some(self.load_chat_messages(chat_id)?)
+        } else {
+            None
+        };
+        if let Some(index) = event_index.as_deref_mut() {
+            if !index.chat_messages.contains_key(chat_id) {
+                index.chat_messages.insert(
+                    chat_id.to_owned(),
+                    self.load_chat_messages_with_durable_ids(chat_id)?,
+                );
+            }
+        }
+        let existing = event_index
+            .as_deref()
+            .and_then(|index| index.chat_messages.get(chat_id))
+            .and_then(|(messages, _)| {
+                messages.iter().find(|message| {
+                    message.get("id").and_then(Value::as_str) == Some(message_id.as_str())
+                })
+            })
+            .cloned()
+            .or_else(|| {
+                uncached_messages
+                    .as_ref()
+                    .and_then(|messages| {
+                        messages.iter().find(|message| {
+                            message.get("id").and_then(Value::as_str) == Some(message_id.as_str())
+                        })
+                    })
+                    .cloned()
+            });
         let event_name = if existing.is_some() {
             "message.updated"
         } else {
@@ -5258,7 +5283,7 @@ impl ProductionBackend {
                     .unwrap_or("待处理任务")
             )
         };
-        let mut card = existing.unwrap_or_else(|| {
+        let mut card = existing.clone().unwrap_or_else(|| {
             json!({
                 "id":message_id,
                 "chat_id":chat_id,
@@ -5289,12 +5314,65 @@ impl ProductionBackend {
         };
         card["fallback_text"] = json!(fallback);
         normalize_message(&mut card);
-        let canonical = self.persist_client_message_with_messages(chat_id, messages, &card)?;
+        let canonical = if let Some(index) = event_index.as_deref_mut() {
+            let (messages, durable_ids) = index
+                .chat_messages
+                .get_mut(chat_id)
+                .expect("assignment card chat cache inserted above");
+            let sequence_missing = existing.as_ref().is_none_or(|message| {
+                message
+                    .get("seq")
+                    .and_then(Value::as_u64)
+                    .is_none_or(|seq| seq == 0)
+            });
+            let needs_sequence = existing.as_ref().is_none_or(|message| {
+                !durable_ids.contains(&message_id)
+                    || sequence_missing
+                    || !Self::messages_match_without_seq(message, &card)
+            });
+            if needs_sequence {
+                if let Some(existing) = messages.iter_mut().find(|message| {
+                    message.get("id").and_then(Value::as_str) == Some(message_id.as_str())
+                }) {
+                    *existing = card;
+                } else {
+                    messages.push(card);
+                }
+                let sequenced = self.sequence_chat_messages(chat_id, std::mem::take(messages))?;
+                *messages = sequenced;
+                durable_ids.clear();
+                durable_ids.extend(
+                    messages
+                        .iter()
+                        .filter_map(|message| message.get("id").and_then(Value::as_str))
+                        .map(str::to_owned),
+                );
+            }
+            messages
+                .iter()
+                .find(|message| {
+                    message.get("id").and_then(Value::as_str) == Some(message_id.as_str())
+                })
+                .cloned()
+                .ok_or_else(|| RpcError {
+                    code: "internal".into(),
+                    message: "sequenced assignment card disappeared".into(),
+                    details: None,
+                })?
+        } else {
+            self.persist_client_message_with_messages(
+                chat_id,
+                uncached_messages
+                    .take()
+                    .expect("uncached assignment card messages loaded above"),
+                &card,
+            )?
+        };
         let event_exists = match event_index.as_deref() {
             Some(index) => index
-                .message_blocks
+                .message_rows
                 .get(&message_id)
-                .is_some_and(|blocks| blocks == &canonical["blocks"]),
+                .is_some_and(|message| Self::messages_match_without_seq(message, &canonical)),
             None => self
                 .store
                 .events_since(0)
@@ -5317,9 +5395,10 @@ impl ProductionBackend {
             .map_err(store_error)?;
         state.publish_event(event.seq, &event.event, data).await;
         if let Some(index) = event_index {
-            index
-                .message_blocks
-                .insert(message_id, canonical["blocks"].clone());
+            index.message_rows.insert(
+                canonical["id"].as_str().unwrap_or_default().to_owned(),
+                canonical,
+            );
         }
         Ok(())
     }
@@ -9574,10 +9653,79 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(task_cards.len(), 1);
+        let task_card_wire = task_cards[0].clone();
         let task_message: Message = serde_json::from_value(task_cards[0].clone()).unwrap();
         assert_eq!(task_message.chat_id, project_chat);
         assert!(task_message.seq > 0);
         assert_eq!(task_message.assignment_id.as_deref(), Some(assignment_id));
+
+        // Historical attention repair must reuse the per-chat durable cache
+        // when the card and its event are already canonical.  In particular,
+        // it must not rewrite the complete chat JSONL merely because the
+        // assignment is still referenced by an old attention notice.
+        let task_message_id = task_message.id.clone();
+        let rows_before = backend
+            .store
+            .read_jsonl::<Value>(format!("data/chats/{project_chat}/messages.jsonl"))
+            .unwrap();
+        let events_before = backend.store.events_since(0).unwrap().len();
+        let mut cached_index = AssignmentCardEventIndex::default();
+        cached_index
+            .message_rows
+            .insert(task_message_id.clone(), task_card_wire.clone());
+        let sequences_before = backend
+            .store
+            .read_jsonl::<Value>(format!("data/chats/{project_chat}/sequences.jsonl"))
+            .unwrap();
+        backend
+            .ensure_assignment_card_with_event_index(
+                &gateway.state,
+                &assignment,
+                false,
+                Some(&mut cached_index),
+            )
+            .await
+            .unwrap();
+        let rows_after = backend
+            .store
+            .read_jsonl::<Value>(format!("data/chats/{project_chat}/messages.jsonl"))
+            .unwrap();
+        assert_eq!(rows_before, rows_after);
+        assert_eq!(events_before, backend.store.events_since(0).unwrap().len());
+        assert_eq!(
+            sequences_before,
+            backend
+                .store
+                .read_jsonl::<Value>(format!("data/chats/{project_chat}/sequences.jsonl"))
+                .unwrap()
+        );
+        assert_eq!(cached_index.chat_messages.len(), 1);
+
+        // A real card content change still sequences the cached chat once.
+        let mut changed_assignment = assignment.clone();
+        changed_assignment["title"] = json!("实现卡片测试（更新）");
+        let mut changed_index = AssignmentCardEventIndex::default();
+        changed_index
+            .message_rows
+            .insert(task_message_id, task_card_wire);
+        let events_before_change = backend.store.events_since(0).unwrap().len();
+        backend
+            .ensure_assignment_card_with_event_index(
+                &gateway.state,
+                &changed_assignment,
+                false,
+                Some(&mut changed_index),
+            )
+            .await
+            .unwrap();
+        let events_after_change = backend.store.events_since(0).unwrap();
+        assert_eq!(events_after_change.len(), events_before_change + 1);
+        let changed_card = events_after_change
+            .last()
+            .and_then(|event| event.data.get("message"))
+            .unwrap();
+        assert_eq!(changed_card["id"], task_message.id);
+        assert_eq!(changed_card["fallback_text"], "任务：实现卡片测试（更新）");
 
         let delegated = backend
             .call(
