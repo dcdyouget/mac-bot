@@ -510,3 +510,10 @@
 
 - 现场桌面缓存停在seq4952，下一条4953为trace.item；实时路由只向轨迹订阅者发无seq条目，导致全局序号缺口，后续公告/任务/项目状态被客户端持续缓存。API已review而桌面仍active，证据见S1/production-63c140d-live-cursor-gap-before.json。
 - 新增兼容持久事件sync.cursor，data={seq:number}，只占用被过滤轨迹的原全局seq，无轨迹内容。实时与session.resume统一投影，trace.item仍仅通过订阅的aseq流发送；未知事件兼容客户端仍按全局seq推进。同步PROTOCOL、Rust、schema、fixture、Kotlin模型，补连续游标和不泄露未订阅轨迹回归。
+
+## integrator：实时游标闭环与两群待验收（2026-10-10）
+
+- 8c7fe41/07a3245同步游标协议与实时/resume过滤，190 gateway、13协议、34桌面核心、5 Kotlin生成测试及严格clippy通过。只部署server07a3245，桌面2f09174自动从seq4952追上，无手动刷新；正式WebSocket143重放cursor、8实时cursor连续且无未订阅轨迹正文，原pending/checkpoint保持。
+- 两个原项目均由实际Tester形成浏览器报告，demo未手改；parallel报告保留未测项，first index登录/刷新/退出/375px实测。主Bot均汇总至review，两张原生主私聊待验收卡各含页面与报告，未确认完成。first公告重复登记同路径产物保留；运行重叠112.033秒仅为局部并行证据。
+- 最新07a3245 pkg审计通过、未fresh安装；Android System UI无响应且CUA无控制面，adb控制方式及X会话使用待用户回应。S0仍唯一整阶段通过。证据见docs/progress/S1/production-07a3245-*与S2两群journal。
+- 根协调单独提交理由：更新已部署序号缺口修复和实际待验收状态，避免继续沿用旧失败/未交付结论；文档不触发组件部署。
