@@ -4586,6 +4586,9 @@ impl ProductionBackend {
             })?;
         let mut messages =
             self.sequence_chat_messages(chat_id, self.load_chat_messages(chat_id)?)?;
+        for message in &mut messages {
+            deduplicate_review_card_artifacts(message);
+        }
         messages.sort_by_key(|item| item.get("seq").and_then(Value::as_u64).unwrap_or(0));
         let after = params.get("after_seq").and_then(Value::as_u64).unwrap_or(0);
         let before = params.get("before_seq").and_then(Value::as_u64);
@@ -6180,6 +6183,42 @@ fn normalize_chat(value: &mut Value) {
     let _ = obj(value);
 }
 
+fn deduplicate_review_card_artifacts(message: &mut Value) {
+    let Some(blocks) = message.get_mut("blocks").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for block in blocks {
+        if block.get("type").and_then(Value::as_str) != Some("review_card") {
+            continue;
+        }
+        let Some(artifacts) = block.get_mut("artifacts").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        let mut positions = HashMap::<String, usize>::new();
+        let mut unique = Vec::with_capacity(artifacts.len());
+        for artifact in artifacts.drain(..) {
+            let Some(path) = artifact
+                .get("path_or_url")
+                .and_then(Value::as_str)
+                .filter(|path| !path.is_empty())
+            else {
+                unique.push(artifact);
+                continue;
+            };
+            if let Some(position) = positions.get(path).copied() {
+                // Keep the latest title and artifact id from the historical
+                // card while collapsing repeated registrations of the same
+                // logical path.
+                unique[position] = artifact;
+            } else {
+                positions.insert(path.to_owned(), unique.len());
+                unique.push(artifact);
+            }
+        }
+        *artifacts = unique;
+    }
+}
+
 fn normalize_message(value: &mut Value) {
     let o = obj(value);
     o.entry("seq").or_insert(json!(0));
@@ -6431,6 +6470,31 @@ fn validate_result(method: &str, value: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_review_card_artifacts_are_deduplicated_on_read() {
+        let mut message = json!({
+            "blocks":[{
+                "type":"review_card",
+                "artifacts":[
+                    {"artifact_id":"old-1","title":"旧标题","path_or_url":"runs/report.md"},
+                    {"artifact_id":"other","title":"另一份","path_or_url":"runs/other.md"},
+                    {"artifact_id":"new-1","title":"最新标题","path_or_url":"runs/report.md"}
+                ]
+            }]
+        });
+        deduplicate_review_card_artifacts(&mut message);
+        assert_eq!(
+            message["blocks"][0]["artifacts"].as_array().unwrap().len(),
+            2
+        );
+        assert_eq!(message["blocks"][0]["artifacts"][0]["artifact_id"], "new-1");
+        assert_eq!(message["blocks"][0]["artifacts"][0]["title"], "最新标题");
+        assert_eq!(
+            message["blocks"][0]["artifacts"][1]["path_or_url"],
+            "runs/other.md"
+        );
+    }
     use crate::{Gateway, GatewayConfig};
     use chrono::Duration;
     use macbot_protocol::{

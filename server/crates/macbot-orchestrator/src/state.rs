@@ -2094,14 +2094,88 @@ impl Inner {
             .retain(|marker| !marker.starts_with(&prefix));
     }
 
+    fn upsert_artifact(
+        &mut self,
+        project_id: Option<Id>,
+        bot_id: &str,
+        assignment_id: &str,
+        input: ArtifactRef,
+    ) {
+        let existing_id = self
+            .artifacts
+            .values()
+            .filter(|artifact| {
+                artifact.project_id == project_id
+                    && artifact.path_or_url == input.path_or_url
+                    && (project_id.is_some() || artifact.bot_id == bot_id)
+            })
+            .max_by(|left, right| {
+                if artifact_is_better_for_announcement(left, right) {
+                    std::cmp::Ordering::Greater
+                } else if artifact_is_better_for_announcement(right, left) {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .map(|artifact| artifact.id.clone());
+        let ts = now();
+        if let Some(id) = existing_id {
+            if let Some(artifact) = self.artifacts.get_mut(&id) {
+                let actual_delivery = bot_id != "main";
+                let existing_is_summary = artifact.bot_id == "main";
+                if actual_delivery || existing_is_summary {
+                    artifact.bot_id = bot_id.into();
+                    artifact.assignment_id = assignment_id.into();
+                }
+                artifact.title = input.title;
+                artifact.kind = "file".into();
+                artifact.updated_at = ts;
+            }
+            return;
+        }
+        let id = new_id();
+        self.artifacts.insert(
+            id.clone(),
+            Artifact {
+                id,
+                project_id,
+                bot_id: bot_id.into(),
+                assignment_id: assignment_id.into(),
+                title: input.title,
+                path_or_url: input.path_or_url,
+                kind: "file".into(),
+                created_at: ts.clone(),
+                updated_at: ts,
+            },
+        );
+    }
+
     fn announcement(&self, project_id: &str) -> Result<Announcement> {
         let p = self.project(project_id)?;
-        let artifacts = self
+        let mut artifacts_by_path = HashMap::<String, Artifact>::new();
+        for artifact in self
             .artifacts
             .values()
             .filter(|a| a.project_id.as_deref() == Some(project_id))
-            .cloned()
-            .collect();
+        {
+            let key = artifact.path_or_url.clone();
+            match artifacts_by_path.get(&key) {
+                None => {
+                    artifacts_by_path.insert(key, artifact.clone());
+                }
+                Some(current) if artifact_is_better_for_announcement(artifact, current) => {
+                    artifacts_by_path.insert(key, artifact.clone());
+                }
+                Some(_) => {}
+            }
+        }
+        let mut artifacts = artifacts_by_path.into_values().collect::<Vec<_>>();
+        artifacts.sort_by(|left, right| {
+            left.path_or_url
+                .cmp(&right.path_or_url)
+                .then_with(|| left.id.cmp(&right.id))
+        });
         let members = p
             .members
             .iter()
@@ -2451,26 +2525,17 @@ impl Inner {
             self.idempotent_messages
                 .insert(format!("{run}:{call}"), msg_id.clone());
         }
+        let artifact_project_id = req
+            .assignment_id
+            .as_ref()
+            .and_then(|id| self.assignments.get(id)?.project_id.clone())
+            .or_else(|| project_id.clone());
         for art in req.artifacts {
-            let aid = new_id();
-            let ts = now();
-            self.artifacts.insert(
-                aid.clone(),
-                Artifact {
-                    id: aid,
-                    project_id: req
-                        .assignment_id
-                        .as_ref()
-                        .and_then(|id| self.assignments.get(id)?.project_id.clone())
-                        .or_else(|| project_id.clone()),
-                    bot_id: req.bot_id.clone(),
-                    assignment_id: req.assignment_id.clone().unwrap_or_default(),
-                    title: art.title,
-                    path_or_url: art.path_or_url,
-                    kind: "file".into(),
-                    created_at: ts.clone(),
-                    updated_at: ts,
-                },
+            self.upsert_artifact(
+                artifact_project_id.clone(),
+                &req.bot_id,
+                req.assignment_id.as_deref().unwrap_or_default(),
+                art,
             );
         }
         let parent_hops = req
@@ -3953,6 +4018,13 @@ fn routine_dispatch(run: &RoutineRun, assignment: &Assignment) -> Value {
     })
 }
 
+fn artifact_is_better_for_announcement(candidate: &Artifact, current: &Artifact) -> bool {
+    let candidate_is_actual = candidate.bot_id != "main";
+    let current_is_actual = current.bot_id != "main";
+    (candidate_is_actual, &candidate.updated_at, &candidate.id)
+        > (current_is_actual, &current.updated_at, &current.id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4042,6 +4114,180 @@ mod tests {
         let member = selected(&inner);
         assert_eq!(member.state, "idle");
         assert!(member.current_assignment_id.is_none());
+    }
+
+    #[test]
+    fn artifacts_upsert_by_project_path_preserves_identity_and_actual_owner() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "artifact worker");
+        let project = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"artifact dedupe","goal":"dedupe","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let mut inner = o.lock().unwrap();
+        let created_at = "2026-01-01T00:00:00Z".to_owned();
+        inner.artifacts.insert(
+            "old-artifact".into(),
+            Artifact {
+                id: "old-artifact".into(),
+                project_id: Some(project_id.clone()),
+                bot_id: "main".into(),
+                assignment_id: "main-summary".into(),
+                title: "旧汇总".into(),
+                path_or_url: "runs/report.md".into(),
+                kind: "file".into(),
+                created_at: created_at.clone(),
+                updated_at: created_at.clone(),
+            },
+        );
+
+        inner.upsert_artifact(
+            Some(project_id.clone()),
+            &worker,
+            "worker-assignment",
+            ArtifactRef {
+                title: "真实交付".into(),
+                path_or_url: "runs/report.md".into(),
+            },
+        );
+        let artifact = inner.artifacts.get("old-artifact").unwrap();
+        assert_eq!(artifact.id, "old-artifact");
+        assert_eq!(artifact.created_at, created_at);
+        assert_eq!(artifact.bot_id, worker);
+        assert_eq!(artifact.assignment_id, "worker-assignment");
+        assert_eq!(artifact.title, "真实交付");
+
+        inner.upsert_artifact(
+            Some(project_id.clone()),
+            "main",
+            "later-summary",
+            ArtifactRef {
+                title: "主 Bot 重复汇总".into(),
+                path_or_url: "runs/report.md".into(),
+            },
+        );
+        let artifact = inner.artifacts.get("old-artifact").unwrap();
+        assert_eq!(artifact.bot_id, worker);
+        assert_eq!(artifact.assignment_id, "worker-assignment");
+        assert_eq!(artifact.title, "主 Bot 重复汇总");
+        let announcement = inner.announcement(&project_id).unwrap();
+        assert_eq!(announcement.artifacts.len(), 1);
+        assert_eq!(announcement.artifacts[0].id, "old-artifact");
+    }
+
+    #[test]
+    fn artifacts_without_project_are_scoped_to_the_sending_bot() {
+        let o = Orchestrator::default();
+        let first = bot(&o, "standalone first");
+        let second = bot(&o, "standalone second");
+        let mut inner = o.lock().unwrap();
+        let input = |title: &str| ArtifactRef {
+            title: title.into(),
+            path_or_url: "relative/report.md".into(),
+        };
+        inner.upsert_artifact(None, &first, "first-assignment", input("first"));
+        inner.upsert_artifact(None, &second, "second-assignment", input("second"));
+        let artifacts = inner
+            .artifacts
+            .values()
+            .filter(|artifact| artifact.project_id.is_none())
+            .collect::<Vec<_>>();
+        assert_eq!(artifacts.len(), 2);
+        assert!(artifacts.iter().any(|artifact| artifact.bot_id == first));
+        assert!(artifacts.iter().any(|artifact| artifact.bot_id == second));
+    }
+
+    #[test]
+    fn same_path_in_different_projects_is_not_merged() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "project artifact worker");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let first = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"first artifact project","goal":"first","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let second = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"second artifact project","goal":"second","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let first_id = first["project"]["id"].as_str().unwrap().to_owned();
+        let second_id = second["project"]["id"].as_str().unwrap().to_owned();
+        let mut inner = o.lock().unwrap();
+        let input = || ArtifactRef {
+            title: "same relative path".into(),
+            path_or_url: "relative/report.md".into(),
+        };
+        inner.upsert_artifact(Some(first_id.clone()), &worker, "first-assignment", input());
+        inner.upsert_artifact(
+            Some(second_id.clone()),
+            &worker,
+            "second-assignment",
+            input(),
+        );
+        let artifacts = inner
+            .artifacts
+            .values()
+            .filter(|artifact| artifact.path_or_url == "relative/report.md")
+            .collect::<Vec<_>>();
+        assert_eq!(artifacts.len(), 2);
+        assert!(artifacts
+            .iter()
+            .any(|artifact| artifact.project_id.as_deref() == Some(first_id.as_str())));
+        assert!(artifacts
+            .iter()
+            .any(|artifact| artifact.project_id.as_deref() == Some(second_id.as_str())));
+    }
+
+    #[test]
+    fn announcement_deduplicates_legacy_rows_without_mutating_them() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "legacy artifact worker");
+        let project = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"legacy artifact project","goal":"legacy","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let mut inner = o.lock().unwrap();
+        let old = Artifact {
+            id: "legacy-main".into(),
+            project_id: Some(project_id.clone()),
+            bot_id: "main".into(),
+            assignment_id: "legacy-summary".into(),
+            title: "旧汇总".into(),
+            path_or_url: "relative/report.md".into(),
+            kind: "file".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        let actual = Artifact {
+            id: "legacy-worker".into(),
+            project_id: Some(project_id.clone()),
+            bot_id: worker.clone(),
+            assignment_id: "legacy-worker-assignment".into(),
+            title: "实际交付".into(),
+            path_or_url: "relative/report.md".into(),
+            kind: "file".into(),
+            created_at: "2026-01-02T00:00:00Z".into(),
+            updated_at: "2026-01-02T00:00:00Z".into(),
+        };
+        inner.artifacts.insert(old.id.clone(), old.clone());
+        inner.artifacts.insert(actual.id.clone(), actual.clone());
+        let announcement = inner.announcement(&project_id).unwrap();
+        assert_eq!(announcement.artifacts.len(), 1);
+        assert_eq!(announcement.artifacts[0].id, actual.id);
+        assert_eq!(inner.artifacts.get(&old.id), Some(&old));
+        assert_eq!(inner.artifacts.get(&actual.id), Some(&actual));
     }
 
     fn bot(o: &Orchestrator, name: &str) -> Id {
