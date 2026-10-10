@@ -42,6 +42,8 @@ pub enum CoreError {
     RequestTimeout,
     #[error("event gap exceeded {0} buffered sequence values; reconnect required")]
     EventGapExceeded(usize),
+    #[error("live event gap persisted across {0} future events; reconnect required")]
+    LiveEventGap(usize),
     #[error("connection closed")]
     Closed,
     #[error("server error {code}: {message}")]
@@ -56,6 +58,12 @@ pub type Result<T> = std::result::Result<T, CoreError>;
 /// to close. A larger gap is treated as a resync request rather than allowing
 /// unbounded memory growth during a damaged or adversarial stream.
 pub const MAX_BUFFERED_EVENTS: usize = 2048;
+
+/// A WebSocket preserves frame order, so two consecutive future sequence
+/// values with the same missing prefix are enough to treat a live gap as
+/// lost. One future value is retained to allow a delayed frame to arrive
+/// without forcing a reconnect.
+const LIVE_GAP_RECONNECT_THRESHOLD: usize = 2;
 
 #[derive(Clone, Debug)]
 pub struct ReconnectConfig {
@@ -970,6 +978,18 @@ fn advance_contiguous(cursor: &mut u64, seq: u64, out_of_order: &mut BTreeSet<u6
     Ok(())
 }
 
+fn advance_live_contiguous(
+    cursor: &mut u64,
+    seq: u64,
+    out_of_order: &mut BTreeSet<u64>,
+) -> Result<()> {
+    advance_contiguous(cursor, seq, out_of_order)?;
+    if out_of_order.len() >= LIVE_GAP_RECONNECT_THRESHOLD {
+        return Err(CoreError::LiveEventGap(out_of_order.len()));
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 enum ConnectedExit {
     Closed,
@@ -1051,12 +1071,12 @@ async fn run_connected(
                         Some("evt") => {
                             let seq = frame.get("seq").and_then(Value::as_u64);
                             if let Some(value) = seq {
-                                advance_contiguous(last_seq, value, &mut out_of_order)?;
+                                advance_live_contiguous(last_seq, value, &mut out_of_order)?;
                             }
                             if let Some(event) = frame.get("event").and_then(Value::as_str) {
                                 if event == "sync.done" {
                                     if let Some(seq) = frame.get("data").and_then(|data| data.get("seq")).and_then(Value::as_u64) {
-                                        advance_contiguous(last_seq, seq, &mut out_of_order)?;
+                                        advance_live_contiguous(last_seq, seq, &mut out_of_order)?;
                                     }
                                 }
                                 let _ = events.send(ClientEvent::Protocol(ProtocolEvent { seq, event: event.into(), data: frame.get("data").cloned().unwrap_or(Value::Null) })).await;
@@ -2036,6 +2056,29 @@ mod tests {
     }
 
     #[test]
+    fn live_single_gap_reconnects_after_a_second_future_event() {
+        let mut cursor = 69;
+        let mut out_of_order = BTreeSet::new();
+
+        // One delayed frame is still allowed to arrive and unblock the
+        // buffered future event without reconnecting.
+        advance_live_contiguous(&mut cursor, 71, &mut out_of_order).unwrap();
+        assert_eq!(cursor, 69);
+        advance_live_contiguous(&mut cursor, 70, &mut out_of_order).unwrap();
+        assert_eq!(cursor, 71);
+        assert!(out_of_order.is_empty());
+
+        // If the missing frame is genuinely absent, the next future frame
+        // proves that the live stream is stuck and should use reconnect's
+        // durable replay path.
+        advance_live_contiguous(&mut cursor, 73, &mut out_of_order).unwrap();
+        let error = advance_live_contiguous(&mut cursor, 74, &mut out_of_order)
+            .expect_err("persistent live gap should reconnect");
+        assert!(matches!(error, CoreError::LiveEventGap(2)));
+        assert_eq!(cursor, 71);
+    }
+
+    #[test]
     fn app_state_gap_flood_requests_resync_and_bootstrap_recovers() {
         let mut state = AppState::default();
         for seq in 2..=(MAX_BUFFERED_EVENTS as u64 + 2) {
@@ -2112,7 +2155,7 @@ mod tests {
             let (stream, _) = listener.accept().await.unwrap();
             let mut socket = accept_async(stream).await.unwrap();
             for seq in 2..=(MAX_BUFFERED_EVENTS as u64 + 2) {
-                socket
+                if socket
                     .send(Message::Text(
                         json!({
                             "v": 1,
@@ -2124,7 +2167,10 @@ mod tests {
                         .to_string(),
                     ))
                     .await
-                    .unwrap();
+                    .is_err()
+                {
+                    break;
+                }
             }
             sleep(Duration::from_millis(250)).await;
             let _ = socket.close(None).await;
@@ -2146,7 +2192,7 @@ mod tests {
         .await
         .unwrap_err();
         assert!(
-            matches!(error, CoreError::EventGapExceeded(MAX_BUFFERED_EVENTS)),
+            matches!(error, CoreError::LiveEventGap(2)),
             "unexpected transport result: {error:?}"
         );
         assert_eq!(last_seq, 0);
