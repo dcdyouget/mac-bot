@@ -793,6 +793,14 @@ impl<R: CliRunner> BrowserManager<R> {
         bot_id: &str,
         mut config: SessionConfig,
     ) -> Result<SessionConfig, BrowserError> {
+        // Only profile-backed headless sessions need an isolated on-disk copy.
+        // Attach uses the running browser's session and must not copy its data.
+        if !matches!(config.mode, BrowserMode::HeadlessProfile) {
+            config.chrome_profile = None;
+            config.profile_source = None;
+            config.isolated_profile_root = None;
+            return Ok(config);
+        }
         let Some(root) = config.isolated_profile_root.clone() else {
             return Ok(config);
         };
@@ -1638,6 +1646,48 @@ mod tests {
         assert_eq!(f.jpeg, vec![2]);
         assert!(b.in_flight_seq().is_some());
         assert!(b.ack(99).is_none());
+    }
+
+    #[test]
+    fn attach_and_plain_headless_do_not_copy_profile_data() {
+        let root = std::env::temp_dir().join(format!("macbot-browser-no-copy-{}", Uuid::now_v7()));
+        let source = root.join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("Cookies"), b"private-test-data").unwrap();
+        for mode in [BrowserMode::Attach, BrowserMode::Headless] {
+            let attach = matches!(mode, BrowserMode::Attach);
+            let fake = Arc::new(Fake::default());
+            let mut browser = BrowserManager::new(SessionConfig::default(), fake.clone());
+            browser
+                .set_bot_config(
+                    "bot",
+                    SessionConfig {
+                        mode,
+                        chrome_profile: Some(source.to_string_lossy().into_owned()),
+                        profile_source: Some(source.clone()),
+                        isolated_profile_root: Some(root.join("isolated")),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            browser
+                .open_tab("bot", "assignment", "https://example.com")
+                .unwrap();
+            assert!(!root.join("isolated").exists());
+            let calls = fake.calls.lock().unwrap();
+            assert!(calls.iter().all(|args| !args.contains(&"--profile".into())));
+            assert_eq!(
+                calls
+                    .iter()
+                    .any(|args| args.contains(&"--auto-connect".into())),
+                attach
+            );
+        }
+        assert_eq!(
+            std::fs::read(source.join("Cookies")).unwrap(),
+            b"private-test-data"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

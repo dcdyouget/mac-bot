@@ -188,10 +188,9 @@ impl ProductionBrowserBridge {
         self.configure_bot(bot_id, mode, chrome_profile).await
     }
 
-    /// Apply the persisted Bot browser settings without ever handing the
-    /// user's live Chrome profile to agent-browser.  The BrowserManager makes
-    /// an app-owned copy on first use and keeps assignment state under the
-    /// service home directory.
+    /// Apply persisted Bot browser settings. Profile-backed headless mode uses
+    /// an app-owned profile copy; attach connects to the running browser without
+    /// copying its profile. Assignment state stays under the service home.
     pub async fn configure_bot(
         &self,
         bot_id: &str,
@@ -217,8 +216,8 @@ impl ProductionBrowserBridge {
             ),
             ..SessionConfig::default()
         };
-        // Headless mode must not accidentally inherit a profile path.
-        if matches!(config.mode, BrowserMode::Headless) {
+        // Only profile-backed headless mode may copy a Chrome profile.
+        if !matches!(config.mode, BrowserMode::HeadlessProfile) {
             config.chrome_profile = None;
             config.profile_source = None;
             config.isolated_profile_root = None;
