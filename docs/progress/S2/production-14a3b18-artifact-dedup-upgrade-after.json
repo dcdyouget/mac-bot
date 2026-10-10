@@ -495,11 +495,20 @@
       "thread_count": 0
     }
   ],
-  "native_ui_pending": "desktop",
+  "native_ui_pending": false,
   "full_s2_pass": false,
   "android_native": {
     "source": "5e2fbcc0659be0b33a373d758b503c8a20c755e5",
     "screenshot": "production-14a3b18-android-review-deduplicated.png",
+    "viewed": true,
+    "both_project_names_visible": true,
+    "each_card_artifact_count": 2,
+    "confirmed_done": false
+  },
+  "desktop_native": {
+    "source": "e14d0a8fc1ec966ba06bb1261470f571be5cdf57",
+    "server_source": "aa2c99aff0078f53f67a67b88e42f7dc5bdee9c0",
+    "screenshot": "production-aa2c99a-desktop-review-deduplicated.jpg",
     "viewed": true,
     "both_project_names_visible": true,
     "each_card_artifact_count": 2,

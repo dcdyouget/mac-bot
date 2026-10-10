@@ -234,7 +234,7 @@
   "pending_preserved": true,
   "jobs_preserved": true,
   "only_real_messages": true,
-  "native_ui_pending": "desktop",
+  "native_ui_pending": false,
   "full_s3_pass": false,
   "android_native": {
     "source": "5e2fbcc0659be0b33a373d758b503c8a20c755e5",
@@ -245,5 +245,14 @@
     "screenshots_viewed": true,
     "real_messages_visible": true,
     "chat_filter_empty": true
+  },
+  "desktop_native": {
+    "source": "e14d0a8fc1ec966ba06bb1261470f571be5cdf57",
+    "server_source": "aa2c99aff0078f53f67a67b88e42f7dc5bdee9c0",
+    "screenshot": "production-aa2c99a-desktop-search-fixed.jpg",
+    "viewed": true,
+    "real_messages_visible": true,
+    "result_count": 6,
+    "chat_filter_verified": false
   }
 }
