@@ -568,3 +568,12 @@ S0–S4现已通过。server3635008修复memory持久事件未广播导致的全
 S5已开始，未通过：旧home、开发App、plist、桌面配置已一次性离线移动到既定0700备份目录，164个job哈希核对保持，旧外部凭据、Android数据、mock保持。正式7788当前停机。固定3635008 pkg已在Installer打开并点击安装，但CUA明确拒绝操作com.apple.SecurityAgent，需要用户在Mac完成管理员认证；尚未确认pkg安装成功。随后继续新home/setup_required、管理页新密码和双端完整场景，不回退为仅包校验通过。详见docs/progress/S5/fresh-install-journal.json。
 
 根协调独立提交理由：记录已发生的可逆离线移动和当前具体系统认证阻塞，避免沿用“fresh未开始、服务在线”的过时状态；保留其他会话改动。
+
+
+## integrator：S5真实pkg重定位失败与修复（2026-10-10）
+
+用户管理员认证已成功；首次3635008包失败源于PackageKit按bundle ID把payload重定位到备份App，postinstall固定/Applications源不存在。旧业务164job哈希保持，新home只有空root目录；备份服务App被installer写过，保留为失败证据，不能当原样备份恢复。
+
+3d6b289禁用App级重定位并在写路径前检查payload。新增包测试直接检查PackageInfo的relocate/bundle名单，正确拒绝旧包；新clean archive包完整smoke通过、名单为空、路径固定。修复已合main，新Installer已打开并点击安装，等待本次系统管理员认证。真实重试及S5完整场景尚未通过；正式服务仍停机，mock、旧业务备份、外部凭据和Android数据保持。
+
+根协调独立提交理由：记录真实安装失败及备份App受影响事实、修复证据和具体交接点，避免误报全备份原样或安装成功；保留他人未提交根文档和design。
