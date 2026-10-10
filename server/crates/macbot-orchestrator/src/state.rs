@@ -2106,19 +2106,32 @@ impl Inner {
             .members
             .iter()
             .map(|m| {
-                let active = self.assignments.values().find(|a| {
-                    a.project_id.as_deref() == Some(project_id)
-                        && a.bot_id == m.bot_id
-                        && matches!(
-                            a.status.as_str(),
-                            "queued"
-                                | "working"
-                                | "waiting_user"
-                                | "waiting_bot"
-                                | "blocked"
-                                | "done"
-                        )
-                });
+                let active = self
+                    .assignments
+                    .values()
+                    .filter(|a| {
+                        a.project_id.as_deref() == Some(project_id)
+                            && a.bot_id == m.bot_id
+                            && matches!(
+                                a.status.as_str(),
+                                "queued"
+                                    | "working"
+                                    | "waiting_user"
+                                    | "waiting_bot"
+                                    | "blocked"
+                                    | "done"
+                            )
+                    })
+                    .max_by_key(|a| {
+                        // A historical completion must never hide current work.
+                        // Use a stable tie-breaker so snapshots and restarts agree.
+                        let rank = match a.status.as_str() {
+                            "done" => 0,
+                            "queued" => 1,
+                            _ => 2,
+                        };
+                        (rank, &a.created_at, &a.id)
+                    });
                 AnnouncementMember {
                     bot_id: m.bot_id.clone(),
                     role_note: m.role_note.clone(),
@@ -3943,6 +3956,93 @@ fn routine_dispatch(run: &RoutineRun, assignment: &Assignment) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn announcement_prefers_current_work_and_selects_history_deterministically() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "Announcement worker");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let project = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({
+                    "name":"Announcement selection", "goal":"Current work stays visible",
+                    "member_bot_ids":[worker]
+                }),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let chat_id = project["chat"]["id"].as_str().unwrap();
+        let seed = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(project_id.into()),
+                origin_chat_id: chat_id.into(),
+                bot_id: worker.clone(),
+                title: "Current task".into(),
+                instruction: "Test".into(),
+                from: "user".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let mut inner = o.lock().unwrap();
+        inner.assignments.clear();
+        for (id, status, created) in [
+            ("old-done", "done", "2026-01-01T00:00:00Z"),
+            ("new-done", "done", "2026-01-03T00:00:00Z"),
+            ("queued", "queued", "2026-01-04T00:00:00Z"),
+            ("active", "working", "2026-01-02T00:00:00Z"),
+            ("cancelled", "cancelled", "2026-01-05T00:00:00Z"),
+            ("failed", "failed", "2026-01-05T00:00:00Z"),
+        ] {
+            let mut a = seed.clone();
+            a.id = id.into();
+            a.status = status.into();
+            a.created_at = created.into();
+            inner.assignments.insert(a.id.clone(), a);
+        }
+        let selected = |inner: &Inner| {
+            inner
+                .announcement(project_id)
+                .unwrap()
+                .members
+                .into_iter()
+                .find(|member| member.bot_id == worker)
+                .unwrap()
+        };
+        for status in ["working", "waiting_user", "waiting_bot", "blocked"] {
+            inner.assignments.get_mut("active").unwrap().status = status.into();
+            let member = selected(&inner);
+            assert_eq!(member.current_assignment_id.as_deref(), Some("active"));
+            assert_eq!(member.state, status);
+        }
+        let mut same_time = inner.assignments["active"].clone();
+        same_time.id = "active-z".into();
+        inner.assignments.insert(same_time.id.clone(), same_time);
+        assert_eq!(
+            selected(&inner).current_assignment_id.as_deref(),
+            Some("active-z")
+        );
+        inner.assignments.remove("active-z");
+        inner.assignments.remove("active");
+        assert_eq!(
+            selected(&inner).current_assignment_id.as_deref(),
+            Some("queued")
+        );
+        inner.assignments.remove("queued");
+        assert_eq!(
+            selected(&inner).current_assignment_id.as_deref(),
+            Some("new-done")
+        );
+        inner.assignments.remove("new-done");
+        inner.assignments.remove("old-done");
+        let member = selected(&inner);
+        assert_eq!(member.state, "idle");
+        assert!(member.current_assignment_id.is_none());
+    }
 
     fn bot(o: &Orchestrator, name: &str) -> Id {
         futures_create_bot(o, name)
