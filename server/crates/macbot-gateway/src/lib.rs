@@ -1017,8 +1017,9 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                     Ok(event) => {
                         let event_name = event.get("event").and_then(Value::as_str).unwrap_or("");
                         if event_name == "trace.item" {
-                            // Every client must consume the durable sequence even
-                            // when it has no matching trace subscription.
+                            // Internal durable trace events are projected to a
+                            // cursor so every client consumes their sequence
+                            // without receiving feature-private payloads.
                             if event.get("seq").and_then(Value::as_u64).is_some()
                                 && sink.send(text_frame(&global_event_frame(&event))).await.is_err()
                             {
@@ -1037,6 +1038,15 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                             }
                             for frame in frames {
                                 if sink.send(text_frame(&frame)).await.is_err() { break; }
+                            }
+                        } else if event_name == "memory.updated" {
+                            // Memory is durable but has no public payload
+                            // contract. It still advances every client's
+                            // cursor and must never enter trace routing.
+                            if event.get("seq").and_then(Value::as_u64).is_some()
+                                && sink.send(text_frame(&global_event_frame(&event))).await.is_err()
+                            {
+                                break;
                             }
                         } else if matches!(event_name, "trace.delta" | "trace.tool_output") {
                             let data = event.get("data").cloned().unwrap_or(Value::Null);
@@ -1087,14 +1097,15 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
 /// Project internal trace records onto the public persistent event stream.
 /// Trace payloads travel separately through assignment-scoped subscriptions.
 fn global_event_frame(event: &Value) -> Value {
-    if let (Some("trace.item"), Some(seq)) = (
+    if let (Some(event_name), Some(seq)) = (
         event.get("event").and_then(Value::as_str),
         event.get("seq").and_then(Value::as_u64),
     ) {
-        json!({"v":1,"kind":"evt","seq":seq,"event":"sync.cursor","data":{"seq":seq}})
-    } else {
-        event.clone()
+        if matches!(event_name, "trace.item" | "memory.updated") {
+            return json!({"v":1,"kind":"evt","seq":seq,"event":"sync.cursor","data":{"seq":seq}});
+        }
     }
+    event.clone()
 }
 
 fn text_frame(value: &Value) -> axum::extract::ws::Message {
@@ -3509,16 +3520,20 @@ mod tests {
                 "assignment_id":"a", "chat_id":"c", "run_id":"r", "aseq":1,
                 "type":"llm.request", "data":{"request_id":"r:llm:1","private":"hidden"}
             }})).await;
-            gw.state.publish_event(base + 2, "project.updated", json!({"project":{"id":"prj_login","status":"review"}})).await;
+            gw.state.publish_event(base + 2, "memory.updated", json!({"entry":{"content":"hidden memory"}})).await;
+            gw.state.publish_event(base + 3, "project.updated", json!({"project":{"id":"prj_login","status":"review"}})).await;
             let mut live = Vec::new();
-            for _ in 0..2 {
+            for _ in 0..3 {
                 live.push(next_json(&mut socket).await);
             }
             assert_eq!(live[0]["event"], "sync.cursor");
             assert_eq!(live[0]["seq"], base + 1);
             assert_eq!(live[0]["data"], json!({"seq":base + 1}));
-            assert_eq!(live[1]["event"], "project.updated");
+            assert_eq!(live[1]["event"], "sync.cursor");
             assert_eq!(live[1]["seq"], base + 2);
+            assert_eq!(live[1]["data"], json!({"seq":base + 2}));
+            assert_eq!(live[2]["event"], "project.updated");
+            assert_eq!(live[2]["seq"], base + 3);
             socket.close(None).await.unwrap();
             let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
             next_json(&mut socket).await; // hello
@@ -3547,6 +3562,7 @@ mod tests {
         let events = [
             json!({"v":1,"kind":"evt","seq":41,"event":"trace.item","data":{"item":{"aseq":1,"data":{"text":"private trace"}}}}),
             json!({"v":1,"kind":"evt","seq":42,"event":"trace.item","data":{"item":{"aseq":2,"data":{"text":"private output"}}}}),
+            json!({"v":1,"kind":"evt","seq":43,"event":"memory.updated","data":{"entry":{"content":"private memory"}}}),
             assignment.clone(),
         ];
         let frames: Vec<_> = events.iter().map(global_event_frame).collect();
@@ -3558,7 +3574,11 @@ mod tests {
             frames[1],
             json!({"v":1,"kind":"evt","seq":42,"event":"sync.cursor","data":{"seq":42}})
         );
-        assert_eq!(frames[2], assignment);
+        assert_eq!(
+            frames[2],
+            json!({"v":1,"kind":"evt","seq":43,"event":"sync.cursor","data":{"seq":43}})
+        );
+        assert_eq!(frames[3], assignment);
         assert!(!serde_json::to_string(&frames).unwrap().contains("private"));
         // Projection must not alter the internal replay source used to
         // reconstruct assignment-scoped trace subscriptions after restart.

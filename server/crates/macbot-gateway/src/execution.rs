@@ -12,7 +12,7 @@ use chrono::{SecondsFormat, Utc};
 use futures_util::future::join_all;
 use macbot_durable::{DurableError, DurableRuntime, InboxItem, Job, JobStatus};
 use macbot_providers::{Completion, ModelEvent, ModelProvider, ModelRequest, TokenUsage, ToolCall};
-use macbot_store::{Store, StoreError};
+use macbot_store::{Event, Store, StoreError};
 use macbot_tools::{
     resolve_tool_path, Part, Risk, Tool, ToolCancellation, ToolContext, ToolOutputChunk, ToolResult,
 };
@@ -193,6 +193,18 @@ pub trait ExecutionSink: Send + Sync {
     /// Persistent events must be written before the implementation fans them
     /// out. Temporary deltas are subscriber-only and never enter the WAL.
     async fn emit(&self, event: ExecutionEvent);
+    /// Fan out an event which has already been durably appended by a feature
+    /// service. The default keeps older sinks working by using their normal
+    /// persistent emission path; the production sink overrides this to avoid
+    /// appending the same event a second time.
+    async fn publish_persisted(&self, event: Event) {
+        self.emit(ExecutionEvent {
+            event: event.event,
+            data: event.data,
+            persistent: true,
+        })
+        .await;
+    }
     /// Admit a group message and return the canonical persisted Message.
     /// The request payload contains the durable receipt, whose logical ID is
     /// intentionally separate from the canonical message ID returned here.
@@ -289,6 +301,12 @@ impl ExecutionSink for GatewayStateSink {
         } else {
             self.state.publish_temporary(&event.event, event.data).await;
         }
+    }
+
+    async fn publish_persisted(&self, event: Event) {
+        self.state
+            .publish_event(event.seq, &event.event, event.data)
+            .await;
     }
 
     async fn send_group_message(&self, message: Value) -> Result<Value, String> {
@@ -6994,6 +7012,39 @@ mod tests {
             .find(|skill| skill.name == "resume-draft")
             .unwrap();
         assert_eq!(skill.source, macbot_skills::SkillSource::Draft);
+    }
+
+    #[tokio::test]
+    async fn feature_memory_commit_publishes_the_durable_event_once() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let service =
+            Arc::new(FeatureService::with_store(store.clone(), dir.path(), Vec::new()).unwrap());
+        let delegate = Arc::new(RecordingSink::default());
+        let runtime =
+            FeatureToolRuntime::new(service, FeatureRunContext::bot("bot_mock", "user-a"));
+        let sink = FeatureExecutionSink::new(delegate.clone(), runtime);
+
+        sink.commit_succeeded(&request(false), json!({"text":"done"}))
+            .await;
+
+        let persisted = store.events_since(0).unwrap();
+        let memory_events: Vec<_> = persisted
+            .iter()
+            .filter(|event| event.event == "memory.updated")
+            .collect();
+        assert_eq!(memory_events.len(), 1);
+        let live_events: Vec<_> = delegate
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| event.event == "memory.updated")
+            .cloned()
+            .collect();
+        assert_eq!(live_events.len(), 1);
+        assert!(live_events[0].persistent);
+        assert_eq!(live_events[0].data, memory_events[0].data);
     }
 
     fn service_tools(service: &Arc<FeatureService>, is_main: bool) -> Vec<Arc<dyn Tool>> {
