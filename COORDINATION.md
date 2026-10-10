@@ -498,3 +498,10 @@
 - 模拟器后来退出，重启因磁盘只余1.4GiB被拒。只清理本轮integrator客户端debug测试缓存后余7.2GiB；新启动host渲染挂起，软件渲染启动成功、原APK哈希和数据保留。当前实际截图为System UI无响应弹窗；CUA无模拟器控制面，adb输入方式仍待用户回应，不能计Android UI恢复。未知旧进程未杀，仅结束本轮明确启动且卡住的模拟器尝试。
 - 已审计0d7c887 pkg及71fddde正式release DMG，候选保存在仓库外release-candidates；未安装、未fresh。S0仍唯一整阶段通过。GitHub main已成功推至d627486，后续归档继续同步；文档提交不重部署。
 - 根协调单独提交理由：更新真实部署来源、恢复缺陷/回归证据及模拟器外部阻塞，避免后续沿用过时PID和锁屏结论。详情见docs/progress/S2/2026-10-10-takeover-closeout.md。
+
+## integrator：搜索过滤与 Tester 报告纠正（2026-10-10）
+
+- 63c140d 修复搜索默认暴露内部 job/checkpoint 对象：只收录协议规定的 message/chat/bot/artifact/routine，未知 kind 拒绝。188 gateway 测试及严格 clippy 通过；仅部署 server，PID21455/7788与安装SHA一致，旧pending及等待checkpoint哈希保持。同查询原生截图与API由Bot/chat+5个object变为仅Bot/chat。
+- 原Tester …bb49 实测退出后loginForm=true、userInfo=false、localStorage=null；360px可见表单x20/width320/right340，scrollWidth360。报告草稿错误引用源码和错误密码结果，已向原Bot回传实际证据，仅拒绝该报告write；任务按拒绝语义停止，原失败保留，未手改demo/报告。修正要求进入现有Main跟进任务…1573并read，报告交付/主Bot待验收仍未闭环。
+- 搜索回归、部署前后与实际截图见S3/production-63c140d-search-*；S2证据见production-0d7c887-parallel-tester-finish.json及production-63c140d-parallel-report-handoff.json。S0仍唯一整阶段通过；Android控制方式/X登录外部条件待回应，fresh仍未执行。桌面2f09174、Android cac5b12未更新。
+- 根协调单独提交理由：记录最新正式服务来源、搜索泄露修复和报告被拒后的真实未完成状态，防止将模型草稿计为验收通过；文档提交不触发部署。
