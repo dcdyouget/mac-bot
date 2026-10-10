@@ -586,3 +586,14 @@ S5已开始，未通过：旧home、开发App、plist、桌面配置已一次性
 当前 server 用户 App payload 为 a9527fa（系统 Installer receipt 仍为初始 3d6b289）：拒绝私聊审批已在后台恢复阶段精确取消，无工具重放；usage 查询脱离全局写锁后，同范围 996367 tokens / 127 requests 不变，单次观测从 9.24s 降至 0.11s。桌面 bdc17cdf 为诊断版，画面首帧已收到但 native 重绘未完成，BetterDisplay 高层窗口/平台 display-link 是待核验环境因素，尚不能断言根因。Android78 保留数据更新后仍有连接恢复问题，并记录模拟器系统 ANR 与可逆重启；正在补定位与回归。
 
 已合入消息索引批量持久化 c6e74bf，尚未因文档提交部署；进一步性能修复和双端真实复测继续。A 文本“待验收”不代表 project 状态已转换，B 仍沿原 Tester 任务完成窄屏与报告，未知审批及旧任务均未批量取消。根文档本次单独提交仅用于纠正安装/部署/验收状态，其他会话未提交内容保留。
+
+
+## integrator：fresh 双端证据与性能缺口（2026-10-11 02:10）
+
+用户已安装并设置密码，无需重复安装。当前 server cf6b5bb（用户 App payload，系统 receipt 仍 3d6b289）、桌面 bdc17cdf、Android 9f9a1cf。服务端 231 项 gateway 回归、Android 73 项共享测试通过；真实运行仍有 30 秒请求超时，不能以单测替代稳定性验收。
+
+原孤立私聊 seq15 已按原消息恢复唯一 run，跨运行 memory_search 返回正确条目，seq16 回复已双端实际查看。A、B 均待验收；B 主 Bot 同 run 纠正 project id 后成功 request_review，旧测试报告退出 PARTIAL 与后续真实页面证据分开保留，未 confirm_done 或批量取消旧任务。
+
+Android 953c53b 已实际输入并看到回显，9f9a1cf 尚未重复此项；native 交还仍未闭环。桌面 AX 加键盘可导航，坐标工具 noWindowsAvailable 及持续画面重绘缺口保留，不能误记锁屏或冻结。定时任务真实 schedule 完成但晚 94.255847 秒，目标通知被后续通知挤出，打开动作未验收；该验收 routine 已禁用。
+
+证据已归档于 docs/progress/S5，S5 未通过，继续修复查询/控制延迟及双端场景。此根文档独立提交仅纠正当前状态；保留其他会话未提交修改，不因文档部署业务组件。
