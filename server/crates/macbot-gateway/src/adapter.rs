@@ -730,6 +730,10 @@ impl ProductionBackend {
                 })
             }
         };
+        // The repair runs during backend construction.  Load the event WAL
+        // once and keep newly repaired events in the same view so each chat
+        // does not decode the complete history again.
+        let mut events = self.store.events_since(0).map_err(store_error)?;
         for entry in entries {
             let entry = entry.map_err(|error| RpcError {
                 code: "internal".into(),
@@ -760,7 +764,6 @@ impl ProductionBackend {
                     latest.insert(id.to_owned(), row);
                 }
             }
-            let events = self.store.events_since(0).map_err(store_error)?;
             for message in latest.into_values() {
                 let Some(id) = message.get("id").and_then(Value::as_str) else {
                     continue;
@@ -789,7 +792,11 @@ impl ProductionBackend {
                         details: None,
                     })?
                 );
-                let _ = self.append_repaired_event(&key, event_name, data)?;
+                if let Some(event) =
+                    self.append_repaired_event_with_events(&key, event_name, data, &events)?
+                {
+                    events.push(event);
+                }
             }
         }
         let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
@@ -816,7 +823,14 @@ impl ProductionBackend {
                         details: None,
                     })?
                 );
-                let _ = self.append_repaired_event(&key, "assignment.created", data)?;
+                if let Some(event) = self.append_repaired_event_with_events(
+                    &key,
+                    "assignment.created",
+                    data,
+                    &events,
+                )? {
+                    events.push(event);
+                }
             }
         }
         Ok(())
@@ -1043,6 +1057,31 @@ impl ProductionBackend {
                 .store
                 .events_since(0)
                 .map_err(store_error)?
+                .iter()
+                .any(|event| event.event == event_name && event.data == data)
+        {
+            return Ok(None);
+        }
+        self.store
+            .append_event_once(key, event_name, data)
+            .map_err(store_error)
+    }
+
+    fn append_repaired_event_with_events(
+        &self,
+        key: &str,
+        event_name: &str,
+        data: Value,
+        events: &[macbot_store::Event],
+    ) -> Result<Option<macbot_store::Event>, RpcError> {
+        // New keyed events can be deduplicated from the in-memory receipt
+        // index. Older releases wrote unkeyed events, so only a fingerprint
+        // hit takes the expensive exact event-log compatibility path.
+        if self.store.has_event_key(key) {
+            return Ok(None);
+        }
+        if self.store.event_payload_might_contain(event_name, &data)
+            && events
                 .iter()
                 .any(|event| event.event == event_name && event.data == data)
         {
@@ -10173,6 +10212,18 @@ mod tests {
         let before = backend.store.events_since(0).unwrap().len();
         assert!(backend
             .append_repaired_event("repair:legacy", "message.created", legacy)
+            .unwrap()
+            .is_none());
+        assert_eq!(backend.store.events_since(0).unwrap().len(), before);
+
+        let cached = backend.store.events_since(0).unwrap();
+        assert!(backend
+            .append_repaired_event_with_events(
+                "repair:legacy-cached",
+                "message.created",
+                json!({"message":{"id":"legacy"}}),
+                &cached,
+            )
             .unwrap()
             .is_none());
         assert_eq!(backend.store.events_since(0).unwrap().len(), before);
