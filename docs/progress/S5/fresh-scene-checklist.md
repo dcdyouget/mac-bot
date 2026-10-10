@@ -1,6 +1,6 @@
 # S5 fresh 场景最短执行清单
 
-状态：执行前清单，不是通过记录。最终候选为server3635008、desktop508f325、Android04b0c3d；包审计通过，fresh尚未开始。以 [fresh-install-plan.md](fresh-install-plan.md) 的固定完整SHA及哈希为准。
+状态：执行前清单，不是通过记录。最终候选为server3635008、desktop508f325、Android04b0c3d；包审计通过，fresh已完成离线备份，正在等待Installer管理员认证。以 [fresh-install-plan.md](fresh-install-plan.md) 的固定完整SHA及哈希为准。
 
 ## 1. 冻结与备份
 

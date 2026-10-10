@@ -1,10 +1,10 @@
 # S5 全新安装演练计划
 
-状态：**未执行，不能计 S5 通过**。S0–S4通过，详见各阶段结论及真实双端证据。旧现场完整，现有仓库外备份目录仍为空。以下版本为本次已审计候选；旧版本及失败证据保留在相应 JSON 和 Git 历史，不再作为安装入口。
+状态：**执行中，等待安装器管理员认证，不能计 S5 通过**。S0–S4通过，详见各阶段结论及真实双端证据。旧现场已离线移动至既定仓库外备份，164个任务哈希核对保持；7788已停止，mock与Android数据保留。以下版本为本次已审计候选；旧版本及失败证据保留在相应 JSON 和 Git 历史，不再作为安装入口。
 
 ## 前置条件与路径
 
-- server：`3635008f6c8c60e9fbd32747e140990496f4d029`，pkg SHA-256 `567810aa9be65737b37870dceeed32cc8cce9b38a59ddede4b4e4407ff7f1e60`。clean archive、dirty=false、daemon/sidecar、LaunchAgent、包 smoke 通过；见 [server-pkg-3635008-verified.json](server-pkg-3635008-verified.json)。当前正式服务已仅服务升级，旧审批/任务保持；pkg尚未安装。
+- server：`3635008f6c8c60e9fbd32747e140990496f4d029`，pkg SHA-256 `567810aa9be65737b37870dceeed32cc8cce9b38a59ddede4b4e4407ff7f1e60`。clean archive、dirty=false、daemon/sidecar、LaunchAgent、包 smoke 通过；见 [server-pkg-3635008-verified.json](server-pkg-3635008-verified.json)。当前正式服务已仅服务升级，旧审批/任务保持；pkg安装器已打开并点击安装，等待用户完成管理员认证；尚未确认安装成功。
 - desktop：`508f325db682ea802386fbc844badf1b44b0a9b0`，DMG SHA-256 `56636f8d8c222e1462bd03973f95eedfe489e5a98a7212e0456e31114017e019`。干净归档实际Release构建、签名/镜像校验通过，已作为普通更新安装；见 [desktop-dmg-508f325-candidate.json](desktop-dmg-508f325-candidate.json)。普通更新不计fresh。
 - Android：`04b0c3d515cabbc55681f1c630b115674c8edb94`，Release APK SHA-256 `245ff19c9a1e94052d9b01a6f25ac31ff865d73ddb7b4044a97af6cb576098da`。同签名install-r普通更新已实看；fresh继续保留应用和数据，只增加新的Host。
 - sidecar：agent-browser 0.39.0。pkg为未签名开发候选，桌面为ad hoc签名；不冒充Developer ID签名公证分发。
@@ -95,4 +95,4 @@ adb -s emulator-5554 shell pm path bot.mac.mobile
 2. 每阶段保存桌面 `screencapture`、Android `adb exec-out screencap -p`、RPC/e2e JSON、source/PID 和实际断言；健康、API、mock 或单张 owner 图不能替代双端联合验收。
 3. S5 通过条件是 pkg 安装、管理页设密码、两端连接、完整场景和截图全部完成。失败时保留新现场和证据；停止新 LaunchAgent 后，从仓库外备份恢复 `~/MacBot`、plist、对应 App 路径和 CLI links，恢复原外部 file secret 目录，Keychain 不变，再核对 source/PID/health。不要清空 Android 数据或密钥，也不要混用新旧数据。
 
-当前状态：S5 fresh install 未执行。当前业务部署不构成 fresh；执行前需冻结最终版本并核对本计划列出的 server pkg，本计划文件本身不构成安装或验收通过。
+当前状态：S5已完成离线备份并准备pkg安装，停在系统管理员认证。用户接手完成后继续核对新home/setup_required、管理页新密码与两端完整场景；本计划不构成验收通过。

@@ -2,9 +2,9 @@
   "created_at": "2026-10-10T13:25:53.410603+00:00",
   "backup_root": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk",
   "mode": "0o700",
-  "status": "prepared_empty_only",
-  "offline_backup_completed": false,
-  "fresh_install_started": false,
+  "status": "awaiting_native_installer_admin_auth",
+  "offline_backup_completed": true,
+  "fresh_install_started": true,
   "new_password_setup": "user handoff required by CUA credential-change rule; no password recorded",
   "preserve": [
     "original external key source",
@@ -25,5 +25,73 @@
   "prepared_empty_client_backup_dirs": [
     "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-client",
     "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-fresh"
-  ]
+  ],
+  "backup_started_at": "2026-10-10T14:39:35.244106+00:00",
+  "moves": [
+    {
+      "source": "/Users/gongshaojie/MacBot",
+      "destination": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/data/MacBot",
+      "state": "moved"
+    },
+    {
+      "source": "/Users/gongshaojie/Applications/MacBotServer.app",
+      "destination": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/user-app/MacBotServer.app",
+      "state": "moved"
+    },
+    {
+      "source": "/Users/gongshaojie/Library/LaunchAgents/com.macbot.server.plist",
+      "destination": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/launchagent/com.macbot.server.plist",
+      "state": "moved"
+    },
+    {
+      "source": "/Users/gongshaojie/Applications/MacBot.app",
+      "destination": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-user/MacBot.app",
+      "state": "moved"
+    },
+    {
+      "source": "/Users/gongshaojie/Library/Application Support/MacBot/hosts.json",
+      "destination": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-client/hosts.json",
+      "state": "moved"
+    },
+    {
+      "source": "/Users/gongshaojie/Library/Application Support/MacBot/hosts.lock",
+      "destination": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-client/hosts.lock",
+      "state": "moved"
+    },
+    {
+      "source": "/Users/gongshaojie/Library/Application Support/MacBot/development-secrets.json",
+      "destination": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-client/development-secrets.json",
+      "state": "moved"
+    },
+    {
+      "source": "/Users/gongshaojie/Library/Application Support/MacBot/local-settings.json",
+      "destination": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-client/local-settings.json",
+      "state": "moved"
+    },
+    {
+      "source": "/Users/gongshaojie/Library/Application Support/MacBot/cache",
+      "destination": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-client/cache",
+      "state": "moved"
+    },
+    {
+      "source": "/Users/gongshaojie/Library/Application Support/MacBot/outbox",
+      "destination": "/Users/gongshaojie/Library/Application Support/MacBot/S5-backup-20261010-gcdb9tuk/desktop-client/outbox",
+      "state": "moved"
+    }
+  ],
+  "bot.mac.integrator.watch_bootout_exit": 0,
+  "com.macbot.server_bootout_exit": 0,
+  "offline_backup_completed_at": "2026-10-10T14:39:35.276435+00:00",
+  "formal_port_closed": true,
+  "mock_preserved": true,
+  "pkg_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-3635008f6c8c60e9fbd32747e140990496f4d029.pkg",
+  "pkg_sha256": "567810aa9be65737b37870dceeed32cc8cce9b38a59ddede4b4e4407ff7f1e60",
+  "installer_opened": true,
+  "installer_install_clicked": true,
+  "pkg_install_completed": false,
+  "offline_job_hashes_verified": 164,
+  "auth_handoff_reason": "CUA rejected com.apple.SecurityAgent: Computer Use is not allowed to use the app for safety reasons.",
+  "installer_screenshot": "fresh-installer-awaiting-auth.png",
+  "installer_screenshot_viewed": true,
+  "updated_at": "2026-10-10T14:41:14.932399+00:00"
 }

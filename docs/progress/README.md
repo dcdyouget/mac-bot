@@ -263,3 +263,6 @@ S0–S3通过，S4尚未整阶段关闭。server90e637a流式读取启动日志�
 
 
 S4最终通过：server3635008补齐内部memory事件的live与replay游标，旧桌面从6387自动显示原等待卡；独立重放无缺口且memory正文未下发。升级前后7pending、164jobs一致。桌面508f325实际Release安装后从原生接管并交还原run，trace297恢复、299工具结束、302 done；两端接管按钮消失，桌面显示已回答，workbench等待归零，仅该job发生预期变化。磁盘cache6411为5秒节流快照，实际落盘早于尾部6412–6415；并非新的live缺口。截图均实看，详见S4/production-508f325-native-takeover.json、stage-conclusion.json。当前S0–S4通过，S5 fresh未开始。冻结候选server3635008/pkg、desktop508f325/DMG、Android04b0c3d/APK；开发签名边界保持。
+
+
+S5已开始：按既定fresh-install-plan退出桌面、bootout已核对的watcher与正式LaunchAgent，7788关闭后一次性离线移动旧home、App、plist及已知桌面配置到原0700备份目录；164个任务哈希与preflight完全一致，旧凭据外部文件、Android数据及mock PID66750保持。已打开固定3635008 pkg并点击安装，CUA拒绝操作com.apple.SecurityAgent，当前需用户在Mac完成系统管理员认证；安装未确认成功，正式服务暂时停机。见S5/fresh-install-journal.json、fresh-preflight.json、fresh-installer-awaiting-auth.png。不得据此计S5通过。
