@@ -46,10 +46,15 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 use thiserror::Error;
-use tokio::sync::{mpsc, Mutex};
 #[cfg(test)]
 use tokio::sync::Notify;
+use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
+
+#[cfg(test)]
+type StartupDispatchGate = Arc<Notify>;
+#[cfg(not(test))]
+type StartupDispatchGate = ();
 
 #[derive(Debug, Error)]
 pub enum RuntimeError {
@@ -109,7 +114,28 @@ impl ComposedBackend {
         state: GatewayState,
         home: impl Into<std::path::PathBuf>,
     ) -> Result<Self, RuntimeError> {
+        Self::open_inner(inner, state, home, None)
+    }
+
+    #[cfg(test)]
+    fn open_with_dispatch_gate(
+        inner: Arc<ProductionBackend>,
+        state: GatewayState,
+        home: impl Into<std::path::PathBuf>,
+        gate: Arc<Notify>,
+    ) -> Result<Self, RuntimeError> {
+        Self::open_inner(inner, state, home, Some(gate))
+    }
+
+    fn open_inner(
+        inner: Arc<ProductionBackend>,
+        state: GatewayState,
+        home: impl Into<std::path::PathBuf>,
+        dispatch_gate: Option<StartupDispatchGate>,
+    ) -> Result<Self, RuntimeError> {
         let home = home.into();
+        #[cfg(not(test))]
+        let _ = dispatch_gate;
         let feature_service = Arc::new(
             FeatureService::with_store(inner.store.clone(), home.clone(), Vec::<PathBuf>::new())
                 .map_err(|error| RuntimeError::Provider(error.to_string()))?,
@@ -142,6 +168,8 @@ impl ComposedBackend {
         // their durable checkpoint with the original run id.
         let recovery = backend.runtime.clone();
         let recovery_backend = backend.clone();
+        #[cfg(test)]
+        let dispatch_gate = dispatch_gate.clone();
         #[cfg(test)]
         let recovery_done = backend.recovery_done.clone();
         #[cfg(test)]
@@ -188,12 +216,20 @@ impl ComposedBackend {
                 }
                 Err(error) => tracing::error!(%error, "durable execution recovery failed"),
             }
+            // Recover an unread private turn immediately after durable jobs
+            // have been claimed.  The remaining startup reconciliation paths
+            // may scan large approval/job sets or dispatch many assignments;
+            // none of those should delay the one-message recovery boundary.
+            recovery_backend.recover_orphan_private_messages().await;
             recovery_backend.recover_invalid_tool_approvals().await;
             recovery_backend.recover_denied_tool_approvals().await;
             recovery_backend.recover_allowed_tool_approvals().await;
             recovery_backend.recover_answered_decisions().await;
+            #[cfg(test)]
+            if let Some(gate) = dispatch_gate {
+                gate.notified().await;
+            }
             recovery_backend.dispatch_ready_assignments().await;
-            recovery_backend.recover_orphan_private_messages().await;
             #[cfg(test)]
             recovery_done.store(true, Ordering::Release);
             #[cfg(test)]
@@ -455,8 +491,8 @@ impl ComposedBackend {
             .filter_map(|entry| {
                 (entry.path().extension().and_then(|x| x.to_str()) == Some("json"))
                     .then(|| {
-                        fs::File::open(entry.path()).ok().and_then(|file| {
-                            serde_json::from_reader::<_, macbot_durable::Job>(file).ok()
+                        fs::read(entry.path()).ok().and_then(|bytes| {
+                            serde_json::from_slice::<macbot_durable::Job>(&bytes).ok()
                         })
                     })
                     .flatten()
@@ -693,8 +729,8 @@ impl ComposedBackend {
             .filter_map(Result::ok)
             .filter_map(|entry| {
                 (entry.path().extension().and_then(|x| x.to_str()) == Some("json")).then(|| {
-                    fs::File::open(entry.path()).ok().and_then(|file| {
-                        serde_json::from_reader::<_, macbot_durable::Job>(file).ok()
+                    fs::read(entry.path()).ok().and_then(|bytes| {
+                        serde_json::from_slice::<macbot_durable::Job>(&bytes).ok()
                     })
                 })
             })
@@ -895,10 +931,10 @@ impl ComposedBackend {
                 if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                     continue;
                 }
-                let Ok(file) = fs::File::open(entry.path()) else {
+                let Ok(bytes) = fs::read(entry.path()) else {
                     continue;
                 };
-                let Ok(job) = serde_json::from_reader::<_, macbot_durable::Job>(file) else {
+                let Ok(job) = serde_json::from_slice::<macbot_durable::Job>(&bytes) else {
                     continue;
                 };
                 let status = match job.status {
@@ -4586,9 +4622,9 @@ impl RuntimeExecution {
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let file = fs::File::open(entry.path())
+            let bytes = fs::read(entry.path())
                 .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
+            let job: macbot_durable::Job = serde_json::from_slice(&bytes).map_err(|error| {
                 RuntimeError::Execution(ExecutionError::Durable(
                     macbot_durable::DurableError::Invalid(error.to_string()),
                 ))
@@ -4868,9 +4904,9 @@ impl RuntimeExecution {
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let file = fs::File::open(entry.path())
+            let bytes = fs::read(entry.path())
                 .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
+            let job: macbot_durable::Job = serde_json::from_slice(&bytes).map_err(|error| {
                 RuntimeError::Execution(ExecutionError::Durable(
                     macbot_durable::DurableError::Invalid(error.to_string()),
                 ))
@@ -5000,9 +5036,9 @@ impl RuntimeExecution {
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let file = fs::File::open(entry.path())
+            let bytes = fs::read(entry.path())
                 .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
+            let job: macbot_durable::Job = serde_json::from_slice(&bytes).map_err(|error| {
                 RuntimeError::Execution(ExecutionError::Durable(
                     macbot_durable::DurableError::Invalid(error.to_string()),
                 ))
@@ -5162,9 +5198,9 @@ impl RuntimeExecution {
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let file = fs::File::open(entry.path())
+            let bytes = fs::read(entry.path())
                 .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
+            let job: macbot_durable::Job = serde_json::from_slice(&bytes).map_err(|error| {
                 RuntimeError::Execution(ExecutionError::Durable(
                     macbot_durable::DurableError::Invalid(error.to_string()),
                 ))
@@ -5254,9 +5290,9 @@ impl RuntimeExecution {
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let file = fs::File::open(entry.path())
+            let bytes = fs::read(entry.path())
                 .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
+            let job: macbot_durable::Job = serde_json::from_slice(&bytes).map_err(|error| {
                 RuntimeError::Execution(ExecutionError::Durable(
                     macbot_durable::DurableError::Invalid(error.to_string()),
                 ))
@@ -5989,8 +6025,8 @@ impl RuntimeExecution {
         let dir = self.home.join("data/run_requests");
         let entries = fs::read_dir(dir).ok()?;
         entries.filter_map(Result::ok).find_map(|entry| {
-            let file = fs::File::open(entry.path()).ok()?;
-            let request = serde_json::from_reader::<_, ExecutionRequest>(file).ok()?;
+            let bytes = fs::read(entry.path()).ok()?;
+            let request = serde_json::from_slice::<ExecutionRequest>(&bytes).ok()?;
             predicate(&request).then_some(request)
         })
     }
@@ -7759,6 +7795,7 @@ mod persistence_tests {
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
     use tempfile::tempdir;
+    use tokio::sync::Notify;
 
     struct TestMaintenance;
 
@@ -8193,9 +8230,14 @@ mod persistence_tests {
                 &json!({"last_read_seq":0}),
             )
             .unwrap();
-        let composed =
-            ComposedBackend::open(backend.clone(), gateway.state.clone(), path.clone()).unwrap();
-        wait_for_startup_recovery(&composed).await;
+        let dispatch_gate = Arc::new(Notify::new());
+        let composed = ComposedBackend::open_with_dispatch_gate(
+            backend.clone(),
+            gateway.state.clone(),
+            path.clone(),
+            dispatch_gate.clone(),
+        )
+        .unwrap();
         let run_id = format!(
             "run_chat_{}",
             message_id
@@ -8219,6 +8261,12 @@ mod persistence_tests {
             .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
             .unwrap()
             .is_some());
+        // The real startup path is held immediately before assignment
+        // dispatch.  Seeing the orphan request first proves this recovery is
+        // independent of that later, potentially slow phase.
+        assert!(!composed.recovery_done.load(Ordering::Acquire));
+        dispatch_gate.notify_waiters();
+        wait_for_startup_recovery(&composed).await;
         // The same recovery pass is idempotent once the request exists.
         composed.recover_orphan_private_messages().await;
         let durable = backend.durable.lock().await;

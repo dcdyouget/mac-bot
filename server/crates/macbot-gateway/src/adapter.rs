@@ -2990,12 +2990,18 @@ impl RpcBackend for ProductionBackend {
             let canonical = self.persist_client_message(&result["message"])?;
             result["message"] = canonical;
         }
-        self.enrich_bot_status(&mut result)
-            .map_err(|message| RpcError {
-                code: "internal".into(),
-                message,
-                details: None,
-            })?;
+        // `bootstrap` already enriches its Bot list before assembling the
+        // complete snapshot. Avoid a second full durable-job walk here: the
+        // generic RPC tail is shared by all methods, but bootstrap is the
+        // main WebSocket handshake and must not pay for the same scan twice.
+        if method != "bootstrap" {
+            self.enrich_bot_status(&mut result)
+                .map_err(|message| RpcError {
+                    code: "internal".into(),
+                    message,
+                    details: None,
+                })?;
+        }
         validate_result(method, &result).map_err(|message| RpcError {
             code: "internal".into(),
             message,
@@ -6106,10 +6112,10 @@ impl ProductionBackend {
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let file = fs::File::open(entry.path()).map_err(|error| error.to_string())?;
-            let job: macbot_durable::Job = serde_json::from_reader(file).map_err(|error| {
-                format!("invalid durable job {}: {error}", entry.path().display())
-            })?;
+            let path = entry.path();
+            let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+            let job: macbot_durable::Job = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("invalid durable job {}: {error}", path.display()))?;
             if job.status != macbot_durable::JobStatus::Running {
                 continue;
             }
