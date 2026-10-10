@@ -368,6 +368,31 @@ fn tab_id<R: macbot_browser::CliRunner>(
 }
 
 fn browser_command(operation: &str, args: &Value) -> Result<(String, Vec<String>), String> {
+    if operation == "browser_nav" {
+        let action = args.get("action").and_then(Value::as_str).unwrap_or("open");
+        return match action {
+            "reload" | "back" | "forward" => {
+                if args.get("url").is_some() || args.get("args").is_some() {
+                    return Err(format!("browser_nav.{action} takes no url or args"));
+                }
+                Ok((action.to_owned(), Vec::new()))
+            }
+            "open" => {
+                let list = args.get("args").and_then(Value::as_array);
+                let url = args.get("url").and_then(Value::as_str);
+                let target = match (url, list) {
+                    (Some(url), None) => Some(url),
+                    (None, Some(items)) if items.len() == 1 => items[0].as_str(),
+                    _ => None,
+                }
+                .filter(|url| !url.trim().is_empty());
+                let target =
+                    target.ok_or("browser_nav.open requires one url or one URL in args")?;
+                Ok(("open".into(), vec![target.to_owned()]))
+            }
+            _ => Err("browser_nav.action must be open, reload, back or forward".into()),
+        };
+    }
     let list = args
         .get("args")
         .and_then(Value::as_array)
@@ -387,7 +412,6 @@ fn browser_command(operation: &str, args: &Value) -> Result<(String, Vec<String>
             .ok_or("browser_act.action is required")?,
         "browser_get" => "get",
         "browser_wait" => "wait",
-        "browser_nav" => "open",
         "browser_eval" => "eval",
         _ => return Err(format!("unsupported browser operation {operation}")),
     };
@@ -1067,6 +1091,10 @@ fn schema(name: &str) -> Value {
             json!({"question":{"type":"string"},"prompt":{"type":"string"}}),
             &["question"],
         ),
+        "browser_nav" => object(
+            json!({"assignment_id":{"type":"string"},"tab_id":{"type":"string"},"url":{"type":"string"},"action":{"type":"string","enum":["open","reload","back","forward"],"description":"Defaults to open, which requires url. reload/back/forward operate on the current task tab and take no url or args."},"args":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":1}}),
+            &[],
+        ),
         _ if name.starts_with("browser_") => object(
             json!({"assignment_id":{"type":"string"},"tab_id":{"type":"string"},"url":{"type":"string"},"action":{"type":"string"},"port":{"type":"integer"},"args":{"type":"array"},"expression":{"type":"string"},"timeout":{"type":"integer"}}),
             &[],
@@ -1363,6 +1391,30 @@ mod tests {
         );
         assert!(browser_command("browser_eval", &json!({})).is_err());
         assert!(browser_command("browser_act", &json!({"action":"click","args":["#go"]})).is_ok());
+        for action in ["reload", "back", "forward"] {
+            assert_eq!(
+                browser_command("browser_nav", &json!({"action":action,"tab_id":"t2"})).unwrap(),
+                (action.into(), vec![])
+            );
+            assert!(browser_command(
+                "browser_nav",
+                &json!({"action":action,"url":"https://example.com"})
+            )
+            .is_err());
+        }
+        assert_eq!(
+            browser_command("browser_nav", &json!({"args":["https://example.com"]})).unwrap(),
+            ("open".into(), vec!["https://example.com".into()])
+        );
+        for invalid in [
+            json!({}),
+            json!({"url":""}),
+            json!({"action":"close"}),
+            json!({"args":[42]}),
+            json!({"action":"reload","args":[]}),
+        ] {
+            assert!(browser_command("browser_nav", &invalid).is_err());
+        }
     }
 
     #[test]
