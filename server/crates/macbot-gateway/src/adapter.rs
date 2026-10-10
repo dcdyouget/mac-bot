@@ -1989,17 +1989,26 @@ impl ProductionBackend {
             }))
             .await?;
         }
+        // Repair from one durable snapshot. Re-reading the complete event log
+        // for every historical notice holds the RPC write lock for O(N * log)
+        // parsing work on each attention tick.
+        let mut assignment_event_ids = HashSet::new();
+        let mut message_event_ids = HashSet::new();
+        for event in self.store.events_since(0).map_err(store_error)? {
+            let target = match event.event.as_str() {
+                "assignment.created" => Some((&mut assignment_event_ids, "assignment")),
+                "message.created" | "message.updated" => Some((&mut message_event_ids, "message")),
+                _ => None,
+            };
+            if let Some((ids, field)) = target {
+                if let Some(id) = event.data[field]["id"].as_str() {
+                    ids.insert(id.to_owned());
+                }
+            }
+        }
         for assignment in created_assignments {
             let assignment_id = assignment.get("id").and_then(Value::as_str).unwrap_or("");
-            let event_exists = self
-                .store
-                .events_since(0)
-                .map_err(store_error)?
-                .into_iter()
-                .any(|event| {
-                    event.event == "assignment.created"
-                        && event.data["assignment"]["id"] == assignment_id
-                });
+            let event_exists = !assignment_event_ids.insert(assignment_id.to_owned());
             if !event_exists {
                 let data = json!({"assignment":assignment});
                 let event = self
@@ -2014,15 +2023,7 @@ impl ProductionBackend {
         let mut emitted_messages = Vec::new();
         for message in canonical_messages.iter() {
             let message_id = message.get("id").and_then(Value::as_str).unwrap_or("");
-            let event_exists = self
-                .store
-                .events_since(0)
-                .map_err(store_error)?
-                .into_iter()
-                .any(|event| {
-                    matches!(event.event.as_str(), "message.created" | "message.updated")
-                        && event.data["message"]["id"] == message_id
-                });
+            let event_exists = !message_event_ids.insert(message_id.to_owned());
             if event_exists {
                 continue;
             }
@@ -8127,6 +8128,59 @@ mod tests {
             .await
             .unwrap();
         assert!(second["notices"].as_array().unwrap().is_empty());
+
+        // A new blocked task must still emit while the same poll repairs and
+        // deduplicates historical notices and their Main follow-up tasks.
+        let another = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project["project"]["id"],
+                    "origin_chat_id":project["project"]["chat_id"],
+                    "bot_id":bot["bot"]["id"],
+                    "title":"Second blocked task",
+                    "instruction":"Wait",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .orchestrator
+            .finish_assignment(another["id"].as_str().unwrap(), "blocked")
+            .unwrap();
+        let next = backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        assert_eq!(next["notices"].as_array().unwrap().len(), 1);
+        assert_ne!(next["notices"][0]["id"], refreshed["notices"][0]["id"]);
+        let seq = backend.store.last_event_seq().unwrap();
+        backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        assert_eq!(backend.store.last_event_seq().unwrap(), seq);
+        let events = backend.store.events_since(0).unwrap();
+        for message in [&refreshed["notices"][0], &next["notices"][0]] {
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| event.event == "message.created"
+                        && event.data["message"]["id"] == message["id"])
+                    .count(),
+                1
+            );
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| event.event == "assignment.created"
+                        && event.data["assignment"]["trigger_message_id"] == message["id"])
+                    .count(),
+                1
+            );
+        }
     }
 
     #[tokio::test]
