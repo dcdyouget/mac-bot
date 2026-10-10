@@ -561,3 +561,10 @@ S0–S4现已通过。server3635008修复memory持久事件未广播导致的全
 最终fresh候选：server3635008/pkg、desktop508f325/DMG、Android04b0c3d/同签名APK，包审计通过。S5尚未开始，下一步离线可逆备份、pkg安装、管理页首次密码及双端完整场景；具体认证/新密码步骤由用户按工具规则接手。根文档其他会话未提交内容和design目录保持，旧凭据及Android数据保留。详见docs/progress/S4/stage-conclusion.json与S5/fresh-install-plan.md。
 
 根协调独立提交理由：纠正前次中间候选和待修结论，记录真实双端验收与明确fresh门槛；文档提交不触发业务组件部署。
+
+
+## integrator：S5离线备份与安装器交接（2026-10-10）
+
+S5已开始，未通过：旧home、开发App、plist、桌面配置已一次性离线移动到既定0700备份目录，164个job哈希核对保持，旧外部凭据、Android数据、mock保持。正式7788当前停机。固定3635008 pkg已在Installer打开并点击安装，但CUA明确拒绝操作com.apple.SecurityAgent，需要用户在Mac完成管理员认证；尚未确认pkg安装成功。随后继续新home/setup_required、管理页新密码和双端完整场景，不回退为仅包校验通过。详见docs/progress/S5/fresh-install-journal.json。
+
+根协调独立提交理由：记录已发生的可逆离线移动和当前具体系统认证阻塞，避免沿用“fresh未开始、服务在线”的过时状态；保留其他会话改动。
