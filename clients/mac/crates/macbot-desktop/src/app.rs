@@ -111,7 +111,7 @@ pub struct MacBot {
     reply_to: Option<String>,
     changes_project: Option<String>,
     attachments: Vec<String>,
-    message_virtual_scroll: gpui_kit::base::VirtualListScrollHandle,
+    message_virtual_scroll: gpui_kit::gpui::ListState,
     image_cache: BTreeMap<String, std::sync::Arc<Image>>,
     image_loading: std::collections::BTreeSet<String>,
 }
@@ -232,7 +232,11 @@ impl MacBot {
             reply_to: None,
             changes_project: None,
             attachments: vec![],
-            message_virtual_scroll: gpui_kit::base::VirtualListScrollHandle::new(),
+            message_virtual_scroll: gpui_kit::gpui::ListState::new(
+                0,
+                gpui_kit::gpui::ListAlignment::Top,
+                px(300.),
+            ),
             image_cache: BTreeMap::new(),
             image_loading: std::collections::BTreeSet::new(),
         };

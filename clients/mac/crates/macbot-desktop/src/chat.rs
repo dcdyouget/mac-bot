@@ -1,9 +1,7 @@
 use super::*;
-use std::collections::BTreeMap;
-use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui_kit::base::v_virtual_list;
+use gpui_kit::gpui::list;
 use gpui_kit::prelude::FluentBuilder;
 
 #[cfg(test)]
@@ -63,11 +61,9 @@ pub(super) struct MessageListCache {
     chat_id: String,
     signature: u64,
     keys: Vec<MessageKey>,
-    sizes: Vec<gpui_kit::gpui::Size<gpui_kit::gpui::Pixels>>,
-    measured: BTreeMap<String, (f32, gpui_kit::gpui::Pixels)>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 enum MessageKey {
     Stored(String),
     Pending(String),
@@ -107,35 +103,12 @@ impl MessageListCache {
         }
     }
 
-    fn set_measured(&mut self, key: &str, width: f32, height: gpui_kit::gpui::Pixels) -> bool {
-        if width <= 0.0 || height.as_f32() <= 0.0 {
-            return false;
-        }
-        let changed = self
-            .measured
-            .get(key)
-            .map(|(old_width, old_height)| (old_width - width).abs() > 0.5 || *old_height != height)
-            .unwrap_or(true);
-        if !changed {
-            return false;
-        }
-        self.measured.insert(key.to_owned(), (width, height));
-        if let Some(index) = self
-            .keys
-            .iter()
-            .position(|candidate| Self::key_id(candidate) == key)
-        {
-            self.sizes[index] = size(px(1.0), height);
-        }
-        true
-    }
-
     fn refresh(&mut self, view: &MacBot) {
         let signature = message_list_signature(view);
         if self.chat_id == view.selected_chat && self.signature == signature {
             return;
         }
-        self.measured.clear();
+        let previous_keys = std::mem::take(&mut self.keys);
         let mut entries = view
             .state
             .messages
@@ -160,24 +133,23 @@ impl MessageListCache {
         );
         entries.sort_by_key(|(seq, key)| (*seq, matches!(key, MessageKey::Pending(_))));
         self.keys = entries.into_iter().map(|(_, key)| key).collect();
-        self.sizes = self
-            .keys
-            .iter()
-            .enumerate()
-            .map(|(index, key)| {
-                let message = list_message(view, key).unwrap_or(Value::Null);
-                let merged = index
-                    .checked_sub(1)
-                    .and_then(|previous| self.keys.get(previous))
-                    .and_then(|previous| list_message(view, previous))
-                    .is_some_and(|previous| merges_bot_identity(&previous, &message));
-                let delta = match key {
-                    MessageKey::Stored(id) => view.state.message_deltas.get(id).map(String::as_str),
-                    MessageKey::Pending(_) => None,
-                };
-                message_height(&message, delta, merged)
-            })
-            .collect();
+        let scroll = &view.message_virtual_scroll;
+        if self.chat_id != view.selected_chat {
+            scroll.reset(self.keys.len());
+        } else if self.keys != previous_keys {
+            if self.keys.starts_with(&previous_keys) {
+                scroll.splice(
+                    previous_keys.len()..previous_keys.len(),
+                    self.keys.len() - previous_keys.len(),
+                );
+            } else if self.keys.ends_with(&previous_keys) {
+                scroll.splice(0..0, self.keys.len() - previous_keys.len());
+            } else {
+                scroll.reset(self.keys.len());
+            }
+        }
+        // Streaming text, edited blocks, and merged identities can change height.
+        scroll.remeasure();
         self.chat_id = view.selected_chat.clone();
         self.signature = signature;
     }
@@ -220,34 +192,6 @@ fn hash_text(text: &str) -> u64 {
         .fold(14_695_981_039_346_656_037u64, |hash, byte| {
             (hash ^ u64::from(*byte)).wrapping_mul(1_099_511_628_211)
         })
-}
-
-fn message_height(
-    message: &Value,
-    delta: Option<&str>,
-    merged_identity: bool,
-) -> gpui_kit::gpui::Size<gpui_kit::gpui::Pixels> {
-    let text = delta
-        .filter(|delta| !delta.is_empty())
-        .or_else(|| (!s(message, "fallback_text").is_empty()).then(|| s(message, "fallback_text")))
-        .or_else(|| (!s(message, "text").is_empty()).then(|| s(message, "text")))
-        .unwrap_or("")
-        .chars()
-        .count();
-    let block_height: f32 = arr(message, "blocks")
-        .iter()
-        .map(|block| match s(block, "type") {
-            "image" => 304.0,
-            "project_card" | "review_card" => 148.0,
-            "completion" => 112.0 + arr(block, "artifacts").len() as f32 * 42.0,
-            "approval" | "question" => 132.0,
-            "task_card" | "delegation" | "takeover_request" => 76.0,
-            _ => 44.0,
-        })
-        .sum();
-    let lines = (text as f32 / 64.0).ceil().clamp(1.0, 24.0);
-    let identity_height = if merged_identity { 56.0 } else { 72.0 };
-    size(px(1.0), px(identity_height + lines * 18.0 + block_height))
 }
 
 fn message_display_text(message: &Value) -> &str {
@@ -496,67 +440,38 @@ impl MacBot {
         let mut message_cache = std::mem::take(&mut self.message_list_cache);
         message_cache.refresh(self);
         let message_count = message_cache.keys.len();
-        let keys = Rc::new(message_cache.keys.clone());
-        let sizes = Rc::new(message_cache.sizes.clone());
         self.message_list_cache = message_cache;
         let view_entity = cx.entity();
         if self.message_following {
-            self.message_virtual_scroll.scroll_to_bottom();
+            self.message_virtual_scroll.scroll_to_end();
         }
-        let list = v_virtual_list(
-            cx.entity(),
-            "messages-virtual-list",
-            sizes,
-            move |view, range, _, cx| {
-                let visible_messages = range
-                    .filter_map(|index| keys.get(index).map(|key| (index, key)))
-                    .filter_map(|(index, key)| {
-                        list_message(view, key).map(|message| {
-                            let merged = index
-                                .checked_sub(1)
-                                .and_then(|previous| keys.get(previous))
-                                .and_then(|previous| list_message(view, previous))
-                                .is_some_and(|previous| merges_bot_identity(&previous, &message));
-                            (MessageListCache::key_id(key), message, merged)
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                visible_messages
-                    .into_iter()
-                    .map(|(cache_key, message, merged_identity)| {
-                        let row = view.message_row(&message, merged_identity, cx);
-                        let entity = view_entity.clone();
-                        let row_id = SharedString::from(format!("message-row-{cache_key}"));
-                        div()
-                            .on_children_prepainted(move |bounds, _, cx| {
-                                let Some(bounds) = bounds.first().copied() else {
-                                    return;
-                                };
-                                let width = bounds.size.width.as_f32();
-                                let height = bounds.size.height;
-                                let cache_key = cache_key.clone();
-                                let entity = entity.clone();
-                                cx.defer(move |cx| {
-                                    entity.update(cx, |view, cx| {
-                                        if view
-                                            .message_list_cache
-                                            .set_measured(&cache_key, width, height)
-                                        {
-                                            cx.notify();
-                                        }
-                                    });
-                                });
-                            })
-                            .id(row_id)
-                            .child(row)
-                            .into_any_element()
-                    })
-                    .collect::<Vec<_>>()
-            },
-        )
-        .track_scroll(&self.message_virtual_scroll);
+        let list = list(self.message_virtual_scroll.clone(), move |index, _, cx| {
+            view_entity.update(cx, |view, cx| {
+                let keys = &view.message_list_cache.keys;
+                let key = &keys[index];
+                let message = list_message(view, key).unwrap_or(Value::Null);
+                let merged = index
+                    .checked_sub(1)
+                    .and_then(|previous| keys.get(previous))
+                    .and_then(|previous| list_message(view, previous))
+                    .is_some_and(|previous| merges_bot_identity(&previous, &message));
+                let row_id =
+                    SharedString::from(format!("message-row-{}", MessageListCache::key_id(key)));
+                div()
+                    .id(row_id)
+                    .w_full()
+                    .min_w_0()
+                    .child(view.message_row(&message, merged, cx))
+                    .into_any_element()
+            })
+        })
+        .w_full()
+        .flex_1()
+        .min_h_0();
         let mut contents = div()
             .id("messages")
+            .flex()
+            .flex_col()
             .flex_1()
             .min_h_0()
             .px_6()
@@ -601,7 +516,7 @@ impl MacBot {
                     .label(chat_tr("chat.follow_latest"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.message_following = true;
-                        this.message_virtual_scroll.scroll_to_bottom();
+                        this.message_virtual_scroll.scroll_to_end();
                         cx.notify();
                     })),
             );
