@@ -1,0 +1,17 @@
+{
+  "at_epoch": 1791634486.036156,
+  "source": "be64802cd08a1401d1ba0ee9e5bae4bee6dd7f43",
+  "service": {
+    "pid": 6301,
+    "listener_pids": [
+      6301
+    ],
+    "executable": "macbotd",
+    "label": "com.macbot.server",
+    "port": 7788
+  },
+  "old_job_count": 155,
+  "changed_jobs": [],
+  "old_pending_count": 8,
+  "missing_pending": []
+}

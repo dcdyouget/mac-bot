@@ -1,0 +1,965 @@
+{
+  "user_authorization": "允许 你继续吧 — consent to exact five historical branches and both project completions",
+  "at_epoch": 1791633875.067057,
+  "projects": [
+    {
+      "before": {
+        "announcement": {
+          "artifacts": [
+            {
+              "assignment_id": "01a123eb-f9af-73b6-a4e4-c704b0084984",
+              "bot_id": "main",
+              "created_at": "2026-10-10T03:48:35.089217+00:00",
+              "id": "01a123ed-4691-73fe-bb3f-f04a1ffbfa5d",
+              "kind": "file",
+              "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/TEST-index-browser.md",
+              "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+              "title": "实际浏览器测试报告",
+              "updated_at": "2026-10-10T03:48:35.089217+00:00"
+            },
+            {
+              "assignment_id": "01a123eb-f9af-73b6-a4e4-c704b0084984",
+              "bot_id": "main",
+              "created_at": "2026-10-10T03:48:35.089205+00:00",
+              "id": "01a123ed-4691-73fe-bb3f-f0495d1dd3ad",
+              "kind": "file",
+              "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/index.html",
+              "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+              "title": "登录演示 index.html",
+              "updated_at": "2026-10-10T03:48:35.089205+00:00"
+            }
+          ],
+          "highlights": [
+            {
+              "at": "2026-10-09T19:53:38.590092+00:00",
+              "text": "## 📋 Decision Question\n\n**项目**: macbot-e2e-s2-login-522c6b619b92\n\n**问题**: macbot-e2e-s2-login-522c6b619b92 项目的登录方式选择？\n\n- **选项 1**: 只做邮箱登录\n- **选项 2**: 改为手机登录"
+            }
+          ],
+          "members": [
+            {
+              "bot_id": "main",
+              "current_assignment_id": "01a123eb-f9af-73b6-a4e4-c704b0084984",
+              "role_note": "",
+              "since": "2026-10-10T03:47:09.871273+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "current_assignment_id": "01a122c2-0db5-7654-8a26-6f24a57954ec",
+              "role_note": "",
+              "since": "2026-10-09T22:21:45.269909+00:00",
+              "state": "waiting_user"
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "current_assignment_id": "01a1228c-8733-71ab-896e-48c420ed1b73",
+              "role_note": "",
+              "since": "2026-10-09T21:26:52.254898+00:00",
+              "state": "waiting_user"
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "current_assignment_id": "01a123d4-f6d9-77ce-ae3a-6107b0b59654",
+              "role_note": "",
+              "since": "2026-10-10T03:22:01.817466+00:00",
+              "state": "done"
+            }
+          ],
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "updated_at": "2026-10-10T12:04:35.514388+00:00"
+        },
+        "project": {
+          "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "created_at": "2026-10-09T19:49:17.124793+00:00",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": null,
+          "done_at": null,
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "完成本地邮箱登录 demo，目标必须包含 macbot-e2e-s2-login-522c6b619b92 和邮箱登录",
+          "home_path": "~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/",
+          "id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "lead_bot_id": "main",
+          "members": [
+            {
+              "bot_id": "main",
+              "joined_at": "2026-10-09T19:49:17.124772+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "joined_at": "2026-10-09T19:49:17.124779+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "joined_at": "2026-10-09T19:49:17.124780+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "joined_at": "2026-10-09T19:49:17.124781+00:00",
+              "role_note": ""
+            }
+          ],
+          "name": "macbot-e2e-s2-login-522c6b619b92-登录功能",
+          "slug": "macbot-e2e-s2-login-522c6b619b92",
+          "status": "review",
+          "updated_at": "2026-10-10T03:45:15.166402+00:00"
+        }
+      },
+      "old_assignments": [
+        {
+          "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+          "created_at": "2026-10-09T22:21:45.269909+00:00",
+          "finished_at": null,
+          "from": {
+            "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+            "kind": "bot"
+          },
+          "id": "01a122c2-0db5-7654-8a26-6f24a57954ec",
+          "instruction": "## ✅ 测试验收完成\n\n**项目**: macbot-e2e-s2-login-522c6b619b92-登录功能\n**Marker**: macbot-e2e-s2-single-e75835553869\n\n### 测试结果（7/7 通过 ✅）\n\n| 验收项 | 状态 |\n|--------|------|\n| 1. 能够使用邮箱和密码成功登录 | ✅ 通过 |\n| 2. 登录失败时显示错误提示 | ✅ 通过 |\n| 3. 邮箱格式验证正常工作 | ✅ 通过 |\n| 4. 登录状态在页面刷新后保持 | ✅ 通过 |\n| 5. 退出登录功能正常 | ✅ 通过 |\n| 6. 密码显示/隐藏功能 | ✅ 通过 |\n| 7. 手机窄屏布局(375px) | ✅ 通过 |\n\n### 产物确认\n- **测试报告**: /Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/TEST.md\n- **登录页面**: /Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/login.html\n\n### Bot 状态\n- ✅ 产品 Bot: 已完成\n- ✅ 编码 Bot: 已完成\n- ✅ 测试 Bot: 已完成\n\n---\n🎯 项目完结",
+          "loop_hops": 3,
+          "model": "",
+          "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "parent_assignment_id": "01a122c0-36f0-77c7-8d76-d6371993b954",
+          "priority": 2,
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "queue_reason": null,
+          "result_message_id": null,
+          "root_message_id": "01a122bf-83fb-7176-be37-ddb1f301da30",
+          "started_at": "2026-10-09T22:21:45.269909+00:00",
+          "status": "waiting_user",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "交接：done",
+          "trigger_message_id": "01a122c2-0db5-7654-8a26-6f234b47f035",
+          "usage": {
+            "cache_read_tokens": 28219,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 59364,
+            "output_tokens": 1327,
+            "requests": 0
+          },
+          "wait": {
+            "message_id": null,
+            "reason": "approval"
+          }
+        },
+        {
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "created_at": "2026-10-09T21:23:17.427779+00:00",
+          "finished_at": null,
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "id": "01a1228c-8733-71ab-896e-48c420ed1b73",
+          "instruction": "## 📋 编码 Bot 任务进度确认\n\n**项目**: macbot-e2e-s2-login-522c6b619b92-登录功能\n\n@01a120c6-2f4f-7073-aeb4-b099cc363ecd 请确认当前状态：\n\n### 任务要求\n在项目 Home 目录 `~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/` 内创建 index.html\n\n### 验证标准\n- ✅ 只做邮箱登录\n- ✅ 静态 HTML + JavaScript 实现\n- ✅ 登录验证：demo@example.com / demo123\n- ✅ 包含邮箱格式验证、localStorage 状态保持、退出登录功能\n\n### 请回复\n1. **index.html 是否已创建完成？**\n2. **如已完成**：请通过 send_msg(done) 提交完成报告\n3. **如未完成**：请说明当前进度或阻碍\n\n---\n🎯 等待编码 Bot 确认完成状态",
+          "loop_hops": 4,
+          "model": "",
+          "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "parent_assignment_id": "01a1228b-de43-75ba-81f6-e92780923066",
+          "priority": 2,
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "queue_reason": null,
+          "result_message_id": null,
+          "root_message_id": "01a1226f-17ac-73b4-8b13-a7e15e0cb5fc",
+          "started_at": "2026-10-09T21:26:52.254898+00:00",
+          "status": "waiting_user",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "交接：progress",
+          "trigger_message_id": "01a1228c-8733-71ab-896e-48c3957bf1e0",
+          "usage": {
+            "cache_read_tokens": 19254,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 36939,
+            "output_tokens": 2927,
+            "requests": 0
+          },
+          "wait": {
+            "message_id": null,
+            "reason": "approval"
+          }
+        },
+        {
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "created_at": "2026-10-09T21:23:02.578150+00:00",
+          "finished_at": null,
+          "from": {
+            "bot_id": "main",
+            "kind": "bot"
+          },
+          "id": "01a1228c-4d32-73f5-9885-4bc1b63a2793",
+          "instruction": "## 📊 项目进展报告 - macbot-e2e-s2-followup-d049cacfb8b3\n\n**项目**: macbot-e2e-s2-login-522c6b619b92-登录功能\n\n### 当前状态\n\n| 阶段 | Bot | 状态 |\n|------|-----|------|\n| 产品 | @01a120c6-2f16-7706-b1c5-e0db4d7acd30 | ✅ 已完成 |\n| 编码 | @01a120c6-2f4f-7073-aeb4-b099cc363ecd | ⚠️ 待提交完成报告 |\n| 测试 | @01a120c6-2f8b-7045-aeb6-621e949e22ac | ⏳ 待进行 |\n\n### 项目信息\n- **目标**: 完成本地邮箱登录 demo\n- **登录方式**: 只做邮箱登录\n- **项目 Home**: ~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/\n- **测试账号**: demo@example.com / demo123\n\n### 待办事项\n- [ ] 编码 Bot 提交完成报告（包含 index.html 创建确认）\n- [ ] 测试 Bot 验证功能\n\n### 下一步\n编码 Bot 完成后 → 测试 Bot 验证 → 项目完结",
+          "loop_hops": 4,
+          "model": "",
+          "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "parent_assignment_id": "01a1228b-de43-75ba-81f6-e92780923066",
+          "priority": 2,
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "queue_reason": null,
+          "result_message_id": null,
+          "root_message_id": "01a1226f-17ac-73b4-8b13-a7e15e0cb5fc",
+          "started_at": "2026-10-09T21:25:57.921981+00:00",
+          "status": "waiting_user",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "交接：progress",
+          "trigger_message_id": "01a1228c-4d32-73f5-9885-4bc097d90f0d",
+          "usage": {
+            "cache_read_tokens": 17915,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 35361,
+            "output_tokens": 1110,
+            "requests": 0
+          },
+          "wait": {
+            "message_id": null,
+            "reason": "approval"
+          }
+        },
+        {
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "created_at": "2026-10-09T21:22:00.807616+00:00",
+          "finished_at": null,
+          "from": {
+            "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+            "kind": "bot"
+          },
+          "id": "01a1228b-5be7-71a6-b74c-eac711044256",
+          "instruction": "## 🚀 编码 Bot 任务启动\n\n**项目**: macbot-e2e-s2-login-522c6b619b92-登录功能\n\n**项目 Home**: ~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/\n\n### 任务要求\n\n请在项目 Home 目录内创建 index.html，实现本地邮箱登录 demo。\n\n**要求**:\n1. 只做邮箱登录（不要手机登录）\n2. 使用静态 HTML + JavaScript 实现，无需后端服务\n3. 登录验证使用前端模拟（邮箱: demo@example.com，密码: demo123）\n4. 包含邮箱格式验证、登录状态 localStorage 保持、退出登录功能\n5. 不启动网络服务，不访问外部网站\n6. 不执行 git commit/push 或部署\n\n### 验收后提交\n\n完成后通过 send_msg(done) 报告完成状态。",
+          "loop_hops": 3,
+          "model": "",
+          "origin_chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "parent_assignment_id": "01a12270-28d5-71a6-a556-bceb50376cb9",
+          "priority": 2,
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "queue_reason": null,
+          "result_message_id": null,
+          "root_message_id": "01a1226f-17ac-73b4-8b13-a7e15e0cb5fc",
+          "started_at": "2026-10-09T21:23:17.427785+00:00",
+          "status": "waiting_user",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "交接：progress",
+          "trigger_message_id": "01a1228b-5be7-71a6-b74c-eac6169533a8",
+          "usage": {
+            "cache_read_tokens": 17910,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 33059,
+            "output_tokens": 2678,
+            "requests": 0
+          },
+          "wait": {
+            "message_id": null,
+            "reason": "approval"
+          }
+        }
+      ],
+      "params": {
+        "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+        "client_request_id": "c223f7a4-787c-44b2-96a2-6734dee63407"
+      },
+      "same_uuid_retry_intent_at_epoch": 1791634032.0319948,
+      "retry_error": "RpcError",
+      "retry_elapsed_seconds": 3.96,
+      "after_retry_readonly": {
+        "announcement": {
+          "artifacts": [
+            {
+              "assignment_id": "01a123eb-f9af-73b6-a4e4-c704b0084984",
+              "bot_id": "main",
+              "created_at": "2026-10-10T03:48:35.089217+00:00",
+              "id": "01a123ed-4691-73fe-bb3f-f04a1ffbfa5d",
+              "kind": "file",
+              "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/TEST-index-browser.md",
+              "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+              "title": "实际浏览器测试报告",
+              "updated_at": "2026-10-10T03:48:35.089217+00:00"
+            },
+            {
+              "assignment_id": "01a123eb-f9af-73b6-a4e4-c704b0084984",
+              "bot_id": "main",
+              "created_at": "2026-10-10T03:48:35.089205+00:00",
+              "id": "01a123ed-4691-73fe-bb3f-f0495d1dd3ad",
+              "kind": "file",
+              "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/index.html",
+              "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+              "title": "登录演示 index.html",
+              "updated_at": "2026-10-10T03:48:35.089205+00:00"
+            }
+          ],
+          "highlights": [
+            {
+              "at": "2026-10-09T19:53:38.590092+00:00",
+              "text": "## 📋 Decision Question\n\n**项目**: macbot-e2e-s2-login-522c6b619b92\n\n**问题**: macbot-e2e-s2-login-522c6b619b92 项目的登录方式选择？\n\n- **选项 1**: 只做邮箱登录\n- **选项 2**: 改为手机登录"
+            }
+          ],
+          "members": [
+            {
+              "bot_id": "main",
+              "current_assignment_id": "01a123eb-f9af-73b6-a4e4-c704b0084984",
+              "role_note": "",
+              "since": "2026-10-10T03:47:09.871273+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "current_assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+              "role_note": "",
+              "since": "2026-10-09T19:49:25.257597+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "current_assignment_id": "01a122c2-0db5-7654-8a26-6f257f84dc37",
+              "role_note": "",
+              "since": "2026-10-09T22:32:43.489063+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "current_assignment_id": "01a123d4-f6d9-77ce-ae3a-6107b0b59654",
+              "role_note": "",
+              "since": "2026-10-10T03:22:01.817466+00:00",
+              "state": "done"
+            }
+          ],
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "updated_at": "2026-10-10T12:07:42.960314+00:00"
+        },
+        "project": {
+          "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "created_at": "2026-10-09T19:49:17.124793+00:00",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": null,
+          "done_at": null,
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "完成本地邮箱登录 demo，目标必须包含 macbot-e2e-s2-login-522c6b619b92 和邮箱登录",
+          "home_path": "~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/",
+          "id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "lead_bot_id": "main",
+          "members": [
+            {
+              "bot_id": "main",
+              "joined_at": "2026-10-09T19:49:17.124772+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "joined_at": "2026-10-09T19:49:17.124779+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "joined_at": "2026-10-09T19:49:17.124780+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "joined_at": "2026-10-09T19:49:17.124781+00:00",
+              "role_note": ""
+            }
+          ],
+          "name": "macbot-e2e-s2-login-522c6b619b92-登录功能",
+          "slug": "macbot-e2e-s2-login-522c6b619b92",
+          "status": "review",
+          "updated_at": "2026-10-10T03:45:15.166402+00:00"
+        }
+      },
+      "remaining_after_retry": {
+        "items": [],
+        "next_cursor": null
+      },
+      "rpc_error_detail": {
+        "code": "internal",
+        "details": {
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "summary": "项目：macbot-e2e-s2-login-522c6b619b92-登录功能\n目标：完成本地邮箱登录 demo，目标必须包含 macbot-e2e-s2-login-522c6b619b92 和邮箱登录\n产物：实际浏览器测试报告 (/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/TEST-index-browser.md)、登录演示 index.html (/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/index.html)\n进展：## 📋 Decision Question\n\n**项目**: macbot-e2e-s2-login-522c6b619b92\n\n**问题**: macbot-e2e-s2-login-522c6b619b92 项目的登录方式选择？\n\n- **选项 1**: 只做邮箱登录\n- **选项 2**: 改为手机登录"
+        },
+        "message": "项目确认前总结写入失败：memory: memory quota exceeded for bot:main: 1430 + 465 > 1500 characters"
+      },
+      "fixed_retry_intent_at_epoch": 1791634486.110681,
+      "result": {
+        "project": {
+          "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "created_at": "2026-10-09T19:49:17.124793+00:00",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": null,
+          "done_at": "2026-10-10T12:14:46.152343+00:00",
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "完成本地邮箱登录 demo，目标必须包含 macbot-e2e-s2-login-522c6b619b92 和邮箱登录",
+          "home_path": "~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/",
+          "id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "lead_bot_id": "main",
+          "members": [
+            {
+              "bot_id": "main",
+              "joined_at": "2026-10-09T19:49:17.124772+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "joined_at": "2026-10-09T19:49:17.124779+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "joined_at": "2026-10-09T19:49:17.124780+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "joined_at": "2026-10-09T19:49:17.124781+00:00",
+              "role_note": ""
+            }
+          ],
+          "name": "macbot-e2e-s2-login-522c6b619b92-登录功能",
+          "slug": "macbot-e2e-s2-login-522c6b619b92",
+          "status": "done",
+          "updated_at": "2026-10-10T12:14:46.152343+00:00"
+        }
+      },
+      "fixed_elapsed_seconds": 0.434,
+      "final_readonly": {
+        "announcement": {
+          "artifacts": [
+            {
+              "assignment_id": "01a123eb-f9af-73b6-a4e4-c704b0084984",
+              "bot_id": "main",
+              "created_at": "2026-10-10T03:48:35.089217+00:00",
+              "id": "01a123ed-4691-73fe-bb3f-f04a1ffbfa5d",
+              "kind": "file",
+              "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/TEST-index-browser.md",
+              "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+              "title": "实际浏览器测试报告",
+              "updated_at": "2026-10-10T03:48:35.089217+00:00"
+            },
+            {
+              "assignment_id": "01a123eb-f9af-73b6-a4e4-c704b0084984",
+              "bot_id": "main",
+              "created_at": "2026-10-10T03:48:35.089205+00:00",
+              "id": "01a123ed-4691-73fe-bb3f-f0495d1dd3ad",
+              "kind": "file",
+              "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/index.html",
+              "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+              "title": "登录演示 index.html",
+              "updated_at": "2026-10-10T03:48:35.089205+00:00"
+            }
+          ],
+          "highlights": [
+            {
+              "at": "2026-10-09T19:53:38.590092+00:00",
+              "text": "## 📋 Decision Question\n\n**项目**: macbot-e2e-s2-login-522c6b619b92\n\n**问题**: macbot-e2e-s2-login-522c6b619b92 项目的登录方式选择？\n\n- **选项 1**: 只做邮箱登录\n- **选项 2**: 改为手机登录"
+            }
+          ],
+          "members": [
+            {
+              "bot_id": "main",
+              "current_assignment_id": "01a123eb-f9af-73b6-a4e4-c704b0084984",
+              "role_note": "",
+              "since": "2026-10-10T03:47:09.871273+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "current_assignment_id": "01a12236-9689-7737-b4fe-3abf79fd6f60",
+              "role_note": "",
+              "since": "2026-10-09T19:49:25.257597+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "current_assignment_id": "01a122c2-0db5-7654-8a26-6f257f84dc37",
+              "role_note": "",
+              "since": "2026-10-09T22:32:43.489063+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "current_assignment_id": "01a123d4-f6d9-77ce-ae3a-6107b0b59654",
+              "role_note": "",
+              "since": "2026-10-10T03:22:01.817466+00:00",
+              "state": "done"
+            }
+          ],
+          "project_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "updated_at": "2026-10-10T12:15:58.443204+00:00"
+        },
+        "project": {
+          "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+          "created_at": "2026-10-09T19:49:17.124793+00:00",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": null,
+          "done_at": "2026-10-10T12:14:46.152343+00:00",
+          "flow": [
+            "产品",
+            "编码",
+            "测试"
+          ],
+          "goal": "完成本地邮箱登录 demo，目标必须包含 macbot-e2e-s2-login-522c6b619b92 和邮箱登录",
+          "home_path": "~/MacBot/projects/macbot-e2e-s2-login-522c6b619b92/",
+          "id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+          "lead_bot_id": "main",
+          "members": [
+            {
+              "bot_id": "main",
+              "joined_at": "2026-10-09T19:49:17.124772+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "joined_at": "2026-10-09T19:49:17.124779+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "joined_at": "2026-10-09T19:49:17.124780+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "joined_at": "2026-10-09T19:49:17.124781+00:00",
+              "role_note": ""
+            }
+          ],
+          "name": "macbot-e2e-s2-login-522c6b619b92-登录功能",
+          "slug": "macbot-e2e-s2-login-522c6b619b92",
+          "status": "done",
+          "updated_at": "2026-10-10T12:14:46.152343+00:00"
+        }
+      }
+    },
+    {
+      "before": {
+        "announcement": {
+          "artifacts": [
+            {
+              "assignment_id": "01a12494-89f4-7398-a2fe-a0a39213a43d",
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "created_at": "2026-10-10T06:52:26.595703+00:00",
+              "id": "01a12495-9a63-7051-a633-7506f678b478",
+              "kind": "file",
+              "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/TEST-browser.md",
+              "project_id": "01a12236-b308-7080-9877-6fc078239999",
+              "title": "真实浏览器报告（含未测项）",
+              "updated_at": "2026-10-10T06:52:26.595703+00:00"
+            },
+            {
+              "assignment_id": "01a12494-89f4-7398-a2fe-a0a39213a43d",
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "created_at": "2026-10-10T06:52:26.595698+00:00",
+              "id": "01a12495-9a63-7051-a633-7505a6efc754",
+              "kind": "file",
+              "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/login.html",
+              "project_id": "01a12236-b308-7080-9877-6fc078239999",
+              "title": "本地登录演示",
+              "updated_at": "2026-10-10T06:52:26.595698+00:00"
+            }
+          ],
+          "highlights": [
+            {
+              "at": "2026-10-10T02:49:51.109234+00:00",
+              "text": "## ⚠️ 测试阶段受阻 - 需要协助\n\n**项目**: macbot-e2e-s2-parallel-fc45ecd3b62c 邮箱登录功能 - 本地 demo\n\n### 当前状态\n\n| 阶段 | 状态 | Bot |\n|------|------|-----|\n| 产品 | ✅ 完成 | 01a120c6-2f16-7706-b1c5-e0db4d7acd30 |\n| 编码 | ✅ 完成 | 01a120c6-2f4f-7073-aeb4-b099cc363ecd |\n| 测试 | 🔴 失败 | 01a120c6-2f8b-7045-aeb6-621e949e22ac |\n\n### 问题说明\n\n测试 Bot (01a120c6-2f8b-7045-aeb6-621e949e22ac) 的浏览器测试任务多次尝试但未能成功完成。\n\n**测试需要验证的功能**:\n1. 空邮箱提交 → 错误提示\n2. 无效邮箱格式 → 错误提示\n3. 错误密码 (test@example.com + wrongpassword) → 错误提示\n4. 正确密码 (test@example.com + password123) → 登录成功\n5. 刷新保持 → 状态保持\n6. 退出登录 → 正常退出\n7. 窄屏布局 (360x800)\n\n### 已完成产物\n\n- ✅ login.html - 邮箱登录页面\n- ✅ TEST.md - 源代码检查报告\n\n### 请问如何继续？\n\n1. 是否需要重新派发测试任务？\n2. 是否需要我协助调试测试问题？\n3. 是否有其他指示？\n\n**Project ID**: 01a12236-b308-7080-9877-6fc078239999\n**Home**: ~/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/"
+            },
+            {
+              "at": "2026-10-09T19:54:21.043711+00:00",
+              "text": "**Decision Question - macbot-e2e-s2-parallel-fc45ecd3b62c**\n\n项目 [macbot-e2e-s2-parallel-fc45ecd3b62c] 的登录方式选择？\n\n请选择：\n- 选项 0：只做邮箱登录\n- 选项 1：改为手机登录"
+            }
+          ],
+          "members": [
+            {
+              "bot_id": "main",
+              "current_assignment_id": "01a124b9-33d7-7622-ba54-80b603b437c7",
+              "role_note": "",
+              "since": "2026-10-10T07:31:19.639422+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "current_assignment_id": "01a12236-d7c0-74a2-be96-206ca2f855a3",
+              "role_note": "",
+              "since": "2026-10-09T19:49:41.952810+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "current_assignment_id": "01a12290-44e0-7784-91b3-fd49b018b4b5",
+              "role_note": "",
+              "since": "2026-10-09T21:28:29.781844+00:00",
+              "state": "waiting_user"
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "current_assignment_id": "01a124b2-47ff-7737-b441-31a8153a1686",
+              "role_note": "",
+              "since": "2026-10-10T07:23:46.047892+00:00",
+              "state": "done"
+            }
+          ],
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "updated_at": "2026-10-10T12:04:35.646560+00:00"
+        },
+        "project": {
+          "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "created_at": "2026-10-09T19:49:32.552142+00:00",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": null,
+          "done_at": null,
+          "flow": [
+            "产品: 编写本地 PRD",
+            "编码: 实现本地 demo",
+            "测试: 验证功能"
+          ],
+          "goal": "macbot-e2e-s2-parallel-fc45ecd3b62c 邮箱登录功能 - 本地 demo 实现",
+          "home_path": "~/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/",
+          "id": "01a12236-b308-7080-9877-6fc078239999",
+          "lead_bot_id": "main",
+          "members": [
+            {
+              "bot_id": "main",
+              "joined_at": "2026-10-09T19:49:32.552136+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "joined_at": "2026-10-09T19:49:32.552137+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "joined_at": "2026-10-09T19:49:32.552138+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "joined_at": "2026-10-09T19:49:32.552138+00:00",
+              "role_note": ""
+            }
+          ],
+          "name": "macbot-e2e-s2-parallel-fc45ecd3b62c-并行官网改版",
+          "slug": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+          "status": "review",
+          "updated_at": "2026-10-10T03:23:16.879309+00:00"
+        }
+      },
+      "old_assignments": [
+        {
+          "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+          "created_at": "2026-10-09T21:27:22.592364+00:00",
+          "finished_at": null,
+          "from": {
+            "kind": "user"
+          },
+          "id": "01a12290-44e0-7784-91b3-fd49b018b4b5",
+          "instruction": "macbot-e2e-s2-followup-b74f5aff98d5: 补齐邮箱格式校验、错误密码提示和手机窄屏布局；请通过 send_msg 在群内派发，完成交接时使用 intent=done 并 @下一角色，不扩展到外部网站、生产系统或网络服务。",
+          "loop_hops": 1,
+          "model": "",
+          "origin_chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "parent_assignment_id": null,
+          "priority": 2,
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "queue_reason": null,
+          "result_message_id": null,
+          "root_message_id": "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+          "started_at": "2026-10-09T21:28:29.781844+00:00",
+          "status": "waiting_user",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "交接：ack",
+          "trigger_message_id": "01a12290-44e0-7784-91b3-fd48a1f6e0cd",
+          "usage": {
+            "cache_read_tokens": 8059,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 19763,
+            "output_tokens": 2226,
+            "requests": 0
+          },
+          "wait": {
+            "message_id": null,
+            "reason": "approval"
+          }
+        }
+      ],
+      "params": {
+        "project_id": "01a12236-b308-7080-9877-6fc078239999",
+        "client_request_id": "bc8ecfab-5309-4d24-b335-371fc7ff388c"
+      },
+      "fixed_retry_intent_at_epoch": 1791634486.64696,
+      "result": {
+        "project": {
+          "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "created_at": "2026-10-09T19:49:32.552142+00:00",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": null,
+          "done_at": "2026-10-10T12:14:47.683308+00:00",
+          "flow": [
+            "产品: 编写本地 PRD",
+            "编码: 实现本地 demo",
+            "测试: 验证功能"
+          ],
+          "goal": "macbot-e2e-s2-parallel-fc45ecd3b62c 邮箱登录功能 - 本地 demo 实现",
+          "home_path": "~/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/",
+          "id": "01a12236-b308-7080-9877-6fc078239999",
+          "lead_bot_id": "main",
+          "members": [
+            {
+              "bot_id": "main",
+              "joined_at": "2026-10-09T19:49:32.552136+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "joined_at": "2026-10-09T19:49:32.552137+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "joined_at": "2026-10-09T19:49:32.552138+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "joined_at": "2026-10-09T19:49:32.552138+00:00",
+              "role_note": ""
+            }
+          ],
+          "name": "macbot-e2e-s2-parallel-fc45ecd3b62c-并行官网改版",
+          "slug": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+          "status": "done",
+          "updated_at": "2026-10-10T12:14:47.683309+00:00"
+        }
+      },
+      "fixed_elapsed_seconds": 1.387,
+      "final_readonly": {
+        "announcement": {
+          "artifacts": [
+            {
+              "assignment_id": "01a12494-89f4-7398-a2fe-a0a39213a43d",
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "created_at": "2026-10-10T06:52:26.595703+00:00",
+              "id": "01a12495-9a63-7051-a633-7506f678b478",
+              "kind": "file",
+              "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/TEST-browser.md",
+              "project_id": "01a12236-b308-7080-9877-6fc078239999",
+              "title": "真实浏览器报告（含未测项）",
+              "updated_at": "2026-10-10T06:52:26.595703+00:00"
+            },
+            {
+              "assignment_id": "01a12494-89f4-7398-a2fe-a0a39213a43d",
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "created_at": "2026-10-10T06:52:26.595698+00:00",
+              "id": "01a12495-9a63-7051-a633-7505a6efc754",
+              "kind": "file",
+              "path_or_url": "/Users/gongshaojie/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/login.html",
+              "project_id": "01a12236-b308-7080-9877-6fc078239999",
+              "title": "本地登录演示",
+              "updated_at": "2026-10-10T06:52:26.595698+00:00"
+            }
+          ],
+          "highlights": [
+            {
+              "at": "2026-10-10T02:49:51.109234+00:00",
+              "text": "## ⚠️ 测试阶段受阻 - 需要协助\n\n**项目**: macbot-e2e-s2-parallel-fc45ecd3b62c 邮箱登录功能 - 本地 demo\n\n### 当前状态\n\n| 阶段 | 状态 | Bot |\n|------|------|-----|\n| 产品 | ✅ 完成 | 01a120c6-2f16-7706-b1c5-e0db4d7acd30 |\n| 编码 | ✅ 完成 | 01a120c6-2f4f-7073-aeb4-b099cc363ecd |\n| 测试 | 🔴 失败 | 01a120c6-2f8b-7045-aeb6-621e949e22ac |\n\n### 问题说明\n\n测试 Bot (01a120c6-2f8b-7045-aeb6-621e949e22ac) 的浏览器测试任务多次尝试但未能成功完成。\n\n**测试需要验证的功能**:\n1. 空邮箱提交 → 错误提示\n2. 无效邮箱格式 → 错误提示\n3. 错误密码 (test@example.com + wrongpassword) → 错误提示\n4. 正确密码 (test@example.com + password123) → 登录成功\n5. 刷新保持 → 状态保持\n6. 退出登录 → 正常退出\n7. 窄屏布局 (360x800)\n\n### 已完成产物\n\n- ✅ login.html - 邮箱登录页面\n- ✅ TEST.md - 源代码检查报告\n\n### 请问如何继续？\n\n1. 是否需要重新派发测试任务？\n2. 是否需要我协助调试测试问题？\n3. 是否有其他指示？\n\n**Project ID**: 01a12236-b308-7080-9877-6fc078239999\n**Home**: ~/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/"
+            },
+            {
+              "at": "2026-10-09T19:54:21.043711+00:00",
+              "text": "**Decision Question - macbot-e2e-s2-parallel-fc45ecd3b62c**\n\n项目 [macbot-e2e-s2-parallel-fc45ecd3b62c] 的登录方式选择？\n\n请选择：\n- 选项 0：只做邮箱登录\n- 选项 1：改为手机登录"
+            }
+          ],
+          "members": [
+            {
+              "bot_id": "main",
+              "current_assignment_id": "01a124b9-33d7-7622-ba54-80b603b437c7",
+              "role_note": "",
+              "since": "2026-10-10T07:31:19.639422+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "current_assignment_id": "01a12236-d7c0-74a2-be96-206ca2f855a3",
+              "role_note": "",
+              "since": "2026-10-09T19:49:41.952810+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "current_assignment_id": "01a1228f-a006-7545-a6fc-3ed37e1b81e7",
+              "role_note": "",
+              "since": "2026-10-09T21:26:40.390885+00:00",
+              "state": "done"
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "current_assignment_id": "01a124b2-47ff-7737-b441-31a8153a1686",
+              "role_note": "",
+              "since": "2026-10-10T07:23:46.047892+00:00",
+              "state": "done"
+            }
+          ],
+          "project_id": "01a12236-b308-7080-9877-6fc078239999",
+          "updated_at": "2026-10-10T12:15:58.499061+00:00"
+        },
+        "project": {
+          "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+          "created_at": "2026-10-09T19:49:32.552142+00:00",
+          "created_by": {
+            "kind": "user"
+          },
+          "deadline": null,
+          "done_at": "2026-10-10T12:14:47.683308+00:00",
+          "flow": [
+            "产品: 编写本地 PRD",
+            "编码: 实现本地 demo",
+            "测试: 验证功能"
+          ],
+          "goal": "macbot-e2e-s2-parallel-fc45ecd3b62c 邮箱登录功能 - 本地 demo 实现",
+          "home_path": "~/MacBot/projects/macbot-e2e-s2-parallel-fc45ecd3b62c/",
+          "id": "01a12236-b308-7080-9877-6fc078239999",
+          "lead_bot_id": "main",
+          "members": [
+            {
+              "bot_id": "main",
+              "joined_at": "2026-10-09T19:49:32.552136+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f16-7706-b1c5-e0db4d7acd30",
+              "joined_at": "2026-10-09T19:49:32.552137+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f4f-7073-aeb4-b099cc363ecd",
+              "joined_at": "2026-10-09T19:49:32.552138+00:00",
+              "role_note": ""
+            },
+            {
+              "bot_id": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+              "joined_at": "2026-10-09T19:49:32.552138+00:00",
+              "role_note": ""
+            }
+          ],
+          "name": "macbot-e2e-s2-parallel-fc45ecd3b62c-并行官网改版",
+          "slug": "macbot-e2e-s2-parallel-fc45ecd3b62c",
+          "status": "done",
+          "updated_at": "2026-10-10T12:14:47.683309+00:00"
+        }
+      }
+    }
+  ],
+  "first_timeout": {
+    "seconds": 10,
+    "subsequent_readonly_status": "review",
+    "operation_log_contains_uuid": false
+  },
+  "partial_outcome": {
+    "first_project_status": "review",
+    "assignments": {
+      "01a122c2-0db5-7654-8a26-6f24a57954ec": "cancelled",
+      "01a1228c-8733-71ab-896e-48c420ed1b73": "cancelled",
+      "01a1228c-4d32-73f5-9885-4bc1b63a2793": "cancelled",
+      "01a1228b-5be7-71a6-b74c-eac711044256": "cancelled",
+      "01a12290-44e0-7784-91b3-fd49b018b4b5": "waiting_user"
+    },
+    "approval_states": {
+      "01a1228d-274a-767c-9aeb-be5529d51e9a": "expired",
+      "01a1228f-9815-7425-bae8-1782fb8dbe28": "expired",
+      "01a12290-a0ca-7464-8f91-a968d8ca66ad": "expired",
+      "01a122c3-03e3-72a7-8152-b910a8fd2a55": "expired",
+      "01a12292-6124-740b-acaa-8a9a6517c8b3": "pending"
+    }
+  },
+  "fixed_server_source": "be64802cd08a1401d1ba0ee9e5bae4bee6dd7f43",
+  "final_verification": {
+    "at_epoch": 1791634558.3870678,
+    "assignment_statuses": {
+      "01a122c2-0db5-7654-8a26-6f24a57954ec": "cancelled",
+      "01a1228c-8733-71ab-896e-48c420ed1b73": "cancelled",
+      "01a1228c-4d32-73f5-9885-4bc1b63a2793": "cancelled",
+      "01a1228b-5be7-71a6-b74c-eac711044256": "cancelled",
+      "01a12290-44e0-7784-91b3-fd49b018b4b5": "cancelled"
+    },
+    "approval_states": {
+      "01a1228d-274a-767c-9aeb-be5529d51e9a": "expired",
+      "01a1228f-9815-7425-bae8-1782fb8dbe28": "expired",
+      "01a12290-a0ca-7464-8f91-a968d8ca66ad": "expired",
+      "01a122c3-03e3-72a7-8152-b910a8fd2a55": "expired",
+      "01a12292-6124-740b-acaa-8a9a6517c8b3": "expired"
+    },
+    "unrelated_pending_ids_unchanged": [
+      "01a12083-b7ac-74e9-8708-0ec146198ccc",
+      "01a12096-c4f6-74b0-b92d-486195063997",
+      "01a120ca-39c0-7693-9b50-0662a3be0f26",
+      "01a120ca-43c2-70e4-9fec-6c9d14ad455c",
+      "01a121e9-1a8c-761f-85df-6314bc88c1d6",
+      "01a1220e-759a-70fa-9463-b032218ab1a2",
+      "01a1226f-8926-7245-ac5c-2cea982de5b3"
+    ],
+    "changed_jobs_since_pre_upgrade": [
+      "job_01a12291-54cb-775d-834e-38bd2fb037fb.json"
+    ],
+    "changed_job_explanation": "Only parallel historical assignment run_01a12290-44e0-7784-91b3-fd49b018b4b5 durable job changed to cancelled as authorized."
+  },
+  "project_memory_summaries": [
+    {
+      "id": "project-summary:01a12236-76c4-746c-a0e8-42ff0b8e79f5",
+      "target": {
+        "scope": "project",
+        "owner_id": "01a12236-76c4-746c-a0e8-42ff0b8e79f5"
+      },
+      "kind": "project"
+    },
+    {
+      "id": "project-summary:01a12236-b308-7080-9877-6fc078239999",
+      "target": {
+        "scope": "project",
+        "owner_id": "01a12236-b308-7080-9877-6fc078239999"
+      },
+      "kind": "project"
+    }
+  ],
+  "native_verified": {
+    "desktop": [
+      "production-be64802-desktop-first-done.jpg",
+      "production-be64802-desktop-parallel-done.jpg"
+    ],
+    "android": [
+      "production-be64802-android-first-done.png",
+      "production-be64802-android-first-announcement.png",
+      "production-be64802-android-parallel-done.png"
+    ],
+    "all_screenshots_viewed": true
+  },
+  "full_s2_pass": true,
+  "qualification": "Combines original real Tester/browser, parallel projects, same-run steer and review evidence with user-authorized completion and both native clients; no demo files edited."
+}
