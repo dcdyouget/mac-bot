@@ -597,3 +597,14 @@ S5已开始，未通过：旧home、开发App、plist、桌面配置已一次性
 Android 953c53b 已实际输入并看到回显，9f9a1cf 尚未重复此项；native 交还仍未闭环。桌面 AX 加键盘可导航，坐标工具 noWindowsAvailable 及持续画面重绘缺口保留，不能误记锁屏或冻结。定时任务真实 schedule 完成但晚 94.255847 秒，目标通知被后续通知挤出，打开动作未验收；该验收 routine 已禁用。
 
 证据已归档于 docs/progress/S5，S5 未通过，继续修复查询/控制延迟及双端场景。此根文档独立提交仅纠正当前状态；保留其他会话未提交修改，不因文档部署业务组件。
+
+
+## integrator：fresh 控制权恢复与 X 外部阻塞（2026-10-11 03:10）
+
+server 用户 App payload 已更新至 d56e92e，gateway 236 项通过；历史任务卡修复避免重复读写后，单次 bootstrap/workbench/routine 观测分别为 0.130/0.083/0.071 秒，不作为完整性能验收。Android 01f14d7 保留数据；一次模拟器软重启后出现 System UI ANR，点等待恢复，失败证据保留。
+
+原交还 UUID 曾重复消费另一 takeover scope，已保留真实失败并修复内部执行入口幂等。部署后用同 UUID 核验：0.038 秒返回，无新 operation、两 scope 和旧 job 哈希不变；Android 跨服务重启实际截图仍为 Bot 操作中且无输入框，不扩大为新输入或完整 S4 通过。
+
+新隔离 Fresh-X-Readonly 的唯一请求在 round 0 被 provider HTTP 429 拒绝，无 browser 调用，不重发。桌面实际窗口捕获/持续画面仍需前台环境核验；A/B 保持待验收，未知审批和旧任务未批量处理。完整 S5 未通过，详见 fresh-evidence-index.md 及 fresh-s4-x-readonly-result.json。
+
+根协调独立提交理由：同步已部署修复、真实失败边界和外部阻塞；保留其他会话根文档及 design/ 改动，不因文档部署业务组件。
