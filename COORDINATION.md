@@ -550,3 +550,14 @@ b037662修复私聊接管落盘和精确问题关闭，真实旧等待恢复及�
 S5沿用已准备的空仓库外备份目录，尚未移动数据。fresh脚本审计发现部分写RPC没有预写journal，后续改为逐项UUID/作用域预写与未知结果只读核验。安装管理员认证和管理页新密码仍按工具规则由用户接手；已有授权不重复请求。GitHub通过既有本机代理恢复并已推main至ff51db0。详见docs/progress/S4/stage-conclusion.json、S5/fresh-rpc-journal-audit.md。
 
 根协调独立提交理由：同步本次明确授权、真实回归与剩余缺陷，避免把旧锁屏/未授权记录或任务done当完整通过；保留其他会话根文档未提交改动与design目录，不因文档提交重部署。
+
+
+## integrator：S4实时游标与接管最终验收（2026-10-10）
+
+S0–S4现已通过。server3635008修复memory持久事件未广播导致的全局序号缺口，内部数据仅投影sync.cursor；214项gateway回归通过。正式升级后旧桌面从6387自动恢复，独立重放无缺口且无memory正文，7条无关审批及164job哈希在部署前后保持。
+
+桌面508f325已从干净归档实际Release构建并安装，补问题状态标题与sync.done缺口恢复；原等待任务从桌面接管、交还，trace297 resume/299 tool.end/302 done，两端接管按钮消失，桌面已回答，workbench等待归零。只有该job发生预期变化。旧打包误复用二进制及首次模型无工具误报均留证；本次接管状态回归未将无头chrome-error画面冒充X验收，X实测沿用独立证据。
+
+最终fresh候选：server3635008/pkg、desktop508f325/DMG、Android04b0c3d/同签名APK，包审计通过。S5尚未开始，下一步离线可逆备份、pkg安装、管理页首次密码及双端完整场景；具体认证/新密码步骤由用户按工具规则接手。根文档其他会话未提交内容和design目录保持，旧凭据及Android数据保留。详见docs/progress/S4/stage-conclusion.json与S5/fresh-install-plan.md。
+
+根协调独立提交理由：纠正前次中间候选和待修结论，记录真实双端验收与明确fresh门槛；文档提交不触发业务组件部署。
