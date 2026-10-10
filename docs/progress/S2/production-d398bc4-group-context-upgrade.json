@@ -1,0 +1,18 @@
+{
+  "source": "d398bc4ac3f85bca6c0dda8ae6171c4f502dba66",
+  "observed_at": "2026-10-10T06:58:05.257476+00:00",
+  "identity": {
+    "pid": 34423,
+    "listener_pids": [
+      34423
+    ],
+    "executable": "macbotd",
+    "label": "com.macbot.server",
+    "port": 7788
+  },
+  "pending_unchanged_by_id": true,
+  "pending_count": 12,
+  "jobs_unchanged": true,
+  "gateway_tests_passed": 195,
+  "model_native_retest_pending": true
+}

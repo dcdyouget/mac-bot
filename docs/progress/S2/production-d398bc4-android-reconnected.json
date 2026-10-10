@@ -1,0 +1,14 @@
+{
+  "observed_at": "2026-10-10T07:24:11.130770+00:00",
+  "avd": "macbot_api36",
+  "device": "emulator-5554",
+  "restart_authorized": true,
+  "app_data_preserved": true,
+  "installed_android_commit": "cac5b12d68fbe409b41e763231c28f2e7baaff37",
+  "server_commit": "d398bc4ac3f85bca6c0dda8ae6171c4f502dba66",
+  "restart_reason": "Previous emulator process disappeared; cause unknown",
+  "boot": "Cold boot due to incompatible software GPU snapshot feature; no wipe",
+  "network_recovery": "Tapped saved AndroidWifi in native Android Settings; guest obtained 10.0.2.16; Mac Bot reconnect banner disappeared; original Production profile and groups retained",
+  "screenshot_viewed": true,
+  "full_stage_pass": false
+}

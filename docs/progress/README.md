@@ -177,3 +177,13 @@ python3 scripts/dev/provider.py --set-defaults
 用户授权 adb 点击/滑动/输入后，macbot_api36 已自行恢复，无需重启；保留 cac5b12 签名 Release 与全部应用数据。实际进入原并行群，确认待验收状态及两个产物链接，未 confirm_done。点击 TEST-browser.md 复现 HTTP 400：产物为绝对 Host 路径，文件接口原先拒绝所有绝对路径。server 6afbff9 仅允许选定根目录内的绝对路径，保留跨项目、父目录及符号链接越界限制；193 项 gateway 测试通过。仅部署 server 后，Android 原报告实际打开成功，下载内容哈希与原文件一致，12 条 pending 审批（按 ID 比较）及全部 job 文件保持不变。证据见 S2/production-6afbff9-artifact-upgrade.json；失败截图同目录保留。
 
 S3 已实际核对 Android 技能页四项及 3 开/1 关，与桌面相同，见 S3/production-ee7111a-android-skills.json。以上为局部验收；S1–S5 均未整阶段通过，fresh-install 未执行。主仓库 COORDINATION.md 与权威文档有其他会话未提交修改，本轮协调记录暂记此处，避免混入他人改动。
+
+## 2026-10-10 群身份修复、双端报告下载与模拟器重启
+
+正式 server 已更新至 `d398bc4`：历史群消息现在区分当前 Bot 与其他 Bot/system，避免测试 Bot 把主 Bot 历史发言当作自己的 assistant 上下文；195 项 gateway 测试通过。12 条旧 pending 及全部 job 文件保持不变。桌面更新至 `a0b9ddf`，保留产物绝对路径，实际下载 TEST-browser.md 的哈希与源文件一致。默认 Markdown 查看器 Typora 因试用过期不能显示，随后通过 TextEdit 实际打开同一下载文件；未修改产物。证据见 S2/production-d398bc4-group-context-upgrade.json、production-a0b9ddf-desktop-artifact-download.json 与对应截图。
+
+原并行项目 Tester 已实测补齐无效邮箱原生验证、正确登录后 360×800 卡片边界，以及调用原 alert 时的真实错误密码消息；报告由原 Tester 修改，早先被拒绝或测量不准的记录保留。主 Bot 最新汇总已在 Android 实际显示，项目仍待验收，未 confirm_done。报告轨迹编号及弹窗观察范围已由原 Tester 修正；旧测量历史的概括仍需保守解读，不能以其“全部通过”文字替代阶段验收。见 production-d398bc4-parallel-alert-observer.json、production-d398bc4-parallel-report-precision.json、production-d398bc4-android-main-review.png。
+
+模拟器随后自行退出（原因未知），按用户授权重启同一 macbot_api36，未 wipe、卸载或清空数据。冷启动后点击已保存 AndroidWifi 恢复网络，Production 配置及原群保留；截图已查看，见 production-d398bc4-android-reconnected.json。Android 新一轮真实流式测试已有服务端事件，但轨迹 UI 仍显示旧运行，正在定位，尚不计通过（S1/production-d398bc4-android-real-stream.json）。
+
+当前仅 S0 整阶段通过；S1/S3/S4 双端补验及 S5 fresh 仍待完成。GitHub 推送遇到网络超时，当前改动已合本地 main，尚未确认远端更新。主仓库根文档的其他会话改动保持不动。

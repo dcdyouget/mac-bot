@@ -1,0 +1,27 @@
+{
+  "desktop_source": "a0b9ddfabb8b959819989c102b2f038bd05737dd",
+  "server_source": "d398bc4ac3f85bca6c0dda8ae6171c4f502dba66",
+  "observed_at": "2026-10-10T07:08:45.704836+00:00",
+  "native_action": "search TEST-browser.md, click first artifact Open",
+  "downloads": [
+    {
+      "path": "/var/folders/_j/jwg_qt8x3233k5rgzt933k500000gn/T/MacBot/b685c49d-72cb-40b6-a5e1-3c1a65289807/TEST-browser.md",
+      "mtime": 1791616048.4023752,
+      "sha256": "a3146c553f1954e6b6beaf3fb0a88a2f41d64096ab5e20490a79e739847bd8fe",
+      "matches_report": true
+    },
+    {
+      "path": "/var/folders/_j/jwg_qt8x3233k5rgzt933k500000gn/T/MacBot/6f12dfb7-9243-4b15-af9a-116549ff5ce0/TEST-browser.md",
+      "mtime": 1791615725.634378,
+      "sha256": "a3146c553f1954e6b6beaf3fb0a88a2f41d64096ab5e20490a79e739847bd8fe",
+      "matches_report": true
+    }
+  ],
+  "external_viewer": "Typora trial expired; no purchase or license change",
+  "screenshot": "production-a0b9ddf-report-viewer-blocked.jpg",
+  "screenshot_visually_reviewed": true,
+  "full_S2_pass": false,
+  "fallback_viewer": "TextEdit opened exact downloaded file through native Open dialog, without changing default associations or content",
+  "fallback_screenshot": "production-a0b9ddf-desktop-report-textedit.jpg",
+  "native_download_and_content_view": "PASS"
+}
