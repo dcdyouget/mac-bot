@@ -104,6 +104,10 @@ pub struct DurableRuntime {
     job_metadata: HashMap<String, JobSnapshotMetadata>,
     inbox: Vec<InboxItem>,
     submissions: HashMap<String, SendMsgReceipt>,
+    /// The next durable commit sequence.  It is initialized while replaying
+    /// the commit log and advanced only after an append succeeds, so normal
+    /// commits do not rescan the complete JSONL history.
+    next_commit_seq: u64,
 }
 
 impl DurableRuntime {
@@ -121,6 +125,7 @@ impl DurableRuntime {
             job_metadata: HashMap::new(),
             inbox: Vec::new(),
             submissions: HashMap::new(),
+            next_commit_seq: 1,
         };
         runtime.recover()?;
         Ok(runtime)
@@ -145,11 +150,7 @@ impl DurableRuntime {
             checkpoint,
             unsafe_replay: false,
             updated_at: now(),
-            commit_seq: self
-                .store
-                .read_jsonl::<JobCommit>("data/jobs/commits.jsonl")?
-                .len() as u64
-                + 1,
+            commit_seq: self.next_commit_seq,
         };
         self.persist_job(job.clone())?;
         self.jobs.insert(id, job.clone());
@@ -187,11 +188,7 @@ impl DurableRuntime {
         ) {
             return Err(DurableError::TerminalJob(id.into()));
         }
-        let seq = self
-            .store
-            .read_jsonl::<JobCommit>("data/jobs/commits.jsonl")?
-            .len() as u64
-            + 1;
+        let seq = self.next_commit_seq;
         let job = Job {
             id: current.id.clone(),
             owner: current.owner.clone(),
@@ -204,6 +201,7 @@ impl DurableRuntime {
         };
         self.store
             .append_jsonl("data/jobs/commits.jsonl", &JobCommit { job: job.clone() })?;
+        self.next_commit_seq = seq.saturating_add(1);
         self.store
             .write_snapshot(format!("data/jobs/{}.json", id), &job)?;
         self.refresh_job_metadata(id);
@@ -214,11 +212,6 @@ impl DurableRuntime {
     /// On restart, running jobs are resumable; jobs whose checkpoint represents
     /// a side effect stop in `Suspended` until the orchestrator decides.
     pub fn resume_plan(&mut self) -> Result<Vec<Job>, DurableError> {
-        let first_seq = self
-            .store
-            .read_jsonl::<JobCommit>("data/jobs/commits.jsonl")?
-            .len() as u64
-            + 1;
         let mut resumable = self
             .jobs
             .values()
@@ -233,27 +226,27 @@ impl DurableRuntime {
                 .then_with(|| left.id.cmp(&right.id))
         });
         let mut plan = Vec::with_capacity(resumable.len());
-        let mut next_seq = first_seq;
         for current in resumable {
             if !current.unsafe_replay {
                 plan.push(current);
                 continue;
             }
             validate_id("job", &current.id)?;
+            let seq = self.next_commit_seq;
             let job = Job {
                 status: JobStatus::Suspended,
-                commit_seq: next_seq,
+                commit_seq: seq,
                 updated_at: now(),
                 ..current
             };
             self.store
                 .append_jsonl("data/jobs/commits.jsonl", &JobCommit { job: job.clone() })?;
+            self.next_commit_seq = seq.saturating_add(1);
             self.store
                 .write_snapshot(format!("data/jobs/{}.json", job.id), &job)?;
             self.refresh_job_metadata(&job.id);
             self.jobs.insert(job.id.clone(), job.clone());
             plan.push(job);
-            next_seq += 1;
         }
         Ok(plan)
     }
@@ -364,6 +357,7 @@ impl DurableRuntime {
         validate_id("job", &job.id)?;
         self.store
             .append_jsonl("data/jobs/commits.jsonl", &JobCommit { job: job.clone() })?;
+        self.next_commit_seq = self.next_commit_seq.max(job.commit_seq.saturating_add(1));
         self.store
             .write_snapshot(format!("data/jobs/{}.json", job.id), &job)?;
         self.refresh_job_metadata(&job.id);
@@ -378,6 +372,7 @@ impl DurableRuntime {
     }
 
     fn recover(&mut self) -> Result<(), DurableError> {
+        let mut max_commit_seq = 0;
         if let Ok(entries) = std::fs::read_dir(self.store.root().join("data/jobs")) {
             for entry in entries {
                 let path = entry?.path();
@@ -388,6 +383,7 @@ impl DurableRuntime {
                         .store
                         .read_snapshot::<Job>(path.strip_prefix(self.store.root()).unwrap())
                     {
+                        max_commit_seq = max_commit_seq.max(job.commit_seq);
                         self.jobs.insert(job.id.clone(), job.clone());
                         self.refresh_job_metadata(&job.id);
                     }
@@ -399,6 +395,7 @@ impl DurableRuntime {
             .read_jsonl::<JobCommit>("data/jobs/commits.jsonl")?
         {
             let job = commit.job;
+            max_commit_seq = max_commit_seq.max(job.commit_seq);
             if self
                 .jobs
                 .get(&job.id)
@@ -407,6 +404,7 @@ impl DurableRuntime {
                 self.jobs.insert(job.id.clone(), job);
             }
         }
+        self.next_commit_seq = max_commit_seq.saturating_add(1).max(1);
         self.inbox = match self
             .store
             .read_snapshot::<Vec<InboxItem>>("data/inbox.json")
@@ -501,6 +499,89 @@ mod tests {
             rt.job(&job.id).unwrap().checkpoint,
             serde_json::json!({"step": 1})
         );
+    }
+
+    #[test]
+    fn continuous_commits_use_the_cached_sequence() {
+        let dir = tempdir().unwrap();
+        let mut rt = DurableRuntime::open(dir.path()).unwrap();
+        let mut job = rt
+            .create_job("bot", "demo", serde_json::json!({"step": 0}))
+            .unwrap();
+        assert_eq!(job.commit_seq, 1);
+        for step in 1..=32 {
+            job = rt
+                .commit(
+                    &job.id,
+                    JobStatus::Running,
+                    serde_json::json!({"step": step}),
+                    false,
+                )
+                .unwrap();
+            assert_eq!(job.commit_seq, step + 1);
+            assert_eq!(rt.next_commit_seq, step + 2);
+        }
+    }
+
+    #[test]
+    fn recovery_initializes_sequence_after_a_large_history() {
+        let dir = tempdir().unwrap();
+        let jobs_dir = dir.path().join("data/jobs");
+        std::fs::create_dir_all(&jobs_dir).unwrap();
+        let mut history = String::new();
+        for seq in 1..=1024 {
+            let job = Job {
+                id: format!("job_history_{seq}"),
+                owner: "bot".into(),
+                kind: "demo".into(),
+                status: JobStatus::Running,
+                checkpoint: serde_json::json!({"step": seq}),
+                unsafe_replay: false,
+                updated_at: seq,
+                commit_seq: seq,
+            };
+            history.push_str(&serde_json::to_string(&JobCommit { job }).unwrap());
+            history.push('\n');
+        }
+        std::fs::write(jobs_dir.join("commits.jsonl"), history).unwrap();
+
+        let mut rt = DurableRuntime::open(dir.path()).unwrap();
+        assert_eq!(rt.next_commit_seq, 1025);
+        let job = rt
+            .create_job("bot", "demo", serde_json::json!({"step": 1025}))
+            .unwrap();
+        assert_eq!(job.commit_seq, 1025);
+    }
+
+    #[test]
+    fn reopened_runtime_continues_after_the_last_commit() {
+        let dir = tempdir().unwrap();
+        let mut rt = DurableRuntime::open(dir.path()).unwrap();
+        let job = rt
+            .create_job("bot", "demo", serde_json::json!({"step": 0}))
+            .unwrap();
+        let committed = rt
+            .commit(
+                &job.id,
+                JobStatus::Running,
+                serde_json::json!({"step": 1}),
+                false,
+            )
+            .unwrap();
+        let last_seq = committed.commit_seq;
+        drop(rt);
+
+        let mut rt = DurableRuntime::open(dir.path()).unwrap();
+        assert_eq!(rt.next_commit_seq, last_seq + 1);
+        let committed = rt
+            .commit(
+                &job.id,
+                JobStatus::Waiting,
+                serde_json::json!({"step": 2}),
+                false,
+            )
+            .unwrap();
+        assert_eq!(committed.commit_seq, last_seq + 1);
     }
 
     #[test]
