@@ -546,9 +546,11 @@ impl MacBot {
                                 let path = if home.is_empty() {
                                     location
                                 } else {
-                                    location.strip_prefix(home).unwrap_or(location)
-                                }
-                                .trim_start_matches('/');
+                                    location
+                                        .strip_prefix(home)
+                                        .map(|relative| relative.trim_start_matches('/'))
+                                        .unwrap_or(location)
+                                };
                                 self.download_file(
                                     json!({"root":"project","root_id":project_id,"path":path}),
                                     cx,
