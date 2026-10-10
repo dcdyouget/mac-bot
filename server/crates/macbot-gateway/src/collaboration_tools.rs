@@ -416,6 +416,25 @@ fn browser_command(operation: &str, args: &Value) -> Result<(String, Vec<String>
         _ => return Err(format!("unsupported browser operation {operation}")),
     };
     let mut command_args = list;
+    if command_args.is_empty() && operation == "browser_wait" {
+        if let Some(selector) = args.get("selector").and_then(Value::as_str) {
+            command_args.push(selector.to_owned());
+        } else if let Some(duration) = args.get("timeout").and_then(Value::as_u64) {
+            command_args.push(duration.to_string());
+        } else {
+            return Err("browser_wait requires args, selector or timeout milliseconds".into());
+        }
+    }
+    if command_args.is_empty() && operation == "browser_get" {
+        let property = args
+            .get("property")
+            .and_then(Value::as_str)
+            .ok_or("browser_get requires args or property")?;
+        command_args.push(property.to_owned());
+        if let Some(selector) = args.get("selector").and_then(Value::as_str) {
+            command_args.push(selector.to_owned());
+        }
+    }
     if command_args.is_empty() {
         for key in ["property", "selector", "url", "expression"] {
             if let Some(value) = args.get(key).and_then(Value::as_str) {
@@ -1033,6 +1052,10 @@ fn description(name: &str) -> &'static str {
         "request_takeover" => "Request that the user take over the browser.",
         "question" | "ask_user" => "Ask the user a question and wait for an answer.",
         "web_fetch" => "Fetch a web page and return readable content.",
+        "browser_nav" => "Navigate the current task tab: action open with url, or action reload/back/forward without url or args.",
+        "browser_act" => "Run an agent-browser interaction command on the current task tab. Examples: action fill with args [selector, text], click with args [selector], dialog with args [accept], set with args [viewport, width, height].",
+        "browser_wait" => "Wait on the current task tab. Use timeout as milliseconds, selector to wait for an element, or args matching agent-browser wait (for example [--text, Welcome]).",
+        "browser_get" => "Read the current task tab. Use property (text/html/value/title/url/count) and optional selector, or args matching agent-browser get.",
         "web_search" => "Search the configured web provider.",
         _ if name.starts_with("browser_") => "Operate the current Bot browser session.",
         _ => "Coordination tool.",
@@ -1093,6 +1116,14 @@ fn schema(name: &str) -> Value {
         ),
         "browser_nav" => object(
             json!({"assignment_id":{"type":"string"},"tab_id":{"type":"string"},"url":{"type":"string"},"action":{"type":"string","enum":["open","reload","back","forward"],"description":"Defaults to open, which requires url. reload/back/forward operate on the current task tab and take no url or args."},"args":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":1}}),
+            &[],
+        ),
+        "browser_wait" => object(
+            json!({"assignment_id":{"type":"string"},"tab_id":{"type":"string"},"selector":{"type":"string"},"timeout":{"type":"integer","minimum":0,"description":"Milliseconds to wait when args and selector are absent."},"args":{"type":"array","items":{"type":"string"}}}),
+            &[],
+        ),
+        "browser_get" => object(
+            json!({"assignment_id":{"type":"string"},"tab_id":{"type":"string"},"property":{"type":"string"},"selector":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}),
             &[],
         ),
         _ if name.starts_with("browser_") => object(
@@ -1415,6 +1446,23 @@ mod tests {
         ] {
             assert!(browser_command("browser_nav", &invalid).is_err());
         }
+        assert_eq!(
+            browser_command("browser_wait", &json!({"timeout":1000})).unwrap(),
+            ("wait".into(), vec!["1000".into()])
+        );
+        assert_eq!(
+            browser_command("browser_wait", &json!({"args":["--text","Welcome"]})).unwrap(),
+            ("wait".into(), vec!["--text".into(), "Welcome".into()])
+        );
+        assert!(browser_command("browser_wait", &json!({"timeout":-1})).is_err());
+        assert_eq!(
+            browser_command(
+                "browser_get",
+                &json!({"property":"text","selector":"#error"})
+            )
+            .unwrap(),
+            ("get".into(), vec!["text".into(), "#error".into()])
+        );
     }
 
     #[test]
