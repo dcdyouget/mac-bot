@@ -400,7 +400,20 @@ impl MacBot {
         cx: &mut Context<Self>,
     ) {
         match event {
-            FeatureAction::Rpc { method, params } => self.rpc(method, params.clone(), cx),
+            FeatureAction::Rpc { method, params } => {
+                // FeaturePage owns the editable date inputs, while the shell
+                // owns the data snapshot that is pushed back after each RPC.
+                // Remember an explicit dashboard range before the async
+                // request can cause that sync, otherwise a dimension/metric
+                // response restores the previous 30-day range.
+                if self.page == "dashboard"
+                    && let Some((from, to)) = dashboard_period_from_request(method, params)
+                {
+                    self.feature_data["from"] = json!(from);
+                    self.feature_data["to"] = json!(to);
+                }
+                self.rpc(method, params.clone(), cx);
+            }
             FeatureAction::Trace(id) => self.open_trace(Some(id.clone()), cx),
             FeatureAction::Computer(id) => self.open_computer(id.clone(), cx),
             FeatureAction::Toast(text) => self.notice = text.clone(),
@@ -888,10 +901,76 @@ impl MacBot {
     }
 }
 
+fn dashboard_period_from_request(method: &str, params: &Value) -> Option<(String, String)> {
+    let keeps_dashboard_period = match method {
+        "usage.summary" | "usage.timeseries" | "usage.breakdown" => true,
+        // Calendar heatmaps intentionally use the full year, while week-hour
+        // heatmaps follow the selected dashboard range.
+        "usage.heatmap" => params.get("mode").and_then(Value::as_str) != Some("calendar"),
+        _ => false,
+    };
+    if !keeps_dashboard_period {
+        return None;
+    }
+    let from = params.get("from").and_then(Value::as_str)?.trim();
+    let to = params.get("to").and_then(Value::as_str)?.trim();
+    (!from.is_empty() && !to.is_empty()).then(|| (from.to_owned(), to.to_owned()))
+}
+
 #[cfg(test)]
 mod skill_result_tests {
-    use super::merge_skill_result;
+    use super::{dashboard_period_from_request, merge_skill_result};
     use serde_json::json;
+
+    #[test]
+    fn dashboard_requests_preserve_explicit_period_across_dimension_changes() {
+        let params = json!({
+            "from": "2026-10-09T00:00:00Z",
+            "to": "2026-10-09T23:59:59Z",
+            "dimension": "bot"
+        });
+        assert_eq!(
+            dashboard_period_from_request("usage.timeseries", &params),
+            Some((
+                "2026-10-09T00:00:00Z".to_owned(),
+                "2026-10-09T23:59:59Z".to_owned()
+            ))
+        );
+        assert_eq!(
+            dashboard_period_from_request("usage.breakdown", &params),
+            Some((
+                "2026-10-09T00:00:00Z".to_owned(),
+                "2026-10-09T23:59:59Z".to_owned()
+            ))
+        );
+    }
+
+    #[test]
+    fn dashboard_calendar_heatmap_does_not_replace_selected_period() {
+        let params = json!({
+            "mode": "calendar",
+            "from": "2025-10-09T00:00:00Z",
+            "to": "2026-10-10T00:00:00Z"
+        });
+        assert_eq!(
+            dashboard_period_from_request("usage.heatmap", &params),
+            None
+        );
+        assert_eq!(
+            dashboard_period_from_request(
+                "usage.heatmap",
+                &json!({
+                    "mode": "weekhour",
+                    "from": "2026-10-09T00:00:00Z",
+                    "to": "2026-10-09T23:59:59Z"
+                })
+            ),
+            Some((
+                "2026-10-09T00:00:00Z".to_owned(),
+                "2026-10-09T23:59:59Z".to_owned()
+            ))
+        );
+    }
 
     #[test]
     fn update_summary_uses_saved_content_without_reloading_inputs() {
