@@ -4,7 +4,7 @@
 
 ## 现在的状态
 
-当前接手续办：Mac 已解锁。正式服务 `fe360a2`（PID/source 见 [部署校验](S1/production-fe360a2-upgrade-after.json)），桌面 `2f09174`，Android APK `cac5b12d`。修复了浏览器动作/参数和审批恢复、运行互斥、RPC事件扫描、搜索暴露内部对象、全局轨迹序号缺口及实时轨迹/退订路由。最新192 gateway测试及严格clippy通过；此前协议、34桌面核心和Kotlin生成检查保持。
+当前接手续办：Mac 已解锁。正式服务 `ee7111a`（PID/source 见 [部署校验](S4/production-attach-no-copy-upgrade-after.json)），桌面 `2f09174`，Android APK `cac5b12d`。修复了浏览器动作/参数和审批恢复、运行互斥、RPC事件扫描、搜索暴露内部对象、全局轨迹序号缺口及实时轨迹/退订路由；本次新增attach不复制Chrome profile的修复，18浏览器与192网关测试通过。严格clippy为此前fe360a2验证；此前协议、34桌面核心和Kotlin生成检查保持。
 
 实时序号缺口已在正式现场闭环：旧桌面缓存停在4952；server-only更新后，无手动刷新自动显示review/Tester完成。标准库WebSocket观察143条重放游标、8条实时游标无缺号，未订阅连接无轨迹正文（[证据](S1/production-07a3245-live-cursor-after.json)）。旧pending、checkpoint、run request、浏览器session哈希保持。
 
@@ -12,7 +12,7 @@
 
 S1新增真实专项：安全checkpoint后kill‑9，原run自动恢复读取原文件并完成，Bash未重放（[证据](S1/production-07a3245-owned-recovery.json)）。修复history固定live=false后，桌面实际观察正文逐步增长及轨迹追加到run.end，重开可回放；标准库观察41个正文片段、52个轨迹片段（[证据](S1/production-7f0a5dd-real-stream.json)）。退订释放及8路容量实测通过；原生“收起”按钮未可靠验证，返回键已能关闭。Android未参加本轮专项，不能计S1整阶段通过。
 
-桌面长消息/轨迹布局、持续画面、低清切换及本地fixture真实键鼠输入/释放已局部通过。Android软件渲染恢复启动后仍有System UI无响应弹窗；CUA无模拟器控制面，adb输入方式待用户回应。用户已授权X验收使用当前浏览器登录会话；实际在当前Chrome新标签打开x.com/home后跳转登录页，已留页待用户登录，未复制profile或发起Bot请求（[证据](S4/production-fe360a2-x-current-chrome.json)）。
+桌面长消息/轨迹布局、持续画面、低清切换及本地fixture真实键鼠输入/释放已局部通过。Android软件渲染恢复启动后仍有System UI无响应弹窗；CUA无模拟器控制面，adb输入方式待用户回应。X当前Chrome会话已登录，已用原生CUA和实际查看的截图确认（[证据](S4/production-fe360a2-x-signed-in.json)），旧登录失败证据保留。远程调试仍关闭，临时开启浏览器级权限待明确确认，Bot侧X验收尚未执行。`ee7111a`将profile复制限定于headless_profile，attach不再复制当前Chrome数据；18浏览器、192网关测试通过。
 
 最新server pkg `fe360a2`、release DMG `71fddde`已审计，未fresh安装。S0仍唯一整阶段通过，S1–S4完整双端验收及S5 fresh未完成。详见[接手续办记录](S2/2026-10-10-takeover-closeout.md)。
 

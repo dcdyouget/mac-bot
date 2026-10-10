@@ -1,0 +1,15 @@
+{
+  "observed_at": "2026-10-10T05:02:34.392479+00:00",
+  "server_source": "fe360a23c9fe6b26b212c82a524c350606b4a606",
+  "browser": "Google Chrome",
+  "url": "https://x.com/home",
+  "result": "signed_in_home_timeline_visible",
+  "verification": "Native CUA accessibility tree and visually reviewed screenshot show account menu, home timeline and composer.",
+  "screenshot": "production-fe360a2-x-signed-in.png",
+  "remote_debugging_enabled": false,
+  "remote_debugging_permission": "requested; awaiting explicit confirmation",
+  "bot_request_sent": false,
+  "profile_copied": false,
+  "x_acceptance_passed": false,
+  "prior_login_required_evidence_preserved": true
+}

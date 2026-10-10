@@ -1,0 +1,32 @@
+{
+  "observed_at": "2026-10-10T05:04:57.547675+00:00",
+  "source": "ee7111acc2efa9acb74dfafaee9c3dd8442094b9",
+  "problem": "Attach inherited isolated_profile_root and prepare_config copied the Chrome profile even though CLI only needs --auto-connect.",
+  "fix": "Only HeadlessProfile may copy profile data. Attach and plain Headless clear profile paths at gateway and manager boundaries.",
+  "browser_tests": {
+    "passed": 18,
+    "new_regression": "attach_and_plain_headless_do_not_copy_profile_data",
+    "assertions": [
+      "No isolated profile directory created",
+      "No --profile CLI argument",
+      "Only attach supplies --auto-connect",
+      "Original synthetic Cookies bytes unchanged"
+    ],
+    "existing_headless_profile_copy_and_restore_test": "passed"
+  },
+  "gateway_tests": {
+    "passed": 192,
+    "failed": 0
+  },
+  "format_and_diff_check": "passed",
+  "initial_test_attempt": "Compile error in new test: mode moved into config before matches!. Fixed by recording attach boolean first; rerun passed.",
+  "x_real_bot_acceptance": "not_run; remote debugging permission pending",
+  "other_session_changes_preserved": [
+    "main/COORDINATION.md",
+    "main/docs/PLAN.md",
+    "main/docs/PROTOCOL.md",
+    "main/design/",
+    "main/docs/DESIGN.md"
+  ],
+  "coordination_update": "Deferred to avoid overlapping another session uncommitted root document changes."
+}
