@@ -2898,6 +2898,13 @@ impl crate::RpcBackend for ComposedBackend {
             }
             Err(error) => return Err(error),
         };
+        if matches!(method, "takeover.start" | "takeover.release") {
+            if let Some(request) = result.get("takeover_request") {
+                self.inner
+                    .project_takeover_message_state(&self.state, request)
+                    .await?;
+            }
+        }
         if method == "routine.test_run" {
             let dispatches = result
                 .get("dispatch")
@@ -5577,6 +5584,8 @@ impl OrchestratorSink {
                     "bot_id": bot_id,
                     "assignment_id": assignment_id,
                     "chat_id": chat_id,
+                    "message_id": message_id,
+                    "run_id": message_id.strip_prefix("msg_takeover_").unwrap_or(message_id),
                     "reason": reason,
                     "client_request_id": format!("execution:takeover:{message_id}")
                 }),
@@ -5611,7 +5620,11 @@ impl OrchestratorSink {
             "blocks": [{"type":"question","question_id":question["id"]},{"type":"takeover_request","bot_id":bot_id,"reason":reason,"state":"pending"}],
             "fallback_text": question.get("text").cloned().unwrap_or_else(|| json!(reason)),
             "intent": null,
-            "assignment_id": message.get("assignment_id").cloned().unwrap_or(Value::Null),
+            // `assignment_id` above is the effective scope used when the
+            // source card has no assignment (private model messages use the
+            // synthetic dm_<chat> scope). Keep the generated DM card in that
+            // same scope so lifecycle projection cannot silently skip it.
+            "assignment_id": assignment_id,
             "streaming": false,
             "delivery": [],
             "reactions": []
@@ -5671,6 +5684,74 @@ impl OrchestratorSink {
                 .await;
         }
     }
+}
+
+pub(crate) fn transition_takeover_message(
+    message: &mut Value,
+    request: &Value,
+    chat_id: &str,
+    message_id: &str,
+) -> bool {
+    let Some(request_state) = request.get("state").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(bot_id) = request.get("bot_id").and_then(Value::as_str) else {
+        return false;
+    };
+    if !takeover_message_scope_matches(message, request, chat_id, message_id) {
+        return false;
+    }
+    let Some(block) = message
+        .get_mut("blocks")
+        .and_then(Value::as_array_mut)
+        .and_then(|blocks| {
+            blocks.iter_mut().find(|block| {
+                block.get("type").and_then(Value::as_str) == Some("takeover_request")
+                    && block.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+            })
+        })
+    else {
+        return false;
+    };
+    if block.get("state").and_then(Value::as_str) == Some(request_state) {
+        return false;
+    }
+    block["state"] = json!(request_state);
+    true
+}
+
+pub(crate) fn takeover_message_scope_matches(
+    message: &Value,
+    request: &Value,
+    chat_id: &str,
+    message_id: &str,
+) -> bool {
+    let (Some(assignment_id), Some(bot_id), Some(run_id), Some(original_message_id)) = (
+        request.get("assignment_id").and_then(Value::as_str),
+        request.get("bot_id").and_then(Value::as_str),
+        request.get("run_id").and_then(Value::as_str),
+        request.get("message_id").and_then(Value::as_str),
+    ) else {
+        return false;
+    };
+    let original_message_matches = original_message_id == message_id
+        && safe_component(run_id) == run_id
+        && original_message_id == format!("msg_takeover_{}", run_id)
+        && safe_component(original_message_id) == original_message_id;
+    let dm_message_matches = message_id
+        == format!(
+            "msg_takeover_question_{}",
+            safe_component(original_message_id)
+        );
+    let assignment_matches = message.get("assignment_id").and_then(Value::as_str)
+        == Some(assignment_id)
+        || (original_message_matches
+            && message.get("assignment_id").is_some_and(Value::is_null)
+            && assignment_id == format!("dm_{}", safe_component(chat_id)));
+    (original_message_matches || dm_message_matches)
+        && message.get("chat_id").and_then(Value::as_str) == Some(chat_id)
+        && assignment_matches
+        && message.pointer("/sender/bot_id").and_then(Value::as_str) == Some(bot_id)
 }
 
 #[async_trait]
@@ -5863,6 +5944,107 @@ impl ModelProvider for UnavailableProvider {
 
 #[cfg(test)]
 mod model_resolution_tests {
+    #[test]
+    fn takeover_message_projection_requires_exact_run_scope_and_updates_lifecycle() {
+        let mut message = serde_json::json!({
+            "id":"msg_takeover_run-1",
+            "chat_id":"group-1",
+            "sender":{"kind":"bot","bot_id":"bot-1"},
+            "assignment_id":"assignment-1",
+            "blocks":[{"type":"takeover_request","bot_id":"bot-1","reason":"登录","state":"pending"}]
+        });
+        let mut request = serde_json::json!({
+            "message_id":"msg_takeover_run-1",
+            "run_id":"run-1",
+            "group_chat_id":"group-1",
+            "bot_id":"bot-1",
+            "assignment_id":"assignment-1",
+            "state":"active"
+        });
+
+        assert!(super::transition_takeover_message(
+            &mut message,
+            &request,
+            "group-1",
+            "msg_takeover_run-1"
+        ));
+        assert_eq!(message["blocks"][0]["state"], "active");
+        assert!(!super::transition_takeover_message(
+            &mut message,
+            &request,
+            "group-1",
+            "msg_takeover_run-1"
+        ));
+
+        request["state"] = serde_json::json!("done");
+        assert!(super::transition_takeover_message(
+            &mut message,
+            &request,
+            "group-1",
+            "msg_takeover_run-1"
+        ));
+        assert_eq!(message["blocks"][0]["state"], "done");
+
+        let mut unrelated = message.clone();
+        unrelated["assignment_id"] = serde_json::json!("other-assignment");
+        assert!(!super::transition_takeover_message(
+            &mut unrelated,
+            &request,
+            "group-1",
+            "msg_takeover_run-1"
+        ));
+        assert_eq!(unrelated["blocks"][0]["state"], "done");
+
+        let mut wrong_run = message.clone();
+        let mut wrong_request = request.clone();
+        wrong_request["run_id"] = serde_json::json!("run-2");
+        assert!(!super::transition_takeover_message(
+            &mut wrong_run,
+            &wrong_request,
+            "group-1",
+            "msg_takeover_run-1"
+        ));
+    }
+
+    #[test]
+    fn takeover_message_projection_updates_private_card_with_same_scope() {
+        let mut message = serde_json::json!({
+            "id":"msg_takeover_question_msg_takeover_run-1",
+            "chat_id":"dm-bot-1",
+            "sender":{"kind":"bot","bot_id":"bot-1"},
+            "assignment_id":"assignment-1",
+            "blocks":[
+                {"type":"question","question_id":"question-1"},
+                {"type":"takeover_request","bot_id":"bot-1","reason":"登录","state":"pending"}
+            ]
+        });
+        let request = serde_json::json!({
+            "message_id":"msg_takeover_run-1",
+            "run_id":"run-1",
+            "group_chat_id":"group-1",
+            "chat_id":"dm-bot-1",
+            "bot_id":"bot-1",
+            "assignment_id":"assignment-1",
+            "state":"done"
+        });
+
+        assert!(super::transition_takeover_message(
+            &mut message,
+            &request,
+            "dm-bot-1",
+            "msg_takeover_question_msg_takeover_run-1"
+        ));
+        assert_eq!(message["blocks"][1]["state"], "done");
+
+        let mut wrong_dm = message.clone();
+        assert!(!super::transition_takeover_message(
+            &mut wrong_dm,
+            &request,
+            "dm-bot-1",
+            "msg_takeover_question_msg_takeover_run-2"
+        ));
+    }
+
     #[test]
     fn group_history_keeps_other_bots_out_of_own_assistant_turns() {
         let message = serde_json::json!({

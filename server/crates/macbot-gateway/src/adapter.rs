@@ -714,6 +714,150 @@ impl ProductionBackend {
         Ok(result)
     }
 
+    /// Project the durable takeover lifecycle onto the original group card
+    /// and its private question card.  The JSONL row and its corresponding
+    /// event are committed under the same writer lock so two concurrent
+    /// release/start transitions cannot overwrite one another.  The keyed
+    /// repair event also makes a successful row append recoverable if the
+    /// process dies before the event append; startup message repair will
+    /// publish the missing event from the canonical JSONL row.
+    pub(crate) async fn project_takeover_message_state(
+        &self,
+        state: &GatewayState,
+        request: &Value,
+    ) -> Result<(), RpcError> {
+        let Some(message_id) = request
+            .get("message_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+        else {
+            // Manual browser takeover has no model-originated card to
+            // project. Keep that legacy action path a no-op.
+            return Ok(());
+        };
+        let run_id = required_text(request, "run_id")?;
+        let Some(group_chat_id) = request
+            .get("group_chat_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+        else {
+            return Ok(());
+        };
+        let _assignment_id = required_text(request, "assignment_id")?;
+        let bot_id = required_text(request, "bot_id")?;
+        let request_state = required_text(request, "state")?;
+        if takeover_component(run_id.as_str()) != run_id
+            || message_id != format!("msg_takeover_{}", run_id)
+            || takeover_component(message_id.as_str()) != message_id
+        {
+            return Err(RpcError {
+                code: "invalid_params".into(),
+                message: "takeover request message_id/run_id mismatch".into(),
+                details: None,
+            });
+        }
+        let mut targets = vec![(group_chat_id.clone(), message_id.clone())];
+        if let Some(dm_chat_id) = request
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            let dm_message_id = format!(
+                "msg_takeover_question_{}",
+                takeover_component(message_id.as_str())
+            );
+            targets.push((dm_chat_id.to_owned(), dm_message_id));
+        }
+
+        let _guard = self.write_lock.lock().await;
+        let mut events = Vec::new();
+        for (chat_id, target_message_id) in targets {
+            let path = format!("data/chats/{}/messages.jsonl", takeover_component(&chat_id));
+            let rows = self.store.read_jsonl::<Value>(&path).map_err(store_error)?;
+            let Some(mut message) = rows.into_iter().rev().find(|message| {
+                message.get("id").and_then(Value::as_str) == Some(target_message_id.as_str())
+            }) else {
+                continue;
+            };
+            if !crate::backend::takeover_message_scope_matches(
+                &message,
+                request,
+                &chat_id,
+                &target_message_id,
+            ) {
+                continue;
+            }
+            let changed = crate::backend::transition_takeover_message(
+                &mut message,
+                request,
+                &chat_id,
+                &target_message_id,
+            );
+            if !changed
+                && message
+                    .pointer("/blocks")
+                    .and_then(Value::as_array)
+                    .and_then(|blocks| {
+                        blocks.iter().find(|block| {
+                            block.get("type").and_then(Value::as_str) == Some("takeover_request")
+                                && block.get("bot_id").and_then(Value::as_str)
+                                    == Some(bot_id.as_str())
+                        })
+                    })
+                    .and_then(|block| block.get("state"))
+                    .and_then(Value::as_str)
+                    != Some(request_state.as_str())
+            {
+                // A row with the same id but a different scope is unrelated
+                // historical data. Leave it untouched and avoid broadening
+                // an old request into a new card.
+                continue;
+            }
+            let canonical = if changed {
+                self.store
+                    .sequence_chat_messages(&chat_id, &[message])
+                    .map_err(store_error)?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| RpcError {
+                        code: "internal".into(),
+                        message: "chat message sequencing returned no message".into(),
+                        details: None,
+                    })?
+            } else {
+                message
+            };
+            if changed {
+                self.store
+                    .append_jsonl(&path, &canonical)
+                    .map_err(store_error)?;
+            }
+            let data = json!({"message": canonical});
+            let key = format!(
+                "takeover-message:{}:{}:{}",
+                target_message_id,
+                request_state,
+                serde_json::to_string(&data).map_err(|error| RpcError {
+                    code: "internal".into(),
+                    message: error.to_string(),
+                    details: None,
+                })?
+            );
+            if let Some(event) = self.append_repaired_event(&key, "message.updated", data)? {
+                events.push(event);
+            }
+        }
+        drop(_guard);
+        for event in events {
+            state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
+        Ok(())
+    }
+
     fn repair_completed_operation_events(&self, operations: &[Value]) -> Result<(), AdapterError> {
         // Completed-operation repair only reads the restored state. Keep one
         // snapshot for the pass and refresh it after the sole repair path
@@ -2968,7 +3112,7 @@ impl ProductionBackend {
             )
             .await
             .map_err(Self::error)?;
-        let request = json!({
+        let mut request = json!({
             "bot_id": bot_id,
             "assignment_id": assignment_id,
             "chat_id": dm_chat_id,
@@ -2978,6 +3122,20 @@ impl ProductionBackend {
             "state": "pending",
             "created_at": now()
         });
+        if let Some(message_id) = params
+            .get("message_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            request["message_id"] = json!(message_id);
+        }
+        if let Some(run_id) = params
+            .get("run_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            request["run_id"] = json!(run_id);
+        }
         self.store
             .write_snapshot(
                 format!("data/takeovers/{}.json", takeover_component(&assignment_id)),
@@ -6699,6 +6857,78 @@ mod tests {
             .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn takeover_projection_updates_private_null_scope_and_repairs_missing_event() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let group = json!({
+            "id":"msg_takeover_run-1", "chat_id":"group-1", "seq":1,
+            "sender":{"kind":"bot","bot_id":"bot-1"}, "assignment_id":null,
+            "blocks":[{"type":"takeover_request","bot_id":"bot-1","state":"pending"}]
+        });
+        let private = json!({
+            "id":"msg_takeover_question_msg_takeover_run-1", "chat_id":"dm-bot-1", "seq":1,
+            "sender":{"kind":"bot","bot_id":"bot-1"}, "assignment_id":"dm_group-1",
+            "blocks":[
+                {"type":"question","question_id":"question-1"},
+                {"type":"takeover_request","bot_id":"bot-1","state":"pending"}
+            ]
+        });
+        backend
+            .store
+            .append_jsonl("data/chats/group-1/messages.jsonl", &group)
+            .unwrap();
+        backend
+            .store
+            .append_jsonl("data/chats/dm-bot-1/messages.jsonl", &private)
+            .unwrap();
+        let request = json!({
+            "message_id":"msg_takeover_run-1", "run_id":"run-1",
+            "group_chat_id":"group-1", "chat_id":"dm-bot-1",
+            "bot_id":"bot-1", "assignment_id":"dm_group-1", "state":"active"
+        });
+        backend
+            .project_takeover_message_state(&gateway.state, &request)
+            .await
+            .unwrap();
+        let events = backend.store.events_since(0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "message.updated")
+                .count(),
+            2
+        );
+        let group_rows = backend
+            .store
+            .read_jsonl::<Value>("data/chats/group-1/messages.jsonl")
+            .unwrap();
+        assert_eq!(group_rows.last().unwrap()["blocks"][0]["state"], "active");
+        let private_rows = backend
+            .store
+            .read_jsonl::<Value>("data/chats/dm-bot-1/messages.jsonl")
+            .unwrap();
+        assert_eq!(private_rows.last().unwrap()["blocks"][1]["state"], "active");
+
+        let mut recovered = group_rows.last().unwrap().clone();
+        recovered["blocks"][0]["state"] = json!("done");
+        backend
+            .store
+            .append_jsonl("data/chats/group-1/messages.jsonl", &recovered)
+            .unwrap();
+        backend.repair_persisted_message_events().unwrap();
+        let repaired = backend.store.events_since(0).unwrap();
+        assert!(repaired.iter().any(|event| {
+            event.event == "message.updated"
+                && event.data["message"]["id"] == "msg_takeover_run-1"
+                && event.data["message"]["blocks"][0]["state"] == "done"
+        }));
     }
 
     #[tokio::test]
