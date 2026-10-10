@@ -412,6 +412,8 @@ impl TraceView {
         let can_download = file.is_some() || run_id.is_some() || call_id.is_some();
         let mut row = div()
             .id(SharedString::from(format!("trace-row-{aseq}")))
+            .w_full()
+            .min_w_0()
             .flex()
             .flex_col()
             .gap_1()
@@ -446,6 +448,8 @@ impl TraceView {
                 )
                 .child(
                     div()
+                        .min_w_0()
+                        .truncate()
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(title.to_owned()),
                 )
@@ -463,6 +467,9 @@ impl TraceView {
         if !preview.is_empty() {
             row = row.child(
                 div()
+                    .w_full()
+                    .min_w_0()
+                    .whitespace_normal()
                     .text_sm()
                     .text_color(t.primary)
                     .child(preview.to_owned()),
@@ -896,6 +903,7 @@ mod tests {
                     let first = window.find("trace-row-1").bounds();
                     let second = window.find("trace-row-2").bounds();
                     assert!(first.size.height > px(68.));
+                    assert!(first.size.width <= px(width));
                     assert!(second.top() >= first.bottom(), "width={width}, expanded={expanded}");
                     if !expanded { window.click("trace-row-1", cx); }
                 }
