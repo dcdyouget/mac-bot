@@ -839,6 +839,19 @@ impl ProductionBackend {
         bot_id: &str,
     ) -> Result<(), RpcError> {
         let _guard = self.write_lock.lock().await;
+        self.apply_browser_takeover_reconciliation(state, bot_id)
+            .await
+    }
+
+    /// Apply the durable ownership decision while the caller already owns the
+    /// writer lock.  Keep this separate from `reconcile_browser_takeover` so a
+    /// start/release mutation can refresh the live browser state without
+    /// attempting to acquire the writer lock recursively.
+    async fn apply_browser_takeover_reconciliation(
+        &self,
+        state: &GatewayState,
+        bot_id: &str,
+    ) -> Result<(), RpcError> {
         let active = self.durable_browser_takeover_active(bot_id)?;
         state
             .browser
@@ -3521,37 +3534,58 @@ impl ProductionBackend {
 
     async fn takeover_start(&self, state: &GatewayState, params: &Value) -> RpcResult {
         let bot_id = required_text(params, "bot_id")?;
-        let (assignment_id, mut request) = match self.takeover_for_action(params, "pending") {
-            Ok(value) => value,
-            Err(error) if error.code == "not_found" && params.get("assignment_id").is_none() => {
-                let assignment_id = format!("browser_takeover_{bot_id}");
-                let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
-                let bot = snapshot
-                    .get("bots")
-                    .and_then(Value::as_object)
-                    .and_then(|bots| bots.get(&bot_id))
-                    .ok_or_else(|| RpcError {
-                        code: "not_found".into(),
-                        message: format!("bot {bot_id} not found"),
-                        details: None,
-                    })?;
-                let chat_id = bot
-                    .get("dm_chat_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| {
-                        if bot_is_main(bot) {
-                            "chat_main".into()
-                        } else {
-                            format!("dm_{bot_id}")
-                        }
-                    });
-                (
-                    assignment_id.clone(),
-                    json!({"bot_id":bot_id,"assignment_id":assignment_id,"chat_id":chat_id,"group_chat_id":Value::Null,"reason":"用户接管浏览器","question_id":Value::Null,"state":"pending","created_at":now()}),
-                )
+        let has_assignment_hint = params
+            .get("assignment_id")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty());
+
+        // A client-visible start has no assignment id in the v1 protocol. If
+        // this Bot is already owned by the user, make the action idempotent
+        // and keep the original run/message/question scope intact. An
+        // explicit hint still goes through the exact pending record below.
+        let (assignment_id, mut request, already_active) = if !has_assignment_hint {
+            match self.takeover_for_action(params, "active") {
+                Ok((assignment_id, request)) => (assignment_id, request, true),
+                Err(error) if error.code == "not_found" => {
+                    let (assignment_id, request) = self.takeover_for_action(params, "pending")
+                        .or_else(|error| {
+                            if error.code != "not_found" {
+                                return Err(error);
+                            }
+                            let assignment_id = format!("browser_takeover_{bot_id}");
+                            let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+                            let bot = snapshot
+                                .get("bots")
+                                .and_then(Value::as_object)
+                                .and_then(|bots| bots.get(&bot_id))
+                                .ok_or_else(|| RpcError {
+                                    code: "not_found".into(),
+                                    message: format!("bot {bot_id} not found"),
+                                    details: None,
+                                })?;
+                            let chat_id = bot
+                                .get("dm_chat_id")
+                                .and_then(Value::as_str)
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| {
+                                    if bot_is_main(bot) {
+                                        "chat_main".into()
+                                    } else {
+                                        format!("dm_{bot_id}")
+                                    }
+                                });
+                            Ok((
+                                assignment_id.clone(),
+                                json!({"bot_id":bot_id,"assignment_id":assignment_id,"chat_id":chat_id,"group_chat_id":Value::Null,"reason":"用户接管浏览器","question_id":Value::Null,"state":"pending","created_at":now()}),
+                            ))
+                        })?;
+                    (assignment_id, request, false)
+                }
+                Err(error) => return Err(error),
             }
-            Err(error) => return Err(error),
+        } else {
+            let (assignment_id, request) = self.takeover_for_action(params, "pending")?;
+            (assignment_id, request, false)
         };
         if request.get("bot_id").and_then(Value::as_str) != Some(bot_id.as_str()) {
             return Err(RpcError {
@@ -3566,6 +3600,14 @@ impl ProductionBackend {
             .await
             .takeover_start(&bot_id)
             .map_err(browser_error)?;
+        if already_active {
+            // A previous start may have persisted the active record before
+            // answering its exact pending question. Retrying must finish
+            // that durable question, without changing the original scope or
+            // replaying the waiting run.
+            self.answer_takeover_question(state, &request).await?;
+            return Ok(json!({"takeover_request":request}));
+        }
         request["state"] = json!("active");
         request["started_at"] = json!(now());
         self.write_takeover(&assignment_id, &request)?;
@@ -3583,18 +3625,17 @@ impl ProductionBackend {
                 details: None,
             });
         }
-        state
-            .browser
-            .lock()
-            .await
-            .takeover_release(&bot_id)
-            .map_err(browser_error)?;
         request["state"] = json!("done");
         request["released_at"] = json!(now());
         if let Some(note) = params.get("note") {
             request["note"] = note.clone();
         }
         self.write_takeover(&assignment_id, &request)?;
+        // A different active scope may still own the browser. Recompute from
+        // durable records rather than unconditionally leaving the session in
+        // bot mode after this one scope is released.
+        self.apply_browser_takeover_reconciliation(state, &bot_id)
+            .await?;
         self.answer_takeover_question(state, &request).await?;
         Ok(json!({"takeover_request":request}))
     }
@@ -7634,6 +7675,7 @@ mod tests {
     }
     use crate::{Gateway, GatewayConfig};
     use chrono::Duration;
+    use macbot_browser::{BrowserMode, SessionConfig};
     use macbot_protocol::{
         Assignment as WireAssignment, Bot as WireBot, Chat as WireChat, HeatmapResult,
         Message as WireMessage, Project as WireProject, Provider as WireProvider,
@@ -7989,6 +8031,252 @@ mod tests {
         assert_eq!(request["assignment_id"], "dm_chat_main");
         assert_eq!(request["run_id"], "run-1");
         assert_eq!(request["state"], "pending");
+        drop(gateway);
+    }
+
+    #[tokio::test]
+    async fn takeover_start_and_release_preserve_scope_and_remaining_driver() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        gateway
+            .state
+            .browser
+            .lock()
+            .await
+            .set_bot_config(
+                "bot-1",
+                SessionConfig {
+                    executable: "/usr/bin/true".into(),
+                    mode: BrowserMode::Attach,
+                    chrome_profile: None,
+                    idle_timeout_secs: 900,
+                    profile_source: None,
+                    isolated_profile_root: None,
+                    state_path: None,
+                },
+            )
+            .unwrap();
+        let takeovers = home.path().join("data/takeovers");
+        std::fs::create_dir_all(&takeovers).unwrap();
+
+        let older_active = json!({
+            "bot_id":"bot-1",
+            "assignment_id":"dm_old",
+            "chat_id":"dm-bot-1",
+            "state":"active",
+            "created_at":"2026-10-10T15:00:00Z",
+            "run_id":"run-old",
+            "message_id":"msg-old"
+        });
+        let newer_active = json!({
+            "bot_id":"bot-1",
+            "assignment_id":"browser_takeover_bot-1",
+            "chat_id":"dm-bot-1",
+            "state":"active",
+            "created_at":"2026-10-10T16:00:00Z",
+            "run_id":"run-new",
+            "message_id":"msg-new",
+            "started_at":"2026-10-10T16:01:00Z"
+        });
+        let pending = json!({
+            "bot_id":"bot-1",
+            "assignment_id":"dm_pending",
+            "chat_id":"dm-bot-1",
+            "state":"pending",
+            "created_at":"2026-10-10T17:00:00Z",
+            "run_id":"run-pending",
+            "message_id":"msg-pending"
+        });
+        for (name, record) in [
+            ("dm_old", older_active),
+            ("browser_takeover_bot-1", newer_active),
+            ("dm_pending", pending),
+        ] {
+            backend
+                .store
+                .write_snapshot(format!("data/takeovers/{name}.json"), &record)
+                .unwrap();
+        }
+
+        let start = backend
+            .takeover_start(&gateway.state, &json!({"bot_id":"bot-1"}))
+            .await
+            .unwrap();
+        assert_eq!(
+            start["takeover_request"]["assignment_id"],
+            "browser_takeover_bot-1"
+        );
+        assert_eq!(start["takeover_request"]["run_id"], "run-new");
+        assert_eq!(
+            start["takeover_request"]["started_at"],
+            "2026-10-10T16:01:00Z"
+        );
+        let records = std::fs::read_dir(&takeovers).unwrap().count();
+        assert_eq!(records, 3, "active start must not create a sibling scope");
+        assert!(
+            gateway
+                .state
+                .browser
+                .lock()
+                .await
+                .state("bot-1")
+                .unwrap()
+                .takeover
+        );
+
+        let release = backend
+            .takeover_release(
+                &gateway.state,
+                &json!({"bot_id":"bot-1","assignment_id":"browser_takeover_bot-1"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(release["takeover_request"]["state"], "done");
+        assert!(
+            gateway
+                .state
+                .browser
+                .lock()
+                .await
+                .state("bot-1")
+                .unwrap()
+                .takeover,
+            "remaining active scope must retain user driver"
+        );
+
+        let old_release = backend
+            .takeover_release(
+                &gateway.state,
+                &json!({"bot_id":"bot-1","assignment_id":"dm_old"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(old_release["takeover_request"]["state"], "done");
+        assert!(
+            !gateway
+                .state
+                .browser
+                .lock()
+                .await
+                .state("bot-1")
+                .unwrap()
+                .takeover
+        );
+
+        let hinted_start = backend
+            .takeover_start(
+                &gateway.state,
+                &json!({"bot_id":"bot-1","assignment_id":"dm_pending"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            hinted_start["takeover_request"]["assignment_id"],
+            "dm_pending"
+        );
+        assert_eq!(hinted_start["takeover_request"]["run_id"], "run-pending");
+        assert!(
+            gateway
+                .state
+                .browser
+                .lock()
+                .await
+                .state("bot-1")
+                .unwrap()
+                .takeover
+        );
+        let hinted_release = backend
+            .takeover_release(
+                &gateway.state,
+                &json!({"bot_id":"bot-1","assignment_id":"dm_pending"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hinted_release["takeover_request"]["state"], "done");
+        assert!(
+            !gateway
+                .state
+                .browser
+                .lock()
+                .await
+                .state("bot-1")
+                .unwrap()
+                .takeover
+        );
+        drop(gateway);
+    }
+
+    #[tokio::test]
+    async fn takeover_start_retries_exact_pending_question_for_active_scope() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        gateway
+            .state
+            .browser
+            .lock()
+            .await
+            .set_bot_config(
+                "main",
+                SessionConfig {
+                    executable: "/usr/bin/true".into(),
+                    mode: BrowserMode::Attach,
+                    chrome_profile: None,
+                    idle_timeout_secs: 900,
+                    profile_source: None,
+                    isolated_profile_root: None,
+                    state_path: None,
+                },
+            )
+            .unwrap();
+
+        let created = backend
+            .execution_takeover_request(
+                &gateway.state,
+                json!({
+                    "bot_id":"main",
+                    "assignment_id":null,
+                    "chat_id":"chat_main",
+                    "message_id":"msg-takeover-retry",
+                    "run_id":"run-takeover-retry",
+                    "reason":"retry exact question"
+                }),
+            )
+            .await
+            .unwrap();
+        let mut active = created["takeover_request"].clone();
+        active["state"] = json!("active");
+        let assignment_id = active["assignment_id"].as_str().unwrap().to_owned();
+        let started_at = "2026-10-10T16:01:00Z";
+        active["started_at"] = json!(started_at);
+        backend
+            .store
+            .write_snapshot(format!("data/takeovers/{assignment_id}.json"), &active)
+            .unwrap();
+
+        let started = backend
+            .takeover_start(&gateway.state, &json!({"bot_id":"main"}))
+            .await
+            .unwrap();
+        assert_eq!(started["takeover_request"]["assignment_id"], assignment_id);
+        assert_eq!(started["takeover_request"]["started_at"], started_at);
+        let question_id = active["question_id"].as_str().unwrap();
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        assert_eq!(snapshot["questions"][question_id]["state"], "answered");
+        assert!(backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .iter()
+            .any(|event| event.event == "question.answered"
+                && event.data["question"]["id"] == question_id));
         drop(gateway);
     }
 
