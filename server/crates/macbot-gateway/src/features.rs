@@ -1286,6 +1286,12 @@ impl FeatureService {
         limit: usize,
     ) -> FeatureResult<Vec<SearchHit>> {
         let limit = limit.clamp(1, 100);
+        if kinds
+            .iter()
+            .any(|kind| !SEARCH_KINDS.contains(&kind.as_str()))
+        {
+            return Err(FeatureError::Invalid("unsupported search kind".into()));
+        }
         let filter = kinds.iter().map(String::as_str).collect::<HashSet<_>>();
         let mut hits = BTreeMap::new();
         collect_search_files(&self.shared_store.root().join("data"), &filter, &mut hits)?;
@@ -1536,6 +1542,8 @@ pub struct SearchHit {
     pub at: Option<String>,
 }
 
+const SEARCH_KINDS: [&str; 5] = ["message", "chat", "bot", "artifact", "routine"];
+
 struct SearchRecord {
     hit: SearchHit,
     search_text: String,
@@ -1713,6 +1721,7 @@ fn collect_search_value_inner(
         .iter()
         .any(|field| object.contains_key(*field));
         if !is_envelope
+            && SEARCH_KINDS.contains(&kind.as_str())
             && (!has_nested || has_search_fields)
             && (kinds.is_empty() || kinds.contains(kind.as_str()))
         {
@@ -2497,7 +2506,20 @@ mod tests {
         assert!(kinds.contains("message"));
         assert!(kinds.contains("artifact"));
         assert!(kinds.contains("routine"));
-        assert!(kinds.contains("object"));
+        assert!(!kinds.contains("object"));
+        assert!(service
+            .search_rpc(json!({"query":"needle","kinds":["object"]}))
+            .is_err());
+        service.shared_store.write_snapshot(
+            "data/jobs/internal.json",
+            &json!({"id":"job-internal","checkpoint":{"messages":[{"role":"system","content":"internal-prompt-only"}]}}),
+        ).unwrap();
+        assert!(service
+            .search_rpc(json!({"query":"internal-prompt-only"}))
+            .unwrap()["results"]
+            .as_array()
+            .unwrap()
+            .is_empty());
         assert!(hits
             .iter()
             .any(|hit| hit.id == "m1" && hit.chat_id.as_deref() == Some("c1")));
