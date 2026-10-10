@@ -334,6 +334,7 @@ pub struct ExecutionState {
     pub cancellations: Arc<Mutex<HashMap<String, ToolCancellation>>>,
     usage_ticks: Arc<Mutex<HashMap<String, UsageTickState>>>,
     recovered: Mutex<bool>,
+    run_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     model_rate_limiter: ModelRateLimiter,
 }
 
@@ -347,6 +348,7 @@ impl ExecutionState {
             cancellations: Arc::new(Mutex::new(HashMap::new())),
             usage_ticks: Arc::new(Mutex::new(HashMap::new())),
             recovered: Mutex::new(false),
+            run_locks: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -829,12 +831,45 @@ impl ExecutionEngine {
         } else {
             request.messages.clone()
         };
-        let (job, mut messages, start_turn, resumed, approved_call, mut approved_followups) = {
+        let (
+            job,
+            mut messages,
+            start_turn,
+            resumed,
+            approved_call,
+            mut approved_followups,
+            _run_guard,
+        ) = {
             let mut durable = self.state.durable.lock().await;
             let existing = durable
                 .jobs()
                 .find(|job| job.checkpoint["run_id"].as_str() == Some(request.run_id.as_str()))
                 .cloned();
+            // Approval continuations and recovery/scheduler dispatch share this
+            // guard. A durable Running checkpoint alone cannot distinguish a
+            // live worker from a job restored after process death.
+            let run_lock = self
+                .state
+                .run_locks
+                .lock()
+                .await
+                .entry(request.run_id.clone())
+                .or_default()
+                .clone();
+            let run_guard = match run_lock.try_lock_owned() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    let job = existing.expect("active run has a durable job");
+                    return Ok(ExecutionOutcome {
+                        run_id: request.run_id,
+                        job_id: job.id,
+                        status: "running".into(),
+                        text: String::new(),
+                        usage: TokenUsage::default(),
+                        turns: job.checkpoint["round"].as_u64().unwrap_or(0) as usize,
+                    });
+                }
+            };
             if let Some(job) = existing {
                 if job.status == JobStatus::Done {
                     let text = job.checkpoint["text"]
@@ -914,7 +949,15 @@ impl ExecutionEngine {
                         json!({"run_id":request.run_id,"round":round,"messages":messages}),
                         false,
                     )?;
-                    (resumed_job, messages, round, true, None, Vec::new())
+                    (
+                        resumed_job,
+                        messages,
+                        round,
+                        true,
+                        None,
+                        Vec::new(),
+                        run_guard,
+                    )
                 } else if request.resume_approved
                     && matches!(job.status, JobStatus::Waiting | JobStatus::Suspended)
                 {
@@ -965,9 +1008,10 @@ impl ExecutionEngine {
                         true,
                         Some(call),
                         pending_calls,
+                        run_guard,
                     )
                 } else {
-                    (job, messages, round, true, None, Vec::new())
+                    (job, messages, round, true, None, Vec::new(), run_guard)
                 }
             } else {
                 let job = durable.create_job(
@@ -975,7 +1019,7 @@ impl ExecutionEngine {
                     "model_run",
                     json!({"run_id":request.run_id,"round":0,"messages":initial_messages}),
                 )?;
-                (job, initial_messages, 0, false, None, Vec::new())
+                (job, initial_messages, 0, false, None, Vec::new(), run_guard)
             }
         };
         let streaming_message_id = if request.private {
@@ -5432,6 +5476,13 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .status,
+            "running"
+        );
+        // Generic scheduler recovery and duplicate approval RPCs must not
+        // enter the same provider turn while the continuation is alive.
+        assert_eq!(engine.run(request.clone()).await.unwrap().status, "running");
+        assert_eq!(
+            engine.continue_approved(request).await.unwrap().status,
             "running"
         );
         release.notify_one();
