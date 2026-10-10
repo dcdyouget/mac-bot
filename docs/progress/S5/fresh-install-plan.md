@@ -2,13 +2,13 @@
 
 状态：**未执行，不能计 S5 通过**。这是可逆操作计划，不是验收记录。
 
-当前停止条件：正式服务为 `09622d7`，桌面为 `a0b9ddf`，Android 为 `d613819` 同签名 Release。Mac 再次锁屏，已请求用户解锁；Android 真实流式及安全 checkpoint 后 kill‑9 同 run 恢复已补证。S2 原 Tester 缺失测试已补齐、主 Bot 待验收汇总已在 Android 显示，完整阶段仍需矩阵核验；S3/S4 双端场景尚未完成。原旧 siblings/未知审批保持；先完成现有场景，再执行本演练。
+当前停止条件：正式服务为 `9c20fc4`，桌面为 `6eaa91a`，Android 为 `5e2fbcc` 同签名 Release。Mac 已解锁。S0、S1、S3 已通过；S2 历史分支的取消确认待用户答复，S4 Chrome 远程调试当前弹窗待用户答复；S5 fresh 未执行。原旧 siblings/未知审批保持，不自动取消或批准。
 
 ## 前置条件与路径
 
-- server 必须交付最新 ready 完整 SHA、`.pkg`、source/build-info/dirty=false 和 daemon/sidecar SHA。历史 `7481d8e4b988e866bb3feade18db7e603b6aba5e` pkg 已完成候选审计，SHA-256 为 `f3cf7bae9010a7f0c0fce092eee2272c4d5c4725d383d21783fef70d3fec8de3`，见 [server-pkg-7481d8e-verified.json](server-pkg-7481d8e-verified.json)；并未安装或计 fresh。历史 `0d7c887` pkg 已完成干净源码、daemon/sidecar 哈希及包内容审计，见 [server-pkg-0d7c887-verified.json](server-pkg-0d7c887-verified.json)，未安装；`63c140d` pkg审计已保留；历史 `07a3245` pkg 已重新完成相同审计，见 [server-pkg-07a3245-verified.json](server-pkg-07a3245-verified.json)。历史 `fe360a2` pkg 已完成同样审计，见 [server-pkg-fe360a2-verified.json](server-pkg-fe360a2-verified.json)。旧候选不可代替当前包；执行前须基于最终 server 提交重建并审计 pkg。
-- client-mac 已从 `71fddde` 干净归档构建正式 release DMG，签名和镜像校验通过（见 [desktop-dmg-71fddde-verified.json](desktop-dmg-71fddde-verified.json)），source/binary SHA、DMG SHA、`codesign --verify --deep --strict` 和 `hdiutil` 均已核验；仍未安装。
-- client-android 必须交付签名 Release APK；只允许同签名 `adb install -r`，不卸载、不清空现有数据。
+- server 当前 ready 候选为 `9c20fc409797d9f3b38a826ee8079bf17635125d`，`.pkg` SHA-256 为 `509c947415653f12fa57063817c5ddd9ffe46795b0beec7e0fb48dedc7aa5462`，source/build-info/dirty=false、daemon/sidecar SHA 和包 smoke 已核对，见 [server-pkg-9c20fc4-verified.json](server-pkg-9c20fc4-verified.json)；这是 unsigned development package，未安装或计 fresh。历史 `7481d8e4b988e866bb3feade18db7e603b6aba5e` pkg 已完成候选审计，SHA-256 为 `f3cf7bae9010a7f0c0fce092eee2272c4d5c4725d383d21783fef70d3fec8de3`，见 [server-pkg-7481d8e-verified.json](server-pkg-7481d8e-verified.json)；其他历史候选审计记录继续保留，均不可替代当前包。
+- client-mac 当前现场为 `6eaa91a`，Mac 已解锁并完成范围标题修复、技能发布和记忆/搜索原生复核；既有 `71fddde` 干净归档 release DMG 的签名和镜像校验记录继续保留（见 [desktop-dmg-71fddde-verified.json](desktop-dmg-71fddde-verified.json)）。
+- client-android 当前现场为 `5e2fbcc` 同签名 Release；只允许同签名 `adb install -r`，不卸载、不清空现有数据。
 - PLAN 第 6 章 S5 权威顺序是 `pkg → 设置密码 → 两端连接 → 完整场景`（`docs/PLAN.md:524-531`）；服务端安装见 `server/README.md:60-97`，桌面 DMG 见 `clients/mac/README.md:37-52`。
 
 必须区分服务 App 路径：
@@ -91,6 +91,8 @@ adb -s emulator-5554 shell pm path bot.mac.mobile
 2. 每阶段保存桌面 `screencapture`、Android `adb exec-out screencap -p`、RPC/e2e JSON、source/PID 和实际断言；健康、API、mock 或单张 owner 图不能替代双端联合验收。
 3. S5 通过条件是 pkg 安装、管理页设密码、两端连接、完整场景和截图全部完成。失败时保留新现场和证据；停止新 LaunchAgent 后，从仓库外备份恢复 `~/MacBot`、plist、对应 App 路径和 CLI links，恢复原外部 file secret 目录，Keychain 不变，再核对 source/PID/health。不要清空 Android 数据或密钥，也不要混用新旧数据。
 
-当前状态：S5 fresh install 未执行。当前业务部署不构成 fresh；执行前需冻结最终版本并重建审计 server pkg，本计划文件本身不构成安装或验收通过。后续 server 已更新 `aa2c99a`，搜索误分类修复且Android实测通过，其他前置缺口仍在。
+当前状态：S5 fresh install 未执行。当前业务部署不构成 fresh；执行前需冻结最终版本并核对本计划列出的 server pkg，本计划文件本身不构成安装或验收通过。
 
-2026-10-10 最新现场补充：server `14a3b18`、桌面 `e14d0a8` Release、Android `5e2fbcc` 签名 Release。桌面 App/DMG 已从干净归档构建并通过签名与镜像校验，正常更新安装不计 fresh（见 S3/production-e14d0a8-desktop-install.json）。当前系统仍报告 IOConsoleLocked=Yes，桌面 UI 待解锁；S3 搜索发现内部记忆误分类为群，正在修复。先完成 S1–S4 剩余双端验收，再按本计划执行；前文历史版本和停止条件不代表最新部署。
+2026-10-10 历史现场补充：server `14a3b18`、桌面 `e14d0a8` Release、Android `5e2fbcc` 签名 Release。桌面 App/DMG 已从干净归档构建并通过签名与镜像校验，正常更新安装不计 fresh；当时的锁屏和搜索误分类记录保留，前文历史版本和停止条件不代表最新部署。
+
+2026-10-10 当前现场补充：server `9c20fc4`、桌面 `6eaa91a`、Android `5e2fbcc`；Mac 已解锁。S0、S1、S3 已通过；S2 历史分支取消确认待用户答复，S4 Chrome 远程调试当前弹窗待用户答复；S5 fresh 仍未执行。

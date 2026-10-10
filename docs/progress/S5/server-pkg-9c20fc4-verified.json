@@ -1,0 +1,98 @@
+{
+  "package_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-9c20fc409797d9f3b38a826ee8079bf17635125d.pkg",
+  "package_sha256": "509c947415653f12fa57063817c5ddd9ffe46795b0beec7e0fb48dedc7aa5462",
+  "package_bytes": 16111168,
+  "source_commit_expected": "9c20fc409797d9f3b38a826ee8079bf17635125d",
+  "source_commit_txt": "9c20fc409797d9f3b38a826ee8079bf17635125d",
+  "expanded_audit_root": "/Users/gongshaojie/Library/Caches/MacBot/s5/pkg-9c20fc409797d9f3b38a826ee8079bf17635125d-audit",
+  "build_info": {
+    "source_dirty": false,
+    "macbotd_sha256": "7c4fd1646197db7b65fab03353f28494b7dce180807644f3adb6b4cb7ff4c585",
+    "version": "0.1.0",
+    "agent_browser_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+    "source_commit": "9c20fc409797d9f3b38a826ee8079bf17635125d"
+  },
+  "info_plist": {
+    "CFBundleIdentifier": "com.macbot.server",
+    "CFBundleShortVersionString": "0.1.0",
+    "CFBundleVersion": "0.1.0",
+    "MacBotSourceCommit": "9c20fc409797d9f3b38a826ee8079bf17635125d"
+  },
+  "hashes": {
+    "macbotd_actual": "7c4fd1646197db7b65fab03353f28494b7dce180807644f3adb6b4cb7ff4c585",
+    "agent_browser_actual": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+    "macbotd_expected": "7c4fd1646197db7b65fab03353f28494b7dce180807644f3adb6b4cb7ff4c585",
+    "agent_browser_expected": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9"
+  },
+  "hash_checks": {
+    "source_commit": true,
+    "source_dirty_false": true,
+    "macbotd": true,
+    "agent_browser": true
+  },
+  "package_info": {
+    "identifier": "com.macbot.server",
+    "version": "0.1.0",
+    "install_location": "/",
+    "payload_number_of_files": 29,
+    "postinstall_present": true
+  },
+  "launchagent_template": {
+    "label": "com.macbot.server",
+    "run_at_load": true,
+    "keep_alive": true,
+    "has_home_placeholder": true,
+    "has_bin_placeholder": true
+  },
+  "payload": {
+    "count": 29,
+    "paths": [
+      ".",
+      "./Applications",
+      "./Applications/MacBot Server.app",
+      "./Applications/MacBot Server.app/Contents",
+      "./Applications/MacBot Server.app/Contents/MacOS",
+      "./Applications/MacBot Server.app/Contents/MacOS/agent-browser",
+      "./Applications/MacBot Server.app/Contents/MacOS/._agent-browser",
+      "./Applications/MacBot Server.app/Contents/MacOS/macbotd",
+      "./Applications/MacBot Server.app/Contents/MacOS/._macbotd",
+      "./Applications/MacBot Server.app/Contents/._MacOS",
+      "./Applications/MacBot Server.app/Contents/Resources",
+      "./Applications/MacBot Server.app/Contents/Resources/build-info.json",
+      "./Applications/MacBot Server.app/Contents/Resources/._build-info.json",
+      "./Applications/MacBot Server.app/Contents/Resources/agent-browser.LICENSE",
+      "./Applications/MacBot Server.app/Contents/Resources/._agent-browser.LICENSE",
+      "./Applications/MacBot Server.app/Contents/Resources/source-commit.txt",
+      "./Applications/MacBot Server.app/Contents/Resources/._source-commit.txt",
+      "./Applications/MacBot Server.app/Contents/Resources/com.macbot.server.plist",
+      "./Applications/MacBot Server.app/Contents/Resources/._com.macbot.server.plist",
+      "./Applications/MacBot Server.app/Contents/Resources/update-installed.sh",
+      "./Applications/MacBot Server.app/Contents/Resources/._update-installed.sh",
+      "./Applications/MacBot Server.app/Contents/Resources/update-manifest.json",
+      "./Applications/MacBot Server.app/Contents/Resources/._update-manifest.json",
+      "./Applications/MacBot Server.app/Contents/._Resources",
+      "./Applications/MacBot Server.app/Contents/Info.plist",
+      "./Applications/MacBot Server.app/Contents/._Info.plist",
+      "./Applications/MacBot Server.app/._Contents",
+      "./Applications/._MacBot Server.app",
+      "./._Applications"
+    ]
+  },
+  "signature": {
+    "pkg": {
+      "returncode": 1,
+      "output": "Package \"MacBot-Server-9c20fc409797d9f3b38a826ee8079bf17635125d.pkg\":\n   Status: no signature"
+    }
+  },
+  "verification": {
+    "packaging_smoke": "passed: bundle contents, sidecar digest and atomic update failure/success",
+    "macbotd_version": {
+      "returncode": 0,
+      "output": "macbotd 0.1.0"
+    }
+  },
+  "installed": false,
+  "deployed": false,
+  "credentials_read": false,
+  "fresh_install_pass": false
+}
