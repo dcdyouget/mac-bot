@@ -1066,6 +1066,19 @@
     }
   },
   {
+    "source": "protocol/fixtures/events/sync_cursor.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "seq": 39
+      },
+      "event": "sync.cursor",
+      "kind": "evt",
+      "seq": 39,
+      "v": 1
+    }
+  },
+  {
     "source": "protocol/fixtures/events/sync_done.json",
     "line": 1,
     "value": {

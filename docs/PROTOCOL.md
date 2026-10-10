@@ -67,6 +67,7 @@
 - 重连退避：1s、2s、4s … 最长 30s，带 ±20% 随机抖动。
 - 无法发送 WebSocket ping 的平台，改为每 20 秒调用一次 `ping` 方法。
 - 主连接断开时，运行轨迹的订阅全部失效，重连后需要重新订阅。画面连接独立重连。
+- 实时推送和 `session.resume` 补发必须保持全局持久序号连续。服务端内部持久化的轨迹条目在全局流中投影为同序号 `sync.cursor`，不发送轨迹内容；客户端照常消费该序号，不改变业务状态。轨迹正文只通过 `trace.subscribe` 按 `aseq` 补发和推送。
 
 ---
 
@@ -704,6 +705,7 @@ interface Workbench {
 | `provider.updated` | `{ provider: Provider, models: Model[] }` |
 | `provider.deleted` | `{ provider_id: Id }` |
 | `settings.updated` | `{ settings: Settings }` |
+| `sync.cursor` | `{ seq: number }`（与帧顶层 `seq` 相同；内部轨迹条目的全局游标占位，无业务数据，不表示补发结束） |
 
 ### 6.2 临时事件（没有 `seq`）
 

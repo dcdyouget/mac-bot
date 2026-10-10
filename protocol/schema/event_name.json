@@ -33,6 +33,7 @@
     "settings.updated",
     "hello",
     "sync.done",
+    "sync.cursor",
     "message.delta",
     "typing",
     "bot.status",

@@ -1473,6 +1473,9 @@
           "$ref": "#/definitions/SeqEvent"
         },
         {
+          "$ref": "#/definitions/SeqEvent"
+        },
+        {
           "$ref": "#/definitions/TypingEvent"
         },
         {
@@ -1610,6 +1613,7 @@
         "settings.updated",
         "hello",
         "sync.done",
+        "sync.cursor",
         "message.delta",
         "typing",
         "bot.status",

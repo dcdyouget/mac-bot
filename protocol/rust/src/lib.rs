@@ -2940,6 +2940,8 @@ pub enum EventName {
     Hello,
     #[serde(rename = "sync.done")]
     SyncDone,
+    #[serde(rename = "sync.cursor")]
+    SyncCursor,
     #[serde(rename = "message.delta")]
     MessageDelta,
     Typing,
@@ -3023,6 +3025,7 @@ pub enum EventData {
     },
     Hello(Hello),
     SyncDone(SeqEvent),
+    SyncCursor(SeqEvent),
     Typing(TypingEvent),
     BotStatus(BotStatusEvent),
     UsageTick(UsageTick),
@@ -3245,6 +3248,7 @@ impl EventData {
             }),
             EventName::Hello => val!(Hello).map(Self::Hello),
             EventName::SyncDone => val!(SeqEvent).map(Self::SyncDone),
+            EventName::SyncCursor => val!(SeqEvent).map(Self::SyncCursor),
             EventName::MessageDelta => val!(MessageDelta).map(Self::MessageDelta),
             EventName::Typing => val!(TypingEvent).map(Self::Typing),
             EventName::BotStatus => val!(BotStatusEvent).map(Self::BotStatus),

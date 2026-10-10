@@ -412,8 +412,12 @@ fn events(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
             "trace.tool_output",
             json!({"stream":"asg_1","call_id":"call_1","chunk":"20 tests passed"}),
         ),
+        ("sync_cursor", "sync.cursor", json!({})),
     ];
-    for (i, (name, event, data)) in values.into_iter().enumerate() {
+    for (i, (name, event, mut data)) in values.into_iter().enumerate() {
+        if event == "sync.cursor" {
+            data["seq"] = json!(i as u64 + 1);
+        }
         write(
             &root.join("events"),
             &format!("{name}.json"),
