@@ -6,7 +6,10 @@ use gpui_kit::prelude::FluentBuilder;
 
 #[cfg(test)]
 mod tests {
-    use super::{known_block, message_display_text, pending_message, s, text_block_markdown};
+    use super::{
+        known_block, message_display_text, pending_message, s, takeover_request_is_actionable,
+        text_block_markdown,
+    };
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -53,6 +56,20 @@ mod tests {
         assert!(known_block(s(&message["blocks"][0], "type")));
         assert_eq!(text_block_markdown(&message["blocks"][0]), "");
         assert_eq!(message_display_text(&message), "服务器摘要");
+    }
+
+    #[test]
+    fn completed_takeover_request_has_no_action() {
+        assert!(!takeover_request_is_actionable(&json!({
+            "type": "takeover_request",
+            "bot_id": "bot-a",
+            "state": "done"
+        })));
+        assert!(takeover_request_is_actionable(&json!({
+            "type": "takeover_request",
+            "bot_id": "bot-a",
+            "state": "pending"
+        })));
     }
 }
 
@@ -244,6 +261,10 @@ fn known_block(kind: &str) -> bool {
             | "file"
             | "image"
     )
+}
+
+fn takeover_request_is_actionable(block: &Value) -> bool {
+    s(block, "state") != "done" && !s(block, "bot_id").is_empty()
 }
 
 fn chat_tr(key: &str) -> SharedString {
@@ -1293,15 +1314,18 @@ impl MacBot {
             }
             "takeover_request" => {
                 let bot = s(block, "bot_id").to_string();
-                body = body.child(s(block, "reason").to_string()).child(
-                    Button::new(SharedString::from(format!("takeover-{id}")))
-                        .outline()
-                        .small()
-                        .label(tr("action.takeover"))
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.open_computer(bot.clone(), cx)),
-                        ),
-                );
+                body = body.child(s(block, "reason").to_string());
+                if takeover_request_is_actionable(block) {
+                    body = body.child(
+                        Button::new(SharedString::from(format!("takeover-{id}")))
+                            .outline()
+                            .small()
+                            .label(tr("action.takeover"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.open_computer(bot.clone(), cx)
+                            })),
+                    );
+                }
             }
             "file" => {
                 let file = block["file"].clone();
