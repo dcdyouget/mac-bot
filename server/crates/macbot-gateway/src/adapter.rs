@@ -22,10 +22,15 @@ use macbot_providers::registry::{ProviderRegistry, RegistryError};
 use macbot_skills::BotSkillSettingsSnapshot;
 use macbot_store::Store;
 use macbot_usage::UsageLedger;
+use serde::{
+    de::{IgnoredAny, MapAccess, Visitor},
+    Deserialize, Deserializer,
+};
 use serde_json::{json, Map, Value};
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    io::{BufRead, BufReader},
     path::Path,
     sync::{Arc, Mutex as StdMutex},
 };
@@ -45,6 +50,106 @@ pub enum AdapterError {
     Registry(#[from] RegistryError),
     #[error("orchestrator snapshot: {0}")]
     OrchestratorSnapshot(String),
+}
+
+struct OperationLogRow {
+    value: Value,
+    has_snapshot: bool,
+}
+
+impl<'de> Deserialize<'de> for OperationLogRow {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct OperationLogRowVisitor;
+
+        impl<'de> Visitor<'de> for OperationLogRowVisitor {
+            type Value = OperationLogRow;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("an orchestrator operation object")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut object = Map::new();
+                let mut has_snapshot = false;
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "snapshot" {
+                        map.next_value::<IgnoredAny>()?;
+                        has_snapshot = true;
+                    } else {
+                        object.insert(key, map.next_value()?);
+                    }
+                }
+                Ok(OperationLogRow {
+                    value: Value::Object(object),
+                    has_snapshot,
+                })
+            }
+        }
+
+        deserializer.deserialize_map(OperationLogRowVisitor)
+    }
+}
+
+fn read_operation_log(store: &Store) -> Result<Vec<Value>, AdapterError> {
+    let path = store.root().join("data/orchestrator/operations.jsonl");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let file = fs::File::open(&path).map_err(macbot_store::StoreError::Io)?;
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    let mut line_number = 0usize;
+    let mut operations = Vec::new();
+    let mut last_snapshot = None;
+    loop {
+        line.clear();
+        let read = reader
+            .read_until(b'\n', &mut line)
+            .map_err(macbot_store::StoreError::Io)?;
+        if read == 0 {
+            break;
+        }
+        line_number += 1;
+        if line.last().copied() != Some(b'\n') {
+            break;
+        }
+        let record = &line[..line.len() - 1];
+        if record.is_empty() {
+            continue;
+        }
+        let row = serde_json::from_slice::<OperationLogRow>(record).map_err(|source| {
+            AdapterError::Store(macbot_store::StoreError::Json {
+                path: path.clone(),
+                line: line_number,
+                source,
+            })
+        })?;
+        if row.has_snapshot {
+            last_snapshot = Some((operations.len(), record.to_owned()));
+        }
+        operations.push(row.value);
+    }
+    if let Some((index, record)) = last_snapshot {
+        let full = serde_json::from_slice::<Value>(&record).map_err(|source| {
+            AdapterError::Store(macbot_store::StoreError::Json {
+                path,
+                line: line_number,
+                source,
+            })
+        })?;
+        if let Some(snapshot) = full.get("snapshot") {
+            if let Some(operation) = operations.get_mut(index).and_then(Value::as_object_mut) {
+                operation.insert("snapshot".into(), snapshot.clone());
+            }
+        }
+    }
+    Ok(operations)
 }
 
 #[derive(Clone)]
@@ -99,7 +204,7 @@ impl ProductionBackend {
         let store = durable.store().clone();
         let usage = UsageLedger::from_store(store.clone())?;
         let orchestrator = Orchestrator::default();
-        let operations = store.read_jsonl::<Value>("data/orchestrator/operations.jsonl")?;
+        let operations = read_operation_log(&store)?;
         let operation_snapshot = operations
             .iter()
             .rev()
