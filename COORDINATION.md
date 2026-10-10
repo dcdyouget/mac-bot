@@ -539,3 +539,14 @@
 用户授权精确结束5个旧等待分支并确认两原项目。项目总结错误消费bot:main额度导致确认失败，426e9b7修复为仅写项目记忆，205项gateway测试通过；be64802补浏览器错误诊断（debug/release各20项）。server-only部署be64802 PID6301；桌面6eaa91a、Android5e2fbcc保持。
 
 沿用原UUID后，两项目done，5分支cancelled、5审批expired，其他7pending保持；双端完成状态截图已实看，S2通过，当前S0–S3通过。证据 docs/progress/S2/production-9c20fc4-confirm-done.json。S4 Android X待Chrome本次连接授权及真实接管复验；S5 be64802开发pkg已审计但fresh未执行，安装需要管理员认证与管理页新密码交接。测试Bot已恢复原headless，未知审批与进程未动。根文档其他会话未提交改动保留。
+
+
+## integrator：Chrome授权、接管真实回归与fresh门槛（2026-10-10）
+
+用户明确允许本次Chrome远程调试连接，已用agent-browser 0.39.0真实打开既有登录态X；Android原生接管、只读滑动、交还及原run恢复完成。桌面X DOM总结与持续画面、本地fixture键鼠、真实通知送达/打开/审批动作和隔离包NotificationManager容量已有独立证据。S0–S3通过，S4仍在收尾，S5未开始。
+
+b037662修复私聊接管落盘和精确问题关闭，真实旧等待恢复及新request均同run完成；5b244ea移除把question_id误作approval_ref的投影，两端错误审批提示已消失。7条无关pending与原任务保持，不手改模型产物、不批准旧审批。桌面b9c0865修复question事件缓存与已回答按钮，最终Release验证中。正式server5b244ea、桌面ba0e8f1、Android04b0c3d；服务正常重启测得103秒，929MB操作日志整体JSON解析热点正在修复，不能将健康最终恢复当启动性能通过。
+
+S5沿用已准备的空仓库外备份目录，尚未移动数据。fresh脚本审计发现部分写RPC没有预写journal，后续改为逐项UUID/作用域预写与未知结果只读核验。安装管理员认证和管理页新密码仍按工具规则由用户接手；已有授权不重复请求。GitHub通过既有本机代理恢复并已推main至ff51db0。详见docs/progress/S4/stage-conclusion.json、S5/fresh-rpc-journal-audit.md。
+
+根协调独立提交理由：同步本次明确授权、真实回归与剩余缺陷，避免把旧锁屏/未授权记录或任务done当完整通过；保留其他会话根文档未提交改动与design目录，不因文档提交重部署。
