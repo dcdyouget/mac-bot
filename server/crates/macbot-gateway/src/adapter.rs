@@ -2434,6 +2434,25 @@ impl ProductionBackend {
             let Some(message_id) = message.get("id").and_then(Value::as_str) else {
                 continue;
             };
+            // A task_no_report notice is still persisted and shown when its
+            // source assignment belongs to main, but main must not create a
+            // new main follow-up for its own coordination turn.  Worker
+            // notices continue through the normal derivation below.
+            let main_no_report = message_id.starts_with("task_attention:task_no_report:")
+                && message
+                    .get("assignment_id")
+                    .and_then(Value::as_str)
+                    .and_then(|assignment_id| {
+                        after
+                            .get("assignments")
+                            .and_then(Value::as_object)
+                            .and_then(|assignments| assignments.get(assignment_id))
+                    })
+                    .and_then(|assignment| assignment.get("bot_id").and_then(Value::as_str))
+                    == Some("main");
+            if main_no_report {
+                continue;
+            }
             if assignment_triggers.contains(message_id) {
                 continue;
             }
@@ -9479,6 +9498,129 @@ mod tests {
                 1
             );
         }
+    }
+
+    #[tokio::test]
+    async fn project_attention_does_not_requeue_main_no_report() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call("bot.create", json!({"name":"关注 worker"}), &gateway.state)
+            .await
+            .unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"main no-report","goal":"attention","member_bot_ids":[bot["bot"]["id"]]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let chat_id = project["project"]["chat_id"].as_str().unwrap();
+        let main_assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":chat_id,
+                    "bot_id":"main",
+                    "title":"main coordination",
+                    "instruction":"coordinate",
+                    "from":"system"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let main_assignment_id = main_assignment["id"].as_str().unwrap();
+        backend
+            .orchestrator
+            .finish_assignment(main_assignment_id, "done")
+            .unwrap();
+
+        // Simulate a durable main-owned attention marker recovered after a
+        // restart. The marker must remain visible, but it must not create a
+        // second main assignment for the same coordination work.
+        let attention_id = format!("task_attention:task_no_report:{main_assignment_id}");
+        let mut snapshot = backend.orchestrator.snapshot().unwrap();
+        snapshot["messages"][&attention_id] = json!({
+            "id":attention_id,
+            "chat_id":chat_id,
+            "sender":"system",
+            "created_at":Utc::now().to_rfc3339(),
+            "text":"主 Bot 的任务结束但没有提交完成报告",
+            "intent":null,
+            "assignment_id":main_assignment_id,
+            "mentions":[],
+            "artifacts":[],
+            "options":[],
+            "question_id":null,
+            "delivery":[],
+            "fallback_text":"主 Bot 的任务结束但没有提交完成报告"
+        });
+        backend.orchestrator.restore(snapshot).unwrap();
+
+        let refreshed = backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        assert_eq!(refreshed["notices"].as_array().unwrap().len(), 1);
+        assert_eq!(refreshed["notices"][0]["id"], attention_id);
+        let assignments = backend.orchestrator.snapshot().unwrap()["assignments"]
+            .as_object()
+            .unwrap()
+            .values()
+            .filter(|assignment| assignment["trigger_message_id"] == attention_id)
+            .count();
+        assert_eq!(assignments, 0);
+
+        // A worker no-report marker still wakes main and creates exactly one
+        // main follow-up, preserving the normal worker attention path.
+        let worker_assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":chat_id,
+                    "bot_id":bot["bot"]["id"],
+                    "title":"worker no-report",
+                    "instruction":"work",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let worker_assignment_id = worker_assignment["id"].as_str().unwrap();
+        backend
+            .orchestrator
+            .finish_assignment(worker_assignment_id, "done")
+            .unwrap();
+        let worker_refresh = backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        let worker_notice = worker_refresh["notices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|notice| {
+                notice["id"] == format!("task_attention:task_no_report:{worker_assignment_id}")
+            })
+            .expect("worker no-report notice");
+        let worker_notice_id = worker_notice["id"].as_str().unwrap();
+        let worker_followups = backend.orchestrator.snapshot().unwrap()["assignments"]
+            .as_object()
+            .unwrap()
+            .values()
+            .filter(|assignment| assignment["trigger_message_id"] == worker_notice_id)
+            .count();
+        assert_eq!(worker_followups, 1);
     }
 
     #[tokio::test]
