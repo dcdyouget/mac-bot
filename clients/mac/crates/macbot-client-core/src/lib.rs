@@ -1211,6 +1211,19 @@ impl AppState {
 
     fn apply_event_now(&mut self, event: &ProtocolEvent) {
         let data = &event.data;
+        if event.event == "sync.done" {
+            // A resume can finish while an earlier durable event is still
+            // missing from the stream. Keep the existing ordered-event
+            // contract, but recover from a bounded single-event hole instead
+            // of leaving all later events buffered indefinitely.
+            let server_seq = data.get("seq").and_then(Value::as_u64);
+            if server_seq.is_some_and(|seq| seq > self.last_seq) && !self.buffered_events.is_empty()
+            {
+                self.buffered_events.clear();
+                self.needs_resync = true;
+            }
+            return;
+        }
         let base = match event.event.as_str() {
             // Question lifecycle events carry the same canonical question
             // object as created/updated events. Keep the client cache in
@@ -1909,6 +1922,58 @@ mod tests {
         assert_eq!(state.last_seq, 42);
         assert_eq!(state.projects["p"]["status"], "review");
         assert!(state.buffered_events.is_empty());
+    }
+
+    #[test]
+    fn sync_done_with_a_single_event_gap_requests_bootstrap_resync() {
+        let mut state = AppState::default();
+        state.apply_bootstrap(json!({
+            "seq": 40,
+            "projects": [{"id":"p","status":"active"}]
+        }));
+        state.apply_event(ProtocolEvent {
+            seq: Some(42),
+            event: "project.updated".into(),
+            data: json!({"project":{"id":"p","status":"review"}}),
+        });
+        assert!(!state.needs_resync);
+        assert_eq!(state.projects["p"]["status"], "active");
+
+        state.apply_event(ProtocolEvent {
+            seq: None,
+            event: "sync.done".into(),
+            data: json!({"seq": 42}),
+        });
+
+        assert!(state.needs_resync);
+        assert!(state.buffered_events.is_empty());
+    }
+
+    #[test]
+    fn sync_done_after_contiguous_events_does_not_request_resync() {
+        let mut state = AppState::default();
+        state.apply_bootstrap(json!({
+            "seq": 40,
+            "projects": [{"id":"p","status":"active"}]
+        }));
+        state.apply_event(ProtocolEvent {
+            seq: Some(41),
+            event: "sync.cursor".into(),
+            data: json!({"seq": 41}),
+        });
+        state.apply_event(ProtocolEvent {
+            seq: Some(42),
+            event: "project.updated".into(),
+            data: json!({"project":{"id":"p","status":"review"}}),
+        });
+        state.apply_event(ProtocolEvent {
+            seq: None,
+            event: "sync.done".into(),
+            data: json!({"seq": 42}),
+        });
+
+        assert!(!state.needs_resync);
+        assert_eq!(state.projects["p"]["status"], "review");
     }
 
     #[test]
