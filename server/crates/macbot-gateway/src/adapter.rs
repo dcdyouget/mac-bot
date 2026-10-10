@@ -3231,6 +3231,7 @@ impl ProductionBackend {
         request["state"] = json!("active");
         request["started_at"] = json!(now());
         self.write_takeover(&assignment_id, &request)?;
+        self.answer_takeover_question(state, &request).await?;
         Ok(json!({"takeover_request":request}))
     }
 
@@ -3256,7 +3257,69 @@ impl ProductionBackend {
             request["note"] = note.clone();
         }
         self.write_takeover(&assignment_id, &request)?;
+        self.answer_takeover_question(state, &request).await?;
         Ok(json!({"takeover_request":request}))
+    }
+
+    /// Starting the browser is the user's affirmative answer to the exact
+    /// private takeover question. Close only that question after validating
+    /// its Bot/chat/assignment scope; never sweep synthetic-scope questions.
+    async fn answer_takeover_question(&self, state: &GatewayState, request: &Value) -> RpcResult {
+        let Some(question_id) = request
+            .get("question_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(Value::Null);
+        };
+        let (Some(bot_id), Some(chat_id), Some(assignment_id)) = (
+            request.get("bot_id").and_then(Value::as_str),
+            request.get("chat_id").and_then(Value::as_str),
+            request.get("assignment_id").and_then(Value::as_str),
+        ) else {
+            return Err(RpcError {
+                code: "invalid_params".into(),
+                message: "takeover question scope is incomplete".into(),
+                details: None,
+            });
+        };
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let Some(question) = snapshot
+            .get("questions")
+            .and_then(Value::as_object)
+            .and_then(|questions| questions.get(question_id))
+        else {
+            return Err(RpcError {
+                code: "conflict".into(),
+                message: "takeover question not found".into(),
+                details: None,
+            });
+        };
+        if question.get("bot_id").and_then(Value::as_str) != Some(bot_id)
+            || question.get("chat_id").and_then(Value::as_str) != Some(chat_id)
+            || question.get("assignment_id").and_then(Value::as_str) != Some(assignment_id)
+        {
+            return Err(RpcError {
+                code: "conflict".into(),
+                message: "takeover question scope mismatch".into(),
+                details: None,
+            });
+        }
+        if question.get("state").and_then(Value::as_str) != Some("pending") {
+            return Ok(Value::Null);
+        }
+        let params = json!({
+            "question_id": question_id,
+            "option_index": 0,
+            "client_request_id": format!("takeover:question-answer:{question_id}")
+        });
+        let result = self
+            .orchestrator
+            .rpc("question.answer", params.clone())
+            .await
+            .map_err(Self::error)?;
+        self.persist(state, "question.answer", &params, &result)
+            .await
     }
 
     /// Resolve the takeover selected by a user action.  The protocol only
@@ -3395,6 +3458,26 @@ impl ProductionBackend {
                 .and_then(Value::as_str)
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("msg_takeover_{}", takeover_component(run_id)));
+            if takeover_component(run_id) != run_id
+                || message_id != format!("msg_takeover_{}", run_id)
+                || takeover_component(&message_id) != message_id
+            {
+                continue;
+            }
+            let Some(run_request) = self
+                .store
+                .read_snapshot::<Value>(format!("data/run_requests/{run_id}.json"))
+                .map_err(store_error)?
+            else {
+                continue;
+            };
+            if run_request.get("run_id").and_then(Value::as_str) != Some(run_id)
+                || run_request.get("bot_id").and_then(Value::as_str) != Some(bot_id)
+                || run_request.get("chat_id").and_then(Value::as_str) != Some(bot_chat_id)
+                || !run_request.get("assignment_id").is_none_or(Value::is_null)
+            {
+                continue;
+            }
             let rows = self
                 .store
                 .read_jsonl::<Value>(format!(
@@ -3440,7 +3523,9 @@ impl ProductionBackend {
                     if matches!(
                         job.status,
                         macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
-                    ) && job.checkpoint.get("run_id").and_then(Value::as_str) == Some(run_id)
+                    ) && job.owner == bot_id
+                        && job.unsafe_replay
+                        && job.checkpoint.get("run_id").and_then(Value::as_str) == Some(run_id)
                         && job
                             .checkpoint
                             .pointer("/pending_tool/name")
@@ -7147,6 +7232,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn private_takeover_answers_only_its_exact_question_scope() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let result = backend
+            .execution_takeover_request(
+                &gateway.state,
+                json!({
+                    "bot_id":"main",
+                    "assignment_id":null,
+                    "chat_id":"chat_main",
+                    "message_id":"msg_takeover_run-2",
+                    "run_id":"run-2",
+                    "reason":"private takeover"
+                }),
+            )
+            .await
+            .unwrap();
+        let request = result["takeover_request"].clone();
+        let question_id = request["question_id"].as_str().unwrap().to_owned();
+        backend
+            .answer_takeover_question(&gateway.state, &request)
+            .await
+            .unwrap();
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        assert_eq!(
+            snapshot["questions"][question_id.clone()]["state"],
+            "answered"
+        );
+        assert!(backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .iter()
+            .any(|event| event.event == "question.answered"
+                && event.data["question"]["id"] == question_id));
+    }
+
+    #[tokio::test]
     async fn waiting_private_takeover_recovery_requires_exact_job_and_card() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
@@ -7170,7 +7297,17 @@ mod tests {
                 "data/waiting/msg_takeover_run-1.json",
                 &json!({
                     "kind":"takeover", "run_id":"run-1", "assignment_id":null,
-                    "chat_id":"chat_main", "message_id":"msg_takeover_run-1"
+                    "chat_id":"chat_main"
+                }),
+            )
+            .unwrap();
+        backend
+            .store
+            .write_snapshot(
+                "data/run_requests/run-1.json",
+                &json!({
+                    "run_id":"run-1", "bot_id":"main", "chat_id":"chat_main",
+                    "assignment_id":null
                 }),
             )
             .unwrap();
