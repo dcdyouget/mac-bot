@@ -6,9 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::rc::Rc;
 
-use gpui_kit::base::{VirtualListScrollHandle, v_virtual_list};
 use gpui_kit::component::{
     Sizable,
     button::{Button, ButtonVariants},
@@ -16,8 +14,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::gpui::{
     AnyElement, App, AppContext, Context, Entity, EventEmitter, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, Render, SharedString, Size, StatefulInteractiveElement, Styled,
-    Subscription, Window, div, px, size,
+    IntoElement, ListAlignment, ListState, ParentElement, Render, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, list, px,
 };
 use gpui_kit::prelude::FluentBuilder;
 use macbot_client_core::TraceTimeline;
@@ -80,9 +78,8 @@ impl TraceFilter {
     }
 }
 
-/// A retained trace surface.  `v_virtual_list` renders only visible rows and
-/// accepts per-row sizes, which keeps long traces responsive while expanded
-/// tool output can still grow independently.
+/// A retained trace surface whose virtual list measures variable-height rows
+/// before painting, including expanded output and narrow-window wrapping.
 pub struct TraceView {
     timeline: TraceTimeline,
     target: Value,
@@ -101,8 +98,7 @@ pub struct TraceView {
     visible_filter: TraceFilter,
     data_revision: u64,
     visible_revision: u64,
-    measured_sizes: BTreeMap<u64, (f32, gpui_kit::Pixels)>,
-    scroll: VirtualListScrollHandle,
+    scroll: ListState,
 }
 
 impl TraceView {
@@ -131,8 +127,7 @@ impl TraceView {
             visible_filter: TraceFilter::All,
             data_revision: 0,
             visible_revision: 0,
-            measured_sizes: BTreeMap::new(),
-            scroll: VirtualListScrollHandle::new(),
+            scroll: ListState::new(0, ListAlignment::Top, px(300.)),
         }
     }
 
@@ -154,10 +149,10 @@ impl TraceView {
         self.assignment = assignment;
         self.output.clear();
         self.inflight.clear();
-        self.measured_sizes.clear();
+        self.scroll.remeasure();
         self.data_revision = self.data_revision.wrapping_add(1);
         if self.following {
-            self.scroll.scroll_to_bottom();
+            self.scroll.scroll_to_end();
         }
         cx.notify();
     }
@@ -265,7 +260,7 @@ impl TraceView {
             self.inflight.remove(id);
         }
         if self.following {
-            self.scroll.scroll_to_bottom();
+            self.scroll.scroll_to_end();
         }
         if timeline_changed {
             self.data_revision = self.data_revision.wrapping_add(1);
@@ -273,7 +268,7 @@ impl TraceView {
         // Deltas and tool output can change the rendered height without
         // changing an event sequence.  Re-measure visible rows after each
         // transport update so the virtual list never reuses stale offsets.
-        self.measured_sizes.clear();
+        self.scroll.remeasure();
         cx.notify();
     }
 
@@ -285,7 +280,7 @@ impl TraceView {
         {
             return;
         }
-        self.visible_ids.clear();
+        let previous_ids = std::mem::take(&mut self.visible_ids);
         for (aseq, item) in &self.timeline.items {
             let kind = item.get("type").and_then(Value::as_str).unwrap_or("event");
             if !self.filter.matches(kind) {
@@ -295,6 +290,19 @@ impl TraceView {
                 continue;
             }
             self.visible_ids.push(*aseq);
+        }
+        if self.visible_ids != previous_ids {
+            if self.visible_ids.starts_with(&previous_ids) {
+                self.scroll.splice(
+                    previous_ids.len()..previous_ids.len(),
+                    self.visible_ids.len() - previous_ids.len(),
+                );
+            } else if self.visible_ids.ends_with(&previous_ids) {
+                self.scroll
+                    .splice(0..0, self.visible_ids.len() - previous_ids.len());
+            } else {
+                self.scroll.reset(self.visible_ids.len());
+            }
         }
         self.visible_query = query;
         self.visible_filter = self.filter;
@@ -306,21 +314,6 @@ impl TraceView {
             method: method.to_string(),
             params,
         });
-    }
-
-    fn set_measured_size(&mut self, aseq: u64, width: f32, height: gpui_kit::Pixels) -> bool {
-        if width <= 0.0 || height.as_f32() <= 0.0 {
-            return false;
-        }
-        let changed = self
-            .measured_sizes
-            .get(&aseq)
-            .map(|(old_width, old_height)| (old_width - width).abs() > 0.5 || *old_height != height)
-            .unwrap_or(true);
-        if changed {
-            self.measured_sizes.insert(aseq, (width, height));
-        }
-        changed
     }
 
     fn history_params(&self) -> Value {
@@ -431,7 +424,7 @@ impl TraceView {
                 if !this.expanded.insert(key) {
                     this.expanded.remove(&key);
                 }
-                this.measured_sizes.remove(&key);
+                this.scroll.remeasure();
                 cx.notify();
             }));
         row = row.child(
@@ -606,6 +599,11 @@ impl TraceView {
                 );
             }
         }
+        #[cfg(test)]
+        let row = {
+            use gpui_kit::test::TestSupportExt;
+            row.test_support()
+        };
         row.into_any_element()
     }
 
@@ -710,71 +708,18 @@ impl Render for TraceView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Tokens::get(cx);
         self.refresh_visible_ids(cx);
-        let keys: Rc<Vec<u64>> = Rc::new(self.visible_ids.clone());
-        let sizes: Rc<Vec<Size<gpui_kit::Pixels>>> = Rc::new(
-            self.visible_ids
-                .iter()
-                .map(|id| {
-                    let estimated = if self.expanded.contains(id) {
-                        176.
-                    } else {
-                        68.
-                    };
-                    size(
-                        px(1.),
-                        self.measured_sizes
-                            .get(id)
-                            .map(|(_, height)| *height)
-                            .unwrap_or_else(|| px(estimated)),
-                    )
-                })
-                .collect(),
-        );
+        if self.following {
+            self.scroll.scroll_to_end();
+        }
         let entity = cx.entity();
-        let list = v_virtual_list(
-            entity.clone(),
-            "trace-virtual-list",
-            sizes,
-            move |view, range, _, cx| {
-                let visible_rows = range
-                    .filter_map(|index| keys.get(index).copied())
-                    .filter_map(|aseq| {
-                        view.timeline
-                            .items
-                            .get(&aseq)
-                            .cloned()
-                            .map(|item| (aseq, item))
-                    })
-                    .collect::<Vec<_>>();
-                visible_rows
-                    .into_iter()
-                    .map(|(aseq, item)| {
-                        let row = view.render_row(aseq, item, cx);
-                        let entity = entity.clone();
-                        div()
-                            .on_children_prepainted(move |bounds, _, cx| {
-                                let Some(bounds) = bounds.first().copied() else {
-                                    return;
-                                };
-                                let width = bounds.size.width.as_f32();
-                                let height = bounds.size.height;
-                                let entity = entity.clone();
-                                cx.defer(move |cx| {
-                                    entity.update(cx, |view, cx| {
-                                        if view.set_measured_size(aseq, width, height) {
-                                            cx.notify();
-                                        }
-                                    });
-                                });
-                            })
-                            .id(SharedString::from(format!("trace-measured-{aseq}")))
-                            .child(row)
-                            .into_any_element()
-                    })
-                    .collect::<Vec<_>>()
-            },
-        );
-        let list = list.track_scroll(&self.scroll);
+        let list = list(self.scroll.clone(), move |index, _, cx| {
+            entity.update(cx, |view, cx| {
+                let aseq = view.visible_ids[index];
+                let item = view.timeline.items[&aseq].clone();
+                view.render_row(aseq, item, cx).into_any_element()
+            })
+        })
+        .size_full();
         let filters = div().flex().items_center().gap_1().children([
             self.filter_button("trace-all", trace_tr("trace.all"), TraceFilter::All, cx),
             self.filter_button(
@@ -923,6 +868,43 @@ impl Render for TraceView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui_kit::test]
+    fn long_trace_rows_do_not_overlap_on_first_frame_or_update(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::test::TestWindowExt;
+        use gpui_kit::{Bounds, WindowBounds, WindowOptions, size};
+        cx.update(gpui_kit::init);
+        for width in [360., 720.] {
+            let (handle, view) = cx.update(|cx| {
+                gpui_kit::open_window(WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                        Default::default(), size(px(width), px(1400.)),
+                    ))),
+                    ..Default::default()
+                }, cx, |window, cx| cx.new(|cx| {
+                    let mut view = TraceView::new(window, cx);
+                    view.following = false;
+                    for (aseq, preview) in [(1, "long output ".repeat(45)), (2, "next event".into())] {
+                        view.update_data(json!({"aseq":aseq,"type":"tool.end","data":{"call_id":format!("call-{aseq}"),"preview":preview}}), cx);
+                    }
+                    view
+                })).unwrap()
+            });
+            cx.update_window(handle, |_, window, cx| {
+                for expanded in [false, true] {
+                    window.render_frame(cx);
+                    let first = window.find("trace-row-1").bounds();
+                    let second = window.find("trace-row-2").bounds();
+                    assert!(first.size.height > px(68.));
+                    assert!(second.top() >= first.bottom(), "width={width}, expanded={expanded}");
+                    if !expanded { window.click("trace-row-1", cx); }
+                }
+                view.update(cx, |view, cx| view.update_data(json!({"aseq":1,"type":"tool.end","data":{"call_id":"call-1","preview":"updated output ".repeat(65)}}), cx));
+                window.render_frame(cx);
+                assert!(window.find("trace-row-2").bounds().top() >= window.find("trace-row-1").bounds().bottom());
+            }).unwrap();
+        }
+    }
 
     #[test]
     fn live_tool_output_is_capped_and_terminal_result_replaces_chunks() {

@@ -22,5 +22,6 @@ core-foundation = "0.10"
 sha2 = "0.10"
 
 [dev-dependencies]
+gpui-kit = { version = "0.7", features = ["test-support"] }
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
