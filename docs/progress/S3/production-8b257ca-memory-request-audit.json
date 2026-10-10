@@ -1,0 +1,20 @@
+{
+  "at": "2026-10-10T10:48:18.118630+00:00",
+  "run_id": "run_chat_01a120b1_5f5c_7675_9a1a_e406f6ab7d51",
+  "chat_id": "chat_main",
+  "request_file": "/Users/gongshaojie/MacBot/data/run_requests/run_chat_01a120b1_5f5c_7675_9a1a_e406f6ab7d51.json",
+  "request_sha256": "0c899a83db8e1d59bc8b594c13e5b6c708112f944036da9ed8f7343b5b211336",
+  "instruction": "What exact preference did I ask you to remember?",
+  "marker_in_instruction": false,
+  "earlier_response_evidence": "production-9e70d88-api.json",
+  "memory_evidence": "production-9e70d88-memory-persisted.json",
+  "native_display_pending": "desktop",
+  "full_s3_pass": false,
+  "android_native_display": {
+    "source": "5e2fbcc0659be0b33a373d758b503c8a20c755e5",
+    "at": "2026-10-10T10:51:22.250079+00:00",
+    "screenshot": "production-5e2fbcc-android-memory-recall.png",
+    "screenshot_viewed": true,
+    "original_question_and_recalled_preference_visible": true
+  }
+}

@@ -218,3 +218,11 @@ Android `98fb4a9` 已同签名 Release 更新，58 项 shared 测试通过；原
 服务 `8b257ca` 新增受审批的 worker skill_draft 工具。200项 gateway 测试及追加5项针对性测试通过；严格clippy仍受4项既有adapter type-complexity阻断，允许该既有lint后通过。server-only升级保持12条旧pending和150个旧job哈希。真实Bot已生成 integrator-draft-e297d435ad：逐项核准参数、effective target、run和checkpoint后，Android系统通知点击“允许一次”成功恢复同run并done；旧12pending保持。Android技能页和编辑预览已实际看见草稿、路径、完整正文，未保存编辑、未发布。见 S3/production-8b257ca-real-skill-draft.json 与 S4/production-98fb4a9-skill-notification-action.json。
 
 桌面工具随后报cgWindowNotFound，核验当前系统 IOConsoleLocked=Yes，已告知用户需保持解锁，不判客户端冻结。Android草稿详情另发现部分Bot启停开关名称空白，正在定位；桌面草稿查看和发布、最终S1/S3/S4联合复核、S5fresh仍待完成。仅S0整阶段通过。主仓库根文档有其他会话改动，继续保留，协调事实暂记录此处。
+
+## 2026-10-10 技能名称、附件去重与搜索新缺口
+
+Android `5e2fbcc` 已同签名 Release 更新，60项 shared 测试通过。技能详情空白 label 现在回退到 name/id，草稿隐藏启用范围开关并提示发布后设置；真实截图已查看，现有技能范围未修改，真实 Bot 草稿仍未发布。见 S3/production-5e2fbcc-android-skill-scope-fix.json。
+
+server `14a3b18` 已仅服务升级，PID60527；12条旧pending和151个job哈希保持。项目产物按项目/路径更新并保留实际交付者，私人Bot路径另按Bot隔离；历史公告/卡片仅读时去重，不重写原记录。orchestrator 58、gateway 202项原有及新增初版测试通过，追加Bot/项目隔离与旧记录不变等5项release回归通过。原两个公告由6/12条收敛为各2条，Android同屏已实际显示两项目名称和各两附件，未confirm_done；桌面补验仍受锁屏阻断。见 S2/production-14a3b18-artifact-dedup-upgrade-after.json 与 android-review-deduplicated.png。代码已推至远端main。
+
+S3已只读核对原回忆run request，问句确实为“What exact preference did I ask you to remember?”，未提供偏好marker；Android实际展示原问句和正确回忆，未重发模型或写记忆。见 production-8b257ca-memory-request-audit.json、production-5e2fbcc-android-memory-recall.png。搜索此测试marker时新发现内部memory记录误分类成“群”，失败截图与RPC保留在 production-14a3b18-search-memory-misclassified.*，正在定位，不能计搜索通过。S0仍唯一整阶段通过，S5fresh未执行。

@@ -1386,5 +1386,12 @@
     "screenshots_viewed": true,
     "published": false,
     "limitation": "Desktop capture currently returns cgWindowNotFound; wait for native draft review before publication. Android Bot scope rows include blank labels, under investigation."
+  },
+  "desktop_blocker": {
+    "at": "2026-10-10T10:44:54.163778+00:00",
+    "cua_error": "cgWindowNotFound",
+    "system_lock": "IOConsoleLocked=Yes",
+    "client_pid_after_normal_restart": 53821,
+    "native_draft_review": false
   }
 }

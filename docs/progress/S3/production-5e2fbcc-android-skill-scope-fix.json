@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-10T10:47:21.217013+00:00",
+  "android_source": "5e2fbcc0659be0b33a373d758b503c8a20c755e5",
+  "install": "signed Release adb install -r; existing Production and chats retained",
+  "tests": {
+    "shared": 60,
+    "failures": 0
+  },
+  "draft_name": "integrator-draft-e297d435ad",
+  "draft_scope_controls_hidden": true,
+  "draft_content_visible": true,
+  "published_skill_readonly": "integrator-native-ae3009b",
+  "published_skill_bot_labels_visible": true,
+  "scope_not_modified": true,
+  "screenshots": [
+    "production-5e2fbcc-android-draft-scope.png",
+    "production-5e2fbcc-android-bot-names.png"
+  ],
+  "screenshots_viewed": true,
+  "full_s3_pass": false
+}

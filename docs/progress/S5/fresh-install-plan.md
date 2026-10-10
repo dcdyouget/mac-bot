@@ -91,4 +91,6 @@ adb -s emulator-5554 shell pm path bot.mac.mobile
 2. 每阶段保存桌面 `screencapture`、Android `adb exec-out screencap -p`、RPC/e2e JSON、source/PID 和实际断言；健康、API、mock 或单张 owner 图不能替代双端联合验收。
 3. S5 通过条件是 pkg 安装、管理页设密码、两端连接、完整场景和截图全部完成。失败时保留新现场和证据；停止新 LaunchAgent 后，从仓库外备份恢复 `~/MacBot`、plist、对应 App 路径和 CLI links，恢复原外部 file secret 目录，Keychain 不变，再核对 source/PID/health。不要清空 Android 数据或密钥，也不要混用新旧数据。
 
-当前状态：S5 fresh install 未执行，fe360a2 server 只是当前运行部署；本计划文件本身不构成安装或验收通过。
+当前状态：S5 fresh install 未执行。当前业务部署不构成 fresh；执行前需冻结最终版本并重建审计 server pkg，本计划文件本身不构成安装或验收通过。
+
+2026-10-10 最新现场补充：server `14a3b18`、桌面 `e14d0a8` Release、Android `5e2fbcc` 签名 Release。桌面 App/DMG 已从干净归档构建并通过签名与镜像校验，正常更新安装不计 fresh（见 S3/production-e14d0a8-desktop-install.json）。当前系统仍报告 IOConsoleLocked=Yes，桌面 UI 待解锁；S3 搜索发现内部记忆误分类为群，正在修复。先完成 S1–S4 剩余双端验收，再按本计划执行；前文历史版本和停止条件不代表最新部署。
