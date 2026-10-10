@@ -1,6 +1,7 @@
 package bot.mac.mobile.core.network
 
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.ResponseException
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.http.HttpHeaders
 import io.ktor.websocket.Frame
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -35,6 +37,17 @@ import kotlinx.serialization.json.put
 
 private const val REQUEST_TIMEOUT_MILLIS = 30_000L
 private const val HEARTBEAT_MILLIS = 20_000L
+
+/**
+ * Redacted connection diagnostics for field diagnosis.  Keep this type limited
+ * to protocol stages and transport metadata; it must never carry an endpoint,
+ * header, credential, or exception message.
+ */
+data class ConnectionDiagnostic(
+    val stage: String,
+    val httpStatus: Int? = null,
+    val exceptionClass: String? = null,
+)
 
 private class SessionEvents {
     val mutex = Mutex()
@@ -56,6 +69,14 @@ class MainConnection(
     private val ids: IdGenerator = RandomIdGenerator,
     private val onEvent: suspend (MainEvent) -> Unit = {},
     private val heartbeatMillis: Long = HEARTBEAT_MILLIS,
+    private val requestTimeoutMillis: Long = REQUEST_TIMEOUT_MILLIS,
+    private val onDiagnostic: (ConnectionDiagnostic) -> Unit = { diagnostic ->
+        println(
+            "MainConnection diagnostic stage=${diagnostic.stage}" +
+                " http_status=${diagnostic.httpStatus ?: "none"}" +
+                " exception_class=${diagnostic.exceptionClass ?: "none"}",
+        )
+    },
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val lock = Mutex()
@@ -130,7 +151,7 @@ class MainConnection(
     ): JsonObject {
         val tracked = lock.withLock { requests.register(method, params, write, clientRequestId) }
         try {
-            return withTimeout(REQUEST_TIMEOUT_MILLIS) {
+            return withTimeout(requestTimeoutMillis) {
                 if (requireReady) ready.first { it }
                 val current = session.first { it != null }
                 val sessionToken = lock.withLock { activeSessionToken }
@@ -172,8 +193,15 @@ class MainConnection(
                 connect(address)
                 attempt = 0
             } catch (cancelled: CancellationException) {
-                throw cancelled
+                if (cancelled is TimeoutCancellationException && scope.isActive && runner?.isActive != false) {
+                    emitDiagnostic("reconnect", cancelled)
+                    setSnapshot(_snapshot.value.copy(status = ConnectionStatus.RECONNECTING, error = cancelled))
+                    attempt++
+                } else {
+                    throw cancelled
+                }
             } catch (error: Throwable) {
+                emitDiagnostic("reconnect", error)
                 setSnapshot(_snapshot.value.copy(status = ConnectionStatus.RECONNECTING, error = error))
                 attempt++
             } finally {
@@ -186,82 +214,117 @@ class MainConnection(
 
     private suspend fun connect(address: String) {
         val endpoint = EndpointBuilder.main(address)
-        client.webSocket(urlString = endpoint, request = {
-            headers.append(HttpHeaders.Authorization, "Bearer ${host.password}")
-        }) {
-            val currentSession = this
-            session.value = this
-            val sessionToken = Any()
-            lock.withLock { activeSessionToken = sessionToken }
-            val hello = CompletableDeferred<JsonObject>()
-            val syncDone = CompletableDeferred<Long>()
-            val sessionEvents = SessionEvents()
-            val receiver = launch {
-                for (frame in incoming) processFrame(frame, hello, syncDone, sessionEvents)
-            }
-            val heartbeat = launch {
-                while (isActive) {
-                    delay(heartbeatMillis)
-                    // OkHttp only accepts data/close frames through Ktor's send();
-                    // use the protocol heartbeat on platforms without manual ping.
-                    requestInternal("ping", buildJsonObject {}, false, null, requireReady = true)
+        var stage = "websocket_open"
+        try {
+            emitDiagnostic(stage)
+            client.webSocket(urlString = endpoint, request = {
+                headers.append(HttpHeaders.Authorization, "Bearer ${host.password}")
+            }) {
+                val currentSession = this
+                session.value = this
+                val sessionToken = Any()
+                lock.withLock { activeSessionToken = sessionToken }
+                val hello = CompletableDeferred<JsonObject>()
+                val syncDone = CompletableDeferred<Long>()
+                val sessionEvents = SessionEvents()
+                val receiver = launch {
+                    for (frame in incoming) processFrame(frame, hello, syncDone, sessionEvents)
+                }
+                val heartbeat = launch {
+                    while (isActive) {
+                        delay(heartbeatMillis)
+                        // OkHttp only accepts data/close frames through Ktor's send();
+                        // use the protocol heartbeat on platforms without manual ping.
+                        requestInternal("ping", buildJsonObject {}, false, null, requireReady = true)
+                    }
+                }
+                try {
+                    stage = "hello"
+                    emitDiagnostic(stage)
+                    val helloData = withTimeout(requestTimeoutMillis) { hello.await() }
+                    val protocol = helloData.long("protocol")
+                    if (protocol !in 1L..3L) {
+                        throw NetworkError("version_unsupported", "unsupported protocol version: $protocol")
+                    }
+                    val nodeId = helloData.string("node_id")
+                        ?: throw NetworkError("internal", "hello is missing node_id")
+                    val knownNodeId = observedNodeId
+                    if (knownNodeId != null && knownNodeId != nodeId) {
+                        throw NetworkError("conflict", "host address belongs to another node")
+                    }
+                    observedNodeId = nodeId
+                    _hello.tryEmit(helloData)
+                    emitEvent(MainEvent.Hello(helloData))
+                    stage = "session_resume"
+                    emitDiagnostic(stage)
+                    val lastSeq = currentCursor()
+                    val resume = requestInternal("session.resume", buildJsonObject {
+                        put("last_seq", lastSeq)
+                        put("client", buildJsonObject {
+                            put("platform", identity.platform)
+                            put("app_version", identity.appVersion)
+                            put("device_name", identity.deviceName)
+                            put("device_id", identity.deviceId)
+                        })
+                    }, write = false, clientRequestId = null, requireReady = false)
+                    if (resume.string("mode") == "reset") {
+                        stage = "bootstrap"
+                        emitDiagnostic(stage)
+                        val bootstrap = requestInternal("bootstrap", buildJsonObject { }, false, null, requireReady = false)
+                        val bootstrapSeq = bootstrap.long("seq")
+                        // Bootstrap is delivered to consumers as a synthetic event so state stores
+                        // can replace their snapshot without depending on protocol model classes.
+                        emitEvent(MainEvent.Ephemeral("bootstrap", bootstrap))
+                        if (bootstrapSeq != null) resetSeq(bootstrapSeq)
+                        flushBuffered(sessionEvents, bootstrapSeq ?: cursor)
+                    } else {
+                        // replay events arrive before sync.done; wait for the cursor barrier.
+                        stage = "sync_done"
+                        emitDiagnostic(stage)
+                        withTimeout(requestTimeoutMillis) { syncDone.await() }
+                        flushBuffered(sessionEvents, cursor)
+                    }
+                    stage = "ready"
+                    emitDiagnostic(stage)
+                    resendPending(this, sessionToken)
+                    ready.value = true
+                    setSnapshot(_snapshot.value.copy(
+                        status = ConnectionStatus.CONNECTED,
+                        lastSeq = cursor, error = null,
+                    ))
+                    receiver.join()
+                } finally {
+                    ready.value = false
+                    lock.withLock { if (activeSessionToken === sessionToken) activeSessionToken = null }
+                    heartbeat.cancel()
+                    receiver.cancel()
+                    heartbeat.join()
+                    receiver.join()
+                    currentSession.close()
                 }
             }
-            try {
-                val helloData = withTimeout(REQUEST_TIMEOUT_MILLIS) { hello.await() }
-                val protocol = helloData.long("protocol")
-                if (protocol !in 1L..3L) {
-                    throw NetworkError("version_unsupported", "unsupported protocol version: $protocol")
-                }
-                val nodeId = helloData.string("node_id")
-                    ?: throw NetworkError("internal", "hello is missing node_id")
-                val knownNodeId = observedNodeId
-                if (knownNodeId != null && knownNodeId != nodeId) {
-                    throw NetworkError("conflict", "host address belongs to another node")
-                }
-                observedNodeId = nodeId
-                _hello.tryEmit(helloData)
-                emitEvent(MainEvent.Hello(helloData))
-                val lastSeq = currentCursor()
-                val resume = requestInternal("session.resume", buildJsonObject {
-                    put("last_seq", lastSeq)
-                    put("client", buildJsonObject {
-                        put("platform", identity.platform)
-                        put("app_version", identity.appVersion)
-                        put("device_name", identity.deviceName)
-                        put("device_id", identity.deviceId)
-                    })
-                }, write = false, clientRequestId = null, requireReady = false)
-                if (resume.string("mode") == "reset") {
-                    val bootstrap = requestInternal("bootstrap", buildJsonObject { }, false, null, requireReady = false)
-                    val bootstrapSeq = bootstrap.long("seq")
-                    // Bootstrap is delivered to consumers as a synthetic event so state stores
-                    // can replace their snapshot without depending on protocol model classes.
-                    emitEvent(MainEvent.Ephemeral("bootstrap", bootstrap))
-                    if (bootstrapSeq != null) resetSeq(bootstrapSeq)
-                    flushBuffered(sessionEvents, bootstrapSeq ?: cursor)
-                } else {
-                    // replay events arrive before sync.done; wait for the cursor barrier.
-                    withTimeout(REQUEST_TIMEOUT_MILLIS) { syncDone.await() }
-                    flushBuffered(sessionEvents, cursor)
-                }
-                resendPending(this, sessionToken)
-                ready.value = true
-                setSnapshot(_snapshot.value.copy(
-                    status = ConnectionStatus.CONNECTED,
-                    lastSeq = cursor, error = null,
-                ))
-                receiver.join()
-            } finally {
-                ready.value = false
-                lock.withLock { if (activeSessionToken === sessionToken) activeSessionToken = null }
-                heartbeat.cancel()
-                receiver.cancel()
-                heartbeat.join()
-                receiver.join()
-                currentSession.close()
+        } catch (error: Throwable) {
+            emitDiagnostic(stage, error)
+            throw error
+        }
+    }
+
+    private fun emitDiagnostic(stage: String, error: Throwable? = null) {
+        var cause = error
+        var status: Int? = null
+        repeat(4) {
+            if (status == null && cause != null) {
+                status = (cause as? ResponseException)?.response?.status?.value
+                cause = cause.cause
             }
         }
+        onDiagnostic(
+            ConnectionDiagnostic(
+                stage = stage,
+                httpStatus = status,
+                exceptionClass = error?.let { it::class.simpleName ?: "Unknown" },
+            ),
+        )
     }
 
     private suspend fun processFrame(

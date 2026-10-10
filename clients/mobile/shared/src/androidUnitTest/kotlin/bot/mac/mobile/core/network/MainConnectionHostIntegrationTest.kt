@@ -283,6 +283,96 @@ class MainConnectionHostIntegrationTest {
     }
     }
 
+    @Test
+    fun handshakeTimeoutRetriesWithoutSwallowingRunnerCancellation() {
+        runBlocking {
+            val server = MockWebServer()
+            server.enqueue(upgrade { _, _ -> Unit })
+            server.enqueue(upgrade { socket, request ->
+                when (request.string("method")) {
+                    "session.resume" -> {
+                        socket.send(response(request.id(), buildJsonObject { put("mode", "replay") }))
+                        socket.send(event("sync.done", buildJsonObject { put("seq", 0) }, 0))
+                    }
+                }
+            })
+            server.start()
+            val client = HttpClient(OkHttp) { install(WebSockets) }
+            val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val diagnostics = Channel<ConnectionDiagnostic>(Channel.UNLIMITED)
+            val connection = MainConnection(
+                client = client,
+                host = host(server),
+                identity = identity(),
+                lastSeqStore = InMemoryLastSeqStore(),
+                scope = scope,
+                requestTimeoutMillis = 100L,
+                onDiagnostic = { diagnostic -> diagnostics.trySend(diagnostic) },
+            )
+            try {
+                connection.start()
+                var timeoutFailure: ConnectionDiagnostic? = null
+                withTimeout(3_000) {
+                    while (timeoutFailure == null) {
+                        val diagnostic = diagnostics.receive()
+                        if (diagnostic.stage == "session_resume" && diagnostic.exceptionClass != null) {
+                            timeoutFailure = diagnostic
+                        }
+                    }
+                }
+                assertTrue(timeoutFailure?.exceptionClass?.contains("Timeout") == true)
+                withTimeout(5_000) {
+                    connection.status.first { it == ConnectionStatus.CONNECTED }
+                }
+            } finally {
+                connection.stop()
+                scope.cancel()
+                client.close()
+                server.close()
+            }
+        }
+    }
+
+    @Test
+    fun rejectedWebSocketReportsOnlyStageStatusAndExceptionClass() {
+        runBlocking {
+            val server = MockWebServer()
+            server.enqueue(MockResponse.Builder().code(401).build())
+            server.start()
+            val client = HttpClient(OkHttp) { install(WebSockets) }
+            val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val diagnostics = Channel<ConnectionDiagnostic>(Channel.UNLIMITED)
+            val connection = MainConnection(
+                client = client,
+                host = host(server).copy(password = "diagnostic-secret"),
+                identity = identity(),
+                lastSeqStore = InMemoryLastSeqStore(),
+                scope = scope,
+                onDiagnostic = { diagnostic -> diagnostics.trySend(diagnostic) },
+            )
+            try {
+                connection.start()
+                assertEquals("websocket_open", withTimeout(2_000) { diagnostics.receive() }.stage)
+                val failed = withTimeout(2_000) { diagnostics.receive() }
+                assertEquals("websocket_open", failed.stage)
+                // OkHttp/Ktor may expose the rejected handshake as WebSocketException
+                // without retaining the HTTP response; when it is retained, keep 401.
+                assertTrue(failed.httpStatus == null || failed.httpStatus == 401)
+                val exceptionClass = failed.exceptionClass ?: error("missing exception class")
+                assertTrue(exceptionClass.isNotBlank())
+                assertTrue(exceptionClass.contains("Exception"))
+                assertTrue(failed.toString().contains("websocket_open"))
+                assertTrue(!failed.toString().contains("diagnostic-secret"))
+                assertTrue(!failed.toString().contains(server.url("/").toString()))
+            } finally {
+                connection.stop()
+                scope.cancel()
+                client.close()
+                server.close()
+            }
+        }
+    }
+
     private fun upgrade(handler: (WebSocket, JsonObject) -> Unit): MockResponse =
         MockResponse.Builder().webSocketUpgrade(ScriptListener(json, handler)).build()
 
