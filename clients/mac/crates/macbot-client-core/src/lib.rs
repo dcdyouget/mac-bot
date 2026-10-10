@@ -1211,10 +1211,16 @@ impl AppState {
 
     fn apply_event_now(&mut self, event: &ProtocolEvent) {
         let data = &event.data;
-        let base = event
-            .event
-            .strip_suffix(".created")
-            .or_else(|| event.event.strip_suffix(".updated"));
+        let base = match event.event.as_str() {
+            // Question lifecycle events carry the same canonical question
+            // object as created/updated events. Keep the client cache in
+            // sync so answered cards stop presenting pending controls.
+            "question.asked" | "question.answered" => Some("question"),
+            _ => event
+                .event
+                .strip_suffix(".created")
+                .or_else(|| event.event.strip_suffix(".updated")),
+        };
         if let Some(kind) = base {
             if let Some(object) = first_object(data) {
                 let key = match kind {
@@ -1860,6 +1866,29 @@ mod tests {
             data: json!({"bot":{"id":"bot_a","name":"bad"}}),
         });
         assert_eq!(state.bots["bot_a"]["name"], "new");
+    }
+
+    #[test]
+    fn question_answered_event_updates_cached_question_state() {
+        let mut state = AppState::default();
+        state.apply_bootstrap(json!({
+            "seq": 1,
+            "questions": [{"id":"question-1","state":"pending","text":"继续？"}]
+        }));
+        state.apply_event(ProtocolEvent {
+            seq: Some(2),
+            event: "question.answered".into(),
+            data: json!({
+                "question": {
+                    "id":"question-1",
+                    "state":"answered",
+                    "text":"继续？",
+                    "answer":{"text":"继续"}
+                }
+            }),
+        });
+        assert_eq!(state.questions["question-1"]["state"], "answered");
+        assert_eq!(state.questions["question-1"]["answer"]["text"], "继续");
     }
 
     #[test]

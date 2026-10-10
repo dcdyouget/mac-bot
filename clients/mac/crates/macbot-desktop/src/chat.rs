@@ -7,8 +7,8 @@ use gpui_kit::prelude::FluentBuilder;
 #[cfg(test)]
 mod tests {
     use super::{
-        known_block, message_display_text, pending_message, s, takeover_request_is_actionable,
-        text_block_markdown,
+        known_block, message_display_text, pending_message, question_is_pending, question_text, s,
+        takeover_request_is_actionable, text_block_markdown,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -70,6 +70,17 @@ mod tests {
             "bot_id": "bot-a",
             "state": "pending"
         })));
+    }
+
+    #[test]
+    fn answered_question_does_not_render_pending_controls() {
+        assert!(question_is_pending(&json!({"state": "pending"})));
+        assert!(!question_is_pending(&json!({"state": "answered"})));
+        assert!(!question_is_pending(&json!({"state": "failed"})));
+        assert_eq!(
+            question_text(&json!({}), &json!({"question_id":"question-1"})),
+            "question-1"
+        );
     }
 }
 
@@ -216,6 +227,19 @@ fn message_display_text(message: &Value) -> &str {
         s(message, "fallback_text")
     } else {
         s(message, "text")
+    }
+}
+
+fn question_is_pending(question: &Value) -> bool {
+    s(question, "state") == "pending"
+}
+
+fn question_text<'a>(question: &'a Value, block: &'a Value) -> &'a str {
+    let text = s(question, "text");
+    if text.is_empty() {
+        s(block, "question_id")
+    } else {
+        text
     }
 }
 
@@ -1228,55 +1252,58 @@ impl MacBot {
                     .cloned()
                     .unwrap_or(Value::Null);
                 let question_id = s(&q, "id").to_string();
-                let question_input = self.question_inputs.get(&question_id).cloned();
+                let pending = question_is_pending(&q);
                 body = body
                     .child(
                         div()
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(tr("block.question")),
                     )
-                    .child(s(&q, "text").to_string());
-                for (index, option) in arr(&q, "options").iter().enumerate() {
-                    body = body.child(self.rpc_button(
-                        &format!("option-{id}-{index}"),
-                        option.as_str().unwrap_or(""),
-                        "question.answer",
-                        json!({"question_id":question_id,"option_index":index}),
-                        cx,
-                    ));
+                    .child(question_text(&q, block).to_string());
+                if pending {
+                    for (index, option) in arr(&q, "options").iter().enumerate() {
+                        body = body.child(self.rpc_button(
+                            &format!("option-{id}-{index}"),
+                            option.as_str().unwrap_or(""),
+                            "question.answer",
+                            json!({"question_id":question_id,"option_index":index}),
+                            cx,
+                        ));
+                    }
+                    let input_id = question_id.clone();
+                    let question_input = self.question_inputs.get(&question_id).cloned();
+                    let mut question_controls = div().flex().items_center().gap_2();
+                    if let Some(input) = question_input {
+                        question_controls = question_controls.child(Input::new(&input).flex_1());
+                    }
+                    body = body.child(
+                        question_controls.child(
+                            Button::new(SharedString::from(format!("question-text-{id}")))
+                                .outline()
+                                .small()
+                                .label(chat_tr("chat.question_text"))
+                                .disabled(!self.connected)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    let Some(input) = this.question_inputs.get(&input_id).cloned()
+                                    else {
+                                        return;
+                                    };
+                                    let text = input.read(cx).value().to_string();
+                                    if text.trim().is_empty() {
+                                        this.notice = chat_tr("chat.question_empty").to_string();
+                                        cx.notify();
+                                        return;
+                                    }
+                                    this.rpc(
+                                        "question.answer",
+                                        json!({"question_id":input_id,"text":text}),
+                                        cx,
+                                    );
+                                    input.update(cx, |input, cx| input.set_value("", window, cx));
+                                })),
+                        ),
+                    );
                 }
-                let input_id = question_id.clone();
-                let mut question_controls = div().flex().items_center().gap_2();
-                if let Some(input) = question_input {
-                    question_controls = question_controls.child(Input::new(&input).flex_1());
-                }
-                body = body.child(
-                    question_controls.child(
-                        Button::new(SharedString::from(format!("question-text-{id}")))
-                            .outline()
-                            .small()
-                            .label(chat_tr("chat.question_text"))
-                            .disabled(!self.connected)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                let Some(input) = this.question_inputs.get(&input_id).cloned()
-                                else {
-                                    return;
-                                };
-                                let text = input.read(cx).value().to_string();
-                                if text.trim().is_empty() {
-                                    this.notice = chat_tr("chat.question_empty").to_string();
-                                    cx.notify();
-                                    return;
-                                }
-                                this.rpc(
-                                    "question.answer",
-                                    json!({"question_id":input_id,"text":text}),
-                                    cx,
-                                );
-                                input.update(cx, |input, cx| input.set_value("", window, cx));
-                            })),
-                    ),
-                );
             }
             "delegation" => {
                 let aid = s(block, "assignment_id").to_string();
