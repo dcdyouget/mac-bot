@@ -532,3 +532,10 @@
 - S4真实通知送达/打开/审批动作已有证据；独立capacitytest应用真实NotificationManager容量50→40通过，正式包3条旧通知keys保持，测试包已移除。Android X等待Chrome本次远程连接确认，Bot首次空tool_calls误报READY与后续浏览器授权超时均保留，不计通过。
 - 当前正式server为4f4893a、桌面6eaa91a、Android5e2fbcc。服务启动延迟仍在修复，失败健康检查与采样均已归档；S5最终pkg候选准备中，fresh尚未执行。开发包无Developer ID签名不冒充正式分发包，PLAN约定签名公证由用户负责。
 - 根协调单独提交理由：同步新的真实阶段结论与外部确认点；仅追加本节，保留其他会话未提交的设计/协议改动和design目录，不因文档提交重新部署。
+
+
+## 2026-10-10 integrator：S2用户确认闭环
+
+用户授权精确结束5个旧等待分支并确认两原项目。项目总结错误消费bot:main额度导致确认失败，426e9b7修复为仅写项目记忆，205项gateway测试通过；be64802补浏览器错误诊断（debug/release各20项）。server-only部署be64802 PID6301；桌面6eaa91a、Android5e2fbcc保持。
+
+沿用原UUID后，两项目done，5分支cancelled、5审批expired，其他7pending保持；双端完成状态截图已实看，S2通过，当前S0–S3通过。证据 docs/progress/S2/production-9c20fc4-confirm-done.json。S4 Android X待Chrome本次连接授权及真实接管复验；S5 be64802开发pkg已审计但fresh未执行，安装需要管理员认证与管理页新密码交接。测试Bot已恢复原headless，未知审批与进程未动。根文档其他会话未提交改动保留。
