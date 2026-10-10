@@ -226,3 +226,5 @@ Android `5e2fbcc` 已同签名 Release 更新，60项 shared 测试通过。技�
 server `14a3b18` 已仅服务升级，PID60527；12条旧pending和151个job哈希保持。项目产物按项目/路径更新并保留实际交付者，私人Bot路径另按Bot隔离；历史公告/卡片仅读时去重，不重写原记录。orchestrator 58、gateway 202项原有及新增初版测试通过，追加Bot/项目隔离与旧记录不变等5项release回归通过。原两个公告由6/12条收敛为各2条，Android同屏已实际显示两项目名称和各两附件，未confirm_done；桌面补验仍受锁屏阻断。见 S2/production-14a3b18-artifact-dedup-upgrade-after.json 与 android-review-deduplicated.png。代码已推至远端main。
 
 S3已只读核对原回忆run request，问句确实为“What exact preference did I ask you to remember?”，未提供偏好marker；Android实际展示原问句和正确回忆，未重发模型或写记忆。见 production-8b257ca-memory-request-audit.json、production-5e2fbcc-android-memory-recall.png。搜索此测试marker时新发现内部memory记录误分类成“群”，失败截图与RPC保留在 production-14a3b18-search-memory-misclassified.*，正在定位，不能计搜索通过。S0仍唯一整阶段通过，S5fresh未执行。
+
+搜索缺陷已由 `aa2c99a` 修复并 server-only 部署，PID67422：限制业务数据来源，移除路径子串分类；8项release搜索回归通过。同一测试关键词从4条误分类内部记录+6条真实消息变为仅6条真实消息；Android实际显示消息，“群”筛选为空，截图已查看。12条旧pending和151个旧job哈希保持。本机单次查询从4.158秒降到0.034秒，仅为现场抽样。见 S3/production-aa2c99a-search-path-upgrade-after.json。桌面仍需解锁，最短剩余见 [remaining-native-acceptance](2026-10-10-remaining-native-acceptance.md)。
