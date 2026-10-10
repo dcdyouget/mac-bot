@@ -40,11 +40,15 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
+#[cfg(test)]
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
@@ -93,6 +97,10 @@ pub struct ComposedBackend {
     waiting_runs: Arc<std::sync::Mutex<HashSet<String>>>,
     approved_recovery_claims: Arc<std::sync::Mutex<HashSet<String>>>,
     denied_cancellation_claims: Arc<std::sync::Mutex<HashSet<String>>>,
+    #[cfg(test)]
+    recovery_done: Arc<AtomicBool>,
+    #[cfg(test)]
+    recovery_notify: Arc<Notify>,
 }
 
 impl ComposedBackend {
@@ -124,12 +132,20 @@ impl ComposedBackend {
             waiting_runs: Arc::new(std::sync::Mutex::new(HashSet::new())),
             approved_recovery_claims: Arc::new(std::sync::Mutex::new(HashSet::new())),
             denied_cancellation_claims: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            #[cfg(test)]
+            recovery_done: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            recovery_notify: Arc::new(Notify::new()),
         };
         // Recovery must happen before the first client request.  A suspended
         // unsafe job is left for approval; ordinary working jobs resume from
         // their durable checkpoint with the original run id.
         let recovery = backend.runtime.clone();
         let recovery_backend = backend.clone();
+        #[cfg(test)]
+        let recovery_done = backend.recovery_done.clone();
+        #[cfg(test)]
+        let recovery_notify = backend.recovery_notify.clone();
         tokio::spawn(async move {
             if let Err(error) = recovery.configure_feature_runtime().await {
                 tracing::warn!(%error, "feature runtime configuration unavailable during recovery");
@@ -151,7 +167,16 @@ impl ComposedBackend {
                             "data/run_requests/{run_id}.json"
                         ));
                         match request {
-                            Ok(Some(request)) => recovery_backend.spawn_request(request),
+                            Ok(Some(request)) => {
+                                if request.private {
+                                    recovery_backend
+                                        .scheduled
+                                        .lock()
+                                        .await
+                                        .insert(format!("orphan-private-chat:{}", request.chat_id));
+                                }
+                                recovery_backend.spawn_request(request)
+                            }
                             Ok(None) => {
                                 tracing::warn!(%run_id, "durable job has no execution request")
                             }
@@ -169,6 +194,10 @@ impl ComposedBackend {
             recovery_backend.recover_answered_decisions().await;
             recovery_backend.dispatch_ready_assignments().await;
             recovery_backend.recover_orphan_private_messages().await;
+            #[cfg(test)]
+            recovery_done.store(true, Ordering::Release);
+            #[cfg(test)]
+            recovery_notify.notify_waiters();
         });
         Ok(backend)
     }
@@ -223,10 +252,28 @@ impl ComposedBackend {
                     .map(str::to_owned)
             })
             .collect::<HashSet<_>>();
+        let pending_question_chats = snapshot
+            .get("questions")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|questions| questions.values())
+            .filter(|question| question.get("state").and_then(Value::as_str) == Some("pending"))
+            .filter_map(|question| {
+                question
+                    .get("chat_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .collect::<HashSet<_>>();
 
-        for (_bot_id, chat_id) in dm_chats {
-            if pending_approval_chats.contains(&chat_id) {
-                tracing::info!(%chat_id, "private message recovery skipped while approval is pending");
+        for (bot_id, chat_id) in dm_chats {
+            if pending_approval_chats.contains(&chat_id)
+                || pending_question_chats.contains(&chat_id)
+                || self
+                    .private_chat_has_nonterminal_execution(&bot_id, &chat_id)
+                    .await
+            {
+                tracing::info!(%chat_id, "private message recovery skipped while chat has pending or active work");
                 continue;
             }
             let last_read_seq = self
@@ -242,6 +289,11 @@ impl ComposedBackend {
             let Ok(messages) = self.inner.load_chat_messages(&chat_id) else {
                 continue;
             };
+            let chat_claim_key = format!("orphan-private-chat:{chat_id}");
+            if self.scheduled.lock().await.contains(&chat_claim_key) {
+                tracing::info!(%chat_id, "private message recovery skipped while chat recovery claim is active");
+                continue;
+            }
             for message in messages.iter().filter(|message| {
                 message
                     .get("seq")
@@ -304,10 +356,13 @@ impl ComposedBackend {
                     tracing::warn!(%chat_id, %message_id, "orphan private message has no configured model");
                     continue;
                 };
-                self.scheduled
-                    .lock()
-                    .await
-                    .insert(format!("user-delivery:{message_id}"));
+                // Claim one message per chat for this recovery pass.  The
+                // remaining unread messages stay durable and can be reviewed
+                // or recovered after the resulting run reaches a terminal
+                // state; they must not become concurrent fresh runs here.
+                if !self.scheduled.lock().await.insert(chat_claim_key.clone()) {
+                    break;
+                }
                 tracing::warn!(
                     %chat_id,
                     %message_id,
@@ -317,6 +372,46 @@ impl ComposedBackend {
                 self.spawn_request(request);
             }
         }
+    }
+
+    async fn private_chat_has_nonterminal_execution(&self, bot_id: &str, chat_id: &str) -> bool {
+        let runs = {
+            let durable = self.runtime.state.durable.lock().await;
+            durable
+                .jobs()
+                .filter(|job| {
+                    matches!(
+                        job.status,
+                        macbot_durable::JobStatus::Queued
+                            | macbot_durable::JobStatus::Running
+                            | macbot_durable::JobStatus::Waiting
+                            | macbot_durable::JobStatus::Suspended
+                    )
+                })
+                .map(|job| {
+                    (
+                        job.checkpoint
+                            .get("run_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                        job.owner.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        runs.into_iter().any(|(run_id, owner)| {
+            let Some(run_id) = run_id else {
+                return owner == bot_id;
+            };
+            self.inner
+                .store
+                .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+                .ok()
+                .flatten()
+                .map_or(owner == bot_id, |request| {
+                    request.private && request.chat_id == chat_id && request.bot_id == bot_id
+                })
+        })
     }
 
     async fn private_execution_exists(&self, run_id: &str) -> bool {
@@ -7661,6 +7756,7 @@ mod persistence_tests {
     use async_trait::async_trait;
     use macbot_memory::{AsyncMaintenanceProvider, MemoryError, MemorySource, MemoryTarget};
     use serde_json::{json, Value};
+    use std::sync::atomic::Ordering;
     use std::sync::Arc;
     use tempfile::tempdir;
 
@@ -7877,6 +7973,71 @@ mod persistence_tests {
         panic!("job {job_id} did not reach {expected:?}");
     }
 
+    async fn configure_recovery_model(
+        backend: &Arc<ProductionBackend>,
+        state: &crate::GatewayState,
+        prefix: &str,
+    ) {
+        let provider = backend
+            .call(
+                "provider.create",
+                json!({
+                    "name":format!("{prefix} provider"),
+                    "api_kind":"openai-completions",
+                    "base_url":"http://127.0.0.1:1",
+                    "client_request_id":format!("{prefix}-provider")
+                }),
+                state,
+            )
+            .await
+            .unwrap();
+        let provider_id = provider["provider"]["id"].as_str().unwrap();
+        backend
+            .call(
+                "model.upsert",
+                json!({
+                    "provider_id":provider_id,
+                    "model_id":format!("{prefix}-model"),
+                    "client_request_id":format!("{prefix}-model")
+                }),
+                state,
+            )
+            .await
+            .unwrap();
+        let model_ref = format!("{provider_id}/{prefix}-model");
+        backend
+            .store
+            .write_snapshot(
+                "data/settings.json",
+                &json!({"models":{"bot_default":model_ref,"main":null}}),
+            )
+            .unwrap();
+    }
+
+    fn private_run_id(message_id: &str) -> String {
+        format!(
+            "run_chat_{}",
+            message_id
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+                .collect::<String>()
+        )
+    }
+
+    async fn wait_for_startup_recovery(composed: &ComposedBackend) {
+        if composed.recovery_done.load(Ordering::Acquire) {
+            return;
+        }
+        let notified = composed.recovery_notify.notified();
+        if composed.recovery_done.load(Ordering::Acquire) {
+            return;
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), notified)
+            .await
+            .expect("startup recovery did not finish");
+        assert!(composed.recovery_done.load(Ordering::Acquire));
+    }
+
     #[tokio::test]
     async fn denied_private_approval_cancels_waiting_job_without_tool_execution() {
         let home = tempdir().unwrap();
@@ -7887,6 +8048,7 @@ mod persistence_tests {
         });
         let backend = Arc::new(ProductionBackend::open(&path).unwrap());
         let composed = ComposedBackend::open(backend.clone(), gateway.state.clone(), path).unwrap();
+        wait_for_startup_recovery(&composed).await;
         let (approval_id, job_id, chat_id) =
             seed_private_waiting_approval(&backend, &gateway.state, "live").await;
         let result = composed
@@ -8033,6 +8195,7 @@ mod persistence_tests {
             .unwrap();
         let composed =
             ComposedBackend::open(backend.clone(), gateway.state.clone(), path.clone()).unwrap();
+        wait_for_startup_recovery(&composed).await;
         let run_id = format!(
             "run_chat_{}",
             message_id
@@ -8147,7 +8310,7 @@ mod persistence_tests {
                 &json!({"last_read_seq":0}),
             )
             .unwrap();
-        let _composed = ComposedBackend::open(backend.clone(), gateway.state, path).unwrap();
+        let composed = ComposedBackend::open(backend.clone(), gateway.state, path).unwrap();
         let run_id = format!(
             "run_chat_{}",
             message_id
@@ -8155,12 +8318,327 @@ mod persistence_tests {
                 .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
                 .collect::<String>()
         );
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        wait_for_startup_recovery(&composed).await;
         assert!(backend
             .store
             .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn startup_skips_private_orphan_while_question_is_pending() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"question-recovery"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+        configure_recovery_model(&backend, &gateway.state, "question-recovery").await;
+        let message = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":chat_id,"text":"wait for the question"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let run_id = private_run_id(message["message"]["id"].as_str().unwrap());
+        let mut snapshot = backend.orchestrator.snapshot().unwrap();
+        snapshot["questions"]["question-recovery"] = json!({
+            "id":"question-recovery",
+            "chat_id":chat_id,
+            "bot_id":bot_id,
+            "assignment_id":format!("dm_{chat_id}"),
+            "text":"pending question",
+            "options":[],
+            "allow_free_text":true,
+            "state":"pending"
+        });
+        backend.orchestrator.restore(snapshot).unwrap();
+        backend
+            .store
+            .write_snapshot(
+                format!(
+                    "data/chats/{}/metadata.json",
+                    super::safe_component(&chat_id)
+                ),
+                &json!({"last_read_seq":0}),
+            )
+            .unwrap();
+        let composed = ComposedBackend::open(backend.clone(), gateway.state, path).unwrap();
+        wait_for_startup_recovery(&composed).await;
+        assert!(backend
+            .store
+            .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn startup_skips_private_orphan_while_same_chat_has_waiting_run() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"busy-recovery"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        configure_recovery_model(&backend, &gateway.state, "busy-recovery").await;
+        // A non-terminal job without a run request is still unknown work for
+        // this Bot; recovery must conservatively leave the chat untouched.
+        let checkpoint = json!({"waiting_reason":"decision"});
+        let existing_job = {
+            let mut durable = backend.durable.lock().await;
+            let job = durable
+                .create_job(&bot_id, "model_run", checkpoint.clone())
+                .unwrap();
+            durable
+                .commit(
+                    &job.id,
+                    macbot_durable::JobStatus::Waiting,
+                    checkpoint,
+                    false,
+                )
+                .unwrap()
+        };
+        let orphan = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":chat_id,"text":"must wait behind existing run"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let orphan_run_id = private_run_id(orphan["message"]["id"].as_str().unwrap());
+        backend
+            .store
+            .write_snapshot(
+                format!(
+                    "data/chats/{}/metadata.json",
+                    super::safe_component(&chat_id)
+                ),
+                &json!({"last_read_seq":0}),
+            )
+            .unwrap();
+        let composed = ComposedBackend::open(backend.clone(), gateway.state, path).unwrap();
+        wait_for_startup_recovery(&composed).await;
+        assert!(backend
+            .store
+            .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{orphan_run_id}.json"))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            backend
+                .durable
+                .lock()
+                .await
+                .job(&existing_job.id)
+                .unwrap()
+                .status,
+            macbot_durable::JobStatus::Waiting
+        );
+    }
+
+    #[tokio::test]
+    async fn startup_claims_at_most_one_orphan_per_private_chat() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"multi-recovery"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        configure_recovery_model(&backend, &gateway.state, "multi-recovery").await;
+        let first = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":chat_id,"text":"first orphan"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let second = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":chat_id,"text":"second orphan"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let first_run_id = private_run_id(first["message"]["id"].as_str().unwrap());
+        let second_run_id = private_run_id(second["message"]["id"].as_str().unwrap());
+        backend
+            .store
+            .write_snapshot(
+                format!(
+                    "data/chats/{}/metadata.json",
+                    super::safe_component(&chat_id)
+                ),
+                &json!({"last_read_seq":0}),
+            )
+            .unwrap();
+        let composed = ComposedBackend::open(backend.clone(), gateway.state.clone(), path).unwrap();
+        for _ in 0..500 {
+            if backend
+                .store
+                .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{first_run_id}.json"))
+                .unwrap()
+                .is_some()
+                || backend
+                    .store
+                    .read_snapshot::<ExecutionRequest>(format!(
+                        "data/run_requests/{second_run_id}.json"
+                    ))
+                    .unwrap()
+                    .is_some()
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let first_exists = backend
+            .store
+            .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{first_run_id}.json"))
+            .unwrap()
+            .is_some();
+        let second_exists = backend
+            .store
+            .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{second_run_id}.json"))
+            .unwrap()
+            .is_some();
+        assert_ne!(first_exists, second_exists);
+        // A later explicit pass still cannot claim the second message in the
+        // same process; it remains durable for a later recovery boundary.
+        composed.recover_orphan_private_messages().await;
+        assert_eq!(
+            backend
+                .store
+                .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{first_run_id}.json"))
+                .unwrap()
+                .is_some() as u8
+                + backend
+                    .store
+                    .read_snapshot::<ExecutionRequest>(format!(
+                        "data/run_requests/{second_run_id}.json"
+                    ))
+                    .unwrap()
+                    .is_some() as u8,
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn startup_does_not_replay_message_with_terminal_execution_record() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"terminal-recovery"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        configure_recovery_model(&backend, &gateway.state, "terminal-recovery").await;
+        let message = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":chat_id,"text":"already terminal"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let message_id = message["message"]["id"].as_str().unwrap();
+        let run_id = private_run_id(message_id);
+        let request: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":run_id,
+            "assignment_id":null,
+            "chat_id":chat_id,
+            "bot_id":bot_id,
+            "model":"unconfigured/model",
+            "instruction":"already terminal",
+            "private":true
+        }))
+        .unwrap();
+        backend
+            .store
+            .write_snapshot(format!("data/run_requests/{run_id}.json"), &request)
+            .unwrap();
+        let checkpoint = json!({"run_id":run_id});
+        {
+            let mut durable = backend.durable.lock().await;
+            let job = durable
+                .create_job(&request.bot_id, "model_run", checkpoint.clone())
+                .unwrap();
+            durable
+                .commit(&job.id, macbot_durable::JobStatus::Done, checkpoint, false)
+                .unwrap();
+        }
+        backend
+            .store
+            .write_snapshot(
+                format!(
+                    "data/chats/{}/metadata.json",
+                    super::safe_component(&chat_id)
+                ),
+                &json!({"last_read_seq":0}),
+            )
+            .unwrap();
+        let composed = ComposedBackend::open(backend.clone(), gateway.state, path).unwrap();
+        wait_for_startup_recovery(&composed).await;
+        assert!(backend
+            .store
+            .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            backend
+                .durable
+                .lock()
+                .await
+                .jobs()
+                .filter(|job| job.checkpoint.get("run_id").and_then(Value::as_str) == Some(&run_id))
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]
