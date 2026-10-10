@@ -1120,6 +1120,19 @@ async fn handle_ws_request(gw: &Gateway, request: &WsReq) -> RpcResult {
             .unwrap_or(state.seq.saturating_add(1));
         return Ok(json!({"mode": if last > 0 && last + 1 >= oldest {"replay"} else {"reset"}}));
     }
+    if request.method == "trace.unsubscribe" {
+        if request
+            .params
+            .get("stream")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+        {
+            return Err(rpc_error("invalid_params", "stream is required", None));
+        }
+        // The owning WebSocket removes this connection-local subscription.
+        // Do not delegate transport state to the production RPC backend.
+        return Ok(json!({}));
+    }
     if request.method == "trace.subscribe" {
         let assignment = request
             .params
@@ -3543,6 +3556,42 @@ mod tests {
         // Projection must not alter the internal replay source used to
         // reconstruct assignment-scoped trace subscriptions after restart.
         assert_eq!(events[0]["data"]["item"]["aseq"], 1);
+    }
+
+    #[tokio::test]
+    async fn production_trace_unsubscribe_is_handled_by_the_websocket_layer() {
+        let home = tempfile::tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().into(),
+            mock: false,
+            ..Default::default()
+        });
+        let mut request = WsReq {
+            v: Some(1),
+            kind: "req".into(),
+            id: "unsubscribe".into(),
+            method: "trace.unsubscribe".into(),
+            params: json!({"stream":"connection-owned-stream"}),
+        };
+        assert_eq!(
+            handle_ws_request(&gateway, &request).await.unwrap(),
+            json!({})
+        );
+        // Repeated close is harmless, but malformed scope is not accepted.
+        assert_eq!(
+            handle_ws_request(&gateway, &request).await.unwrap(),
+            json!({})
+        );
+        for params in [json!({}), json!({"stream":""}), json!({"stream":1})] {
+            request.params = params;
+            assert_eq!(
+                handle_ws_request(&gateway, &request)
+                    .await
+                    .unwrap_err()
+                    .code,
+                "invalid_params"
+            );
+        }
     }
 
     #[tokio::test]
