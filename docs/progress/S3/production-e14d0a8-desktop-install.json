@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-10T10:33:00.089498+00:00",
+  "source_commit": "e14d0a8fc1ec966ba06bb1261470f571be5cdf57",
+  "source_method": "git archive fixed commit",
+  "profile": "release",
+  "source_dirty": false,
+  "binary_sha256": "973eae1c0f95840cfed712361882b663804ba075f100177a28dea57df403d885",
+  "dmg_sha256": "1abd80234080479754058fb85fdca9b997aeb619ccaf7dded69f2f69324cdc5b",
+  "codesign_verified": true,
+  "hdiutil_verified": true,
+  "previous_app_backup": "/Users/gongshaojie/Library/Caches/MacBot/integrator/release-candidates/desktop-before-e14d0a8/MacBot.app",
+  "fresh_install": false,
+  "ui_verification_pending": false,
+  "native_range_verification": {
+    "fixed_day": "2026-10-09 UTC",
+    "bot_dimension": "production-e14d0a8-bot-range-fixed.jpg",
+    "project_dimension": "production-e14d0a8-project-range-fixed.jpg",
+    "screenshots_viewed": true,
+    "result": "Both retain selected UTC day and hourly trend after dimension switching.",
+    "full_s3_pass": false
+  }
+}

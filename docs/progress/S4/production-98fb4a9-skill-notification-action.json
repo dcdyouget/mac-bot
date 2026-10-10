@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-10T10:43:02.630940+00:00",
+  "source": "98fb4a968c2fd3f1d2b07e327d794cc263d1b966",
+  "server_source": "8b257ca94a5fbf7839c6ff327033c4666d27203f",
+  "approval_id": "01a12561-a64a-70d2-9ea2-2644aae74052",
+  "decision": "allowed_once",
+  "pending_ids_after": [
+    "01a12290-a0ca-7464-8f91-a968d8ca66ad",
+    "01a1226f-8926-7245-ac5c-2cea982de5b3",
+    "01a120ca-43c2-70e4-9fec-6c9d14ad455c",
+    "01a1220e-759a-70fa-9463-b032218ab1a2",
+    "01a122c3-03e3-72a7-8152-b910a8fd2a55",
+    "01a12292-6124-740b-acaa-8a9a6517c8b3",
+    "01a1228f-9815-7425-bae8-1782fb8dbe28",
+    "01a12083-b7ac-74e9-8708-0ec146198ccc",
+    "01a121e9-1a8c-761f-85df-6314bc88c1d6",
+    "01a1228d-274a-767c-9aeb-be5529d51e9a",
+    "01a120ca-39c0-7693-9b50-0662a3be0f26",
+    "01a12096-c4f6-74b0-b92d-486195063997"
+  ],
+  "related_journal": "../S3/production-8b257ca-real-skill-draft.json",
+  "screenshot": "production-98fb4a9-skill-approval-notification.png",
+  "screenshot_viewed": true,
+  "full_s4_pass": false
+}

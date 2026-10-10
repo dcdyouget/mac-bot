@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-10T10:29:57.740099+00:00",
+  "android_source": "98fb4a968c2fd3f1d2b07e327d794cc263d1b966",
+  "variant": "release",
+  "install_mode": "adb install -r",
+  "preserved_saved_production_and_existing_projects": true,
+  "tests": {
+    "shared_passed": 58,
+    "failed": 0
+  },
+  "project_names_visible": [
+    "macbot-e2e-s2-login-522c6b619b92-登录功能",
+    "macbot-e2e-s2-parallel-fc45ecd3b62c-并行官网改版"
+  ],
+  "screenshots_viewed": [
+    "production-98fb4a9-main-first-review.png",
+    "production-98fb4a9-main-parallel-review.png"
+  ],
+  "confirmed_done": false,
+  "card_identity_pass": true,
+  "full_s2_pass": false,
+  "limitation": "Repeated artifact references are retained from prior handoffs; this change only supplies project identity."
+}
