@@ -1,0 +1,1737 @@
+{
+  "observed_at": "2026-10-10T03:35:07.850203+00:00",
+  "source": "07a3245a200a71c41dd9961e6d9a58e98ca93869",
+  "after_seq": 4952,
+  "trace_subscribed": false,
+  "frames": [
+    {
+      "phase": "replay",
+      "seq": 4953,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4954,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4955,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4956,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4957,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4958,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 4959,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4960,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4961,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4962,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4963,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4964,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4965,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 4966,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4967,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4968,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4969,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 4970,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4971,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4972,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4973,
+      "event": "message.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4974,
+      "event": "message.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4975,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4976,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4977,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4978,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4979,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 4980,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4981,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4982,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4983,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4984,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4985,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4986,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4987,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4988,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4989,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4990,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4991,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4992,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 4993,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4994,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4995,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 4996,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 4997,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 4998,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 4999,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5000,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5001,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5002,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5003,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5004,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5005,
+      "event": "approval.requested"
+    },
+    {
+      "phase": "replay",
+      "seq": 5006,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5007,
+      "event": "approval.resolved"
+    },
+    {
+      "phase": "replay",
+      "seq": 5008,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5009,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5010,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5011,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5012,
+      "event": "message.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5013,
+      "event": "message.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5014,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5015,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5016,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5017,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5018,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5019,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5020,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5021,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5022,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5023,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5024,
+      "event": "approval.requested"
+    },
+    {
+      "phase": "replay",
+      "seq": 5025,
+      "event": "approval.resolved"
+    },
+    {
+      "phase": "replay",
+      "seq": 5026,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5027,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5028,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5029,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5030,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5031,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5032,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5033,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5034,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5035,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5036,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5037,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5038,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5039,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5040,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5041,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5042,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5043,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5044,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5045,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5046,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5047,
+      "event": "approval.resolved"
+    },
+    {
+      "phase": "replay",
+      "seq": 5048,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5049,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5050,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5051,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5052,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5053,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5054,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5055,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5056,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5057,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5058,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5059,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5060,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5061,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5062,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5063,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5064,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5065,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5066,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5067,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5068,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5069,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5070,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5071,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5072,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5073,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5074,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5075,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5076,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5077,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5078,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5079,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5080,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5081,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5082,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5083,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5084,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5085,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5086,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5087,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5088,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5089,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5090,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5091,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5092,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5093,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5094,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5095,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5096,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5097,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5098,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5099,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5100,
+      "event": "approval.requested"
+    },
+    {
+      "phase": "replay",
+      "seq": 5101,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5102,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5103,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5104,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5105,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5106,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5107,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5108,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5109,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5110,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5111,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5112,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5113,
+      "event": "project.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5114,
+      "event": "message.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5115,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5116,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5117,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5118,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5119,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5120,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5121,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5122,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5123,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5124,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5125,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5126,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5127,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5128,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5129,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5130,
+      "event": "approval.resolved"
+    },
+    {
+      "phase": "replay",
+      "seq": 5131,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5132,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5133,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5134,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5135,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5136,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5137,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5138,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5139,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5140,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5141,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5142,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5143,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5144,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5145,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5146,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5147,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5148,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5149,
+      "event": "approval.requested"
+    },
+    {
+      "phase": "replay",
+      "seq": 5150,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5151,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5152,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5153,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5154,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5155,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5156,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5157,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5158,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5159,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5160,
+      "event": "approval.resolved"
+    },
+    {
+      "phase": "replay",
+      "seq": 5161,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5162,
+      "event": "announcement.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5163,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5164,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5165,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5166,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5167,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5168,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5169,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5170,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5171,
+      "event": "approval.requested"
+    },
+    {
+      "phase": "replay",
+      "seq": 5172,
+      "event": "approval.resolved"
+    },
+    {
+      "phase": "replay",
+      "seq": 5173,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5174,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5175,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5176,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5177,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5178,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5179,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5180,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5181,
+      "event": "approval.requested"
+    },
+    {
+      "phase": "replay",
+      "seq": 5182,
+      "event": "approval.resolved"
+    },
+    {
+      "phase": "replay",
+      "seq": 5183,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5184,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5185,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5186,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5187,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5188,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5189,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5190,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5191,
+      "event": "approval.requested"
+    },
+    {
+      "phase": "replay",
+      "seq": 5192,
+      "event": "approval.resolved"
+    },
+    {
+      "phase": "replay",
+      "seq": 5193,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5194,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5195,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5196,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5197,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "replay",
+      "seq": 5198,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5199,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5200,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "replay",
+      "seq": 5201,
+      "event": "approval.requested"
+    },
+    {
+      "phase": "replay",
+      "seq": 5202,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5203,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5204,
+      "event": "message.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5205,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5206,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5207,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5208,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5209,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5210,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": 5211,
+      "event": "assignment.created"
+    },
+    {
+      "phase": "replay",
+      "seq": null,
+      "event": "sync.done"
+    },
+    {
+      "phase": "live",
+      "seq": 5212,
+      "event": "approval.resolved"
+    },
+    {
+      "phase": "live",
+      "seq": 5213,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "live",
+      "seq": 5214,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "host.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": 5215,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "live",
+      "seq": 5216,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "live",
+      "seq": 5217,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "host.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": 5218,
+      "event": "assignment.updated"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "usage.tick"
+    },
+    {
+      "phase": "live",
+      "seq": 5219,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "live",
+      "seq": 5220,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "live",
+      "seq": 5221,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "live",
+      "seq": 5222,
+      "event": "sync.cursor",
+      "cursor_matches": true
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "host.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    },
+    {
+      "phase": "live",
+      "seq": null,
+      "event": "bot.status"
+    }
+  ],
+  "status": "passed",
+  "hello_last_seq": 5211,
+  "resume_mode": "replay",
+  "sync_seq": 5211,
+  "missing_sequences": [],
+  "replay_cursor_count": 143,
+  "live_cursor_count": 8,
+  "unexpected_trace_payload_events": []
+}

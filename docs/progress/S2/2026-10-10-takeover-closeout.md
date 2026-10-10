@@ -40,3 +40,13 @@
 ## Android 网络恢复
 
 模拟器 wlan0 无载波且路由为空，导致客户端重连；重新连接已保存 AndroidWifi 后，10.0.2.2:7788 health 返回 200，客户端自动显示后续消息。未重启、清数据或更换 APK，不归因为客户端缺陷。见 production-b7d6c76-android-network.json 和前后实际截图。
+
+## 07a3245 实时游标修复与两群 Tester 交付
+
+- 现场发现桌面cache停在seq4952、下一条4953为内部trace.item。服务端持久全局seq被轨迹占用，实时却只向订阅者推无seq轨迹，导致普通连接永远缓存后续状态。8c7fe41新增sync.cursor契约；07a3245在实时与resume中投影同序号、无正文的占位帧，订阅轨迹仍独立按aseq发送。Rust/schema/fixtures/Kotlin同步，190 gateway（含真实WebSocket）、协议13测试、桌面核心34测试和Kotlin生成5测试通过。
+- 仅部署07a3245，PID34089；全部原pending与等待checkpoint、first run request、Tester浏览器session哈希保持。桌面未重装、未点刷新，自动追上review与Tester完成。标准库正式WebSocket复验从4952补发，143个replay cursor、8个live cursor，无缺号、无未订阅轨迹正文；证据S1/production-07a3245-*。
+- parallel报告旧草稿拒绝后终止。Main只发progress未带mentions没有派任务，已记录模型交接不足；明确的新报告纠正请求在原群生成report-only任务…4dc2。原Tester写报告并按真实反馈自行edit修正“空密码”措辞，send_msg done明确mentions main。报告保留无效邮箱证据不足、错误提示/alert未测、已登录卡片边界未测。Main经反馈纠正“验收完成”的错误标题并真正request_review，project=review；没有confirm_done。
+- first旧待审批edit明确指向原login.html，与保留原失败要求冲突；核验map/checkpoint/身份后仅deny该已知旧edit，没有批量取消siblings。index.html哈希与既有独立浏览器证据一致，恢复52204本地服务。新实际Tester任务…9654：aseq24批量空输入/无效邮箱/空密码/错密码/正确登录；31真实reload；38登录保持、用户卡片x20/w335/right355且375px无横溢；45真实退出、存储null、表单可见且边界正确；56写TEST-index-browser.md，59向Main提交done，61结束。两份demo哈希保持，报告由原Bot生成；first Main已汇总并置review，主私聊待验收卡含index.html与TEST-index-browser.md，未确认完成。
+- 最新07a3245 pkg已审计并存仓库外候选目录，未安装。旧63c140d候选保留为历史；无fresh通过声明。Android/X控制外部条件仍待，S0仍唯一整阶段通过。
+
+- 两群最终公告与主私聊验收卡已核验，截图production-07a3245-first-group-review.png、production-07a3245-main-review-cards.png均实际查看。parallel登记2项；first重复登记同2个路径为4条记录，卡片仍为2个正确链接，保留模型重复操作。first Tester与parallel Main运行重叠112.033秒，见production-07a3245-two-project-run-overlap.json；仅证明两群实际run重叠，不代替双端并行验收。

@@ -1,0 +1,12 @@
+    Checking itoa v1.0.18
+    Checking memchr v2.8.3
+    Checking serde_core v1.0.229
+    Checking zmij v1.0.23
+    Checking dyn-clone v1.0.20
+    Checking num-traits v0.2.19
+    Checking chrono v0.4.45
+    Checking serde v1.0.229
+    Checking serde_json v1.0.151
+    Checking schemars v0.8.22
+    Checking macbot-protocol v0.1.0 (/Users/gongshaojie/Project/mac-bot-integrator/protocol/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.70s

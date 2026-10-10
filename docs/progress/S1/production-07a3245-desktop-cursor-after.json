@@ -1,0 +1,11 @@
+{
+  "observed_at": "2026-10-10T03:35:56.978621+00:00",
+  "desktop_source": "2f091744ec4bb5da0774a715fea02628330c5ebf",
+  "server_source": "07a3245a200a71c41dd9961e6d9a58e98ca93869",
+  "desktop_cache_seq": 5222,
+  "parallel_project_status": "review",
+  "screenshot": "production-07a3245-desktop-cursor-after.png",
+  "screenshot_visually_reviewed": true,
+  "manual_refresh_used": false,
+  "observation": "Unchanged desktop reconnected and caught up automatically; review and Tester done replace stale active/waiting. Confirm completion was not clicked."
+}

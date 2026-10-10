@@ -1,0 +1,16 @@
+{
+  "observed_at": "2026-10-10T03:37:15.290079+00:00",
+  "package_path": "/Users/gongshaojie/Library/Application Support/MacBot/release-candidates/20261010/MacBot-Server-07a3245.pkg",
+  "package_sha256": "24944b99761ac4ad00b539ef640daa0fb07e6efd0b681feceff324ff0fb52ff2",
+  "package_bytes": 16093449,
+  "build_info": {
+    "source_dirty": false,
+    "macbotd_sha256": "5372b90a315667de8c456455f99046e283492deb260d5bafe215577a2b20119a",
+    "version": "0.1.0",
+    "agent_browser_sha256": "8168b86ab5d94be8f670992dfe4fe1445016518a864b48bda105e64142e7cbf9",
+    "source_commit": "07a3245a200a71c41dd9961e6d9a58e98ca93869"
+  },
+  "bundle_contents_source_daemon_sidecar_checks": "passed",
+  "installed": false,
+  "fresh_install_pass": false
+}

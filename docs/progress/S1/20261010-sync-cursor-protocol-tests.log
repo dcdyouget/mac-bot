@@ -1,0 +1,47 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling macbot-protocol v0.1.0 (/Users/gongshaojie/Project/mac-bot-integrator/protocol/rust)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.51s
+     Running unittests src/lib.rs (protocol/rust/target/debug/deps/macbot_protocol-8872fb1d977db014)
+
+running 5 tests
+test tests::rpc_request_dispatches_by_method_without_empty_variant_swallowing_fields ... ok
+test tests::enums_use_wire_names ... ok
+test tests::event_and_trace_discriminators_reject_wrong_payload_shapes ... ok
+test tests::patch_preserves_omitted_vs_explicit_null ... ok
+test tests::unknown_fields_are_ignored ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/generate-fixtures.rs (protocol/rust/target/debug/deps/generate_fixtures-ce30ecc51c7dce2d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/generate-schema.rs (protocol/rust/target/debug/deps/generate_schema-95c8c387a50c5c36)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fixtures.rs (protocol/rust/target/debug/deps/fixtures-ee7042a8322a15b2)
+
+running 8 tests
+test workbench_result_decodes_and_serializes_as_flat_protocol_shape ... ok
+test heatmap_result_decodes_flat_protocol_shapes_without_field_loss ... ok
+test settings_secret_parameter_roundtrips_outside_the_settings_patch ... ok
+test nested_settings_patch_preserves_partial_and_nullable_fields ... ok
+test login_scenario_lines_are_protocol_event_frames ... ok
+test fixture_objects_roundtrip_without_field_loss ... ok
+test login_scenario_preserves_ordered_workflow_and_cursors ... ok
+test fixture_blocks_trace_events_and_frames_roundtrip_without_field_loss ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests macbot_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

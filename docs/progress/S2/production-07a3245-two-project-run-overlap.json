@@ -1,0 +1,24 @@
+{
+  "observed_at": "2026-10-10T03:48:07.770161Z",
+  "first": {
+    "run_id": "run_01a123d4-f6d9-77ce-ae3a-6107b0b59654",
+    "assignment_id": "01a123d4-f6d9-77ce-ae3a-6107b0b59654",
+    "chat_id": "01a12236-76c4-746c-a0e8-430005bd9679",
+    "start": "2026-10-10T03:22:07.943Z",
+    "end": "2026-10-10T03:37:42.740Z",
+    "end_status": "done"
+  },
+  "parallel": {
+    "run_id": "run_01a123d5-8c7f-7346-aa91-2a206bcc4a5e",
+    "assignment_id": "01a123d5-8c7f-7346-aa91-2a206bcc4a5e",
+    "chat_id": "01a12236-b308-7080-9877-6fc18b39cfdb",
+    "start": "2026-10-10T03:22:48.017Z",
+    "end": "2026-10-10T03:24:40.050Z",
+    "end_status": "done"
+  },
+  "overlap_seconds": 112.033,
+  "different_chats": true,
+  "first_bot": "01a120c6-2f8b-7045-aeb6-621e949e22ac",
+  "parallel_bot": "main",
+  "limit": "Real run overlap across existing projects; does not replace both-client observation or full S2 acceptance."
+}

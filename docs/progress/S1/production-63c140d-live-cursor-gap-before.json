@@ -1,0 +1,62 @@
+{
+  "observed_at": "2026-10-10T03:26:39.892721+00:00",
+  "server_source": "63c140d4b465dc2f390582005ae95321f6ca4084",
+  "desktop_source": "2f091744ec4bb5da0774a715fea02628330c5ebf",
+  "desktop_cache_seq": 4952,
+  "server_latest_seq": 5171,
+  "next_persistent_events": [
+    {
+      "seq": 4953,
+      "event": "trace.item"
+    },
+    {
+      "seq": 4954,
+      "event": "trace.item"
+    },
+    {
+      "seq": 4955,
+      "event": "assignment.updated"
+    },
+    {
+      "seq": 4956,
+      "event": "trace.item"
+    },
+    {
+      "seq": 4957,
+      "event": "trace.item"
+    },
+    {
+      "seq": 4958,
+      "event": "message.created"
+    },
+    {
+      "seq": 4959,
+      "event": "announcement.updated"
+    },
+    {
+      "seq": 4960,
+      "event": "trace.item"
+    },
+    {
+      "seq": 4961,
+      "event": "trace.item"
+    },
+    {
+      "seq": 4962,
+      "event": "assignment.updated"
+    },
+    {
+      "seq": 4963,
+      "event": "trace.item"
+    },
+    {
+      "seq": 4964,
+      "event": "trace.item"
+    }
+  ],
+  "cached_project_status": "active",
+  "api_project_status": "review",
+  "native_screenshot": "../S2/production-63c140d-parallel-group-before-refresh.png",
+  "screenshot_visually_reviewed": true,
+  "root_cause": "Global trace.item consumes persisted seq, but live routing only emits subscription-scoped frames without seq. Non-subscribers never receive that cursor and buffer all subsequent persistent updates."
+}
