@@ -2641,6 +2641,15 @@ impl RpcBackend for ProductionBackend {
                 )
                 .await;
         }
+        // Usage queries only read the in-memory ledger and the settings
+        // timezone. Keep dashboard refreshes independent from mutation
+        // persistence; they must not queue behind a long snapshot/fsync.
+        if matches!(
+            method,
+            "usage.summary" | "usage.heatmap" | "usage.timeseries" | "usage.breakdown"
+        ) {
+            return self.usage_query(state, method, &params).await;
+        }
         let _guard = self.write_lock.lock().await;
         let mut params = params;
         if method == "send_msg" {
@@ -7316,6 +7325,40 @@ mod tests {
             .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn usage_queries_do_not_wait_for_mutation_writer() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let _writer = backend.write_lock.lock().await;
+        let methods = [
+            ("usage.summary", json!({})),
+            (
+                "usage.heatmap",
+                json!({"mode":"calendar","metric":"tokens"}),
+            ),
+            (
+                "usage.timeseries",
+                json!({"granularity":"hour","dimension":"model","metric":"tokens"}),
+            ),
+            ("usage.breakdown", json!({"dimension":"bot"})),
+        ];
+        for (method, mut params) in methods {
+            params["from"] = json!("2026-01-01T00:00:00Z");
+            params["to"] = json!("2026-01-02T00:00:00Z");
+            tokio::time::timeout(
+                std::time::Duration::from_millis(200),
+                backend.call(method, params, &gateway.state),
+            )
+            .await
+            .unwrap_or_else(|_| panic!("{method} waited for mutation writer"))
+            .unwrap();
+        }
     }
 
     #[tokio::test]
