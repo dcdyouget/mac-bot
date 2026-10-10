@@ -1,0 +1,223 @@
+{
+  "schema": "macbot.s5.s3-orphan-evidence.v1",
+  "capture": "before-03afbd2-server-deployment",
+  "captured_at_local": "2026-10-11T01:37:22.876588+08:00",
+  "data_root": "/Users/gongshaojie/MacBot/data",
+  "candidate_server_sha": "03afbd2",
+  "bot": {
+    "id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "dm_chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "name": "Fresh-Recovery-Isolated"
+  },
+  "chat": {
+    "id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "metadata": {
+      "last_read_seq": 12
+    },
+    "pending_approval_count": 0,
+    "pending_question_count": 0
+  },
+  "orphan": {
+    "message_id": "01a126c6-e1a6-7157-9025-f43dd7c16514",
+    "seq": 15,
+    "sender_kind": "user",
+    "assignment_id": null,
+    "deleted": false,
+    "unread": true,
+    "stable_run_id": "run_chat_01a126c6_e1a6_7157_9025_f43dd7c16514",
+    "message_file": "data/chats/dm_01a12667-f033-72a4-ad59-9e2aced99bc0/messages.jsonl",
+    "request_file": "data/run_requests/run_chat_01a126c6_e1a6_7157_9025_f43dd7c16514.json",
+    "request_exists": false,
+    "job_match_glob": "data/jobs/* containing checkpoint.run_id=run_chat_01a126c6_e1a6_7157_9025_f43dd7c16514",
+    "matching_jobs": [],
+    "run_dir": "data/runs/run_chat_01a126c6_e1a6_7157_9025_f43dd7c16514",
+    "run_dir_exists": false,
+    "trace_glob": "data/traces/* containing 01a126c6-e1a6-7157-9025-f43dd7c16514 or run_chat_01a126c6_e1a6_7157_9025_f43dd7c16514",
+    "matching_traces": []
+  },
+  "eligibility_checks": {
+    "bot_owned_dm": true,
+    "unread_user_message": true,
+    "no_assignment": true,
+    "no_matching_request": true,
+    "no_matching_job": true,
+    "no_bot_reply_for_seq15": true,
+    "pending_approval_in_chat": false,
+    "pending_question_in_chat": false,
+    "bot_nonterminal_jobs": 0,
+    "same_chat_nonterminal_execution": false,
+    "eligible_for_recovery": true
+  },
+  "nearby_messages": [
+    {
+      "id": "01a126c4-1c70-7244-ad95-8f7da52a7c61",
+      "seq": 13,
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "assignment_id": null,
+      "sender": {
+        "kind": "user"
+      },
+      "created_at": "2026-10-10T17:02:28.976978+00:00",
+      "deleted": false,
+      "streaming": false,
+      "fallback_text": "继续本次 S3 fresh 记忆验收。只调用一次合法 memory 写入你自己的 Bot 私有记忆：action=add，scope=bot，bot_id=01a12667-f033-72a4-ad59-9e2aced99bc0，kind=bot_worklog，content=s5-memory-20261011：验收报告先写结论，再写证据。随后调用 memory_search，参数为 query=s5-memory-20261011、scope=bot、bot_id=01a12667-f033-72a4-ad59-9e2aced99bc0，并报告实际 entries。不要调用 memory scope=user/project，不访问其他 Bot 记忆，不调用 Bash、write 或其他工具。"
+    },
+    {
+      "id": "msg_run_chat_01a126c4_1c70_7244_ad95_8f7da52a7c61",
+      "seq": 14,
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "assignment_id": null,
+      "sender": {
+        "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+        "kind": "bot"
+      },
+      "created_at": "2026-10-10T17:03:21.222Z",
+      "deleted": false,
+      "streaming": true,
+      "fallback_text": ""
+    },
+    {
+      "id": "msg_run_chat_01a126c4_1c70_7244_ad95_8f7da52a7c61",
+      "seq": 14,
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "assignment_id": null,
+      "sender": {
+        "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+        "kind": "bot"
+      },
+      "created_at": "2026-10-10T17:03:21.222Z",
+      "deleted": false,
+      "streaming": false,
+      "fallback_text": "验收结果：memory写入已执行（staged: true），但 memory_search 查询返回的 entries 为空数组 `[]`，未找到匹配的记忆条目。可能是记忆尚未实际提交或 bot_id 不匹配。"
+    },
+    {
+      "id": "01a126c6-e1a6-7157-9025-f43dd7c16514",
+      "seq": 15,
+      "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "assignment_id": null,
+      "sender": {
+        "kind": "user"
+      },
+      "created_at": "2026-10-10T17:05:30.534167+00:00",
+      "deleted": false,
+      "streaming": false,
+      "fallback_text": "请做跨 run 读取验收：只调用一次 memory_search，参数必须是 query=s5-memory-20261011、scope=bot、bot_id=01a12667-f033-72a4-ad59-9e2aced99bc0。报告实际 entries；不要调用 memory 写入、不要访问 user/project 或其他 Bot 记忆、不要调用 Bash 或 write。"
+    }
+  ],
+  "bot_jobs_snapshot": [
+    {
+      "file": "job_01a12697-72a4-7553-8258-ac55958378c6.json",
+      "id": "job_01a12697-72a4-7553-8258-ac55958378c6",
+      "status": "done",
+      "kind": "model_run",
+      "run_id": "run_chat_01a12697_7216_70bf_8fa6_2f064d80e554"
+    },
+    {
+      "file": "job_01a12698-51ae-73c5-826e-618d989c00d9.json",
+      "id": "job_01a12698-51ae-73c5-826e-618d989c00d9",
+      "status": "cancelled",
+      "kind": "model_run",
+      "run_id": "run_chat_01a12698_5136_7431_8f0c_9de3079cb341"
+    },
+    {
+      "file": "job_01a12690-30bc-75a1-b9e6-39afdc528ea2.json",
+      "id": "job_01a12690-30bc-75a1-b9e6-39afdc528ea2",
+      "status": "done",
+      "kind": "model_run",
+      "run_id": "run_chat_01a12690_303e_77a8_944a_14cabbf834e0"
+    },
+    {
+      "file": "job_01a1268b-4e71-7542-bcb3-09a876ee2e71.json",
+      "id": "job_01a1268b-4e71-7542-bcb3-09a876ee2e71",
+      "status": "done",
+      "kind": "model_run",
+      "run_id": "run_chat_01a1268b_4de4_771e_b095_9216237d61fb"
+    },
+    {
+      "file": "job_01a12668-2073-73b5-b115-5ddc615e979e.json",
+      "id": "job_01a12668-2073-73b5-b115-5ddc615e979e",
+      "status": "done",
+      "kind": "model_run",
+      "run_id": "run_chat_01a12668_203d_7583_a813_496639211dc4"
+    },
+    {
+      "file": "job_01a126c4-e87a-71ab-895c-4d5f5e5acb7b.json",
+      "id": "job_01a126c4-e87a-71ab-895c-4d5f5e5acb7b",
+      "status": "done",
+      "kind": "model_run",
+      "run_id": "run_chat_01a126c4_1c70_7244_ad95_8f7da52a7c61"
+    },
+    {
+      "file": "job_01a1266d-745b-7474-8bf5-b70569b3b258.json",
+      "id": "job_01a1266d-745b-7474-8bf5-b70569b3b258",
+      "status": "done",
+      "kind": "model_run",
+      "run_id": "run_chat_01a1266d_73f5_73a6_9a25_f6bb81d3da18"
+    }
+  ],
+  "pending_approvals_in_scope": [],
+  "pending_questions_in_scope": [],
+  "memory_followup": {
+    "marker": "s5-memory-20261011",
+    "write_request_message_id": "01a126c4-1c70-7244-ad95-8f7da52a7c61",
+    "write_result_message_id": "msg_run_chat_01a126c4_1c70_7244_ad95_8f7da52a7c61",
+    "cross_run_read_request_message_id": "01a126c6-e1a6-7157-9025-f43dd7c16514",
+    "cross_run_read_must_be_verified_after_recovery": true
+  },
+  "verification_plan_after_deploy": {
+    "expect_exactly_one_request_and_job_for_stable_run_id": true,
+    "expect_no_duplicate_run_or_job": true,
+    "expect_cross_run_memory_search_entry_for_marker": true,
+    "do_not_reissue_message_or_change_current_uuid": true
+  },
+  "startup_recovery_observation": {
+    "server_pid": 76994,
+    "sample_window": "2026-10-11 deployment follow-up; independent 5s+2s+2s samples",
+    "sample_artifacts": [
+      "/tmp/macbotd-76994-readonly.sample",
+      "/tmp/sample.stderr"
+    ],
+    "observed_hotspots": [
+      "dispatch_ready_assignments -> Store::events_since -> request_for_assignment/chat_model_messages",
+      "independent mac_dashboard sample: tick_features -> recover_allowed_tool_approvals -> serde_json::from_reader (291 jobs, approximately 64 MB, 326-397% CPU)"
+    ],
+    "startup_order_fix": "03afbd2 candidate moved recover_orphan_private_messages immediately after durable recover and before approval/question reconciliation and assignment dispatch.",
+    "approval_recovery_claim": "not directly sampled by this agent; absence from the local sample is not evidence that approval recovery is cheap.",
+    "post_deploy_orphan_state": "still no request/job/run/trace or Bot reply for the stable seq15 run during read-only checks; no RPC was reissued."
+  },
+  "post_deploy_verification": {
+    "server_pid": 84786,
+    "candidate_sha": "cf6b5bb",
+    "checked_at_local": "2026-10-11T02:00:00+08:00",
+    "stable_run_id": "run_chat_01a126c6_e1a6_7157_9025_f43dd7c16514",
+    "request_exists": true,
+    "run_dir_exists": true,
+    "trace_file": "data/traces/dm_01a12667-f033-72a4-ad59-9e2aced99bc0.jsonl",
+    "trace_terminal": {
+      "run_start_aseq": 63,
+      "tool_name": "memory_search",
+      "tool_call_id": "call_function_nhawkc0gz6t6_1",
+      "tool_end_aseq": 67,
+      "run_end_aseq": 70,
+      "status": "done"
+    },
+    "message_result": {
+      "seq": 16,
+      "message_id": "msg_run_chat_01a126c6_e1a6_7157_9025_f43dd7c16514",
+      "cross_run_entries": 1,
+      "marker": "s5-memory-20261011"
+    },
+    "matching_job_files_for_stable_run": [],
+    "changed_job_at_startup": {
+      "job_id": "job_01a126f4-d8f1-72a7-bd6c-38ee6be1dd0a",
+      "owner_bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+      "final_status": "done",
+      "final_run_id": "run_01a126be-1feb-72f2-aff5-df3adacda952",
+      "commit_seq": 2555,
+      "interpretation": "合法的既有 A Tester assignment 进展；其 run、owner 与 project request 对应，启动期间从 running 变为 done，非 seq15 重放。"
+    },
+    "scoped_pending_approvals_or_questions": 0,
+    "rpc_reissued": false,
+    "approval_action_taken": false
+  }
+}

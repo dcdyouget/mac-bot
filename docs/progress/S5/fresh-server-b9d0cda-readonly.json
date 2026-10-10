@@ -1,0 +1,56 @@
+{
+  "at": "2026-10-10T17:13:21.009779+00:00",
+  "source": "b9d0cda",
+  "checks": [
+    {
+      "method": "bot.list",
+      "elapsed_s": 0.08138979099999999,
+      "ok": true,
+      "result_keys": [
+        "bots"
+      ]
+    },
+    {
+      "method": "workbench.get",
+      "elapsed_s": 0.096174375,
+      "ok": true,
+      "result_keys": [
+        "bots",
+        "done_today",
+        "global_limit",
+        "running",
+        "subagents_running",
+        "waiting"
+      ]
+    },
+    {
+      "method": "usage.summary",
+      "elapsed_s": 0.07294600000000004,
+      "ok": true,
+      "result_keys": [
+        "current",
+        "previous"
+      ],
+      "result": {
+        "current": {
+          "cache_read_tokens": 365168,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 964753,
+          "output_tokens": 31614,
+          "requests": 127,
+          "tasks_done": 0
+        },
+        "previous": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost": null,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "requests": 0,
+          "tasks_done": 0
+        }
+      }
+    }
+  ]
+}

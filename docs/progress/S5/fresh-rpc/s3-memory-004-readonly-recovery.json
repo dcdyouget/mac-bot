@@ -1,0 +1,50 @@
+{
+  "kind": "readonly_recovery_audit",
+  "task": "S3 fresh Bot-private memory cross-run read",
+  "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+  "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+  "source_write_journal": "s3-memory-001.json",
+  "source_approval_journal": "s3-memory-002.json",
+  "cross_run_send_journal": "s3-memory-003.json",
+  "cross_run_client_request_id": "87925d98-b580-49da-8872-26ec988947be",
+  "cross_run_message_id": "01a126c6-e1a6-7157-9025-f43dd7c16514",
+  "observed_message": {
+    "event": "message.created",
+    "seq": 7856,
+    "sender": "user",
+    "delivery": [],
+    "text_scope": "memory_search only; query=s5-memory-20261011; scope=bot; exact bot_id"
+  },
+  "readonly_checks": {
+    "events_after_message": "no Bot run/trace for message id, chat id, or run_chat_01a126c6",
+    "bot_trace_tail": "previous run_chat_01a126c4_1c70_7244_ad95_8f7da52a7c61 ended done at aseq 62; no subsequent run",
+    "jobs": "no job file references cross_run_message_id, client_request_id, or a new run",
+    "assignments": "no assignment references cross_run_message_id or client_request_id",
+    "operations": "operations.jsonl contains started and done records for client_request_id at 2026-10-10T17:05:30.456Z and 17:05:30.750Z; result is the persisted user message.",
+    "chat_metadata": {
+      "last_read_seq": 12,
+      "message_seq": 15
+    },
+    "memory_backend": {
+      "entry_id": "01a126c6-438c-726d-8b82-1ef5baafbfc8",
+      "scope": "bot",
+      "owner_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "kind": "bot_worklog"
+    },
+    "gateway_operation": {
+      "status": "done",
+      "started_at": "2026-10-10T17:05:30.456Z",
+      "finished_at": "2026-10-10T17:05:30.750Z",
+      "result_message_id": "01a126c6-e1a6-7157-9025-f43dd7c16514"
+    }
+  },
+  "conclusion": "Cross-run memory_search result is unobserved, not passed. The chat.send operation itself completed and durably returned message seq15, but no delivery, assignment, job, or subsequent run was created. The deployed server recovery therefore found nothing to resume; no later Bot trace exists. The evidence bounds the failure to post-send model-run scheduling/dispatch (the persisted operation has no execution trace), without proving whether the in-memory scheduler key or spawn reservation was the immediate branch. No UUID was resent and no approval was added.",
+  "evidence_sources": [
+    "/Users/gongshaojie/MacBot/data/events/events.jsonl",
+    "/Users/gongshaojie/MacBot/data/traces/dm_01a12667-f033-72a4-ad59-9e2aced99bc0.jsonl",
+    "/Users/gongshaojie/MacBot/data/chats/dm_01a12667-f033-72a4-ad59-9e2aced99bc0/metadata.json",
+    "/Users/gongshaojie/MacBot/data/chats/dm_01a12667-f033-72a4-ad59-9e2aced99bc0/messages.jsonl",
+    "/Users/gongshaojie/MacBot/data/jobs/",
+    "/Users/gongshaojie/MacBot/data/orchestrator/operations.jsonl"
+  ]
+}

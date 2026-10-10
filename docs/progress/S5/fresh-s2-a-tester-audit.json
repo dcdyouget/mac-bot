@@ -78,10 +78,10 @@
   },
   "project_status_boundary": {
     "main_review_message_id": "01a126a9-5cdc-723f-a385-22c5832c07e2",
-    "main_review_result": "待验收",
-    "project_get_status": "active",
+    "main_review_result": "review",
+    "project_get_status": "review",
     "project_get_readonly": true,
-    "meaning": "Main review text and Tester report are evidence for review only. project.get still reports active, so this audit does not claim user acceptance or project completion."
+    "meaning": "Main Bot completed request_review successfully after the real Bot browser evidence was read. The review card is pending user acceptance; this audit does not claim confirm_done or project completion."
   },
   "excluded_evidence": [
     "fresh-s2-a-reload-current.png from the separate native Chrome user window is excluded as Bot browser evidence; it is not used to establish refresh success or failure.",
@@ -116,10 +116,51 @@
     "client_request_id": "42eb5d46-d330-4450-9141-8c3c008fadfa",
     "assignment_id": "01a126ab-be00-7624-97fb-dfe80ec00780",
     "steer_message_id": "01a126be-2171-72a7-ae7d-3c81c8a2e5a8",
-    "write_result": "queued",
+    "write_result": "succeeded",
     "requested_tool": "request_review",
     "requested_project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
     "scope": "existing A project only; main feedback assignment; no new Tester/Developer/project; no confirm_done",
-    "readonly_followup": "assignment.get timed out while the server RPC queue was busy; no second write was attempted, and queued is the only confirmed post-write state."
+    "readonly_followup": "Trace confirms the second request_review call succeeded: project.updated status=review, review-card message created/updated, and the assignment run ended done. The first call failed only because summary was omitted; no duplicate project or Tester was created.",
+    "result_status": "review",
+    "review_card_message_id": "msg_project_review_01a1266b-c4d6-751b-8248-0c99a9b6c8da"
+  },
+  "request_review_trace": {
+    "journal": "fresh-rpc/a-tester-048.json",
+    "client_request_id": "42eb5d46-d330-4450-9141-8c3c008fadfa",
+    "assignment_id": "01a126ab-be00-7624-97fb-dfe80ec00780",
+    "run_id": "run_01a126ab-be00-7624-97fb-dfe80ec00780",
+    "chat_id": "01a1266b-c4d6-751b-8248-0c9ab13dcff6",
+    "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+    "historical_first_call": {
+      "call_id": "call_function_l1eejxxb9xvk_1",
+      "args": {
+        "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da"
+      },
+      "result": "invalid_params: summary is required"
+    },
+    "successful_call": {
+      "call_id": "call_function_b9m0zx0gsywg_1",
+      "args": {
+        "project_id": "01a1266b-c4d6-751b-8248-0c99a9b6c8da",
+        "summary": "s5-fresh-login-a 项目已完成真实浏览器测试，五项验收要求全部通过：1) 错误密码拒绝 PASS 2) 正确登录 PASS 3) 刷新保持 PASS 4) 退出清除 PASS 5) 375x800 viewport PASS (innerWidth=375, scrollWidth=375)"
+      },
+      "result_status": "review",
+      "operation_key": "op:project.request_review:578271ee-629a-4317-baad-9c4ab9019993",
+      "review_card_message_id": "msg_project_review_01a1266b-c4d6-751b-8248-0c99a9b6c8da"
+    },
+    "trace_source": "/Users/gongshaojie/MacBot/data/events/events.jsonl",
+    "trace_events": {
+      "request_review_tool_start_seq": 7606,
+      "request_review_tool_end_seq": 7622,
+      "project_updated_seq": 7619,
+      "review_card_updated_seq": 7620,
+      "assignment_run_end_seq": 7629
+    },
+    "boundary": "project.status is review and the review card is pending user acceptance; no confirm_done was called."
+  },
+  "native_ui_refs": {
+    "desktop_review_screenshot": "fresh-s2-a-desktop-review.png",
+    "android_review_screenshot": "fresh-s2-a-android-review.png",
+    "scope": "Parent integrator captured current native desktop and Android UI review screenshots for A; these are supplementary UI evidence and do not replace Bot browser trace evidence or user review-card acceptance."
   }
 }

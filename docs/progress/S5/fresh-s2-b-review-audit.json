@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "at": "2026-10-10T17:52:00Z",
+  "status": "review_requested_report_partial",
+  "read_only_audit": true,
+  "project": {
+    "id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "name": "s5-fresh-login-b",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "status_after": "review"
+  },
+  "source_journal": {
+    "path": "docs/progress/S5/fresh-rpc/b-review-076.json",
+    "method": "assignment.create",
+    "client_request_id": "234f73af-9914-403e-a416-c38815b020ba",
+    "journal_state": "prepared",
+    "reconciliation": "server event seq 10558/10559 proves the request was applied; no UUID retry"
+  },
+  "assignment": {
+    "id": "01a126ed-e030-75c1-ad91-1966d6bb406e",
+    "run_id": "run_01a126ed-e030-75c1-ad91-1966d6bb406e",
+    "bot_id": "main",
+    "created_event_seq": 10558,
+    "tool_flow": "same run first slug error, then project_find, then UUID request_review success",
+    "finished_event_observed": true,
+    "finished_at": "2026-10-10T17:51:36.946805+00:00",
+    "result_message_id": "01a126f1-17f2-7410-8702-45a9b82dd86a"
+  },
+  "request_review": {
+    "first_attempt": {
+      "aseq_start": 4,
+      "tool_end_aseq": 5,
+      "global_tool_end_seq": 10681,
+      "args": {
+        "project_id": "s5-fresh-login-b"
+      },
+      "error": "not_found: not found: project s5-fresh-login-b",
+      "approval_or_write": false
+    },
+    "correction": {
+      "project_find_tool_end_aseq": 9,
+      "project_find_global_seq": 10694,
+      "resolved_project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+      "request_tool_start_aseq": 12,
+      "request_tool_end_aseq": 13,
+      "global_tool_end_seq": 10719,
+      "args_shape": [
+        "project_id",
+        "summary"
+      ],
+      "result_project_status": "review",
+      "raw_event_confirmation": {
+        "source": "/Users/gongshaojie/MacBot/data/events/events.jsonl",
+        "global_seq": 4994,
+        "event": "trace.item",
+        "assignment_id": "01a1269f-c585-74d7-882d-c28ed687a55f",
+        "run_id": "run_01a1269f-c585-74d7-882d-c28ed687a55f",
+        "aseq": 110,
+        "tool": "browser_eval",
+        "origin": "file:///Users/gongshaojie/MacBot/projects/s5-fresh-login-b/index.html",
+        "call_id": "call_function_gi1p3h6hu3wn_1",
+        "details": {
+          "success": true,
+          "error": null,
+          "result": null,
+          "lifecycle": {
+            "reused": true,
+            "browserLaunched": true,
+            "launched": false
+          }
+        },
+        "interpretation": "这是 B 项目退出动作成功的原始事件；不是 01a1269f-8cec... 的 viewport assignment。"
+      }
+    }
+  },
+  "evidence_boundary": {
+    "report_path": "/Users/gongshaojie/MacBot/projects/s5-fresh-login-b/TEST-browser.md",
+    "report_state": "unchanged_old_version",
+    "report_summary": "4/5 fully PASS; logout remains PARTIAL because the report was not safely revised",
+    "historical_exit_action": {
+      "assignment_id": "01a1269f-c585-74d7-882d-c28ed687a55f",
+      "run_id": "run_01a1269f-c585-74d7-882d-c28ed687a55f",
+      "tool": "browser_eval",
+      "aseq": 110,
+      "global_seq": 4994,
+      "result": "success=true",
+      "source_event": "events.jsonl global seq 4994 raw event verified",
+      "raw_result": {
+        "success": true,
+        "error": null,
+        "origin": "file:///Users/gongshaojie/MacBot/projects/s5-fresh-login-b/index.html",
+        "lifecycle_reused": true
+      }
+    },
+    "later_exit_page_snapshot": {
+      "assignment_id": "01a126de-ce56-7078-8197-1bae04aebf6b",
+      "run_id": "run_01a126de-ce56-7078-8197-1bae04aebf6b",
+      "browser_open_aseq": 12,
+      "browser_open_global_seq": 9801,
+      "browser_snapshot_aseq": 19,
+      "browser_snapshot_global_seq": 9888,
+      "observed": "邮箱登录表单，未显示登录成功或退出登录",
+      "report_merged": false
+    },
+    "rejected_report_edit": {
+      "journal": "docs/progress/S5/fresh-rpc/b-review-073.json",
+      "approval_id": "01a126e2-eb24-735f-b0d4-d09f40630d3a",
+      "decision": "deny",
+      "reason": "Bot edit cited incorrect aseq/global seq 1/2 and 10001/10003; report was left PARTIAL",
+      "report_untouched": true
+    },
+    "viewport": "375px width no overflow is PASS in the existing real trace"
+  },
+  "safety": {
+    "finish_project_or_confirm_done_called": false,
+    "new_browser_test": false,
+    "new_tester_or_project": false,
+    "production_write_by_audit": false
+  },
+  "conclusion": "B 已诚实发起 request_review，项目仍为 review；TEST-browser.md 仍明确保留退出 PARTIAL，后续退出后 snapshot 独立留证但未合并。双端 review 截图同时保留 request timeout 失败边界，不能据此宣称连接稳定或 S2/S5 全阶段通过。",
+  "client_view_evidence": {
+    "screenshots": [
+      {
+        "path": "docs/progress/S5/fresh-s2-b-desktop-review.png",
+        "viewed": true,
+        "observation": "B review 页面可见；当前 fresh 客户端画面出现 request timeout，不能据此记连接稳定通过。"
+      },
+      {
+        "path": "docs/progress/S5/fresh-s2-b-android-9f9a1cf-review.png",
+        "viewed": true,
+        "observation": "B review 页面可见；Android 画面出现 30 秒 request timeout，不能据此记连接稳定通过。"
+      }
+    ],
+    "timeout_boundary": "双端截图保留真实 timeout 失败边界；不把 UI/API 结果当作 S2/S5 全阶段通过。",
+    "sources": [
+      "docs/progress/S5/fresh-android-9f9a1cf-update.json",
+      "docs/progress/S5/fresh-scene-checklist.md"
+    ]
+  }
+}

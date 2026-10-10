@@ -1,0 +1,58 @@
+{
+  "state": "installed_native_project_review_seen_with_timeout",
+  "source": "9f9a1cf9dfab53a9fdf7f3bf4514b59e0c097120",
+  "source_short": "9f9a1cf",
+  "application_id": "bot.mac.mobile",
+  "variant": "distribution-signed Release with R8/resource shrink",
+  "apk": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/s5/androidApp-release-9f9a1cf.apk",
+    "bytes": 2128322,
+    "sha256": "a78546695a9ca8da298ce1b91f5f9fa757c1290bd289ff32854d2e0cd9d7a8d3"
+  },
+  "signature": {
+    "verified": true,
+    "scheme": "APK Signature Scheme v2",
+    "certificate_dn": "CN=Mac Bot Android, OU=Development, O=Mac Bot, C=CN",
+    "certificate_sha256": "f0e092d192020efd8c41c351f8c7d62f7df10ee2c9806f8611b564c18073b161",
+    "certificate_sha1": "3378ede75492246e20442b6e026c4eabd180ea93"
+  },
+  "tests": {
+    "command": "./gradlew :shared:commonTest :shared:androidUnitTest :androidApp:assembleRelease",
+    "result": "BUILD SUCCESSFUL",
+    "common_and_android_unit_tests": "passed",
+    "release_lint_and_packaging": "passed",
+    "log": "/Users/gongshaojie/Library/Caches/MacBot/s5/android-9f9a1cf-build.log"
+  },
+  "build": {
+    "archive": "/Users/gongshaojie/Library/Caches/MacBot/s5/android-source-9f9a1cf9dfab53a9fdf7f3bf4514b59e0c097120",
+    "source_clean": true,
+    "root_reviewed_test_count": 73
+  },
+  "device": {
+    "serial": "emulator-5554",
+    "avd": "macbot_api36",
+    "install_performed": true,
+    "ui_operated": true,
+    "adb_used": true
+  },
+  "acceptance_boundary": {
+    "installed": true,
+    "candidate_only": false,
+    "s5_fresh_passed": false,
+    "note": "Same-signed update installed, retained data and B review summary actually viewed. Request timeout remains; S5 is not passed."
+  },
+  "backup": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/s5/android-953c53b-installed-base.apk",
+    "sha256": "d111d524f05c38ac0b362fccf118f44ec3e29e0bdc54640e9fad7c919feca38c"
+  },
+  "install_at": "2026-10-10T17:58:20.882549+00:00",
+  "pending_native_release_boundary": "Original release may still await main connection; preserve app data and write UUID leases, no external retry.",
+  "install_result": "Performing Streamed Install\nSuccess\n",
+  "native_verification": {
+    "screenshot": "fresh-s2-b-android-9f9a1cf-review.png",
+    "actually_viewed": true,
+    "project": "s5-fresh-login-b",
+    "status": "review",
+    "limitation": "Native screen shows Timed out waiting for 30000 ms; connection responsiveness is not passed."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-10T17:34:32.523342+00:00",
+  "source": "03afbd2",
+  "changes": [
+    "6919e95: prevent adapter worker attention from creating siblings while main coordination remains nonterminal",
+    "03afbd2: guard startup orphan recovery with pending decisions, durable busy work, one claim per chat"
+  ],
+  "validation": {
+    "command": "cargo test --manifest-path server/Cargo.toml -p macbot-gateway --lib",
+    "passed": 231,
+    "failed": 0,
+    "diff_check": "passed"
+  },
+  "deployment": "not_yet_deployed",
+  "production_before": "b9d0cda",
+  "native_acceptance": "pending; tests do not establish S5 pass"
+}

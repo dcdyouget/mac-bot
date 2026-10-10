@@ -1,10 +1,10 @@
 # S5 fresh 场景最短执行清单
 
-状态：**现场已执行，仍不是通过记录**。3d6b289 native pkg 已安装并完成密码设置；1d56a47 原始 candidate 未作为 native pkg 安装，later user-App payload update 单独记录，系统 receipt 仍为 3d6b289；桌面当前为已安装 Release 0e866f5，Android 保持 04b0c3d，性能补丁主 worktree 尚待 review。S1 桌面 cache 已收到 50 段全文且 after-layout 图已查看，旧 postfix 桌面图属于旧 scroll/capture，Android UI 仍阻塞；S2 Tester 未完成，S4 当前原生 FreshScreen 无帧、正在诊断；S5 仍未通过。以 [fresh-install-plan.md](fresh-install-plan.md) 和 [fresh-evidence-index.md](fresh-evidence-index.md) 为准。
+状态：**现场已执行，仍不是通过记录**。3d6b289 native pkg 已安装并完成密码设置；server cf6b5bb user-App payload 已部署 PID84786，seq15 orphan 已恢复为唯一 run，memory_search 返回 1 entry，seq16 回复成功，系统 receipt 不变。桌面 bdc17cdf AX 可读且截图可取，routine 详情已实际查看，但坐标点击返回 `noWindowsAvailable`，不是锁屏证据，持续画面仍未闭环；Android 9f9a1cf 已同签名覆盖安装并进入 B 待验收，B 两端 review 画面出现 request timeout（Android 30 秒），不能记连接稳定通过；此前 953c53b 真实输入提交为 green，但 native 交还仍未闭环。A 仍待验收未 confirm_done；B 已在同 run 以修正 slug 成功发起 request_review，旧报告退出项 PARTIAL 保留。routine 实际 schedule 成功但晚 94.255847 秒，目标通知被旧 A 通知洪水挤出，截图未捕获目标，打开动作未验收，routine 已禁用。以 [fresh-install-plan.md](fresh-install-plan.md) 和 [fresh-evidence-index.md](fresh-evidence-index.md) 为准，full S5 仍未通过。
 
 ## 1. 冻结与备份
 
-1. 核对当前已审计的固定server pkg、desktop DMG及Android同签名Release APK；记录source SHA、dirty=false、SHA-256和包内daemon/sidecar。3d6b289 是 native fresh 安装入口；1d56a47 candidate 的 native 安装保持未执行，later user-App payload update 不改变该边界；0e866f5 是当前桌面安装版本，Android 保持 04b0c3d。
+1. 核对当前已审计的固定server pkg、desktop DMG及Android同签名Release APK；记录source SHA、dirty=false、SHA-256和包内daemon/sidecar。3d6b289 是 native fresh 安装入口；cf6b5bb user-App payload 已部署，当前桌面 bdc17cdf、Android 9f9a1cf 的后续更新分别记录，不改写原始安装证据。cf6b5bb 只读复核确认 seq15 orphan 唯一 run、memory_search 1 entry 和 seq16 回复成功。
 2. 暂停 watcher，记录 `scripts/dev/status.sh`、7788/7789 listener、LaunchAgent PID/实际 binary、桌面和 Android 版本。停止并确认 7788 已释放；不批量取消旧 approval/job，不触碰未知进程。
 3. 复用 [fresh-install-journal.json](fresh-install-journal.json) 中现有的 `backup_root`；离线移动和 164 个 job hash 核对已经完成。外部 file secret 目录和 `~/.macbot-dev-password` 只记录路径/权限，不读取、复制、截图或写入文档。
 
@@ -21,7 +21,7 @@
 - Android：`adb -s emulator-5554 install -r <签名APK>`，保留应用数据；连接 `10.0.2.2:7788`，观察连接页、会话列表、主 Bot 私聊、流式正文和轨迹页，截图实际模拟器画面。
 - `bootstrap.py`、health 或任何 API 返回只能作为协议基线，不能替代上述两端 UI 观察。
 
-当前现场已完成两端连接观察；桌面当前原生 FreshScreen 无帧，Android 性能补丁仍待 review。后续截图和失败边界统一见 [fresh-evidence-index.md](fresh-evidence-index.md)；不要把历史候选、API 结果或低清 transport-only 帧当作 S5 通过。
+当前现场已完成两端连接观察；Android 9f9a1cf 已同签名覆盖安装并进入 B 待验收，B review 画面出现 request timeout（Android 30 秒），不能记连接稳定通过；此前 953c53b 真实输入提交为 green，但 native 交还仍未闭环。桌面 bdc17cdf AX 可读且截图可取，routine 详情已实际查看，坐标点击返回 `noWindowsAvailable`，不是锁屏证据，持续画面仍待复测。后续截图和失败边界统一见 [fresh-evidence-index.md](fresh-evidence-index.md)；不要把 API 结果、输入提交、候选包或低清 transport-only 帧当作 S5 通过。
 
 ## 4. 完整场景顺序
 
@@ -49,7 +49,7 @@
    python3 scripts/e2e/s4/android_notification_probe.py --serial emulator-5554 \
      --marker <unique-marker> --output docs/progress/S5/notification.json
    ```
-   `routines_browser.py`、`scheduled_routine.py` 和 `screen_transport.py --takeover` 含未 journal 的 routine/takeover 写调用，fresh 不直接运行；由外部 runner 逐项记录 routine、assignment 和 takeover start/release。另需人工在已登录 Chrome 中只读打开 X、观察真实画面；Android 观察接管、只读滑动、交还后按钮消失、同一 run/message 的状态更新和通知容量。不得发帖、点赞、关注或改账号；不得把 transport/API probe 当成 Chrome 登录、画面绘制或 Android UI 通过。question 或 takeover pending block 未清除时停止，不进入 S5 通过结论。
+   `routines_browser.py`、`scheduled_routine.py` 和 `screen_transport.py --takeover` 含未 journal 的 routine/takeover 写调用，fresh 不直接运行；由外部 runner 逐项记录 routine、assignment 和 takeover start/release。routine `01a126e7-ffd0-771e-8342-2e3592aafd7c` 已实际 schedule 成功但晚 `94.255847` 秒；目标通知曾被 native AX 观察到，随后被旧 A 通知洪水挤出，截图未捕获目标，打开动作未验收，routine 已禁用。Android 953c53b 的真实输入提交为 green（9f9a1cf 尚未重测此项），但 native 交还仍未闭环；桌面 routine 详情已实际查看，持续画面仍缺。另需人工在已登录 Chrome 中只读打开 X、观察真实画面；桌面 coordinate click 的 `noWindowsAvailable` 与 AX 可读状态分别记录，不能当作锁屏。不得发帖、点赞、关注或改账号；不得把 transport/API probe、输入提交或单一 routine 当成 S4/S5 通过。question 或 takeover pending block 未清除时停止，不进入 S5 通过结论。
 
 5. **S5 现场收尾**：保留安装日志、管理页首次设置截图、桌面/Android 连接与完整场景截图、RPC/journal、最终 PID/source stamp 和备份路径。任何一端只显示健康/API 成功而没有实际 UI/截图，均不计完整场景通过。
 

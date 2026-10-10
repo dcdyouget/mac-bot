@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-10T17:01:54.856498+00:00",
+  "state": "transport_unknown",
+  "method": "chat.send",
+  "params": {
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "text": "继续本次 S3 fresh 记忆验收。只调用一次合法 memory 写入你自己的 Bot 私有记忆：action=add，scope=bot，bot_id=01a12667-f033-72a4-ad59-9e2aced99bc0，kind=bot_worklog，content=s5-memory-20261011：验收报告先写结论，再写证据。随后调用 memory_search，参数为 query=s5-memory-20261011、scope=bot、bot_id=01a12667-f033-72a4-ad59-9e2aced99bc0，并报告实际 entries。不要调用 memory scope=user/project，不访问其他 Bot 记忆，不调用 Bash、write 或其他工具。",
+    "attachments": [],
+    "client_request_id": "0c43dcbb-0e80-42c5-a553-ef21dbbccec8"
+  },
+  "scope": {
+    "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "requested_scope": "single private Bot memory write + scoped search, no user/project/other bot/Bash/write"
+  },
+  "at_returned": "2026-10-10T17:02:54.892363+00:00",
+  "error_type": "timeout",
+  "error": "timed out"
+}

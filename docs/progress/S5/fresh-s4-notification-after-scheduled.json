@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-10T17:53:19.229508+00:00",
+  "app_notification_count": 40,
+  "matching_count": 1,
+  "matching_notifications": [
+    [
+      "0x07600f2c: pkg=bot.mac.mobile user=UserHandle{0} id=693378427 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:chat:dm_01a12661-e385-7743-b897-2adb25e69f7c importance=3 key=0|bot.mac.mobile|693378427|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:chat:dm_01a12661-e385-7743-b897-2adb25e69f7c|10219: Notification(channel=messages shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=AUTO_CANCEL|SILENT color=0x00000000 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|693378427|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:chat:dm_01a12661-e385-7743-b897-2adb25e69f7c|10219",
+      "android.title=String (Mac Bot)",
+      "android.text=String (s5-fresh-scheduled-20261011 定时通知已执行)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:message:01a126f2-5e19-758c-9554-1f5c9a3f2198)"
+    ]
+  ],
+  "native_ax_observed": {
+    "title": "任务已完成",
+    "text": "S5 fresh scheduled notification",
+    "at_approx": "2026-10-10T17:53Z"
+  },
+  "screenshot": "fresh-s4-android-scheduled-notification.png",
+  "screenshot_actually_viewed": true,
+  "screenshot_boundary": "By screenshot capture the scheduled notification was no longer visible; only other Mac Bot task notifications visible. Do not count screenshot as target notification proof.",
+  "subsequent_readonly": {
+    "at": "2026-10-10T17:54:55.151022+00:00",
+    "app_count": 40,
+    "scheduled_match_count": 0
+  },
+  "open_action": "not performed: target notification disappeared before a verified click",
+  "acceptance": "notification posted and native AX observed, but action/open not verified; notification flood and target eviction retained as failure evidence"
+}

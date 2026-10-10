@@ -1,0 +1,36 @@
+{
+  "at": "2026-10-10T17:33:19.195600+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a126df-4439-767f-9ac4-4d1a408b65e2",
+    "decision": "allow_once",
+    "client_request_id": "19f9891d-dd1f-4954-a120-662ce15e08ed"
+  },
+  "scope": {
+    "approval_id": "01a126df-4439-767f-9ac4-4d1a408b65e2",
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "assignment_id": "01a126de-ce56-7078-8197-1bae04aebf6b",
+    "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "tool": "browser_open",
+    "effective_target": "file:///Users/gongshaojie/MacBot/projects/s5-fresh-login-b/index.html",
+    "validated_job": "job_01a126de-d11b-74ed-a8bb-dd416436c839",
+    "reason": "single B local page open for logout post-state only"
+  },
+  "result": {
+    "approval": {
+      "assignment_id": "01a126de-ce56-7078-8197-1bae04aebf6b",
+      "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "created_at": "2026-10-10T17:32:08.633849+00:00",
+      "decided_at": "2026-10-10T17:33:49.887495+00:00",
+      "detail": "{\"url\":\"file:///Users/gongshaojie/MacBot/projects/s5-fresh-login-b/index.html\"}",
+      "id": "01a126df-4439-767f-9ac4-4d1a408b65e2",
+      "risk": "external",
+      "state": "allowed_once",
+      "summary": "Approval required for browser_open",
+      "tool": "browser_open"
+    }
+  }
+}

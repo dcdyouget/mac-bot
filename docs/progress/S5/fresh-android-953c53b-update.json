@@ -1,0 +1,51 @@
+{
+  "state": "installed_fresh_connected_native_dashboard_verified",
+  "source": "953c53bf6eac3463928d56c5fd3a06ae20652977",
+  "source_short": "953c53b",
+  "application_id": "bot.mac.mobile",
+  "variant": "distribution-signed Release with R8/resource shrink",
+  "apk": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/s5/androidApp-release-953c53b.apk",
+    "bytes": 2128322,
+    "sha256": "d111d524f05c38ac0b362fccf118f44ec3e29e0bdc54640e9fad7c919feca38c"
+  },
+  "signature": {
+    "verified": true,
+    "certificate_dn": "CN=Mac Bot Android, OU=Development, O=Mac Bot, C=CN",
+    "certificate_sha256": "f0e092d192020efd8c41c351f8c7d62f7df10ee2c9806f8611b564c18073b161",
+    "certificate_sha1": "3378ede75492246e20442b6e026c4eabd180ea93"
+  },
+  "tests": {
+    "command": "./gradlew :shared:commonTest :shared:androidUnitTest :androidApp:assembleRelease",
+    "result": "BUILD SUCCESSFUL",
+    "common_and_android_unit_tests": "passed",
+    "release_lint_and_packaging": "passed"
+  },
+  "device": {
+    "serial": "emulator-5554",
+    "avd": "macbot_api36",
+    "install_performed": true,
+    "ui_operated": true
+  },
+  "installed_602_backup": {
+    "path": "/Users/gongshaojie/Library/Caches/MacBot/s5/android-602ba93-installed-base.apk",
+    "bytes": 2128322,
+    "sha256": "01e3f80793b81879149236c1678d89c6598cd3368fae51b1db31f2a2238f6717",
+    "source": "602ba93537756998abad03cb12b6c6a53719c509",
+    "pulled_from": "emulator-5554 installed base.apk",
+    "hash_matches_existing_record": true
+  },
+  "acceptance_boundary": {
+    "953_installed": true,
+    "602_remains_installed_and_connected": false,
+    "s5_fresh_passed": false,
+    "note": "Fresh host reached ready; native A review and dashboard viewed. Full S5 acceptance remains incomplete; live date-range counts are not an exact cross-client consistency pass."
+  },
+  "install_at": "2026-10-10T17:18:42.927592+00:00",
+  "install_result": "Performing Streamed Install\nSuccess\n",
+  "native_evidence": {
+    "dashboard": "fresh-android-953c53b-dashboard.png",
+    "a_review": "fresh-s2-a-android-review.png",
+    "screenshot_actually_viewed": true
+  }
+}

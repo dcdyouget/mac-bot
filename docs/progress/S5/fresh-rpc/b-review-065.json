@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-10T17:15:05.693220+00:00",
+  "state": "returned",
+  "method": "assignment.steer",
+  "params": {
+    "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "text": "同一 B 项目已有本 run/既有真实 trace 的错误密码、正确登录、刷新保持、退出清除证据，不要重复操作或新增审批。当前 viewport 已真实返回 innerWidth=375、documentElement.scrollWidth=375、body.scrollWidth=375，origin 为 B index.html。请直接在 B Home 写 TEST-browser.md，逐项引用真实 assignment/run/trace，明确四项登录证据与本轮 375x800 证据；不要修改 index.html、不要 Bash、不要新建任务。完成后给 main 提交真实 review 所需报告。",
+    "client_request_id": "c1e09192-fa2e-4149-a91a-072aa915bf29"
+  },
+  "scope": {
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+    "requested_scope": "same B tester current assignment; skip duplicate browser actions; write TEST-browser.md and report"
+  },
+  "result": {
+    "assignment_id": "01a1269f-8cec-73b7-8eb2-1548cb4bb778",
+    "at": "2026-10-10T17:15:12.560790+00:00",
+    "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+    "message_id": "01a126cf-c330-7627-a69e-490501e5442e",
+    "state": "queued"
+  }
+}

@@ -1,0 +1,285 @@
+{
+  "at": "2026-10-10T17:48:43.938525+00:00",
+  "routine_id": "01a126e7-ffd0-771e-8342-2e3592aafd7c",
+  "scheduled_at": "2026-10-10T17:49:00Z",
+  "app_notification_count": 40,
+  "app_notifications": [
+    [
+      "0x065a5496: pkg=bot.mac.mobile user=UserHandle{0} id=0 tag=0|bot.mac.mobile|g:Aggregate_AlertingSection importance=3 key=0|bot.mac.mobile|0|0|bot.mac.mobile|g:Aggregate_AlertingSection|10219|0|bot.mac.mobile|g:Aggregate_AlertingSection: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONGOING_EVENT|NO_CLEAR|LOCAL_ONLY|GROUP_SUMMARY|AUTOGROUP_SUMMARY color=0x00000000 groupKey=0|bot.mac.mobile|g:Aggregate_AlertingSection vis=PRIVATE))",
+      "key=0|bot.mac.mobile|0|0|bot.mac.mobile|g:Aggregate_AlertingSection|10219|0|bot.mac.mobile|g:Aggregate_AlertingSection"
+    ],
+    [
+      "0x083e1ded: pkg=bot.mac.mobile user=UserHandle{0} id=2017954364 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-8caa-75ab-ac7e-362bd4df9e4c importance=3 key=0|bot.mac.mobile|2017954364|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-8caa-75ab-ac7e-362bd4df9e4c|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|2017954364|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-8caa-75ab-ac7e-362bd4df9e4c|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：done)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-8caa-75ab-ac7e-362bd4df9e4c)"
+    ],
+    [
+      "0x0cebabe9: pkg=bot.mac.mobile user=UserHandle{0} id=-790642452 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126be-4427-74e0-96ab-93e9cdc8eb35 importance=3 key=0|bot.mac.mobile|-790642452|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126be-4427-74e0-96ab-93e9cdc8eb35|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-790642452|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126be-4427-74e0-96ab-93e9cdc8eb35|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126be-4427-74e0-96ab-93e9cdc8eb35)"
+    ],
+    [
+      "0x01ca1da5: pkg=bot.mac.mobile user=UserHandle{0} id=-1893520481 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-efe1-76db-a275-f75b5b78b2f1 importance=3 key=0|bot.mac.mobile|-1893520481|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-efe1-76db-a275-f75b5b78b2f1|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1893520481|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-efe1-76db-a275-f75b5b78b2f1|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：done)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-efe1-76db-a275-f75b5b78b2f1)"
+    ],
+    [
+      "0x0163ef21: pkg=bot.mac.mobile user=UserHandle{0} id=-222151423 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bf-6062-77b5-bae1-4d9eb31167fb importance=3 key=0|bot.mac.mobile|-222151423|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bf-6062-77b5-bae1-4d9eb31167fb|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-222151423|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bf-6062-77b5-bae1-4d9eb31167fb|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (主 Bot 跟进任务)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bf-6062-77b5-bae1-4d9eb31167fb)"
+    ],
+    [
+      "0x0a6f5c5d: pkg=bot.mac.mobile user=UserHandle{0} id=-2103436592 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bf-0581-772b-98b3-6e79c5fdac39 importance=3 key=0|bot.mac.mobile|-2103436592|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bf-0581-772b-98b3-6e79c5fdac39|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-2103436592|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bf-0581-772b-98b3-6e79c5fdac39|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (主 Bot 跟进任务)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bf-0581-772b-98b3-6e79c5fdac39)"
+    ],
+    [
+      "0x06ca6159: pkg=bot.mac.mobile user=UserHandle{0} id=-1828805074 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126be-1feb-72f2-aff5-df391f1b7156 importance=3 key=0|bot.mac.mobile|-1828805074|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126be-1feb-72f2-aff5-df391f1b7156|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1828805074|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126be-1feb-72f2-aff5-df391f1b7156|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126be-1feb-72f2-aff5-df391f1b7156)"
+    ],
+    [
+      "0x0636ba15: pkg=bot.mac.mobile user=UserHandle{0} id=1388045419 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-c6eb-7179-b803-43a8a902a334 importance=3 key=0|bot.mac.mobile|1388045419|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-c6eb-7179-b803-43a8a902a334|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1388045419|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-c6eb-7179-b803-43a8a902a334|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-c6eb-7179-b803-43a8a902a334)"
+    ],
+    [
+      "0x08d5e291: pkg=bot.mac.mobile user=UserHandle{0} id=903618947 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-8ced-7451-b074-3f25c2d73888 importance=3 key=0|bot.mac.mobile|903618947|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-8ced-7451-b074-3f25c2d73888|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|903618947|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-8ced-7451-b074-3f25c2d73888|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-8ced-7451-b074-3f25c2d73888)"
+    ],
+    [
+      "0x056516cd: pkg=bot.mac.mobile user=UserHandle{0} id=1441368643 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-aa8a-70f7-b998-20615807ce64 importance=3 key=0|bot.mac.mobile|1441368643|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-aa8a-70f7-b998-20615807ce64|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1441368643|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-aa8a-70f7-b998-20615807ce64|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-aa8a-70f7-b998-20615807ce64)"
+    ],
+    [
+      "0x073952c9: pkg=bot.mac.mobile user=UserHandle{0} id=-1467766768 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-866a-75be-9e4c-0cd9ed23f1e3 importance=3 key=0|bot.mac.mobile|-1467766768|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-866a-75be-9e4c-0cd9ed23f1e3|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1467766768|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-866a-75be-9e4c-0cd9ed23f1e3|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-866a-75be-9e4c-0cd9ed23f1e3)"
+    ],
+    [
+      "0x0ffb5285: pkg=bot.mac.mobile user=UserHandle{0} id=1329293661 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-2bb5-762f-b694-c8d190520c0a importance=3 key=0|bot.mac.mobile|1329293661|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-2bb5-762f-b694-c8d190520c0a|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1329293661|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-2bb5-762f-b694-c8d190520c0a|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-2bb5-762f-b694-c8d190520c0a)"
+    ],
+    [
+      "0x09239201: pkg=bot.mac.mobile user=UserHandle{0} id=701937276 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e7-9787-779a-9ad6-0dc256bfbe54 importance=4 key=0|bot.mac.mobile|701937276|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e7-9787-779a-9ad6-0dc256bfbe54|10219: Notification(channel=needs-you shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=3 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|701937276|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e7-9787-779a-9ad6-0dc256bfbe54|10219",
+      "android.title=String (需要审批)",
+      "android.text=String ({\"project_id\":\"01a1266b-d71a-7244-8a4b-a31e79862804\",\"summary\":\"s5-fresh-login-b 项目已完成。产出：PRD.md、index.html（本地邮箱登录demo）、TEST-browser.md。测试结果：4项通过，1项部分通过（375px无溢出）。测试账号：demo@example.test / DemoPass2026。\"})",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e7-9787-779a-9ad6-0dc256bfbe54)"
+    ],
+    [
+      "0x08327683: pkg=bot.mac.mobile user=UserHandle{0} id=1752893918 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a1266b-d71a-7244-8a4b-a31e79862804 importance=3 key=0|bot.mac.mobile|1752893918|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a1266b-d71a-7244-8a4b-a31e79862804|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1752893918|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a1266b-d71a-7244-8a4b-a31e79862804|10219",
+      "android.title=String (项目待验收)",
+      "android.text=String (s5-fresh-login-b)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a1266b-d71a-7244-8a4b-a31e79862804)"
+    ],
+    [
+      "0x0b9bf7df: pkg=bot.mac.mobile user=UserHandle{0} id=-133778949 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:needs:msg_project_review_01a1266b-d71a-7244-8a4b-a31e79862804 importance=4 key=0|bot.mac.mobile|-133778949|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:needs:msg_project_review_01a1266b-d71a-7244-8a4b-a31e79862804|10219: Notification(channel=needs-you shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-133778949|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:needs:msg_project_review_01a1266b-d71a-7244-8a4b-a31e79862804|10219",
+      "android.title=String (需要你处理)",
+      "android.text=String (## s5-fresh-login-b 项目完成汇总",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:needs:msg_project_review_01a1266b-d71a-7244-8a4b-a31e79862804)"
+    ],
+    [
+      "0x0e352c8a: pkg=bot.mac.mobile user=UserHandle{0} id=-1754679686 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bb-f9f0-704c-85cb-4623fc06ba16 importance=3 key=0|bot.mac.mobile|-1754679686|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bb-f9f0-704c-85cb-4623fc06ba16|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1754679686|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bb-f9f0-704c-85cb-4623fc06ba16|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bb-f9f0-704c-85cb-4623fc06ba16)"
+    ],
+    [
+      "0x00418756: pkg=bot.mac.mobile user=UserHandle{0} id=-1909531104 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-da9f-74f3-8acd-69e50aa4ac6e importance=3 key=0|bot.mac.mobile|-1909531104|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-da9f-74f3-8acd-69e50aa4ac6e|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1909531104|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-da9f-74f3-8acd-69e50aa4ac6e|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (主 Bot 跟进任务)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-da9f-74f3-8acd-69e50aa4ac6e)"
+    ],
+    [
+      "0x0ce6c2e2: pkg=bot.mac.mobile user=UserHandle{0} id=-1834737784 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-2b7e-779a-b694-7eefa49cc6ea importance=3 key=0|bot.mac.mobile|-1834737784|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-2b7e-779a-b694-7eefa49cc6ea|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1834737784|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-2b7e-779a-b694-7eefa49cc6ea|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-2b7e-779a-b694-7eefa49cc6ea)"
+    ],
+    [
+      "0x09b22b2e: pkg=bot.mac.mobile user=UserHandle{0} id=-264802586 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-8caa-75ab-ac7e-362a7fb40f78 importance=3 key=0|bot.mac.mobile|-264802586|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-8caa-75ab-ac7e-362a7fb40f78|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-264802586|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-8caa-75ab-ac7e-362a7fb40f78|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：done)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-8caa-75ab-ac7e-362a7fb40f78)"
+    ],
+    [
+      "0x05b9cc3a: pkg=bot.mac.mobile user=UserHandle{0} id=230745504 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e2-eb24-735f-b0d4-d09f40630d3a importance=4 key=0|bot.mac.mobile|230745504|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e2-eb24-735f-b0d4-d09f40630d3a|10219: Notification(channel=needs-you shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=3 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|230745504|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e2-eb24-735f-b0d4-d09f40630d3a|10219",
+      "android.title=String (需要审批)",
+      "android.text=String ({\"edits\":[{\"newText\":\"### 4. 退出清除登录状态 ✅ PASS\\n\\n**验证方式**: 退出后页面状态验证\\n\\n**Trace 证据**:\\n- Assignment: 01a126de-ce56-7078-8197-1bae04aebf6b\\n- Run: 01a126de-ce56-7078-8197-1bae04aebf6b\\n- Step 1:\\n  - Tool: browser_open\\n  - URL: file:///Users/gongshaojie/MacBot/projects/s5-fresh-login-b/index.html\\n  - tool.end aseq: 1\\n  - 全局 events seq: 10001\\n- Step 2:\\n  - Tool: browser_snapshot\\n  - tool.end aseq: 2\\n  - 全局 events seq: 10003\\n  - Snapshot 结果: 显示\\\"邮箱登录\\\"标题、登录表单（邮箱地址、密码输入框、登录按钮），**不包含**\\\"登录成功！\\\"或\\\"退出登录\\\"\\n\\n**结论**: 退出后页面正确返回登录表单状态，未显示登录成功信息。\",\"oldText\":\"### 4. 退出清除登录状态 ⚠️ PARTIAL\\n\\n**验证方式**: 点击退出按钮\\n\\n**Trace 证据**:\\n- Assignment: 01a1269f-c585-74d7-882d-c28ed687a55f\\n- Run: run_01a1269f-c585-74d7-882d-c28ed687a55f\\n- Tool: browser_eval\\n- Expression: document.querySelector('button').click()\\n- tool.end aseq: 110\\n- 全局 events seq: 4994\\n- 结果: success=true（退出动作成功调用）\\n\\n**说明**: \\n- 退出动作成功调用，success=true\\n- 该测试链中没有单独的退出后 snapshot 验证页面结果\\n- 不能根据现有 trace 补写未直接观察到的页面结果\\n\\n**结论**: 退出按钮点击成功，但页面跳转结果未在本次 trace 中单独 cap)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e2-eb24-735f-b0d4-d09f40630d3a)"
+    ],
+    [
+      "0x081676f4: pkg=bot.mac.mobile user=UserHandle{0} id=1790163314 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-da9f-74f3-8acd-69e4418a7746 importance=3 key=0|bot.mac.mobile|1790163314|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-da9f-74f3-8acd-69e4418a7746|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1790163314|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-da9f-74f3-8acd-69e4418a7746|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (主 Bot 跟进任务)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126bc-da9f-74f3-8acd-69e4418a7746)"
+    ],
+    [
+      "0x069e0e60: pkg=bot.mac.mobile user=UserHandle{0} id=1130823773 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b0-df61-74f1-a87b-87afa2be82b5 importance=3 key=0|bot.mac.mobile|1130823773|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b0-df61-74f1-a87b-87afa2be82b5|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1130823773|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b0-df61-74f1-a87b-87afa2be82b5|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b0-df61-74f1-a87b-87afa2be82b5)"
+    ],
+    [
+      "0x0645b08c: pkg=bot.mac.mobile user=UserHandle{0} id=1933222673 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e1-8dcc-71ae-ab7b-7f85a82617cf importance=4 key=0|bot.mac.mobile|1933222673|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e1-8dcc-71ae-ab7b-7f85a82617cf|10219: Notification(channel=needs-you shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=3 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1933222673|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e1-8dcc-71ae-ab7b-7f85a82617cf|10219",
+      "android.title=String (需要审批)",
+      "android.text=String ({})",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126e1-8dcc-71ae-ab7b-7f85a82617cf)"
+    ],
+    [
+      "0x073768b6: pkg=bot.mac.mobile user=UserHandle{0} id=1115365405 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-b570-70c7-a6bd-d432fe35128b importance=3 key=0|bot.mac.mobile|1115365405|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-b570-70c7-a6bd-d432fe35128b|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1115365405|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-b570-70c7-a6bd-d432fe35128b|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (主 Bot 跟进任务)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b9-b570-70c7-a6bd-d432fe35128b)"
+    ],
+    [
+      "0x06495a42: pkg=bot.mac.mobile user=UserHandle{0} id=-133071296 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b0-5a36-71b5-9eba-32d832587c74 importance=3 key=0|bot.mac.mobile|-133071296|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b0-5a36-71b5-9eba-32d832587c74|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-133071296|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b0-5a36-71b5-9eba-32d832587c74|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b0-5a36-71b5-9eba-32d832587c74)"
+    ],
+    [
+      "0x0e96d88e: pkg=bot.mac.mobile user=UserHandle{0} id=-918916556 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ae-ac31-77c6-ac56-f980d7d0340d importance=3 key=0|bot.mac.mobile|-918916556|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ae-ac31-77c6-ac56-f980d7d0340d|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-918916556|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ae-ac31-77c6-ac56-f980d7d0340d|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ae-ac31-77c6-ac56-f980d7d0340d)"
+    ],
+    [
+      "0x0b2bef9a: pkg=bot.mac.mobile user=UserHandle{0} id=1112279376 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-efe1-76db-a275-f75a372e1247 importance=3 key=0|bot.mac.mobile|1112279376|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-efe1-76db-a275-f75a372e1247|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1112279376|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-efe1-76db-a275-f75a372e1247|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：done)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-efe1-76db-a275-f75a372e1247)"
+    ],
+    [
+      "0x09c96b66: pkg=bot.mac.mobile user=UserHandle{0} id=78237979 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:needs:01a126df-90fb-735e-862a-f7d19f2578f5 importance=4 key=0|bot.mac.mobile|78237979|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:needs:01a126df-90fb-735e-862a-f7d19f2578f5|10219: Notification(channel=needs-you shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|78237979|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:needs:01a126df-90fb-735e-862a-f7d19f2578f5|10219",
+      "android.title=String (需要你回答)",
+      "android.text=String (s5-fresh-login-a项目已循环多次，Tester持续无法完成报告。请指示如何继续？)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:needs:01a126df-90fb-735e-862a-f7d19f2578f5)"
+    ],
+    [
+      "0x0e19fefd: pkg=bot.mac.mobile user=UserHandle{0} id=-1134211438 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126df-4439-767f-9ac4-4d1a408b65e2 importance=4 key=0|bot.mac.mobile|-1134211438|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126df-4439-767f-9ac4-4d1a408b65e2|10219: Notification(channel=needs-you shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=3 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1134211438|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126df-4439-767f-9ac4-4d1a408b65e2|10219",
+      "android.title=String (需要审批)",
+      "android.text=String ({\"url\":\"file:///Users/gongshaojie/MacBot/projects/s5-fresh-login-b/index.html\"})",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:approval:01a126df-4439-767f-9ac4-4d1a408b65e2)"
+    ],
+    [
+      "0x077c1b9f: pkg=bot.mac.mobile user=UserHandle{0} id=1588830429 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ae-7ea8-73e1-afd5-b08e6c84a3b7 importance=3 key=0|bot.mac.mobile|1588830429|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ae-7ea8-73e1-afd5-b08e6c84a3b7|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1588830429|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ae-7ea8-73e1-afd5-b08e6c84a3b7|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ae-7ea8-73e1-afd5-b08e6c84a3b7)"
+    ],
+    [
+      "0x0f10d2bb: pkg=bot.mac.mobile user=UserHandle{0} id=-1803325666 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-c6eb-7179-b803-43a947cfb869 importance=3 key=0|bot.mac.mobile|-1803325666|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-c6eb-7179-b803-43a947cfb869|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1803325666|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-c6eb-7179-b803-43a947cfb869|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-c6eb-7179-b803-43a947cfb869)"
+    ],
+    [
+      "0x096fdf97: pkg=bot.mac.mobile user=UserHandle{0} id=-498088520 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-5cb3-71ed-8464-5a45be48876d importance=3 key=0|bot.mac.mobile|-498088520|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-5cb3-71ed-8464-5a45be48876d|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-498088520|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-5cb3-71ed-8464-5a45be48876d|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (主 Bot 跟进任务)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b8-5cb3-71ed-8464-5a45be48876d)"
+    ],
+    [
+      "0x0648de33: pkg=bot.mac.mobile user=UserHandle{0} id=-1935815456 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ab-3210-735b-9ae0-187b640577e6 importance=3 key=0|bot.mac.mobile|-1935815456|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ab-3210-735b-9ae0-187b640577e6|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1935815456|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ab-3210-735b-9ae0-187b640577e6|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：done)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126ab-3210-735b-9ae0-187b640577e6)"
+    ],
+    [
+      "0x06a92a8f: pkg=bot.mac.mobile user=UserHandle{0} id=-2071034930 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-aa8a-70f7-b998-2062f5c6f008 importance=3 key=0|bot.mac.mobile|-2071034930|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-aa8a-70f7-b998-2062f5c6f008|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-2071034930|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-aa8a-70f7-b998-2062f5c6f008|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-aa8a-70f7-b998-2062f5c6f008)"
+    ],
+    [
+      "0x0517e0ab: pkg=bot.mac.mobile user=UserHandle{0} id=1553223704 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-fbaf-7075-8051-eb68dc9392e5 importance=3 key=0|bot.mac.mobile|1553223704|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-fbaf-7075-8051-eb68dc9392e5|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|1553223704|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-fbaf-7075-8051-eb68dc9392e5|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (主 Bot 跟进任务)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b6-fbaf-7075-8051-eb68dc9392e5)"
+    ],
+    [
+      "0x0371dc87: pkg=bot.mac.mobile user=UserHandle{0} id=-1140622611 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126aa-13ad-7662-a4ec-300671bd559a importance=3 key=0|bot.mac.mobile|-1140622611|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126aa-13ad-7662-a4ec-300671bd559a|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1140622611|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126aa-13ad-7662-a4ec-300671bd559a|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：done)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126aa-13ad-7662-a4ec-300671bd559a)"
+    ],
+    [
+      "0x0a85ba23: pkg=bot.mac.mobile user=UserHandle{0} id=-1967469437 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-866a-75be-9e4c-0cd8ef8a57ab importance=3 key=0|bot.mac.mobile|-1967469437|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-866a-75be-9e4c-0cd8ef8a57ab|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1967469437|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-866a-75be-9e4c-0cd8ef8a57ab|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：progress)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126b3-866a-75be-9e4c-0cd8ef8a57ab)"
+    ],
+    [
+      "0x076fd57f: pkg=bot.mac.mobile user=UserHandle{0} id=-1788594981 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126a9-3e05-7490-9bf8-dc57dff2cdc3 importance=3 key=0|bot.mac.mobile|-1788594981|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126a9-3e05-7490-9bf8-dc57dff2cdc3|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-1788594981|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126a9-3e05-7490-9bf8-dc57dff2cdc3|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (交接：done)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126a9-3e05-7490-9bf8-dc57dff2cdc3)"
+    ],
+    [
+      "0x02b64a9b: pkg=bot.mac.mobile user=UserHandle{0} id=-2031385012 tag=macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126d9-d094-779e-b46f-619fd2eff46d importance=3 key=0|bot.mac.mobile|-2031385012|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126d9-d094-779e-b46f-619fd2eff46d|10219: Notification(channel=completed shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL|SILENT color=0x00000000 actions=1 vis=PRIVATE))",
+      "key=0|bot.mac.mobile|-2031385012|macbot:8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126d9-d094-779e-b46f-619fd2eff46d|10219",
+      "android.title=String (任务已完成)",
+      "android.text=String (B 浏览器报告整理（仅既有 trace）)",
+      "macbot.delivery.key=String (8a80460d-de03-4003-9718-e096bf2cdee5:completed:01a126d9-d094-779e-b46f-619fd2eff46d)"
+    ],
+    [
+      "0x0d24f577: pkg=bot.mac.mobile user=UserHandle{0} id=100 tag=null importance=3 key=0|bot.mac.mobile|100|null|10219: Notification(channel=messages shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONGOING_EVENT|NO_CLEAR|FOREGROUND_SERVICE|SILENT color=0x00000000 category=service vis=PRIVATE))",
+      "key=0|bot.mac.mobile|100|null|10219",
+      "android.title=String (Mac Bot)",
+      "android.text=String (正在保持与 Host 的连接)"
+    ]
+  ],
+  "marker_seen": false
+}

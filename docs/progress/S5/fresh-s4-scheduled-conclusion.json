@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-10T17:56:39.766718+00:00",
+  "routine_id": "01a126e7-ffd0-771e-8342-2e3592aafd7c",
+  "scheduled_at": "2026-10-10T17:49:00Z",
+  "run": {
+    "assignment_id": "01a126f0-a940-711a-b458-3f956042c7ce",
+    "error": null,
+    "finished_at": "2026-10-10T17:55:10.255505+00:00",
+    "id": "01a126f0-a940-711a-b458-3f969df25f81",
+    "routine_id": "01a126e7-ffd0-771e-8342-2e3592aafd7c",
+    "started_at": "2026-10-10T17:50:34.255847+00:00",
+    "status": "done",
+    "trigger": "schedule"
+  },
+  "start_delay_seconds": 94.255847,
+  "real_trigger": "schedule",
+  "native_android": "notification posted, native AX observed; target evicted before click; screenshot did not capture target",
+  "native_desktop": "Routine detail actually viewed in fresh-s4-desktop-scheduled-routine.png; run history not visible. Desktop notifications observed off.",
+  "disabled_after_run": true,
+  "journals": [
+    "fresh-rpc/56-s4-fresh-scheduled-notification.json",
+    "fresh-rpc/57-s4-disable-completed-scheduled-check.json"
+  ],
+  "result": "partial: actual scheduled execution; not punctual and notification-open unverified",
+  "s4_passed": false
+}

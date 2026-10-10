@@ -1,0 +1,64 @@
+{
+  "state": "candidate",
+  "at": "2026-10-10T17:55:09.677034000Z",
+  "source": "cf6b5bbc40def3a6015a41998c94905cbb35965f",
+  "source_archive": "/Users/gongshaojie/Library/Caches/MacBot/s5/source-cf6b5bbc40def3a6015a41998c94905cbb35965f",
+  "source_archive_clean": true,
+  "package": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-cf6b5bbc40def3a6015a41998c94905cbb35965f.pkg",
+  "package_path": "/Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-cf6b5bbc40def3a6015a41998c94905cbb35965f.pkg",
+  "package_sha256": "c5399f48ae25865653b4da0237853aeccc9751f4ca179f7238aeb3f6bb3b5237",
+  "package_bytes": 16295035,
+  "build_info": {
+    "source_dirty": false,
+    "macbotd_sha256": "c3201a856c6fb292191b36152ded52ef66b5b199d343cdf4f637881cb4681565",
+    "version": "0.1.0",
+    "agent_browser_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+    "source_commit": "cf6b5bbc40def3a6015a41998c94905cbb35965f"
+  },
+  "payload": {
+    "daemon_sha256": "c3201a856c6fb292191b36152ded52ef66b5b199d343cdf4f637881cb4681565",
+    "daemon_version": "macbotd 0.1.0",
+    "sidecar_sha256": "636fc9aa269e3819b539998aa5b87e1c3953556c19eeb9685053743283464faa",
+    "sidecar_version": "agent-browser 0.39.0",
+    "bundle_id": "com.macbot.server",
+    "source_commit_plist": "cf6b5bbc40def3a6015a41998c94905cbb35965f"
+  },
+  "gateway_tests": {
+    "count": 231,
+    "status": "passed",
+    "log": "/Users/gongshaojie/Library/Caches/MacBot/s5/gateway-hotpath-regression.log",
+    "review": "root reviewed before packaging"
+  },
+  "package_info": {
+    "install_location": "/",
+    "bundles": [
+      {
+        "path": "./Applications/MacBot Server.app",
+        "id": "com.macbot.server",
+        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleVersion": "0.1.0"
+      }
+    ],
+    "bundle_relocations": [],
+    "relocation_check": "passed"
+  },
+  "smoke": {
+    "command": "python3 /Users/gongshaojie/Library/Caches/MacBot/s5/source-cf6b5bbc40def3a6015a41998c94905cbb35965f/server/macbotd/tests/smoke_packaging.py --pkg /Users/gongshaojie/Library/Caches/MacBot/s5/MacBot-Server-cf6b5bbc40def3a6015a41998c94905cbb35965f.pkg",
+    "result": "passed: bundle contents, sidecar digest and atomic update failure/success",
+    "expanded_audit": "/Users/gongshaojie/Library/Caches/MacBot/s5/pkg-cf6b5bbc40def3a6015a41998c94905cbb35965f-audit"
+  },
+  "signature": {
+    "status": "unsigned development package",
+    "pkgutil_check_signature": "no signature"
+  },
+  "deployment": {
+    "performed": false,
+    "installed": false,
+    "service_touched": false
+  },
+  "notes": [
+    "Built from a clean git archive at the exact full source commit with CARGO_INCREMENTAL=0; server/target and approved 0.39.0 arm64 sidecar cache reused.",
+    "Gateway 231-test regression log was supplied and reviewed by root before packaging; packaging smoke, payload hash and PackageInfo relocation checks ran after build.",
+    "This is a package candidate only; native receipt remains 3d6b289 and installation/deployment were not performed."
+  ]
+}

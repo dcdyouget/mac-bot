@@ -1,6 +1,6 @@
 {
   "at": "2026-10-10T16:59:47.355145+00:00",
-  "state": "started_waiting_for_boot",
+  "state": "booted_app_data_preserved_connection_still_pending",
   "avd": "macbot_api36",
   "serial": "emulator-5554",
   "pid_before": 84220,
@@ -8,5 +8,9 @@
   "wipe_data": false,
   "screenshot": "fresh-android-system-anr-before-avd-restart.png",
   "pid_after": 55507,
-  "restarted_at": "2026-10-10T17:00:30.674826+00:00"
+  "restarted_at": "2026-10-10T17:00:30.674826+00:00",
+  "system_ui_anr_after_boot": true,
+  "selected_host": "S5-fresh-20261010",
+  "observation": "Old Production reports wrong password; fresh host reports connecting, not authentication error",
+  "observed_at": "2026-10-10T17:03:27.263469+00:00"
 }

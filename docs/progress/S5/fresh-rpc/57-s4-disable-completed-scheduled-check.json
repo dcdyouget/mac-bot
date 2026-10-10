@@ -1,0 +1,53 @@
+{
+  "at": "2026-10-10T17:55:42.425763+00:00",
+  "state": "returned",
+  "method": "routine.set_enabled",
+  "params": {
+    "routine_id": "01a126e7-ffd0-771e-8342-2e3592aafd7c",
+    "enabled": false,
+    "client_request_id": "e3cdb4d4-b209-4f9d-a506-8b6fff748934"
+  },
+  "scope": {
+    "reason": "single actual schedule run completed; preserve run and messages, prevent later recurrence",
+    "observed_run": {
+      "assignment_id": "01a126f0-a940-711a-b458-3f956042c7ce",
+      "error": null,
+      "finished_at": "2026-10-10T17:55:10.255505+00:00",
+      "id": "01a126f0-a940-711a-b458-3f969df25f81",
+      "routine_id": "01a126e7-ffd0-771e-8342-2e3592aafd7c",
+      "started_at": "2026-10-10T17:50:34.255847+00:00",
+      "status": "done",
+      "trigger": "schedule"
+    }
+  },
+  "result": {
+    "routine": {
+      "bot_id": "01a12661-e385-7743-b897-2adb25e69f7c",
+      "created_at": "2026-10-10T17:41:40.944282+00:00",
+      "enabled": false,
+      "id": "01a126e7-ffd0-771e-8342-2e3592aafd7c",
+      "instructions": "这是用户授权的定时通知验收。请只在当前会话回复：s5-fresh-scheduled-20261011 定时通知已执行。不调用工具、不读写文件、不创建或转派任务、不发送外部消息。",
+      "last_run": {
+        "assignment_id": "01a126f0-a940-711a-b458-3f956042c7ce",
+        "error": null,
+        "finished_at": "2026-10-10T17:55:10.255505+00:00",
+        "id": "01a126f0-a940-711a-b458-3f969df25f81",
+        "routine_id": "01a126e7-ffd0-771e-8342-2e3592aafd7c",
+        "started_at": "2026-10-10T17:50:34.255847+00:00",
+        "status": "done",
+        "trigger": "schedule"
+      },
+      "name": "S5 fresh scheduled notification",
+      "next_run_at": "2027-10-10T17:49:00+00:00",
+      "project_id": null,
+      "schedules": [
+        {
+          "cron": "49 17 10 10 *",
+          "label": "S5 fresh single scheduled acceptance"
+        }
+      ],
+      "timezone": "UTC",
+      "updated_at": "2026-10-10T17:56:00.009835+00:00"
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "at": "2026-10-10T17:33:47.070922+00:00",
+  "server_source": "b9d0cda",
+  "android_source": "953c53b",
+  "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+  "screen": {
+    "actual_image_viewed": true,
+    "screenshot": "fresh-s4-android-screen-opening.png",
+    "observed_fps": [
+      5,
+      15,
+      4
+    ],
+    "fixture": "fresh-screen-fixture.html"
+  },
+  "takeover": {
+    "native_button_clicked": true,
+    "operation_uuid": "05885ee9-6df0-42b3-afb4-4c712b389448",
+    "operation_done_at": "2026-10-10T17:33:07.954Z",
+    "native_after": "Bot 操作中 / 接管并处理",
+    "result": "eventually_user_control_after_multi_minute_delay",
+    "input_sent": true,
+    "repeated_click": false,
+    "native_after_at_1736": "你正在操作（Bot已暂停） / 交还给Bot",
+    "input_marker": "s5-android-input",
+    "remote_echo_observed": "收到：s5-android-input",
+    "input_screenshot": "fresh-s4-android-input-submitted.png",
+    "release": "Native confirmation clicked once; several minutes later no takeover.release operation and record still active. No RPC retry issued.",
+    "delay_screenshot": "fresh-s4-android-takeover-state-mismatch.png (later screenshot shows convergence; original mismatch recorded in UI observations)",
+    "release_screenshot": "fresh-s4-android-release-pending.png"
+  },
+  "s4_passed": false,
+  "last_readonly_check": "2026-10-10T17:43:12.987753+00:00"
+}

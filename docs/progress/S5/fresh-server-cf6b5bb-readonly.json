@@ -1,0 +1,28 @@
+{
+  "at": "2026-10-10T17:57:36.705811+00:00",
+  "source": "cf6b5bb",
+  "pid": 84786,
+  "checks": [
+    {
+      "method": "bootstrap",
+      "seconds": 13.792,
+      "result": "ok"
+    },
+    {
+      "method": "routine.list",
+      "seconds": 0.602,
+      "result": "ok"
+    },
+    {
+      "method": "workbench.get",
+      "seconds": 15.91,
+      "result": "ok"
+    },
+    {
+      "method": "search",
+      "seconds": 0.05,
+      "result": "ok"
+    }
+  ],
+  "boundary": "Point observations, not sustained load test or native pass."
+}

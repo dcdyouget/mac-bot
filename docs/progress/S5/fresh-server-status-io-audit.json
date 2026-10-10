@@ -1,0 +1,44 @@
+{
+  "state": "verified_source_and_local_benchmark",
+  "captured_at": "2026-10-11T01:09:10+08:00",
+  "source": "b9d0cda9c91a7ac1862d2882d1d86941189dee64",
+  "scope": "server bot/workbench status enrichment durable-job disk fallback; no RPC, UI, deployment, or credential access",
+  "implementation": {
+    "file": "server/crates/macbot-gateway/src/adapter.rs",
+    "path": "ProductionBackend::add_private_durable_counts",
+    "change": "Read each durable job file with fs::read and deserialize with serde_json::from_slice::<macbot_durable::Job>.",
+    "reason": "The previous File plus from_reader path performed unbuffered byte reads and dominated the status fallback I/O cost.",
+    "compatibility": [
+      "Preserves arbitrary checkpoint Value semantics and the original run_id.as_str filtering.",
+      "Preserves same-ID disk metadata invalidation, terminal-job skipping, assignment/subagent filtering, and pending-wait filtering.",
+      "Regression covers large checkpoint data and null, array, and string checkpoints without a bot.list failure."
+    ]
+  },
+  "real_job_directory_benchmark": {
+    "directory": "/Users/gongshaojie/MacBot/data/jobs",
+    "files": 211,
+    "bytes_per_iteration": 30299941,
+    "iterations": 3,
+    "method": "Read-only temporary gateway test harness; harness removed after measurement.",
+    "old_file_reader_full_job_seconds": 42.122683791,
+    "buffered_full_job_seconds": 1.136792833,
+    "buffered_full_job_improvement": "97.3% lower wall time than the old unbuffered reader path"
+  },
+  "pre_fix_sampling": {
+    "sample": "/tmp/macbotd-49406-after.sample",
+    "pid": 49406,
+    "observed_hot_path": "status enrichment -> durable job count fallback -> serde_json job deserialization",
+    "interpretation": "The sample identified durable-job status enrichment and its disk parsing path as a confirmed hotspot; no task, message, memory, or credential content was copied into this record."
+  },
+  "validation": {
+    "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=~/Library/Caches/MacBot/integrator/target/server cargo test --manifest-path server/Cargo.toml -p macbot-gateway --lib",
+    "result": "224 passed, 0 failed",
+    "focused_regression": "private_durable_jobs_are_reflected_in_bot_status passed",
+    "format_and_diff_check": "passed",
+    "strict_clippy": "existing gateway needless_question_mark/type_complexity warnings remain outside this change; no new warning from this change"
+  },
+  "runtime_followup": {
+    "required": "After the server-only update, repeat the read-only status/health latency and CPU observation against the updated service.",
+    "not_claimed_here": "This source benchmark is not a post-deployment production claim."
+  }
+}

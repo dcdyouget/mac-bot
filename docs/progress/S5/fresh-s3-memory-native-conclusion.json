@@ -1,0 +1,22 @@
+{
+  "observed_at": "2026-10-10T18:06:29.921812+00:00",
+  "state": "cross_run_memory_tool_and_both_native_reply_verified",
+  "server_source": "cf6b5bb",
+  "desktop_source": "bdc17cdf",
+  "android_source": "9f9a1cf",
+  "run_id": "run_chat_01a126c6_e1a6_7157_9025_f43dd7c16514",
+  "original_message_id": "01a126c6-e1a6-7157-9025-f43dd7c16514",
+  "memory_entry_id": "01a126c6-438c-726d-8b82-1ef5baafbfc8",
+  "evidence": [
+    "fresh-s3-orphan-before-03afbd2.json",
+    "fresh-s3-desktop-memory-recovered.png",
+    "fresh-s3-android-memory-recovered.png"
+  ],
+  "screenshots_actually_viewed": true,
+  "limitations": [
+    "Both clients show request timeout; Android also reconnecting.",
+    "Bot reply text claiming acceptance refers only to its own task and is not a full stage acceptance."
+  ],
+  "s3_stage_passed": false,
+  "s5_passed": false
+}

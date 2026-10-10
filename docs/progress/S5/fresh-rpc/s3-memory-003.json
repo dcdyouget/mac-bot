@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-10T17:05:00.052739+00:00",
+  "state": "transport_unknown",
+  "method": "chat.send",
+  "params": {
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "text": "请做跨 run 读取验收：只调用一次 memory_search，参数必须是 query=s5-memory-20261011、scope=bot、bot_id=01a12667-f033-72a4-ad59-9e2aced99bc0。报告实际 entries；不要调用 memory 写入、不要访问 user/project 或其他 Bot 记忆、不要调用 Bash 或 write。",
+    "attachments": [],
+    "client_request_id": "87925d98-b580-49da-8872-26ec988947be"
+  },
+  "scope": {
+    "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "requested_scope": "cross-run bot-private memory_search only; no memory write/user/project/other bot/Bash/write"
+  },
+  "at_returned": "2026-10-10T17:06:00.080832+00:00",
+  "error_type": "timeout",
+  "error": "timed out"
+}

@@ -1,0 +1,60 @@
+{
+  "state": "source_hotpath_fix_validated_readonly_benchmark",
+  "source": "03afbd2",
+  "scope": "adapter.rs only; no deployment, RPC writes, UI, or credentials",
+  "evidence": {
+    "sample": "/tmp/macbotd-76994-readonly.sample",
+    "pid": 76994,
+    "sample_window_seconds": 5,
+    "observed_cpu_percent_range": [
+      325.9,
+      396.7
+    ],
+    "observed_rss_mb_range": [
+      452,
+      509
+    ],
+    "hotpaths": [
+      "ComposedBackend::tick_features -> recover_allowed_tool_approvals -> serde_json::from_reader",
+      "ProductionBackend::live_status -> private_subagent_count -> serde_json::from_reader"
+    ],
+    "runtime_job_inventory": {
+      "files": 295,
+      "bytes": 66090377,
+      "largest_file_bytes": 563229
+    },
+    "other_samples": [
+      "/tmp/macbotd-76994-readonly-1.sample",
+      "/tmp/macbotd-76994-readonly-2.sample",
+      "/tmp/macbotd-76994-readonly-3.sample"
+    ]
+  },
+  "changes": [
+    {
+      "file": "server/crates/macbot-gateway/src/adapter.rs",
+      "area": "ProductionBackend::private_subagent_count",
+      "change": "fallback job reads use fs::read + serde_json::from_slice; complete Job JSON remains deserialized"
+    },
+    {
+      "file": "server/crates/macbot-gateway/src/adapter.rs",
+      "area": "ProductionBackend::call",
+      "change": "bootstrap skips generic tail enrich_bot_status because bootstrap already enriches its Bot list; avoids one duplicate durable-job scan per main WS handshake"
+    }
+  ],
+  "benchmark": {
+    "method": "read-only Python json parser sanity benchmark over current data/jobs; not a production latency claim",
+    "files": 295,
+    "bytes": 66090377,
+    "stream_file_reader_seconds": 0.188,
+    "buffered_read_bytes_seconds": 0.169,
+    "prior_rust_reference": "docs/progress/S5/fresh-server-status-io-audit.json",
+    "prior_rust_reference_result": "211 files / 30299941 bytes: old full-job reader 42.122683791 s; buffered reader 1.136792833 s; 97.3% lower wall time"
+  },
+  "validation": {
+    "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=~/Library/Caches/MacBot/integrator/target/server cargo test --manifest-path server/Cargo.toml -p macbot-gateway --lib",
+    "result": "231 passed, 0 failed",
+    "focused": "adapter::tests::private_durable_jobs_are_reflected_in_bot_status passed",
+    "format": "rustfmt --edition 2021 adapter.rs; git diff --check passed",
+    "not_claimed": "No post-deployment CPU/WS latency claim; server PID was not restarted or modified."
+  }
+}

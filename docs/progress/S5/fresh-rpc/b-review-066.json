@@ -1,0 +1,158 @@
+{
+  "at": "2026-10-10T17:16:35.182727+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a126cf-6a71-74ea-ac8d-6634bda86901",
+    "decision": "allow_once",
+    "client_request_id": "dfc88862-542e-4d95-91fa-1a40cd6081f4"
+  },
+  "scope": {
+    "approval": {
+      "assignment_id": "01a1269f-8cec-73b7-8eb2-1548cb4bb778",
+      "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "created_at": "2026-10-10T17:14:49.841728+00:00",
+      "decided_at": null,
+      "detail": "{\"action\":\"fill\",\"args\":[\"ref:e30\",\"demo@example.test\"]}",
+      "id": "01a126cf-6a71-74ea-ac8d-6634bda86901",
+      "risk": "external",
+      "state": "pending",
+      "summary": "Approval required for browser_act",
+      "tool": "browser_act"
+    },
+    "project": {
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "created_at": "2026-10-10T15:26:04.058482+00:00",
+      "created_by": {
+        "kind": "user"
+      },
+      "deadline": null,
+      "done_at": null,
+      "flow": [
+        "Product Bot writes PRD.md in project Home",
+        "Developer Bot implements index.html",
+        "Tester Bot performs actual browser testing and writes TEST-browser.md"
+      ],
+      "goal": "交付可实际浏览器测试的本地邮箱登录demo",
+      "home_path": "~/MacBot/projects/s5-fresh-login-b/",
+      "id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+      "lead_bot_id": "main",
+      "members": [
+        {
+          "bot_id": "main",
+          "joined_at": "2026-10-10T15:26:04.058451+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266a-3762-7574-bb9c-c8d77ef90297",
+          "joined_at": "2026-10-10T15:26:04.058460+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266b-68fe-74ed-b5c3-4f4e58078ce0",
+          "joined_at": "2026-10-10T15:26:04.058461+00:00",
+          "role_note": ""
+        },
+        {
+          "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+          "joined_at": "2026-10-10T15:26:04.058462+00:00",
+          "role_note": ""
+        }
+      ],
+      "name": "s5-fresh-login-b",
+      "slug": "s5-fresh-login-b",
+      "status": "active",
+      "updated_at": "2026-10-10T15:26:04.058482+00:00"
+    },
+    "assignment": {
+      "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+      "created_at": "2026-10-10T16:22:32.940916+00:00",
+      "finished_at": null,
+      "from": {
+        "bot_id": "main",
+        "kind": "bot"
+      },
+      "id": "01a1269f-8cec-73b7-8eb2-1548cb4bb778",
+      "instruction": "请进行真实浏览器测试并写 TEST-browser.md。\n\n项目Home: ~/MacBot/projects/s5-fresh-login-b/\n测试账号：demo@example.test / DemoPass2026\n\n验收要求：\n1. 错误密码拒绝：输入错误密码显示\"邮箱或密码错误\"\n2. 刷新保持：登录成功后刷新页面保持登录状态\n3. 退出清除：点击退出按钮清除登录状态，返回登录页\n4. 375px布局无溢出：登录框宽度固定375px，内容不溢出\n\n请用浏览器实际打开 index.html 测试，不要只做代码审查。",
+      "loop_hops": 0,
+      "model": "",
+      "origin_chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "parent_assignment_id": null,
+      "priority": 1,
+      "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+      "queue_reason": null,
+      "result_message_id": null,
+      "root_message_id": null,
+      "started_at": "2026-10-10T16:22:32.940916+00:00",
+      "status": "working",
+      "steers": [
+        {
+          "applied_at": null,
+          "at": "2026-10-10T16:54:20.734652+00:00",
+          "message_id": "01a126bc-a93e-7281-80f5-660f2535b1dc",
+          "text": "继续当前 B 同 assignment：刚才 viewport 375x667 未批准，因为标准证据沿用 A 的成功参数。请严格执行 browser_act action=set、args=[\"viewport\",375,800]；随后 browser_eval 读取 window.innerWidth 与 document.documentElement.scrollWidth（或 document.body.scrollWidth），必须以真实结果记录；最后只在 B Home 写 TEST-browser.md，引用当前 run 的 wrong-password、logout 与 viewport trace，未观察项不要宣称通过。不要修改 index.html，不调用 Bash，不新建任务。"
+        },
+        {
+          "applied_at": null,
+          "at": "2026-10-10T17:15:12.560790+00:00",
+          "message_id": "01a126cf-c330-7627-a69e-490501e5442e",
+          "text": "同一 B 项目已有本 run/既有真实 trace 的错误密码、正确登录、刷新保持、退出清除证据，不要重复操作或新增审批。当前 viewport 已真实返回 innerWidth=375、documentElement.scrollWidth=375、body.scrollWidth=375，origin 为 B index.html。请直接在 B Home 写 TEST-browser.md，逐项引用真实 assignment/run/trace，明确四项登录证据与本轮 375x800 证据；不要修改 index.html、不要 Bash、不要新建任务。完成后给 main 提交真实 review 所需报告。"
+        }
+      ],
+      "subagents_active": 0,
+      "title": "s5-fresh-login-b 浏览器测试",
+      "trigger_message_id": null,
+      "usage": {
+        "cache_read_tokens": 2235,
+        "cache_write_tokens": 0,
+        "cost": null,
+        "input_tokens": 8066,
+        "output_tokens": 151,
+        "requests": 0
+      },
+      "wait": {
+        "message_id": null,
+        "reason": "approval"
+      }
+    },
+    "job_id": "job_01a1269f-91d2-72fd-bd2e-bc0addb4b8d2",
+    "map": {
+      "call_id": "call_function_dtrgc3qijnif_1"
+    },
+    "run_id": "run_01a1269f-8cec-73b7-8eb2-1548cb4bb778",
+    "pending_tool": {
+      "args": {
+        "action": "fill",
+        "args": [
+          "ref:e30",
+          "demo@example.test"
+        ]
+      },
+      "call_id": "call_function_dtrgc3qijnif_1",
+      "name": "browser_act"
+    },
+    "reviewed_effective_target": {
+      "action": "fill",
+      "args": [
+        "ref:e30",
+        "demo@example.test"
+      ]
+    }
+  },
+  "result": {
+    "approval": {
+      "assignment_id": "01a1269f-8cec-73b7-8eb2-1548cb4bb778",
+      "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "created_at": "2026-10-10T17:14:49.841728+00:00",
+      "decided_at": "2026-10-10T17:17:11.541723+00:00",
+      "detail": "{\"action\":\"fill\",\"args\":[\"ref:e30\",\"demo@example.test\"]}",
+      "id": "01a126cf-6a71-74ea-ac8d-6634bda86901",
+      "risk": "external",
+      "state": "allowed_once",
+      "summary": "Approval required for browser_act",
+      "tool": "browser_act"
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "at": "2026-10-10T17:03:46.428284+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a126c4-fd86-762d-853d-3ede18e4bbf8",
+    "decision": "allow_once",
+    "client_request_id": "30a8eb1b-9135-4dbc-b0cf-cfdf6cd8282a"
+  },
+  "scope": {
+    "approval_id": "01a126c4-fd86-762d-853d-3ede18e4bbf8",
+    "tool": "memory",
+    "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+    "assignment_id": null,
+    "run_id": "run_chat_01a126c4_1c70_7244_ad95_8f7da52a7c61",
+    "job_id": "job_01a126c4-e87a-71ab-895c-4d5f5e5acb7b",
+    "map_call_id": "call_function_sdymy6gbxk73_1",
+    "checkpoint_call_id": "call_function_sdymy6gbxk73_1",
+    "args": {
+      "action": "add",
+      "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+      "content": "s5-memory-20261011：验收报告先写结论，再写证据",
+      "kind": "bot_worklog",
+      "scope": "bot"
+    },
+    "requested_scope": "single own Bot private memory write; no user/project/other bot/Bash/write"
+  },
+  "at_returned": "2026-10-10T17:04:32.443268+00:00",
+  "result": {
+    "ok": true,
+    "result": {
+      "approval": {
+        "assignment_id": null,
+        "bot_id": "01a12667-f033-72a4-ad59-9e2aced99bc0",
+        "chat_id": "dm_01a12667-f033-72a4-ad59-9e2aced99bc0",
+        "created_at": "2026-10-10T17:03:26.598541+00:00",
+        "decided_at": "2026-10-10T17:04:05.069443+00:00",
+        "detail": "{\"action\":\"add\",\"bot_id\":\"01a12667-f033-72a4-ad59-9e2aced99bc0\",\"content\":\"s5-memory-20261011：验收报告先写结论，再写证据\",\"kind\":\"bot_worklog\",\"scope\":\"bot\"}",
+        "id": "01a126c4-fd86-762d-853d-3ede18e4bbf8",
+        "risk": "write",
+        "state": "allowed_once",
+        "summary": "Approval required for memory",
+        "tool": "memory"
+      }
+    }
+  }
+}

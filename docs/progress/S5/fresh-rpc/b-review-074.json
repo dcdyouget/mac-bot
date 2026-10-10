@@ -1,0 +1,38 @@
+{
+  "at": "2026-10-10T17:42:24.228023+00:00",
+  "state": "returned",
+  "method": "assignment.steer",
+  "params": {
+    "assignment_id": "01a126e6-3819-7314-925e-155db91d8363",
+    "bot_id": "main",
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "text": "请继续当前 B 项目 review 汇总，禁止调用 finish_project、confirm_done 或宣称项目全部通过。补充以下真实退出后证据：同一 B 项目、Fresh-Tester assignment 01a126de-ce56-7078-8197-1bae04aebf6b 的 run_01a126de-ce56-7078-8197-1bae04aebf6b，browser_open tool.end aseq=12/global events seq=9801 打开 B index.html；随后 browser_snapshot tool.end aseq=19/global events seq=9888，真实页面显示“邮箱登录”标题和邮箱/密码/登录表单，没有“登录成功！”或“退出登录”。此前点击退出成功证据仍为 assignment 01a1269f-c585-74d7-882d-c28ed687a55f / run_01a1269f-c585-74d7-882d-c28ed687a55f browser_eval aseq=110/global seq=4994。当前 TEST-browser.md 因 Bot edit 引用错误被拒，仍保留退出 PARTIAL；不要声称该 snapshot 已写入报告，也不要改文件。结合报告现状诚实向用户发起 request_review，说明 4/5 完全通过、退出项现有动作+后续页面证据已分别落盘但报告尚未合并；不要 finish_project。",
+    "client_request_id": "2d1e61c0-91d9-4ddc-a343-886a85c7c1db"
+  },
+  "scope": {
+    "assignment_id": "01a126e6-3819-7314-925e-155db91d8363",
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "bot_id": "main",
+    "purpose": "honest B review summary and request_review",
+    "forbidden": [
+      "finish_project",
+      "confirm_done",
+      "file_write",
+      "new_tester",
+      "browser_retest"
+    ],
+    "evidence": [
+      "01a126de-ce56-7078-8197-1bae04aebf6b",
+      "01a1269f-c585-74d7-882d-c28ed687a55f"
+    ]
+  },
+  "result": {
+    "assignment_id": "01a126e6-3819-7314-925e-155db91d8363",
+    "at": "2026-10-10T17:42:59.916517+00:00",
+    "bot_id": "main",
+    "message_id": "01a126e9-344c-718b-97b3-c645e34c5b40",
+    "state": "queued"
+  }
+}

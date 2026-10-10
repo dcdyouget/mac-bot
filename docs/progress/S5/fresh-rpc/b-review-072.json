@@ -1,0 +1,36 @@
+{
+  "at": "2026-10-10T17:35:11.717027+00:00",
+  "state": "returned",
+  "method": "approval.decide",
+  "params": {
+    "approval_id": "01a126e1-8dcc-71ae-ab7b-7f85a82617cf",
+    "decision": "allow_once",
+    "client_request_id": "49c7a31b-48e2-4811-a3e3-f0dcc008a72c"
+  },
+  "scope": {
+    "approval_id": "01a126e1-8dcc-71ae-ab7b-7f85a82617cf",
+    "project_id": "01a1266b-d71a-7244-8a4b-a31e79862804",
+    "assignment_id": "01a126de-ce56-7078-8197-1bae04aebf6b",
+    "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+    "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+    "tool": "browser_snapshot",
+    "effective_target": "B local file already opened in tab t12",
+    "validated_job": "job_01a126de-d11b-74ed-a8bb-dd416436c839",
+    "reason": "single logout post-state snapshot; no other browser actions"
+  },
+  "result": {
+    "approval": {
+      "assignment_id": "01a126de-ce56-7078-8197-1bae04aebf6b",
+      "bot_id": "01a1266a-9322-7168-a352-a12f97db891b",
+      "chat_id": "01a1266b-d71a-7244-8a4b-a31fa4ea0304",
+      "created_at": "2026-10-10T17:34:38.540465+00:00",
+      "decided_at": "2026-10-10T17:35:20.981869+00:00",
+      "detail": "{}",
+      "id": "01a126e1-8dcc-71ae-ab7b-7f85a82617cf",
+      "risk": "external",
+      "state": "allowed_once",
+      "summary": "Approval required for browser_snapshot",
+      "tool": "browser_snapshot"
+    }
+  }
+}

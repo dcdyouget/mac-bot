@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-10-11T01:36:00+08:00",
+  "state": "readonly_diagnostic_eventual_success",
+  "scope": "Fresh S4 Android screen/takeover control-path delay; no code, UI input, or write RPC performed by this audit",
+  "server": {
+    "source": "b9d0cda",
+    "bot_id": "01a12682-a891-742f-bfd8-5a27a3e83715",
+    "takeover_operation_uuid": "05885ee9-6df0-42b3-afb4-4c712b389448",
+    "takeover_operation_done_at": "2026-10-10T17:33:07.954Z",
+    "operation_log": "/Users/gongshaojie/MacBot/data/orchestrator/operations.jsonl",
+    "takeover_record": "/Users/gongshaojie/MacBot/data/takeovers/browser_takeover_01a12682-a891-742f-bfd8-5a27a3e83715.json",
+    "browser_session_record": "/Users/gongshaojie/MacBot/browser/sessions/01a12682-a891-742f-bfd8-5a27a3e83715.json",
+    "readonly_screen_probe": {
+      "result": "new screen WS immediately reported driver=user and one tab",
+      "write_rpc": false,
+      "input": false
+    },
+    "same_browser_manager": true,
+    "server_state_conclusion": "takeover state was applied and persisted; no evidence of a server-side manager split or missing screen-state transition"
+  },
+  "android": {
+    "source": "953c53b",
+    "device": "emulator-5554",
+    "prior_mismatch_record": "fresh-s4-android-screen-takeover.json",
+    "prior_mismatch_screenshot": "fresh-s4-android-takeover-state-mismatch.png",
+    "eventual_input_screenshot": "fresh-s4-android-input-submitted.png",
+    "eventual_observation": "around 01:36 Asia/Shanghai, native UI changed to user-control/Bot paused, input field appeared; root then submitted s5-android-input and observed the received marker, followed by native handback preparation",
+    "result": "eventually converged; delay evidence retained"
+  },
+  "client_path_evidence": {
+    "computer_screen": "clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/computer/ComputerScreen.kt:357-360,462",
+    "repository": "clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/state/ClientRepository.kt:189-201",
+    "deterministic_behavior": "ComputerScreen keeps its local takeover flag false until repository.call(takeover.start) returns. statusLabel(false, driver=user) therefore still selects the Bot-working label, even when the server screen state is already user.",
+    "supporting_log_observation": "adb logcat for the Android process showed repeated MainConnection xr reconnects/sync_done delay and severe rendering stalls during the mismatch window",
+    "exact_delay_stage": "undetermined: available evidence does not distinguish control-WS waiter/reconnect replay from repository mutex/snapshot persistence after the RPC response; no request-level client timestamps were recorded"
+  },
+  "evidence_files": [
+    "fresh-s4-android-screen-takeover.json",
+    "fresh-s4-android-takeover-state-mismatch.png",
+    "fresh-s4-android-input-submitted.png",
+    "fresh-s4-native-takeover.json"
+  ],
+  "acceptance": {
+    "screen_stream_seen": true,
+    "server_takeover_state_verified": true,
+    "android_native_input_marker_seen": true,
+    "eventual_native_handback": "being completed by root in the same live session",
+    "s4_passed": false,
+    "boundary": "This audit records the delayed but eventual control-path convergence. It does not claim the concrete delay stage or full S4/S5 pass."
+  },
+  "next_safe_diagnostic": "If needed after the live acceptance, add timestamp-only instrumentation around ComputerScreen repository.call, MainConnection request completion, and ClientRepository persist; do not log passwords, message bodies, or screen contents."
+}

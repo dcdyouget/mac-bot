@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-10T17:53:01.794095+00:00",
+  "result": {
+    "runs": [
+      {
+        "assignment_id": "01a126f0-a940-711a-b458-3f956042c7ce",
+        "error": null,
+        "finished_at": null,
+        "id": "01a126f0-a940-711a-b458-3f969df25f81",
+        "routine_id": "01a126e7-ffd0-771e-8342-2e3592aafd7c",
+        "started_at": "2026-10-10T17:50:34.255847+00:00",
+        "status": "running",
+        "trigger": "schedule"
+      }
+    ]
+  }
+}

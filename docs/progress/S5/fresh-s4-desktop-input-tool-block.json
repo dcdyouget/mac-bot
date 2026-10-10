@@ -1,0 +1,20 @@
+{
+  "at": "2026-10-10T17:42:57.120101+00:00",
+  "desktop_source": "bdc17cdf",
+  "pid": 50057,
+  "observation": "App screenshot and AX tree accessible; coordinate click returned Computer Use server error -10005: noWindowsAvailable twice after reacquiring full installed app path. AX button action showed no visible navigation.",
+  "lock_check": "IOConsoleUsers on-console=yes; CGSSessionScreenIsLocked not present; do not label as lock or app freeze.",
+  "pending_external_check": "Earlier BetterDisplay high-layer occlusion candidate remains unconfirmed; user asked to bring Mac Bot foreground/disable mask if enabled.",
+  "acceptance": "desktop routine navigation and continuous repaint unresolved",
+  "later_followup": {
+    "observed_at": "2026-10-10T18:06:29.922700+00:00",
+    "native_navigation": "AX button click followed by Right key produced updated B project and Recovery chat.",
+    "keyboard_workaround_proven": true,
+    "coordinate_input_fixed": false,
+    "continuous_screen_fixed": false,
+    "screenshots": [
+      "fresh-s2-b-desktop-review.png",
+      "fresh-s3-desktop-memory-recovered.png"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "state": "native_connection_restored",
+  "source": "602ba93537756998abad03cb12b6c6a53719c509",
+  "apk_sha256": "01e3f80793b81879149236c1678d89c6598cd3368fae51b1db31f2a2238f6717",
+  "at": "2026-10-10T17:08:06.741180+00:00",
+  "mode": "same signature adb install -r; retain application data",
+  "install_result": "Performing Streamed Install\nSuccess\n",
+  "exit_code": 0,
+  "observed_at": "2026-10-10T17:11:52.142825+00:00",
+  "screenshot": "fresh-android-602ba93-connected.png",
+  "limitation": "Large historical replay took minutes; native streaming/performance acceptance remains pending"
+}
