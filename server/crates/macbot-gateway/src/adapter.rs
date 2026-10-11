@@ -13410,7 +13410,7 @@ mod tests {
         for bot in [&first, &second] {
             backend.call("assignment.create", json!({"bot_id":bot["bot"]["id"],"project_id":project["project"]["id"],"origin_chat_id":project["chat"]["id"],"title":"working", "instruction":"keep working", "from":"main"}), &gateway.state).await.unwrap();
         }
-        let sent = backend.call("chat.send", json!({"chat_id":project["chat"]["id"],"text":"邮箱登录优先", "mentions":[{"kind":"bot","bot_id":first["bot"]["id"],"instruction":null},{"kind":"bot","bot_id":second["bot"]["id"],"instruction":null}],"reply_to":"earlier", "client_request_id":"steer-users"}), &gateway.state).await.unwrap();
+        let sent = backend.call("chat.send", json!({"chat_id":project["chat"]["id"],"text":"邮箱登录优先", "mentions":[{"kind":"bot","bot_id":first["bot"]["id"],"instruction":null},{"kind":"bot","bot_id":second["bot"]["id"],"instruction":null}],"client_request_id":"steer-users"}), &gateway.state).await.unwrap();
         let canonical = sent["message"].clone();
         assert_eq!(canonical["delivery"].as_array().unwrap().len(), 2);
         assert!(canonical["delivery"]
@@ -13504,6 +13504,20 @@ mod tests {
             .await
             .unwrap();
         let chat_id = created["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        let root = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":chat_id,
+                    "text":"被引用的原消息",
+                    "mentions":[],
+                    "client_request_id":"chat-attachment-root"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let root_id = root["message"]["id"].as_str().unwrap().to_owned();
         let sent = backend
             .call(
                 "chat.send",
@@ -13511,7 +13525,7 @@ mod tests {
                     "chat_id":chat_id,
                     "text":"带附件的回复",
                     "mentions":[],
-                    "reply_to":"msg-root",
+                    "quote":root_id,
                     "attachments":["upload-chat-1"],
                     "client_request_id":"chat-attachment-1"
                 }),
@@ -13519,7 +13533,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(sent["message"]["reply_to"], "msg-root");
+        assert_eq!(sent["message"]["quote"]["message_id"], root_id);
+        assert_eq!(sent["message"]["reply_to"], Value::Null);
         assert_eq!(sent["message"]["blocks"][1]["type"], "file");
         assert_eq!(
             sent["message"]["blocks"][1]["file"]["root_id"],
@@ -13531,8 +13546,14 @@ mod tests {
             .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
             .await
             .unwrap();
-        let message = &history["messages"][0];
-        assert_eq!(message["reply_to"], "msg-root");
+        let message = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == sent["message"]["id"])
+            .unwrap();
+        assert_eq!(message["quote"]["message_id"], root_id);
+        assert_eq!(message["reply_to"], Value::Null);
         assert_eq!(message["blocks"][1]["file"]["root_id"], "upload-chat-1");
         drop(backend);
         drop(gateway);
@@ -13546,8 +13567,14 @@ mod tests {
             .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
             .await
             .unwrap();
-        let message = &history["messages"][0];
-        assert_eq!(message["reply_to"], "msg-root");
+        let message = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == sent["message"]["id"])
+            .unwrap();
+        assert_eq!(message["quote"]["message_id"], root_id);
+        assert_eq!(message["reply_to"], Value::Null);
         assert_eq!(message["blocks"][1]["file"]["root_id"], "upload-chat-1");
     }
 
@@ -13580,22 +13607,22 @@ mod tests {
         let reply = backend
             .call(
                 "chat.send",
-                json!({"chat_id":chat_id,"text":"回复","mentions":[],"reply_to":root_id,"client_request_id":"chat-reply"}),
+                json!({"chat_id":chat_id,"text":"回复","mentions":[],"quote":root_id,"client_request_id":"chat-reply"}),
                 &gateway.state,
             )
             .await
             .unwrap();
         let reply_id = reply["message"]["id"].as_str().unwrap().to_owned();
-        let thread = backend
-            .call(
-                "chat.thread",
-                json!({"chat_id":chat_id,"root_message_id":root_id}),
-                &gateway.state,
-            )
+        assert_eq!(reply["message"]["quote"]["message_id"], root_id);
+        assert_eq!(reply["message"]["reply_to"], Value::Null);
+        let history = backend
+            .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
             .await
             .unwrap();
-        assert_eq!(thread["root"]["id"], root_id);
-        assert_eq!(thread["replies"][0]["id"], reply_id);
+        assert_eq!(history["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(history["messages"][0]["id"], root_id);
+        assert_eq!(history["messages"][1]["id"], reply_id);
+        assert_eq!(history["messages"][1]["quote"]["message_id"], root_id);
 
         let reacted = backend
             .call(
@@ -13605,6 +13632,7 @@ mod tests {
             )
             .await
             .unwrap();
+        assert_eq!(reacted["message"]["id"], root_id);
         assert_eq!(reacted["message"]["reactions"][0]["emoji"], "👍");
         backend
             .call(
@@ -13715,6 +13743,14 @@ mod tests {
             .find(|message| message["id"] == root_id)
             .unwrap();
         assert_eq!(restored_root["reactions"][0]["emoji"], "👍");
+        let restored_reply = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == reply_id)
+            .unwrap();
+        assert_eq!(restored_reply["quote"]["message_id"], root_id);
+        assert_eq!(restored_reply["reply_to"], Value::Null);
     }
 
     #[tokio::test]

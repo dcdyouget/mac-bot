@@ -1315,7 +1315,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_project_requires_bot_ids_and_ordered_flow() {
+    async fn create_project_requires_bot_ids_and_ignores_legacy_flow() {
         let rpc = Arc::new(FakeRpc::default());
         let factory = CollaborationTools::new(
             rpc.clone(),
@@ -1346,21 +1346,22 @@ mod tests {
                 json!({"name":"x","goal":"y","member_bot_ids":["bot-1"],"flow":[]}),
             )
             .await;
-        assert!(empty_flow.is_error);
+        assert!(!empty_flow.is_error);
 
-        let valid = factory
+        let without_flow = factory
             .invoke(
                 "create_project",
                 &context,
-                json!({"name":"x","goal":"y","member_bot_ids":["bot-1"],"flow":["调研","实现"]}),
+                json!({"name":"x","member_bot_ids":["bot-1"]}),
             )
             .await;
-        assert!(!valid.is_error);
+        assert!(!without_flow.is_error);
         let calls = rpc.0.lock().unwrap();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "project.create");
-        assert_eq!(calls[0].1["member_bot_ids"], json!(["bot-1"]));
-        assert_eq!(calls[0].1["flow"], json!(["调研", "实现"]));
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|(method, _)| method == "project.create"));
+        assert!(calls
+            .iter()
+            .all(|(_, params)| params["member_bot_ids"] == json!(["bot-1"])));
     }
 
     #[tokio::test]
@@ -1457,7 +1458,7 @@ mod tests {
             .unwrap()
             .iter()
             .any(|x| x == "member_bot_ids"));
-        assert!(project_schema["required"]
+        assert!(!project_schema["required"]
             .as_array()
             .unwrap()
             .iter()
@@ -1466,7 +1467,7 @@ mod tests {
             project_schema["properties"]["member_bot_ids"]["minItems"],
             1
         );
-        assert_eq!(project_schema["properties"]["flow"]["minItems"], 1);
+        assert!(project_schema["properties"]["flow"].is_null());
     }
 
     #[test]

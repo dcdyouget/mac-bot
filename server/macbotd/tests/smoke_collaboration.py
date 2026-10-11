@@ -1706,7 +1706,7 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         "project.get",
         {"project_id": FakeProviderHandler.scenario["project_id"]},
     )["project"]
-    assert model_project["flow"] == ["产品", "编码", "测试"], model_project
+    assert model_project["flow"] == [], model_project
     assert {member["bot_id"] for member in model_project["members"]} >= {
         product["id"], coder["id"], tester["id"]
     }, model_project
