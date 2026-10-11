@@ -2018,19 +2018,23 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
                         t("workbench.concurrency")
                             .replace("{running}", &running.to_string())
                             .replace("{max}", &limit.to_string()),
-                    ),
-                stat(t("workbench.waiting_review"), &reviews.to_string(), tokens),
+                    )
+                    .into_any_element(),
+                stat(t("workbench.waiting_review"), &reviews.to_string(), tokens)
+                    .into_any_element(),
                 stat(
                     t("workbench.waiting_approval"),
                     &approvals.to_string(),
                     tokens,
-                ),
+                )
+                .into_any_element(),
                 stat(
                     t("workbench.waiting_questions"),
                     &questions.to_string(),
                     tokens,
-                ),
-                stat(t("block.takeover.title"), &takeovers.to_string(), tokens),
+                )
+                .into_any_element(),
+                stat(t("block.takeover.title"), &takeovers.to_string(), tokens).into_any_element(),
             ]),
         )
         .child(if main_bot_exists {
@@ -2604,11 +2608,7 @@ fn workbench_waiting(
                                                     params: json!({
                                                         "question_id": question_id_for_submit,
                                                         "option_indexes": selected_for_submit,
-                                                        "client_request_id": format!(
-                                                            "question-answer:{}:{}",
-                                                            question_id_for_submit,
-                                                            indexes
-                                                        )
+                                                        "client_request_id": request_id
                                                     }),
                                                 },
                                                 cx,
@@ -4862,6 +4862,7 @@ fn bot_detail_skills(
             continue;
         }
         let enabled = bot_skill_enabled(skill, bot_id);
+        let bot_id = bot_id.to_owned();
         rows = rows.child(
             Checkbox::new(format!("bot-detail-skill-{name}"))
                 .label(format!("{} · {}", name, skill_source(skill)))
