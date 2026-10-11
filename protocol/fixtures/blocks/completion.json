@@ -3,7 +3,9 @@
     {
       "artifact_id": "art_prd",
       "path_or_url": "product/prd.md",
-      "title": "PRD"
+      "title": "PRD",
+      "bot_id": "bot_product",
+      "kind": "file"
     }
   ],
   "next": [

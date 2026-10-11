@@ -38,6 +38,10 @@
     "id": {
       "type": "string"
     },
+    "multi": {
+      "default": false,
+      "type": "boolean"
+    },
     "options": {
       "type": "array",
       "items": {
@@ -69,6 +73,15 @@
           "format": "uint32",
           "minimum": 0.0
         },
+        "option_indexes": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0.0
+          }
+        },
         "text": {
           "type": [
             "string",
@@ -81,7 +94,8 @@
       "type": "string",
       "enum": [
         "pending",
-        "answered"
+        "answered",
+        "expired"
       ]
     }
   }

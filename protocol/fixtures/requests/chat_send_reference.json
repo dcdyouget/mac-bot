@@ -1,0 +1,9 @@
+{
+  "chat_id": "chat_login",
+  "text": "这个交互可以参考。",
+  "mentions": [],
+  "quote": "msg_previous",
+  "quote_mode": "reference",
+  "attachments": [],
+  "client_request_id": "request_quote_reference"
+}

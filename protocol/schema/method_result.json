@@ -78,6 +78,9 @@
       "$ref": "#/definitions/ProjectUpdateResult"
     },
     {
+      "$ref": "#/definitions/AnnouncementUpdateResult"
+    },
+    {
       "$ref": "#/definitions/ProjectResult"
     },
     {
@@ -257,8 +260,32 @@
         "project_id": {
           "type": "string"
         },
+        "text": {
+          "default": "",
+          "type": "string"
+        },
+        "text_updated_at": {
+          "default": "",
+          "type": "string"
+        },
+        "text_updated_by": {
+          "default": {
+            "kind": "user"
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/Sender"
+            }
+          ]
+        },
         "updated_at": {
           "type": "string"
+        },
+        "version": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       }
     },
@@ -290,6 +317,17 @@
         },
         "state": {
           "$ref": "#/definitions/MemberState"
+        }
+      }
+    },
+    "AnnouncementUpdateResult": {
+      "type": "object",
+      "required": [
+        "announcement"
+      ],
+      "properties": {
+        "announcement": {
+          "$ref": "#/definitions/Announcement"
         }
       }
     },
@@ -515,6 +553,14 @@
       ],
       "properties": {
         "artifact_id": {
+          "type": "string"
+        },
+        "bot_id": {
+          "default": "",
+          "type": "string"
+        },
+        "kind": {
+          "default": "file",
           "type": "string"
         },
         "path_or_url": {
@@ -954,6 +1000,21 @@
             "type"
           ],
           "properties": {
+            "context": {
+              "default": "created",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ProjectCardContext"
+                }
+              ]
+            },
+            "note": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "project_id": {
               "type": "string"
             },
@@ -1125,6 +1186,48 @@
               "enum": [
                 "system"
               ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "site",
+            "title",
+            "type",
+            "url"
+          ],
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "image": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/FileRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "site": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "link_preview"
+              ]
+            },
+            "url": {
+              "type": "string"
             }
           }
         },
@@ -2241,6 +2344,17 @@
             "$ref": "#/definitions/Mention"
           }
         },
+        "quote": {
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Quote"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "reactions": {
           "type": "array",
           "items": {
@@ -2248,6 +2362,7 @@
           }
         },
         "reply_to": {
+          "default": null,
           "type": [
             "string",
             "null"
@@ -2586,6 +2701,13 @@
         }
       }
     },
+    "ProjectCardContext": {
+      "type": "string",
+      "enum": [
+        "created",
+        "mentioned"
+      ]
+    },
     "ProjectCreateResult": {
       "type": "object",
       "required": [
@@ -2837,6 +2959,10 @@
         "id": {
           "type": "string"
         },
+        "multi": {
+          "default": false,
+          "type": "boolean"
+        },
         "options": {
           "type": "array",
           "items": {
@@ -2868,6 +2994,15 @@
           "format": "uint32",
           "minimum": 0.0
         },
+        "option_indexes": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0.0
+          }
+        },
         "text": {
           "type": [
             "string",
@@ -2891,7 +3026,8 @@
       "type": "string",
       "enum": [
         "pending",
-        "answered"
+        "answered",
+        "expired"
       ]
     },
     "QueueReason": {
@@ -2901,6 +3037,25 @@
         "global_limit",
         "serial_in_project"
       ]
+    },
+    "Quote": {
+      "type": "object",
+      "required": [
+        "excerpt",
+        "message_id",
+        "sender"
+      ],
+      "properties": {
+        "excerpt": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "sender": {
+          "$ref": "#/definitions/Sender"
+        }
+      }
     },
     "Reaction": {
       "type": "object",
@@ -3576,6 +3731,7 @@
         "renamed",
         "task_stopped",
         "task_no_report",
+        "announcement_updated",
         "info"
       ]
     },

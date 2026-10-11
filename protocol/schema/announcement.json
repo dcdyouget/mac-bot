@@ -31,8 +31,32 @@
     "project_id": {
       "type": "string"
     },
+    "text": {
+      "default": "",
+      "type": "string"
+    },
+    "text_updated_at": {
+      "default": "",
+      "type": "string"
+    },
+    "text_updated_by": {
+      "default": {
+        "kind": "user"
+      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/Sender"
+        }
+      ]
+    },
     "updated_at": {
       "type": "string"
+    },
+    "version": {
+      "default": 0,
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
     }
   },
   "definitions": {
@@ -143,6 +167,56 @@
         "waiting_bot",
         "blocked",
         "done"
+      ]
+    },
+    "Sender": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "user"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "bot_id",
+            "kind"
+          ],
+          "properties": {
+            "bot_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bot"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "system"
+              ]
+            }
+          }
+        }
       ]
     }
   }

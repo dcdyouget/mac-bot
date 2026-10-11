@@ -220,8 +220,9 @@ interface Message {
   created_at: Time;
   edited_at: Time | null;
   deleted: boolean;
-  reply_to: Id | null;         // 回复（线程）的根消息
-  thread_count: number;        // 以这条消息为根的回复数
+  reply_to: Id | null;         // 不再使用（不做线程，所有沟通都在群里）：服务端写 null
+  quote: Quote | null;         // 引用回复：气泡顶部显示被引用消息的摘要，消息仍在群的主消息流里
+  thread_count: number;        // 不再使用：服务端写 0
   mentions: Mention[];
   blocks: Block[];
   fallback_text: string;       // 纯文本版本，用于通知、搜索，以及渲染不认识的块
@@ -238,6 +239,7 @@ type Mention =
   | { kind: "everyone" }
 type Intent = "ack" | "progress" | "decision" | "done" | "blocked"
 interface Reaction { emoji: string; by: Sender[] }
+interface Quote { message_id: Id; sender: Sender; excerpt: string /* 最多 120 字的纯文本 */ }
 ```
 
 **群里 Bot 发出的每条消息都来自它调用的 `send_msg` 工具**（定义见 PLAN 5.3.2），每条都是完整的，**不会有流式片段**。intent 与消息、任务状态的对应关系：
@@ -278,7 +280,9 @@ type Block =
   | { type: "progress"; text: string }
   | { type: "blocked"; reason: string }
   | { type: "question"; question_id: Id }                     // 按 Question 对象渲染
-  | { type: "project_card"; project_id: Id }                  // 新群卡片
+  | { type: "project_card"; project_id: Id;                   // 群聊卡片：整块可点击，进入这个群
+      context: "created" | "mentioned";                       // created = 建群时发出；mentioned = Bot 在消息里提到某个群
+      note: string | null }                                   // 卡片里的一两句说明，例如「我在这个群里负责『实现登录』」
   | { type: "review_card"; project_id: Id; artifacts: ArtifactRef[];
       state: "pending" | "confirmed" | "changes_requested" }  // 待验收卡片
   | { type: "delegation"; bot_id: Id; assignment_id: Id }    // 「↪ 交给 调研」
@@ -288,11 +292,14 @@ type Block =
   | { type: "bot_dm_ref"; chat_id: Id; count: number }       // 「✉ A 私信了 B」
   | { type: "system"; code: SystemCode; text: string }
   | { type: "loop_paused"; root_message_id: Id; hops: number; state: "paused" | "continued" | "ended" }
+  | { type: "link_preview"; url: string; site: string; title: string; description: string | null; image: FileRef | null }
 
 type SystemCode = "member_added" | "member_removed" | "project_status" | "renamed" | "task_stopped"
-                | "task_no_report" | "info"
+                | "task_no_report" | "announcement_updated" | "info"
 interface FileRef { root: "project" | "bot" | "upload"; root_id: Id; path: string; name: string; size: number; mime: string }
-interface ArtifactRef { artifact_id: Id; title: string; path_or_url: string }
+interface ArtifactRef { artifact_id: Id; title: string; path_or_url: string;
+  bot_id: Id;                  // 作者（哪个 Bot 交付的），客户端显示「X 提供」
+  kind: "file" | "dir" | "url" }
 ```
 
 ### 4.7 Project 与 Announcement
@@ -303,9 +310,9 @@ interface Project {
   chat_id: Id;                 // 一个项目对应一个群
   name: string;                // 也是群名
   slug: string;                // Home 目录名
-  goal: string;
-  flow: string[];              // 例如 ["产品", "编码", "测试"]，只用于展示
-  deadline: DateStr | null;
+  goal: string;                // 不再使用：服务端写空串，客户端忽略。事项说明写在公告里
+  flow: string[];              // 不再使用：服务端写 []，客户端忽略。一个群会先后处理多件事，没有固定流程
+  deadline: DateStr | null;    // 不再使用：服务端写 null，客户端忽略。截止时间写在公告里
   home_path: string;           // 例如 "~/MacBot/projects/login/"
   status: "active" | "review" | "done" | "archived";
   lead_bot_id: Id;             // 负责人，默认是主 Bot
@@ -317,8 +324,16 @@ interface Project {
 }
 interface ProjectMember { bot_id: Id; role_note: string; joined_at: Time }
 
-interface Announcement {      // 公告：服务端实时拼出来，客户端只读
+interface Announcement {
   project_id: Id;
+  // —— 公告正文 ——
+  // 一段自由文本，不规定格式（客户端按 Markdown 渲染）。主 Bot 建群时写入初稿；
+  // 群里任何 Bot 都可以用 update_announcement 工具修改；用户可以用 announcement.update 修改。
+  text: string;                // 最长 8,000 字
+  version: number;             // 每次修改 +1，用于并发修改检测
+  text_updated_by: Sender;
+  text_updated_at: Time;
+  // —— 群状态（服务端实时拼出，只读；界面上显示为「成员」和「产物」，不属于公告正文） ——
   members: {
     bot_id: Id; role_note: string;
     state: "idle" | "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked" | "done";
@@ -326,7 +341,7 @@ interface Announcement {      // 公告：服务端实时拼出来，客户端�
     since: Time | null;
   }[];
   artifacts: Artifact[];
-  highlights: { text: string; at: Time }[];   // 项目要点：来自服务端维护的项目记忆，只读，最多 20 条
+  highlights: { text: string; at: Time }[];   // 不再使用：服务端写 []。需要沉淀的要点由 Bot 直接写进公告正文
   updated_at: Time;
 }
 ```
@@ -383,9 +398,10 @@ interface Question {
   id: Id; bot_id: Id; assignment_id: Id; chat_id: Id;
   text: string;
   options: string[];           // 可以为空（只能自由回答）
+  multi: boolean;              // true = 多选，客户端显示勾选框和 [提交]
   allow_free_text: boolean;
-  state: "pending" | "answered";
-  answer: { option_index: number | null; text: string | null; at: Time } | null;
+  state: "pending" | "answered" | "expired";   // expired：任务已结束或被停止，不能再回答
+  answer: { option_index: number | null; option_indexes: number[]; text: string | null; at: Time } | null;
 }
 ```
 
@@ -528,8 +544,8 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `chat.list` | `{ include_archived?: boolean }` | `{ chats: Chat[] }` |
 | `chat.get` | `{ chat_id }` | `{ chat: Chat }` |
 | `chat.history` | `{ chat_id, before_seq?: number, after_seq?: number, limit?: number /* 默认 50，最大 100 */ }` | `{ messages: Message[], has_more: boolean }`（按 seq 升序） |
-| `chat.thread` | `{ chat_id, root_message_id }` | `{ root: Message, replies: Message[] }` |
-| `chat.send` | `{ chat_id, text: string, mentions: Mention[], reply_to?: Id, attachments?: Id[] /* upload_id */ }` | `{ message: Message }` |
+| `chat.thread` | — | 不再使用（不做线程） |
+| `chat.send` | `{ chat_id, text: string, mentions: Mention[], quote?: Id /* 引用的消息 id */, quote_mode?: "reply"|"reference" /* 默认 reply */, attachments?: Id[] /* upload_id */ }`（`reply_to` 不再使用） | `{ message: Message }` |
 | `chat.mark_read` | `{ chat_id, seq: number }` | `{}` |
 | `chat.react` | `{ message_id, emoji: string, on: boolean }` | `{ message: Message }` |
 | `chat.set_pinned` | `{ chat_id, pinned: boolean }` | `{ chat: Chat }` |
@@ -558,8 +574,9 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 |------|------|------|
 | `project.list` | `{ status?: Project["status"][] }` | `{ projects: Project[] }` |
 | `project.get` | `{ project_id }` | `{ project: Project, announcement: Announcement }` |
-| `project.create` | `{ name, goal, member_bot_ids: Id[] /* 1–6 个，不含主 Bot */, flow?: string[], deadline?: DateStr }` | `{ project: Project, chat: Chat }`（主 Bot 自动加入并担任负责人，随后在群里发开场） |
-| `project.update` | `{ project_id, patch: { name?, goal?, flow?, deadline? } }` | `{ project: Project }` |
+| `project.create` | `{ name, member_bot_ids: Id[] /* 1–6 个，不含主 Bot */, announcement?: string /* 公告初稿 */ }`（`goal`、`flow`、`deadline` 不再使用，传了也忽略） | `{ project: Project, chat: Chat }`（主 Bot 自动加入并担任负责人，随后在群里发开场） |
+| `project.update` | `{ project_id, patch: { name? } }` | `{ project: Project }` |
+| `announcement.update` | `{ project_id, text: string, base_version: number }` | `{ announcement: Announcement }`（`base_version` 与当前版本不一致时返回 `conflict`，并在 `error.details.announcement` 里带上最新内容；修改后群里出现系统事件「你 更新了公告」） |
 | `project.add_member` | `{ project_id, bot_id, role_note? }` | `{ project: Project }` |
 | `project.remove_member` | `{ project_id, bot_id }` | `{ project: Project }`（有进行中任务时先停止） |
 | `project.confirm_done` | `{ project_id }` | `{ project: Project }`（`review` 状态下是确认验收；`active` 状态下是用户直接标记完成，进行中的任务会被停止） |
@@ -584,7 +601,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 |------|------|------|
 | `approval.list` | `{ state?: Approval["state"][] }` | `{ approvals: Approval[] }` |
 | `approval.decide` | `{ approval_id, decision: "allow_once"\|"always_allow"\|"deny" }` | `{ approval: Approval }`（always_allow 会新增一条 auto_allow 规则） |
-| `question.answer` | `{ question_id, option_index?: number, text?: string }` | `{ question: Question }` |
+| `question.answer` | `{ question_id, option_index?: number, option_indexes?: number[] /* 多选 */, text?: string }` | `{ question: Question }`（已过期时返回 `conflict`） |
 | `loop.resolve` | `{ root_message_id, action: "continue"\|"end" }` | `{}` |
 | `takeover.start` | `{ bot_id }` | `{}`（之后 `/ws/screen` 上的输入才会被接受；客户端需要已经打开该 Bot 的画面连接） |
 | `takeover.release` | `{ bot_id, note?: string }` | `{}`（note 会作为插话交给 Bot） |
@@ -630,7 +647,7 @@ interface Workbench {
 |------|------|------|
 | `routine.list` | `{ bot_id?: Id }` | `{ routines: Routine[] }` |
 | `routine.create` | `{ bot_id, project_id?: Id, name, instructions, schedules: { cron, label }[], timezone?: string }` | `{ routine: Routine }`（每个 Bot 最多 50 个；两次运行间隔至少 5 分钟） |
-| `routine.update` | `{ routine_id, patch: { name?, instructions?, schedules?, timezone?, project_id? } }` | `{ routine: Routine }` |
+| `routine.update` | `{ routine_id, patch: { bot_id?, name?, instructions?, schedules?, timezone?, project_id? } }` | `{ routine: Routine }` |
 | `routine.delete` | `{ routine_id }` | `{}` |
 | `routine.set_enabled` | `{ routine_id, enabled: boolean }` | `{ routine: Routine }` |
 | `routine.test_run` | `{ routine_id }` | `{ run: RoutineRun }` |

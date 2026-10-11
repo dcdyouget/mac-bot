@@ -9,6 +9,7 @@
     "是",
     "否"
   ],
+  "multi": false,
   "state": "pending",
   "text": "继续？"
 }

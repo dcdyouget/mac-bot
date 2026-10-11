@@ -187,6 +187,21 @@
         "type"
       ],
       "properties": {
+        "context": {
+          "default": "created",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ProjectCardContext"
+            }
+          ]
+        },
+        "note": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "project_id": {
           "type": "string"
         },
@@ -364,6 +379,48 @@
     {
       "type": "object",
       "required": [
+        "site",
+        "title",
+        "type",
+        "url"
+      ],
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "site": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "link_preview"
+          ]
+        },
+        "url": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "hops",
         "root_message_id",
         "state",
@@ -400,6 +457,14 @@
       ],
       "properties": {
         "artifact_id": {
+          "type": "string"
+        },
+        "bot_id": {
+          "default": "",
+          "type": "string"
+        },
+        "kind": {
+          "default": "file",
           "type": "string"
         },
         "path_or_url": {
@@ -474,6 +539,13 @@
         }
       }
     },
+    "ProjectCardContext": {
+      "type": "string",
+      "enum": [
+        "created",
+        "mentioned"
+      ]
+    },
     "ReviewState": {
       "type": "string",
       "enum": [
@@ -491,6 +563,7 @@
         "renamed",
         "task_stopped",
         "task_no_report",
+        "announcement_updated",
         "info"
       ]
     },

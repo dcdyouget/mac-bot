@@ -78,6 +78,9 @@
       "$ref": "#/definitions/ProjectUpdateParams"
     },
     {
+      "$ref": "#/definitions/AnnouncementUpdateParams"
+    },
+    {
       "$ref": "#/definitions/ProjectMemberParams"
     },
     {
@@ -226,6 +229,34 @@
     }
   ],
   "definitions": {
+    "AnnouncementUpdateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "base_version",
+        "project_id",
+        "text"
+      ],
+      "properties": {
+        "base_version": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
     "ApiKind": {
       "type": "string",
       "enum": [
@@ -927,6 +958,24 @@
             "$ref": "#/definitions/Mention"
           }
         },
+        "quote": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "quote_mode": {
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/QuoteMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "reply_to": {
           "type": [
             "string",
@@ -1466,34 +1515,22 @@
       "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
       "type": "object",
       "required": [
-        "goal",
         "member_bot_ids",
         "name"
       ],
       "properties": {
+        "announcement": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "client_request_id": {
           "type": [
             "string",
             "null"
           ]
-        },
-        "deadline": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "flow": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
-        "goal": {
-          "type": "string"
         },
         "member_bot_ids": {
           "type": "array",
@@ -1809,6 +1846,18 @@
           "format": "uint32",
           "minimum": 0.0
         },
+        "option_indexes": {
+          "default": null,
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0.0
+          }
+        },
         "question_id": {
           "type": "string"
         },
@@ -1819,6 +1868,13 @@
           ]
         }
       }
+    },
+    "QuoteMode": {
+      "type": "string",
+      "enum": [
+        "reply",
+        "reference"
+      ]
     },
     "RoutineCreateParams": {
       "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
@@ -1919,6 +1975,12 @@
     "RoutinePatch": {
       "type": "object",
       "properties": {
+        "bot_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "instructions": {
           "type": [
             "string",

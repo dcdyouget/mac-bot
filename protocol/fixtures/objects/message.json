@@ -17,6 +17,11 @@
   "mentions": [],
   "reactions": [],
   "reply_to": null,
+  "quote": {
+    "message_id": "msg_previous",
+    "sender": { "kind": "bot", "bot_id": "bot_main" },
+    "excerpt": "请实现邮箱登录"
+  },
   "sender": {
     "kind": "user"
   },

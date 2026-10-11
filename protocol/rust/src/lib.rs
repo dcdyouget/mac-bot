@@ -26,6 +26,12 @@ pub enum Sender {
     System,
 }
 
+impl Default for Sender {
+    fn default() -> Self {
+        Self::User
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Avatar {
@@ -102,6 +108,14 @@ pub struct ArtifactRef {
     pub artifact_id: Id,
     pub title: String,
     pub path_or_url: String,
+    #[serde(default)]
+    pub bot_id: Id,
+    #[serde(default = "default_artifact_kind")]
+    pub kind: String,
+}
+
+fn default_artifact_kind() -> String {
+    "file".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -262,6 +276,10 @@ pub enum Block {
     },
     ProjectCard {
         project_id: Id,
+        #[serde(default)]
+        context: ProjectCardContext,
+        #[serde(default)]
+        note: Option<String>,
     },
     ReviewCard {
         project_id: Id,
@@ -292,11 +310,26 @@ pub enum Block {
         code: SystemCode,
         text: String,
     },
+    LinkPreview {
+        url: String,
+        site: String,
+        title: String,
+        description: Option<String>,
+        image: Option<FileRef>,
+    },
     LoopPaused {
         root_message_id: Id,
         hops: u32,
         state: LoopState,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectCardContext {
+    #[default]
+    Created,
+    Mentioned,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -338,6 +371,7 @@ pub enum SystemCode {
     Renamed,
     TaskStopped,
     TaskNoReport,
+    AnnouncementUpdated,
     Info,
 }
 
@@ -350,7 +384,10 @@ pub struct Message {
     pub created_at: Time,
     pub edited_at: Option<Time>,
     pub deleted: bool,
+    #[serde(default)]
     pub reply_to: Option<Id>,
+    #[serde(default)]
+    pub quote: Option<Quote>,
     pub thread_count: u32,
     pub mentions: Vec<Mention>,
     pub blocks: Vec<Block>,
@@ -360,6 +397,13 @@ pub struct Message {
     pub streaming: bool,
     pub delivery: Vec<Delivery>,
     pub reactions: Vec<Reaction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct Quote {
+    pub message_id: Id,
+    pub sender: Sender,
+    pub excerpt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -400,6 +444,14 @@ pub struct ProjectMember {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Announcement {
     pub project_id: Id,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub version: u64,
+    #[serde(default)]
+    pub text_updated_by: Sender,
+    #[serde(default)]
+    pub text_updated_at: Time,
     pub members: Vec<AnnouncementMember>,
     pub artifacts: Vec<Artifact>,
     pub highlights: Vec<Highlight>,
@@ -563,6 +615,8 @@ pub struct Question {
     pub chat_id: Id,
     pub text: String,
     pub options: Vec<String>,
+    #[serde(default)]
+    pub multi: bool,
     pub allow_free_text: bool,
     pub state: QuestionState,
     pub answer: Option<QuestionAnswer>,
@@ -573,11 +627,14 @@ pub struct Question {
 pub enum QuestionState {
     Pending,
     Answered,
+    Expired,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct QuestionAnswer {
     pub option_index: Option<u32>,
+    #[serde(default)]
+    pub option_indexes: Vec<u32>,
     pub text: Option<String>,
     pub at: Time,
 }
@@ -1379,9 +1436,19 @@ pub struct ChatSendParams {
     pub text: String,
     pub mentions: Vec<Mention>,
     pub reply_to: Option<Id>,
+    #[serde(default)]
+    pub quote: Option<Id>,
+    #[serde(default)]
+    pub quote_mode: Option<QuoteMode>,
     pub attachments: Option<Vec<Id>>,
     #[serde(flatten)]
     pub meta: WriteMeta,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum QuoteMode {
+    Reply,
+    Reference,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ChatSendResult {
@@ -1566,10 +1633,9 @@ pub struct ProjectGetResult {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ProjectCreateParams {
     pub name: String,
-    pub goal: String,
     pub member_bot_ids: Vec<Id>,
-    pub flow: Option<Vec<String>>,
-    pub deadline: Option<DateStr>,
+    #[serde(default)]
+    pub announcement: Option<String>,
     #[serde(flatten)]
     pub meta: WriteMeta,
 }
@@ -1600,6 +1666,18 @@ pub struct ProjectUpdateParams {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ProjectUpdateResult {
     pub project: Project,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct AnnouncementUpdateParams {
+    pub project_id: Id,
+    pub text: String,
+    pub base_version: u64,
+    #[serde(flatten)]
+    pub meta: WriteMeta,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct AnnouncementUpdateResult {
+    pub announcement: Announcement,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ProjectMemberParams {
@@ -1738,6 +1816,8 @@ pub struct ApprovalResult {
 pub struct QuestionAnswerParams {
     pub question_id: Id,
     pub option_index: Option<u32>,
+    #[serde(default)]
+    pub option_indexes: Option<Vec<u32>>,
     pub text: Option<String>,
     #[serde(flatten)]
     pub meta: WriteMeta,
@@ -1898,6 +1978,8 @@ pub struct RoutineUpdateParams {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct RoutinePatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_id: Option<Id>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2343,6 +2425,8 @@ pub enum Method {
     ProjectCreate,
     #[serde(rename = "project.update")]
     ProjectUpdate,
+    #[serde(rename = "announcement.update")]
+    AnnouncementUpdate,
     #[serde(rename = "project.add_member")]
     ProjectAddMember,
     #[serde(rename = "project.remove_member")]
@@ -2470,6 +2554,7 @@ pub enum MethodParams {
     ProjectGet(ProjectIdParams),
     ProjectCreate(ProjectCreateParams),
     ProjectUpdate(ProjectUpdateParams),
+    AnnouncementUpdate(AnnouncementUpdateParams),
     ProjectAddMember(ProjectMemberParams),
     ProjectRemoveMember(ProjectRemoveMemberParams),
     ProjectConfirmDone(ProjectConfirmDoneParams),
@@ -2549,6 +2634,7 @@ pub enum MethodResult {
     ProjectGet(ProjectGetResult),
     ProjectCreate(ProjectCreateResult),
     ProjectUpdate(ProjectUpdateResult),
+    AnnouncementUpdate(AnnouncementUpdateResult),
     ProjectAddMember(ProjectResult),
     ProjectRemoveMember(ProjectResult),
     ProjectConfirmDone(ProjectResult),
@@ -2633,6 +2719,7 @@ impl MethodParams {
             Method::ProjectGet => p!(ProjectGet, ProjectIdParams),
             Method::ProjectCreate => p!(ProjectCreate, ProjectCreateParams),
             Method::ProjectUpdate => p!(ProjectUpdate, ProjectUpdateParams),
+            Method::AnnouncementUpdate => p!(AnnouncementUpdate, AnnouncementUpdateParams),
             Method::ProjectAddMember => p!(ProjectAddMember, ProjectMemberParams),
             Method::ProjectRemoveMember => p!(ProjectRemoveMember, ProjectRemoveMemberParams),
             Method::ProjectConfirmDone => p!(ProjectConfirmDone, ProjectConfirmDoneParams),
@@ -2719,6 +2806,7 @@ impl MethodResult {
             Method::ProjectGet => r!(ProjectGet, ProjectGetResult),
             Method::ProjectCreate => r!(ProjectCreate, ProjectCreateResult),
             Method::ProjectUpdate => r!(ProjectUpdate, ProjectUpdateResult),
+            Method::AnnouncementUpdate => r!(AnnouncementUpdate, AnnouncementUpdateResult),
             Method::ProjectAddMember => r!(ProjectAddMember, ProjectResult),
             Method::ProjectRemoveMember => r!(ProjectRemoveMember, ProjectResult),
             Method::ProjectConfirmDone => r!(ProjectConfirmDone, ProjectResult),

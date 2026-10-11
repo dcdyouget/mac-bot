@@ -28,6 +28,7 @@
     "project.get",
     "project.create",
     "project.update",
+    "announcement.update",
     "project.add_member",
     "project.remove_member",
     "project.confirm_done",
