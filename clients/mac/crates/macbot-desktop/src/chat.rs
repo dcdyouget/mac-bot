@@ -1125,6 +1125,62 @@ impl MacBot {
         }
     }
 
+    fn question_primary_action(
+        &mut self,
+        question_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.connected {
+            return;
+        }
+        let Some(question) = self.state.questions.get(&question_id).cloned() else {
+            return;
+        };
+        if !question_is_pending(&question) {
+            return;
+        }
+
+        self.active_question_id = Some(question_id.clone());
+        let selected = self
+            .question_selections
+            .get(&question_id)
+            .cloned()
+            .unwrap_or_default();
+        if selected.contains(&QUESTION_TEXT_SENTINEL) && question["allow_free_text"] == true {
+            let Some(input) = self.question_inputs.get(&question_id).cloned() else {
+                return;
+            };
+            let text = input.read(cx).value().to_string();
+            if text.trim().is_empty() {
+                self.notice = chat_tr("chat.question_empty").to_string();
+                cx.notify();
+                return;
+            }
+            self.rpc(
+                "question.answer",
+                json!({"question_id":question_id,"text":text}),
+                cx,
+            );
+            input.update(cx, |input, cx| input.set_value("", window, cx));
+            return;
+        }
+
+        if q_is_multi(&question) {
+            let option_indexes = selected
+                .into_iter()
+                .filter(|index| *index != QUESTION_TEXT_SENTINEL)
+                .collect::<Vec<_>>();
+            if !option_indexes.is_empty() {
+                self.rpc(
+                    "question.answer",
+                    json!({"question_id":question_id,"option_indexes":option_indexes}),
+                    cx,
+                );
+            }
+        }
+    }
+
     fn question_stack_for(&self, question_id: &str) -> Option<Vec<String>> {
         let message = self.state.messages.values().find(|message| {
             s(message, "chat_id") == self.selected_chat
@@ -3282,7 +3338,7 @@ impl MacBot {
                         .flex_col()
                         .gap(px(t.space[4]));
                     if messages.is_empty() {
-                        transcript = transcript.child(chat_tr("chat.empty"));
+                        transcript = transcript.child(tr("chat.empty"));
                     } else {
                         for message in messages.iter().rev().take(count.max(1) as usize).rev() {
                             let text = message_display_text(message);
@@ -3807,7 +3863,17 @@ impl MacBot {
                 }))
                 .into_any_element()
         } else if kind == "question" {
-            body.key_context("QuestionCard").into_any_element()
+            let question_id = s(block, "question_id").to_owned();
+            body.key_context("QuestionCard")
+                .capture_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
+                    if event.keystroke.modifiers.platform
+                        && event.keystroke.key.eq_ignore_ascii_case("enter")
+                    {
+                        cx.stop_propagation();
+                        this.question_primary_action(question_id.clone(), window, cx);
+                    }
+                }))
+                .into_any_element()
         } else {
             body.into_any_element()
         }
