@@ -1,8 +1,11 @@
 use super::*;
+use chrono::Datelike;
 use std::sync::Arc;
 
 use gpui_kit::gpui::list;
 use gpui_kit::prelude::FluentBuilder;
+
+const QUESTION_TEXT_SENTINEL: usize = usize::MAX;
 
 #[cfg(test)]
 mod tests {
@@ -264,6 +267,42 @@ fn question_text<'a>(question: &'a Value, block: &'a Value) -> &'a str {
     }
 }
 
+fn format_message_time(value: &str) -> Option<String> {
+    let timestamp = chrono::DateTime::parse_from_rfc3339(value)
+        .ok()?
+        .with_timezone(&chrono::Local);
+    let now = chrono::Local::now();
+    let days_ago = (now.date_naive() - timestamp.date_naive()).num_days();
+    let label = match days_ago {
+        0 => timestamp.format("%H:%M").to_string(),
+        1 => chat_tr("chat.time.yesterday").to_string(),
+        2..=7 => match timestamp.weekday() {
+            chrono::Weekday::Mon => chat_tr("chat.time.monday").to_string(),
+            chrono::Weekday::Tue => chat_tr("chat.time.tuesday").to_string(),
+            chrono::Weekday::Wed => chat_tr("chat.time.wednesday").to_string(),
+            chrono::Weekday::Thu => chat_tr("chat.time.thursday").to_string(),
+            chrono::Weekday::Fri => chat_tr("chat.time.friday").to_string(),
+            chrono::Weekday::Sat => chat_tr("chat.time.saturday").to_string(),
+            chrono::Weekday::Sun => chat_tr("chat.time.sunday").to_string(),
+        },
+        _ if timestamp.year() == now.year() => timestamp.format("%m/%d").to_string(),
+        _ => timestamp.format("%Y/%m/%d").to_string(),
+    };
+    Some(label)
+}
+
+fn assignment_elapsed(assignment: &Value) -> Option<String> {
+    let started = chrono::DateTime::parse_from_rfc3339(s(assignment, "started_at")).ok()?;
+    let ended = chrono::DateTime::parse_from_rfc3339(s(assignment, "finished_at"))
+        .unwrap_or_else(|_| chrono::Local::now().fixed_offset());
+    let minutes = (ended - started).num_minutes().max(0);
+    Some(if minutes < 60 {
+        format!("{minutes} 分钟")
+    } else {
+        format!("{} 小时 {} 分钟", minutes / 60, minutes % 60)
+    })
+}
+
 pub(super) fn pending_message(params: &Value) -> Value {
     json!({
         "id": s(params, "client_request_id"),
@@ -311,6 +350,7 @@ fn known_block(kind: &str) -> bool {
     )
 }
 
+#[cfg(test)]
 fn takeover_request_is_actionable(block: &Value) -> bool {
     s(block, "state") != "done" && !s(block, "bot_id").is_empty()
 }
@@ -318,6 +358,7 @@ fn takeover_request_is_actionable(block: &Value) -> bool {
 fn chat_tr(key: &str) -> SharedString {
     match key {
         "chat.question_text" => "填写文字并提交",
+        "chat.question_other" => "✎ 其他，我来说…",
         "chat.question_empty" => "请先在输入框填写回答",
         "chat.image_loading" => "图片加载中…",
         "chat.image_retry" => "重试加载",
@@ -332,6 +373,24 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.question_expired" => "已过期",
         "chat.project_created" => "新建了群聊",
         "chat.project_open" => "打开项目群聊",
+        "chat.time.yesterday" => "昨天",
+        "chat.time.monday" => "周一",
+        "chat.time.tuesday" => "周二",
+        "chat.time.wednesday" => "周三",
+        "chat.time.thursday" => "周四",
+        "chat.time.friday" => "周五",
+        "chat.time.saturday" => "周六",
+        "chat.time.sunday" => "周日",
+        "block.task_card.elapsed" => "已用时",
+        "block.review_card.confirmed" => "你已确认完成",
+        "block.review_card.changes_requested" => "你提了修改意见 · 已派给对应的 Bot",
+        "block.review_card.pending" => "待验收",
+        "block.takeover.title" => "需要你接管",
+        "block.takeover.active" => "你正在操作 · Bot 已暂停",
+        "block.takeover.done" => "已交还给 Bot",
+        "block.takeover.start" => "接管并处理",
+        "block.takeover.back_to_screen" => "回到画面",
+        "block.takeover.release" => "交还给 Bot",
         "chat.reference" => "引用",
         "chat.announcement_reload" => "载入最新公告",
         "chat.announcement_length" => "字",
@@ -626,6 +685,39 @@ impl MacBot {
             .flex()
             .flex_col()
             .gap_2();
+        if s(&chat, "kind") == "project" {
+            let project = self
+                .state
+                .projects
+                .get(s(&chat, "project_id"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let working_bots = arr(&project, "members")
+                .iter()
+                .filter(|member| s(member, "state") == "working")
+                .filter_map(|member| {
+                    self.state
+                        .bots
+                        .get(s(member, "bot_id"))
+                        .map(|bot| s(bot, "name").to_owned())
+                })
+                .collect::<Vec<_>>();
+            if !working_bots.is_empty() {
+                let hint = tr("chat.queue.hint")
+                    .to_string()
+                    .replace("{bots}", &working_bots.join("、"))
+                    .replace(
+                        "{count, plural, one {它} other {它们}}",
+                        if working_bots.len() == 1 {
+                            "它"
+                        } else {
+                            "它们"
+                        },
+                    );
+                composer =
+                    composer.child(div().px_2().text_xs().text_color(t.secondary).child(hint));
+            }
+        }
         if let Some(quoted) = self.quote_message.clone() {
             let quoted_id = s(&quoted, "id").to_owned();
             let excerpt = message_display_text(&quoted)
@@ -1043,6 +1135,16 @@ impl MacBot {
                 bubble = bubble.child(message_display_text(message).to_string());
             }
         }
+        if let Some(time) = format_message_time(s(message, "created_at")) {
+            bubble = bubble.child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .text_xs()
+                    .text_color(t.tertiary)
+                    .child(time),
+            );
+        }
         let mut message_content = div()
             .flex()
             .flex_col()
@@ -1071,20 +1173,20 @@ impl MacBot {
             let assignment_id = s(delivery, "assignment_id").to_owned();
             let steer_key = format!("{message_id}:{bot_id}");
             let steer_pending = self.steer_inflight.contains(&steer_key);
+            let delivery_label = tr(match delivery_state {
+                "read" => "chat.delivery.read",
+                "delivered" => "chat.delivery.queued",
+                _ => "chat.delivery.queued_for",
+            })
+            .to_string()
+            .replace("{bot}", name);
             let mut delivery_row = div()
                 .flex()
                 .items_center()
                 .gap_2()
                 .text_xs()
                 .text_color(t.secondary)
-                .child(format!(
-                    "{name} {}",
-                    tr(match delivery_state {
-                        "read" => "chat.read",
-                        "delivered" => "chat.delivered",
-                        _ => "chat.queued",
-                    })
-                ));
+                .child(delivery_label);
             if delivery_state == "queued" && !assignment_id.is_empty() {
                 delivery_row = delivery_row.child(
                     Button::new(SharedString::from(format!("steer-{message_id}-{bot_id}")))
@@ -1387,6 +1489,13 @@ impl MacBot {
                                     cx.notify();
                                 })),
                         );
+                } else if kind == "review_card" {
+                    let state_key = match s(block, "state") {
+                        "confirmed" => "block.review_card.confirmed",
+                        "changes_requested" => "block.review_card.changes_requested",
+                        _ => "block.review_card.pending",
+                    };
+                    body = body.child(div().text_color(t.review).child(chat_tr(state_key)));
                 }
                 if kind != "project_card" {
                     body = body.child(
@@ -1409,17 +1518,46 @@ impl MacBot {
                     .cloned()
                     .unwrap_or(Value::Null);
                 let status = s(&assignment, "status");
-                body = body
-                    .child(format!("{} · {}", state(status), s(&assignment, "title")))
+                let status_color = match status {
+                    "failed" | "blocked" => t.danger,
+                    "done" => t.success,
+                    "waiting_user" => t.attention,
+                    _ => t.secondary,
+                };
+                let mut summary = div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().text_color(status_color).child(state(status)))
                     .child(
-                        Button::new(SharedString::from(format!("details-{id}")))
-                            .ghost()
-                            .small()
-                            .label(tr("action.details"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_trace(Some(aid.clone()), cx)
-                            })),
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(s(&assignment, "title").to_owned()),
                     );
+                if let Some(elapsed) = assignment_elapsed(&assignment) {
+                    summary = summary.child(
+                        div()
+                            .text_xs()
+                            .text_color(t.tertiary)
+                            .child(format!("{} {elapsed}", chat_tr("block.task_card.elapsed"))),
+                    );
+                }
+                body = body.child(summary);
+                if status == "failed" {
+                    let reason = s(&assignment, "failure_reason");
+                    if !reason.is_empty() {
+                        body = body.child(div().text_color(t.danger).child(reason.to_owned()));
+                    }
+                }
+                body = body.child(
+                    Button::new(SharedString::from(format!("details-{id}")))
+                        .ghost()
+                        .small()
+                        .label(tr("action.details"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_trace(Some(aid.clone()), cx)
+                        })),
+                );
             }
             "completion" => {
                 body = body.child(
@@ -1433,12 +1571,12 @@ impl MacBot {
                         .state
                         .chats
                         .get(chat_id)
-                        .map(|chat| s(chat, "project_id"))
-                        .unwrap_or("");
+                        .map(|chat| s(chat, "project_id").to_owned())
+                        .unwrap_or_default();
                     body = body.child(self.artifact_row(
                         artifact,
                         &format!("{id}-{}", s(artifact, "artifact_id")),
-                        project_id,
+                        &project_id,
                         s(&message["sender"], "bot_id"),
                         cx,
                     ));
@@ -1484,7 +1622,14 @@ impl MacBot {
                         ));
                     }
                 } else {
-                    body = body.child(s(&approval, "state").to_string());
+                    let (label_key, color) = match s(&approval, "state") {
+                        "allowed_once" => ("approval.state.allowed_once", t.success),
+                        "always_allowed" => ("approval.state.always_allowed", t.success),
+                        "denied" => ("approval.state.denied", t.danger),
+                        "expired" => ("approval.state.expired", t.tertiary),
+                        _ => ("approval.state.unknown", t.secondary),
+                    };
+                    body = body.child(div().text_color(color).child(tr(label_key)));
                 }
             }
             "approval_ref" | "bot_dm_ref" => {
@@ -1563,12 +1708,15 @@ impl MacBot {
                     }
                     if multi {
                         let submit_question_id = question_id.clone();
+                        let option_count = arr(&q, "options").len();
+                        let has_option_selection =
+                            selected.iter().any(|index| *index < option_count);
                         body = body.child(
                             Button::new(SharedString::from(format!("question-submit-{id}")))
                                 .primary()
                                 .small()
                                 .label(chat_tr("chat.question_submit"))
-                                .disabled(!self.connected || selected.is_empty())
+                                .disabled(!self.connected || !has_option_selection)
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     let indexes = this
                                         .question_selections
@@ -1576,6 +1724,7 @@ impl MacBot {
                                         .cloned()
                                         .unwrap_or_default()
                                         .into_iter()
+                                        .filter(|index| *index != QUESTION_TEXT_SENTINEL)
                                         .collect::<Vec<_>>();
                                     this.rpc(
                                         "question.answer",
@@ -1587,16 +1736,35 @@ impl MacBot {
                     }
                     if allow_free_text {
                         let input_id = question_id.clone();
-                        let question_input = self.question_inputs.get(&question_id).cloned();
-                        let mut question_controls = div().flex().items_center().gap_2();
-                        if let Some(input) = question_input {
-                            question_controls =
-                                question_controls.child(Input::new(&input).flex_1());
-                        }
-                        body = body.child(
-                            question_controls.child(
-                                Button::new(SharedString::from(format!("question-text-{id}")))
-                                    .outline()
+                        let free_text_open = selected.contains(&QUESTION_TEXT_SENTINEL);
+                        let open_input_id = input_id.clone();
+                        let other = Button::new(SharedString::from(format!("question-other-{id}")))
+                            .ghost()
+                            .small()
+                            .label(chat_tr("chat.question_other"))
+                            .disabled(!self.connected)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                let options = this
+                                    .question_selections
+                                    .entry(open_input_id.clone())
+                                    .or_default();
+                                if options.insert(QUESTION_TEXT_SENTINEL)
+                                    && let Some(input) =
+                                        this.question_inputs.get(&open_input_id).cloned()
+                                {
+                                    input.update(cx, |input, cx| input.focus(window, cx));
+                                }
+                                cx.notify();
+                            }));
+                        let mut other_controls = div().flex().items_center().gap_2().child(other);
+                        if free_text_open {
+                            let question_input = self.question_inputs.get(&question_id).cloned();
+                            if let Some(input) = question_input {
+                                other_controls = other_controls.child(Input::new(&input).flex_1());
+                            }
+                            other_controls = other_controls.child(
+                                Button::new(SharedString::from(format!("question-text-send-{id}")))
+                                    .primary()
                                     .small()
                                     .label(chat_tr("chat.question_text"))
                                     .disabled(!self.connected)
@@ -1622,8 +1790,9 @@ impl MacBot {
                                             input.set_value("", window, cx)
                                         });
                                     })),
-                            ),
-                        );
+                            );
+                        }
+                        body = body.child(other_controls);
                     }
                 } else if !q["answer"].is_null() {
                     let answer = &q["answer"];
@@ -1656,6 +1825,14 @@ impl MacBot {
                     let text_answer = s(answer, "text");
                     if !text_answer.is_empty() {
                         body = body.child(text_answer.to_owned());
+                    }
+                } else if q["expired"] == true || s(&q, "state") == "expired" {
+                    for option in arr(&q, "options") {
+                        body = body.child(
+                            div()
+                                .text_color(t.tertiary)
+                                .child(option.as_str().unwrap_or("").to_owned()),
+                        );
                     }
                 }
             }
@@ -1722,17 +1899,51 @@ impl MacBot {
             }
             "takeover_request" => {
                 let bot = s(block, "bot_id").to_string();
-                body = body.child(s(block, "reason").to_string());
-                if takeover_request_is_actionable(block) {
-                    body = body.child(
-                        Button::new(SharedString::from(format!("takeover-{id}")))
-                            .outline()
-                            .small()
-                            .label(tr("action.takeover"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_computer(bot.clone(), cx)
-                            })),
-                    );
+                let state_key = match s(block, "state") {
+                    "active" => "block.takeover.active",
+                    "done" => "block.takeover.done",
+                    _ => "block.takeover.title",
+                };
+                body = body
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(chat_tr(state_key)),
+                    )
+                    .child(s(block, "reason").to_string());
+                match s(block, "state") {
+                    "pending" => {
+                        body = body.child(
+                            Button::new(SharedString::from(format!("takeover-{id}")))
+                                .outline()
+                                .small()
+                                .label(chat_tr("block.takeover.start"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.open_computer(bot.clone(), cx)
+                                })),
+                        );
+                    }
+                    "active" => {
+                        let release_bot = bot.clone();
+                        body = body
+                            .child(
+                                Button::new(SharedString::from(format!("takeover-screen-{id}")))
+                                    .ghost()
+                                    .small()
+                                    .label(chat_tr("block.takeover.back_to_screen"))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.open_computer(bot.clone(), cx)
+                                    })),
+                            )
+                            .child(self.rpc_button(
+                                &format!("takeover-release-{id}"),
+                                "block.takeover.release",
+                                "takeover.release",
+                                json!({"bot_id":release_bot}),
+                                cx,
+                            ));
+                    }
+                    _ => {}
                 }
             }
             "file" => {
@@ -1884,7 +2095,7 @@ impl MacBot {
     }
 
     fn artifact_row(
-        &self,
+        &mut self,
         artifact: &Value,
         id: &str,
         project_id: &str,
@@ -1906,13 +2117,13 @@ impl MacBot {
             .map(|name| format!("{} · {}", name, tr("artifact.provided_by")))
             .unwrap_or_default();
         let kind = s(artifact, "kind").to_owned();
-        let file =
-            json!({"root":"project","root_id":project_id,"path":path,"name":s(artifact,"title")});
+        let artifact = artifact.clone();
+        let project_id = project_id.to_owned();
         let mut row = div()
             .flex()
             .flex_col()
             .gap_1()
-            .child(format!("▤ {}", s(artifact, "title")))
+            .child(format!("▤ {}", s(&artifact, "title")))
             .when(!author.is_empty(), |el| {
                 el.child(
                     div()
@@ -1929,7 +2140,6 @@ impl MacBot {
             );
         if kind == "dir" {
             let directory = path.clone();
-            let project_id = project_id.to_owned();
             row = row.child(
                 Button::new(SharedString::from(format!("artifact-{id}")))
                     .ghost()
@@ -1954,7 +2164,7 @@ impl MacBot {
                         } else if kind == "url" {
                             cx.open_url(&path);
                         } else {
-                            this.download_file(file.clone(), cx);
+                            this.open_artifact_preview(artifact.clone(), project_id.clone(), cx);
                         }
                     })),
             );
@@ -2149,6 +2359,9 @@ impl MacBot {
                 }
             }
         } else if self.context.last().is_some_and(|p| p == "trace") {
+            if let Some(queue) = self.trace_queue_section(cx) {
+                body = body.child(queue);
+            }
             body = body.child(div().flex_1().min_h_0().child(self.trace_view.clone()));
         } else if let Some(chat) = self.state.chats.get(&self.selected_chat) {
             if s(chat, "kind") == "project" {
@@ -2448,6 +2661,105 @@ impl MacBot {
             .child(body)
             .into_any_element()
     }
+
+    fn trace_queue_section(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let assignment_id = s(&self.trace_target, "assignment_id").to_owned();
+        let assignment = self.state.assignments.get(&assignment_id)?.clone();
+        let chat_id = s(&assignment, "origin_chat_id").to_owned();
+        let bot_id = s(&assignment, "bot_id").to_owned();
+        let bot_name = self
+            .state
+            .bots
+            .get(&bot_id)
+            .map(|bot| s(bot, "name").to_owned())
+            .unwrap_or_else(|| tr("common.bot").to_string());
+        let queued = self
+            .state
+            .messages
+            .values()
+            .filter(|message| s(message, "chat_id") == chat_id)
+            .filter(|message| {
+                arr(message, "delivery").iter().any(|delivery| {
+                    s(delivery, "assignment_id") == assignment_id
+                        && s(delivery, "bot_id") == bot_id
+                        && s(delivery, "state") == "queued"
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let tokens = Tokens::get(cx);
+        let mut section = div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_3()
+            .border_b_1()
+            .border_color(tokens.border_subtle)
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(tr("trace.queue.title")),
+            )
+            .child(
+                div().text_xs().text_color(tokens.secondary).child(
+                    tr("trace.queue.hint")
+                        .to_string()
+                        .replace("{bot}", &bot_name),
+                ),
+            );
+        if queued.is_empty() {
+            section = section.child(
+                div()
+                    .text_xs()
+                    .text_color(tokens.tertiary)
+                    .child(tr("trace.queue.empty")),
+            );
+        }
+        for message in queued {
+            let message_id = s(&message, "id").to_owned();
+            let excerpt = message_display_text(&message)
+                .chars()
+                .take(100)
+                .collect::<String>();
+            let steer_key = format!("{message_id}:{bot_id}");
+            let inflight = self.steer_inflight.contains(&steer_key);
+            let click_message_id = message_id.clone();
+            let click_bot_id = bot_id.clone();
+            let click_assignment_id = assignment_id.clone();
+            section = section.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_1().text_sm().child(excerpt))
+                    .child(
+                        Button::new(SharedString::from(format!("trace-steer-{message_id}")))
+                            .ghost()
+                            .xsmall()
+                            .label(tr("trace.queue.to_steer"))
+                            .disabled(!self.connected || inflight)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this.steer_inflight.insert(steer_key.clone()) {
+                                    return;
+                                }
+                                this.rpc(
+                                    "message.steer",
+                                    json!({
+                                        "message_id":click_message_id,
+                                        "bot_id":click_bot_id,
+                                        "assignment_id":click_assignment_id,
+                                        "client_request_id":uuid::Uuid::new_v4().to_string(),
+                                    }),
+                                    cx,
+                                );
+                            })),
+                    ),
+            );
+        }
+        Some(section.into_any_element())
+    }
+
     fn http_base(&self, cx: &App) -> String {
         let endpoint = self.address.read(cx).value().to_string();
         let first = endpoint.split(',').next().unwrap_or("").trim();

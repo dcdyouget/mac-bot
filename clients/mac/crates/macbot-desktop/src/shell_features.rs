@@ -528,50 +528,32 @@ impl MacBot {
                     return;
                 }
                 if let Some(id) = page.strip_prefix("artifact/") {
-                    let artifact = self
+                    let found = self
                         .state
                         .announcements
-                        .values()
-                        .flat_map(|ann| arr(ann, "artifacts"))
-                        .find(|artifact| s(artifact, "id") == id)
-                        .cloned()
-                        .or_else(|| {
-                            arr(&self.feature_data, "results")
+                        .iter()
+                        .find_map(|(project_id, ann)| {
+                            arr(ann, "artifacts")
                                 .iter()
-                                .find(|item| s(item, "id") == id)
-                                .cloned()
+                                .find(|artifact| {
+                                    s(artifact, "artifact_id") == id || s(artifact, "id") == id
+                                })
+                                .map(|artifact| (artifact.clone(), project_id.clone()))
                         });
-                    if let Some(artifact) = artifact {
-                        if let Some(file) = artifact.get("file").filter(|file| file.is_object()) {
-                            self.download_file(file.clone(), cx);
-                        } else {
-                            let location = s(&artifact, "path_or_url");
-                            if location.starts_with("https://") || location.starts_with("http://") {
-                                cx.open_url(location);
-                            } else if !location.is_empty() {
-                                let project_id = s(&artifact, "project_id");
-                                let home = self
-                                    .state
-                                    .projects
-                                    .get(project_id)
-                                    .map(|p| s(p, "home_path"))
-                                    .unwrap_or("");
-                                let path = if home.is_empty() {
-                                    location
-                                } else {
-                                    location
-                                        .strip_prefix(home)
-                                        .map(|relative| relative.trim_start_matches('/'))
-                                        .unwrap_or(location)
-                                };
-                                self.download_file(
-                                    json!({"root":"project","root_id":project_id,"path":path}),
-                                    cx,
-                                );
-                            } else {
-                                self.notice = tr("file.unavailable").into();
-                            }
-                        }
+                    let found = found.or_else(|| {
+                        arr(&self.feature_data, "results")
+                            .iter()
+                            .find(|artifact| {
+                                s(artifact, "artifact_id") == id || s(artifact, "id") == id
+                            })
+                            .cloned()
+                            .map(|artifact| {
+                                let project_id = s(&artifact, "project_id").to_owned();
+                                (artifact, project_id)
+                            })
+                    });
+                    if let Some((artifact, project_id)) = found {
+                        self.open_artifact_preview(artifact, project_id, cx);
                     } else {
                         self.notice = tr("file.unavailable").into();
                     }
@@ -920,6 +902,21 @@ impl MacBot {
             );
             self.announcement_conflict = Some(announcement.clone());
             self.notice = tr("notice.announcement_conflict").to_string();
+        }
+        if (method == "artifact.versions.list" || method == "artifact.version.get")
+            && s(params, "artifact_id") == self.artifact_id
+        {
+            if method == "artifact.versions.list" {
+                self.artifact_versions_loading = false;
+            }
+            let requested_version = params.get("version").and_then(Value::as_u64);
+            if requested_version.is_none()
+                || requested_version == Some(self.artifact_selected_version)
+            {
+                self.artifact_preview_state = crate::artifact_preview::ArtifactPreviewState::Error(
+                    tr("artifact.preview.error_detail"),
+                );
+            }
         }
         if method == "chat.send" {
             if let Some(message) = self

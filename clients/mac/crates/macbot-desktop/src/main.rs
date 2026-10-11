@@ -1,5 +1,6 @@
 extern crate gpui_kit as gpui;
 mod app;
+mod artifact_preview;
 mod computer;
 mod feature_i18n;
 mod features;

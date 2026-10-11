@@ -398,6 +398,7 @@ fn is_write_method(method: &str) -> bool {
             | "project.archive"
             | "project.reopen"
             | "assignment.stop"
+            | "assignment.retry"
             | "approval.decide"
             | "question.answer"
             | "loop.resolve"

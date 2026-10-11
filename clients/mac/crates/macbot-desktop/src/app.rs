@@ -8,6 +8,7 @@ use gpui_kit::component::{
     button::*,
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
     resizable::*,
+    scroll::ScrollableElement,
     text::TextView,
     *,
 };
@@ -170,6 +171,18 @@ pub struct MacBot {
     announcement_draft_project: Option<String>,
     announcement_base_version: u64,
     announcement_base_text: String,
+    artifact: Value,
+    artifact_id: String,
+    artifact_project_id: String,
+    artifact_versions: Vec<Value>,
+    artifact_has_more: bool,
+    artifact_versions_loading: bool,
+    artifact_selected_version: u64,
+    artifact_tab: String,
+    artifact_preview_state: crate::artifact_preview::ArtifactPreviewState,
+    artifact_content: String,
+    artifact_mime: String,
+    artifact_image: Option<std::sync::Arc<Image>>,
     home_entries: Vec<Value>,
     home_project_id: String,
     home_path: String,
@@ -309,6 +322,18 @@ impl MacBot {
             announcement_draft_project: None,
             announcement_base_version: 0,
             announcement_base_text: String::new(),
+            artifact: Value::Null,
+            artifact_id: String::new(),
+            artifact_project_id: String::new(),
+            artifact_versions: Vec::new(),
+            artifact_has_more: false,
+            artifact_versions_loading: false,
+            artifact_selected_version: 0,
+            artifact_tab: "preview".into(),
+            artifact_preview_state: crate::artifact_preview::ArtifactPreviewState::Loading,
+            artifact_content: String::new(),
+            artifact_mime: String::new(),
+            artifact_image: None,
             home_entries: Vec::new(),
             home_project_id: String::new(),
             home_path: String::new(),
@@ -775,6 +800,101 @@ impl MacBot {
                 if let Some(question) = value.get("question") {
                     insert(&mut self.state.questions, question, "id");
                     self.question_selections.remove(s(question, "id"));
+                }
+            }
+            "artifact.versions.list" => {
+                if s(params, "artifact_id") == self.artifact_id {
+                    let incoming = arr(&value, "versions");
+                    if params.get("before_version").is_some() {
+                        for version in incoming {
+                            let version_number = version.get("version").and_then(Value::as_u64);
+                            if !self.artifact_versions.iter().any(|known| {
+                                known.get("version").and_then(Value::as_u64) == version_number
+                            }) {
+                                self.artifact_versions.push(version.clone());
+                            }
+                        }
+                    } else {
+                        self.artifact_versions = incoming.to_vec();
+                    }
+                    self.artifact_versions.sort_by_key(|version| {
+                        std::cmp::Reverse(
+                            version
+                                .get("version")
+                                .and_then(Value::as_u64)
+                                .unwrap_or_default(),
+                        )
+                    });
+                    self.artifact_has_more = value["has_more"] == true;
+                    self.artifact_versions_loading = false;
+                    if self.artifact_selected_version == 0 {
+                        if let Some(number) = self
+                            .artifact_versions
+                            .first()
+                            .and_then(|version| version.get("version"))
+                            .and_then(Value::as_u64)
+                        {
+                            self.load_artifact_version(number, cx);
+                        } else {
+                            self.artifact_preview_state =
+                                crate::artifact_preview::ArtifactPreviewState::Unsupported(tr(
+                                    "artifact.preview.no_history",
+                                ));
+                        }
+                    }
+                }
+            }
+            "artifact.version.get" => {
+                if s(params, "artifact_id") == self.artifact_id
+                    && params.get("version").and_then(Value::as_u64)
+                        == Some(self.artifact_selected_version)
+                {
+                    let version = value.get("version").cloned().unwrap_or(Value::Null);
+                    self.artifact_mime = s(&version, "mime").to_owned();
+                    match s(&value, "content_encoding") {
+                        "utf8" if is_text_artifact(&version) => {
+                            self.artifact_content = s(&value, "content").to_owned();
+                            self.artifact_image = None;
+                            self.artifact_preview_state =
+                                crate::artifact_preview::ArtifactPreviewState::Ready;
+                        }
+                        "base64" if self.artifact_mime.starts_with("image/") => {
+                            match decode_base64(s(&value, "content")) {
+                                Ok(bytes) => {
+                                    let image_format = match self.artifact_mime.as_str() {
+                                        "image/png" => Some(ImageFormat::Png),
+                                        "image/jpeg" | "image/jpg" => Some(ImageFormat::Jpeg),
+                                        _ => None,
+                                    };
+                                    if let Some(format) = image_format {
+                                        self.artifact_image = Some(std::sync::Arc::new(
+                                            Image::from_bytes(format, bytes),
+                                        ));
+                                        self.artifact_preview_state =
+                                            crate::artifact_preview::ArtifactPreviewState::Ready;
+                                    } else {
+                                        self.artifact_preview_state =
+                                            crate::artifact_preview::ArtifactPreviewState::Unsupported(
+                                                tr("artifact.preview.image_format_unsupported"),
+                                            );
+                                    }
+                                }
+                                Err(()) => {
+                                    self.artifact_preview_state =
+                                        crate::artifact_preview::ArtifactPreviewState::Error(tr(
+                                            "artifact.preview.error_detail",
+                                        ));
+                                }
+                            }
+                        }
+                        _ => {
+                            self.artifact_image = None;
+                            self.artifact_preview_state =
+                                crate::artifact_preview::ArtifactPreviewState::Unsupported(tr(
+                                    "artifact.preview.unsupported_detail",
+                                ));
+                        }
+                    }
                 }
             }
             "message.steer" => {
@@ -1440,9 +1560,24 @@ impl MacBot {
         } else {
             json!({"chat_id":self.selected_chat})
         };
+        let origin_chat = self
+            .trace_target
+            .get("assignment_id")
+            .and_then(Value::as_str)
+            .and_then(|assignment_id| self.state.assignments.get(assignment_id))
+            .map(|assignment| s(assignment, "origin_chat_id").to_owned())
+            .or_else(|| {
+                self.trace_target
+                    .get("chat_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
         let mut params = self.trace_target.clone();
         params["tail"] = json!(true);
         self.rpc("trace.history", params, cx);
+        if let Some(chat_id) = origin_chat.filter(|chat_id| !chat_id.is_empty()) {
+            self.rpc("chat.history", json!({"chat_id":chat_id,"limit":100}), cx);
+        }
         self.context.push("trace".into());
         self.context_visible = true;
         cx.notify();
@@ -1500,6 +1635,427 @@ impl MacBot {
         self.focus.focus(window, cx);
         cx.notify();
     }
+
+    pub(super) fn open_artifact_preview(
+        &mut self,
+        artifact: Value,
+        project_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let id = s(&artifact, "artifact_id");
+        let id = if id.is_empty() {
+            s(&artifact, "id")
+        } else {
+            id
+        };
+        self.artifact_id = id.to_owned();
+        self.artifact_project_id = project_id;
+        self.artifact = artifact;
+        self.artifact_versions.clear();
+        self.artifact_has_more = false;
+        self.artifact_versions_loading = false;
+        self.artifact_selected_version = 0;
+        self.artifact_tab = "preview".into();
+        self.artifact_content.clear();
+        self.artifact_mime.clear();
+        self.artifact_image = None;
+        self.context.clear();
+        self.page = "artifact".into();
+
+        match s(&self.artifact, "kind") {
+            "url" => {
+                self.artifact_preview_state =
+                    crate::artifact_preview::ArtifactPreviewState::Unsupported(tr(
+                        "artifact.preview.url_external",
+                    ));
+            }
+            "dir" => {
+                self.artifact_preview_state =
+                    crate::artifact_preview::ArtifactPreviewState::Unsupported(tr(
+                        "artifact.preview.remote_home_only",
+                    ));
+            }
+            _ if self.artifact_id.is_empty() => {
+                self.artifact_preview_state =
+                    crate::artifact_preview::ArtifactPreviewState::Unsupported(tr(
+                        "artifact.preview.unsupported_detail",
+                    ));
+            }
+            _ if !self.connected || self.fixture => {
+                self.artifact_preview_state =
+                    crate::artifact_preview::ArtifactPreviewState::Error(tr("error.offline"));
+            }
+            _ => {
+                self.artifact_preview_state =
+                    crate::artifact_preview::ArtifactPreviewState::Loading;
+                self.artifact_versions_loading = true;
+                self.rpc(
+                    "artifact.versions.list",
+                    json!({"artifact_id":self.artifact_id,"limit":20}),
+                    cx,
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    fn load_artifact_version(&mut self, version: u64, cx: &mut Context<Self>) {
+        if self.artifact_id.is_empty() || version == 0 {
+            return;
+        }
+        self.artifact_selected_version = version;
+        self.artifact_content.clear();
+        self.artifact_mime.clear();
+        self.artifact_image = None;
+        self.artifact_preview_state = crate::artifact_preview::ArtifactPreviewState::Loading;
+        self.rpc(
+            "artifact.version.get",
+            json!({"artifact_id":self.artifact_id,"version":version}),
+            cx,
+        );
+        cx.notify();
+    }
+
+    fn load_more_artifact_versions(&mut self, cx: &mut Context<Self>) {
+        let Some(before_version) = self
+            .artifact_versions
+            .last()
+            .and_then(|version| version.get("version"))
+            .and_then(Value::as_u64)
+        else {
+            return;
+        };
+        if self.artifact_id.is_empty() || self.artifact_versions_loading {
+            return;
+        }
+        self.artifact_versions_loading = true;
+        self.rpc(
+            "artifact.versions.list",
+            json!({
+                "artifact_id":self.artifact_id,
+                "limit":20,
+                "before_version":before_version,
+            }),
+            cx,
+        );
+    }
+
+    fn artifact_preview_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::artifact_preview::{
+            ArtifactPreview, ArtifactPreviewFormat, ArtifactPreviewState,
+        };
+
+        let tokens = Tokens::get(cx);
+        let title = self
+            .artifact_versions
+            .iter()
+            .find(|version| {
+                version.get("version").and_then(Value::as_u64)
+                    == Some(self.artifact_selected_version)
+            })
+            .map(|version| s(version, "title"))
+            .filter(|title| !title.is_empty())
+            .unwrap_or_else(|| s(&self.artifact, "title"))
+            .to_owned();
+        let path = self
+            .artifact_versions
+            .iter()
+            .find(|version| {
+                version.get("version").and_then(Value::as_u64)
+                    == Some(self.artifact_selected_version)
+            })
+            .map(|version| s(version, "path_or_url"))
+            .filter(|path| !path.is_empty())
+            .unwrap_or_else(|| s(&self.artifact, "path_or_url"))
+            .to_owned();
+        let updated_at = self
+            .artifact_versions
+            .iter()
+            .find(|version| {
+                version.get("version").and_then(Value::as_u64)
+                    == Some(self.artifact_selected_version)
+            })
+            .map(|version| s(version, "created_at"))
+            .unwrap_or("")
+            .to_owned();
+        let author_id = self
+            .artifact_versions
+            .iter()
+            .find(|version| {
+                version.get("version").and_then(Value::as_u64)
+                    == Some(self.artifact_selected_version)
+            })
+            .map(|version| s(version, "bot_id"))
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| s(&self.artifact, "bot_id"));
+        let author = self
+            .state
+            .bots
+            .get(author_id)
+            .map(|bot| s(bot, "name"))
+            .unwrap_or("")
+            .to_owned();
+
+        let tabs = [
+            ("preview", "artifact.preview.tabs.preview"),
+            ("source", "artifact.preview.tabs.source"),
+            ("history", "artifact.preview.tabs.history"),
+        ];
+        let mut tab_bar = div().flex().items_center().gap_2();
+        for (tab, key) in tabs {
+            let selected = self.artifact_tab == tab;
+            tab_bar = tab_bar.child(
+                Button::new(SharedString::from(format!("artifact-tab-{tab}")))
+                    .when(selected, |button| button.primary())
+                    .when(!selected, |button| button.ghost())
+                    .small()
+                    .label(tr(key))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.artifact_tab = tab.into();
+                        cx.notify();
+                    })),
+            );
+        }
+
+        let history = if self.artifact_tab == "history" {
+            let mut list = div()
+                .w(px(240.))
+                .flex_none()
+                .border_r_1()
+                .border_color(tokens.border_subtle)
+                .p_3()
+                .flex()
+                .flex_col()
+                .gap_1();
+            if self.artifact_versions.is_empty() && !self.artifact_versions_loading {
+                list = list.child(tr("artifact.preview.no_history"));
+            }
+            for version in &self.artifact_versions {
+                let number = version.get("version").and_then(Value::as_u64).unwrap_or(0);
+                let time = s(version, "created_at").to_owned();
+                let label = tr("artifact.preview.version")
+                    .to_string()
+                    .replace("{n}", &number.to_string());
+                let selected = number == self.artifact_selected_version;
+                list = list.child(
+                    Button::new(SharedString::from(format!("artifact-version-{number}")))
+                        .when(selected, |button| button.primary())
+                        .when(!selected, |button| button.ghost())
+                        .small()
+                        .label(format!("{label} · {time}"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.load_artifact_version(number, cx);
+                        })),
+                );
+            }
+            if self.artifact_has_more {
+                list = list.child(
+                    Button::new("artifact-history-more")
+                        .ghost()
+                        .small()
+                        .label(tr("artifact.preview.load_more"))
+                        .disabled(self.artifact_versions_loading)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.load_more_artifact_versions(cx);
+                        })),
+                );
+            }
+            if self.artifact_versions_loading {
+                list = list.child(tr("artifact.preview.loading"));
+            }
+            Some(list.into_any_element())
+        } else {
+            None
+        };
+
+        let selected_version = self.artifact_selected_version;
+        let version_for_meta = self
+            .artifact_versions
+            .iter()
+            .find(|version| {
+                version.get("version").and_then(Value::as_u64) == Some(selected_version)
+            })
+            .and_then(|version| version.get("version"))
+            .and_then(Value::as_u64);
+
+        let preview = if self.artifact_image.is_some() && self.artifact_tab == "preview" {
+            let image = self.artifact_image.clone().expect("image checked");
+            let mut header = div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .p_4()
+                .border_b_1()
+                .border_color(tokens.border_subtle)
+                .bg(tokens.panel)
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(div().text_lg().child(title.clone()))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap_2()
+                                .text_xs()
+                                .text_color(tokens.secondary)
+                                .child(format!("{} {}", author, tr("artifact.provided_by")))
+                                .child(div().font_family(tokens.font_mono).child(path.clone()))
+                                .child(updated_at.clone())
+                                .when_some(version_for_meta, |row, number| {
+                                    row.child(
+                                        tr("artifact.preview.version")
+                                            .to_string()
+                                            .replace("{n}", &number.to_string()),
+                                    )
+                                }),
+                        ),
+                );
+            let path_copy = path.clone();
+            header = header.child(
+                Button::new("artifact-image-copy-path")
+                    .secondary()
+                    .small()
+                    .label(tr("artifact.preview.copy_path"))
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(path_copy.clone()))
+                    }),
+            );
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .bg(tokens.chat)
+                .child(header)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scrollbar()
+                        .p(px(tokens.space[9]))
+                        .flex()
+                        .justify_center()
+                        .child(
+                            img(image)
+                                .max_w(px(720.))
+                                .max_h(px(560.))
+                                .object_fit(ObjectFit::Contain),
+                        ),
+                )
+                .into_any_element()
+        } else {
+            let state = if self.artifact_tab == "source" && self.artifact_image.is_some() {
+                ArtifactPreviewState::Unsupported(tr("artifact.preview.source_unsupported"))
+            } else {
+                self.artifact_preview_state.clone()
+            };
+            let format = if self.artifact_tab == "source" {
+                ArtifactPreviewFormat::PlainText
+            } else if self.artifact_mime == "text/markdown"
+                || path.ends_with(".md")
+                || path.ends_with(".markdown")
+            {
+                ArtifactPreviewFormat::Markdown
+            } else {
+                ArtifactPreviewFormat::PlainText
+            };
+            let copy_text = self.artifact_content.clone();
+            let copy_path = path.clone();
+            let mut component = ArtifactPreview::new(title.clone(), path.clone())
+                .author(author)
+                .updated_at(updated_at)
+                .content(self.artifact_content.clone(), format)
+                .state(state)
+                .on_copy_text(move |text, _, cx| {
+                    let value = if text.is_empty() {
+                        copy_text.clone()
+                    } else {
+                        text.to_string()
+                    };
+                    cx.write_to_clipboard(ClipboardItem::new_string(value.to_string()));
+                })
+                .on_copy_path(move |path, _, cx| {
+                    let value = if path.is_empty() {
+                        copy_path.clone()
+                    } else {
+                        path.to_string()
+                    };
+                    cx.write_to_clipboard(ClipboardItem::new_string(value.to_string()));
+                });
+            if let Some(version) = version_for_meta {
+                component = component.version(version);
+            }
+            component.into_any_element()
+        };
+
+        let mut center = div()
+            .size_full()
+            .min_w_0()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .p_3()
+                    .border_b_1()
+                    .border_color(tokens.border_subtle)
+                    .bg(tokens.panel)
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(
+                                format!(
+                                    "{} › {} › {}",
+                                    s(&self.artifact, "project_name"),
+                                    tr("group.artifacts"),
+                                    title
+                                ),
+                            ))
+                            .child(
+                                div()
+                                    .font_family(tokens.font_mono)
+                                    .text_xs()
+                                    .text_color(tokens.secondary)
+                                    .child(path.clone()),
+                            ),
+                    )
+                    .child(tab_bar),
+            );
+        if let Some(history) = history {
+            center = center.child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .child(history)
+                    .child(preview),
+            );
+        } else {
+            center = center.child(div().flex_1().min_h_0().child(preview));
+        }
+
+        if s(&self.artifact, "kind") == "dir" {
+            center = center.child(
+                div()
+                    .px_4()
+                    .py_2()
+                    .text_xs()
+                    .text_color(tokens.secondary)
+                    .child(tr("artifact.preview.remote_home_only")),
+            );
+        }
+        center.into_any_element()
+    }
+
     fn sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
         let mut list = div()
@@ -1947,6 +2503,8 @@ impl Render for MacBot {
             self.connection_page(cx)
         } else if self.page == "chat" {
             self.chat_page(window, cx)
+        } else if self.page == "artifact" {
+            self.artifact_preview_page(cx)
         } else {
             self.feature_center(window, cx)
         };
@@ -2105,6 +2663,55 @@ fn arr<'a>(v: &'a Value, key: &str) -> &'a [Value] {
         .and_then(Value::as_array)
         .map(Vec::as_slice)
         .unwrap_or(&[])
+}
+
+fn is_text_artifact(version: &Value) -> bool {
+    let mime = s(version, "mime").to_ascii_lowercase();
+    mime.starts_with("text/")
+        || matches!(
+            mime.as_str(),
+            "application/json"
+                | "application/xml"
+                | "application/javascript"
+                | "application/x-sh"
+                | "application/yaml"
+        )
+}
+
+fn decode_base64(input: &str) -> Result<Vec<u8>, ()> {
+    let mut output = Vec::with_capacity(input.len() * 3 / 4);
+    let mut accumulator = 0_u32;
+    let mut bits = 0_u8;
+    let mut padding = false;
+
+    for byte in input.bytes().filter(|byte| !byte.is_ascii_whitespace()) {
+        if byte == b'=' {
+            padding = true;
+            continue;
+        }
+        if padding {
+            return Err(());
+        }
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return Err(()),
+        };
+        accumulator = (accumulator << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            output.push((accumulator >> bits) as u8);
+            accumulator &= (1 << bits) - 1;
+        }
+    }
+    if bits == 6 || (padding && bits == 0 && input.trim_end().ends_with('=')) {
+        return Err(());
+    }
+    Ok(output)
 }
 
 fn bootstrap_chat_selection(

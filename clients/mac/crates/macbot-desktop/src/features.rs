@@ -1814,10 +1814,22 @@ fn workbench_job_row(
             ));
         }
         if status_raw == "failed" {
+            let retry_version = job
+                .get("finished_at")
+                .and_then(Value::as_str)
+                .or_else(|| job.get("started_at").and_then(Value::as_str))
+                .or_else(|| job.get("created_at").and_then(Value::as_str))
+                .unwrap_or("failed");
             actions = actions.child(action_button_with_id(
                 format!("workbench-{row_key}-retry"),
                 t("workbench.retry"),
-                FeatureAction::Navigate(format!("assignment/{assignment_id}/retry")),
+                FeatureAction::Rpc {
+                    method: "assignment.retry".into(),
+                    params: json!({
+                        "assignment_id":assignment_id,
+                        "client_request_id":format!("assignment-retry:{assignment_id}:{retry_version}"),
+                    }),
+                },
                 cx,
             ));
         }
