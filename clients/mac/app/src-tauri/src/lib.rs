@@ -3,23 +3,29 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use macbot_client_core::{AppState, Client, ClientConfig, ClientEvent};
+use macbot_client_core::{
+    AppState, Client, ClientConfig, ClientEvent, ScreenClient, ScreenEvent, ScreenFrame,
+    ScreenHandle,
+};
 use macbot_desktop_services::{
     host_storage::{HostRecord, HostStore},
     local_settings,
     outbox::{self, PendingMessages},
     state_cache,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tauri::{
-    ipc::{InvokeBody, Request},
+    ipc::{Channel, InvokeBody, Request, Response},
     AppHandle, Emitter, Manager, State,
 };
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
 const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024;
+// IPC is capped at 8 MiB of JPEG data (plus the small wire header). The core
+// parser has already allocated the incoming JPEG before this native limit runs.
+const MAX_SCREEN_JPEG_BYTES: usize = 8 * 1024 * 1024;
 
 struct BridgeData {
     connection: &'static str,
@@ -35,6 +41,8 @@ struct BridgeData {
     trace_buffer_overflow: bool,
     connection_generation: u64,
     trace_cleanup: Option<PendingTraceCleanup>,
+    screen_sessions: BTreeMap<u64, ScreenSession>,
+    screen_generation: u64,
 }
 
 impl Default for BridgeData {
@@ -53,6 +61,8 @@ impl Default for BridgeData {
             trace_buffer_overflow: false,
             connection_generation: 0,
             trace_cleanup: None,
+            screen_sessions: BTreeMap::new(),
+            screen_generation: 0,
         }
     }
 }
@@ -79,12 +89,104 @@ struct PendingTraceCleanup {
 }
 
 #[derive(Clone)]
-struct SharedBridge(Arc<Mutex<BridgeData>>, Arc<tokio::sync::Mutex<()>>);
+struct ScreenSession {
+    bot_id: String,
+    generation: u64,
+    host_generation: u64,
+    client: ScreenClient,
+}
+
+struct ScreenPump {
+    bot_id: String,
+    generation: u64,
+    host_generation: u64,
+    client: ScreenClient,
+    frame_channel: Channel<Response>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
+#[allow(dead_code)] // These fields are intentionally read by serde during validation only.
+enum ScreenInput {
+    Mouse {
+        action: MouseAction,
+        x: f64,
+        y: f64,
+        button: MouseButton,
+        click_count: u32,
+    },
+    Wheel {
+        x: f64,
+        y: f64,
+        dx: f64,
+        dy: f64,
+    },
+    Key {
+        action: KeyAction,
+        key: String,
+        code: String,
+        text: Option<String>,
+        modifiers: Vec<String>,
+    },
+    Touch {
+        action: TouchAction,
+        points: Vec<ScreenPoint>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum MouseAction {
+    Move,
+    Down,
+    Up,
+    Click,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum MouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum KeyAction {
+    Down,
+    Up,
+    Press,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum TouchAction {
+    Start,
+    Move,
+    End,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)] // Coordinates are validated here and forwarded unchanged to client-core.
+struct ScreenPoint {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Clone)]
+struct SharedBridge(
+    Arc<Mutex<BridgeData>>,
+    Arc<tokio::sync::Mutex<()>>,
+    Arc<tokio::sync::Mutex<()>>,
+);
 
 impl Default for SharedBridge {
     fn default() -> Self {
         Self(
             Arc::new(Mutex::new(BridgeData::default())),
+            Arc::new(tokio::sync::Mutex::new(())),
             Arc::new(tokio::sync::Mutex::new(())),
         )
     }
@@ -260,6 +362,80 @@ fn apply_retry_result(
         message["in_flight"] = json!(false);
     }
     true
+}
+
+fn screen_is_current(data: &BridgeData, screen_generation: u64, host_generation: u64) -> bool {
+    screen_generation_matches(
+        data.connection,
+        data.connection_generation,
+        data.screen_sessions
+            .get(&screen_generation)
+            .map(|session| (session.generation, session.host_generation)),
+        screen_generation,
+        host_generation,
+    )
+}
+
+fn screen_generation_matches(
+    connection: &str,
+    current_host_generation: u64,
+    session_generations: Option<(u64, u64)>,
+    screen_generation: u64,
+    host_generation: u64,
+) -> bool {
+    connection == "connected"
+        && current_host_generation == host_generation
+        && session_generations == Some((screen_generation, host_generation))
+}
+
+fn screen_client_for_generation(data: &BridgeData, generation: u64) -> Option<ScreenClient> {
+    data.screen_sessions
+        .get(&generation)
+        .filter(|session| {
+            session.generation == generation
+                && session.host_generation == data.connection_generation
+                && data.connection == "connected"
+        })
+        .map(|session| session.client.clone())
+}
+
+fn screen_connection_payload(
+    status: &str,
+    bot_id: &str,
+    generation: u64,
+    error: Option<&str>,
+) -> Value {
+    json!({
+        "status": status,
+        "bot_id": bot_id,
+        "generation": generation,
+        "error": error,
+    })
+}
+
+fn encode_screen_frame(frame: &ScreenFrame) -> Result<Vec<u8>, String> {
+    if frame.jpeg.len() > MAX_SCREEN_JPEG_BYTES {
+        return Err(format!(
+            "屏幕 JPEG 数据超过 {} MiB IPC 上限",
+            MAX_SCREEN_JPEG_BYTES / (1024 * 1024)
+        ));
+    }
+    let header = serde_json::to_vec(&frame.header).map_err(|error| error.to_string())?;
+    let header_length = u32::try_from(header.len()).map_err(|_| "屏幕帧头过大".to_string())?;
+    let mut packet = Vec::with_capacity(4 + header.len() + frame.jpeg.len());
+    packet.extend_from_slice(&header_length.to_be_bytes());
+    packet.extend_from_slice(&header);
+    packet.extend_from_slice(&frame.jpeg);
+    Ok(packet)
+}
+
+fn validate_screen_input(input: &Value) -> Result<(), String> {
+    if input.get("type").and_then(Value::as_str) == Some("key") && input.get("text").is_none() {
+        return Err("电脑键盘输入缺少 text 字段".into());
+    }
+    serde_json::from_value::<ScreenInput>(input.clone())
+        .map(|_| ())
+        .map_err(|error| format!("电脑输入格式无效：{error}"))
 }
 
 fn trace_subscription_state(
@@ -451,6 +627,7 @@ async fn connect_to_host(
         data.error = None;
         (data.connection_generation, previous_generation)
     };
+    clear_screen_for_host_switch(&app, bridge.inner(), previous_generation).await;
     clear_trace_for_host_switch(&app, bridge.inner(), previous_generation).await;
     {
         let mut data = bridge
@@ -515,6 +692,7 @@ async fn connect_to_host(
             };
             let mut trace_events_to_emit = Vec::new();
             let mut trace_disconnected = None;
+            let mut screen_disconnected = Vec::new();
             if let Ok(mut data) = bridge_state.0.lock() {
                 if !connection_is_current(&data, generation) {
                     break;
@@ -603,6 +781,12 @@ async fn connect_to_host(
                         data.buffered_trace_events.clear();
                         data.buffered_trace_bytes = 0;
                         data.trace_buffer_overflow = false;
+                        screen_disconnected = std::mem::take(&mut data.screen_sessions)
+                            .into_values()
+                            .collect();
+                        if !screen_disconnected.is_empty() {
+                            data.screen_generation = data.screen_generation.wrapping_add(1);
+                        }
                     }
                     ClientEvent::TransportError(error) => {
                         data.connection = "disconnected";
@@ -616,6 +800,12 @@ async fn connect_to_host(
                         data.buffered_trace_events.clear();
                         data.buffered_trace_bytes = 0;
                         data.trace_buffer_overflow = false;
+                        screen_disconnected = std::mem::take(&mut data.screen_sessions)
+                            .into_values()
+                            .collect();
+                        if !screen_disconnected.is_empty() {
+                            data.screen_generation = data.screen_generation.wrapping_add(1);
+                        }
                     }
                 }
                 for (event_name, payload) in trace_events_to_emit {
@@ -630,6 +820,20 @@ async fn connect_to_host(
                         None,
                     );
                 }
+                for session in &screen_disconnected {
+                    let _ = app_handle.emit(
+                        "computer-connection",
+                        screen_connection_payload(
+                            "disconnected",
+                            &session.bot_id,
+                            session.generation,
+                            None,
+                        ),
+                    );
+                }
+            }
+            for session in screen_disconnected {
+                let _ = session.client.close().await;
             }
             emit_snapshot(&app_handle, &bridge_state);
             if retry_after_event {
@@ -682,6 +886,40 @@ async fn clear_trace_for_host_switch(
         let _ = app.emit(
             "trace-subscription-state",
             trace_subscription_state("unsubscribed", Some(&subscription), None, None),
+        );
+    }
+}
+
+async fn clear_screen_for_host_switch(
+    app: &AppHandle,
+    bridge: &SharedBridge,
+    previous_host_generation: u64,
+) {
+    let _screen_guard = bridge.2.lock().await;
+    let sessions = match bridge.0.lock() {
+        Ok(mut data) => {
+            let generations: Vec<_> = data
+                .screen_sessions
+                .iter()
+                .filter(|(_, session)| session.host_generation == previous_host_generation)
+                .map(|(generation, _)| *generation)
+                .collect();
+            let sessions: Vec<_> = generations
+                .into_iter()
+                .filter_map(|generation| data.screen_sessions.remove(&generation))
+                .collect();
+            if !sessions.is_empty() {
+                data.screen_generation = data.screen_generation.wrapping_add(1);
+            }
+            sessions
+        }
+        Err(_) => Vec::new(),
+    };
+    for session in sessions {
+        let _ = session.client.close().await;
+        let _ = app.emit(
+            "computer-connection",
+            screen_connection_payload("disconnected", &session.bot_id, session.generation, None),
         );
     }
 }
@@ -1024,6 +1262,337 @@ async fn trace_unsubscribe(
     Ok(())
 }
 
+fn take_screen_session(
+    data: &mut BridgeData,
+    screen_generation: u64,
+    host_generation: u64,
+) -> Option<ScreenSession> {
+    if !screen_is_current(data, screen_generation, host_generation) {
+        return None;
+    }
+    let session = data.screen_sessions.remove(&screen_generation);
+    if session.is_some() {
+        data.screen_generation = data.screen_generation.wrapping_add(1);
+    }
+    session
+}
+
+fn spawn_screen_event_pump(
+    app: AppHandle,
+    bridge: SharedBridge,
+    pump: ScreenPump,
+    mut events: tokio::sync::mpsc::Receiver<ScreenEvent>,
+) {
+    tauri::async_runtime::spawn(async move {
+        let ScreenPump {
+            bot_id,
+            generation: screen_generation,
+            host_generation,
+            client,
+            frame_channel,
+        } = pump;
+        while let Some(event) = events.recv().await {
+            match event {
+                ScreenEvent::State(state) => {
+                    let Ok(data) = bridge.0.lock() else {
+                        break;
+                    };
+                    if !screen_is_current(&data, screen_generation, host_generation) {
+                        break;
+                    }
+                    let _ = app.emit(
+                        "computer-connection",
+                        screen_connection_payload("connected", &bot_id, screen_generation, None),
+                    );
+                    let _ = app.emit(
+                        "computer-state",
+                        json!({"generation": screen_generation, "state": state}),
+                    );
+                }
+                ScreenEvent::Frame(frame) => {
+                    let packet = match encode_screen_frame(&frame) {
+                        Ok(packet) => packet,
+                        Err(error) => {
+                            let session = bridge.0.lock().ok().and_then(|mut data| {
+                                take_screen_session(&mut data, screen_generation, host_generation)
+                            });
+                            if let Some(session) = session {
+                                let _ = app.emit(
+                                    "computer-connection",
+                                    screen_connection_payload(
+                                        "error",
+                                        &bot_id,
+                                        screen_generation,
+                                        Some(&error),
+                                    ),
+                                );
+                                let _ = session.client.close().await;
+                            }
+                            break;
+                        }
+                    };
+                    let mut disconnect = None;
+                    let send_result = if let Ok(mut data) = bridge.0.lock() {
+                        if !screen_is_current(&data, screen_generation, host_generation) {
+                            break;
+                        }
+                        match frame_channel.send(Response::new(packet)) {
+                            Ok(()) => Ok(()),
+                            Err(error) => {
+                                disconnect = take_screen_session(
+                                    &mut data,
+                                    screen_generation,
+                                    host_generation,
+                                );
+                                let message = format!("电脑画面 IPC 发送失败：{error}");
+                                let _ = app.emit(
+                                    "computer-connection",
+                                    screen_connection_payload(
+                                        "error",
+                                        &bot_id,
+                                        screen_generation,
+                                        Some(&message),
+                                    ),
+                                );
+                                Err(message)
+                            }
+                        }
+                    } else {
+                        break;
+                    };
+                    if send_result.is_err() {
+                        if let Some(session) = disconnect {
+                            let _ = session.client.close().await;
+                        } else {
+                            let _ = client.close().await;
+                        }
+                        break;
+                    }
+                }
+                ScreenEvent::Closed => {
+                    let session = bridge.0.lock().ok().and_then(|mut data| {
+                        take_screen_session(&mut data, screen_generation, host_generation)
+                    });
+                    if let Some(session) = session {
+                        let _ = app.emit(
+                            "computer-connection",
+                            screen_connection_payload(
+                                "disconnected",
+                                &bot_id,
+                                screen_generation,
+                                None,
+                            ),
+                        );
+                        let _ = session.client.close().await;
+                    }
+                    break;
+                }
+                ScreenEvent::Error(error) => {
+                    let session = bridge.0.lock().ok().and_then(|mut data| {
+                        take_screen_session(&mut data, screen_generation, host_generation)
+                    });
+                    if let Some(session) = session {
+                        let _ = app.emit(
+                            "computer-connection",
+                            screen_connection_payload(
+                                "error",
+                                &bot_id,
+                                screen_generation,
+                                Some(&error),
+                            ),
+                        );
+                        let _ = session.client.close().await;
+                    }
+                    break;
+                }
+            }
+        }
+    });
+}
+
+#[tauri::command]
+async fn screen_connect(
+    app: AppHandle,
+    bridge: State<'_, SharedBridge>,
+    bot_id: String,
+    quality: String,
+    tab_id: Option<String>,
+    frame_channel: Channel<Response>,
+) -> Result<u64, String> {
+    if bot_id.trim().is_empty() {
+        return Err("Bot id 不能为空".into());
+    }
+    if !matches!(quality.as_str(), "auto" | "high" | "low") {
+        return Err("不支持的电脑画面画质".into());
+    }
+    let _screen_guard = bridge.2.lock().await;
+    let (host, host_generation) = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection != "connected" {
+            return Err("请先连接 Bot 主机".into());
+        }
+        let host = data
+            .active_host
+            .clone()
+            .ok_or_else(|| "当前连接没有已保存的 Host".to_string())?;
+        (host, data.connection_generation)
+    };
+    let endpoint = host
+        .addresses
+        .first()
+        .cloned()
+        .ok_or_else(|| "当前 Host 没有可用地址".to_string())?;
+    let password = HostStore::load()
+        .and_then(|store| store.password(&host))
+        .map_err(|error| format!("无法读取主机凭证：{error}"))?;
+    let config = ClientConfig::new(&endpoint, &password);
+
+    let screen_generation = {
+        let mut data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection != "connected" || data.connection_generation != host_generation {
+            return Err("Host 连接已变化，请重试".into());
+        }
+        data.screen_generation = data.screen_generation.wrapping_add(1);
+        data.screen_generation
+    };
+
+    let handle = ScreenHandle::spawn(config, bot_id.clone(), quality, tab_id);
+    let client = handle.client.clone();
+    let accepted = {
+        let mut data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection != "connected" || data.connection_generation != host_generation {
+            false
+        } else {
+            data.screen_sessions.insert(
+                screen_generation,
+                ScreenSession {
+                    bot_id: bot_id.clone(),
+                    generation: screen_generation,
+                    host_generation,
+                    client: client.clone(),
+                },
+            );
+            true
+        }
+    };
+    if !accepted {
+        let _ = client.close().await;
+        return Err("Host 连接已变化，请重试".into());
+    }
+    let _ = app.emit(
+        "computer-connection",
+        screen_connection_payload("connecting", &bot_id, screen_generation, None),
+    );
+    spawn_screen_event_pump(
+        app,
+        bridge.inner().clone(),
+        ScreenPump {
+            bot_id,
+            generation: screen_generation,
+            host_generation,
+            client,
+            frame_channel,
+        },
+        handle.events,
+    );
+    Ok(screen_generation)
+}
+
+#[tauri::command]
+async fn screen_disconnect(
+    app: AppHandle,
+    bridge: State<'_, SharedBridge>,
+    generation: u64,
+) -> Result<(), String> {
+    let _screen_guard = bridge.2.lock().await;
+    let session = {
+        let mut data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        if !data.screen_sessions.contains_key(&generation) {
+            return Ok(());
+        }
+        let session = data.screen_sessions.remove(&generation);
+        data.screen_generation = data.screen_generation.wrapping_add(1);
+        session
+    };
+    if let Some(session) = session {
+        let _ = session.client.close().await;
+        let _ = app.emit(
+            "computer-connection",
+            screen_connection_payload("disconnected", &session.bot_id, generation, None),
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn screen_ack(
+    bridge: State<'_, SharedBridge>,
+    generation: u64,
+    seq: u64,
+) -> Result<(), String> {
+    let client = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        screen_client_for_generation(&data, generation)
+    };
+    if let Some(client) = client {
+        client.ack(seq).await.map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn screen_switch_tab(
+    bridge: State<'_, SharedBridge>,
+    generation: u64,
+    tab_id: String,
+) -> Result<(), String> {
+    let client = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        screen_client_for_generation(&data, generation)
+    }
+    .ok_or_else(|| "电脑画面连接已过期".to_string())?;
+    client
+        .switch_tab(tab_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn screen_input(
+    bridge: State<'_, SharedBridge>,
+    generation: u64,
+    event: Value,
+) -> Result<(), String> {
+    validate_screen_input(&event)?;
+    let client = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        screen_client_for_generation(&data, generation)
+    }
+    .ok_or_else(|| "电脑画面连接已过期".to_string())?;
+    client.input(event).await.map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 async fn send_message(
     app: AppHandle,
@@ -1364,6 +1933,11 @@ pub fn run() {
             upload_skill_zip,
             trace_subscribe,
             trace_unsubscribe,
+            screen_connect,
+            screen_disconnect,
+            screen_ack,
+            screen_input,
+            screen_switch_tab,
             get_bridge_state,
             get_local_preferences,
             save_local_preferences,
@@ -1378,10 +1952,13 @@ pub fn run() {
 mod tests {
     use super::{
         activate_trace_subscription, apply_retry_result, connection_is_current,
-        finish_trace_unsubscribe, retain_trace_cleanup, route_trace_event, skill_upload_payload,
-        trace_subscription_state, trace_tauri_event, uploaded_skill_id, BridgeData, InvokeBody,
-        PendingTraceCleanup, TraceScope, TraceSubscription, MAX_BUFFERED_TRACE_BYTES,
+        encode_screen_frame, finish_trace_unsubscribe, retain_trace_cleanup, route_trace_event,
+        screen_connection_payload, screen_generation_matches, skill_upload_payload,
+        trace_subscription_state, trace_tauri_event, uploaded_skill_id, validate_screen_input,
+        BridgeData, InvokeBody, PendingTraceCleanup, ScreenFrame, ScreenPoint, TraceScope,
+        TraceSubscription, MAX_BUFFERED_TRACE_BYTES, MAX_SCREEN_JPEG_BYTES,
     };
+    use macbot_client_core::ScreenFrameHeader;
     use serde_json::json;
     use std::collections::BTreeSet;
 
@@ -1619,6 +2196,109 @@ mod tests {
         assert_eq!(data.pending_messages["same-id"]["in_flight"], true);
         assert!(apply_retry_result(&mut data, 4, "same-id", true));
         assert!(!data.pending_messages.contains_key("same-id"));
+    }
+
+    #[test]
+    fn screen_generation_rejects_old_host_and_screen_sessions() {
+        assert!(screen_generation_matches(
+            "connected",
+            4,
+            Some((7, 4)),
+            7,
+            4
+        ));
+        assert!(!screen_generation_matches(
+            "connected",
+            5,
+            Some((7, 4)),
+            7,
+            4
+        ));
+        assert!(!screen_generation_matches(
+            "disconnected",
+            4,
+            Some((7, 4)),
+            7,
+            4
+        ));
+        assert!(!screen_generation_matches(
+            "connected",
+            4,
+            Some((6, 4)),
+            7,
+            4
+        ));
+    }
+
+    #[test]
+    fn screen_frame_channel_packet_preserves_wire_header_and_jpeg() {
+        let frame = ScreenFrame {
+            header: ScreenFrameHeader {
+                seq: 42,
+                tab_id: "tab-1".into(),
+                w: 1280,
+                h: 720,
+                ts: 1234,
+                url: "https://example.test".into(),
+            },
+            jpeg: vec![0xff, 0xd8, 0xff, 0xd9],
+        };
+        let packet = encode_screen_frame(&frame).unwrap();
+        let parsed = macbot_client_core::parse_screen_frame(&packet).unwrap();
+        assert_eq!(parsed.header, frame.header);
+        assert_eq!(parsed.jpeg, frame.jpeg);
+    }
+
+    #[test]
+    fn oversized_screen_frame_is_rejected_before_ipc() {
+        let frame = ScreenFrame {
+            header: ScreenFrameHeader {
+                seq: 1,
+                tab_id: "tab-1".into(),
+                w: 1600,
+                h: 900,
+                ts: 0,
+                url: String::new(),
+            },
+            jpeg: vec![0; MAX_SCREEN_JPEG_BYTES + 1],
+        };
+        assert!(encode_screen_frame(&frame).is_err());
+    }
+
+    #[test]
+    fn screen_input_accepts_protocol_variants_and_rejects_unknown_types() {
+        for event in [
+            json!({"type":"mouse", "action":"click", "x":1, "y":2, "button":"left", "click_count":1}),
+            json!({"type":"wheel", "x":1, "y":2, "dx":0, "dy":-4}),
+            json!({"type":"key", "action":"press", "key":"a", "code":"KeyA", "text":null, "modifiers":[]}),
+            json!({"type":"touch", "action":"start", "points":[{"x":1.5,"y":2}]}),
+        ] {
+            assert!(validate_screen_input(&event).is_ok());
+        }
+        assert!(validate_screen_input(&json!({"type":"exec"})).is_err());
+        assert!(validate_screen_input(&json!({})).is_err());
+        assert!(validate_screen_input(&json!({"type":"mouse", "action":"hover", "x":1, "y":2, "button":"left", "click_count":0})).is_err());
+        assert!(validate_screen_input(&json!({"type":"mouse", "action":"click", "x":1, "y":2, "button":"left", "click_count":1, "extra":true})).is_err());
+        assert!(validate_screen_input(
+            &json!({"type":"key", "action":"press", "key":"a", "code":"KeyA", "modifiers":[]})
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn screen_point_requires_both_protocol_coordinates() {
+        assert!(serde_json::from_value::<ScreenPoint>(json!({"x":1,"y":2})).is_ok());
+        assert!(serde_json::from_value::<ScreenPoint>(json!({"x":1})).is_err());
+        assert!(serde_json::from_value::<ScreenPoint>(json!({"x":1,"y":2,"z":3})).is_err());
+    }
+
+    #[test]
+    fn screen_connection_event_has_stable_generation_fields() {
+        let payload = screen_connection_payload("connected", "bot-1", 3, None);
+        assert_eq!(payload["status"], "connected");
+        assert_eq!(payload["bot_id"], "bot-1");
+        assert_eq!(payload["generation"], 3);
+        assert!(payload["error"].is_null());
     }
 
     #[test]
