@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder } from 'lucide-react'
+import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type PendingMessage, type Question } from './types'
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
@@ -13,12 +13,17 @@ import { SkillsPage, type SkillDetail, type SkillImportSource, type SkillRecord 
 import { MemoryPage, type UserMemoryEntry, type UserMemoryQuota, type UserProfile, type UserProfilePatch } from './components/MemoryPage'
 import { TracePage, type TraceAssignment, type TraceInFlight, type TraceItem, type TraceQueueMessage } from './components/TracePage'
 import { SearchPage, type SearchRequest, type SearchResponse, type SearchResult } from './components/SearchPage'
+import { ComputerPage, type ComputerConnection, type ComputerDriver, type ComputerFrame, type ComputerInput, type ComputerQuality, type ComputerTab } from './components/ComputerPage'
 
 const NO_RULES: Record<string, Json>[] = []
 type ThemeMode = 'light' | 'dark' | 'system'
-type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory' | 'trace'
-type TraceReturnPage = Exclude<AppPage, 'trace'>
+type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory' | 'trace' | 'computer'
+type TraceReturnPage = Exclude<AppPage, 'trace' | 'computer'>
 type TraceRoute = { assignmentId: string; hostScope: string; returnPage: TraceReturnPage; returnChatId: string; returnSelectedAssignment: string | null }
+type ComputerRoute = { botId: string; hostScope: string; returnPage: Exclude<AppPage, 'computer'>; returnChatId: string; returnSelectedAssignment: string | null; requestId: string; tabId?: string }
+type ScreenState = { bot_id: string; driver: ComputerDriver; tabs: ComputerTab[]; width: number; height: number }
+type ComputerConnectionEvent = { status?: string; bot_id?: string; generation?: number; error?: string | null }
+type ComputerStateEvent = { generation?: number; state?: ScreenState }
 type TraceHistory = { items?: TraceItem[]; first_aseq: number | null; last_aseq: number | null; has_more_before: boolean; live: boolean }
 type TraceSubscriptionState = { status?: string; stream?: string | null; assignment_id?: string | null; chat_id?: string | null; in_flight?: TraceInFlight[]; error?: string | null }
 type TraceDelta = { stream?: string; request_id?: string; channel?: 'text' | 'thinking' | 'tool_args'; call_id?: string | null; text?: string }
@@ -68,6 +73,26 @@ function assertHostScope(current: string, expected: string) {
   if (current !== expected) throw new Error('Host changed during request')
 }
 
+type ScreenFrameHeader = { seq: number; tab_id: string; w: number; h: number; ts: number; url: string }
+
+async function screenPacketBytes(payload: unknown): Promise<Uint8Array> {
+  if (payload instanceof Response) return new Uint8Array(await payload.arrayBuffer())
+  if (payload instanceof ArrayBuffer) return new Uint8Array(payload)
+  if (ArrayBuffer.isView(payload)) return new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength)
+  throw new Error('不支持的屏幕帧传输格式')
+}
+
+function decodeScreenPacket(bytes: Uint8Array): { header: ScreenFrameHeader; jpeg: Uint8Array } {
+  if (bytes.byteLength < 5 || bytes.byteLength > 8 * 1024 * 1024 + 64 * 1024 + 4) throw new Error('屏幕帧长度无效')
+  const headerLength = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, false)
+  if (!headerLength || headerLength > 64 * 1024 || 4 + headerLength >= bytes.byteLength) throw new Error('屏幕帧头长度无效')
+  const header = JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + headerLength))) as Partial<ScreenFrameHeader>
+  if (!Number.isSafeInteger(header.seq) || Number(header.seq) < 0 || !Number.isSafeInteger(header.w) || Number(header.w) < 1 || !Number.isSafeInteger(header.h) || Number(header.h) < 1 || !Number.isFinite(header.ts) || typeof header.tab_id !== 'string' || !header.tab_id || typeof header.url !== 'string') throw new Error('屏幕帧头字段无效')
+  const jpeg = bytes.slice(4 + headerLength)
+  if (jpeg.byteLength < 4 || jpeg[0] !== 0xff || jpeg[1] !== 0xd8 || jpeg[jpeg.byteLength - 2] !== 0xff || jpeg[jpeg.byteLength - 1] !== 0xd9) throw new Error('屏幕帧 JPEG 数据无效')
+  return { header: header as ScreenFrameHeader, jpeg }
+}
+
 function App() {
   const [state, setState] = useState<BridgeState>(emptyState)
   const [savedHosts, setSavedHosts] = useState<HostRecord[]>([])
@@ -110,6 +135,17 @@ function App() {
   const [traceLoadingMore, setTraceLoadingMore] = useState(false)
   const [traceError, setTraceError] = useState<string | null>(null)
   const [traceRetry, setTraceRetry] = useState(0)
+  const [computerRoute, setComputerRoute] = useState<ComputerRoute | null>(null)
+  const [computerConnection, setComputerConnection] = useState<ComputerConnection>('connecting')
+  const [computerDriver, setComputerDriver] = useState<ComputerDriver>('idle')
+  const [computerTabs, setComputerTabs] = useState<ComputerTab[]>([])
+  const [computerActiveTab, setComputerActiveTab] = useState<string | null>(null)
+  const [computerFrame, setComputerFrame] = useState<ComputerFrame | null>(null)
+  const [computerFrameScope, setComputerFrameScope] = useState<{ hostScope: string; generation: number } | null>(null)
+  const [computerQuality, setComputerQuality] = useState<ComputerQuality>('auto')
+  const [computerError, setComputerError] = useState<string | null>(null)
+  const [computerRetry, setComputerRetry] = useState(0)
+  const [computerFullscreen, setComputerFullscreen] = useState(false)
   const [mentionBotId, setMentionBotId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [connecting, setConnecting] = useState(false)
@@ -148,6 +184,11 @@ function App() {
   const hostScopeRef = useRef(hostScope)
   const stateRef = useRef(state)
   const traceRouteRef = useRef(traceRoute)
+  const computerRouteRef = useRef(computerRoute)
+  const computerGenerationRef = useRef(0)
+  const computerMinimumGenerationRef = useRef(0)
+  const computerFrameScopeRef = useRef(computerFrameScope)
+  const computerFrameRef = useRef(computerFrame)
   const traceStreamRef = useRef<string | null>(null)
   const traceHistoryRequestRef = useRef(0)
   const routinesDataScopeRef = useRef<string | null>(null)
@@ -157,6 +198,9 @@ function App() {
   hostScopeRef.current = hostScope
   stateRef.current = state
   traceRouteRef.current = traceRoute
+  computerRouteRef.current = computerRoute
+  computerFrameScopeRef.current = computerFrameScope
+  computerFrameRef.current = computerFrame
   const historyCacheKey = (scope: string, chatId: string) => `${scope}\u0000${chatId}`
 
   useEffect(() => {
@@ -325,6 +369,114 @@ function App() {
       .catch((error: unknown) => { if (active && traceRouteRef.current) setTraceError(String(error)) })
     return () => { active = false; unlisten.forEach((dispose) => dispose()) }
   }, [])
+
+  useEffect(() => {
+    let active = true
+    let unlisten: (() => void)[] = []
+    void Promise.all([
+      listen<ComputerConnectionEvent>('computer-connection', ({ payload }) => {
+        const route = computerRouteRef.current
+        const generation = payload.generation
+        if (!active || !route || route.hostScope !== hostScopeRef.current || payload.bot_id !== route.botId || !Number.isSafeInteger(generation) || generation! < computerMinimumGenerationRef.current || generation! < computerGenerationRef.current) return
+        computerGenerationRef.current = Math.max(computerGenerationRef.current, generation!)
+        if (payload.status === 'connecting' || payload.status === 'connected' || payload.status === 'disconnected' || payload.status === 'error') {
+          setComputerConnection(payload.status)
+          if (payload.status === 'error') setComputerError(payload.error ?? t('computer.connection.error'))
+          else if (payload.status === 'connected' || payload.status === 'connecting') setComputerError(null)
+          if (payload.status === 'disconnected') setComputerFrame(null)
+        }
+      }),
+      listen<ComputerStateEvent>('computer-state', ({ payload }) => {
+        const route = computerRouteRef.current
+        if (!active || !route || route.hostScope !== hostScopeRef.current || !payload.state || payload.state.bot_id !== route.botId || !Number.isSafeInteger(payload.generation) || payload.generation !== computerGenerationRef.current || payload.generation! < computerMinimumGenerationRef.current) return
+        setComputerDriver(payload.state.driver)
+        setComputerTabs(payload.state.tabs ?? [])
+        setComputerActiveTab(payload.state.tabs?.find((tab) => tab.active)?.tab_id ?? null)
+      }),
+    ]).then((listeners) => { if (active) unlisten = listeners; else listeners.forEach((dispose) => dispose()) })
+      .catch((error: unknown) => { if (active && computerRouteRef.current) setComputerError(String(error)) })
+    return () => { active = false; unlisten.forEach((dispose) => dispose()) }
+  }, [])
+
+  useEffect(() => {
+    if (!computerFrame?.src) return
+    const source = computerFrame.src
+    return () => URL.revokeObjectURL(source)
+  }, [computerFrame?.src])
+
+  useEffect(() => {
+    const route = computerRoute
+    if (!route || activePage !== 'computer') return
+    if (route.hostScope !== hostScope || state.connection !== 'connected') {
+      setComputerConnection(state.connection === 'connected' ? 'error' : 'disconnected')
+      setComputerError(route.hostScope !== hostScope ? t('computer.connection.error') : t('host.reconnecting_detail'))
+      return
+    }
+
+    let disposed = false
+    let generation: number | null = null
+    let queuedPayload: ArrayBuffer | Response | null = null
+    const scope = route.hostScope
+    const requestId = route.requestId
+    const isCurrent = () => !disposed && hostScopeRef.current === scope && computerRouteRef.current?.requestId === requestId && activePage === 'computer'
+    setComputerConnection('connecting')
+    setComputerError(null)
+    setComputerFrame(null)
+    setComputerFrameScope(null)
+
+    const processFrame = async (payload: ArrayBuffer | Response) => {
+      if (generation === null || !isCurrent()) { queuedPayload = payload; return }
+      const currentGeneration = generation
+      try {
+        const packet = decodeScreenPacket(await screenPacketBytes(payload))
+        if (!isCurrent() || computerGenerationRef.current !== currentGeneration) return
+        const url = URL.createObjectURL(new Blob([packet.jpeg.slice().buffer as ArrayBuffer], { type: 'image/jpeg' }))
+        const frame: ComputerFrame = { src: url, width: packet.header.w, height: packet.header.h, seq: packet.header.seq, url: packet.header.url, captured_at: packet.header.ts }
+        setComputerFrame(frame)
+        setComputerFrameScope({ hostScope: scope, generation: currentGeneration })
+        setComputerActiveTab(packet.header.tab_id)
+      } catch (error) {
+        if (isCurrent()) setComputerError(String(error))
+      }
+    }
+
+    const frameChannel = new Channel<ArrayBuffer | Response>((payload) => { void processFrame(payload) })
+    void invoke<number>('screen_connect', { botId: route.botId, quality: computerQuality, tabId: route.tabId, frameChannel })
+      .then((connectedGeneration) => {
+        generation = connectedGeneration
+        if (!Number.isSafeInteger(connectedGeneration) || connectedGeneration < computerMinimumGenerationRef.current) throw new Error('电脑画面连接代次无效')
+        computerGenerationRef.current = Math.max(computerGenerationRef.current, connectedGeneration)
+        if (!isCurrent()) {
+          void invoke('screen_disconnect', { generation: connectedGeneration }).catch(() => undefined)
+          return
+        }
+        if (queuedPayload) {
+          const pending = queuedPayload
+          queuedPayload = null
+          void processFrame(pending)
+        }
+      })
+      .catch((error: unknown) => { if (isCurrent()) { setComputerConnection('error'); setComputerError(String(error)) } })
+
+    return () => {
+      disposed = true
+      queuedPayload = null
+      setComputerFrame((current) => {
+        if (current?.src) URL.revokeObjectURL(current.src)
+        return null
+      })
+      setComputerFrameScope(null)
+      if (generation !== null) void invoke('screen_disconnect', { generation }).catch(() => undefined)
+    }
+  }, [computerQuality, computerRetry, computerRoute, activePage, hostScope, state.connection])
+
+  useEffect(() => {
+    if (!computerRoute || (activePage === 'computer' && computerRoute.hostScope === hostScope)) return
+    computerRouteRef.current = null
+    setComputerRoute(null)
+    setComputerFullscreen(false)
+    if (computerRoute.hostScope !== hostScope) setActivePage('chat')
+  }, [activePage, computerRoute, hostScope])
 
   useEffect(() => {
     const route = traceRoute
@@ -619,7 +771,7 @@ function App() {
     const route: TraceRoute = {
       assignmentId,
       hostScope,
-      returnPage: existingRoute?.returnPage ?? (activePage === 'trace' ? 'chat' : activePage),
+      returnPage: existingRoute?.returnPage ?? (activePage === 'trace' || activePage === 'computer' ? 'chat' : activePage),
       returnChatId: existingRoute?.returnChatId ?? selectedChat,
       returnSelectedAssignment: existingRoute?.returnSelectedAssignment ?? selectedAssignment,
     }
@@ -646,6 +798,99 @@ function App() {
       setSelectedAssignment(null)
     }
     setTraceRoute(null)
+  }
+
+  function openComputer(botId: string, tabId?: string) {
+    if (!botId || state.connection !== 'connected') return
+    const existingTraceRoute = activePage === 'trace' ? traceRouteRef.current : null
+    const route: ComputerRoute = {
+      botId,
+      hostScope,
+      returnPage: existingTraceRoute ? 'trace' : activePage === 'computer' ? 'chat' : activePage,
+      returnChatId: existingTraceRoute?.returnChatId ?? selectedChat,
+      returnSelectedAssignment: existingTraceRoute?.returnSelectedAssignment ?? selectedAssignment,
+      requestId: crypto.randomUUID(),
+      ...(tabId ? { tabId } : {}),
+    }
+    computerMinimumGenerationRef.current = computerGenerationRef.current + 1
+    computerRouteRef.current = route
+    setComputerRoute(route)
+    setComputerConnection('connecting')
+    setComputerDriver('idle')
+    setComputerTabs([])
+    setComputerActiveTab(null)
+    setComputerFrame(null)
+    setComputerFrameScope(null)
+    setComputerError(null)
+    setComputerFullscreen(false)
+    setActivePage('computer')
+  }
+
+  function backFromComputer() {
+    const route = computerRouteRef.current ?? computerRoute
+    computerRouteRef.current = null
+    setComputerRoute(null)
+    setComputerFullscreen(false)
+    if (route?.hostScope === hostScopeRef.current) {
+      setActivePage(route.returnPage)
+      if (route.returnPage === 'chat') {
+        setSelectedChat(route.returnChatId)
+        localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScopeRef.current}`, route.returnChatId)
+      }
+      setSelectedAssignment(route.returnSelectedAssignment)
+    } else {
+      setActivePage('chat')
+      setSelectedAssignment(null)
+    }
+  }
+
+  async function takeOverComputer(botId: string) {
+    const route = computerRouteRef.current
+    if (!route || route.botId !== botId || route.hostScope !== hostScopeRef.current) return
+    setComputerError(null)
+    try {
+      await invoke('protocol_request', { method: 'takeover.start', params: { bot_id: botId } })
+    } catch (error) {
+      if (computerRouteRef.current?.requestId === route.requestId) setComputerError(String(error))
+    }
+  }
+
+  async function releaseComputer(botId: string, note?: string) {
+    const route = computerRouteRef.current
+    if (!route || route.botId !== botId || route.hostScope !== hostScopeRef.current) return
+    setComputerError(null)
+    try {
+      await invoke('protocol_request', { method: 'takeover.release', params: { bot_id: botId, ...(note ? { note } : {}) } })
+    } catch (error) {
+      if (computerRouteRef.current?.requestId === route.requestId) setComputerError(String(error))
+    }
+  }
+
+  function computerInput(input: ComputerInput) {
+    const route = computerRouteRef.current
+    const scope = computerFrameScopeRef.current
+    if (!route || !scope || route.hostScope !== hostScopeRef.current || scope.hostScope !== route.hostScope || scope.generation !== computerGenerationRef.current) return
+    void invoke('screen_input', { generation: scope.generation, event: input }).catch((error: unknown) => {
+      if (computerRouteRef.current?.requestId === route.requestId) setComputerError(String(error))
+    })
+  }
+
+  function selectComputerTab(tabId: string) {
+    const route = computerRouteRef.current
+    const scope = computerFrameScopeRef.current
+    if (!route || !scope || route.hostScope !== hostScopeRef.current || scope.generation !== computerGenerationRef.current) return
+    void invoke('screen_switch_tab', { generation: scope.generation, tabId }).catch((error: unknown) => {
+      if (computerRouteRef.current?.requestId === route.requestId) setComputerError(String(error))
+    })
+  }
+
+  function acknowledgeComputerFrame(seq: number) {
+    const route = computerRouteRef.current
+    const scope = computerFrameScopeRef.current
+    if (!route || !scope || computerFrameRef.current?.seq !== seq || route.hostScope !== hostScopeRef.current || scope.hostScope !== route.hostScope || scope.generation !== computerGenerationRef.current) return
+    void invoke('screen_ack', { generation: scope.generation, seq }).catch((error: unknown) => {
+      if (computerRouteRef.current?.requestId === route.requestId) setComputerError(String(error))
+    })
   }
 
   function mentionAssignmentBot(botId: string, chatId: string) {
@@ -1354,6 +1599,20 @@ function App() {
   const botChats = chats.filter((chat) => chat.kind === 'direct' || chat.kind === 'bot_dm')
   const chatTitle = (chat: Chat) => chat.title ?? (chat.bot_id ? state.bots[chat.bot_id]?.name : undefined) ?? (chat.kind === 'main' ? mainBot?.name : undefined) ?? t('chat.empty.select')
   const activeSearchSideTarget = searchSideTarget?.scope === hostScope ? searchSideTarget.result : null
+  const computerTakeoverRequest = (() => {
+    if (!computerRoute || computerRoute.hostScope !== hostScope) return null
+    const messages = new Map<string, Message>()
+    const scopePrefix = `${hostScope}\u0000`
+    for (const [key, cached] of Object.entries(historyByChat)) {
+      if (key.startsWith(scopePrefix)) for (const message of cached) messages.set(message.id, message)
+    }
+    for (const message of Object.values(state.messages)) messages.set(message.id, message)
+    const requests = [...messages.values()].flatMap((message) => (message.blocks ?? [])
+      .filter((block) => block.type === 'takeover_request' && block.bot_id === computerRoute.botId && block.state === 'pending')
+      .map((block) => ({ reason: typeof block.reason === 'string' ? block.reason : '', at: message.created_at ?? '' })))
+      .sort((left, right) => right.at.localeCompare(left.at))
+    return requests[0] ? { reason: requests[0].reason } : null
+  })()
   const searchSideSourceAvailable = activeSearchSideTarget?.kind === 'routine' || activeSearchSideTarget?.kind === 'chat'
     || (activeSearchSideTarget?.kind === 'bot' && Object.values(state.chats).some((chat) => chat.bot_id === activeSearchSideTarget.id))
     || Boolean(activeSearchSideTarget?.chat_id)
@@ -1400,6 +1659,7 @@ function App() {
         {currentChat?.kind === 'project' || currentChat?.project_id ? <div className="group-chat-avatar"><Users size={17} /></div> : <BeanAvatar main={currentChat?.kind === 'main' || !currentChat?.bot_id} size="32" seed={currentChat?.bot_id ? state.bots[currentChat.bot_id]?.name ?? '' : ''} />}
         <div className="conversation-heading"><strong>{currentChat ? chatTitle(currentChat) : (mainBot?.name ?? '总管')}</strong>
           <span>{currentChat?.kind === 'project' || currentChat?.project_id ? groupSubtitle(currentChat, currentProject, announcement) : currentChat?.bot_id ? botSubtitle(currentChat, currentAssignments, state.bots) : t('chat.main.subtitle')}</span></div>
+        {currentChat?.bot_id && <button className="icon-button" type="button" aria-label={t('computer.title').replace('{bot}', chatTitle(currentChat))} title={t('computer.title').replace('{bot}', chatTitle(currentChat))} onClick={() => openComputer(currentChat.bot_id!)}><Monitor size={16} /></button>}
         <button className="icon-button" aria-label={t('chat.search')} onClick={() => setShowSearch(true)}><Search size={17} /></button>
         <button className="icon-button" aria-label="切换右面板"><PanelRight size={17} /></button>
       </header>
@@ -1414,7 +1674,7 @@ function App() {
           {buildMessageTimeline(currentMessages).map((entry) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className="timeline-fragment" key={entry.message.id}>
             {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-            <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onPreviewArtifact={(artifact) => void previewArtifact(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
+            <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void previewArtifact(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
             const decisionScope = hostScope
             const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
             if (result.approval && hostScopeRef.current === decisionScope) {
@@ -1512,7 +1772,36 @@ function App() {
       onRetry={() => setTraceRetry((value) => value + 1)}
       onStop={(assignmentId) => void stopTraceAssignment(assignmentId)}
       onMention={mentionAssignmentBot}
+      onScreen={(assignmentId) => {
+        const assignment = stateRef.current.assignments[assignmentId]
+        const botId = typeof assignment?.bot_id === 'string' ? assignment.bot_id : null
+        if (botId) openComputer(botId, typeof assignment?.tab_id === 'string' ? assignment.tab_id : undefined)
+      }}
       onQueueSteer={(messageId) => void steerTraceMessage(messageId)}
+      t={(key) => t(key as CopyKey)}
+    />}
+    {activePage === 'computer' && computerRoute && <ComputerPage
+      botId={computerRoute.botId}
+      botName={state.bots[computerRoute.botId]?.name ?? computerRoute.botId}
+      connection={computerConnection}
+      driver={computerDriver}
+      tabs={computerTabs}
+      activeTabId={computerActiveTab}
+      frame={computerFrameScope?.hostScope === hostScope && computerFrameScope.generation === computerGenerationRef.current ? computerFrame : null}
+      quality={computerQuality}
+      error={computerError}
+      loading={computerConnection === 'connecting'}
+      fullscreen={computerFullscreen}
+      takeoverRequest={computerTakeoverRequest}
+      onBack={backFromComputer}
+      onReconnect={() => setComputerRetry((value) => value + 1)}
+      onSelectTab={selectComputerTab}
+      onTakeOver={(botId) => void takeOverComputer(botId)}
+      onRelease={(botId, note) => void releaseComputer(botId, note)}
+      onQualityChange={setComputerQuality}
+      onInput={computerInput}
+      onFrameRendered={acknowledgeComputerFrame}
+      onToggleFullscreen={() => setComputerFullscreen((value) => !value)}
       t={(key) => t(key as CopyKey)}
     />}
     {activePage === 'workbench' && <WorkbenchPage state={state} onOpenChat={openWorkbenchChat} onTrace={(assignmentId) => openTrace(assignmentId)} onMention={mentionAssignmentBot} onRefresh={() => { void invoke<BridgeState>('get_bridge_state').then(setState).catch((error: unknown) => setState((current) => ({ ...current, error: String(error) }))) }} />}
@@ -1791,7 +2080,7 @@ function dateLabel(date: Date) {
   return date.toLocaleDateString('zh-CN', { year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric', month: 'long', day: 'numeric' })
 }
 
-function MessageBubble({ message, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: { message: Message; pending?: boolean; senderName: string; senderRole: string; groupStart: boolean; groupEnd: boolean; headerTime: string; exactTime: string; questions: BridgeState['questions']; approvals: BridgeState['approvals']; assignments: BridgeState['assignments']; projects: BridgeState['projects']; bots: BridgeState['bots']; chats: BridgeState['chats']; chatTitle: string; onOpenProject: (projectId: string, chatId?: string) => Promise<void>; onTaskDetail: (assignmentId: string) => void; onPreviewArtifact: (artifact: ArtifactRef) => void; onConfirmProject: (projectId: string, messageId: string, blockIndex: number) => Promise<void>; onRequestChanges: (projectId: string, messageId: string, blockIndex: number, text: string) => Promise<void>; onApprovalDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void>; onQuestionAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
+function MessageBubble({ message, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onOpenComputer, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: { message: Message; pending?: boolean; senderName: string; senderRole: string; groupStart: boolean; groupEnd: boolean; headerTime: string; exactTime: string; questions: BridgeState['questions']; approvals: BridgeState['approvals']; assignments: BridgeState['assignments']; projects: BridgeState['projects']; bots: BridgeState['bots']; chats: BridgeState['chats']; chatTitle: string; onOpenProject: (projectId: string, chatId?: string) => Promise<void>; onTaskDetail: (assignmentId: string) => void; onOpenComputer: (botId: string) => void; onPreviewArtifact: (artifact: ArtifactRef) => void; onConfirmProject: (projectId: string, messageId: string, blockIndex: number) => Promise<void>; onRequestChanges: (projectId: string, messageId: string, blockIndex: number, text: string) => Promise<void>; onApprovalDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void>; onQuestionAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
   const isUser = message.sender?.kind === 'user'
   const blocks = message.blocks ?? []
   const hasRenderable = blocks.some((block) => block.type && block.type !== 'text')
@@ -1805,7 +2094,7 @@ function MessageBubble({ message, pending = false, senderName, senderRole, group
   return <article className={`message-group ${isUser ? 'outgoing' : ''} ${groupStart ? 'group-start' : 'group-middle'} ${groupEnd ? 'group-end' : ''}`}>
     {!isUser && <div className="avatar-slot">{groupEnd && <BeanAvatar main={senderName === '总管'} size="32" seed={senderName} />}</div>}
     <div className="message-stack">
-      {!isUser && groupStart && <div className="message-author">{senderName}{senderRole && <span className="message-author-role"> · {senderRole}</span>}{headerTime && <span className="message-author-time"> · {headerTime}</span>}</div>}
+      {!isUser && groupStart && <div className="message-author">{senderName}{senderRole && <span className="message-author-role"> · {senderRole}</span>}{headerTime && <span className="message-author-time"> · {headerTime}</span>}{message.sender?.bot_id && <button type="button" className="message-computer-action" aria-label={t('computer.title').replace('{bot}', senderName)} title={t('computer.title').replace('{bot}', senderName)} onClick={() => onOpenComputer(message.sender!.bot_id!)}><Monitor size={12} /></button>}</div>}
       <div className="bubble">
         {exactTime && <span className="hover-time">{exactTime}</span>}
         {hasRenderable ? <div className="message-blocks">{blocks.map((block, index) => {
