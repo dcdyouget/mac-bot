@@ -208,6 +208,7 @@ pub struct MacBot {
     focus: FocusHandle,
     focus_region: usize,
     focus_message_index: Option<usize>,
+    pending_action_focus_generation: u64,
     active_question_id: Option<String>,
     expanded_bot_dm_refs: BTreeSet<String>,
     pending_action_handles: BTreeMap<String, FocusHandle>,
@@ -382,6 +383,7 @@ impl MacBot {
             focus: cx.focus_handle(),
             focus_region: 0,
             focus_message_index: None,
+            pending_action_focus_generation: 0,
             active_question_id: None,
             expanded_bot_dm_refs: BTreeSet::new(),
             pending_action_handles: BTreeMap::new(),
@@ -2085,6 +2087,52 @@ impl MacBot {
             }
         });
     }
+    fn focus_pending_action_when_rendered(
+        &mut self,
+        message_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_action_focus_generation = self.pending_action_focus_generation.wrapping_add(1);
+        let generation = self.pending_action_focus_generation;
+        let chat_id = self.selected_chat.clone();
+        let window_handle = window.window_handle();
+        let executor = cx.background_executor().clone();
+        cx.spawn(async move |this, cx| {
+            for _ in 0..24 {
+                executor.timer(std::time::Duration::from_millis(25)).await;
+                let complete = match window_handle.update(cx, |_, window, cx| {
+                    this.update(cx, |view, cx| {
+                        let target_still_selected = view
+                            .focus_message_index
+                            .and_then(|index| view.message_list_cache.message_at(index, view))
+                            .is_some_and(|message| s(&message, "id") == message_id);
+                        if view.pending_action_focus_generation != generation
+                            || view.page != "chat"
+                            || view.selected_chat != chat_id
+                            || !target_still_selected
+                        {
+                            return true;
+                        }
+                        if let Some(handle) = view.pending_action_handles.get(&message_id) {
+                            handle.focus(window, cx);
+                            cx.notify();
+                            true
+                        } else {
+                            false
+                        }
+                    })
+                }) {
+                    Ok(Ok(complete)) => complete,
+                    _ => true,
+                };
+                if complete {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
     fn cycle_focus(&mut self, reverse: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.page != "chat" {
             return;
@@ -3356,10 +3404,18 @@ impl Render for MacBot {
             .on_action(cx.listener(|this, _: &FocusPending, window, cx| {
                 if this.page == "chat" {
                     this.focus_message_index = None;
-                    this.focus_latest_pending_action(window, cx);
-                    if this.focus_message_index.is_none() {
+                    let found = this.focus_latest_pending_action(window, cx);
+                    if !found {
                         this.focus_messages.focus(window, cx);
+                    } else if let Some(message_id) = this
+                        .focus_message_index
+                        .and_then(|index| this.message_list_cache.message_at(index, this))
+                        .map(|message| s(&message, "id").to_owned())
+                        .filter(|message_id| !this.pending_action_handles.contains_key(message_id))
+                    {
+                        this.focus_pending_action_when_rendered(message_id, window, cx);
                     }
+                    cx.notify();
                 }
             }))
             .on_action(cx.listener(|this, _: &FocusPrevMessage, window, cx| {
