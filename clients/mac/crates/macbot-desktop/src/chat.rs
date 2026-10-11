@@ -4873,10 +4873,7 @@ impl MacBot {
                     .small()
                     .label(tr("group.open_home"))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.context.clear();
-                        this.context.push("home".to_owned());
-                        this.context_visible = true;
-                        this.load_home_directory(project_id.clone(), directory.clone(), cx);
+                        this.open_project_home(project_id.clone(), directory.clone(), cx);
                     })),
             );
         } else {
@@ -5606,10 +5603,7 @@ impl MacBot {
                     .label(tr("group.open_home"))
                     .disabled(home_project_id.is_empty() || !self.connected || self.fixture)
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.context.clear();
-                        this.context.push("home".to_owned());
-                        this.context_visible = true;
-                        this.load_home_directory(open_project_id.clone(), String::new(), cx);
+                        this.open_project_home(open_project_id.clone(), String::new(), cx);
                     }));
                 let copy_home_path = home_path.clone();
                 body = body.child(
@@ -6086,6 +6080,21 @@ impl MacBot {
             .trim_end_matches("/ws")
             .to_string()
     }
+    pub(super) fn open_project_home(
+        &mut self,
+        project_id: String,
+        path: String,
+        cx: &mut Context<Self>,
+    ) {
+        if project_id.is_empty() {
+            return;
+        }
+        self.context.clear();
+        self.context.push("home".to_owned());
+        self.context_visible = true;
+        self.load_home_directory(project_id, path, cx);
+    }
+
     fn load_home_directory(&mut self, project_id: String, path: String, cx: &mut Context<Self>) {
         self.home_file_request_id = self.home_file_request_id.wrapping_add(1);
         self.home_file_path.clear();
