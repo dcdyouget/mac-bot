@@ -16,11 +16,11 @@ struct ChatDropState {
 }
 
 struct ChatDropRegion {
-    view: Entity<MacBot>,
-    state: Entity<ChatDropState>,
+    view: gpui_kit::gpui::Entity<MacBot>,
+    state: gpui_kit::gpui::Entity<ChatDropState>,
 }
 
-impl IntoElement for ChatDropRegion {
+impl gpui_kit::gpui::IntoElement for ChatDropRegion {
     type Element = Self;
 
     fn into_element(self) -> Self::Element {
@@ -28,11 +28,11 @@ impl IntoElement for ChatDropRegion {
     }
 }
 
-impl Element for ChatDropRegion {
+impl gpui_kit::gpui::Element for ChatDropRegion {
     type RequestLayoutState = ();
-    type PrepaintState = Hitbox;
+    type PrepaintState = gpui_kit::gpui::Hitbox;
 
-    fn id(&self) -> Option<ElementId> {
+    fn id(&self) -> Option<gpui_kit::gpui::ElementId> {
         Some("chat-drop-region".into())
     }
 
@@ -42,16 +42,16 @@ impl Element for ChatDropRegion {
 
     fn request_layout(
         &mut self,
-        _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, Self::RequestLayoutState) {
-        let zero = Length::Definite(relative(0.));
+        _id: Option<&gpui_kit::gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui_kit::gpui::InspectorElementId>,
+        window: &mut gpui_kit::gpui::Window,
+        cx: &mut gpui_kit::gpui::App,
+    ) -> (gpui_kit::gpui::LayoutId, Self::RequestLayoutState) {
+        let zero = gpui_kit::gpui::Length::Definite(gpui_kit::gpui::relative(0.));
         let layout = window.request_layout(
-            Style {
-                position: Position::Absolute,
-                inset: Edges {
+            gpui_kit::gpui::Style {
+                position: gpui_kit::gpui::Position::Absolute,
+                inset: gpui_kit::gpui::Edges {
                     top: zero,
                     right: zero,
                     bottom: zero,
@@ -67,77 +67,81 @@ impl Element for ChatDropRegion {
 
     fn prepaint(
         &mut self,
-        _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
+        _id: Option<&gpui_kit::gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui_kit::gpui::InspectorElementId>,
+        bounds: gpui_kit::gpui::Bounds<gpui_kit::gpui::Pixels>,
         _state: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        _cx: &mut App,
+        window: &mut gpui_kit::gpui::Window,
+        _cx: &mut gpui_kit::gpui::App,
     ) -> Self::PrepaintState {
-        window.insert_hitbox(bounds, HitboxBehavior::Normal)
+        window.insert_hitbox(bounds, gpui_kit::gpui::HitboxBehavior::Normal)
     }
 
     fn paint(
         &mut self,
-        _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
-        _bounds: Bounds<Pixels>,
+        _id: Option<&gpui_kit::gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui_kit::gpui::InspectorElementId>,
+        _bounds: gpui_kit::gpui::Bounds<gpui_kit::gpui::Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         hitbox: &mut Self::PrepaintState,
-        window: &mut Window,
-        _cx: &mut App,
+        window: &mut gpui_kit::gpui::Window,
+        _cx: &mut gpui_kit::gpui::App,
     ) {
         let hitbox = hitbox.clone();
         let view = self.view.clone();
         let state = self.state.clone();
-        window.on_mouse_event(move |event: &FileDropEvent, phase, window, cx| {
-            if phase != DispatchPhase::Bubble {
-                return;
-            }
-            match event {
-                FileDropEvent::Entered { position, paths } => {
-                    let paths = paths.paths().to_vec();
-                    let active = !paths.is_empty() && hitbox.is_hovered_at(*position, window);
-                    let _ = cx.update_entity(&state, |state, _| state.paths = paths.clone());
-                    let _ = cx.update_entity(&view, |view, cx| {
-                        view.set_file_drop_state(active, active.then_some(paths), cx)
-                    });
+        window.on_mouse_event(
+            move |event: &gpui_kit::gpui::FileDropEvent, phase, window, cx| {
+                if phase != gpui_kit::gpui::DispatchPhase::Bubble {
+                    return;
                 }
-                FileDropEvent::Pending { position } => {
-                    if hitbox.is_hovered_at(*position, window) {
-                        let paths = state.read(cx).paths.clone();
-                        if !paths.is_empty() {
+                match event {
+                    gpui_kit::gpui::FileDropEvent::Entered { position, paths } => {
+                        let paths = paths.paths().to_vec();
+                        let active = !paths.is_empty() && hitbox.is_hovered_at(*position, window);
+                        let _ = cx.update_entity(&state, |state, _| state.paths = paths.clone());
+                        let _ = cx.update_entity(&view, |view, cx| {
+                            view.set_file_drop_state(active, active.then_some(paths), cx)
+                        });
+                    }
+                    gpui_kit::gpui::FileDropEvent::Pending { position } => {
+                        if hitbox.is_hovered_at(*position, window) {
+                            let paths = state.read(cx).paths.clone();
+                            if !paths.is_empty() {
+                                let _ = cx.update_entity(&view, |view, cx| {
+                                    view.set_file_drop_state(true, Some(paths), cx)
+                                });
+                            }
+                        } else {
                             let _ = cx.update_entity(&view, |view, cx| {
-                                view.set_file_drop_state(true, Some(paths), cx)
+                                view.set_file_drop_state(false, None, cx)
                             });
                         }
-                    } else {
+                    }
+                    gpui_kit::gpui::FileDropEvent::Submit { position } => {
+                        let paths = if hitbox.is_hovered_at(*position, window) {
+                            state.read(cx).paths.clone()
+                        } else {
+                            Vec::new()
+                        };
+                        let _ = cx.update_entity(&state, |state, _| state.paths.clear());
+                        let _ = cx.update_entity(&view, |view, cx| {
+                            view.set_file_drop_state(false, None, cx);
+                            if !paths.is_empty() {
+                                view.upload_dropped_attachments(paths, window, cx);
+                            }
+                        });
+                    }
+                    gpui_kit::gpui::FileDropEvent::Exited
+                    | gpui_kit::gpui::FileDropEvent::Ended => {
+                        let _ = cx.update_entity(&state, |state, _| state.paths.clear());
                         let _ = cx.update_entity(&view, |view, cx| {
                             view.set_file_drop_state(false, None, cx)
                         });
                     }
                 }
-                FileDropEvent::Submit { position } => {
-                    let paths = if hitbox.is_hovered_at(*position, window) {
-                        state.read(cx).paths.clone()
-                    } else {
-                        Vec::new()
-                    };
-                    let _ = cx.update_entity(&state, |state, _| state.paths.clear());
-                    let _ = cx.update_entity(&view, |view, cx| {
-                        view.set_file_drop_state(false, None, cx);
-                        if !paths.is_empty() {
-                            view.upload_dropped_attachments(paths, window, cx);
-                        }
-                    });
-                }
-                FileDropEvent::Exited | FileDropEvent::Ended => {
-                    let _ = cx.update_entity(&state, |state, _| state.paths.clear());
-                    let _ = cx
-                        .update_entity(&view, |view, cx| view.set_file_drop_state(false, None, cx));
-                }
-            }
-        });
+            },
+        );
     }
 }
 
@@ -722,7 +726,6 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.mention.main" => "打开总管私聊",
         "chat.mention.main_label" => "@总管",
         "chat.mention.user" => "提及你",
-        "chat.mention.everyone" => "提及所有成员",
         "chat.reaction.accessible" => "用 {emoji} 回应",
         "chat.edit.label" => "正在编辑你发送的消息",
         "chat.edit.cancel" => "取消编辑",
@@ -2557,15 +2560,14 @@ impl MacBot {
             self.state
                 .projects
                 .get(s(&chat, "project_id"))
-                .map(|project| s(project, "name"))
+                .map(|project| s(project, "name").to_owned())
                 .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| s(&chat, "name"))
+                .unwrap_or_else(|| s(&chat, "name").to_owned())
         } else if s(&chat, "kind") == "bot_dm" {
-            s(&bot, "name")
+            s(&bot, "name").to_owned()
         } else {
-            chat_tr("chat.main.subtitle").as_ref()
-        }
-        .to_owned();
+            chat_tr("chat.main.subtitle").to_string()
+        };
         let mut session = div()
             .relative()
             .flex()
