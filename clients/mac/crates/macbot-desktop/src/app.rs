@@ -29,6 +29,16 @@ struct MessageDeepLink {
     host_id: String,
 }
 
+struct DeepLinkHistorySearch {
+    request_id: u64,
+    chat_id: String,
+    message_id: String,
+    pages_loaded: u8,
+    in_flight_before_seq: Option<Option<u64>>,
+}
+
+const DEEP_LINK_HISTORY_PAGE_LIMIT: u8 = 20;
+
 fn diagnostic_error_class(error: &str) -> &'static str {
     let error = error.to_ascii_lowercase();
     if error.contains("broken pipe") || error.contains("os error 32") {
@@ -167,6 +177,8 @@ pub struct MacBot {
     open_url_task: Option<Task<()>>,
     open_url_queue: OpenUrlQueue,
     pending_deep_links: VecDeque<MessageDeepLink>,
+    deep_link_history_search: Option<DeepLinkHistorySearch>,
+    deep_link_request_generation: u64,
     state: AppState,
     address: Entity<InputState>,
     password: Entity<InputState>,
@@ -331,6 +343,8 @@ impl MacBot {
             open_url_task: None,
             open_url_queue,
             pending_deep_links: VecDeque::new(),
+            deep_link_history_search: None,
+            deep_link_request_generation: 0,
             state: AppState::default(),
             address,
             password,
@@ -524,9 +538,140 @@ impl MacBot {
             return;
         }
         self.pending_deep_links.pop_front();
-        self.pending_chat_jump = Some((link.chat_id.clone(), link.message_id));
-        self.notice.clear();
+        self.deep_link_request_generation = self.deep_link_request_generation.wrapping_add(1);
+        let request_id = self.deep_link_request_generation;
+        let message_id = link.message_id.clone();
+        self.pending_chat_jump = Some((link.chat_id.clone(), message_id.clone()));
+        self.deep_link_history_search = Some(DeepLinkHistorySearch {
+            request_id,
+            chat_id: link.chat_id.clone(),
+            message_id,
+            pages_loaded: 0,
+            in_flight_before_seq: Some(None),
+        });
+        self.notice = tr("deep_link.searching").to_string();
         self.select_chat(link.chat_id, window, cx);
+    }
+    fn process_deep_link_history_page(
+        &mut self,
+        params: &Value,
+        result: &Value,
+        request_id: Option<u64>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(request_id) = request_id else {
+            return;
+        };
+        let request_before_seq = params.get("before_seq").and_then(Value::as_u64);
+        let (chat_id, target_id, pages_loaded) = {
+            let Some(search) = self.deep_link_history_search.as_mut() else {
+                return;
+            };
+            if search.request_id != request_id
+                || s(params, "chat_id") != search.chat_id
+                || search.in_flight_before_seq != Some(request_before_seq)
+                || self.selected_chat != search.chat_id
+            {
+                return;
+            }
+            search.in_flight_before_seq = None;
+            search.pages_loaded = search.pages_loaded.saturating_add(1);
+            (
+                search.chat_id.clone(),
+                search.message_id.clone(),
+                search.pages_loaded,
+            )
+        };
+        let target_message = self.state.messages.values().find(|message| {
+            s(message, "chat_id") == chat_id
+                && (s(message, "id") == target_id
+                    || arr(message, "blocks").iter().any(|block| {
+                        s(block, "type") == "approval" && s(block, "approval_id") == target_id
+                    }))
+        });
+        if let Some(message_id) = target_message.map(|message| s(message, "id").to_owned()) {
+            self.pending_chat_jump = None;
+            self.deep_link_history_search = None;
+            self.notice.clear();
+            if !self.jump_to_message(&message_id, cx) {
+                self.notice = tr("deep_link.message_missing").to_string();
+            }
+            return;
+        }
+
+        let page_messages = arr(result, "messages");
+        if page_messages.is_empty() || result.get("has_more") != Some(&Value::Bool(true)) {
+            self.finish_deep_link_history_search("deep_link.message_missing");
+            return;
+        }
+        let Some(oldest_seq) = page_messages
+            .iter()
+            .filter_map(|message| message.get("seq").and_then(Value::as_u64))
+            .min()
+        else {
+            self.finish_deep_link_history_search("deep_link.message_missing");
+            return;
+        };
+        if request_before_seq.is_some_and(|before| oldest_seq >= before) {
+            self.finish_deep_link_history_search("deep_link.message_missing");
+            return;
+        }
+        if pages_loaded >= DEEP_LINK_HISTORY_PAGE_LIMIT {
+            self.finish_deep_link_history_search("deep_link.search_limit");
+            return;
+        }
+        if let Some(search) = self.deep_link_history_search.as_mut() {
+            search.in_flight_before_seq = Some(Some(oldest_seq));
+        }
+        self.notice = tr("deep_link.searching").to_string();
+        self.rpc(
+            "chat.history",
+            json!({"chat_id":chat_id,"before_seq":oldest_seq,"limit":100}),
+            cx,
+        );
+    }
+    fn fail_deep_link_history_search(&mut self, request_id: Option<u64>) {
+        let Some(request_id) = request_id else {
+            return;
+        };
+        if self
+            .deep_link_history_search
+            .as_ref()
+            .is_some_and(|search| search.request_id == request_id)
+        {
+            self.pending_chat_jump = None;
+            self.deep_link_history_search = None;
+        }
+    }
+    fn is_current_deep_link_history_request(
+        &self,
+        request_id: Option<u64>,
+        params: &Value,
+    ) -> bool {
+        let Some(request_id) = request_id else {
+            return false;
+        };
+        let before_seq = params.get("before_seq").and_then(Value::as_u64);
+        self.deep_link_history_search
+            .as_ref()
+            .is_some_and(|search| {
+                search.request_id == request_id
+                    && search.chat_id == s(params, "chat_id")
+                    && search.in_flight_before_seq == Some(before_seq)
+            })
+    }
+    fn finish_deep_link_history_search(&mut self, notice_key: &str) {
+        self.pending_chat_jump = None;
+        self.deep_link_history_search = None;
+        self.notice = tr(notice_key).to_string();
+    }
+    fn cancel_deep_link_history_search(&mut self) {
+        self.deep_link_request_generation = self.deep_link_request_generation.wrapping_add(1);
+        self.pending_chat_jump = None;
+        self.deep_link_history_search = None;
+        if self.notice == tr("deep_link.searching").as_ref() {
+            self.notice.clear();
+        }
     }
     fn connect(&mut self, cx: &mut Context<Self>) {
         self.cancel_search_open();
@@ -666,6 +811,15 @@ impl MacBot {
                 .insert(id, chat::pending_message(&params));
             self.persist_outbox();
         }
+        let request_before_seq = params.get("before_seq").and_then(Value::as_u64);
+        let deep_link_request_id = (method == "chat.history")
+            .then(|| self.deep_link_history_search.as_ref())
+            .flatten()
+            .filter(|search| {
+                s(&params, "chat_id") == search.chat_id
+                    && search.in_flight_before_seq == Some(request_before_seq)
+            })
+            .map(|search| search.request_id);
         let generation = self.connection_generation;
         let trace_epoch = self.trace_epoch;
         let method = method.to_owned();
@@ -691,8 +845,18 @@ impl MacBot {
                         }
                         return;
                     }
+                    if deep_link_request_id.is_some()
+                        && !view.is_current_deep_link_history_request(
+                            deep_link_request_id,
+                            &params_copy,
+                        )
+                    {
+                        return;
+                    }
                     match result {
-                        Ok(Ok(value)) => view.rpc_result(&method, &params_copy, value, cx),
+                        Ok(Ok(value)) => {
+                            view.rpc_result(&method, &params_copy, value, deep_link_request_id, cx)
+                        }
                         Ok(Err(error)) => {
                             view.rpc_failed(
                                 &method,
@@ -701,9 +865,11 @@ impl MacBot {
                                 error.details().cloned(),
                                 cx,
                             );
+                            view.fail_deep_link_history_search(deep_link_request_id);
                         }
                         Err(error) => {
                             view.rpc_failed(&method, &params_copy, error.to_string(), None, cx);
+                            view.fail_deep_link_history_search(deep_link_request_id);
                         }
                     }
                     cx.notify();
@@ -860,7 +1026,14 @@ impl MacBot {
         }
         cx.notify();
     }
-    fn rpc_result(&mut self, method: &str, params: &Value, value: Value, cx: &mut Context<Self>) {
+    fn rpc_result(
+        &mut self,
+        method: &str,
+        params: &Value,
+        value: Value,
+        deep_link_request_id: Option<u64>,
+        cx: &mut Context<Self>,
+    ) {
         let previous_page = self.page.clone();
         self.feature_result(method, params, &value, cx);
         if let Some(message) = value.get("message") {
@@ -885,28 +1058,7 @@ impl MacBot {
                 for v in arr(&value, "messages") {
                     insert(&mut self.state.messages, v, "id");
                 }
-                if s(params, "chat_id") == self.selected_chat
-                    && let Some((target_chat, target_id)) = self.pending_chat_jump.clone()
-                    && target_chat == self.selected_chat
-                {
-                    let target_message = self.state.messages.values().find(|message| {
-                        s(message, "chat_id") == target_chat
-                            && (s(message, "id") == target_id
-                                || arr(message, "blocks").iter().any(|block| {
-                                    s(block, "type") == "approval"
-                                        && s(block, "approval_id") == target_id
-                                }))
-                    });
-                    if let Some(message_id) =
-                        target_message.map(|message| s(message, "id").to_owned())
-                    {
-                        self.pending_chat_jump = None;
-                        self.jump_to_message(&message_id, cx);
-                    } else {
-                        self.pending_chat_jump = None;
-                        self.notice = tr("deep_link.message_missing").to_string();
-                    }
-                }
+                self.process_deep_link_history_page(params, &value, deep_link_request_id, cx);
             }
             "assignment.list" => {
                 for v in arr(&value, "items") {
@@ -1307,6 +1459,7 @@ impl MacBot {
     }
     fn select_main(&mut self, cx: &mut Context<Self>) {
         self.cancel_search_open();
+        self.cancel_deep_link_history_search();
         self.close_trace(cx);
         self.close_screen();
         self.context.clear();
@@ -1335,6 +1488,13 @@ impl MacBot {
         }
     }
     fn select_chat(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .pending_chat_jump
+            .as_ref()
+            .is_some_and(|(pending_chat, _)| pending_chat != &id)
+        {
+            self.cancel_deep_link_history_search();
+        }
         self.cancel_search_open();
         self.close_trace(cx);
         self.close_screen();
@@ -1350,7 +1510,16 @@ impl MacBot {
             .update(cx, |input, cx| input.set_value(draft, window, cx));
         self.composer
             .update(cx, |input, cx| input.focus(window, cx));
-        self.rpc("chat.history", json!({"chat_id":id}), cx);
+        let history_params = if self
+            .deep_link_history_search
+            .as_ref()
+            .is_some_and(|search| search.chat_id == id)
+        {
+            json!({"chat_id":id,"limit":100})
+        } else {
+            json!({"chat_id":id})
+        };
+        self.rpc("chat.history", history_params, cx);
         if let Some(chat) = self.state.chats.get(&self.selected_chat) {
             let seq = chat["last_seq"].clone();
             let project = chat["project_id"].clone();
@@ -1837,6 +2006,7 @@ impl MacBot {
     }
     fn navigate(&mut self, page: &str, cx: &mut Context<Self>) {
         self.cancel_search_open();
+        self.cancel_deep_link_history_search();
         self.close_trace(cx);
         self.close_screen();
         self.context.clear();
@@ -1864,6 +2034,7 @@ impl MacBot {
     }
     fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_search_open();
+        self.cancel_deep_link_history_search();
         self.close_screen();
         if !self.context.is_empty() {
             self.context.pop();

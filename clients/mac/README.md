@@ -8,7 +8,7 @@
 
 通知总开关和四类通知偏好保存在本机私有设置目录；诊断导出只包含客户端版本、平台、连接状态类别和实体数量，不导出 Host 地址、消息正文或凭据。登录时启动通过用户 LaunchAgent 实现。当前 GPUI 只支持整窗系统模糊，不能逐个表面设置设计中的 blur 半径和 saturate 值；半透明主题通过系统窗口材质显示，降低透明度开启时自动退回不透明。
 
-macOS App 注册 `macbot://` URL scheme。消息链接格式为 `macbot://message/<message_id>?chat_id=<chat_id>&host_id=<node_id>`；打开后，客户端等待 Host 连接并核对 `host_id`，匹配时加载会话历史并定位消息，不匹配时显示提示且不会跳到其他 Host。链接在连接前到达时会排队；若消息不在当前加载的历史中，客户端会说明暂时无法定位。此 scheme 由打包后的 `.app` 的 `Info.plist` 注册，直接运行可执行文件不会向系统注册。
+macOS App 注册 `macbot://` URL scheme。消息链接格式为 `macbot://message/<message_id>?chat_id=<chat_id>&host_id=<node_id>`；打开后，客户端等待 Host 连接并核对 `host_id`，匹配时加载会话历史并定位消息，不匹配时显示提示且不会跳到其他 Host。链接在连接前到达时会排队；客户端通过 `chat.history.before_seq` 最多向前加载 20 页（最多 2,000 条），找到消息、到达历史起点或达到上限时结束并显示对应状态。此 scheme 由打包后的 `.app` 的 `Info.plist` 注册，直接运行可执行文件不会向系统注册。
 
 S0 已在 main 安装版完成桌面与 Android 的 mock 联调。客户端已接入私聊、全部消息块、轨迹、群协作、工作台、Bot 管理、技能、仪表盘、搜索、Agent Computer 和定时任务。后续阶段的客户端原生验收证据见 `progress/S1` 至 `progress/S5`；真实模型执行和两端场景验收由集成线依赖服务端推进。自动更新未配置 manifest URL 时为 disabled；本地产出的 DMG 已通过独立目录内的安装替换测试，公开发布源与签名尚未配置。
 
