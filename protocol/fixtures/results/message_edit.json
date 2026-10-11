@@ -1,0 +1,29 @@
+{
+  "message": {
+    "assignment_id": null,
+    "blocks": [
+      {
+        "markdown": "修正后的消息",
+        "type": "text"
+      }
+    ],
+    "chat_id": "chat_main",
+    "created_at": "2026-10-09T10:19:02.312Z",
+    "deleted": false,
+    "delivery": [],
+    "edited_at": "2026-10-09T10:20:02.312Z",
+    "fallback_text": "修正后的消息",
+    "id": "msg_user_1",
+    "intent": null,
+    "mentions": [],
+    "reactions": [],
+    "reply_to": null,
+    "sender": {
+      "kind": "user"
+    },
+    "seq": 1,
+    "streaming": false,
+    "thread_count": 0,
+    "quote": null
+  }
+}

@@ -1164,6 +1164,46 @@
         }
       ]
     },
+    "MessageDeleteParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "message_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message_id": {
+          "type": "string"
+        }
+      }
+    },
+    "MessageEditParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "message_id",
+        "text"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
     "MessageSteerParams": {
       "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
       "type": "object",
@@ -1202,6 +1242,8 @@
         "chat.history",
         "chat.thread",
         "chat.send",
+        "message.delete",
+        "message.edit",
         "message.steer",
         "artifact.versions.list",
         "artifact.version.get",
@@ -1302,6 +1344,12 @@
         },
         {
           "$ref": "#/definitions/ChatSendParams"
+        },
+        {
+          "$ref": "#/definitions/MessageDeleteParams"
+        },
+        {
+          "$ref": "#/definitions/MessageEditParams"
         },
         {
           "$ref": "#/definitions/MessageSteerParams"

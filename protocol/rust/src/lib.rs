@@ -1504,6 +1504,23 @@ pub struct ChatSendResult {
     pub message: Message,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MessageDeleteParams {
+    pub message_id: Id,
+    #[serde(flatten)]
+    pub meta: WriteMeta,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MessageEditParams {
+    pub message_id: Id,
+    pub text: String,
+    #[serde(flatten)]
+    pub meta: WriteMeta,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MessageEditResult {
+    pub message: Message,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct MessageSteerParams {
     pub message_id: Id,
     pub bot_id: Id,
@@ -2504,6 +2521,10 @@ pub enum Method {
     ChatThread,
     #[serde(rename = "chat.send")]
     ChatSend,
+    #[serde(rename = "message.delete")]
+    MessageDelete,
+    #[serde(rename = "message.edit")]
+    MessageEdit,
     #[serde(rename = "message.steer")]
     MessageSteer,
     #[serde(rename = "artifact.versions.list")]
@@ -2657,6 +2678,8 @@ pub enum MethodParams {
     ChatHistory(ChatHistoryParams),
     ChatThread(ChatThreadParams),
     ChatSend(ChatSendParams),
+    MessageDelete(MessageDeleteParams),
+    MessageEdit(MessageEditParams),
     MessageSteer(MessageSteerParams),
     ArtifactVersionsList(ArtifactVersionsParams),
     ArtifactVersionGet(ArtifactVersionGetParams),
@@ -2741,6 +2764,8 @@ pub enum MethodResult {
     ChatHistory(ChatHistoryResult),
     ChatThread(ChatThreadResult),
     ChatSend(ChatSendResult),
+    MessageDelete(EmptyResult),
+    MessageEdit(MessageEditResult),
     MessageSteer(MessageSteerResult),
     ArtifactVersionsList(ArtifactVersionsResult),
     ArtifactVersionGet(ArtifactVersionGetResult),
@@ -2830,6 +2855,8 @@ impl MethodParams {
             Method::ChatHistory => p!(ChatHistory, ChatHistoryParams),
             Method::ChatThread => p!(ChatThread, ChatThreadParams),
             Method::ChatSend => p!(ChatSend, ChatSendParams),
+            Method::MessageDelete => p!(MessageDelete, MessageDeleteParams),
+            Method::MessageEdit => p!(MessageEdit, MessageEditParams),
             Method::MessageSteer => p!(MessageSteer, MessageSteerParams),
             Method::ArtifactVersionsList => p!(ArtifactVersionsList, ArtifactVersionsParams),
             Method::ArtifactVersionGet => p!(ArtifactVersionGet, ArtifactVersionGetParams),
@@ -2921,6 +2948,8 @@ impl MethodResult {
             Method::ChatHistory => r!(ChatHistory, ChatHistoryResult),
             Method::ChatThread => r!(ChatThread, ChatThreadResult),
             Method::ChatSend => r!(ChatSend, ChatSendResult),
+            Method::MessageDelete => r!(MessageDelete, EmptyResult),
+            Method::MessageEdit => r!(MessageEdit, MessageEditResult),
             Method::MessageSteer => r!(MessageSteer, MessageSteerResult),
             Method::ArtifactVersionsList => r!(ArtifactVersionsList, ArtifactVersionsResult),
             Method::ArtifactVersionGet => r!(ArtifactVersionGet, ArtifactVersionGetResult),

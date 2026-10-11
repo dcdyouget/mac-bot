@@ -12,6 +12,8 @@
     "chat.history",
     "chat.thread",
     "chat.send",
+    "message.delete",
+    "message.edit",
     "message.steer",
     "artifact.versions.list",
     "artifact.version.get",

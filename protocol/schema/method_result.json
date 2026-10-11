@@ -30,6 +30,12 @@
       "$ref": "#/definitions/ChatSendResult"
     },
     {
+      "$ref": "#/definitions/EmptyResult"
+    },
+    {
+      "$ref": "#/definitions/MessageEditResult"
+    },
+    {
       "$ref": "#/definitions/MessageSteerResult"
     },
     {
@@ -2494,6 +2500,17 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0
+        }
+      }
+    },
+    "MessageEditResult": {
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "$ref": "#/definitions/Message"
         }
       }
     },
