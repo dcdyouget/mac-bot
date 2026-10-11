@@ -65,6 +65,7 @@ pub struct FeaturePage {
     pub selected_member_bot_ids: Vec<String>,
     pub last_action: Option<FeatureAction>,
     search_selected_result: usize,
+    search_side_open: bool,
 }
 
 /// JSON keys consumed by each feature page. Results from RPCs may include
@@ -154,6 +155,7 @@ impl FeaturePage {
             selected_member_bot_ids,
             last_action: None,
             search_selected_result: 0,
+            search_side_open: false,
         }
     }
 
@@ -183,6 +185,7 @@ impl FeaturePage {
             selected_member_bot_ids,
             last_action: None,
             search_selected_result: 0,
+            search_side_open: false,
         }
     }
 
@@ -204,6 +207,7 @@ impl FeaturePage {
     pub fn update_data(&mut self, data: Value, cx: &mut Context<Self>) {
         if data.get("results").is_some() {
             self.search_selected_result = 0;
+            self.search_side_open = false;
         }
         self.data = merge_feature_data(&self.data, data);
         cx.notify();
@@ -225,6 +229,7 @@ impl FeaturePage {
         self.data = data;
         self.last_action = None;
         self.search_selected_result = 0;
+        self.search_side_open = false;
         cx.notify();
     }
 
@@ -252,6 +257,7 @@ impl FeaturePage {
             &self.textareas,
             &self.selected_member_bot_ids,
             self.search_selected_result,
+            self.search_side_open,
             window,
             cx,
         );
@@ -284,6 +290,25 @@ impl FeaturePage {
                             this.search_selected_result =
                                 (this.search_selected_result + 1).min(results - 1);
                             cx.notify();
+                        }
+                        "escape" | "Escape" if this.search_side_open => {
+                            cx.stop_propagation();
+                            this.search_side_open = false;
+                            cx.notify();
+                        }
+                        "enter" | "Enter" if event.keystroke.modifiers.platform => {
+                            if this
+                                .data
+                                .get("results")
+                                .and_then(Value::as_array)
+                                .is_some_and(|results| {
+                                    results.get(this.search_selected_result).is_some()
+                                })
+                            {
+                                cx.stop_propagation();
+                                this.search_side_open = true;
+                                cx.notify();
+                            }
                         }
                         "enter" | "Enter" if !event.keystroke.modifiers.modified() => {
                             let Some(result) = this
@@ -553,6 +578,7 @@ fn render_page(
     textareas: &BTreeMap<String, Entity<TextareaState>>,
     selected_member_bot_ids: &[String],
     search_selected_result: usize,
+    search_side_open: bool,
     _window: &mut Window,
     cx: &mut Context<FeaturePage>,
 ) -> AnyElement {
@@ -586,7 +612,15 @@ fn render_page(
         "routine" | "routines" => {
             routine_editor(data, inputs, textareas, &tokens, cx).into_any_element()
         }
-        "search" => search(data, inputs, search_selected_result, &tokens, cx).into_any_element(),
+        "search" => search(
+            data,
+            inputs,
+            search_selected_result,
+            search_side_open,
+            &tokens,
+            cx,
+        )
+        .into_any_element(),
         _ => empty_page(page, &tokens, cx).into_any_element(),
     };
     let scroll = div()
@@ -1725,7 +1759,22 @@ fn dashboard_period_rpc_button(
             this.data["from"] = json!(from_value.clone());
             this.data["to"] = json!(to_value.clone());
             this.data["range"] = json!("custom");
-            let params = build(&from_value, &to_value);
+            let params = if method == "usage.heatmap" {
+                let snapshot = this.data.clone();
+                usage_heatmap_params(
+                    &snapshot,
+                    snapshot
+                        .get("heatmap_mode")
+                        .and_then(Value::as_str)
+                        .unwrap_or("calendar"),
+                    snapshot
+                        .get("heatmap_metric")
+                        .and_then(Value::as_str)
+                        .unwrap_or("tokens"),
+                )
+            } else {
+                build(&from_value, &to_value)
+            };
             let refresh_all = method == "usage.summary" || method == "usage.heatmap";
             this.emit_action(
                 FeatureAction::Rpc {
@@ -1749,7 +1798,17 @@ fn dashboard_period_rpc_button(
                     this.emit_action(
                         FeatureAction::Rpc {
                             method: "usage.heatmap".into(),
-                            params: usage_heatmap_params(&snapshot, "calendar", "tokens"),
+                            params: usage_heatmap_params(
+                                &snapshot,
+                                snapshot
+                                    .get("heatmap_mode")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("calendar"),
+                                snapshot
+                                    .get("heatmap_metric")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("tokens"),
+                            ),
                         },
                         cx,
                     );
@@ -1837,7 +1896,17 @@ fn dashboard_range_button(
             this.emit_action(
                 FeatureAction::Rpc {
                     method: "usage.heatmap".into(),
-                    params: usage_heatmap_params(&snapshot, "calendar", "tokens"),
+                    params: usage_heatmap_params(
+                        &snapshot,
+                        snapshot
+                            .get("heatmap_mode")
+                            .and_then(Value::as_str)
+                            .unwrap_or("calendar"),
+                        snapshot
+                            .get("heatmap_metric")
+                            .and_then(Value::as_str)
+                            .unwrap_or("tokens"),
+                    ),
                 },
                 cx,
             );
@@ -1953,11 +2022,46 @@ fn dashboard_heatmap_metric_button(
         .label(label)
         .on_click(cx.listener(move |this, _, _, cx| {
             this.data["metric"] = json!(metric.clone());
+            this.data["heatmap_mode"] = json!(mode.clone());
+            this.data["heatmap_metric"] = json!(metric.clone());
             let snapshot = this.data.clone();
             this.emit_action(
                 FeatureAction::Rpc {
                     method: "usage.heatmap".into(),
                     params: usage_heatmap_params(&snapshot, &mode, &metric),
+                },
+                cx,
+            );
+        }))
+}
+
+fn dashboard_heatmap_mode_button(
+    label: &str,
+    mode: &str,
+    selected_mode: &str,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
+    let label = label.to_owned();
+    let mode = mode.to_owned();
+    let selected = mode == selected_mode;
+    Button::new(format!("dashboard-heatmap-mode-{mode}"))
+        .label(label)
+        .when(selected, |button| button.primary())
+        .when(!selected, |button| button.ghost())
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.data["heatmap_mode"] = json!(mode.clone());
+            let snapshot = this.data.clone();
+            this.emit_action(
+                FeatureAction::Rpc {
+                    method: "usage.heatmap".into(),
+                    params: usage_heatmap_params(
+                        &snapshot,
+                        &mode,
+                        snapshot
+                            .get("heatmap_metric")
+                            .and_then(Value::as_str)
+                            .unwrap_or("tokens"),
+                    ),
                 },
                 cx,
             );
@@ -2854,6 +2958,10 @@ fn dashboard(
     let heat = heatmap(data, inputs, tokens, cx);
     let trend = trend_chart(data, tokens, cx);
     let selected_range = data.get("range").and_then(Value::as_str).unwrap_or("30d");
+    let selected_heatmap_mode = data
+        .get("heatmap_mode")
+        .and_then(Value::as_str)
+        .unwrap_or("calendar");
     let period_label = match selected_range {
         "today" => t("dashboard.range.today"),
         "7d" => t("dashboard.range.7d"),
@@ -2959,6 +3067,24 @@ fn dashboard(
                 .flex()
                 .flex_col()
                 .gap(px(tokens.space[3]))
+                .child(
+                    div().flex().gap(px(tokens.space[2])).children([
+                        dashboard_heatmap_mode_button(
+                            t("dashboard.heatmap.calendar"),
+                            "calendar",
+                            selected_heatmap_mode,
+                            cx,
+                        )
+                        .into_any_element(),
+                        dashboard_heatmap_mode_button(
+                            t("dashboard.heatmap.week_hour"),
+                            "weekhour",
+                            selected_heatmap_mode,
+                            cx,
+                        )
+                        .into_any_element(),
+                    ]),
+                )
                 .child(heat)
                 .child(dashboard_heatmap_legend(tokens)),
             tokens,
@@ -3891,6 +4017,9 @@ fn skills(
     let selected_source = skill_source_kind(selected);
     let selected_builtin = !selected_name.is_empty() && selected_source == "builtin";
     let selected_draft = !selected_name.is_empty() && selected_source == "draft";
+    let draft_origin = selected_draft
+        .then(|| skill_draft_origin(selected))
+        .flatten();
     let list_rows =
         div()
             .flex()
@@ -4004,6 +4133,15 @@ fn skills(
         .flex_col()
         .gap(px(tokens.space[4]))
         .child(selected_header)
+        .child(if let Some(origin) = draft_origin {
+            div()
+                .text_size(px(tokens.desktop_type[1][0]))
+                .text_color(tokens.warning)
+                .child(origin)
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        })
         .child(labeled_field(
             t("skills.new.name"),
             Input::new(input_state(inputs, "name"))
@@ -4042,8 +4180,9 @@ fn skills(
         .child(
             div()
                 .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
-                .child(t("skills.new.mode.write")),
+                .child(t("skills.new.title")),
         )
+        .child(div().child(t("skills.new.mode.write")))
         .child(skill_create_button(
             t("skills.new.create"),
             inputs,
@@ -4070,7 +4209,7 @@ fn skills(
                     Input::new(input_state(inputs, "path")).id("skill-import-path-input"),
                     tokens,
                 ))
-                .child(skill_import_button(t("skills.import"), inputs, cx))
+                .child(skill_import_button(t("skills.new.mode.folder"), inputs, cx))
                 .child(labeled_field(
                     t("skills.field_git_url"),
                     Input::new(input_state(inputs, "git_url")).id("skill-import-git-url-input"),
@@ -4414,6 +4553,24 @@ fn skill_usage_label(skill: &Value) -> String {
     }
 }
 
+fn skill_draft_origin(skill: &Value) -> Option<String> {
+    let origin = skill.get("draft_from")?;
+    let bot = origin.get("bot_name").and_then(Value::as_str)?.trim();
+    if bot.is_empty() {
+        return None;
+    }
+    let project = origin
+        .get("project_name")
+        .and_then(Value::as_str)
+        .filter(|project| !project.trim().is_empty());
+    Some(match project {
+        Some(project) => t("skills.draft_from")
+            .replace("{bot}", bot)
+            .replace("{project}", project),
+        None => t("skills.draft_from.dm").replace("{bot}", bot),
+    })
+}
+
 fn skill_invocations(skill: &Value) -> String {
     skill
         .get("invocations_7d")
@@ -4489,12 +4646,15 @@ fn bot_editor(
     } else {
         div().into_any_element()
     };
-    let tool_picker = if data
+    let is_main_bot = data
         .get("is_main")
         .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        div().into_any_element()
+        .unwrap_or(false);
+    let tool_picker = if is_main_bot {
+        div()
+            .text_color(tokens.secondary)
+            .child(t("bot.main.no_tools"))
+            .into_any_element()
     } else {
         bot_tools_picker(data, tokens, cx).into_any_element()
     };
@@ -4550,6 +4710,15 @@ fn bot_editor(
             model_picker,
             tokens,
         ))
+        .child(if is_main_bot {
+            div()
+                .text_size(px(tokens.desktop_type[1][0]))
+                .text_color(tokens.secondary)
+                .child(t("bot.main.model_hint"))
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        })
         .child(labeled_field(
             t("bot.field.browser_mode"),
             bot_browser_picker(inputs, tokens, cx),
@@ -5193,6 +5362,20 @@ fn bot_avatar_picker(
     for emoji in ["🤖", "🦊", "🐼", "🐙", "🦄", "🚀"] {
         buttons.push(
             bot_avatar_button(emoji, &bot_id, json!({"kind":"emoji","emoji":emoji}), cx)
+                .into_any_element(),
+        );
+    }
+    if !bot_id.is_empty() {
+        buttons.push(
+            Button::new("bot-avatar-image-upload")
+                .label(t("bot.avatar.other"))
+                .ghost()
+                .on_click(cx.listener({
+                    let target = format!("bot/avatar/upload/{bot_id}");
+                    move |this, _, _, cx| {
+                        this.emit_action(FeatureAction::Navigate(target.clone()), cx);
+                    }
+                }))
                 .into_any_element(),
         );
     }
@@ -5876,10 +6059,25 @@ fn search(
     data: &Value,
     inputs: &BTreeMap<String, Entity<InputState>>,
     selected_result: usize,
+    side_open: bool,
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
     let result = array(data, "results");
+    let mut results_area =
+        div()
+            .flex()
+            .gap(px(tokens.space[4]))
+            .child(div().flex_1().min_w_0().child(card(
+                t("common.search"),
+                search_result_rows(&result, selected_result, tokens, cx),
+                tokens,
+            )));
+    if side_open {
+        if let Some(selected) = result.get(selected_result) {
+            results_area = results_area.child(search_result_preview(selected, tokens, cx));
+        }
+    }
     div()
         .flex()
         .flex_col()
@@ -5942,11 +6140,64 @@ fn search(
                     cx,
                 )),
         )
-        .child(card(
-            t("common.search"),
-            search_result_rows(&result, selected_result, tokens, cx),
-            tokens,
-        ))
+        .child(results_area)
+}
+
+fn search_result_preview(
+    result: &Value,
+    tokens: &Tokens,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement {
+    let kind = string(result, "kind", "");
+    let title = string(result, "title", t("common.unknown"));
+    let snippet = string(result, "snippet", t("common.unknown"));
+    let target = search_target(result, &kind);
+    let mut preview = div()
+        .w(px(tokens.desktop_layout.panel_width))
+        .flex_none()
+        .flex()
+        .flex_col()
+        .gap(px(tokens.space[4]))
+        .p(px(tokens.space[5]))
+        .rounded(px(tokens.radius[2]))
+        .border_1()
+        .border_color(tokens.border)
+        .bg(tokens.panel)
+        .child(
+            div()
+                .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                .child(t("search.preview.title")),
+        )
+        .child(
+            Button::new("search-preview-close")
+                .ghost()
+                .label(t("search.preview.close"))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.search_side_open = false;
+                    cx.notify();
+                })),
+        )
+        .child(
+            div()
+                .text_size(px(tokens.desktop_type[1][0]))
+                .text_color(tokens.secondary)
+                .child(search_kind_label(&kind)),
+        )
+        .child(
+            div()
+                .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                .child(title),
+        )
+        .child(div().text_color(tokens.secondary).child(snippet));
+    if let Some(target) = target {
+        preview = preview.child(action_button_with_id(
+            "search-preview-open",
+            t("search.open"),
+            FeatureAction::Navigate(target),
+            cx,
+        ));
+    }
+    preview
 }
 
 fn search_kind_label(kind: &str) -> String {

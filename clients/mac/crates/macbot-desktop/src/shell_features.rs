@@ -4,6 +4,22 @@ use crate::settings_view::SettingsAction;
 use crate::trace_view::TraceAction;
 use chrono::{Duration, Utc};
 
+fn avatar_image_mime(path: &std::path::Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "avif" => Some("image/avif"),
+        _ => None,
+    }
+}
+
+enum AvatarUploadError {
+    InvalidImage,
+    Failed(anyhow::Error),
+}
+
 /// Merge a skill RPC result into the selected editor without rebuilding its
 /// inputs unless the response contains the full skill detail.  List mutations
 /// return the summary `Skill`, so rebuilding the editor from those responses
@@ -85,6 +101,131 @@ impl MacBot {
                     _ => view.notice = tr("search.open_failed").to_string(),
                 }
                 cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn upload_bot_avatar(&mut self, bot_id: String, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.connected || self.client.is_none() {
+            self.notice = tr("error.offline").to_string();
+            cx.notify();
+            return;
+        }
+        let prompt = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(crate::feature_i18n::text("bot.avatar.other").into()),
+        });
+        let endpoint = self.address.read(cx).value().to_string();
+        let first = endpoint.split(',').next().unwrap_or("").trim();
+        let base = if first.starts_with("wss://") {
+            first.replacen("wss://", "https://", 1)
+        } else if first.starts_with("ws://") {
+            first.replacen("ws://", "http://", 1)
+        } else if first.starts_with("http") {
+            first.to_owned()
+        } else {
+            format!("http://{first}")
+        }
+        .trim_end_matches('/')
+        .trim_end_matches("/ws")
+        .to_owned();
+        let password = self.password.read(cx).value().to_string();
+        let runtime = self.runtime.handle().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = match prompt.await {
+                Ok(Ok(Some(paths))) => match paths.first() {
+                    Some(path) => {
+                        let _ = this.update_in(cx, |view, _, cx| {
+                            view.notice =
+                                crate::feature_i18n::text("bot.avatar.uploading").to_owned();
+                            cx.notify();
+                        });
+                        let path = path.clone();
+                        let task = runtime.spawn(async move {
+                            let Some(mime) = avatar_image_mime(&path) else {
+                                return Err(AvatarUploadError::InvalidImage);
+                            };
+                            let uploaded = async {
+                                let name = path
+                                    .file_name()
+                                    .and_then(|name| name.to_str())
+                                    .unwrap_or("avatar")
+                                    .to_owned();
+                                let bytes = std::fs::read(&path)?;
+                                if bytes.len() > 100 * 1024 * 1024 {
+                                    anyhow::bail!("avatar image exceeds 100 MB");
+                                }
+                                let part = reqwest::multipart::Part::bytes(bytes)
+                                    .file_name(name)
+                                    .mime_str(mime)?;
+                                let form = reqwest::multipart::Form::new().part("file", part);
+                                let response = reqwest::Client::new()
+                                    .post(format!("{base}/api/v1/uploads"))
+                                    .bearer_auth(password)
+                                    .multipart(form)
+                                    .send()
+                                    .await?
+                                    .error_for_status()?
+                                    .json::<Value>()
+                                    .await?;
+                                let file = response
+                                    .get("file")
+                                    .filter(|file| file.is_object())
+                                    .cloned()
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("upload response has no file")
+                                    })?;
+                                Ok::<_, anyhow::Error>(file)
+                            }
+                            .await
+                            .map_err(AvatarUploadError::Failed)?;
+                            if !uploaded
+                                .get("mime")
+                                .and_then(Value::as_str)
+                                .is_some_and(|mime| mime.starts_with("image/"))
+                            {
+                                return Err(AvatarUploadError::InvalidImage);
+                            }
+                            Ok(uploaded)
+                        });
+                        match task.await {
+                            Ok(result) => result,
+                            Err(error) => Err(AvatarUploadError::Failed(anyhow::anyhow!(
+                                error.to_string()
+                            ))),
+                        }
+                    }
+                    None => return,
+                },
+                Ok(Err(error)) => Err(AvatarUploadError::Failed(anyhow::anyhow!(
+                    error.to_string()
+                ))),
+                Err(error) => Err(AvatarUploadError::Failed(anyhow::anyhow!(
+                    error.to_string()
+                ))),
+            };
+            let _ = this.update_in(cx, |view, _, cx| match result {
+                Ok(file) => view.rpc(
+                    "bot.update",
+                    json!({
+                        "bot_id": bot_id,
+                        "patch": {"avatar": {"kind": "image", "file": file}}
+                    }),
+                    cx,
+                ),
+                Err(AvatarUploadError::InvalidImage) => {
+                    view.notice = crate::feature_i18n::text("bot.avatar.upload_invalid").to_owned();
+                    cx.notify();
+                }
+                Err(AvatarUploadError::Failed(error)) => {
+                    let copy = crate::feature_i18n::text("bot.avatar.upload_failed")
+                        .replace("{error}", &error.to_string());
+                    view.notice = copy;
+                    cx.notify();
+                }
             });
         })
         .detach();
@@ -334,6 +475,11 @@ impl MacBot {
             self.feature_view.update(cx, |view, cx| {
                 view.update_data(json!({"new_pending": false, "new_error": Value::Null}), cx)
             });
+        }
+        if method == "bot.update"
+            && params.pointer("/patch/avatar/kind").and_then(Value::as_str) == Some("image")
+        {
+            self.notice = crate::feature_i18n::text("bot.avatar.uploaded").to_owned();
         }
         match method {
             "bot.get" if self.page == "bot/detail" => {
@@ -651,6 +797,12 @@ impl MacBot {
                 }
                 if page == "usage/export.csv" {
                     self.export_usage(cx);
+                    return;
+                }
+                if let Some(bot_id) = page.strip_prefix("bot/avatar/upload/") {
+                    if !bot_id.is_empty() {
+                        self.upload_bot_avatar(bot_id.to_owned(), window, cx);
+                    }
                     return;
                 }
                 if let Some(upload_id) = page.strip_prefix("skill/import/upload/") {
@@ -1251,6 +1403,12 @@ impl MacBot {
         cx: &mut Context<Self>,
     ) {
         self.notice = error.clone();
+        if method == "bot.update"
+            && params.pointer("/patch/avatar/kind").and_then(Value::as_str) == Some("image")
+        {
+            self.notice =
+                crate::feature_i18n::text("bot.avatar.upload_failed").replace("{error}", &error);
+        }
         if self.page == "new" && matches!(method, "bot.create" | "project.create") {
             self.feature_view.update(cx, |view, cx| {
                 view.update_data(
