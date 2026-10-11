@@ -40,10 +40,10 @@
       "artifacts": [
         {
           "artifact_id": "art_prd",
-          "path_or_url": "product/prd.md",
-          "title": "PRD",
           "bot_id": "bot_product",
-          "kind": "file"
+          "kind": "file",
+          "path_or_url": "product/prd.md",
+          "title": "PRD"
         }
       ],
       "next": [
@@ -132,9 +132,9 @@
     "source": "protocol/fixtures/blocks/project_card.json",
     "line": 1,
     "value": {
+      "context": "mentioned",
+      "note": "我在这个群里负责实现登录",
       "project_id": "prj_login",
-      "context": "created",
-      "note": null,
       "type": "project_card"
     }
   },
@@ -153,10 +153,10 @@
       "artifacts": [
         {
           "artifact_id": "art_prd",
-          "path_or_url": "product/prd.md",
-          "title": "PRD",
           "bot_id": "bot_product",
-          "kind": "file"
+          "kind": "file",
+          "path_or_url": "product/prd.md",
+          "title": "PRD"
         }
       ],
       "project_id": "prj_login",
@@ -209,14 +209,13 @@
           "highlights": [],
           "members": [],
           "project_id": "prj_login",
-          "text": "只做邮箱登录，周六前完成。",
-          "version": 1,
-          "text_updated_by": {
-            "kind": "bot",
-            "bot_id": "bot_main"
-          },
+          "text": "只做邮箱登录",
           "text_updated_at": "2026-10-09T10:19:02.312Z",
-          "updated_at": "2026-10-09T10:19:02.312Z"
+          "text_updated_by": {
+            "kind": "user"
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z",
+          "version": 1
         }
       },
       "event": "announcement.updated",
@@ -231,6 +230,7 @@
     "value": {
       "data": {
         "approval": {
+          "always_allow_supported": true,
           "assignment_id": null,
           "bot_id": "bot_main",
           "chat_id": "chat_main",
@@ -238,7 +238,6 @@
           "decided_at": null,
           "detail": "cargo test",
           "id": "apr_1",
-          "always_allow_supported": true,
           "risk": "exec",
           "state": "pending",
           "summary": "运行测试",
@@ -257,6 +256,7 @@
     "value": {
       "data": {
         "approval": {
+          "always_allow_supported": true,
           "assignment_id": null,
           "bot_id": "bot_main",
           "chat_id": "chat_main",
@@ -264,7 +264,6 @@
           "decided_at": null,
           "detail": "cargo test",
           "id": "apr_1",
-          "always_allow_supported": true,
           "risk": "exec",
           "state": "pending",
           "summary": "运行测试",
@@ -317,6 +316,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_login",
           "parent_assignment_id": null,
+          "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
           "result_message_id": null,
@@ -360,6 +360,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_login",
           "parent_assignment_id": null,
+          "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
           "result_message_id": null,
@@ -625,32 +626,26 @@
           "assignment_id": null,
           "blocks": [
             {
-              "markdown": "请检查登录流程的错误提示。",
+              "markdown": "hi",
               "type": "text"
             }
           ],
-          "chat_id": "chat_login",
+          "chat_id": "chat_main",
           "created_at": "2026-10-09T10:19:02.312Z",
           "deleted": false,
-          "delivery": [
-            {
-              "bot_id": "bot_encode",
-              "assignment_id": "asg_1",
-              "state": "queued",
-              "at": "2026-10-09T10:19:02.312Z"
-            }
-          ],
+          "delivery": [],
           "edited_at": null,
-          "fallback_text": "请检查登录流程的错误提示。",
-          "id": "msg_waiting_1",
+          "fallback_text": "hi",
+          "id": "msg_1",
           "intent": null,
           "mentions": [],
+          "quote": null,
           "reactions": [],
           "reply_to": null,
           "sender": {
             "kind": "user"
           },
-          "seq": 8,
+          "seq": 1,
           "streaming": false,
           "thread_count": 0
         }
@@ -751,6 +746,7 @@
           "id": "msg_1",
           "intent": null,
           "mentions": [],
+          "quote": null,
           "reactions": [],
           "reply_to": null,
           "sender": {
@@ -901,6 +897,7 @@
           "bot_id": "bot_main",
           "chat_id": "chat_main",
           "id": "que_1",
+          "multi": false,
           "options": [
             "是",
             "否"
@@ -927,6 +924,7 @@
           "bot_id": "bot_main",
           "chat_id": "chat_main",
           "id": "que_1",
+          "multi": false,
           "options": [
             "是",
             "否"
@@ -1037,8 +1035,25 @@
       "data": {
         "settings": {
           "approvals": {
-            "mode": "require",
-            "rules": []
+            "mode": "always_allow",
+            "rules": [
+              {
+                "bot_id": null,
+                "builtin": true,
+                "created_at": "2026-10-09T10:19:02.312Z",
+                "id": "apr_rule_builtin",
+                "kind": "ask_first",
+                "text": "git push"
+              },
+              {
+                "bot_id": "bot_code",
+                "builtin": false,
+                "created_at": "2026-10-09T10:19:02.312Z",
+                "id": "apr_rule_bot",
+                "kind": "auto_allow",
+                "text": "cargo test"
+              }
+            ]
           },
           "browser": {
             "chrome_profile": "Default",
@@ -1083,12 +1098,12 @@
           "timezone": "Asia/Shanghai",
           "tools": {
             "defaults": {
-              "files": true,
               "bash": true,
               "browser": true,
+              "files": true,
+              "mcp": false,
               "subagent": true,
-              "web": true,
-              "mcp": false
+              "web": true
             }
           },
           "trace": {
@@ -1348,20 +1363,20 @@
       ],
       "members": [],
       "project_id": "prj_login",
-      "text": "只做邮箱登录，周六前完成。",
-      "version": 1,
-      "text_updated_by": {
-        "kind": "bot",
-        "bot_id": "bot_main"
-      },
+      "text": "只做邮箱登录",
       "text_updated_at": "2026-10-09T10:19:02.312Z",
-      "updated_at": "2026-10-09T10:19:02.312Z"
+      "text_updated_by": {
+        "kind": "user"
+      },
+      "updated_at": "2026-10-09T10:19:02.312Z",
+      "version": 1
     }
   },
   {
     "source": "protocol/fixtures/objects/approval.json",
     "line": 1,
     "value": {
+      "always_allow_supported": true,
       "assignment_id": null,
       "bot_id": "bot_main",
       "chat_id": "chat_main",
@@ -1369,7 +1384,6 @@
       "decided_at": null,
       "detail": "cargo test",
       "id": "apr_1",
-      "always_allow_supported": true,
       "risk": "exec",
       "state": "pending",
       "summary": "运行测试",
@@ -1422,6 +1436,7 @@
       "model": "prv_mock/mock-model",
       "origin_chat_id": "chat_login",
       "parent_assignment_id": null,
+      "pending_messages": 0,
       "project_id": "prj_login",
       "queue_reason": null,
       "result_message_id": null,
@@ -1549,16 +1564,9 @@
       "id": "msg_1",
       "intent": null,
       "mentions": [],
+      "quote": null,
       "reactions": [],
       "reply_to": null,
-      "quote": {
-        "message_id": "msg_previous",
-        "sender": {
-          "kind": "bot",
-          "bot_id": "bot_main"
-        },
-        "excerpt": "请实现邮箱登录"
-      },
       "sender": {
         "kind": "user"
       },
@@ -1675,11 +1683,11 @@
       "bot_id": "bot_main",
       "chat_id": "chat_main",
       "id": "que_1",
+      "multi": false,
       "options": [
         "是",
         "否"
       ],
-      "multi": false,
       "state": "pending",
       "text": "继续？"
     }
@@ -1755,8 +1763,25 @@
     "line": 1,
     "value": {
       "approvals": {
-        "mode": "require",
-        "rules": []
+        "mode": "always_allow",
+        "rules": [
+          {
+            "bot_id": null,
+            "builtin": true,
+            "created_at": "2026-10-09T10:19:02.312Z",
+            "id": "apr_rule_builtin",
+            "kind": "ask_first",
+            "text": "git push"
+          },
+          {
+            "bot_id": "bot_code",
+            "builtin": false,
+            "created_at": "2026-10-09T10:19:02.312Z",
+            "id": "apr_rule_bot",
+            "kind": "auto_allow",
+            "text": "cargo test"
+          }
+        ]
       },
       "browser": {
         "chrome_profile": "Default",
@@ -1801,12 +1826,12 @@
       "timezone": "Asia/Shanghai",
       "tools": {
         "defaults": {
-          "files": true,
           "bash": true,
           "browser": true,
+          "files": true,
+          "mcp": false,
           "subagent": true,
-          "web": true,
-          "mcp": false
+          "web": true
         }
       },
       "trace": {
@@ -1927,6 +1952,14 @@
       "quote_mode": "reference",
       "attachments": [],
       "client_request_id": "request_quote_reference"
+    }
+  },
+  {
+    "source": "protocol/fixtures/requests/host_permissions.json",
+    "line": 1,
+    "value": {
+      "method": "host.permissions",
+      "params": {}
     }
   },
   {
@@ -2083,6 +2116,16 @@
         },
         "wait": null
       }
+    }
+  },
+  {
+    "source": "protocol/fixtures/results/host_permissions.json",
+    "line": 1,
+    "value": {
+      "accessibility": "denied",
+      "automation_chrome": "granted",
+      "full_disk_access": "unknown",
+      "screen_recording": "granted"
     }
   },
   {
@@ -2359,6 +2402,7 @@
               "model": "prv_mock/mock-model",
               "origin_chat_id": "chat_login",
               "parent_assignment_id": null,
+              "pending_messages": 0,
               "project_id": "prj_login",
               "queue_reason": null,
               "result_message_id": null,
@@ -2469,8 +2513,7 @@
           },
           "seq": 1,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -2784,10 +2827,10 @@
           "assignment_id": null,
           "blocks": [
             {
-              "project_id": "prj_login",
-              "type": "project_card",
               "context": "created",
-              "note": null
+              "note": null,
+              "project_id": "prj_login",
+              "type": "project_card"
             }
           ],
           "chat_id": "chat_main",
@@ -2807,8 +2850,7 @@
           },
           "seq": 2,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -2853,8 +2895,7 @@
           },
           "seq": 1,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -2881,6 +2922,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_login",
           "parent_assignment_id": null,
+          "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
           "result_message_id": null,
@@ -2925,6 +2967,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_login",
           "parent_assignment_id": null,
+          "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
           "result_message_id": null,
@@ -2981,8 +3024,7 @@
           },
           "seq": 2,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -3581,17 +3623,15 @@
               "artifacts": [
                 {
                   "artifact_id": "art_prd",
-                  "path_or_url": "product/prd.md",
-                  "title": "PRD",
                   "bot_id": "bot_product",
-                  "kind": "file"
+                  "kind": "file",
+                  "path_or_url": "product/prd.md",
+                  "title": "PRD"
                 },
                 {
                   "artifact_id": "art_prototype",
                   "path_or_url": "product/prototype/",
-                  "title": "邮箱登录原型",
-                  "bot_id": "bot_product",
-                  "kind": "dir"
+                  "title": "邮箱登录原型"
                 }
               ],
               "next": [
@@ -3628,8 +3668,7 @@
           },
           "seq": 3,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -3656,6 +3695,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_login",
           "parent_assignment_id": null,
+          "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
           "result_message_id": null,
@@ -3700,6 +3740,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_login",
           "parent_assignment_id": "asg_product",
+          "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
           "result_message_id": null,
@@ -3744,6 +3785,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_login",
           "parent_assignment_id": "asg_product",
+          "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
           "result_message_id": null,
@@ -3800,8 +3842,7 @@
           },
           "seq": 4,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -3894,8 +3935,7 @@
           },
           "seq": 5,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -3946,8 +3986,7 @@
           },
           "seq": 5,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.updated",
@@ -3998,8 +4037,7 @@
           },
           "seq": 5,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.updated",
@@ -4091,8 +4129,7 @@
           },
           "seq": 6,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -4139,7 +4176,13 @@
           ],
           "members": [],
           "project_id": "prj_login",
-          "updated_at": "2026-10-09T10:19:02.312Z"
+          "text": "只做邮箱登录，不做手机号",
+          "text_updated_at": "2026-10-09T10:19:02.312Z",
+          "text_updated_by": {
+            "kind": "user"
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z",
+          "version": 2
         }
       },
       "event": "announcement.updated",
@@ -4231,6 +4274,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_web",
           "parent_assignment_id": null,
+          "pending_messages": 0,
           "project_id": "prj_web",
           "queue_reason": null,
           "result_message_id": null,
@@ -4287,8 +4331,7 @@
           },
           "seq": 1,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -4328,6 +4371,212 @@
     "line": 56,
     "value": {
       "data": {
+        "assignment": {
+          "bot_id": "bot_code",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_code",
+          "instruction": "实现邮箱登录",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": "asg_product",
+          "pending_messages": 1,
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "working",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "实现邮箱登录",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "requests": 0
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.updated",
+      "kind": "evt",
+      "seq": 33,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 57,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "周六前要上线，记得安排灰度发布。",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [
+            {
+              "assignment_id": "asg_code",
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_code",
+              "state": "queued"
+            }
+          ],
+          "edited_at": null,
+          "fallback_text": "周六前要上线，记得安排灰度发布。",
+          "id": "msg_pending",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 7,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 34,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 58,
+    "value": {
+      "data": {
+        "item": {
+          "aseq": 4,
+          "assignment_id": "asg_code",
+          "at": "2026-10-09T10:19:02.312Z",
+          "chat_id": "chat_login",
+          "data": {
+            "count": 1,
+            "message_ids": [
+              "msg_pending"
+            ]
+          },
+          "run_id": "run_code",
+          "type": "queue.review"
+        },
+        "stream": "asg_code"
+      },
+      "event": "trace.item",
+      "kind": "evt",
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 59,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "周六前要上线，记得安排灰度发布。",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [
+            {
+              "assignment_id": "asg_code",
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_code",
+              "state": "read"
+            }
+          ],
+          "edited_at": null,
+          "fallback_text": "周六前要上线，记得安排灰度发布。",
+          "id": "msg_pending",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 7,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.updated",
+      "kind": "evt",
+      "seq": 35,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 60,
+    "value": {
+      "data": {
+        "assignment": {
+          "bot_id": "bot_code",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "finished_at": null,
+          "from": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "id": "asg_code",
+          "instruction": "实现邮箱登录",
+          "model": "prv_mock/mock-model",
+          "origin_chat_id": "chat_login",
+          "parent_assignment_id": "asg_product",
+          "pending_messages": 0,
+          "project_id": "prj_login",
+          "queue_reason": null,
+          "result_message_id": null,
+          "started_at": "2026-10-09T10:19:02.312Z",
+          "status": "working",
+          "steers": [],
+          "subagents_active": 0,
+          "title": "实现邮箱登录",
+          "trigger_message_id": null,
+          "usage": {
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": null,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "requests": 0
+          },
+          "wait": null
+        }
+      },
+      "event": "assignment.updated",
+      "kind": "evt",
+      "seq": 36,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/login-feature.jsonl",
+    "line": 61,
+    "value": {
+      "data": {
         "message": {
           "assignment_id": "asg_code",
           "blocks": [
@@ -4336,16 +4585,12 @@
                 {
                   "artifact_id": "art_code",
                   "path_or_url": "code/",
-                  "title": "代码",
-                  "bot_id": "bot_code",
-                  "kind": "dir"
+                  "title": "代码"
                 },
                 {
                   "artifact_id": "art_preview",
                   "path_or_url": "http://localhost:3000",
-                  "title": "预览地址",
-                  "bot_id": "bot_code",
-                  "kind": "url"
+                  "title": "预览地址"
                 }
               ],
               "next": [
@@ -4380,21 +4625,20 @@
             "bot_id": "bot_code",
             "kind": "bot"
           },
-          "seq": 7,
+          "seq": 8,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
       "kind": "evt",
-      "seq": 33,
+      "seq": 37,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 57,
+    "line": 62,
     "value": {
       "data": {
         "artifact": {
@@ -4411,13 +4655,13 @@
       },
       "event": "artifact.registered",
       "kind": "evt",
-      "seq": 34,
+      "seq": 38,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 58,
+    "line": 63,
     "value": {
       "data": {
         "assignment": {
@@ -4433,6 +4677,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_login",
           "parent_assignment_id": "asg_product",
+          "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
           "result_message_id": null,
@@ -4455,13 +4700,13 @@
       },
       "event": "assignment.updated",
       "kind": "evt",
-      "seq": 35,
+      "seq": 39,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 59,
+    "line": 64,
     "value": {
       "data": {
         "assignment": {
@@ -4477,6 +4722,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_login",
           "parent_assignment_id": "asg_code",
+          "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
           "result_message_id": null,
@@ -4499,13 +4745,13 @@
       },
       "event": "assignment.created",
       "kind": "evt",
-      "seq": 36,
+      "seq": 40,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 60,
+    "line": 65,
     "value": {
       "data": {
         "message": {
@@ -4531,21 +4777,20 @@
             "bot_id": "bot_test",
             "kind": "bot"
           },
-          "seq": 8,
+          "seq": 9,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
       "kind": "evt",
-      "seq": 37,
+      "seq": 41,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 61,
+    "line": 66,
     "value": {
       "data": {
         "item": {
@@ -4571,7 +4816,7 @@
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 62,
+    "line": 67,
     "value": {
       "data": {
         "item": {
@@ -4607,7 +4852,7 @@
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 63,
+    "line": 68,
     "value": {
       "data": {
         "call_id": "call_test",
@@ -4621,7 +4866,7 @@
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 64,
+    "line": 69,
     "value": {
       "data": {
         "message": {
@@ -4647,21 +4892,20 @@
             "bot_id": "bot_test",
             "kind": "bot"
           },
-          "seq": 9,
+          "seq": 10,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
       "kind": "evt",
-      "seq": 38,
+      "seq": 42,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 65,
+    "line": 70,
     "value": {
       "data": {
         "artifact": {
@@ -4678,13 +4922,13 @@
       },
       "event": "artifact.registered",
       "kind": "evt",
-      "seq": 39,
+      "seq": 43,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 66,
+    "line": 71,
     "value": {
       "data": {
         "message": {
@@ -4695,9 +4939,7 @@
                 {
                   "artifact_id": "art_report",
                   "path_or_url": "test/report.md",
-                  "title": "测试报告",
-                  "bot_id": "bot_test",
-                  "kind": "file"
+                  "title": "测试报告"
                 }
               ],
               "next": [
@@ -4730,21 +4972,20 @@
             "bot_id": "bot_test",
             "kind": "bot"
           },
-          "seq": 10,
+          "seq": 11,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
       "kind": "evt",
-      "seq": 40,
+      "seq": 44,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 67,
+    "line": 72,
     "value": {
       "data": {
         "assignment": {
@@ -4760,6 +5001,7 @@
           "model": "prv_mock/mock-model",
           "origin_chat_id": "chat_login",
           "parent_assignment_id": "asg_code",
+          "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
           "result_message_id": null,
@@ -4782,13 +5024,13 @@
       },
       "event": "assignment.updated",
       "kind": "evt",
-      "seq": 41,
+      "seq": 45,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 68,
+    "line": 73,
     "value": {
       "data": {
         "announcement": {
@@ -4850,18 +5092,24 @@
           ],
           "members": [],
           "project_id": "prj_login",
-          "updated_at": "2026-10-09T10:19:02.312Z"
+          "text": "只做邮箱登录，不做手机号；测试 20/20 通过",
+          "text_updated_at": "2026-10-09T10:19:02.312Z",
+          "text_updated_by": {
+            "kind": "user"
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z",
+          "version": 3
         }
       },
       "event": "announcement.updated",
       "kind": "evt",
-      "seq": 42,
+      "seq": 46,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 69,
+    "line": 74,
     "value": {
       "data": {
         "project": {
@@ -4890,13 +5138,13 @@
       },
       "event": "project.updated",
       "kind": "evt",
-      "seq": 43,
+      "seq": 47,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 70,
+    "line": 75,
     "value": {
       "data": {
         "message": {
@@ -4906,31 +5154,25 @@
               "artifacts": [
                 {
                   "artifact_id": "art_prd",
+                  "bot_id": "bot_product",
+                  "kind": "file",
                   "path_or_url": "product/prd.md",
-                  "title": "PRD",
-                  "bot_id": "bot_main",
-                  "kind": "file"
+                  "title": "PRD"
                 },
                 {
                   "artifact_id": "art_prototype",
                   "path_or_url": "product/prototype/",
-                  "title": "邮箱登录原型",
-                  "bot_id": "bot_main",
-                  "kind": "dir"
+                  "title": "邮箱登录原型"
                 },
                 {
                   "artifact_id": "art_code",
                   "path_or_url": "code/",
-                  "title": "代码",
-                  "bot_id": "bot_main",
-                  "kind": "dir"
+                  "title": "代码"
                 },
                 {
                   "artifact_id": "art_report",
                   "path_or_url": "test/report.md",
-                  "title": "测试报告",
-                  "bot_id": "bot_main",
-                  "kind": "file"
+                  "title": "测试报告"
                 }
               ],
               "project_id": "prj_login",
@@ -4955,19 +5197,18 @@
           },
           "seq": 3,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
       "kind": "evt",
-      "seq": 44,
+      "seq": 48,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 71,
+    "line": 76,
     "value": {
       "data": {
         "assignment_id": "asg_test",
@@ -4982,13 +5223,13 @@
       },
       "event": "usage.tick",
       "kind": "evt",
-      "seq": 45,
+      "seq": 49,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 72,
+    "line": 77,
     "value": {
       "data": {
         "message": {
@@ -5015,19 +5256,18 @@
           },
           "seq": 4,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
       "kind": "evt",
-      "seq": 46,
+      "seq": 50,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 73,
+    "line": 78,
     "value": {
       "data": {
         "message": {
@@ -5037,31 +5277,25 @@
               "artifacts": [
                 {
                   "artifact_id": "art_prd",
+                  "bot_id": "bot_product",
+                  "kind": "file",
                   "path_or_url": "product/prd.md",
-                  "title": "PRD",
-                  "bot_id": "bot_main",
-                  "kind": "file"
+                  "title": "PRD"
                 },
                 {
                   "artifact_id": "art_prototype",
                   "path_or_url": "product/prototype/",
-                  "title": "邮箱登录原型",
-                  "bot_id": "bot_main",
-                  "kind": "dir"
+                  "title": "邮箱登录原型"
                 },
                 {
                   "artifact_id": "art_code",
                   "path_or_url": "code/",
-                  "title": "代码",
-                  "bot_id": "bot_main",
-                  "kind": "dir"
+                  "title": "代码"
                 },
                 {
                   "artifact_id": "art_report",
                   "path_or_url": "test/report.md",
-                  "title": "测试报告",
-                  "bot_id": "bot_main",
-                  "kind": "file"
+                  "title": "测试报告"
                 }
               ],
               "project_id": "prj_login",
@@ -5086,19 +5320,18 @@
           },
           "seq": 3,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.updated",
       "kind": "evt",
-      "seq": 47,
+      "seq": 51,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 74,
+    "line": 79,
     "value": {
       "data": {
         "project": {
@@ -5127,13 +5360,13 @@
       },
       "event": "project.updated",
       "kind": "evt",
-      "seq": 48,
+      "seq": 52,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/login-feature.jsonl",
-    "line": 75,
+    "line": 80,
     "value": {
       "data": {
         "announcement": {
@@ -5195,12 +5428,18 @@
           ],
           "members": [],
           "project_id": "prj_login",
-          "updated_at": "2026-10-09T10:19:02.312Z"
+          "text": "项目已确认完成；测试 20/20 通过",
+          "text_updated_at": "2026-10-09T10:19:02.312Z",
+          "text_updated_by": {
+            "kind": "user"
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z",
+          "version": 4
         }
       },
       "event": "announcement.updated",
       "kind": "evt",
-      "seq": 49,
+      "seq": 53,
       "v": 1
     }
   },
@@ -5276,6 +5515,25 @@
       },
       "run_id": "run_1",
       "type": "llm.response"
+    }
+  },
+  {
+    "source": "protocol/fixtures/trace/queue_review.json",
+    "line": 1,
+    "value": {
+      "aseq": 1,
+      "assignment_id": "asg_1",
+      "at": "2026-10-09T10:19:02.312Z",
+      "chat_id": "chat_login",
+      "data": {
+        "count": 2,
+        "message_ids": [
+          "msg_queued_1",
+          "msg_queued_2"
+        ]
+      },
+      "run_id": "run_1",
+      "type": "queue.review"
     }
   },
   {

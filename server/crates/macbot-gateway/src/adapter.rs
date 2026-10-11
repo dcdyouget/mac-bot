@@ -44,6 +44,8 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+type BotStatusCounts = HashMap<String, (u32, u32, u32, bool)>;
+
 #[derive(Debug, Error)]
 pub enum AdapterError {
     #[error("store: {0}")]
@@ -1067,7 +1069,7 @@ impl ProductionBackend {
                         details: None,
                     })?
                 );
-                Ok(self.append_repaired_event(&key, "message.updated", data)?)
+                self.append_repaired_event(&key, "message.updated", data)
             })();
             match target_result {
                 Ok(Some(event)) => events.push(event),
@@ -2154,7 +2156,26 @@ impl ProductionBackend {
             &json!({"message_id":message_id}),
             &json!({"message":message}),
         )
-        .await
+        .await?;
+        let assignment = self
+            .orchestrator
+            .rpc("assignment.get", json!({"assignment_id":assignment_id}))
+            .await
+            .map_err(Self::error)?
+            .get("assignment")
+            .cloned()
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "assignment lookup returned no assignment".into(),
+                details: None,
+            })?;
+        let data = json!({"assignment":assignment});
+        let event = self
+            .store
+            .append_event("assignment.updated", data.clone())
+            .map_err(store_error)?;
+        state.publish_event(event.seq, &event.event, data).await;
+        Ok(json!({"message":message}))
     }
 
     fn event_name(method: &str) -> Option<&'static str> {
@@ -2957,7 +2978,103 @@ impl ProductionBackend {
                 );
             }
         }
+        if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
+            if let Some(value) = self.idempotency.lock().await.get(request_id).cloned() {
+                return Ok(value);
+            }
+        }
+        if params.get("intent").and_then(Value::as_str) == Some("done") {
+            if let Some(review) = self
+                .review_pending_messages_before_done(state, &params)
+                .await?
+            {
+                return Ok(review);
+            }
+        }
         self.call("send_msg", params, state).await
+    }
+
+    async fn review_pending_messages_before_done(
+        &self,
+        state: &GatewayState,
+        params: &Value,
+    ) -> Result<Option<Value>, RpcError> {
+        let (Some(assignment_id), Some(bot_id), Some(chat_id)) = (
+            params.get("assignment_id").and_then(Value::as_str),
+            params.get("bot_id").and_then(Value::as_str),
+            params.get("chat_id").and_then(Value::as_str),
+        ) else {
+            return Ok(None);
+        };
+        let assignment = self
+            .orchestrator
+            .rpc("assignment.get", json!({"assignment_id":assignment_id}))
+            .await
+            .map_err(Self::error)?;
+        let assignment = assignment.get("assignment").ok_or_else(|| RpcError {
+            code: "internal".into(),
+            message: "assignment lookup returned no assignment".into(),
+            details: None,
+        })?;
+        if assignment.get("bot_id").and_then(Value::as_str) != Some(bot_id)
+            || assignment.get("origin_chat_id").and_then(Value::as_str) != Some(chat_id)
+        {
+            return Ok(None);
+        }
+        let queued = self
+            .load_chat_messages(chat_id)?
+            .into_iter()
+            .filter(|message| {
+                message
+                    .get("delivery")
+                    .and_then(Value::as_array)
+                    .is_some_and(|deliveries| {
+                        deliveries.iter().any(|delivery| {
+                            delivery.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                                && delivery.get("assignment_id").and_then(Value::as_str)
+                                    == Some(assignment_id)
+                                && delivery.get("state").and_then(Value::as_str) == Some("queued")
+                        })
+                    })
+            })
+            .collect::<Vec<_>>();
+        if queued.is_empty() {
+            return Ok(None);
+        }
+        let mut reviewed = Vec::with_capacity(queued.len());
+        for message in queued {
+            let message_id = message
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError {
+                    code: "internal".into(),
+                    message: "queued message has no id".into(),
+                    details: None,
+                })?;
+            let update = self
+                .execution_update_steer_delivery(
+                    state,
+                    message_id,
+                    &json!({"bot_id":bot_id,"assignment_id":assignment_id,"state":"read"}),
+                )
+                .await?;
+            reviewed.push(update.get("message").cloned().unwrap_or(message));
+        }
+        let ids = reviewed
+            .iter()
+            .filter_map(|message| message.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        let result = json!({"_queue_review":{"message_ids":ids,"messages":reviewed}});
+        let operation = json!({
+            "method":"execution.queue.review",
+            "params":{"assignment_id":assignment_id,"bot_id":bot_id,"message_ids":ids},
+            "client_request_id":params.get("client_request_id"),
+            "result":result,
+            "status":"done",
+            "at":now()
+        });
+        self.persist_orchestrator(operation).await?;
+        Ok(Some(result))
     }
 }
 
@@ -3035,6 +3152,8 @@ impl RpcBackend for ProductionBackend {
         }
         if method == "send_msg" {
             self.execution_validate_send_msg_target(&params)?;
+            let mut validation_only = json!({"blocks":[]});
+            append_project_card_blocks(self, &mut validation_only, &params).await?;
         }
         let bot_dm_context = if method == "send_msg" {
             self.prepare_bot_dm_send(&mut params)?
@@ -3194,6 +3313,7 @@ impl RpcBackend for ProductionBackend {
             "chat.list" => self.chat_list().await?,
             "chat.get" => self.chat_get(&params).await?,
             "settings.get" => json!({"settings": self.settings(state).await?}),
+            "host.permissions" => host_permissions(),
             "settings.update" => self.settings_update(state, &params).await?,
             "usage.summary" | "usage.heatmap" | "usage.timeseries" | "usage.breakdown" => {
                 self.usage_query(state, method, &params).await?
@@ -3406,6 +3526,7 @@ impl RpcBackend for ProductionBackend {
         let mut result = result;
         if method == "send_msg" {
             append_link_preview_blocks(&mut result, &params)?;
+            append_project_card_blocks(self, &mut result, &params).await?;
             result = self.persist_client_message(&result)?;
         } else if method == "chat.send" {
             let canonical = self.persist_client_message(&result["message"])?;
@@ -3630,12 +3751,12 @@ impl ProductionBackend {
             message,
             details: None,
         })?;
+        ensure_builtin_approval_rules(&mut value);
         serde_json::from_value::<Settings>(value.clone()).map_err(|error| RpcError {
             code: "internal".into(),
             message: error.to_string(),
             details: None,
         })?;
-        let mut value = value;
         let provider_id = value
             .pointer("/web_search/provider")
             .and_then(Value::as_str)
@@ -3655,7 +3776,8 @@ impl ProductionBackend {
     }
 
     async fn settings_update(&self, state: &GatewayState, params: &Value) -> RpcResult {
-        let mut value = self.settings(state).await?;
+        let current = self.settings(state).await?;
+        let mut value = current.clone();
         let patch = params
             .get("patch")
             .and_then(Value::as_object)
@@ -3672,6 +3794,8 @@ impl ProductionBackend {
             })?,
             patch,
         );
+        protect_builtin_approval_rules(&current, &value, patch)?;
+        ensure_builtin_approval_rules(&mut value);
         let tool_defaults =
             ensure_settings_tool_defaults(&mut value).map_err(|message| RpcError {
                 code: "invalid_params".into(),
@@ -3777,7 +3901,9 @@ impl ProductionBackend {
                 "id": id,
                 "kind": "auto_allow",
                 "text": approval.get("summary").cloned().unwrap_or(Value::String(String::new())),
-                "created_at": approval.get("decided_at").cloned().unwrap_or_else(|| json!(now()))
+                "created_at": approval.get("decided_at").cloned().unwrap_or_else(|| json!(now())),
+                "bot_id": approval.get("bot_id").cloned().unwrap_or(Value::Null),
+                "builtin": false
             }));
         }
         serde_json::from_value::<Settings>(settings.clone()).map_err(|error| RpcError {
@@ -6957,7 +7083,7 @@ impl ProductionBackend {
         &self,
         result: &mut Value,
         snapshot: &Value,
-        private_counts: Option<&HashMap<String, (u32, u32, u32, bool)>>,
+        private_counts: Option<&BotStatusCounts>,
     ) -> Result<(), String> {
         let counts = self.bot_counts_from_snapshot(snapshot, private_counts)?;
         Self::apply_bot_status(result, &counts);
@@ -6967,8 +7093,8 @@ impl ProductionBackend {
     fn bot_counts_from_snapshot(
         &self,
         snapshot: &Value,
-        private_counts: Option<&HashMap<String, (u32, u32, u32, bool)>>,
-    ) -> Result<HashMap<String, (u32, u32, u32, bool)>, String> {
+        private_counts: Option<&BotStatusCounts>,
+    ) -> Result<BotStatusCounts, String> {
         let Some(assignments) = snapshot
             .get("assignments")
             .and_then(Value::as_object)
@@ -6976,7 +7102,7 @@ impl ProductionBackend {
         else {
             return Ok(HashMap::new());
         };
-        let mut counts: HashMap<String, (u32, u32, u32, bool)> = HashMap::new();
+        let mut counts: BotStatusCounts = HashMap::new();
         let assignment_status = assignments
             .iter()
             .filter_map(|(id, item)| {
@@ -7054,7 +7180,7 @@ impl ProductionBackend {
         Ok(counts)
     }
 
-    fn apply_bot_status(result: &mut Value, counts: &HashMap<String, (u32, u32, u32, bool)>) {
+    fn apply_bot_status(result: &mut Value, counts: &BotStatusCounts) {
         let set = |bot: &mut Value| {
             let Some(id) = bot.get("id").and_then(Value::as_str) else {
                 return;
@@ -7093,7 +7219,7 @@ impl ProductionBackend {
     fn add_private_durable_counts(
         &self,
         snapshot: &Value,
-        counts: &mut HashMap<String, (u32, u32, u32, bool)>,
+        counts: &mut BotStatusCounts,
     ) -> Result<(), String> {
         let pending_waits = snapshot
             .get("approvals")
@@ -7146,7 +7272,7 @@ impl ProductionBackend {
     fn add_private_durable_job(
         &self,
         pending_waits: &HashSet<(String, String)>,
-        counts: &mut HashMap<String, (u32, u32, u32, bool)>,
+        counts: &mut BotStatusCounts,
         job: &macbot_durable::Job,
     ) -> Result<(), String> {
         let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
@@ -7326,7 +7452,7 @@ impl ProductionBackend {
     fn workbench_from_snapshot(
         &self,
         snapshot: &Value,
-        counts_override: Option<&HashMap<String, (u32, u32, u32, bool)>>,
+        counts_override: Option<&BotStatusCounts>,
         subagents_override: Option<u32>,
     ) -> Result<Value, String> {
         let assignments = snapshot
@@ -8154,6 +8280,109 @@ fn normalize_chat(value: &mut Value) {
     let _ = obj(value);
 }
 
+async fn append_project_card_blocks(
+    backend: &ProductionBackend,
+    message: &mut Value,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let Some(projects) = params.get("projects") else {
+        return Ok(());
+    };
+    if projects.is_null() {
+        return Ok(());
+    }
+    let projects = projects.as_array().ok_or_else(|| RpcError {
+        code: "invalid_params".into(),
+        message: "projects must be an array".into(),
+        details: None,
+    })?;
+    if projects.len() > 8 {
+        return Err(RpcError {
+            code: "invalid_params".into(),
+            message: "at most 8 project cards may be attached to one message".into(),
+            details: None,
+        });
+    }
+    let bot_id = required_text(params, "bot_id")?;
+    let mut cards = Vec::with_capacity(projects.len());
+    let mut seen = HashSet::new();
+    for item in projects {
+        if !item.is_object() {
+            return Err(RpcError {
+                code: "invalid_params".into(),
+                message: "each project card must be an object".into(),
+                details: None,
+            });
+        }
+        let project_id = item
+            .get("project_id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.trim().is_empty())
+            .ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: "project card project_id is required".into(),
+                details: None,
+            })?;
+        let note = match item.get("note") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(note)) => Some(note.clone()),
+            Some(_) => {
+                return Err(RpcError {
+                    code: "invalid_params".into(),
+                    message: "project card note must be a string or null".into(),
+                    details: None,
+                });
+            }
+        };
+        if !seen.insert(project_id) {
+            continue;
+        }
+        let result = backend
+            .orchestrator
+            .rpc("project.get", json!({"project_id":project_id}))
+            .await
+            .map_err(ProductionBackend::error)?;
+        let project = result.get("project").ok_or_else(|| RpcError {
+            code: "internal".into(),
+            message: "project lookup returned no project".into(),
+            details: None,
+        })?;
+        let is_member = project
+            .get("members")
+            .and_then(Value::as_array)
+            .is_some_and(|members| {
+                members.iter().any(|member| {
+                    member.get("bot_id").and_then(Value::as_str) == Some(bot_id.as_str())
+                })
+            });
+        if !is_member {
+            return Err(RpcError {
+                code: "forbidden".into(),
+                message: format!("Bot {bot_id} is not a member of project {project_id}"),
+                details: None,
+            });
+        }
+        cards.push(json!({
+            "type":"project_card",
+            "project_id":project_id,
+            "context":"mentioned",
+            "note":note
+        }));
+    }
+    if !cards.is_empty() {
+        let blocks = message
+            .get_mut("blocks")
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "normalized send_msg has no blocks array".into(),
+                details: None,
+            })?;
+        blocks.extend(cards);
+    }
+    Ok(())
+}
+
 fn append_link_preview_blocks(message: &mut Value, params: &Value) -> Result<(), RpcError> {
     let Some(previews) = params.get("link_previews") else {
         return Ok(());
@@ -8551,13 +8780,149 @@ fn migrate_legacy_approval_support(snapshot: &mut Value) {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+}
+
+fn host_permissions() -> Value {
+    #[cfg(target_os = "macos")]
+    let (screen_recording, accessibility) = unsafe {
+        (
+            if CGPreflightScreenCaptureAccess() {
+                "granted"
+            } else {
+                "denied"
+            },
+            if AXIsProcessTrusted() {
+                "granted"
+            } else {
+                "denied"
+            },
+        )
+    };
+    #[cfg(not(target_os = "macos"))]
+    let (screen_recording, accessibility) = ("unknown", "unknown");
+
+    // macOS does not provide a non-invasive public preflight API for Full
+    // Disk Access or per-target Apple Events authorization. Keep these as
+    // unknown instead of probing protected user data or triggering a prompt.
+    json!({
+        "screen_recording":screen_recording,
+        "accessibility":accessibility,
+        "full_disk_access":"unknown",
+        "automation_chrome":"unknown"
+    })
+}
+
+fn builtin_approval_rules() -> Vec<Value> {
+    [
+        ("builtin-sudo", "sudo"),
+        ("builtin-home-external-rm", "Home 外删除"),
+        ("builtin-git-push", "git push"),
+        ("builtin-browser-payment", "浏览器付款"),
+        ("builtin-browser-eval", "browser_eval"),
+    ]
+    .into_iter()
+    .map(|(id, text)| {
+        json!({
+            "id":id,
+            "kind":"ask_first",
+            "text":text,
+            "created_at":"2026-10-11T00:00:00Z",
+            "bot_id":null,
+            "builtin":true
+        })
+    })
+    .collect()
+}
+
+fn ensure_builtin_approval_rules(settings: &mut Value) {
+    let Some(approvals) = settings.get_mut("approvals").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let rules = approvals.entry("rules").or_insert_with(|| json!([]));
+    let Some(rules) = rules.as_array_mut() else {
+        return;
+    };
+    for builtin in builtin_approval_rules() {
+        let id = builtin.get("id");
+        if let Some(existing) = rules.iter_mut().find(|rule| rule.get("id") == id) {
+            *existing = builtin;
+        } else {
+            rules.push(builtin);
+        }
+    }
+}
+
+fn protect_builtin_approval_rules(
+    current: &Value,
+    candidate: &Value,
+    patch: &serde_json::Map<String, Value>,
+) -> Result<(), RpcError> {
+    if patch
+        .get("approvals")
+        .and_then(|approvals| approvals.get("rules"))
+        .is_none()
+    {
+        return Ok(());
+    }
+    let existing = current
+        .pointer("/approvals/rules")
+        .and_then(Value::as_array)
+        .map(|rules| {
+            rules
+                .iter()
+                .filter(|rule| rule.get("builtin").and_then(Value::as_bool) == Some(true))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let proposed = candidate
+        .pointer("/approvals/rules")
+        .and_then(Value::as_array)
+        .ok_or_else(|| RpcError {
+            code: "invalid_params".into(),
+            message: "settings.approvals.rules must be an array".into(),
+            details: None,
+        })?;
+    for builtin in &existing {
+        if !proposed.iter().any(|rule| rule == *builtin) {
+            return Err(RpcError {
+                code: "forbidden".into(),
+                message: "built-in approval rules are read-only".into(),
+                details: None,
+            });
+        }
+    }
+    for rule in proposed
+        .iter()
+        .filter(|rule| rule.get("builtin").and_then(Value::as_bool) == Some(true))
+    {
+        if !existing.contains(&rule) {
+            return Err(RpcError {
+                code: "forbidden".into(),
+                message: "built-in approval rules are read-only".into(),
+                details: None,
+            });
+        }
+    }
+    Ok(())
+}
+
 fn default_settings(host_name: &str) -> Value {
     json!({
         "host_name":host_name,"timezone":"Asia/Shanghai","currency":"CNY",
         "concurrency":{"global":8,"bot_default":3,"subagent_per_run":4,"subagent_global":12,"loop_hops":8},
         "models":{"bot_default":null,"main":null,"subagent":"inherit","maintenance":null},
         "tools":{"defaults":{"files":true,"bash":true,"browser":true,"subagent":true,"web":true,"mcp":false}},
-        "main_bot":{"auto_create_project":true},"approvals":{"mode":"require","rules":[]},
+        "main_bot":{"auto_create_project":true},"approvals":{"mode":"always_allow","rules":[]},
         "browser":{"default_mode":"headless","chrome_profile":"Default","stream":{"desktop":{"max_width":1280,"quality":70,"max_fps":15},"mobile":{"max_width":720,"quality":50,"max_fps":10}}},
         "skills":{"extra_dirs":[]},"trace":{"save_full_requests":false},
         "web_search":{"provider":null,"endpoint":null,"has_key":false},"push":{"apns_configured":false}
@@ -10066,6 +10431,72 @@ mod tests {
             serde_json::from_value::<Message>(item.clone()).unwrap();
         }
         assert_eq!(restarted.store.last_chat_sequence("chat_main").unwrap(), 4);
+    }
+
+    #[tokio::test]
+    async fn send_msg_projects_add_member_checked_mentioned_cards() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Project card worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"Mentioned group","member_bot_ids":[bot["bot"]["id"]]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let sent = backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":bot["bot"]["id"],
+                    "chat_id":project["chat"]["id"],
+                    "text":"我会参考这个群的结论",
+                    "intent":"progress",
+                    "projects":[{"project_id":project["project"]["id"],"note":"负责登录实现"}]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(sent["blocks"].as_array().unwrap().iter().any(|block| {
+            block["type"] == "project_card"
+                && block["project_id"] == project["project"]["id"]
+                && block["context"] == "mentioned"
+                && block["note"] == "负责登录实现"
+        }));
+        serde_json::from_value::<Message>(sent).unwrap();
+
+        let outsider = backend
+            .call("bot.create", json!({"name":"Outsider"}), &gateway.state)
+            .await
+            .unwrap();
+        let rejected = backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":outsider["bot"]["id"],
+                    "chat_id":project["chat"]["id"],
+                    "text":"无权引用这个群",
+                    "intent":"progress",
+                    "projects":[{"project_id":project["project"]["id"]}]
+                }),
+                &gateway.state,
+            )
+            .await;
+        assert_eq!(rejected.unwrap_err().code, "forbidden");
     }
 
     #[tokio::test]
@@ -12043,8 +12474,7 @@ mod tests {
             .read_jsonl::<Value>(&path)
             .unwrap()
             .into_iter()
-            .filter(|row| row["id"] == notice_id)
-            .last()
+            .rfind(|row| row["id"] == notice_id)
             .unwrap();
         assert!(resequenced["seq"].as_u64().unwrap_or(0) > 0);
     }
@@ -13481,6 +13911,111 @@ mod tests {
             )
             .unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn send_msg_done_reviews_queued_messages_before_creating_delivery() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Review worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"Review queue","member_bot_ids":[bot["bot"]["id"]]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "bot_id":bot["bot"]["id"],
+                    "project_id":project["project"]["id"],
+                    "origin_chat_id":project["chat"]["id"],
+                    "title":"Review queued messages",
+                    "instruction":"finish after review",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let queued = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":project["chat"]["id"],
+                    "text":"请把交付改成适配手机屏幕",
+                    "mentions":[]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["message"]
+            .clone();
+        assert_eq!(queued["delivery"][0]["state"], "queued");
+
+        let envelope = json!({
+            "receipt":{"run_id":"queue-review-run","call_id":"queue-review-call"},
+            "message":{
+                "bot_id":bot["bot"]["id"],
+                "chat_id":project["chat"]["id"],
+                "assignment_id":assignment["id"],
+                "message_id":"msg-should-not-be-created",
+                "intent":"done",
+                "text":"已完成"
+            }
+        });
+        let review = backend
+            .execution_send_msg(&gateway.state, envelope.clone())
+            .await
+            .unwrap();
+        assert_eq!(review["_queue_review"]["message_ids"][0], queued["id"]);
+        assert_eq!(
+            review["_queue_review"]["messages"][0]["delivery"][0]["state"],
+            "read"
+        );
+        let retry = backend
+            .execution_send_msg(&gateway.state, envelope)
+            .await
+            .unwrap();
+        assert_eq!(retry, review);
+
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":project["chat"]["id"],"after_seq":0}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let messages = history["messages"].as_array().unwrap();
+        assert!(messages.iter().any(|message| message["id"] == queued["id"]));
+        assert!(messages
+            .iter()
+            .all(|message| message["id"] != "msg-should-not-be-created"));
+        let reviewed = messages
+            .iter()
+            .find(|message| message["id"] == queued["id"])
+            .unwrap();
+        assert_eq!(reviewed["delivery"][0]["state"], "read");
+        assert_eq!(
+            backend.orchestrator.snapshot().unwrap()["assignments"]
+                [assignment["id"].as_str().unwrap()]["pending_messages"],
+            0
+        );
     }
 
     #[tokio::test]

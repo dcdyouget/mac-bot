@@ -348,7 +348,7 @@ private enum class TraceFilter {
         ALL -> true
         MODEL -> item.str("type")?.startsWith("llm.") == true
         TOOL -> item.str("type")?.startsWith("tool.") == true
-        MESSAGE -> item.str("type") == "send_msg" || item.str("type") == "steer"
+        MESSAGE -> item.str("type") in setOf("send_msg", "steer", "queue.review")
         WAIT -> item.str("type") == "run.wait" || item.str("type") == "run.resume"
     }
 }
@@ -377,6 +377,7 @@ private fun TraceItemCard(
         "tool.end" -> stringResource(Res.string.feature_trace_tool_end, data?.str("preview") ?: "")
         "send_msg" -> stringResource(Res.string.feature_trace_send, data?.str("intent") ?: "")
         "steer" -> stringResource(Res.string.feature_trace_steer, data?.str("text") ?: "")
+        "queue.review" -> stringResource(Res.string.trace_item_queue_review, data.long("count").toInt())
         "run.wait" -> stringResource(Res.string.feature_trace_waiting, data?.str("reason") ?: "")
         "run.resume" -> stringResource(Res.string.feature_trace_resume)
         else -> type

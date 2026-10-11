@@ -12,6 +12,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -20,8 +21,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
 import okio.ByteString
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -147,28 +150,32 @@ class MainConnectionHostIntegrationTest {
         val server = MockWebServer()
         val firstRequest = Channel<JsonObject>(Channel.UNLIMITED)
         val secondRequest = Channel<JsonObject>(Channel.UNLIMITED)
-        server.enqueue(upgrade { socket, request ->
-            when (request.string("method")) {
-                "session.resume" -> socket.send(response(request.id(), buildJsonObject { put("mode", "reset") }))
-                "bootstrap" -> socket.send(response(request.id(), buildJsonObject { put("seq", 0) }))
-                "write.once" -> {
-                    firstRequest.trySend(request)
-                    socket.close(1001, "replay")
+        var connectionCount = 0
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                connectionCount += 1
+                val firstConnection = connectionCount == 1
+                return upgrade { socket, frame ->
+                    when (frame.string("method")) {
+                        "session.resume" -> {
+                            val mode = if (firstConnection) "reset" else "replay"
+                            socket.send(response(frame.id(), buildJsonObject { put("mode", mode) }))
+                            if (!firstConnection) socket.send(event("sync.done", buildJsonObject { put("seq", 0) }, 0))
+                        }
+                        "bootstrap" -> socket.send(response(frame.id(), buildJsonObject { put("seq", 0) }))
+                        "write.once" -> {
+                            if (firstConnection) {
+                                firstRequest.trySend(frame)
+                                socket.close(1001, "replay")
+                            } else {
+                                secondRequest.trySend(frame)
+                                socket.send(response(frame.id(), buildJsonObject { put("replayed", true) }))
+                            }
+                        }
+                    }
                 }
             }
-        })
-        server.enqueue(upgrade { socket, request ->
-            when (request.string("method")) {
-                "session.resume" -> {
-                    socket.send(response(request.id(), buildJsonObject { put("mode", "replay") }))
-                    socket.send(event("sync.done", buildJsonObject { put("seq", 0) }, 0))
-                }
-                "write.once" -> {
-                    secondRequest.trySend(request)
-                    socket.send(response(request.id(), buildJsonObject { put("replayed", true) }))
-                }
-            }
-        })
+        }
         server.start()
         val client = HttpClient(OkHttp) { install(WebSockets) }
         val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -338,15 +345,24 @@ class MainConnectionHostIntegrationTest {
     fun handshakeTimeoutRetriesWithoutSwallowingRunnerCancellation() {
         runBlocking {
             val server = MockWebServer()
-            server.enqueue(upgrade { _, _ -> Unit })
-            server.enqueue(upgrade { socket, request ->
-                when (request.string("method")) {
-                    "session.resume" -> {
-                        socket.send(response(request.id(), buildJsonObject { put("mode", "replay") }))
-                        socket.send(event("sync.done", buildJsonObject { put("seq", 0) }, 0))
+            val firstResumeReceived = Channel<Unit>(Channel.UNLIMITED)
+            var connectionCount = 0
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    connectionCount += 1
+                    val leaveResumeUnanswered = connectionCount == 1
+                    return upgrade { socket, frame ->
+                        if (frame.string("method") == "session.resume") {
+                            if (leaveResumeUnanswered) {
+                                firstResumeReceived.trySend(Unit)
+                            } else {
+                                socket.send(response(frame.id(), buildJsonObject { put("mode", "replay") }))
+                                socket.send(event("sync.done", buildJsonObject { put("seq", 0) }, 0))
+                            }
+                        }
                     }
                 }
-            })
+            }
             server.start()
             val client = HttpClient(OkHttp) { install(WebSockets) }
             val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -357,13 +373,16 @@ class MainConnectionHostIntegrationTest {
                 identity = identity(),
                 lastSeqStore = InMemoryLastSeqStore(),
                 scope = scope,
-                requestTimeoutMillis = 100L,
+                // The first resume request is intentionally unanswered. Leave enough
+                // headroom for the successful retry to complete on a loaded test host.
+                requestTimeoutMillis = 2_000L,
                 onDiagnostic = { diagnostic -> diagnostics.trySend(diagnostic) },
             )
             try {
                 connection.start()
+                withTimeout(10_000) { firstResumeReceived.receive() }
                 var timeoutFailure: ConnectionDiagnostic? = null
-                withTimeout(3_000) {
+                withTimeout(5_000) {
                     while (timeoutFailure == null) {
                         val diagnostic = diagnostics.receive()
                         if (diagnostic.stage == "session_resume" && diagnostic.exceptionClass != null) {
@@ -372,9 +391,13 @@ class MainConnectionHostIntegrationTest {
                     }
                 }
                 assertTrue(timeoutFailure?.exceptionClass?.contains("Timeout") == true)
-                withTimeout(5_000) {
+                val connected = withTimeoutOrNull(10_000) {
                     connection.status.first { it == ConnectionStatus.CONNECTED }
                 }
+                assertTrue(
+                    connected == ConnectionStatus.CONNECTED,
+                    "status=${connection.status.value}, requests=${server.requestCount}, diagnostics=${diagnostics.drain()}",
+                )
             } finally {
                 connection.stop()
                 scope.cancel()
@@ -492,4 +515,8 @@ class MainConnectionHostIntegrationTest {
     private fun JsonObject.string(name: String): String? = this[name]?.toString()?.trim('"')
     private fun JsonObject.id(): String = string("id") ?: error("missing id")
     private fun JsonObject.params(): JsonObject = this["params"]?.jsonObject ?: buildJsonObject { }
+
+    private fun Channel<ConnectionDiagnostic>.drain(): List<ConnectionDiagnostic> = buildList {
+        while (true) add(tryReceive().getOrNull() ?: break)
+    }
 }

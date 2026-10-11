@@ -229,7 +229,7 @@ interface Message {
   intent: Intent | null;       // Bot 通过 send_msg 发出的消息才有
   assignment_id: Id | null;    // 这条消息属于哪个任务
   streaming: boolean;          // 只有私聊里 Bot 正在流式输出的回复为 true
-  delivery: Delivery[];        // 只出现在用户 @ Bot 的消息上，见 4.5
+  delivery: Delivery[];        // 群消息对各 Bot 的送达状态，见 4.5
   reactions: Reaction[];
 }
 type Mention =
@@ -264,6 +264,8 @@ interface Delivery { bot_id: Id; assignment_id: Id | null; state: "queued" | "de
 - `read`：这次模型调用已经包含了这条消息。
 
 如果 Bot 在这个群里没有进行中的任务，服务端会创建一个新任务，`assignment_id` 指向它，`state` 直接为 `delivered`。
+
+未 @ 某 Bot、也未回复该 Bot 的用户群消息，若该 Bot 在群里有进行中的任务，则为该任务记录 `queued`，计入 `Assignment.pending_messages`；交付前由 `queue.review` 一次性交给 Bot，随后更新为 `read`。这类消息不会立即打断当前步骤，也不会单独创建任务。
 
 ### 4.6 Block（消息块）
 

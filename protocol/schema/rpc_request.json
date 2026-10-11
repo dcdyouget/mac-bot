@@ -126,6 +126,17 @@
         "text"
       ],
       "properties": {
+        "bot_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "builtin": {
+          "default": false,
+          "type": "boolean"
+        },
         "created_at": {
           "type": "string"
         },
@@ -1308,6 +1319,7 @@
         "model.upsert",
         "model.delete",
         "settings.get",
+        "host.permissions",
         "settings.update",
         "usage.summary",
         "usage.heatmap",
@@ -1539,6 +1551,9 @@
         },
         {
           "$ref": "#/definitions/ModelDeleteParams"
+        },
+        {
+          "$ref": "#/definitions/EmptyParams"
         },
         {
           "$ref": "#/definitions/EmptyParams"

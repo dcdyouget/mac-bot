@@ -78,6 +78,7 @@
     "model.upsert",
     "model.delete",
     "settings.get",
+    "host.permissions",
     "settings.update",
     "usage.summary",
     "usage.heatmap",

@@ -142,7 +142,7 @@ class ScreenConnectionHostIntegrationTest {
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             onText(text)
-            if (closeOnSwitch && text.contains("\"type\":\"switch_tab\"")) webSocket.close(1000, "switch")
+            if (closeOnSwitch && text.contains("\"type\":\"switch_tab\"")) webSocket.close(1001, "switch")
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) = Unit

@@ -124,6 +124,7 @@ data class Assignment(override val raw: JsonObject) : RawProtocolModel {
     val model: String get() = raw.str("model")
     val originChatId: String get() = raw.str("origin_chat_id")
     val parentAssignmentId: String? get() = raw.stringOrNull("parent_assignment_id")
+    val pendingMessages: Long? get() = raw.longOrNull("pending_messages")
     val projectId: String? get() = raw.stringOrNull("project_id")
     val queueReason: String? get() = raw.stringOrNull("queue_reason")
     val resultMessageId: String? get() = raw.stringOrNull("result_message_id")
@@ -259,6 +260,8 @@ object DeviceSerializer : RawModelSerializer<Device>(::Device)
 
 @Serializable(with = ApprovalRuleSerializer::class)
 data class ApprovalRule(override val raw: JsonObject) : RawProtocolModel {
+    val botId: String? get() = raw.stringOrNull("bot_id")
+    val builtin: Boolean? get() = raw.boolOrNull("builtin")
     val createdAt: String get() = raw.str("created_at")
     val id: String get() = raw.str("id")
     val kind: String get() = raw.str("kind")
@@ -1630,6 +1633,15 @@ data class HeatmapResult(override val raw: JsonObject) : RawProtocolModel {
     val weekhour: WeekhourHeatmap? get() = raw["weekhour"]?.jsonObject?.let(::WeekhourHeatmap)
 }
 object HeatmapResultSerializer : RawModelSerializer<HeatmapResult>(::HeatmapResult)
+
+@Serializable(with = HostPermissionsResultSerializer::class)
+data class HostPermissionsResult(override val raw: JsonObject) : RawProtocolModel {
+    val accessibility: String get() = raw.str("accessibility")
+    val automationChrome: String get() = raw.str("automation_chrome")
+    val fullDiskAccess: String get() = raw.str("full_disk_access")
+    val screenRecording: String get() = raw.str("screen_recording")
+}
+object HostPermissionsResultSerializer : RawModelSerializer<HostPermissionsResult>(::HostPermissionsResult)
 
 @Serializable(with = InFlightSerializer::class)
 data class InFlight(override val raw: JsonObject) : RawProtocolModel {

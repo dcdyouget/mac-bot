@@ -5,11 +5,11 @@
   "bot_id": "bot_main",
   "chat_id": "chat_main",
   "id": "que_1",
+  "multi": false,
   "options": [
     "是",
     "否"
   ],
-  "multi": false,
   "state": "pending",
   "text": "继续？"
 }

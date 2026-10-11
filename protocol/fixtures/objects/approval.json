@@ -1,4 +1,5 @@
 {
+  "always_allow_supported": true,
   "assignment_id": null,
   "bot_id": "bot_main",
   "chat_id": "chat_main",
@@ -6,7 +7,6 @@
   "decided_at": null,
   "detail": "cargo test",
   "id": "apr_1",
-  "always_allow_supported": true,
   "risk": "exec",
   "state": "pending",
   "summary": "运行测试",

@@ -5,11 +5,13 @@
       "highlights": [],
       "members": [],
       "project_id": "prj_login",
-      "text": "只做邮箱登录，周六前完成。",
-      "version": 1,
-      "text_updated_by": {"kind": "bot", "bot_id": "bot_main"},
+      "text": "只做邮箱登录",
       "text_updated_at": "2026-10-09T10:19:02.312Z",
-      "updated_at": "2026-10-09T10:19:02.312Z"
+      "text_updated_by": {
+        "kind": "user"
+      },
+      "updated_at": "2026-10-09T10:19:02.312Z",
+      "version": 1
     }
   },
   "event": "announcement.updated",

@@ -109,6 +109,7 @@ async fn dispatch(
         "project.add_member" => project_member(state, &params, true),
         "project.remove_member" => project_member(state, &params, false),
         "project.confirm_done" => project_status(state, &params, "done"),
+        "project.request_review" => project_request_review(state, &params),
         "project.archive" => project_status(state, &params, "archived"),
         "project.reopen" => project_status(state, &params, "active"),
         "project.request_changes" => project_request_changes(state, &params),
@@ -191,6 +192,12 @@ async fn dispatch(
         "model.upsert" => model_upsert(state, &params),
         "model.delete" => model_delete(state, &params),
         "settings.get" => Ok(json!({"settings":state.settings})),
+        "host.permissions" => Ok(json!({
+            "screen_recording":"unknown",
+            "accessibility":"unknown",
+            "full_disk_access":"unknown",
+            "automation_chrome":"unknown"
+        })),
         "settings.update" => settings_update(state, &params),
         "usage.summary" => usage_summary(&params),
         "usage.heatmap" => usage_heatmap(&params),
@@ -974,9 +981,92 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     }
     repair_login_members(state);
     repair_waiting_references(state, home);
+    ensure_pending_review_fixture(state);
+}
+
+fn ensure_pending_review_fixture(state: &mut MockState) {
+    const PROJECT_ID: &str = "prj_mock_review";
+    if state
+        .projects
+        .iter()
+        .any(|project| project.get("id").and_then(Value::as_str) == Some(PROJECT_ID))
+    {
+        return;
+    }
+    let Some(mut project) = state
+        .projects
+        .iter()
+        .find(|project| project.get("id").and_then(Value::as_str) == Some("prj_login"))
+        .cloned()
+    else {
+        return;
+    };
+    let Some(mut chat) = state
+        .chats
+        .iter()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some("chat_login"))
+        .cloned()
+    else {
+        return;
+    };
+    let updated_at = now();
+    let chat_id = "chat_mock_review";
+    project["id"] = json!(PROJECT_ID);
+    project["chat_id"] = json!(chat_id);
+    project["name"] = json!("Mock 待验收项目");
+    project["slug"] = json!("mock-review");
+    project["home_path"] = json!("~/MacBot/projects/mock-review/");
+    project["status"] = json!("review");
+    project["done_at"] = Value::Null;
+    project["updated_at"] = json!(updated_at);
+    project["highlights"] = json!([{"at":updated_at,"text":"示例交付已完成，等待验收"}]);
+    chat["id"] = json!(chat_id);
+    chat["title"] = project["name"].clone();
+    chat["project_id"] = json!(PROJECT_ID);
+    chat["last_message"] = Value::Null;
+    chat["last_seq"] = json!(0);
+    chat["last_read_seq"] = json!(0);
+    chat["unread"] = json!(0);
+    chat["attention"] = json!("none");
+    chat["updated_at"] = json!(updated_at);
+    state.projects.push(project);
+    state.chats.push(chat);
+
+    let mut announcements = extra_get(state, "announcements");
+    if let Some(mut announcement) = announcements
+        .iter()
+        .find(|item| item.get("project_id").and_then(Value::as_str) == Some("prj_login"))
+        .cloned()
+    {
+        announcement["project_id"] = json!(PROJECT_ID);
+        announcement["text"] = json!("# Mock 待验收项目\n\n示例交付已完成，请检查成果。\n");
+        announcement["artifacts"] = json!([]);
+        announcement["highlights"] = json!([{"at":updated_at,"text":"示例交付已完成，等待验收"}]);
+        announcement["version"] = json!(1);
+        announcement["updated_at"] = json!(updated_at);
+        announcements.push(announcement);
+        extra_set(state, "announcements", announcements);
+    }
+    let _ = set_review_card_mock(
+        state,
+        PROJECT_ID,
+        "pending",
+        json!([]),
+        "Mock 待验收项目已完成，请检查交付。",
+    );
 }
 fn pending(state: &MockState) -> Value {
-    json!({"approvals":extra_get(state,"approvals").iter().filter(|x| x.get("state").and_then(Value::as_str)==Some("pending")).cloned().collect::<Vec<_>>(),"questions":extra_get(state,"questions").iter().filter(|x| x.get("state").and_then(Value::as_str)==Some("pending")).cloned().collect::<Vec<_>>(),"reviews":[]})
+    let reviews = state
+        .projects
+        .iter()
+        .filter(|project| project.get("status").and_then(Value::as_str) == Some("review"))
+        .filter_map(|project| project.get("id").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    json!({
+        "approvals":extra_get(state,"approvals").iter().filter(|x| x.get("state").and_then(Value::as_str)==Some("pending")).cloned().collect::<Vec<_>>(),
+        "questions":extra_get(state,"questions").iter().filter(|x| x.get("state").and_then(Value::as_str)==Some("pending")).cloned().collect::<Vec<_>>(),
+        "reviews":reviews
+    })
 }
 #[derive(Clone)]
 struct UsageSample {
@@ -2110,8 +2200,159 @@ fn project_status(state: &mut MockState, params: &Value, status: &str) -> RpcRes
     project["updated_at"] = json!(now());
     let result = project.clone();
     state.emit("project.updated", json!({"project":result.clone()}));
+    if status == "done" {
+        set_review_card_mock(
+            state,
+            project_id,
+            "confirmed",
+            Value::Null,
+            "项目已确认完成",
+        )?;
+    }
     Ok(json!({"project":result}))
 }
+fn project_request_review(state: &mut MockState, params: &Value) -> RpcResult {
+    let project_id = params
+        .get("project_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "project_id is required", None))?;
+    let summary = params
+        .get("summary")
+        .and_then(Value::as_str)
+        .filter(|summary| !summary.trim().is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "summary is required", None))?;
+    let project = state
+        .projects
+        .iter_mut()
+        .find(|project| project.get("id").and_then(Value::as_str) == Some(project_id))
+        .ok_or_else(|| rpc_error("not_found", "project not found", None))?;
+    if !matches!(
+        project.get("status").and_then(Value::as_str),
+        Some("active" | "review")
+    ) {
+        return Err(rpc_error(
+            "conflict",
+            "only active or review projects can be submitted for review",
+            None,
+        ));
+    }
+    project["status"] = json!("review");
+    project["updated_at"] = json!(now());
+    let result = project.clone();
+    let artifacts = extra_get(state, "announcements")
+        .into_iter()
+        .find(|announcement| {
+            announcement.get("project_id").and_then(Value::as_str) == Some(project_id)
+        })
+        .and_then(|announcement| {
+            announcement
+                .get("artifacts")
+                .and_then(Value::as_array)
+                .cloned()
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .map(|artifact| {
+            json!({
+                "artifact_id":artifact.get("id").cloned().unwrap_or(Value::Null),
+                "title":artifact.get("title").cloned().unwrap_or_else(|| json!("")),
+                "path_or_url":artifact.get("path_or_url").cloned().unwrap_or_else(|| json!("")),
+                "bot_id":artifact.get("bot_id").cloned().unwrap_or_else(|| json!("bot_main")),
+                "kind":artifact.get("kind").cloned().unwrap_or_else(|| json!("file"))
+            })
+        })
+        .collect::<Vec<_>>();
+    state.emit("project.updated", json!({"project":result.clone()}));
+    set_review_card_mock(state, project_id, "pending", json!(artifacts), summary)?;
+    Ok(json!({"project":result}))
+}
+
+fn set_review_card_mock(
+    state: &mut MockState,
+    project_id: &str,
+    review_state: &str,
+    artifacts: Value,
+    summary: &str,
+) -> Result<(), super::RpcError> {
+    let message_id = format!("msg_project_review_{project_id}");
+    let messages = state.messages.entry("chat_main".into()).or_default();
+    let existing = messages
+        .iter()
+        .position(|message| message.get("id").and_then(Value::as_str) == Some(&message_id));
+    let artifacts = if artifacts.is_null() {
+        existing
+            .and_then(|index| messages[index].pointer("/blocks/0/artifacts"))
+            .filter(|value| value.is_array())
+            .cloned()
+            .unwrap_or_else(|| json!([]))
+    } else {
+        artifacts
+    };
+    let message = if let Some(index) = existing {
+        let message = &mut messages[index];
+        message["blocks"] = json!([{
+            "type":"review_card",
+            "project_id":project_id,
+            "artifacts":artifacts,
+            "state":review_state
+        }]);
+        message["fallback_text"] = json!(summary);
+        message.clone()
+    } else {
+        let seq = messages
+            .iter()
+            .filter_map(|message| message.get("seq").and_then(Value::as_u64))
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let message = json!({
+            "id":message_id,
+            "chat_id":"chat_main",
+            "seq":seq,
+            "sender":{"kind":"bot","bot_id":"bot_main"},
+            "created_at":now(),
+            "edited_at":null,
+            "deleted":false,
+            "reply_to":null,
+            "thread_count":0,
+            "mentions":[{"kind":"user"}],
+            "blocks":[{"type":"review_card","project_id":project_id,"artifacts":artifacts,"state":review_state}],
+            "fallback_text":summary,
+            "intent":null,
+            "assignment_id":null,
+            "streaming":false,
+            "delivery":[],
+            "reactions":[]
+        });
+        messages.push(message.clone());
+        message
+    };
+    let event = if existing.is_some() {
+        "message.updated"
+    } else {
+        "message.created"
+    };
+    state.emit(event, json!({"message":message.clone()}));
+    if let Some(chat) = state
+        .chats
+        .iter_mut()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some("chat_main"))
+    {
+        chat["last_message"] = json!({
+            "message_id":message["id"],
+            "sender":message["sender"],
+            "text":message["fallback_text"],
+            "created_at":message["created_at"]
+        });
+        chat["last_seq"] = message["seq"].clone();
+        chat["updated_at"] = message["created_at"].clone();
+        let updated = chat.clone();
+        state.emit("chat.updated", json!({"chat":updated}));
+    }
+    Ok(())
+}
+
 fn project_request_changes(state: &mut MockState, params: &Value) -> RpcResult {
     let project_id = params
         .get("project_id")
@@ -2141,6 +2382,16 @@ fn project_request_changes(state: &mut MockState, params: &Value) -> RpcResult {
     if let Some(project) = updated_project {
         state.emit("project.updated", json!({"project":project}));
     }
+    set_review_card_mock(
+        state,
+        project_id,
+        "changes_requested",
+        Value::Null,
+        params
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("已请求修改"),
+    )?;
     send_chat(
         state,
         &json!({"chat_id":chat_id,"text":params.get("text").cloned().unwrap_or(json!("")),"mentions":[{"kind":"main"}]}),
@@ -2296,9 +2547,11 @@ fn assignment_retry(state: &mut MockState, params: &Value) -> RpcResult {
     retry["queue_reason"] = queue_reason.map_or(Value::Null, |reason| json!(reason));
     retry["wait"] = Value::Null;
     retry["created_at"] = json!(created_at);
-    retry["started_at"] = (status == "working")
-        .then(|| json!(created_at))
-        .unwrap_or(Value::Null);
+    retry["started_at"] = if status == "working" {
+        json!(created_at)
+    } else {
+        Value::Null
+    };
     retry["finished_at"] = Value::Null;
     retry["usage"] = json!({
         "input_tokens":0,
@@ -2391,6 +2644,25 @@ fn approval_decide(state: &mut MockState, params: &Value) -> RpcResult {
         _ => "denied",
     });
     item["decided_at"] = json!(now());
+    if item["state"] == "always_allowed" {
+        let rules = state.settings["approvals"]["rules"]
+            .as_array_mut()
+            .ok_or_else(|| rpc_error("internal", "settings.approvals.rules is invalid", None))?;
+        let approval_id = item["id"].clone();
+        if !rules
+            .iter()
+            .any(|rule| rule.get("id") == Some(&approval_id))
+        {
+            rules.push(json!({
+                "id":approval_id,
+                "kind":"auto_allow",
+                "text":item.get("summary").cloned().unwrap_or_else(|| json!("")),
+                "created_at":item.get("decided_at").cloned().unwrap_or_else(|| json!(now())),
+                "bot_id":item.get("bot_id").cloned().unwrap_or(Value::Null),
+                "builtin":false
+            }));
+        }
+    }
     replace_extra(state, "approvals", item.clone());
     state.emit("approval.resolved", json!({"approval":item.clone()}));
     Ok(json!({"approval":item}))
@@ -2877,6 +3149,36 @@ fn model_delete(state: &mut MockState, params: &Value) -> RpcResult {
 }
 fn settings_update(state: &mut MockState, params: &Value) -> RpcResult {
     crate::adapter::validate_settings_secret_params(params)?;
+    if let Some(proposed) = params
+        .pointer("/patch/approvals/rules")
+        .and_then(Value::as_array)
+    {
+        let current_builtins = state
+            .settings
+            .pointer("/approvals/rules")
+            .and_then(Value::as_array)
+            .map(|rules| {
+                rules
+                    .iter()
+                    .filter(|rule| rule.get("builtin").and_then(Value::as_bool) == Some(true))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if current_builtins
+            .iter()
+            .any(|builtin| !proposed.iter().any(|rule| rule == *builtin))
+            || proposed
+                .iter()
+                .filter(|rule| rule.get("builtin").and_then(Value::as_bool) == Some(true))
+                .any(|rule| !current_builtins.contains(&rule))
+        {
+            return Err(rpc_error(
+                "forbidden",
+                "built-in approval rules are read-only",
+                None,
+            ));
+        }
+    }
     merge_patch(&mut state.settings, params.get("patch"));
     if let Some(key) = params.get("web_search_key").and_then(Value::as_str) {
         state.settings["web_search"]["has_key"] = json!(!key.is_empty());
@@ -2944,6 +3246,129 @@ mod contract_tests {
 
     async fn call(gateway: &Gateway, method: &str, params: Value) -> Value {
         gateway.rpc(method, params).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn mock_host_permissions_returns_conservative_states_and_settings_defaults_auto_allow() {
+        let gateway = gateway().await;
+        let permissions = call(&gateway, "host.permissions", json!({})).await;
+        let _: macbot_protocol::HostPermissionsResult =
+            serde_json::from_value(permissions.clone()).unwrap();
+        assert_eq!(permissions["screen_recording"], "unknown");
+        assert_eq!(permissions["full_disk_access"], "unknown");
+        let settings = call(&gateway, "settings.get", json!({})).await["settings"].clone();
+        let _: Settings = serde_json::from_value(settings.clone()).unwrap();
+        assert_eq!(settings["approvals"]["mode"], "always_allow");
+        assert!(settings["approvals"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|rule| rule.get("builtin").and_then(Value::as_bool) == Some(true)));
+    }
+
+    #[tokio::test]
+    async fn mock_pending_review_round_trips_through_card_bootstrap_and_workbench() {
+        let gateway = gateway().await;
+        let bootstrap = call(&gateway, "bootstrap", json!({})).await;
+        let project_id = bootstrap["pending"]["reviews"][0]
+            .as_str()
+            .expect("mock seeds a project awaiting review")
+            .to_owned();
+        let main_history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        let card = main_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| {
+                message["blocks"][0]["type"] == "review_card"
+                    && message["blocks"][0]["project_id"] == project_id
+            })
+            .expect("pending review is represented by a main chat card");
+        assert_eq!(card["blocks"][0]["state"], "pending");
+        let workbench = call(&gateway, "workbench.get", json!({})).await;
+        assert!(workbench["waiting"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| { item["kind"] == "review" && item["project_id"] == project_id }));
+
+        let requested_changes = call(
+            &gateway,
+            "project.request_changes",
+            json!({"project_id":project_id,"text":"请补充验收说明"}),
+        )
+        .await;
+        assert_eq!(
+            requested_changes["message"]["fallback_text"],
+            "请补充验收说明"
+        );
+        let after_changes = call(&gateway, "bootstrap", json!({})).await;
+        assert!(!after_changes["pending"]["reviews"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|id| id == &project_id));
+        let main_history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        let card = main_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| {
+                message["blocks"][0]["type"] == "review_card"
+                    && message["blocks"][0]["project_id"] == project_id
+            })
+            .unwrap();
+        assert_eq!(card["blocks"][0]["state"], "changes_requested");
+
+        let review_request = json!({
+            "project_id":project_id,
+            "summary":"已补充验收说明",
+            "client_request_id":"mock-review-resubmit"
+        });
+        let first = call(&gateway, "project.request_review", review_request.clone()).await;
+        let retry = call(&gateway, "project.request_review", review_request).await;
+        assert_eq!(first, retry);
+        assert_eq!(first["project"]["status"], "review");
+        let confirmed = call(
+            &gateway,
+            "project.confirm_done",
+            json!({"project_id":project_id}),
+        )
+        .await;
+        assert_eq!(confirmed["project"]["status"], "done");
+        let after_confirmation = call(&gateway, "bootstrap", json!({})).await;
+        assert!(!after_confirmation["pending"]["reviews"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|id| id == &project_id));
+        let main_history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        let cards = main_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| {
+                message["blocks"][0]["type"] == "review_card"
+                    && message["blocks"][0]["project_id"] == project_id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(cards.len(), 1, "the review message is updated in place");
+        assert_eq!(cards[0]["blocks"][0]["state"], "confirmed");
     }
 
     #[tokio::test]

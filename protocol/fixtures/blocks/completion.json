@@ -2,10 +2,10 @@
   "artifacts": [
     {
       "artifact_id": "art_prd",
-      "path_or_url": "product/prd.md",
-      "title": "PRD",
       "bot_id": "bot_product",
-      "kind": "file"
+      "kind": "file",
+      "path_or_url": "product/prd.md",
+      "title": "PRD"
     }
   ],
   "next": [

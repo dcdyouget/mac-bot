@@ -924,7 +924,7 @@ impl MacBot {
         }
         let request_before_seq = params.get("before_seq").and_then(Value::as_u64);
         let deep_link_request_id = (method == "chat.history")
-            .then(|| self.deep_link_history_search.as_ref())
+            .then_some(self.deep_link_history_search.as_ref())
             .flatten()
             .filter(|search| {
                 s(&params, "chat_id") == search.chat_id
@@ -2461,31 +2461,28 @@ impl MacBot {
             self.focus_region
         };
         let mut index = self.focus_region;
-        for _ in 0..4 {
-            index = if reverse {
-                (index + 3) % 4
-            } else {
-                (index + 1) % 4
-            };
-            match index {
-                0 => {
-                    self.composer
-                        .update(cx, |input, cx| input.focus(window, cx));
-                }
-                1 => self.focus_messages.focus(window, cx),
-                2 => {
-                    self.context_visible = true;
-                    self.focus_context.focus(window, cx);
-                }
-                _ => {
-                    self.sidebar_visible = true;
-                    self.focus_sidebar.focus(window, cx);
-                }
+        index = if reverse {
+            (index + 3) % 4
+        } else {
+            (index + 1) % 4
+        };
+        match index {
+            0 => {
+                self.composer
+                    .update(cx, |input, cx| input.focus(window, cx));
             }
-            self.focus_region = index;
-            cx.notify();
-            return;
+            1 => self.focus_messages.focus(window, cx),
+            2 => {
+                self.context_visible = true;
+                self.focus_context.focus(window, cx);
+            }
+            _ => {
+                self.sidebar_visible = true;
+                self.focus_sidebar.focus(window, cx);
+            }
         }
+        self.focus_region = index;
+        cx.notify();
     }
     fn move_message_focus(&mut self, backwards: bool, window: &Window, cx: &mut Context<Self>) {
         if self.page != "chat" || !self.focus_messages.contains_focused(window, cx) {
@@ -3497,7 +3494,7 @@ impl MacBot {
                     let pin_bot_id = bot_id.clone();
                     menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.pin")).on_click(
                         move |_, _, cx| {
-                            let _ = pin_entity.update(cx, |this, cx| {
+                            pin_entity.update(cx, |this, cx| {
                                 if is_bot {
                                     this.rpc(
                                         "bot.update",
@@ -3529,7 +3526,7 @@ impl MacBot {
                     };
                     menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.rename")).on_click(
                         move |_, window, cx| {
-                            let _ = rename_entity.update(cx, |this, cx| {
+                            rename_entity.update(cx, |this, cx| {
                                 this.rename_target = Some((rename_kind.clone(), rename_id.clone()));
                                 this.rename_name.update(cx, |input, cx| {
                                     input.set_value(current_name.clone(), window, cx);
@@ -3550,7 +3547,7 @@ impl MacBot {
                     };
                     menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.mute")).on_click(
                         move |_, _, cx| {
-                            let _ = mute_entity.update(cx, |this, cx| {
+                            mute_entity.update(cx, |this, cx| {
                                 if is_bot {
                                     this.rpc(
                                         "bot.update",
@@ -3573,7 +3570,7 @@ impl MacBot {
                     let done_project_id = project_id.clone();
                     menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.mark_done")).on_click(
                         move |_, _, cx| {
-                            let _ = done_entity.update(cx, |this, cx| {
+                            done_entity.update(cx, |this, cx| {
                                 this.rpc(
                                     "project.confirm_done",
                                     json!({"project_id":done_project_id}),
@@ -3589,7 +3586,7 @@ impl MacBot {
                         PopupMenuItem::new(tr("sidebar.menu.open_home"))
                             .disabled(!can_open_home)
                             .on_click(move |_, _, cx| {
-                                let _ = home_entity.update(cx, |this, cx| {
+                                home_entity.update(cx, |this, cx| {
                                     if can_open_home {
                                         this.open_project_home(
                                             home_project_id.clone(),
@@ -3607,7 +3604,7 @@ impl MacBot {
                     let archive_project_id = project_id.clone();
                     menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.archive")).on_click(
                         move |_, _, cx| {
-                            let _ = archive_entity.update(cx, |this, cx| {
+                            archive_entity.update(cx, |this, cx| {
                                 this.rpc(
                                     "project.archive",
                                     json!({"project_id":archive_project_id}),
@@ -3622,7 +3619,7 @@ impl MacBot {
                     let hide_bot_id = bot_id.clone();
                     menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.hide")).on_click(
                         move |_, _, cx| {
-                            let _ = hide_entity.update(cx, |this, cx| {
+                            hide_entity.update(cx, |this, cx| {
                                 this.rpc(
                                     "bot.update",
                                     json!({"bot_id":hide_bot_id,"patch":{"hidden":true}}),

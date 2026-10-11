@@ -610,10 +610,16 @@ impl ExecutionEngine {
             .ok()
             .flatten()
             .unwrap_or_default();
-        risky_call_allowed_from_settings(&settings, false, tool_name, args)
+        risky_call_allowed_from_settings(&settings, false, Some(&request.bot_id), tool_name, args)
     }
 
-    fn always_allow_supported(&self, tool_name: &str, args: &Value, builtin_risky: bool) -> bool {
+    fn always_allow_supported(
+        &self,
+        request: &ExecutionRequest,
+        tool_name: &str,
+        args: &Value,
+        builtin_risky: bool,
+    ) -> bool {
         if builtin_risky {
             return false;
         }
@@ -623,7 +629,7 @@ impl ExecutionEngine {
             .ok()
             .flatten()
             .unwrap_or_default();
-        !approval_requires_ask_first(&settings, tool_name, args)
+        !approval_requires_ask_first(&settings, Some(&request.bot_id), tool_name, args)
             && !auto_create_project_requires_confirmation(&settings, tool_name)
     }
 
@@ -1678,6 +1684,23 @@ impl ExecutionEngine {
                                 continue;
                             }
                         };
+                        if let Some((message_ids, context)) = queue_review_result(&canonical) {
+                            let count = message_ids.len();
+                            self.trace(
+                                &request,
+                                "queue.review",
+                                json!({"message_ids":message_ids,"count":count}),
+                            )
+                            .await?;
+                            messages.push(tool_message(&call.call_id, &ToolResult::text(context)));
+                            self.trace(
+                                &request,
+                                "tool.end",
+                                json!({"call_id":call.call_id,"is_error":false,"preview":"reviewed queued messages","details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                            )
+                            .await?;
+                            continue;
+                        }
                         let Some(canonical_id) = canonical_message_id(&canonical) else {
                             let result = ToolResult::error(
                                 "send_msg bridge returned no canonical message id",
@@ -1797,8 +1820,12 @@ impl ExecutionEngine {
                         Risk::External => "external",
                         Risk::Read => "write",
                     };
-                    let always_allow_supported =
-                        self.always_allow_supported(&call.name, &call.args, builtin_risky);
+                    let always_allow_supported = self.always_allow_supported(
+                        &request,
+                        &call.name,
+                        &call.args,
+                        builtin_risky,
+                    );
                     self.sink
                         .approval_required(json!({"approval":{
                             "id":format!("apr_{}",safe_id(&call.call_id)),
@@ -2377,6 +2404,23 @@ impl ExecutionEngine {
                         continue;
                     }
                 };
+                if let Some((message_ids, context)) = queue_review_result(&canonical) {
+                    let count = message_ids.len();
+                    self.trace(
+                        request,
+                        "queue.review",
+                        json!({"message_ids":message_ids,"count":count}),
+                    )
+                    .await?;
+                    messages.push(tool_message(&call.call_id, &ToolResult::text(context)));
+                    self.trace(
+                        request,
+                        "tool.end",
+                        json!({"call_id":call.call_id,"is_error":false,"preview":"reviewed queued messages","details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                    )
+                    .await?;
+                    continue;
+                }
                 let Some(canonical_id) = canonical_message_id(&canonical) else {
                     let result =
                         ToolResult::error("send_msg bridge returned no canonical message id");
@@ -2500,7 +2544,7 @@ impl ExecutionEngine {
                     Risk::Read => "write",
                 };
                 let always_allow_supported =
-                    self.always_allow_supported(&call.name, &call.args, builtin_risky);
+                    self.always_allow_supported(request, &call.name, &call.args, builtin_risky);
                 self.sink
                     .approval_required(json!({"approval":{
                         "id":format!("apr_{}",safe_id(&call.call_id)),
@@ -2629,6 +2673,7 @@ impl ExecutionEngine {
                                 "options":{"type":"array","items":{"type":"string"}},
                             "multi":{"type":"boolean","description":"For decision questions, allow selecting more than one option."},
                             "allow_free_text":{"type":"boolean","description":"For decision questions, allow a free-text answer in addition to selecting options. Defaults to true."},
+                            "projects":{"type":"array","description":"Attach cards for existing groups mentioned by this message. The sending Bot must be a member of each group.","items":{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"note":{"type":"string"}}}},
                             "link_previews":{"type":"array","description":"Structured link previews attached to this message.","items":{"type":"object","required":["url"],"properties":{"url":{"type":"string"},"site":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"image":{"type":"object"}}}},
                             "chat_id":{"type":"string","description":"An existing Chat.id, not a Project.id. Omit to use the current chat; use an explicit existing chat ID for cross-chat delivery."},
                             "message_id":{"type":"string"},
@@ -3428,7 +3473,12 @@ fn steer_message(request: &ExecutionRequest, steer: &InboxItem, state: &str) -> 
     })
 }
 
-fn approval_settings_allow(settings: &Value, tool_name: &str, args: &Value) -> bool {
+fn approval_settings_allow(
+    settings: &Value,
+    bot_id: Option<&str>,
+    tool_name: &str,
+    args: &Value,
+) -> bool {
     let Some(approvals) = settings.get("approvals") else {
         return false;
     };
@@ -3437,6 +3487,13 @@ fn approval_settings_allow(settings: &Value, tool_name: &str, args: &Value) -> b
     };
     let generated_summary = format!("Approval required for {tool_name}");
     let matches_rule = |rule: &Value| {
+        if rule
+            .get("bot_id")
+            .and_then(Value::as_str)
+            .is_some_and(|scope| Some(scope) != bot_id)
+        {
+            return false;
+        }
         if rule.get("enabled").and_then(Value::as_bool) == Some(false) {
             return false;
         }
@@ -3461,7 +3518,12 @@ fn approval_settings_allow(settings: &Value, tool_name: &str, args: &Value) -> b
     })
 }
 
-fn approval_requires_ask_first(settings: &Value, tool_name: &str, args: &Value) -> bool {
+fn approval_requires_ask_first(
+    settings: &Value,
+    bot_id: Option<&str>,
+    tool_name: &str,
+    args: &Value,
+) -> bool {
     let Some(rules) = settings
         .get("approvals")
         .and_then(|approvals| approvals.get("rules"))
@@ -3471,6 +3533,13 @@ fn approval_requires_ask_first(settings: &Value, tool_name: &str, args: &Value) 
     };
     let generated_summary = format!("Approval required for {tool_name}");
     rules.iter().any(|rule| {
+        if rule
+            .get("bot_id")
+            .and_then(Value::as_str)
+            .is_some_and(|scope| Some(scope) != bot_id)
+        {
+            return false;
+        }
         if rule.get("kind").and_then(Value::as_str) != Some("ask_first")
             || rule.get("enabled").and_then(Value::as_bool) == Some(false)
         {
@@ -3611,6 +3680,38 @@ fn canonical_message_id(message: &Value) -> Option<String> {
     .map(str::to_owned)
 }
 
+fn queue_review_result(result: &Value) -> Option<(Vec<String>, String)> {
+    let review = result.get("_queue_review")?;
+    let messages = review.get("messages")?.as_array()?;
+    let message_ids = review
+        .get("message_ids")?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if messages.is_empty() || message_ids.is_empty() {
+        return None;
+    }
+    let mut context = format!(
+        "Before delivering your completion, review these {} messages and adjust the result if needed:\n",
+        messages.len()
+    );
+    for message in messages {
+        let sender = message
+            .pointer("/sender/bot_id")
+            .or_else(|| message.pointer("/sender/kind"))
+            .and_then(Value::as_str)
+            .unwrap_or("user");
+        let text = message
+            .get("fallback_text")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        context.push_str(&format!("\n- {sender}: {text}"));
+    }
+    Some((message_ids, context))
+}
+
 /// Private and coordinator calls use independent persisted rate buckets.
 fn model_rate_bucket(request: &ExecutionRequest) -> Option<String> {
     if request.parent_run_id.is_some() || request.phase.as_deref() == Some("subagent") {
@@ -3687,13 +3788,14 @@ fn auto_create_project_requires_confirmation(settings: &Value, tool_name: &str) 
 fn risky_call_allowed_from_settings(
     settings: &Value,
     allow_unsafe: bool,
+    bot_id: Option<&str>,
     tool_name: &str,
     args: &Value,
 ) -> bool {
     if auto_create_project_requires_confirmation(settings, tool_name) {
         return allow_unsafe;
     }
-    allow_unsafe || approval_settings_allow(settings, tool_name, args)
+    allow_unsafe || approval_settings_allow(settings, bot_id, tool_name, args)
 }
 
 #[cfg(test)]
@@ -4784,6 +4886,7 @@ mod tests {
         let always = json!({"approvals":{"mode":"always_allow","rules":[]}});
         assert!(approval_settings_allow(
             &always,
+            None,
             "bash",
             &json!({"command":"sudo id"})
         ));
@@ -4794,16 +4897,19 @@ mod tests {
         ]}});
         assert!(approval_settings_allow(
             &require,
+            None,
             "write",
             &json!({"path":"x"})
         ));
         assert!(approval_settings_allow(
             &require,
+            None,
             "bash",
             &json!({"command":"git push origin main"})
         ));
         assert!(!approval_settings_allow(
             &require,
+            None,
             "bash",
             &json!({"command":"git status"})
         ));
@@ -4813,6 +4919,7 @@ mod tests {
         ]}});
         assert!(!approval_settings_allow(
             &conflict,
+            None,
             "bash",
             &json!({"command":"git push origin main"})
         ));
@@ -5043,12 +5150,14 @@ mod tests {
         assert!(!risky_call_allowed_from_settings(
             &always_allow,
             false,
+            None,
             "create_project",
             &args,
         ));
         assert!(risky_call_allowed_from_settings(
             &always_allow,
             true,
+            None,
             "create_project",
             &args,
         ));

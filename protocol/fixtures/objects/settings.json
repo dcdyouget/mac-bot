@@ -1,7 +1,24 @@
 {
   "approvals": {
-    "mode": "require",
-    "rules": []
+    "mode": "always_allow",
+    "rules": [
+      {
+        "bot_id": null,
+        "builtin": true,
+        "created_at": "2026-10-09T10:19:02.312Z",
+        "id": "apr_rule_builtin",
+        "kind": "ask_first",
+        "text": "git push"
+      },
+      {
+        "bot_id": "bot_code",
+        "builtin": false,
+        "created_at": "2026-10-09T10:19:02.312Z",
+        "id": "apr_rule_bot",
+        "kind": "auto_allow",
+        "text": "cargo test"
+      }
+    ]
   },
   "browser": {
     "chrome_profile": "Default",
@@ -46,12 +63,12 @@
   "timezone": "Asia/Shanghai",
   "tools": {
     "defaults": {
-      "files": true,
       "bash": true,
       "browser": true,
+      "files": true,
+      "mcp": false,
       "subagent": true,
-      "web": true,
-      "mcp": false
+      "web": true
     }
   },
   "trace": {

@@ -99,8 +99,8 @@ impl gpui_kit::gpui::Element for ChatDropRegion {
                     gpui_kit::gpui::FileDropEvent::Entered { position, paths } => {
                         let paths = paths.paths().to_vec();
                         let active = !paths.is_empty() && hitbox.is_hovered_at(*position, window);
-                        let _ = cx.update_entity(&state, |state, _| state.paths = paths.clone());
-                        let _ = cx.update_entity(&view, |view, cx| {
+                        cx.update_entity(&state, |state, _| state.paths = paths.clone());
+                        cx.update_entity(&view, |view, cx| {
                             view.set_file_drop_state(active, active.then_some(paths), cx)
                         });
                     }
@@ -108,12 +108,12 @@ impl gpui_kit::gpui::Element for ChatDropRegion {
                         if hitbox.is_hovered_at(*position, window) {
                             let paths = state.read(cx).paths.clone();
                             if !paths.is_empty() {
-                                let _ = cx.update_entity(&view, |view, cx| {
+                                cx.update_entity(&view, |view, cx| {
                                     view.set_file_drop_state(true, Some(paths), cx)
                                 });
                             }
                         } else {
-                            let _ = cx.update_entity(&view, |view, cx| {
+                            cx.update_entity(&view, |view, cx| {
                                 view.set_file_drop_state(false, None, cx)
                             });
                         }
@@ -124,8 +124,8 @@ impl gpui_kit::gpui::Element for ChatDropRegion {
                         } else {
                             Vec::new()
                         };
-                        let _ = cx.update_entity(&state, |state, _| state.paths.clear());
-                        let _ = cx.update_entity(&view, |view, cx| {
+                        cx.update_entity(&state, |state, _| state.paths.clear());
+                        cx.update_entity(&view, |view, cx| {
                             view.set_file_drop_state(false, None, cx);
                             if !paths.is_empty() {
                                 view.upload_dropped_attachments(paths, window, cx);
@@ -134,8 +134,8 @@ impl gpui_kit::gpui::Element for ChatDropRegion {
                     }
                     gpui_kit::gpui::FileDropEvent::Exited
                     | gpui_kit::gpui::FileDropEvent::Ended => {
-                        let _ = cx.update_entity(&state, |state, _| state.paths.clear());
-                        let _ = cx.update_entity(&view, |view, cx| {
+                        cx.update_entity(&state, |state, _| state.paths.clear());
+                        cx.update_entity(&view, |view, cx| {
                             view.set_file_drop_state(false, None, cx)
                         });
                     }
@@ -412,18 +412,16 @@ fn markdown_plain_text(markdown: &str) -> String {
     let mut plain = String::with_capacity(markdown.len());
     let mut index = 0;
     while index < chars.len() {
-        if chars[index] == '[' {
-            if let Some(close_label) = chars[index + 1..].iter().position(|ch| *ch == ']') {
-                let close_label = index + 1 + close_label;
-                if chars.get(close_label + 1) == Some(&'(') {
-                    if let Some(close_url) =
-                        chars[close_label + 2..].iter().position(|ch| *ch == ')')
-                    {
-                        plain.extend(chars[index + 1..close_label].iter().copied());
-                        index = close_label + 3 + close_url;
-                        continue;
-                    }
-                }
+        if chars[index] == '['
+            && let Some(close_label) = chars[index + 1..].iter().position(|ch| *ch == ']')
+        {
+            let close_label = index + 1 + close_label;
+            if chars.get(close_label + 1) == Some(&'(')
+                && let Some(close_url) = chars[close_label + 2..].iter().position(|ch| *ch == ')')
+            {
+                plain.extend(chars[index + 1..close_label].iter().copied());
+                index = close_label + 3 + close_url;
+                continue;
             }
         }
         let ch = chars[index];
@@ -459,6 +457,7 @@ fn q_is_multi(question: &Value) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn question_label(question: &Value) -> &'static str {
     if question["expired"] == true || s(question, "state") == "expired" {
         return "block.question_expired";
@@ -1516,11 +1515,7 @@ impl MacBot {
                 .unwrap_or(Value::Null);
             let selected = question_id == &current_id;
             let done = !question_is_pending(&question);
-            let label = if all_answered {
-                chat_tr("block.question.tab")
-                    .to_string()
-                    .replace("{n}", &(index + 1).to_string())
-            } else if done {
+            let label = if all_answered || done {
                 chat_tr("block.question.tab")
                     .to_string()
                     .replace("{n}", &(index + 1).to_string())
@@ -2370,7 +2365,7 @@ impl MacBot {
                 })
                 .collect::<Vec<_>>();
             let recent_skills = crate::local_settings::recent_skill_order().unwrap_or_default();
-            matching_skills.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+            matching_skills.sort_by_key(|a| a.0.to_lowercase());
             let recent_matches = recent_skills
                 .iter()
                 .filter_map(|recent| {
@@ -3357,7 +3352,7 @@ impl MacBot {
             );
         }
         row = row.child(message_content.child(menu));
-        let row = if !pending {
+        if !pending {
             let entity = cx.weak_entity();
             let source_message = message.clone();
             let source_text = message_display_text(message).to_string();
@@ -3564,8 +3559,7 @@ impl MacBot {
             .into_any_element()
         } else {
             row.into_any_element()
-        };
-        row
+        }
     }
     fn block(
         &mut self,
@@ -4109,7 +4103,7 @@ impl MacBot {
                                             .child(bot_name),
                                     )
                                     .child(self.markdown_with_folds(
-                                        &format!("dm-ref-{id}-{}", s(&message, "id")),
+                                        &format!("dm-ref-{id}-{}", s(message, "id")),
                                         text,
                                         window,
                                         cx,
@@ -4599,7 +4593,7 @@ impl MacBot {
         if let Some(chat) = project_card_chat {
             body.id(SharedString::from(format!("project-card-{id}")))
                 .role(gpui::accesskit::Role::Button)
-                .aria_label(SharedString::from(chat_tr("block.project_card.enter")))
+                .aria_label(chat_tr("block.project_card.enter"))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.select_chat(chat.clone(), window, cx)
                 }))
@@ -4869,9 +4863,10 @@ impl MacBot {
                     .small()
                     .label(tr("action.open"))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        if path.starts_with("http://") || path.starts_with("https://") {
-                            cx.open_url(&path);
-                        } else if kind == "url" {
+                        if path.starts_with("http://")
+                            || path.starts_with("https://")
+                            || kind == "url"
+                        {
                             cx.open_url(&path);
                         } else {
                             this.open_artifact_preview(artifact.clone(), project_id.clone(), cx);

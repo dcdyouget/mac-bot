@@ -860,6 +860,14 @@
     <string name="settings_tools_add_rule">添加规则</string>
     <string name="settings_computer_permissions">Bot 主机的系统权限</string>
     <string name="settings_computer_open_system_settings">去系统设置</string>
+    <string name="settings_computer_permissions_hint">权限状态来自运行 macbotd 的 Mac。</string>
+    <string name="settings_computer_permission_screen_recording">屏幕录制</string>
+    <string name="settings_computer_permission_accessibility">辅助功能</string>
+    <string name="settings_computer_permission_full_disk_access">完全磁盘访问</string>
+    <string name="settings_computer_permission_chrome">Chrome 自动化</string>
+    <string name="settings_computer_perm_granted">已授权</string>
+    <string name="settings_computer_perm_denied">未授权</string>
+    <string name="settings_computer_perm_unknown">未知</string>
     <string name="settings_about_version">客户端 %1$s · 协议 %2$s · Host macbotd %3$s</string>
     <string name="settings_about_check_update">检查更新</string>
     <string name="settings_about_export_diag">导出诊断信息</string>

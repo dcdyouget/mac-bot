@@ -357,6 +357,30 @@ impl Orchestrator {
             value.get("assignment_retry_requests"),
         )?;
         restore_map(&mut i.messages, value.get("messages"))?;
+        let pending_messages = i
+            .assignments
+            .values()
+            .map(|assignment| {
+                let count = i
+                    .messages
+                    .values()
+                    .filter(|message| {
+                        message.delivery.iter().any(|delivery| {
+                            delivery.bot_id == assignment.bot_id
+                                && delivery.assignment_id.as_deref() == Some(assignment.id.as_str())
+                                && delivery.state == "queued"
+                        })
+                    })
+                    .count();
+                (assignment.id.clone(), count)
+            })
+            .collect::<HashMap<_, _>>();
+        for assignment in i.assignments.values_mut() {
+            assignment.pending_messages = pending_messages
+                .get(&assignment.id)
+                .copied()
+                .unwrap_or_default();
+        }
         restore_map(&mut i.artifacts, value.get("artifacts"))?;
         restore_map(&mut i.approvals, value.get("approvals"))?;
         let restore_expired_at = now();
@@ -687,6 +711,10 @@ struct ApprovalRuleRecord {
     kind: String,
     text: String,
     created_at: String,
+    #[serde(default)]
+    bot_id: Option<Id>,
+    #[serde(default)]
+    builtin: bool,
 }
 
 fn ensure_main_project_member(project: &mut Project) {
@@ -2462,6 +2490,7 @@ impl Inner {
             finished_at: None,
             usage: UsageTotals::default(),
             subagents_active: 0,
+            pending_messages: 0,
             steers: Vec::new(),
             result_message_id: None,
             model: bot_model,
@@ -2743,6 +2772,25 @@ impl Inner {
             } else {
                 Vec::new()
             };
+        for delivery in &queued_deliveries {
+            if let Some(assignment_id) = delivery.assignment_id.as_deref() {
+                if let Some(assignment) = self.assignments.get_mut(assignment_id) {
+                    assignment.steers.push(Steer {
+                        message_id: msg_id.clone(),
+                        text: req.text.clone(),
+                        at: sent_at.clone(),
+                        applied_at: None,
+                    });
+                }
+            }
+        }
+        for delivery in &queued_deliveries {
+            if let Some(assignment_id) = delivery.assignment_id.as_deref() {
+                if let Some(assignment) = self.assignments.get_mut(assignment_id) {
+                    assignment.pending_messages = assignment.pending_messages.saturating_add(1);
+                }
+            }
+        }
         let mut msg = Message {
             id: msg_id.clone(),
             chat_id: req.chat_id.clone(),
@@ -3321,6 +3369,9 @@ impl Inner {
         let current_rank = previous.map(|delivery| rank(&delivery.state));
         let ts = now();
         if let Some(assignment) = self.assignments.get_mut(assignment_id) {
+            if current_rank == Some(0) && rank(state) > 0 {
+                assignment.pending_messages = assignment.pending_messages.saturating_sub(1);
+            }
             if let Some(steer) = assignment
                 .steers
                 .iter_mut()
@@ -3476,6 +3527,8 @@ impl Inner {
                 kind: "auto_allow".into(),
                 text: out.summary.clone(),
                 created_at: now(),
+                bot_id: Some(out.bot_id.clone()),
+                builtin: false,
             });
         }
         if let Some(assignment_id) = assignment_id.as_deref() {
@@ -7846,15 +7899,20 @@ mod tests {
             })
             .unwrap();
         let always = o
-            .create_approval(ApprovalRequest {
-                bot_id: second.bot_id.clone(),
-                assignment_id: Some(second.id.clone()),
-                chat_id: "dm".into(),
-                tool: "bash".into(),
-                risk: "exec".into(),
-                summary: "允许规则".into(),
-                detail: "echo y".into(),
-            })
+            .lock()
+            .unwrap()
+            .create_approval_with_support(
+                ApprovalRequest {
+                    bot_id: second.bot_id.clone(),
+                    assignment_id: Some(second.id.clone()),
+                    chat_id: "dm".into(),
+                    tool: "bash".into(),
+                    risk: "exec".into(),
+                    summary: "允许规则".into(),
+                    detail: "echo y".into(),
+                },
+                true,
+            )
             .unwrap();
         rt.block_on(o.rpc(
             "approval.decide",

@@ -9,6 +9,7 @@ use gpui_kit::component::{ActiveTheme, Theme};
 use gpui_kit::{Hsla, rgb, rgba};
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)] // The projection intentionally carries the full shared token set.
 pub struct Tokens {
     // Surface and interaction colors.
     pub desktop: Hsla,
@@ -98,6 +99,7 @@ pub struct Tokens {
 }
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)] // Layout values are consumed incrementally during the UI migration.
 pub struct DesktopLayout {
     pub window_min: [f32; 2],
     pub window_default: [f32; 2],

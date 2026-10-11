@@ -17,6 +17,7 @@
       "id": "msg_1",
       "intent": null,
       "mentions": [],
+      "quote": null,
       "reactions": [],
       "reply_to": null,
       "sender": {

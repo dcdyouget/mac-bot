@@ -228,6 +228,9 @@
       "$ref": "#/definitions/SettingsResult"
     },
     {
+      "$ref": "#/definitions/HostPermissionsResult"
+    },
+    {
       "$ref": "#/definitions/SettingsResult"
     },
     {
@@ -466,6 +469,17 @@
         "text"
       ],
       "properties": {
+        "bot_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "builtin": {
+          "default": false,
+          "type": "boolean"
+        },
         "created_at": {
           "type": "string"
         },
@@ -737,6 +751,12 @@
             "string",
             "null"
           ]
+        },
+        "pending_messages": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
         },
         "project_id": {
           "type": [
@@ -2238,6 +2258,29 @@
         }
       }
     },
+    "HostPermissionsResult": {
+      "type": "object",
+      "required": [
+        "accessibility",
+        "automation_chrome",
+        "full_disk_access",
+        "screen_recording"
+      ],
+      "properties": {
+        "accessibility": {
+          "$ref": "#/definitions/PermissionState"
+        },
+        "automation_chrome": {
+          "$ref": "#/definitions/PermissionState"
+        },
+        "full_disk_access": {
+          "$ref": "#/definitions/PermissionState"
+        },
+        "screen_recording": {
+          "$ref": "#/definitions/PermissionState"
+        }
+      }
+    },
     "InFlight": {
       "type": "object",
       "required": [
@@ -2747,6 +2790,14 @@
           }
         }
       }
+    },
+    "PermissionState": {
+      "type": "string",
+      "enum": [
+        "granted",
+        "denied",
+        "unknown"
+      ]
     },
     "PingResult": {
       "type": "object",
@@ -4230,6 +4281,26 @@
         {
           "type": "object",
           "required": [
+            "count",
+            "message_ids"
+          ],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "message_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "from",
             "message_id",
             "text"
@@ -4461,6 +4532,7 @@
         "tool.start",
         "tool.end",
         "send_msg",
+        "queue.review",
         "steer",
         "run.wait",
         "run.resume",

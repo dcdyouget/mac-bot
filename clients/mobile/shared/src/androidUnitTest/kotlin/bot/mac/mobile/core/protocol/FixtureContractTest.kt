@@ -34,11 +34,15 @@ class FixtureContractTest {
 
         val event = decode(EventFrameSerializer, fixture("events/message_created.json"))
         assertEquals("message.created", event.event)
-        assertEquals("msg_waiting_1", event.data.raw.obj("message").str("id"))
+        assertEquals("msg_1", event.data.raw.obj("message").str("id"))
 
         val workbench = decode(WorkbenchSerializer, fixture("results/workbench.json"))
         assertEquals("bot_main", workbench.bots.single().botId)
         assertEquals("chat_login", workbench.bots.single().assignments.single().originChatId)
+        assertEquals(0L, workbench.bots.single().assignments.single().pendingMessages)
+        val queueReview = decode(TraceItemSerializer, fixture("trace/queue_review.json"))
+        assertEquals("queue.review", queueReview.type)
+        assertEquals(2L, queueReview.raw.obj("data").long("count"))
 
         val screen = decode(ScreenStateSerializer, fixture("frames/screen-state.json"))
         assertEquals("bot_main", screen.botId)
@@ -49,6 +53,17 @@ class FixtureContractTest {
         assertEquals("inherit", settingsRequest.patch.models?.subagent)
         val searchSettings = decode(SettingsUpdateParamsSerializer, fixture("requests/settings_update_web_search.json"))
         assertNotNull(searchSettings.patch.webSearch)
+
+        val approvalSettings = ApprovalSettings(fixture("objects/settings.json").obj("approvals"))
+        assertEquals("always_allow", approvalSettings.mode)
+        val builtInRule = approvalSettings.rules.first { it.builtin == true }
+        assertEquals(null, builtInRule.botId)
+        assertEquals("git push", builtInRule.text)
+        assertEquals("bot_code", approvalSettings.rules.first { it.botId == "bot_code" }.botId)
+
+        val permissions = decode(HostPermissionsResultSerializer, fixture("results/host_permissions.json"))
+        assertEquals("granted", permissions.screenRecording)
+        assertEquals("granted", permissions.automationChrome)
     }
 
     @Test
@@ -93,6 +108,7 @@ class FixtureContractTest {
         path == "requests/message_delete.json" -> MessageDeleteParamsSerializer
         path == "requests/message_edit.json" -> MessageEditParamsSerializer
         path == "requests/message_steer.json" -> MessageSteerParamsSerializer
+        path == "requests/host_permissions.json" -> JsonObject.serializer()
         path == "requests/settings_update_partial.json" || path == "requests/settings_update_web_search.json" -> SettingsUpdateParamsSerializer
         path.startsWith("trace/") -> TraceItemSerializer
         path == "frames/screen-header.json" -> ScreenFrameHeaderSerializer
@@ -102,6 +118,7 @@ class FixtureContractTest {
         path == "results/artifact_version_get.json" -> ArtifactVersionGetResultSerializer
         path == "results/artifact_versions_list.json" -> ArtifactVersionsResultSerializer
         path == "results/assignment_retry.json" -> AssignmentGetResultSerializer
+        path == "results/host_permissions.json" -> HostPermissionsResultSerializer
         path == "results/message_delete.json" -> JsonObject.serializer()
         path == "results/message_edit.json" -> MessageEditResultSerializer
         path == "results/usage_heatmap_calendar.json" || path == "results/usage_heatmap_weekhour.json" -> HeatmapResultSerializer

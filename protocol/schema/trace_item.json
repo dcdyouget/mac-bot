@@ -391,6 +391,26 @@
         {
           "type": "object",
           "required": [
+            "count",
+            "message_ids"
+          ],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "message_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "from",
             "message_id",
             "text"
@@ -516,6 +536,7 @@
         "tool.start",
         "tool.end",
         "send_msg",
+        "queue.review",
         "steer",
         "run.wait",
         "run.resume",

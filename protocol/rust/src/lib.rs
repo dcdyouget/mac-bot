@@ -504,6 +504,8 @@ pub struct Assignment {
     pub finished_at: Option<Time>,
     pub usage: UsageTotals,
     pub subagents_active: u32,
+    #[serde(default)]
+    pub pending_messages: u32,
     pub steers: Vec<Steer>,
     pub result_message_id: Option<Id>,
     pub model: ModelRef,
@@ -930,6 +932,10 @@ pub struct ApprovalRule {
     pub kind: ApprovalRuleKind,
     pub text: String,
     pub created_at: Time,
+    #[serde(default)]
+    pub bot_id: Option<Id>,
+    #[serde(default)]
+    pub builtin: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -1033,6 +1039,8 @@ pub enum TraceType {
     #[serde(rename = "tool.end")]
     ToolEnd,
     SendMsg,
+    #[serde(rename = "queue.review")]
+    QueueReview,
     Steer,
     #[serde(rename = "run.wait")]
     RunWait,
@@ -1088,6 +1096,10 @@ pub enum TraceData {
         intent: Intent,
         message_id: Id,
         chat_id: Id,
+    },
+    QueueReview {
+        message_ids: Vec<Id>,
+        count: u32,
     },
     Steer {
         message_id: Id,
@@ -1177,6 +1189,11 @@ impl TraceData {
             from: Sender,
         }
         #[derive(Deserialize)]
+        struct QueueReviewD {
+            message_ids: Vec<Id>,
+            count: u32,
+        }
+        #[derive(Deserialize)]
         struct RunWaitD {
             reason: WaitReason,
             message_id: Option<Id>,
@@ -1242,6 +1259,12 @@ impl TraceData {
                 message_id: x.message_id,
                 chat_id: x.chat_id,
             }),
+            TraceType::QueueReview => {
+                decode_value::<QueueReviewD>(value).map(|x| Self::QueueReview {
+                    message_ids: x.message_ids,
+                    count: x.count,
+                })
+            }
             TraceType::Steer => decode_value::<SteerD>(value).map(|x| Self::Steer {
                 message_id: x.message_id,
                 text: x.text,
@@ -2665,6 +2688,8 @@ pub enum Method {
     ModelDelete,
     #[serde(rename = "settings.get")]
     SettingsGet,
+    #[serde(rename = "host.permissions")]
+    HostPermissions,
     #[serde(rename = "settings.update")]
     SettingsUpdate,
     #[serde(rename = "usage.summary")]
@@ -2756,6 +2781,7 @@ pub enum MethodParams {
     ModelUpsert(ModelUpsertParams),
     ModelDelete(ModelDeleteParams),
     SettingsGet(EmptyParams),
+    HostPermissions(EmptyParams),
     SettingsUpdate(SettingsUpdateParams),
     UsageSummary(UsagePeriodParams),
     UsageHeatmap(UsageHeatmapParams),
@@ -2842,6 +2868,7 @@ pub enum MethodResult {
     ModelUpsert(ModelResult),
     ModelDelete(EmptyResult),
     SettingsGet(SettingsResult),
+    HostPermissions(HostPermissionsResult),
     SettingsUpdate(SettingsResult),
     UsageSummary(UsageSummaryResult),
     UsageHeatmap(HeatmapResult),
@@ -2933,6 +2960,7 @@ impl MethodParams {
             Method::ModelUpsert => p!(ModelUpsert, ModelUpsertParams),
             Method::ModelDelete => p!(ModelDelete, ModelDeleteParams),
             Method::SettingsGet => p!(SettingsGet, EmptyParams),
+            Method::HostPermissions => p!(HostPermissions, EmptyParams),
             Method::SettingsUpdate => p!(SettingsUpdate, SettingsUpdateParams),
             Method::UsageSummary => p!(UsageSummary, UsagePeriodParams),
             Method::UsageHeatmap => p!(UsageHeatmap, UsageHeatmapParams),
@@ -3026,6 +3054,7 @@ impl MethodResult {
             Method::ModelUpsert => r!(ModelUpsert, ModelResult),
             Method::ModelDelete => r!(ModelDelete, EmptyResult),
             Method::SettingsGet => r!(SettingsGet, SettingsResult),
+            Method::HostPermissions => r!(HostPermissions, HostPermissionsResult),
             Method::SettingsUpdate => r!(SettingsUpdate, SettingsResult),
             Method::UsageSummary => r!(UsageSummary, UsageSummaryResult),
             Method::UsageHeatmap => r!(UsageHeatmap, HeatmapResult),
@@ -3723,6 +3752,20 @@ pub struct HostStatus {
     pub queued: u32,
     pub global_limit: u32,
     pub subagents_running: u32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionState {
+    Granted,
+    Denied,
+    Unknown,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct HostPermissionsResult {
+    pub screen_recording: PermissionState,
+    pub accessibility: PermissionState,
+    pub full_disk_access: PermissionState,
+    pub automation_chrome: PermissionState,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct SeqEvent {

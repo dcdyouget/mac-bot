@@ -12,6 +12,7 @@
       "model": "prv_mock/mock-model",
       "origin_chat_id": "chat_login",
       "parent_assignment_id": null,
+      "pending_messages": 0,
       "project_id": "prj_login",
       "queue_reason": null,
       "result_message_id": null,

@@ -173,6 +173,12 @@
             "null"
           ]
         },
+        "pending_messages": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
         "project_id": {
           "type": [
             "string",

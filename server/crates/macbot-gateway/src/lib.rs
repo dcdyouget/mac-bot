@@ -502,7 +502,13 @@ impl MockState {
             "host_name":host_name,"timezone":"Asia/Shanghai","currency":"CNY",
             "concurrency":{"global":4,"bot_default":2,"subagent_per_run":2,"subagent_global":4,"loop_hops":8},
             "models":{"bot_default":null,"main":null,"subagent":"inherit","maintenance":null},
-            "main_bot":{"auto_create_project":true},"approvals":{"mode":"require","rules":[]},
+            "main_bot":{"auto_create_project":true},"approvals":{"mode":"always_allow","rules":[
+                {"id":"builtin-sudo","kind":"ask_first","text":"sudo","created_at":"2026-10-11T00:00:00Z","bot_id":null,"builtin":true},
+                {"id":"builtin-home-external-rm","kind":"ask_first","text":"Home 外删除","created_at":"2026-10-11T00:00:00Z","bot_id":null,"builtin":true},
+                {"id":"builtin-git-push","kind":"ask_first","text":"git push","created_at":"2026-10-11T00:00:00Z","bot_id":null,"builtin":true},
+                {"id":"builtin-browser-payment","kind":"ask_first","text":"浏览器付款","created_at":"2026-10-11T00:00:00Z","bot_id":null,"builtin":true},
+                {"id":"builtin-browser-eval","kind":"ask_first","text":"browser_eval","created_at":"2026-10-11T00:00:00Z","bot_id":null,"builtin":true}
+            ]},
             "browser":{"default_mode":"headless","chrome_profile":"","stream":{"desktop":{"max_width":1280,"quality":70,"max_fps":15},"mobile":{"max_width":720,"quality":50,"max_fps":10}}},
             "skills":{"extra_dirs":[]},"trace":{"save_full_requests":false},"web_search":{"provider":null,"endpoint":null,"has_key":false},"push":{"apns_configured":false}
         });

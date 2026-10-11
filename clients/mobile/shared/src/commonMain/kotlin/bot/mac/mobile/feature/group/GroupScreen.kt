@@ -1,11 +1,16 @@
 package bot.mac.mobile.feature.group
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -21,8 +26,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.boolean
@@ -67,6 +76,7 @@ fun GroupScreen(
     val chatId = project?.str("chat_id")?.takeIf { it.isNotBlank() }
     val announcement = state.announcements[projectId]
     var showAnnouncement by remember { mutableStateOf(false) }
+    var showGroupActions by remember { mutableStateOf(false) }
     var changeText by remember { mutableStateOf("") }
     var showChangeInput by remember { mutableStateOf(false) }
     var changeProjectId by remember { mutableStateOf<String?>(null) }
@@ -171,18 +181,70 @@ fun GroupScreen(
     LaunchedEffect(projectId, editAnnouncementOnOpen) {
         if (editAnnouncementOnOpen) showAnnouncementEditor = true
     }
+    val announcementMembers = announcement?.arr("members").orEmpty()
+    val projectMembers = project?.arr("members").orEmpty()
+    val chatMemberIds = state.chats.firstOrNull { it.str("id") == chatId }?.arr("member_bot_ids").orEmpty()
+        .mapNotNull { (it as? JsonPrimitive)?.content?.takeIf(String::isNotBlank) }
+    val members = when {
+        announcementMembers.isNotEmpty() -> announcementMembers
+        projectMembers.isNotEmpty() -> projectMembers
+        else -> chatMemberIds.map { botId ->
+            val botStatus = state.bots.firstOrNull { it.str("id") == botId }?.obj("status")?.str("summary").orEmpty()
+            buildJsonObject { put("bot_id", botId); put("state", botStatus.ifBlank { "idle" }) }
+        }
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         FontScaleToolbar {
-            Row(Modifier.fillMaxWidth().padding(12.dp)) {
-                Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
-                Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text(project?.str("name")?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.search_filter_groups), style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
-                    project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+            Row(
+                Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+                    LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp), contentDescription = stringResource(Res.string.common_back))
                 }
-                Button(onClick = { showAnnouncement = !showAnnouncement }) { Text(stringResource(Res.string.group_announcement)) }
-                Button(onClick = { onOpenGroupInfo(projectId) }) { Text(stringResource(Res.string.group_info)) }
-                Button(onClick = { announcementText = announcement?.str("text").orEmpty(); announcementBaseVersion = announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L; showAnnouncementEditor = true }) { Text(stringResource(Res.string.group_announcement_edit)) }
-                Button(onClick = { showEdit = !showEdit }) { Text(stringResource(Res.string.feature_edit_group)) }
+                Box(Modifier.padding(start = 4.dp, end = 10.dp)) { GroupAvatar(repository, members, state.bots) }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                    Text(
+                        project?.str("name")?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.search_filter_groups),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val projectStatus = when (project?.str("status")) {
+                            "active" -> stringResource(Res.string.project_status_active)
+                            "review" -> stringResource(Res.string.project_status_review)
+                            "done" -> stringResource(Res.string.project_status_done)
+                            "archived" -> stringResource(Res.string.project_status_archived)
+                            else -> null
+                        }
+                        Text(
+                            listOfNotNull(projectStatus, stringResource(Res.string.chat_group_subtitle, members.size)).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                IconButton(onClick = { showAnnouncement = !showAnnouncement }, modifier = Modifier.size(40.dp)) {
+                    LucideIcon(LucideIconKind.MessageCircle, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary, contentDescription = stringResource(Res.string.group_announcement))
+                }
+                Box {
+                    IconButton(onClick = { showGroupActions = true }, modifier = Modifier.size(40.dp)) {
+                        LucideIcon(LucideIconKind.Ellipsis, Modifier.size(20.dp), contentDescription = stringResource(Res.string.group_info))
+                    }
+                    DropdownMenu(expanded = showGroupActions, onDismissRequest = { showGroupActions = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.group_info)) }, onClick = { showGroupActions = false; onOpenGroupInfo(projectId) })
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.group_announcement_edit)) }, onClick = {
+                            showGroupActions = false
+                            announcementText = announcement?.str("text").orEmpty()
+                            announcementBaseVersion = announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L
+                            showAnnouncementEditor = true
+                        })
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.feature_edit_group)) }, onClick = { showGroupActions = false; showEdit = !showEdit })
+                    }
+                }
             }
         }
         if (showEdit) {
@@ -206,32 +268,36 @@ fun GroupScreen(
             }
         }
         error?.let { Text(it, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
-        val announcementMembers = announcement?.arr("members").orEmpty()
-        (if (announcementMembers.isNotEmpty()) announcementMembers else project?.arr("members").orEmpty()).let { members ->
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                members.forEach { member ->
-                    val m = member as? JsonObject
-                    val botId = m?.str("bot_id").orEmpty()
-                    val botName = state.bots.firstOrNull { it.str("id") == botId }?.str("name").orEmpty().ifBlank { botId }
-                    Column(Modifier.widthIn(min = 150.dp)) {
-                        Text("● $botName", style = MaterialTheme.typography.labelMedium)
-                        m?.let { member ->
-                            member.str("role_note").takeIf { it.isNotBlank() }?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }
-                            member.str("state").takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
-                            val assignmentId = member.str("current_assignment_id")
-                            val assignment = state.assignments.firstOrNull { it.str("id") == assignmentId }
-                            if (assignmentId.isNotBlank()) {
-                                Button(onClick = { onOpenTrace(assignmentId) }) {
-                                    Text(assignment?.str("title").orEmpty().ifBlank { stringResource(Res.string.common_details) })
-                                }
-                            }
-                        }
-                    }
-                }
+        Row(
+            Modifier.fillMaxWidth().height(38.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            members.forEach { rawMember ->
+                val member = rawMember as? JsonObject
+                val botId = member?.str("bot_id").orEmpty()
+                val bot = state.bots.firstOrNull { it.str("id") == botId }
+                val botName = bot?.str("name").orEmpty().ifBlank { botId }
+                val status = member?.str("state")?.ifBlank { "idle" } ?: "idle"
+                val assignmentId = member?.str("current_assignment_id").orEmpty()
+                GroupMemberChip(repository, bot, botName, status, assignmentId.takeIf(String::isNotBlank)?.let { id -> { onOpenTrace(id) } })
             }
         }
+        Row(
+            Modifier.fillMaxWidth().height(44.dp).clickable { showAnnouncement = !showAnnouncement }.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(Modifier.width(2.dp).height(28.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text(stringResource(Res.string.group_announcement), style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                val announcementSummary = announcement?.str("text")?.lineSequence()?.firstOrNull()?.trim().orEmpty()
+                Text(announcementSummary.ifBlank { stringResource(Res.string.group_announcement_empty) }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            LucideIcon(if (showAnnouncement) LucideIconKind.ChevronDown else LucideIconKind.ChevronRight, Modifier.size(18.dp))
+        }
         if (showAnnouncement) AnnouncementPanel(announcement, project, onOpenArtifact, onOpenHome, onCopyHome)
-        HorizontalDivider(Modifier.padding(top = 8.dp))
+        HorizontalDivider()
         Box(Modifier.weight(1f).fillMaxWidth()) {
             chatId?.let { id ->
                 ChatScreen(
@@ -301,6 +367,69 @@ fun GroupScreen(
             if (project?.str("status") == "archived") {
                 Button(onClick = { scope.launch { runCatching { repository.call("project.reopen", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_reopen)) }
             }
+        }
+    }
+}
+
+@Composable
+private fun GroupAvatar(repository: MobileRepository, members: List<kotlinx.serialization.json.JsonElement>, bots: List<JsonObject>) {
+    val botIds = members.mapNotNull { (it as? JsonObject)?.str("bot_id")?.takeIf(String::isNotBlank) }.distinct().take(4)
+    Box(Modifier.size(40.dp)) {
+        if (botIds.size == 1) {
+            val bot = bots.firstOrNull { it.str("id") == botIds.single() }
+            BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = 40.dp)
+        } else {
+            botIds.forEachIndexed { index, botId ->
+                val x = if (index % 2 == 0) 0.dp else 19.dp
+                val y = if (index / 2 == 0) 0.dp else 19.dp
+                Box(
+                    Modifier.offset(x, y).size(21.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface)
+                        .padding(1.dp),
+                ) {
+                    val bot = bots.firstOrNull { it.str("id") == botId }
+                    BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = 19.dp)
+                }
+            }
+        }
+        if (botIds.isEmpty()) {
+            Surface(Modifier.fillMaxSize(), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                Box(contentAlignment = Alignment.Center) { LucideIcon(LucideIconKind.MessageCircle, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GroupMemberChip(repository: MobileRepository, bot: JsonObject?, name: String, status: String, onAssignmentClick: (() -> Unit)?) {
+    val statusLabel = when (status) {
+        "working" -> stringResource(Res.string.status_working)
+        "queued" -> stringResource(Res.string.status_queued)
+        "waiting_user" -> stringResource(Res.string.status_waiting_user)
+        "blocked" -> stringResource(Res.string.status_blocked)
+        "review" -> stringResource(Res.string.status_review)
+        "done" -> stringResource(Res.string.status_done)
+        else -> stringResource(Res.string.status_standby)
+    }
+    val chipColor = when (status) {
+        "working", "queued" -> MaterialTheme.colorScheme.primaryContainer
+        "blocked", "waiting_user" -> MaterialTheme.colorScheme.errorContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val textColor = when (status) {
+        "working", "queued" -> MaterialTheme.colorScheme.onPrimaryContainer
+        "blocked", "waiting_user" -> MaterialTheme.colorScheme.onErrorContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        color = chipColor,
+        contentColor = textColor,
+        shape = CircleShape,
+        modifier = Modifier.height(26.dp).then(onAssignmentClick?.let { Modifier.clickable(onClick = it) } ?: Modifier),
+    ) {
+        Row(Modifier.padding(start = 3.dp, end = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, status = status, size = 20.dp)
+            Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+            Text(statusLabel, style = MaterialTheme.typography.labelSmall, maxLines = 1)
         }
     }
 }

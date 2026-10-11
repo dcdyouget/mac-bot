@@ -3,11 +3,13 @@
 > 只记仍然有效的产品和技术决定，一条一行，新的写在最上面。被推翻的决定直接改写或删除，并在提交说明里写明。2026-10-11 之前的多开发线协调记录见 `docs/archive/COORDINATION-2026-10-09_11.md`。
 
 ## 开发方式
+- [2026-10-11] Tauri 迁移分批进行：先保留 GPUI 作为功能对照；新界面追平后才删除旧代码。三种外观在 macOS 使用 window-vibrancy，系统「降低透明度」开启时关闭材质。
 - [2026-10-11] 一个主 agent 负责全部代码，按模块派 subagent；只保留 `main` 一条长期分支；不再设集成线（AGENTS.md）。
 - [2026-10-11] macOS 桌面客户端界面层从 GPUI 迁移到 Tauri 2 + React；`macbot-client-core`（网络层、数据层）不变。
 - [2026-10-09] 服务端使用 JSON 文件存储，不引入数据库（PLAN 5.2）。
 
 ## 产品与界面
+- [2026-10-11] `host.permissions` 对屏幕录制和辅助功能做系统预检；完全磁盘访问和 Chrome 自动化没有无副作用的可靠预检时返回 `unknown`，客户端如实显示。
 - [2026-10-11] 审批模式只有两档，默认「自动允许」（只有命中「先问我」规则才审批）；另一档「先问我」。审批规则带作用范围（某个 Bot 或所有 Bot），内置规则只读。
 - [2026-10-11] 待看消息：Bot 交付前由服务端一次性交给它查看（queue.review），任务带 `pending_messages` 计数。
 - [2026-10-11] Bot 在消息里提到某个群时可以附群聊卡片：`send_msg.projects` → `project_card(context = mentioned)`。
@@ -23,9 +25,5 @@
 - [2026-10-10] 手机端功能与桌面一致（包括完整编辑定时任务），只是三栏拆成页面栈。
 
 ## 待处理
-以下规范已写进 PROTOCOL / PLAN / design，代码尚未实现（需在同一个提交里改完协议、服务端、mock、两端）：
-- 待看消息交付前查看：`Assignment.pending_messages`、轨迹 `queue.review`、`send_msg(done)` 前拦截并交给 Bot、delivery 变为 read（PLAN 5.3.4）。
-- `send_msg.projects` → `project_card(context = mentioned)`（PLAN 5.3.2）。
-- `ApprovalRule.bot_id`、`builtin`；审批模式默认值改为 `always_allow`，内置规则只读。
-- `host.permissions` 方法（屏幕录制、辅助功能、完全磁盘访问、Chrome 自动化）。
-- server：`macbot-orchestrator` 的 `state::tests::approval_and_question_waiting_states_validate_inputs` 失败（Conflict("persistent allow is not supported for this approval")），合入前就存在。
+- 历史提问卡片需要在重连后恢复已答/过期状态；当前 `question` 块只有 ID，需增加只读查询或在历史消息附完整 Question，并同步协议、服务端、mock、两端。
+- 审批卡片展示命中规则时，需要保存当时的规则快照；当前 Approval 无匹配规则字段，待按协议原子变更补齐。

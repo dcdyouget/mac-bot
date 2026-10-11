@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.obj
+import bot.mac.mobile.core.protocol.generated.HostPermissionsResult
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.protocol.boolean
@@ -55,6 +56,7 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
     var notifyCompletion by remember { mutableStateOf(clientRepository?.notifyCompletion?.value ?: true) }
     var notifyMessages by remember { mutableStateOf(clientRepository?.notifyMessages?.value ?: true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var hostPermissions by remember { mutableStateOf<HostPermissionsResult?>(null) }
     var editingProvider by remember { mutableStateOf<JsonObject?>(null) }
     var deletingProvider by remember { mutableStateOf<JsonObject?>(null) }
     var editingModel by remember { mutableStateOf<JsonObject?>(null) }
@@ -90,6 +92,9 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
             repository.call("settings.get", buildJsonObject {})
             repository.call("provider.list", buildJsonObject {})
         }.onFailure { error = it.message ?: loadError }
+        hostPermissions = runCatching {
+            HostPermissionsResult(repository.call("host.permissions", buildJsonObject {}))
+        }.getOrNull()
     }
     fun openProvider(provider: JsonObject?) {
         editingProvider = provider ?: buildJsonObject {}
@@ -167,6 +172,17 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                 Text(stringResource(Res.string.feature_host), style = MaterialTheme.typography.titleMedium)
                 Text("${state.settings.str("host_name")} · ${state.settings.str("timezone")}")
                 Text(stringResource(Res.string.feature_currency, state.settings.str("currency")), style = MaterialTheme.typography.bodySmall)
+            }
+            hostPermissions?.let { permissions ->
+                item {
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Text(stringResource(Res.string.settings_computer_permissions), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(Res.string.settings_computer_permissions_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    PermissionStatusRow(stringResource(Res.string.settings_computer_permission_screen_recording), permissions.screenRecording)
+                    PermissionStatusRow(stringResource(Res.string.settings_computer_permission_accessibility), permissions.accessibility)
+                    PermissionStatusRow(stringResource(Res.string.settings_computer_permission_full_disk_access), permissions.fullDiskAccess)
+                    PermissionStatusRow(stringResource(Res.string.settings_computer_permission_chrome), permissions.automationChrome)
+                }
             }
             item {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -398,6 +414,19 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
             },
             dismissButton = { TextButton(onClick = { deletingProvider = null }) { Text(stringResource(Res.string.common_cancel)) } },
         )
+    }
+}
+
+@Composable
+private fun PermissionStatusRow(label: String, state: String) {
+    val status = when (state) {
+        "granted" -> stringResource(Res.string.settings_computer_perm_granted)
+        "denied" -> stringResource(Res.string.settings_computer_perm_denied)
+        else -> stringResource(Res.string.settings_computer_perm_unknown)
+    }
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Text(status, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

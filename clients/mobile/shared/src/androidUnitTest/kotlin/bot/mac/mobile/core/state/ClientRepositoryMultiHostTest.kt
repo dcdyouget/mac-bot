@@ -32,6 +32,8 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.Dispatcher
+import mockwebserver3.RecordedRequest
 import okio.ByteString
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -195,7 +197,6 @@ class ClientRepositoryMultiHostTest {
             }, 99))
             assertEquals(null, withTimeoutOrNull(500) { observed.receive() })
 
-            hostA.enqueueConnection()
             repository.saveHost("A", listOf(hostA.address()), "dev", existingId = "a")
             awaitConnected(repository, "a", "b")
             repository.selectHost("b")
@@ -299,10 +300,10 @@ class ClientRepositoryMultiHostTest {
         try {
             awaitConnected(repository, "a", "b")
             val socket = withTimeout(2_000) { hostA.sockets.receive() }
-            // The initial reset and refresh writes are complete before arming
-            // the one-shot barrier for the event under test.
-            delay(500)
+            // awaitConnected includes bootstrap/reset completion. Drain those
+            // writes before arming the one-shot barrier for the event under test.
             storage.drainLastSeqWrites()
+            hostA.drainRequests()
             // First establish a durable high cursor. The reconnect bootstrap
             // below deliberately returns seq 0 and must replace this snapshot.
             socket.send(event("bot.updated", buildJsonObject {
@@ -312,7 +313,7 @@ class ClientRepositoryMultiHostTest {
                 while (storage.lastSeq("a") != 1L) delay(10)
             }
             storage.drainLastSeqWrites()
-            delay(300)
+            hostA.drainRequests()
 
             armed.set(true)
             socket.send(event("bot.updated", buildJsonObject {
@@ -323,11 +324,24 @@ class ClientRepositoryMultiHostTest {
             // Reconnect drives the real MainConnection reset path. The reset
             // writes its lower cursor while the old snapshot is still paused
             // before the per-host fence; only then may that snapshot continue.
-            hostA.enqueueConnection()
             socket.close(1000, "test reconnect")
-            withTimeout(5_000) {
-                while (storage.lastSeqWrites.receive() != 0L) Unit
+            val resumed = withTimeoutOrNull(10_000) {
+                while (true) {
+                    if (hostA.requests.receive().str("method") == "session.resume") break
+                }
+                true
             }
+            assertTrue(
+                resumed == true,
+                "status=${repository.hostStatuses.value["a"]}, requests=${hostA.server.requestCount}",
+            )
+            val resetWritten = withTimeoutOrNull(10_000) {
+                while (true) {
+                    if (storage.lastSeqWrites.receive() == 0L) break
+                }
+                true
+            }
+            assertTrue(resetWritten == true, "lastSeq=${storage.lastSeq("a")}, writes=${storage.writes()}")
             release.complete(Unit)
 
             awaitConnected(repository, "a", "b")
@@ -386,6 +400,7 @@ class ClientRepositoryMultiHostTest {
     private class TestHost(private val nodeId: String) {
         val server = MockWebServer()
         val sockets = Channel<WebSocket>(Channel.UNLIMITED)
+        val requests = Channel<JsonObject>(Channel.UNLIMITED)
         val writeRequests = Channel<JsonObject>(Channel.UNLIMITED)
         var blockChatSends = false
         val releaseChatSends = CountDownLatch(1)
@@ -394,12 +409,17 @@ class ClientRepositoryMultiHostTest {
         private val allSockets = mutableListOf<WebSocket>()
 
         init {
-            enqueueConnection()
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    MockResponse.Builder().webSocketUpgrade(
+                        Listener(nodeId, sockets, allSockets, requests, this@TestHost),
+                    ).build()
+            }
             server.start()
         }
 
-        fun enqueueConnection() {
-            server.enqueue(MockResponse.Builder().webSocketUpgrade(Listener(nodeId, sockets, allSockets, this)).build())
+        fun drainRequests() {
+            while (requests.tryReceive().isSuccess) Unit
         }
 
         fun address(): String = server.url("/").toString()
@@ -420,6 +440,7 @@ class ClientRepositoryMultiHostTest {
         private val nodeId: String,
         private val sockets: Channel<WebSocket>,
         private val allSockets: MutableList<WebSocket>,
+        private val requests: Channel<JsonObject>,
         private val host: TestHost,
     ) : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
@@ -439,6 +460,7 @@ class ClientRepositoryMultiHostTest {
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             val request = runCatching { protocolJson.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
+            requests.trySend(request)
             val id = request["id"]?.toString()?.trim('"') ?: return
             when (request["method"]?.toString()?.trim('"')) {
                 "session.resume" -> webSocket.send(response(id, buildJsonObject { put("mode", "reset") }))

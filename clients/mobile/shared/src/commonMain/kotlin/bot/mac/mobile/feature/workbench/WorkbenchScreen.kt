@@ -270,6 +270,15 @@ private fun AssignmentCard(assignment: JsonObject, state: MobileState, onOpen: (
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp)) {
         Row(Modifier.fillMaxWidth()) {
             Text(assignment.str("title").takeIf { it.isNotBlank() } ?: stringResource(Res.string.feature_task), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            val pendingMessages = assignment.long("pending_messages").coerceAtLeast(0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            if (pendingMessages > 0) {
+                Text(
+                    stringResource(Res.string.workbench_queued_msgs, pendingMessages),
+                    modifier = Modifier.padding(end = 8.dp),
+                    color = MaterialTheme.colorScheme.tertiary,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
             StatusLabel(assignment.str("status"))
         }
         Text(assignment.str("instruction"), maxLines = 2, style = MaterialTheme.typography.bodySmall)

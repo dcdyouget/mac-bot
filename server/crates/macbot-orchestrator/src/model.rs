@@ -120,6 +120,8 @@ pub struct Assignment {
     pub finished_at: Option<String>,
     pub usage: UsageTotals,
     pub subagents_active: usize,
+    #[serde(default)]
+    pub pending_messages: usize,
     pub steers: Vec<Steer>,
     pub result_message_id: Option<Id>,
     pub model: Option<String>,

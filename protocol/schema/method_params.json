@@ -228,6 +228,9 @@
       "$ref": "#/definitions/EmptyParams"
     },
     {
+      "$ref": "#/definitions/EmptyParams"
+    },
+    {
       "$ref": "#/definitions/SettingsUpdateParams"
     },
     {
@@ -344,6 +347,17 @@
         "text"
       ],
       "properties": {
+        "bot_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "builtin": {
+          "default": false,
+          "type": "boolean"
+        },
         "created_at": {
           "type": "string"
         },

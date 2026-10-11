@@ -1,5 +1,23 @@
 # clients/mac：macOS 桌面客户端
 
+## Tauri + React 迁移批次 1
+
+新界面工程位于 `app/`：Tauri 2 负责窗口与 Rust bridge，React/TypeScript/Vite 负责连接页和三栏聊天界面。bridge 直接复用 `crates/macbot-client-core`，连接状态与协议事件留在 Rust；选中会话后由 `chat.history` 加载历史消息。首次连接使用地址 `127.0.0.1:7789`、密码 `dev`。客户端不启动 mock，需要先运行 `macbotd --mock --port 7789 --password dev`。连接页和聊天界面直接引用 `design/prototype/tokens.css`、`base.css`，文案通过 `app/src/i18n.ts` 的设计 key 映射。
+
+```sh
+cd clients/mac/app
+npm install
+npm run dev                 # 仅启动 Vite 前端
+npm run tauri dev           # 编译 Rust bridge 并打开桌面窗口
+npm run lint
+npm run build
+npm run tauri build         # 生成 Tauri .app / .dmg 到 app/src-tauri/target/release/bundle/
+```
+
+Tauri bundle id 仍为 `bot.mac.desktop`，并注册 `macbot://` URL scheme。此批保留原 GPUI crate、旧 `packaging/` 产线与 `macbot-client-core`；生产打包切换和旧界面删除留待后续迁移批次。
+
+批次 1.1 增加 bridge 状态订阅 ACL、选中会话后的 `chat.history` 请求及文本块 markdown/fallback 渲染；设置中可选浅色、深色或跟随系统，并切换半透明材质。Mac 窗口材质通过 `window-vibrancy` 实现，系统减少透明度时自动关闭；所选会话与外观偏好保存在本机。原生回归截图保存在 `progress/integration/`。
+
 > **迁移中**：界面层正在从 GPUI 迁移到 Tauri 2 + React（用户决定，见 DECISIONS.md）。`macbot-client-core` 不变；下文的 GPUI 编译和运行说明在迁移完成前仍然可用，迁移完成后由 client-mac 开发线重写。
 
 这是独立的 Cargo workspace，包含 `macbot-client-core` 和 `macbot-desktop`。运行时界面使用 Rust + GPUI，组件只依赖与之匹配的 `gpui-kit` 0.7；协议类型通过 path 依赖引用 `../../protocol/rust`。

@@ -563,6 +563,11 @@
 | settings.tools.rule.allow | 自动允许 |
 | settings.tools.add_rule | 添加规则 |
 | settings.computer.permissions | Bot 主机的系统权限 |
+| settings.computer.permissions_hint | 权限状态来自运行 macbotd 的 Mac。 |
+| settings.computer.permission.screen_recording | 屏幕录制 |
+| settings.computer.permission.accessibility | 辅助功能 |
+| settings.computer.permission.full_disk_access | 完全磁盘访问 |
+| settings.computer.permission.chrome | Chrome 自动化 |
 | settings.computer.open_system_settings | 去系统设置 |
 | settings.about.version | 客户端 {client} · 协议 {protocol} · Host macbotd {server} |
 | settings.about.check_update | 检查更新 |

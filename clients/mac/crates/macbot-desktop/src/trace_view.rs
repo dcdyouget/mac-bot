@@ -792,7 +792,7 @@ fn trace_item_title(
             if let Some(who_key) = who_key {
                 let title = trace_tr("trace.item.steer")
                     .to_string()
-                    .replace("{who}", &trace_tr(who_key).to_string());
+                    .replace("{who}", trace_tr(who_key).as_ref());
                 if steer_applied {
                     format!("{title} · {}", trace_tr("trace.item.steer_applied"))
                 } else {

@@ -571,6 +571,7 @@ fn textarea_state<'a>(
         .expect("feature page declares the requested textarea")
 }
 
+#[allow(clippy::too_many_arguments)] // The page renderer adapts several independent feature state stores.
 fn render_page(
     page: &str,
     data: &Value,
@@ -4520,7 +4521,7 @@ fn skill_matches_filter(skill: &Value, filter: Option<&str>, query: &str) -> boo
 }
 
 fn skill_source_kind(skill: &Value) -> &str {
-    match skill
+    skill
         .get("source")
         .and_then(|source| {
             source
@@ -4528,9 +4529,6 @@ fn skill_source_kind(skill: &Value) -> &str {
                 .or_else(|| source.get("kind").and_then(Value::as_str))
         })
         .unwrap_or("user")
-    {
-        source => source,
-    }
 }
 
 fn skill_source(skill: &Value) -> &'static str {
@@ -6087,10 +6085,8 @@ fn search(
                 search_result_rows(&result, selected_result, tokens, cx),
                 tokens,
             )));
-    if side_open {
-        if let Some(selected) = result.get(selected_result) {
-            results_area = results_area.child(search_result_preview(selected, tokens, cx));
-        }
+    if side_open && let Some(selected) = result.get(selected_result) {
+        results_area = results_area.child(search_result_preview(selected, tokens, cx));
     }
     div()
         .flex()

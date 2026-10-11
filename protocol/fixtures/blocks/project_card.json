@@ -1,6 +1,6 @@
 {
+  "context": "mentioned",
+  "note": "我在这个群里负责实现登录",
   "project_id": "prj_login",
-  "context": "created",
-  "note": null,
   "type": "project_card"
 }
