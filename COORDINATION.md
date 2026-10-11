@@ -608,3 +608,7 @@ server 用户 App payload 已更新至 d56e92e，gateway 236 项通过；历史�
 新隔离 Fresh-X-Readonly 的唯一请求在 round 0 被 provider HTTP 429 拒绝，无 browser 调用，不重发。桌面实际窗口捕获/持续画面仍需前台环境核验；A/B 保持待验收，未知审批和旧任务未批量处理。完整 S5 未通过，详见 fresh-evidence-index.md 及 fresh-s4-x-readonly-result.json。
 
 根协调独立提交理由：同步已部署修复、真实失败边界和外部阻塞；保留其他会话根文档及 design/ 改动，不因文档部署业务组件。
+
+## design UI 协议请求与落地（2026-10-11）
+
+新版 `design/` 要求公告自由文本与版本编辑、同流引用回复、多选/过期问题、群卡片说明、链接预览、定时任务执行 Bot 编辑，以及“待看消息改为插话”。原协议缺相应字段或生产入口，故本开发分支申请兼容扩展；`protocol:` 提交 `ef90ee4`、`08c8369` 已同步 PROTOCOL、Rust、schema、fixtures，`server:` 提交 `c59fc84`、`20aa430` 已接真实服务端逻辑。`quote_mode` 区分 reply/reference，缺省 reply；`message.steer` 只接已排队且未提及 Bot 的用户消息与匹配的在运行任务，重复请求幂等。Kotlin/双端随分支跟进。此记录只说明开发分支的契约决策，不代表测试或部署通过。
