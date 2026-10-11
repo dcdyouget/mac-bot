@@ -3108,7 +3108,7 @@ fn bean(bot: &Value, size: f32, cx: &App) -> AnyElement {
         .justify_center()
         .bg(t.bean(color))
         .shadow(vec![
-            BoxShadow::new(px(0.), px(0.), rgba(0x00000014))
+            BoxShadow::new(px(0.), px(0.), rgba(0x00000014).into())
                 .blur_radius(px(2.))
                 .inset(),
         ]);
