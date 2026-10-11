@@ -12,6 +12,7 @@ import type { RoutineBot, RoutineProject } from './components/RoutinesPage'
 import { SkillsPage, type SkillDetail, type SkillImportSource, type SkillRecord } from './components/SkillsPage'
 import { MemoryPage, type UserMemoryEntry, type UserMemoryQuota, type UserProfile, type UserProfilePatch } from './components/MemoryPage'
 import { TracePage, type TraceAssignment, type TraceInFlight, type TraceItem, type TraceQueueMessage } from './components/TracePage'
+import { SearchPage, type SearchRequest, type SearchResponse, type SearchResult } from './components/SearchPage'
 
 const NO_RULES: Record<string, Json>[] = []
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -91,6 +92,10 @@ function App() {
   const [hostName, setHostName] = useState('Mac mini（家）')
   const [selectedChat, setSelectedChat] = useState('')
   const [activePage, setActivePage] = useState<AppPage>('chat')
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchSideTarget, setSearchSideTarget] = useState<{ scope: string; result: SearchResult } | null>(null)
+  const [searchRoutineTarget, setSearchRoutineTarget] = useState<{ scope: string; id: string } | null>(null)
+  const [searchRoutineRequest, setSearchRoutineRequest] = useState(0)
   const [traceRoute, setTraceRoute] = useState<TraceRoute | null>(null)
   const [traceAssignment, setTraceAssignment] = useState<TraceAssignment | null>(null)
   const [traceItems, setTraceItems] = useState<TraceItem[]>([])
@@ -106,7 +111,6 @@ function App() {
   const [traceError, setTraceError] = useState<string | null>(null)
   const [traceRetry, setTraceRetry] = useState(0)
   const [mentionBotId, setMentionBotId] = useState<string | null>(null)
-  const [sidebarSearch, setSidebarSearch] = useState('')
   const [draft, setDraft] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [listenerReady, setListenerReady] = useState(false)
@@ -149,7 +153,6 @@ function App() {
   const routinesDataScopeRef = useRef<string | null>(null)
   const skillsDataScopeRef = useRef<string | null>(null)
   const memoryDataScopeRef = useRef<string | null>(null)
-  const sidebarSearchRef = useRef<HTMLInputElement>(null)
   const announcementPanelRef = useRef<HTMLElement>(null)
   hostScopeRef.current = hostScope
   stateRef.current = state
@@ -189,18 +192,14 @@ function App() {
 
   useEffect(() => {
     const handleSearchShortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      if (!showConnect && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
-        sidebarSearchRef.current?.focus()
-      }
-      if (event.key === 'Escape' && document.activeElement === sidebarSearchRef.current) {
-        setSidebarSearch('')
-        sidebarSearchRef.current?.blur()
+        setShowSearch(true)
       }
     }
     window.addEventListener('keydown', handleSearchShortcut)
     return () => window.removeEventListener('keydown', handleSearchShortcut)
-  }, [])
+  }, [showConnect])
 
   useEffect(() => {
     const root = document.documentElement
@@ -224,6 +223,11 @@ function App() {
     }
     setSelectedChat(savedChat)
   }, [hostScope, state.chats, state.connection])
+
+  useEffect(() => {
+    setSearchSideTarget(null)
+    setSearchRoutineTarget(null)
+  }, [hostScope])
 
   useEffect(() => {
     let unlisten: (() => void) | undefined
@@ -671,6 +675,7 @@ function App() {
   }
 
   async function connectSavedHost(hostId: string) {
+    setShowSearch(false)
     setConnecting(true)
     setHostMenuOpen(false)
     setState((current) => ({ ...current, error: null, connection: 'connecting' }))
@@ -1232,8 +1237,79 @@ function App() {
     if (hostScopeRef.current === scope) selectChat(targetChatId)
   }
 
+  const searchRequest = useCallback(async (request: SearchRequest): Promise<SearchResponse> => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<SearchResponse>('protocol_request', {
+      method: 'search',
+      params: { query: request.query, ...(request.kinds ? { kinds: request.kinds } : {}), limit: request.limit },
+    })
+    assertHostScope(hostScopeRef.current, scope)
+    return result
+  }, [hostScope])
+
+  function openSearchResult(result: SearchResult, options: { sidePanel: boolean }) {
+    setShowSearch(false)
+    setSearchSideTarget(options.sidePanel ? { scope: hostScope, result } : null)
+    if (result.kind === 'routine') {
+      setSearchRoutineTarget({ scope: hostScope, id: result.id })
+      setSearchRoutineRequest((request) => request + 1)
+      setActivePage('routines')
+      return
+    }
+    if (result.kind === 'bot') {
+      const chat = Object.values(state.chats).find((candidate) => candidate.bot_id === result.id)
+      if (chat) selectChat(chat.id)
+      else {
+        setSearchSideTarget({ scope: hostScope, result })
+        setActivePage('chat')
+      }
+      return
+    }
+    const chatId = result.kind === 'chat' ? result.id : result.chat_id
+    if (!chatId) {
+      setSearchSideTarget({ scope: hostScope, result })
+      setActivePage('chat')
+      return
+    }
+    if (result.kind === 'message') {
+      void openMemorySource(chatId, result.id)
+      return
+    }
+    selectChat(chatId)
+  }
+
+  function openSearchSideSource() {
+    const target = searchSideTarget
+    if (!target || target.scope !== hostScopeRef.current) return
+    setSearchSideTarget(null)
+    const { result } = target
+    if (result.kind === 'routine') {
+      setSearchRoutineTarget({ scope: target.scope, id: result.id })
+      setSearchRoutineRequest((request) => request + 1)
+      setActivePage('routines')
+      return
+    }
+    if (result.kind === 'bot') {
+      const chat = Object.values(stateRef.current.chats).find((candidate) => candidate.bot_id === result.id)
+      if (chat) selectChat(chat.id)
+      return
+    }
+    const chatId = result.kind === 'chat' ? result.id : result.chat_id
+    if (!chatId) return
+    if (result.kind === 'message') void openMemorySource(chatId, result.id)
+    else selectChat(chatId)
+  }
+
+  function searchSourceLabel(result: SearchResult) {
+    if (!result.chat_id) return null
+    const chat = state.chats[result.chat_id]
+    return chat ? chatTitle(chat) : result.chat_id
+  }
+
   async function connect(event: React.FormEvent) {
     event.preventDefault()
+    setShowSearch(false)
     setConnecting(true)
     setState((current) => ({ ...current, error: null, connection: 'connecting' }))
     try {
@@ -1277,16 +1353,10 @@ function App() {
   const mainChats = chats.filter((chat) => chat.kind === 'main')
   const botChats = chats.filter((chat) => chat.kind === 'direct' || chat.kind === 'bot_dm')
   const chatTitle = (chat: Chat) => chat.title ?? (chat.bot_id ? state.bots[chat.bot_id]?.name : undefined) ?? (chat.kind === 'main' ? mainBot?.name : undefined) ?? t('chat.empty.select')
-  const matchesSearch = (chat: Chat) => {
-    const query = sidebarSearch.trim().toLocaleLowerCase()
-    if (!query) return true
-    const botName = chat.bot_id ? state.bots[chat.bot_id]?.name ?? '' : ''
-    const projectName = chat.project_id ? state.projects[chat.project_id]?.name ?? '' : ''
-    return `${chatTitle(chat)} ${botName} ${projectName}`.toLocaleLowerCase().includes(query)
-  }
-  const visibleMainChats = mainChats.filter(matchesSearch)
-  const visibleGroups = groups.filter(matchesSearch)
-  const visibleBotChats = botChats.filter(matchesSearch)
+  const activeSearchSideTarget = searchSideTarget?.scope === hostScope ? searchSideTarget.result : null
+  const searchSideSourceAvailable = activeSearchSideTarget?.kind === 'routine' || activeSearchSideTarget?.kind === 'chat'
+    || (activeSearchSideTarget?.kind === 'bot' && Object.values(state.chats).some((chat) => chat.bot_id === activeSearchSideTarget.id))
+    || Boolean(activeSearchSideTarget?.chat_id)
 
   return <main className="app-shell">
     <aside className="sidebar glass-sidebar">
@@ -1303,18 +1373,17 @@ function App() {
           <div className="host-popover-actions"><button type="button" onClick={() => { setHostMenuOpen(false); setHostDialogOpen(true); setHostError(null) }}><Plus size={14} />{t('host.add')}</button><button type="button" onClick={() => setHostManageMode((value) => !value)}><Settings size={14} />{t('host.manage')}</button></div>
         </div>}
       </div>
-      <label className="search-entry"><Search size={14} /><input ref={sidebarSearchRef} value={sidebarSearch} onChange={(event) => setSidebarSearch(event.target.value)} placeholder={t('sidebar.search.placeholder')} aria-label={t('sidebar.search.placeholder')} /><kbd>⌘K</kbd></label>
+      <button type="button" className="search-entry" onClick={() => setShowSearch(true)} aria-label={t('sidebar.search.placeholder')}><Search size={14} /><span className="grow">{t('sidebar.search.placeholder')}</span><kbd>⌘K</kbd></button>
       <div className="sidebar-scroll">
         <div className="nav-section"><div className="section-label">{t('sidebar.main_bot.tag')}</div>
-          {visibleMainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} main />)}
+          {mainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} main />)}
         </div>
         <div className="nav-section"><div className="section-label">{t('sidebar.section.groups').replace('{count}', String(groups.length))}</div>
-          {visibleGroups.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
-          {visibleGroups.length === 0 && <div className="nav-empty">{t('sidebar.empty_groups')}</div>}
+          {groups.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
+          {groups.length === 0 && <div className="nav-empty">{t('sidebar.empty_groups')}</div>}
         </div>
         <div className="nav-section"><div className="section-label">{t('sidebar.section.bots').replace('{count}', String(botChats.length))}</div>
-          {visibleBotChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
-          {sidebarSearch.trim() && visibleMainChats.length + visibleGroups.length + visibleBotChats.length === 0 && <div className="nav-empty">{t('sidebar.search.placeholder')}</div>}
+          {botChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
         </div>
       </div>
       <nav className="sidebar-footer">
@@ -1331,7 +1400,7 @@ function App() {
         {currentChat?.kind === 'project' || currentChat?.project_id ? <div className="group-chat-avatar"><Users size={17} /></div> : <BeanAvatar main={currentChat?.kind === 'main' || !currentChat?.bot_id} size="32" seed={currentChat?.bot_id ? state.bots[currentChat.bot_id]?.name ?? '' : ''} />}
         <div className="conversation-heading"><strong>{currentChat ? chatTitle(currentChat) : (mainBot?.name ?? '总管')}</strong>
           <span>{currentChat?.kind === 'project' || currentChat?.project_id ? groupSubtitle(currentChat, currentProject, announcement) : currentChat?.bot_id ? botSubtitle(currentChat, currentAssignments, state.bots) : t('chat.main.subtitle')}</span></div>
-        <button className="icon-button" aria-label={t('chat.search')}><Search size={17} /></button>
+        <button className="icon-button" aria-label={t('chat.search')} onClick={() => setShowSearch(true)}><Search size={17} /></button>
         <button className="icon-button" aria-label="切换右面板"><PanelRight size={17} /></button>
       </header>
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={openTrace} />}
@@ -1449,6 +1518,7 @@ function App() {
     {activePage === 'workbench' && <WorkbenchPage state={state} onOpenChat={openWorkbenchChat} onTrace={(assignmentId) => openTrace(assignmentId)} onMention={mentionAssignmentBot} onRefresh={() => { void invoke<BridgeState>('get_bridge_state').then(setState).catch((error: unknown) => setState((current) => ({ ...current, error: String(error) }))) }} />}
     {activePage === 'dashboard' && <DashboardPage />}
     {activePage === 'routines' && <RoutinesPage key={hostScope}
+      selectedRoutineId={searchRoutineTarget?.scope === hostScope ? searchRoutineTarget.id : null} selectionRequest={searchRoutineRequest}
       routines={routinesDataScope === hostScope ? routines : []}
       bots={Object.values(state.bots).map((bot): RoutineBot => ({ id: bot.id, name: bot.name ?? bot.id, is_main: bot.is_main }))}
       projects={Object.values(state.projects).map((project): RoutineProject => ({ id: project.id, name: project.name ?? project.id, chat_id: typeof project.chat_id === 'string' ? project.chat_id : undefined }))}
@@ -1510,6 +1580,16 @@ function App() {
       </section>
     </div>}
     {showSettings && <SettingsPanel settings={state.settings} bots={state.bots} permissions={hostPermissions} busy={settingsBusy} error={settingsError} themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} onTheme={updateTheme} onTranslucency={updateTranslucency} onMode={updateApprovalMode} onRules={updateApprovalRules} onMemory={() => { setShowSettings(false); setActivePage('memory') }} onClose={() => setShowSettings(false)} />}
+    {showSearch && <SearchPage key={hostScope} onSearch={searchRequest} onOpenResult={openSearchResult} sourceLabel={searchSourceLabel} onClose={() => setShowSearch(false)} t={(key) => t(key)} />}
+    {activeSearchSideTarget && <aside className="search-side-detail" aria-label={t('search.result.open')}>
+      <header><strong>{activeSearchSideTarget.title}</strong><button type="button" onClick={() => setSearchSideTarget(null)} aria-label={t('search.action.close')}>×</button></header>
+      <div className="search-side-detail-content">
+        <div className="search-side-detail-kind">{t(({ message: 'search.filter.messages', chat: 'search.filter.groups', bot: 'search.filter.bots', artifact: 'search.filter.artifacts', routine: 'search.filter.routines' } as const)[activeSearchSideTarget.kind])}</div>
+        <p>{activeSearchSideTarget.snippet}</p>
+        {activeSearchSideTarget.at && <time dateTime={activeSearchSideTarget.at}>{formatShortTime(activeSearchSideTarget.at)}</time>}
+        {searchSideSourceAvailable && <button type="button" className="search-side-detail-source" onClick={openSearchSideSource}>{t('memory.page.open_source')}{activeSearchSideTarget.chat_id ? ` · ${searchSourceLabel(activeSearchSideTarget)}` : ''}</button>}
+      </div>
+    </aside>}
     {hostDialogOpen && <HostDialog endpoint={endpoint} setEndpoint={setEndpoint} password={password} setPassword={setPassword} hostName={hostName} setHostName={setHostName} error={state.error} connecting={connecting} onClose={() => setHostDialogOpen(false)} onSubmit={connect} />}
   </main>
 }

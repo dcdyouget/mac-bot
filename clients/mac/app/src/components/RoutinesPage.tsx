@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { AlertCircle, Check, Clock3, LoaderCircle, Play, Plus, Trash2, X } from 'lucide-react'
 import './RoutinesPage.css'
 
@@ -60,6 +60,8 @@ type RoutineFilter = 'all' | 'running' | 'paused'
 
 type Props = {
   routines: RoutineRecord[]
+  selectedRoutineId?: string | null
+  selectionRequest?: number
   bots: RoutineBot[]
   projects: RoutineProject[]
   runs: Record<string, RoutineRun[]>
@@ -87,7 +89,7 @@ const blankForm = (botId: string, t: Props['t']): RoutineForm => ({
 
 export function RoutinesPage(props: Props) {
   const [filter, setFilter] = useState<RoutineFilter>('all')
-  const [selectedId, setSelectedId] = useState<string | null>(props.routines[0]?.id ?? null)
+  const [selectedId, setSelectedId] = useState<string | null>(props.selectedRoutineId ?? props.routines[0]?.id ?? null)
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState<RoutineForm>(() => blankForm(props.bots[0]?.id ?? '', props.t))
   const [busy, setBusy] = useState(false)
@@ -95,8 +97,9 @@ export function RoutinesPage(props: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [testRuns, setTestRuns] = useState<RoutineRun[]>([])
   const [loadedRuns, setLoadedRuns] = useState<Record<string, RoutineRun[]>>({})
+  const appliedSelectionRequest = useRef<number | undefined>(undefined)
 
-  const active = props.routines.find((routine) => routine.id === selectedId) ?? props.routines[0] ?? null
+  const active = props.routines.find((routine) => routine.id === selectedId) ?? (props.selectedRoutineId ? null : props.routines[0] ?? null)
   const activeId = active?.id
   const onLoadRuns = props.onLoadRuns
   const activeBot = props.bots.find((bot) => bot.id === active?.bot_id)
@@ -109,6 +112,18 @@ export function RoutinesPage(props: Props) {
     for (const run of [...(props.runs[active.id] ?? []), ...(loadedRuns[active.id] ?? []), ...testRuns.filter((run) => run.routine_id === active.id)]) byId.set(run.id, run)
     return [...byId.values()].sort((left, right) => Date.parse(right.started_at) - Date.parse(left.started_at)).slice(0, 20)
   }, [active, props.runs, loadedRuns, testRuns])
+
+  useEffect(() => {
+    if (!props.selectedRoutineId || appliedSelectionRequest.current === props.selectionRequest) return
+    const routine = props.routines.find((item) => item.id === props.selectedRoutineId)
+    if (!routine) return
+    appliedSelectionRequest.current = props.selectionRequest
+    setCreating(false)
+    setSelectedId(routine.id)
+    setForm(formFrom(routine))
+    setActionError('')
+    setConfirmDelete(false)
+  }, [props.selectedRoutineId, props.selectionRequest, props.routines])
 
   useEffect(() => {
     if (creating) return
