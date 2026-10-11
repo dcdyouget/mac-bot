@@ -203,9 +203,9 @@
     <string name="file_preview_more_versions">载入更早版本</string>
     <string name="file_preview_source_unavailable">无法读取源文件内容</string>
     <string name="followup_title">跟进</string>
-    <string name="followup_current_pending">本会话需要你处理</string>
+    <string name="followup_current_pending">本对话中等你处理</string>
     <string name="followup_groups">正在跟进的群</string>
-    <string name="followup_tasks">正在处理的任务</string>
+    <string name="followup_tasks">正在干的活</string>
     <string name="followup_queue">排队提示</string>
     <string name="followup_review_action">去验收</string>
     <string name="followup_handle">处理</string>

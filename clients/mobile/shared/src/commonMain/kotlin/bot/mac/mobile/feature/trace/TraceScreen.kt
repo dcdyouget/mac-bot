@@ -1,12 +1,18 @@
 package bot.mac.mobile.feature.trace
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -20,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,6 +77,9 @@ fun TraceScreen(
     var search by remember { mutableStateOf("") }
     var showThinking by remember { mutableStateOf(false) }
     var showOutput by remember { mutableStateOf(false) }
+    var showTraceTools by remember { mutableStateOf(false) }
+    var showTraceMenu by remember { mutableStateOf(false) }
+    var followLatest by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var fullOutputs by remember { mutableStateOf(emptyMap<String, String>()) }
     var collapsedRuns by remember { mutableStateOf(emptySet<String>()) }
@@ -105,6 +115,11 @@ fun TraceScreen(
         }
         .distinctBy { it.key }
         .sortedBy { it.message.long("seq") }
+    val traceListState = rememberLazyListState()
+
+    LaunchedEffect(items.size, followLatest) {
+        if (followLatest && items.isNotEmpty()) traceListState.animateScrollToItem(items.lastIndex + if (hasMoreBefore) 1 else 0)
+    }
 
     // chat.history populates the repository cache used below; chat.list handles a
     // trace opened before the chat list has arrived in the initial snapshot.
@@ -170,39 +185,75 @@ fun TraceScreen(
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         FontScaleToolbar {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
-                Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text(stringResource(Res.string.feature_trace), style = MaterialTheme.typography.titleLarge)
-                    if (assignmentId != null) {
+            Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                    LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp), contentDescription = stringResource(Res.string.common_back))
+                }
+                Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                    Text(currentTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                     Text(
-                        stringResource(Res.string.feature_trace_assignment_context, currentTitle, currentBotLabel),
+                        if (assignmentId != null) stringResource(Res.string.feature_trace_assignment_context, currentTitle, currentBotLabel)
+                        else stringResource(Res.string.feature_trace),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        currentAssignment?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
-                        if (live) Text(stringResource(Res.string.feature_realtime), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                }
+                if (live) Text(stringResource(Res.string.feature_realtime), modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                if (currentBotId.isNotBlank() && (currentBot?.obj("tools")?.boolean("browser") == true || currentBot?.str("browser_mode").orEmpty().isNotBlank())) {
+                    androidx.compose.material3.IconButton(onClick = { onOpenScreen(currentBotId, null) }, modifier = Modifier.size(48.dp)) {
+                        LucideIcon(LucideIconKind.Monitor, Modifier.size(20.dp), contentDescription = stringResource(Res.string.feature_open_screen))
                     }
-                    if (currentBotId.isNotBlank() && (currentBot?.obj("tools")?.boolean("browser") == true || currentBot?.str("browser_mode").orEmpty().isNotBlank())) {
-                        Button(onClick = { onOpenScreen(currentBotId, null) }) { Text(stringResource(Res.string.feature_open_screen)) }
+                }
+                Box {
+                    IconButton(onClick = { showTraceMenu = true }, modifier = Modifier.size(48.dp)) {
+                        LucideIcon(LucideIconKind.Ellipsis, Modifier.size(20.dp), contentDescription = stringResource(Res.string.common_more))
                     }
-                    } else if (live) {
-                        Text(stringResource(Res.string.feature_realtime), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                    DropdownMenu(expanded = showTraceMenu, onDismissRequest = { showTraceMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(Res.string.trace_search)) },
+                            onClick = { showTraceTools = !showTraceTools; showTraceMenu = false },
+                        )
                     }
                 }
             }
         }
         if (assignmentId != null) {
+            val assignmentStatus = currentAssignment?.str("status")
+            val canStop = assignmentStatus in setOf("queued", "working", "waiting_user", "waiting_bot", "blocked")
+            Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.TextButton(enabled = canStop, onClick = { scope.launch { runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", assignmentId) }) }.onFailure { error = it.message } } }) {
+                    Text(stringResource(Res.string.common_stop), color = MaterialTheme.colorScheme.error)
+                }
+                androidx.compose.material3.TextButton(enabled = canStop, onClick = { steerText = "@${currentBotName} " }) {
+                    Text(stringResource(Res.string.trace_at_it))
+                }
+                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                Text(stringResource(Res.string.trace_follow_latest), style = MaterialTheme.typography.labelMedium)
+                Switch(checked = followLatest, onCheckedChange = { followLatest = it })
+            }
+        }
+        currentAssignment?.str("instruction")?.takeIf(String::isNotBlank)?.let { instruction ->
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.shapes.medium)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(stringResource(Res.string.trace_instruction), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(instruction, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        if (assignmentId != null && (queuedLoading || queuedMessages.isNotEmpty() || queuedError != null || !state.connected)) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
                     .background(MaterialTheme.colorScheme.secondaryContainer)
-                    .padding(12.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    "${stringResource(Res.string.status_queued)} · ${stringResource(Res.string.feature_trace_steer_hint)}",
+                if (queuedMessages.isNotEmpty()) Text(
+                    stringResource(Res.string.trace_queue_title),
                     style = MaterialTheme.typography.titleSmall,
                 )
                 if (!state.connected) {
@@ -249,21 +300,23 @@ fun TraceScreen(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TraceFilter.entries.forEach { candidate ->
-                FilterChip(selected = filter == candidate, onClick = { filter = if (filter == candidate) null else candidate }, label = { Text(candidate.label()) })
+        if (showTraceTools) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TraceFilter.entries.forEach { candidate ->
+                    FilterChip(selected = filter == candidate, onClick = { filter = if (filter == candidate) null else candidate }, label = { Text(candidate.label()) })
+                }
             }
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(search, { search = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text(stringResource(Res.string.trace_search)) })
-            Column {
-                Row { Text(stringResource(Res.string.feature_trace_thinking)); Switch(showThinking, { showThinking = it }) }
-                Row { Text(stringResource(Res.string.feature_trace_output)); Switch(showOutput, { showOutput = it }) }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(search, { search = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text(stringResource(Res.string.trace_search)) })
+                Column {
+                    Row { Text(stringResource(Res.string.feature_trace_thinking)); Switch(showThinking, { showThinking = it }) }
+                    Row { Text(stringResource(Res.string.feature_trace_output)); Switch(showOutput, { showOutput = it }) }
+                }
             }
         }
         error?.let { Text(it, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
         HorizontalDivider(Modifier.padding(top = 8.dp))
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(state = traceListState, modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             if (hasMoreBefore && firstAseq != null) item {
                 Button(onClick = {
                     scope.launch {
@@ -310,7 +363,6 @@ fun TraceScreen(
                     enabled = state.connected && canStop && steerText.isNotBlank(),
                     onClick = { onSteer(assignmentId, steerText.trim()); steerText = "" },
                 ) { Text(stringResource(Res.string.feature_trace_steer_action)) }
-                Button(enabled = canStop, onClick = { scope.launch { runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", assignmentId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.common_stop)) }
                 if (assignmentStatus == "failed") Button(
                     enabled = state.connected && !retryingAssignment,
                     onClick = {
@@ -383,19 +435,36 @@ private fun TraceItemCard(
         else -> type
     }
     val parentRunId = data.str("parent_run_id")
-    Column(Modifier.fillMaxWidth().padding(start = if (parentRunId.isBlank()) 0.dp else 20.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp)) {
-        Row(Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f)) {
-                Text(summary, style = MaterialTheme.typography.titleSmall)
-                if (type == "run.end") data.str("status").takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+    val expanded = remember(item.hashCode()) { androidx.compose.runtime.mutableStateOf(false) }
+    val icon = when {
+        type.startsWith("llm.") -> LucideIconKind.MessageCircle
+        type.startsWith("tool.") -> LucideIconKind.Monitor
+        type == "steer" -> LucideIconKind.AtSign
+        type == "run.wait" -> LucideIconKind.Clock
+        else -> LucideIconKind.Check
+    }
+    Column(Modifier.fillMaxWidth().padding(start = if (parentRunId.isBlank()) 0.dp else 20.dp)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable { expanded.value = !expanded.value },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(item.str("at").substringAfter('T').take(5), modifier = Modifier.width(40.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(Modifier.size(24.dp).background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small), contentAlignment = Alignment.Center) {
+                LucideIcon(icon, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
             }
-            Text(item.str("at"), style = MaterialTheme.typography.labelSmall)
+            Text(summary, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+            data.str("preview").takeIf(String::isNotBlank)?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (type == "run.start" && item.str("run_id").isNotBlank()) {
-                Button(onClick = { onToggleRun(item.str("run_id")) }, modifier = Modifier.semantics { contentDescription = runDisclosureLabel }) {
+                androidx.compose.material3.IconButton(onClick = { onToggleRun(item.str("run_id")) }, modifier = Modifier.size(32.dp).semantics { contentDescription = runDisclosureLabel }) {
                     LucideIcon(if (runCollapsed) LucideIconKind.ChevronRight else LucideIconKind.ChevronDown, Modifier.size(18.dp))
                 }
+            } else {
+                LucideIcon(if (expanded.value) LucideIconKind.ChevronDown else LucideIconKind.ChevronRight, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        if (expanded.value) Column(Modifier.fillMaxWidth().padding(start = 48.dp, end = 8.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (type == "run.end") data.str("status").takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
         if (type == "llm.response") {
             data.str("text").takeIf { it.isNotBlank() }?.let { MarkdownText(it, Modifier.fillMaxWidth().padding(top = 6.dp)) }
             if (showThinking) data.str("thinking").takeIf { it.isNotBlank() }?.let {
@@ -426,6 +495,8 @@ private fun TraceItemCard(
             val botId = data.str("bot_id")
             Button(onClick = { onOpenScreen(botId, data.str("tab_id").takeIf { it.isNotBlank() }) }) { Text(stringResource(Res.string.feature_open_screen)) }
         }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 

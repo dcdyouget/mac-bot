@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,10 +35,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.long
+import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.feature.group.GroupAvatar
 import bot.mac.mobile.core.ui.MotionAwareCircularProgressIndicator
 import bot.mac.mobile.core.ui.LucideIcon
 import bot.mac.mobile.core.ui.LucideIconKind
@@ -167,7 +170,7 @@ fun FollowupScreen(
                 Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButtonBack(onBack)
+                BackButton(onBack)
                 Text(stringResource(Res.string.follow_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             }
         }
@@ -200,6 +203,7 @@ fun FollowupScreen(
                             title = project.str("name").ifBlank { project.str("id") },
                             detail = stringResource(Res.string.follow_go_review),
                             tint = MaterialTheme.colorScheme.tertiaryContainer,
+                            icon = LucideIconKind.Target,
                             action = stringResource(Res.string.follow_go_review),
                         ) { onOpenProject(project.str("id")) }
                     }
@@ -212,6 +216,7 @@ fun FollowupScreen(
                                 approval.str("tool").takeIf(String::isNotBlank),
                             ).joinToString(" · "),
                             tint = MaterialTheme.colorScheme.errorContainer,
+                            icon = LucideIconKind.ShieldAlert,
                             action = stringResource(Res.string.follow_handle),
                         ) { onOpenApproval(approval.str("id")) }
                     }
@@ -220,6 +225,7 @@ fun FollowupScreen(
                             title = question.str("text"),
                             detail = question.str("assignment_id").takeIf(String::isNotBlank).orEmpty(),
                             tint = MaterialTheme.colorScheme.tertiaryContainer,
+                            icon = LucideIconKind.MessageCircle,
                             action = stringResource(Res.string.follow_handle),
                         ) { onOpenQuestion(question.str("id")) }
                     }
@@ -235,6 +241,9 @@ fun FollowupScreen(
                         val status = project.str("status")
                         val projectChat = state.chats.firstOrNull { it.str("kind") == "project" && it.str("project_id") == project.str("id") }
                         ProjectRow(
+                            repository = repository,
+                            members = project.arr("members"),
+                            bots = state.bots,
                             title = project.str("name").ifBlank { project.str("id") },
                             status = statusLabel(status),
                             working = status == "active",
@@ -274,9 +283,13 @@ fun FollowupScreen(
 private val ACTIVE_STATUSES = setOf("working", "waiting_user", "waiting_bot", "blocked", "queued")
 
 @Composable
-private fun TextButtonBack(onClick: () -> Unit) {
-    androidx.compose.material3.TextButton(onClick = onClick, modifier = Modifier.padding(end = 4.dp)) {
-        Text(stringResource(Res.string.common_back))
+private fun BackButton(onClick: () -> Unit) {
+    androidx.compose.material3.IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+        LucideIcon(
+            LucideIconKind.ArrowLeft,
+            Modifier.size(20.dp),
+            contentDescription = stringResource(Res.string.common_back),
+        )
     }
 }
 
@@ -292,32 +305,32 @@ private fun SectionHeading(title: String, count: Int) {
 }
 
 @Composable
-private fun PendingCard(title: String, detail: String, tint: androidx.compose.ui.graphics.Color, action: String, onClick: () -> Unit) {
+private fun PendingCard(title: String, detail: String, tint: androidx.compose.ui.graphics.Color, icon: LucideIconKind, action: String, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = tint),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("⚠", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 10.dp))
+            LucideIcon(icon, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f)) {
                 Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                 if (detail.isNotBlank()) Text(detail, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text(action, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(action, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp))
         }
     }
 }
 
 @Composable
-private fun ProjectRow(title: String, status: String, working: Boolean, onClick: () -> Unit) {
+private fun ProjectRow(repository: MobileRepository, members: List<kotlinx.serialization.json.JsonElement>, bots: List<JsonObject>, title: String, status: String, working: Boolean, onClick: () -> Unit) {
     Card(
         Modifier.fillMaxWidth().height(64.dp).clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         shape = RoundedCornerShape(14.dp),
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title.take(1).ifBlank { "•" }, Modifier.size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape).padding(top = 10.dp), color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.titleMedium)
+            GroupAvatar(repository, members, bots, 40.dp)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                 Text(status, style = MaterialTheme.typography.labelSmall, color = if (working) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary)
@@ -380,6 +393,7 @@ private fun EmptyCard(text: String) {
 
 @Composable
 private fun statusLabel(status: String): String = when (status) {
+    "active" -> stringResource(Res.string.status_working)
     "working" -> stringResource(Res.string.status_working)
     "queued" -> stringResource(Res.string.status_queued)
     "waiting_user" -> stringResource(Res.string.status_waiting_user)

@@ -3,6 +3,7 @@ package bot.mac.mobile.feature.chat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
@@ -146,6 +147,15 @@ fun ChatScreen(
     val memberIds = chat?.arr("member_bot_ids").orEmpty().map { it.toString().trim('"') }
     val mentionCandidates = state.bots.filter { it.str("id") in memberIds || memberIds.isEmpty() }
     val groupChat = chat?.str("kind") == "project"
+    val chatBot = chat?.str("bot_id")?.let { botId -> state.bots.firstOrNull { it.str("id") == botId } }
+    val activeBotAssignments = state.assignments.count {
+        it.str("bot_id") == chat?.str("bot_id") && it.str("status") in setOf("working", "queued")
+    }
+    val waitingApproval = state.approvals.firstOrNull { it.str("chat_id") == chatId && it.str("state") == "pending" }
+    val waitingQuestion = state.questions.firstOrNull { it.str("chat_id") == chatId && it.str("state") == "pending" }
+    val waitingReviewProject = if (chat?.str("kind") == "main") state.projects.firstOrNull {
+        it.str("status") in setOf("review", "pending_review")
+    } else null
     val hasWorkingProjectBots = groupChat && state.assignments.any {
         it.str("project_id") == chat?.str("project_id") && it.str("status") == "working"
     }
@@ -154,11 +164,24 @@ fun ChatScreen(
     val quoteOriginalUnloaded = stringResource(Res.string.feature_quote_original_unloaded)
     val groupInfoLabel = stringResource(Res.string.feature_group_info)
     val historyLabel = stringResource(Res.string.feature_chat_history)
+    val followupLabel = stringResource(Res.string.feature_followup)
     val cancelQuoteLabel = stringResource(Res.string.feature_cancel_quote)
     val attachmentLabel = stringResource(Res.string.feature_attachment)
     val mentionLabel = stringResource(Res.string.feature_mention_title)
     val backLabel = stringResource(Res.string.common_back)
     val openGroupLabel = stringResource(Res.string.feature_open_group)
+    val mainChatSubtitle = stringResource(Res.string.chat_main_subtitle)
+    val botChatSubtitle = stringResource(
+        Res.string.chat_bot_subtitle,
+        chatBot?.str("label").orEmpty().ifBlank { chatBot?.str("name").orEmpty() },
+        activeBotAssignments,
+    )
+    val chatSubtitle = when (chat?.str("kind")) {
+        "main" -> mainChatSubtitle
+        "direct", "bot_dm" -> botChatSubtitle
+        "project" -> stringResource(Res.string.chat_group_subtitle, memberIds.size)
+        else -> chat?.str("attention").orEmpty()
+    }
     val composerPlaceholder = when {
         !state.connected -> stringResource(Res.string.chat_composer_placeholder_offline)
         groupChat -> stringResource(Res.string.chat_composer_placeholder_group, chat?.str("title").orEmpty())
@@ -246,30 +269,76 @@ fun ChatScreen(
         if (showHeader) {
             FontScaleLimit(1.3f) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
-                Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
-                    Text(chat?.str("title").orEmpty(), style = MaterialTheme.typography.titleLarge)
-                    chat?.str("attention")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+                if (!groupChat && chatBot != null) {
+                    BotAvatar(repository, chatBot, main = chatBot.boolean("is_main"), status = chatBot.obj("status")?.str("summary").orEmpty(), size = 40.dp)
+                    Spacer(Modifier.width(12.dp))
+                }
+                Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(chat?.str("title").orEmpty(), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(chatSubtitle, style = MaterialTheme.typography.bodySmall, color = LocalMobilePalette.current.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 chat?.str("project_id")?.takeIf { it.isNotBlank() }?.let { projectId ->
                     IconButton(onClick = { onOpenGroupInfo(projectId) }, modifier = Modifier.semantics { contentDescription = groupInfoLabel }) { LucideIcon(LucideIconKind.Info, Modifier.size(20.dp)) }
-                    IconButton(onClick = { onOpenProject(projectId) }, modifier = Modifier.semantics { contentDescription = openGroupLabel }) { LucideIcon(LucideIconKind.ChevronRight, Modifier.size(20.dp)) }
                 }
-                if (chat?.str("kind") in setOf("main", "direct")) {
-                    TextButton(onClick = { onOpenFollowup(chatId) }) {
-                        Text(stringResource(Res.string.feature_followup))
-                    }
-                    TextButton(onClick = { onOpenTrace(null, chatId) }) {
-                        Text(stringResource(Res.string.feature_trace))
+                if (chat?.str("kind") == "bot_dm") {
+                    IconButton(onClick = { onOpenScreen(chat?.str("bot_id").orEmpty(), null) }) {
+                        LucideIcon(LucideIconKind.Monitor, Modifier.size(20.dp))
                     }
                 }
-                IconButton(onClick = { onOpenHistory(chatId) }, modifier = Modifier.semantics { contentDescription = historyLabel }) { LucideIcon(LucideIconKind.RotateCcw, Modifier.size(20.dp)) }
+                if (chat?.str("kind") in setOf("main", "direct", "bot_dm")) {
+                    IconButton(onClick = { onOpenFollowup(chatId) }, modifier = Modifier.semantics { contentDescription = followupLabel }) {
+                        LucideIcon(LucideIconKind.PanelRight, Modifier.size(20.dp))
+                    }
+                }
             }
             }
             HorizontalDivider()
+        }
+        val pinTitle = when {
+            waitingApproval != null -> stringResource(Res.string.chat_pin_pending_approval, 1)
+            waitingQuestion != null -> stringResource(Res.string.chat_pin_waiting_you, 1)
+            waitingReviewProject != null -> stringResource(Res.string.chat_pin_waiting_you, 1)
+            else -> null
+        }
+        val pinSummary = when {
+            waitingApproval != null -> "${waitingApproval.str("tool").ifBlank { waitingApproval.str("summary") }} · ${waitingApproval.str("summary")}"
+            waitingQuestion != null -> waitingQuestion.str("text")
+            waitingReviewProject != null -> "${waitingReviewProject.str("name")} · ${stringResource(Res.string.status_review_you)}"
+            else -> null
+        }
+        LaunchedEffect(pinTitle != null, scrollState.initialPositioned) {
+            if (pinTitle != null && scrollState.initialPositioned) {
+                // A pending banner can arrive after chat history has already scrolled. The
+                // reduced viewport then leaves the first visible message clipped at its top.
+                // Keep the same message in view, but align its top below the banner.
+                withFrameNanos { }
+                listState.scrollToItem(listState.firstVisibleItemIndex)
+            }
+        }
+        if (pinTitle != null && pinSummary != null) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .background(if (waitingApproval != null || waitingQuestion != null) LocalMobilePalette.current.warningSoft else LocalMobilePalette.current.reviewSoft)
+                    .clickable { onOpenFollowup(chatId) }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                LucideIcon(
+                    if (waitingApproval != null || waitingQuestion != null) LucideIconKind.ShieldAlert else LucideIconKind.Target,
+                    Modifier.size(20.dp),
+                    tint = if (waitingApproval != null || waitingQuestion != null) LocalMobilePalette.current.warning else LocalMobilePalette.current.review,
+                )
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(pinTitle, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                    Text(pinSummary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                LucideIcon(LucideIconKind.ChevronRight, Modifier.size(18.dp), tint = LocalMobilePalette.current.textSecondary)
+            }
         }
         FontScaleLimit(2.0f) {
         LazyColumn(

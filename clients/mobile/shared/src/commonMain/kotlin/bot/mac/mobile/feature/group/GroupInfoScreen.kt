@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,10 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -32,9 +33,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
+import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.core.ui.LucideIcon
@@ -59,8 +62,12 @@ import bot.mac.mobile.resources.common_copy_path
 import bot.mac.mobile.resources.common_provided_by
 import bot.mac.mobile.resources.group_announcement_edit_title
 import bot.mac.mobile.resources.group_announcement_empty
+import bot.mac.mobile.resources.group_announcement_meta
 import bot.mac.mobile.resources.group_open_home
 import bot.mac.mobile.resources.search_filter_bots
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
 
 /** Group information page backed by the project, announcement, bot, and artifact snapshots. */
@@ -79,7 +86,16 @@ fun GroupInfoScreen(
     val announcement = state.announcements[projectId]
     val botsById = state.bots.associateBy { it.str("id") }
     val homePath = project?.str("home_path").orEmpty()
-    val members = (announcement?.arr("members") ?: project?.arr("members")).orEmpty()
+    val projectChat = state.chats.firstOrNull { it.str("id") == project?.str("chat_id") }
+    val chatMemberIds = projectChat?.arr("member_bot_ids").orEmpty()
+        .mapNotNull { (it as? JsonPrimitive)?.content?.takeIf(String::isNotBlank) }
+    val groupMembers = announcement?.arr("members")?.takeIf { it.isNotEmpty() }
+        ?: project?.arr("members")?.takeIf { it.isNotEmpty() }
+        ?: chatMemberIds.map { botId ->
+            val status = botsById[botId]?.obj("status")?.str("summary").orEmpty()
+            buildJsonObject { put("bot_id", botId); put("state", status.ifBlank { "idle" }) }
+        }
+    val members = groupMembers
         .mapNotNull { it as? kotlinx.serialization.json.JsonObject }
         .mapNotNull { member ->
             val botId = member.str("bot_id")
@@ -94,8 +110,8 @@ fun GroupInfoScreen(
                 Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                OutlinedButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                    Text(stringResource(Res.string.common_back), maxLines = 1, overflow = TextOverflow.Clip)
+                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                    LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp), contentDescription = stringResource(Res.string.common_back))
                 }
                 Text(
                     text = stringResource(Res.string.group_info),
@@ -116,7 +132,7 @@ fun GroupInfoScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                ProjectAvatar(project?.str("name").orEmpty(), Modifier.size(64.dp))
+                GroupAvatar(repository, groupMembers, state.bots, 64.dp)
                 Text(
                     project?.str("name").orEmpty(),
                     style = MaterialTheme.typography.headlineSmall,
@@ -131,6 +147,9 @@ fun GroupInfoScreen(
                 title = stringResource(Res.string.group_announcement),
                 detail = announcement?.obj("text_updated_by")?.str("bot_id")?.let { botId ->
                     botsById[botId]?.str("name")?.takeIf(String::isNotBlank)
+                }?.let { author ->
+                    val updatedAt = announcement?.str("text_updated_at").orEmpty()
+                    if (updatedAt.isBlank()) author else stringResource(Res.string.group_announcement_meta, author, updatedAt)
                 },
             ) {
                 val announcementText = announcement?.str("text").orEmpty()
@@ -155,18 +174,20 @@ fun GroupInfoScreen(
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onEditAnnouncement(projectId) }, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(onClick = { onEditAnnouncement(projectId) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
                         Text(stringResource(Res.string.group_announcement_edit_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     OutlinedButton(
                         onClick = { if (homePath.isNotBlank()) onOpenHome(homePath) },
                         enabled = homePath.isNotBlank(),
                         modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                     ) { Text(stringResource(Res.string.group_open_home), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     OutlinedButton(
                         onClick = { if (homePath.isNotBlank()) onCopyHome(homePath) },
                         enabled = homePath.isNotBlank(),
                         modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                     ) { Text(stringResource(Res.string.common_copy_path), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
                 Text(stringResource(Res.string.feature_home_value, homePath), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -185,10 +206,10 @@ fun GroupInfoScreen(
                         members.forEachIndexed { index, (member, bot) ->
                             if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             Row(
-                                Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 8.dp),
+                                Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                MemberAvatar(bot.str("name"), Modifier.size(36.dp))
+                                BotAvatar(repository, bot, main = bot.boolean("is_main"), status = member.str("state"), size = 32.dp)
                                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                                     Text(bot.str("name").ifBlank { member.str("bot_id") }, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     member.str("role_note").takeIf(String::isNotBlank)?.let {
@@ -250,24 +271,6 @@ private fun InfoSection(title: String, detail: String?, content: @Composable Col
             detail?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         content()
-    }
-}
-
-@Composable
-private fun ProjectAvatar(name: String, modifier: Modifier = Modifier) {
-    val first = name.trim().firstOrNull()?.toString().orEmpty()
-    Box(
-        modifier.clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(first, color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
-private fun MemberAvatar(name: String, modifier: Modifier = Modifier) {
-    Box(modifier.clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-        Text(name.trim().firstOrNull()?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSecondaryContainer, style = MaterialTheme.typography.titleMedium)
     }
 }
 

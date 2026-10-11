@@ -10,6 +10,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -353,8 +354,6 @@ import org.jetbrains.compose.resources.stringResource
         else -> stringResource(Res.string.chat_attention_other)
     }
     val rowDescription = stringResource(Res.string.chat_row_accessibility, chat.str("title"), attentionLabel)
-    val moreLabel = stringResource(Res.string.common_more)
-    var menu by remember { mutableStateOf(false) }
     var rowError by remember { mutableStateOf<String?>(null) }
     var swipeOffset by remember(chat.str("id")) { mutableStateOf(0f) }
     val density = LocalDensity.current
@@ -362,7 +361,6 @@ import org.jetbrains.compose.resources.stringResource
     val swipeThreshold = with(density) { 48.dp.toPx() }
     var suppressNextClick by remember { mutableStateOf(false) }
     val scope=rememberCoroutineScope()
-    LaunchedEffect(menu) { if (!menu) suppressNextClick = false }
     Box(Modifier.fillMaxWidth().heightIn(min = 72.dp)) {
         Row(Modifier.align(Alignment.CenterEnd).width(216.dp).fillMaxHeight(), horizontalArrangement=Arrangement.spacedBy(0.dp)) {
             val projectId = chat.str("project_id")
@@ -392,7 +390,13 @@ import org.jetbrains.compose.resources.stringResource
                 }
             }
         }
-        Column(Modifier.fillMaxWidth().offset { IntOffset(swipeOffset.roundToInt(), 0) }.background(LocalMobilePalette.current.window)) {
+        Column(
+            Modifier.fillMaxWidth().offset { IntOffset(swipeOffset.roundToInt(), 0) }
+                .background(
+                    if (chat.str("kind") == "main") LocalMobilePalette.current.accentSoft.compositeOver(LocalMobilePalette.current.window)
+                    else LocalMobilePalette.current.window,
+                ),
+        ) {
             Row(
             Modifier
             .fillMaxWidth()
@@ -420,15 +424,24 @@ import org.jetbrains.compose.resources.stringResource
         verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(12.dp),
     ) {
-        BotAvatar(repository,bot,chat.str("kind")=="main",bot?.obj("status")?.str("summary") ?: attention)
+        BotAvatar(repository,bot,chat.str("kind")=="main",bot?.obj("status")?.str("summary") ?: attention, size = 48.dp)
         Column(Modifier.weight(1f)) {
             Text(chat.str("title"),style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.semantics { contentDescription = rowDescription })
-            pendingApproval?.let { approval ->
-                Text("⚠ ${stringResource(Res.string.status_need_approval)} · ${approval.str("summary").ifBlank { approval.str("tool") }}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
-            } ?: pendingQuestion?.let { question ->
-                Text("⚠ ${stringResource(Res.string.status_waiting_user)} · ${question.str("text")}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
+            when {
+                pendingApproval != null -> Text(
+                    "⚠ ${stringResource(Res.string.status_need_approval)} · ${pendingApproval.str("summary").ifBlank { pendingApproval.str("tool") }}",
+                    maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.bodySmall,
+                )
+                pendingQuestion != null -> Text(
+                    "⚠ ${stringResource(Res.string.status_waiting_user)} · ${pendingQuestion.str("text")}",
+                    maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.bodySmall,
+                )
+                attention == "review" -> Text(
+                    "◎ ${stringResource(Res.string.status_review_you)}",
+                    maxLines=1, color=LocalMobilePalette.current.review, style=MaterialTheme.typography.bodySmall,
+                )
+                else -> Text(chat.obj("last_message").str("text"),maxLines=1,color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
             }
-            Text(chat.obj("last_message").str("text"),maxLines=1,color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
         }
         Column(horizontalAlignment=Alignment.End) {
             when {
@@ -442,13 +455,6 @@ import org.jetbrains.compose.resources.stringResource
                 chat.long("unread") > 0 -> Badge(containerColor = if (chat.boolean("muted")) LocalMobilePalette.current.textTertiary else MaterialTheme.colorScheme.error) { Text(chat.long("unread").toString(), modifier=Modifier.semantics { contentDescription = attentionLabel }) }
             }
         }
-        Box { TextButton(onClick={menu=true}, modifier=Modifier.semantics { contentDescription = moreLabel }) { Text("⋮") }; DropdownMenu(menu,{menu=false}) {
-            DropdownMenuItem(text={Text(stringResource(if (chat.boolean("pinned")) Res.string.chat_unpin else Res.string.chat_pin))},onClick={menu=false;scope.launch{runCatching{repository.call("chat.set_pinned",buildJsonObject{put("chat_id",chat.str("id"));put("pinned",!chat.boolean("pinned"))})}}})
-            DropdownMenuItem(text={Text(stringResource(if (chat.boolean("muted")) Res.string.chat_unmute else Res.string.chat_mute))},onClick={menu=false;scope.launch{runCatching{repository.call("chat.set_muted",buildJsonObject{put("chat_id",chat.str("id"));put("muted",!chat.boolean("muted"))})}}})
-            chat.str("project_id").takeIf { it.isNotBlank() }?.let { projectId ->
-                DropdownMenuItem(text={Text(stringResource(Res.string.chat_confirm_done))},onClick={menu=false;scope.launch{runCatching{repository.call("project.confirm_done",buildJsonObject{put("project_id",projectId)})}}})
-            }
-        } }
             }
             rowError?.let { Text(it, Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal=16.dp, vertical=4.dp), color=MaterialTheme.colorScheme.onErrorContainer, style=MaterialTheme.typography.labelSmall) }
         }

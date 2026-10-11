@@ -243,6 +243,29 @@ fun GroupScreen(
                             showAnnouncementEditor = true
                         })
                         DropdownMenuItem(text = { Text(stringResource(Res.string.feature_edit_group)) }, onClick = { showGroupActions = false; showEdit = !showEdit })
+                        if (project?.str("status") == "review" || project?.str("status") == "active") {
+                            DropdownMenuItem(text = { Text(stringResource(Res.string.common_done)) }, onClick = {
+                                showGroupActions = false
+                                scope.launch { runCatching { repository.call("project.confirm_done", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } }
+                            })
+                            DropdownMenuItem(text = { Text(stringResource(Res.string.block_review_card_request_changes)) }, onClick = {
+                                showGroupActions = false
+                                changeProjectId = projectId
+                                showChangeInput = true
+                            })
+                        }
+                        if (project?.str("status") == "done") {
+                            DropdownMenuItem(text = { Text(stringResource(Res.string.sidebar_menu_archive)) }, onClick = {
+                                showGroupActions = false
+                                scope.launch { runCatching { repository.call("project.archive", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } }
+                            })
+                        }
+                        if (project?.str("status") == "archived") {
+                            DropdownMenuItem(text = { Text(stringResource(Res.string.feature_reopen)) }, onClick = {
+                                showGroupActions = false
+                                scope.launch { runCatching { repository.call("project.reopen", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } }
+                            })
+                        }
                     }
                 }
             }
@@ -337,57 +360,43 @@ fun GroupScreen(
             } ?: Text(stringResource(Res.string.feature_group_empty), Modifier.padding(24.dp))
         }
         if (showChangeInput) {
-            OutlinedTextField(value = changeText, onValueChange = { changeText = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_change_hint)) })
-        }
-        Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (project?.str("status") == "review" || project?.str("status") == "active") {
-                Button(onClick = { scope.launch { runCatching { repository.call("project.confirm_done", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.common_done)) }
-            }
-            if (project?.str("status") == "review" || project?.str("status") == "active") {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(value = changeText, onValueChange = { changeText = it }, modifier = Modifier.weight(1f), singleLine = true, label = { Text(stringResource(Res.string.feature_change_hint)) })
                 Button(onClick = {
-                    if (!showChangeInput) {
-                        changeProjectId = projectId
-                        showChangeInput = true
+                    val text = changeText.trim()
+                    if (text.isNotEmpty()) {
+                        val targetProject = changeProjectId ?: projectId
+                        scope.launch { runCatching { repository.call("project.request_changes", buildJsonObject { put("project_id", targetProject); put("text", text) }) }.onFailure { error = it.message } }
                     }
-                    else {
-                        val text = changeText.trim()
-                        if (text.isNotEmpty()) {
-                            val targetProject = changeProjectId ?: projectId
-                            scope.launch { runCatching { repository.call("project.request_changes", buildJsonObject { put("project_id", targetProject); put("text", text) }) }.onFailure { error = it.message } }
-                        }
-                        changeText = ""
-                        changeProjectId = null
-                        showChangeInput = false
-                    }
-                }) { Text(if (showChangeInput) stringResource(Res.string.feature_submit_changes) else stringResource(Res.string.block_review_card_request_changes)) }
-            }
-            if (project?.str("status") == "done") {
-                Button(onClick = { scope.launch { runCatching { repository.call("project.archive", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.sidebar_menu_archive)) }
-            }
-            if (project?.str("status") == "archived") {
-                Button(onClick = { scope.launch { runCatching { repository.call("project.reopen", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_reopen)) }
+                    changeText = ""
+                    changeProjectId = null
+                    showChangeInput = false
+                }) { Text(stringResource(Res.string.feature_submit_changes)) }
             }
         }
     }
 }
 
 @Composable
-private fun GroupAvatar(repository: MobileRepository, members: List<kotlinx.serialization.json.JsonElement>, bots: List<JsonObject>) {
+internal fun GroupAvatar(repository: MobileRepository, members: List<kotlinx.serialization.json.JsonElement>, bots: List<JsonObject>, size: androidx.compose.ui.unit.Dp = 40.dp) {
     val botIds = members.mapNotNull { (it as? JsonObject)?.str("bot_id")?.takeIf(String::isNotBlank) }.distinct().take(4)
-    Box(Modifier.size(40.dp)) {
+    Box(Modifier.size(size)) {
         if (botIds.size == 1) {
             val bot = bots.firstOrNull { it.str("id") == botIds.single() }
-            BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = 40.dp)
+            BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = size)
         } else {
             botIds.forEachIndexed { index, botId ->
-                val x = if (index % 2 == 0) 0.dp else 19.dp
-                val y = if (index / 2 == 0) 0.dp else 19.dp
+                val quadrant = size / 2f
+                val inset = size * 0.03f
+                val x = if (index % 2 == 0) 0.dp else quadrant - inset
+                val y = if (index / 2 == 0) 0.dp else quadrant - inset
+                val avatarSize = quadrant - 2.dp
                 Box(
-                    Modifier.offset(x, y).size(21.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface)
+                    Modifier.offset(x, y).size(quadrant).clip(CircleShape).background(MaterialTheme.colorScheme.surface)
                         .padding(1.dp),
                 ) {
                     val bot = bots.firstOrNull { it.str("id") == botId }
-                    BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = 19.dp)
+                    BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = avatarSize)
                 }
             }
         }

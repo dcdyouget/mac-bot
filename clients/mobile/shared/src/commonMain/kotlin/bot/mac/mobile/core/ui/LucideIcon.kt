@@ -14,7 +14,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /** Small, platform-neutral Lucide-style outline icons (24×24, 1.5 dp stroke). */
-enum class LucideIconKind { ArrowLeft, ArrowUp, Plus, Search, RefreshCw, RotateCcw, ChevronDown, ChevronLeft, ChevronRight, Clock, CalendarDays, Ellipsis, Info, X, AtSign, Paperclip, FileText, Check, MessageCircle, Reply, Smile }
+enum class LucideIconKind { ArrowLeft, ArrowUp, Plus, Search, RefreshCw, RotateCcw, ChevronDown, ChevronLeft, ChevronRight, Clock, CalendarDays, Ellipsis, Info, X, AtSign, Paperclip, FileText, Check, MessageCircle, Reply, Smile, Monitor, PanelRight, ShieldAlert, Target }
 
 @Composable
 fun LucideIcon(
@@ -97,6 +97,23 @@ fun LucideIcon(
                 drawCircle(resolvedTint, radius = 9f, center = Offset(12f, 12f), style = stroke)
                 drawCircle(resolvedTint, radius = 0.8f, center = Offset(9f, 9f)); drawCircle(resolvedTint, radius = 0.8f, center = Offset(15f, 9f))
                 path(8f, 13f, 9f, 15f, 12f, 16f, 15f, 15f, 16f, 13f)
+            }
+            LucideIconKind.Monitor -> {
+                path(3f, 4f, 21f, 4f, 21f, 17f, 3f, 17f, 3f, 4f)
+                line(8f, 21f, 16f, 21f); line(12f, 17f, 12f, 21f)
+            }
+            LucideIconKind.PanelRight -> {
+                path(3f, 4f, 21f, 4f, 21f, 20f, 3f, 20f, 3f, 4f)
+                line(15f, 4f, 15f, 20f)
+            }
+            LucideIconKind.ShieldAlert -> {
+                path(12f, 3f, 20f, 6f, 19f, 13f, 16f, 18f, 12f, 21f, 8f, 18f, 5f, 13f, 4f, 6f, 12f, 3f)
+                line(12f, 8f, 12f, 13f); drawCircle(resolvedTint, radius = 0.8f, center = Offset(12f, 16f))
+            }
+            LucideIconKind.Target -> {
+                drawCircle(resolvedTint, radius = 8f, center = Offset(12f, 12f), style = stroke)
+                drawCircle(resolvedTint, radius = 3f, center = Offset(12f, 12f), style = stroke)
+                line(12f, 2f, 12f, 4f); line(12f, 20f, 12f, 22f); line(2f, 12f, 4f, 12f); line(20f, 12f, 22f, 12f)
             }
         }
         drawContext.transform.scale(1f / scale, 1f / scale, Offset.Zero)
