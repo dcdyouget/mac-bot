@@ -160,6 +160,7 @@ mac-bot/
 │   ├── chats/<chat_id>/chat.json + messages.jsonl
 │   ├── assignments/<yyyy-mm>/<assignment_id>.json
 │   ├── artifacts/<project_id>.jsonl
+│   ├── artifact-history/<artifact_id>/versions.jsonl + versions/<version>.json
 │   ├── threads/<thread_id>/thread.json + segments/<n>.json + entries.jsonl
 │   ├── jobs/<job_id>.json                # durable 检查点
 │   ├── memories/user.json  bots/<bot_id>.json  projects/<project_id>.json
@@ -225,6 +226,8 @@ send_msg(
 ) -> { message_id, then: "continue" | "wait" | "end" }
 ```
 
+产物预览的“历史”只展示真实快照：Bot 每次在 `send_msg` 登记 project Home 内普通文件时，服务端读取并保存当时内容；相同内容不重复编号。快照只覆盖普通文件，最大 5 MiB；URL、目录、越界路径及超限文件不生成可读历史。客户端通过 `artifact.versions.list` 列表和 `artifact.version.get` 读取历史内容。
+
 | intent | 用途 | 系统做什么 | 之后 run 怎么走 |
 |--------|------|-----------|----------------|
 | `ack` | 开工后的第一步：一句话说明收到、打算怎么做（L0 规则要求） | 发消息 | 继续 |
@@ -258,6 +261,7 @@ send_msg(
 4. 任务正挂起在 decision 上时，这条消息就是回复，run 立即恢复。
 5. Bot 在这个群里没有任务时，创建一个新任务。
 6. 停止：用户点 [停止]（`assignment.stop`），或者发「@编码 停一下」→ 中止 run，状态 `cancelled`，发一条系统消息。
+7. 失败任务重试：仅 `failed` assignment 可调用 `assignment.retry`；服务端保留原失败记录并创建新的子 assignment（`parent_assignment_id` 指向原任务），由既有 admission/queue 调度。`client_request_id` 对相同请求幂等；`blocked`、等待审批/问题和其他状态不允许强制重跑。
 
 #### 5.3.5 主 Bot
 

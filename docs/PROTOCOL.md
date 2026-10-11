@@ -300,6 +300,9 @@ interface FileRef { root: "project" | "bot" | "upload"; root_id: Id; path: strin
 interface ArtifactRef { artifact_id: Id; title: string; path_or_url: string;
   bot_id: Id;                  // 作者（哪个 Bot 交付的），客户端显示「X 提供」
   kind: "file" | "dir" | "url" }
+interface ArtifactVersion { artifact_id: Id; version: number; title: string; path_or_url: string;
+  bot_id: Id; assignment_id: Id; kind: "file" | "dir" | "url";
+  created_at: Time; byte_size: number; mime: string }
 ```
 
 ### 4.7 Project 与 Announcement
@@ -551,9 +554,12 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `chat.react` | `{ message_id, emoji: string, on: boolean }` | `{ message: Message }` |
 | `chat.set_pinned` | `{ chat_id, pinned: boolean }` | `{ chat: Chat }` |
 | `chat.set_muted` | `{ chat_id, muted: boolean }` | `{ chat: Chat }` |
+| `artifact.versions.list` | `{ artifact_id, limit?: number /* 默认 20，最大 100 */, before_version?: number /* 仅返回更早版本 */ }` | `{ versions: ArtifactVersion[], has_more: boolean }`（版本号降序） |
+| `artifact.version.get` | `{ artifact_id, version }` | `{ version: ArtifactVersion, content: string, content_encoding: "utf8"|"base64" }` |
 
 - `chat.send` 里用户可以用的 mention 只有 `bot`、`main`、`everyone`（`instruction` 必须为 null）。服务端按 PLAN 5.4 的规则路由。
 - 群聊中未 @ 任何人的用户消息会为当前 working 的 Bot 任务记录 `delivery.state = "queued"`；任务详情的「改为插话」调用 `message.steer`，服务端再次校验消息、Bot、任务和待看状态后，才把原消息排入该任务。
+- Bot 通过 `send_msg` 登记 project Home 内普通文件产物时，服务端保存当时文件内容快照；内容未变化不增加版本。历史从新版本部署后首次登记开始，既有产物不会伪造或回填旧版本。`artifact.versions.list` 与 `artifact.version.get` 只返回已真实保存的版本，不从当前文件推测旧内容。URL、目录、越界路径、敏感文件名和超过 5 MiB 的文件不会生成可读历史版本。
 - `bot_dm` 会话是只读的，对它调用 `chat.send` 返回 `forbidden`。
 - **强制使用技能**：`text` 以 `/<技能名>` 开头时（例如 `/web-auth-patterns 按这个规范做`），服务端把这个技能的全文加载进本次任务，其余文字作为指令。技能名不存在时，按普通文本处理。
 
@@ -593,6 +599,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `assignment.list` | `{ project_id?, bot_id?, status?: AssignmentStatus[], cursor?: string, limit?: number /* 默认 50 */ }` | `{ items: Assignment[], next_cursor: string\|null }`（按 created_at 倒序） |
 | `assignment.get` | `{ assignment_id }` | `{ assignment: Assignment }` |
 | `assignment.stop` | `{ assignment_id }` | `{ assignment: Assignment }` |
+| `assignment.retry` | `{ assignment_id, client_request_id }` | `{ assignment: Assignment }`（仅允许源任务为 `failed`；创建新的子任务，原失败记录保留；相同 request id 重试幂等） |
 | `trace.history` | `{ assignment_id?: Id, chat_id?: Id /* 二选一 */, before_aseq?: number, after_aseq?: number, tail?: boolean, limit?: number /* 默认 200，最大 500 */ }` | `{ items: TraceItem[], first_aseq: number\|null, last_aseq: number\|null, has_more_before: boolean, live: boolean }` |
 | `trace.subscribe` | `{ assignment_id?: Id, chat_id?: Id, since_aseq: number }` | `{ stream: string, in_flight: { request_id, text: string, thinking: string }[] }` |
 | `trace.unsubscribe` | `{ stream: string }` | `{}` |
