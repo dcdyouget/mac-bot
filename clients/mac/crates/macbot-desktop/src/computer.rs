@@ -161,6 +161,7 @@ pub struct ComputerTab {
 pub struct Computer {
     state: Value,
     frame: Option<Frame>,
+    last_frame: Option<Frame>,
     image: Option<Arc<Image>>,
     /// The one image currently being decoded. New frames replace `image` and
     /// remain queued until this decode completes, avoiding an unbounded set of
@@ -192,6 +193,7 @@ impl Computer {
         Self {
             state: Value::Object(Default::default()),
             frame: None,
+            last_frame: None,
             image: None,
             decoding_image: None,
             presentation: FramePresentation::default(),
@@ -263,6 +265,14 @@ impl Computer {
         &self.quality
     }
 
+    /// Return the latest real frame observed for an inline takeover preview.
+    /// The snapshot intentionally survives a screen stream reconnect/close.
+    pub fn latest_preview(&self) -> Option<(u32, u32, Arc<[u8]>)> {
+        self.last_frame
+            .as_ref()
+            .map(|frame| (frame.width, frame.height, frame.jpeg.clone()))
+    }
+
     pub fn active_tab_id(&self) -> Option<String> {
         active_tab_id_from_state(&self.state)
     }
@@ -332,6 +342,7 @@ impl Computer {
         self.frame_received_at = Some((seq, received_at));
         let frame = Frame::new(seq, width, height, jpeg);
         self.frame = Some(frame.clone());
+        self.last_frame = Some(frame.clone());
         self.image = Some(Arc::new(Image::from_bytes(
             ImageFormat::Jpeg,
             frame.jpeg.to_vec(),

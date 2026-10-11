@@ -391,6 +391,7 @@ fn chat_tr(key: &str) -> SharedString {
         "block.takeover.start" => "接管并处理",
         "block.takeover.back_to_screen" => "回到画面",
         "block.takeover.release" => "交还给 Bot",
+        "block.takeover.no_frame" => "尚无可用画面",
         "chat.reference" => "引用",
         "chat.announcement_reload" => "载入最新公告",
         "chat.announcement_length" => "字",
@@ -1911,6 +1912,40 @@ impl MacBot {
                             .child(chat_tr(state_key)),
                     )
                     .child(s(block, "reason").to_string());
+                if let Some((_, _, jpeg)) = self
+                    .computer
+                    .read(cx)
+                    .latest_preview()
+                    .filter(|_| self.screen_bot == bot)
+                {
+                    let image = Arc::new(Image::from_bytes(ImageFormat::Jpeg, jpeg.to_vec()));
+                    body = body.child(
+                        div()
+                            .w_full()
+                            .h(px(72.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .overflow_hidden()
+                            .rounded(px(8.))
+                            .bg(t.elevated)
+                            .child(img(image).max_h(px(72.)).object_fit(ObjectFit::Contain)),
+                    );
+                } else {
+                    body = body.child(
+                        div()
+                            .w_full()
+                            .h(px(72.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(8.))
+                            .bg(t.elevated)
+                            .text_xs()
+                            .text_color(t.tertiary)
+                            .child(chat_tr("block.takeover.no_frame")),
+                    );
+                }
                 match s(block, "state") {
                     "pending" => {
                         body = body.child(
