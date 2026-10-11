@@ -3750,11 +3750,22 @@ impl MacBot {
                     "waiting_user" => t.attention,
                     _ => t.secondary,
                 };
+                let status_badge = if status == "done" {
+                    div()
+                        .px(px(t.space[3]))
+                        .py(px(t.space[1]))
+                        .rounded(px(t.radius[11]))
+                        .bg(t.success_soft)
+                        .text_color(t.success)
+                        .child(state(status))
+                } else {
+                    div().text_color(status_color).child(state(status))
+                };
                 let mut summary = div()
                     .flex()
                     .items_center()
                     .gap(px(t.space[4]))
-                    .child(div().text_color(status_color).child(state(status)))
+                    .child(status_badge)
                     .child(
                         div().font_weight(FontWeight::SEMIBOLD).child(
                             chat_tr("block.task_card.title")
@@ -3904,7 +3915,18 @@ impl MacBot {
                     let label = chat_tr(label_key)
                         .to_string()
                         .replace("{time}", s(&approval, "decided_at"));
-                    body = body.child(div().text_color(color).child(label));
+                    let allowed =
+                        matches!(s(&approval, "state"), "allowed_once" | "always_allowed");
+                    let mut status_badge = div().text_color(color);
+                    if allowed {
+                        status_badge = status_badge
+                            .px(px(t.space[3]))
+                            .py(px(t.space[1]))
+                            .rounded(px(t.radius[11]))
+                            .bg(t.success_soft)
+                            .text_color(t.success);
+                    }
+                    body = body.child(status_badge.child(label));
                 }
             }
             "approval_ref" => {
