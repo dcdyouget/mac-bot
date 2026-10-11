@@ -88,6 +88,10 @@ async fn dispatch(
         "chat.history" => chat_history(state, &params),
         "chat.thread" => chat_thread(state, &params),
         "chat.send" => send_chat(state, &params, &gateway.home),
+        // Acceptance-only mock RPC. It deliberately does not exist in the
+        // protocol or production adapter; it creates a canonical Bot DM event
+        // so clients can exercise notification delivery and deep links.
+        "mock.trigger_bot_dm" => trigger_bot_dm(state, &params),
         "message.delete" => message_delete(state, &params),
         "message.edit" => message_edit(state, &params),
         "message.steer" => message_steer(state, &params),
@@ -2397,6 +2401,101 @@ fn chat_thread(state: &MockState, params: &Value) -> RpcResult {
         .cloned()
         .collect::<Vec<_>>();
     Ok(json!({"root":root,"replies":replies}))
+}
+
+/// Acceptance-only mock action for a real Bot-authored private message.
+/// Callers must use an authenticated mock RPC connection and a unique
+/// `client_request_id`; the generic mock dispatcher stores the result for
+/// retries. This method must never be added to protocol or production RPCs.
+fn trigger_bot_dm(state: &mut MockState, params: &Value) -> RpcResult {
+    let request_id = params
+        .get("client_request_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or_else(|| {
+            rpc_error(
+                "invalid_params",
+                "client_request_id must contain 1 to 128 bytes",
+                None,
+            )
+        })?;
+    let _ = request_id;
+    let bot_id = params
+        .get("bot_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "bot_id is required", None))?;
+    let chat_id = params
+        .get("chat_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "chat_id is required", None))?;
+    let text = params
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "text is required", None))?;
+
+    let bot = state
+        .bots
+        .iter()
+        .find(|bot| bot.get("id").and_then(Value::as_str) == Some(bot_id))
+        .cloned()
+        .ok_or_else(|| rpc_error("not_found", "bot not found", None))?;
+    let chat = state
+        .chats
+        .iter()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
+        .cloned()
+        .ok_or_else(|| rpc_error("not_found", "chat not found", None))?;
+    let is_bot_dm = bot.get("dm_chat_id").and_then(Value::as_str) == Some(chat_id)
+        && chat.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+        && matches!(
+            chat.get("kind").and_then(Value::as_str),
+            Some("main" | "direct" | "bot_dm")
+        );
+    if !is_bot_dm {
+        return Err(rpc_error(
+            "invalid_params",
+            "chat_id must be the selected Bot's private chat",
+            None,
+        ));
+    }
+
+    let messages = state.messages.entry(chat_id.to_owned()).or_default();
+    let seq = messages
+        .iter()
+        .filter_map(|message| message.get("seq").and_then(Value::as_u64))
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let created_at = now();
+    let message = json!({
+        "id":id("msg"),"chat_id":chat_id,"seq":seq,
+        "sender":{"kind":"bot","bot_id":bot_id},"sender_name":bot.get("name").cloned().unwrap_or(json!("Bot")),
+        "created_at":created_at,"edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,
+        "mentions":[],"blocks":[{"type":"text","markdown":text}],"fallback_text":text,
+        "intent":null,"assignment_id":null,"streaming":false,"delivery":[],"reactions":[]
+    });
+    messages.push(message.clone());
+    if let Some(chat) = state
+        .chats
+        .iter_mut()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
+    {
+        chat["last_message"] = json!({
+            "message_id":message["id"],"sender":message["sender"],
+            "text":text,"created_at":created_at
+        });
+        chat["last_seq"] = json!(seq);
+        chat["updated_at"] = json!(created_at);
+    }
+    state.emit("message.created", json!({"message":message.clone()}));
+    Ok(json!({"message":message}))
 }
 
 fn send_chat(state: &mut MockState, params: &Value, home: &std::path::Path) -> RpcResult {
@@ -4883,6 +4982,141 @@ mod contract_tests {
             .await
             .client_locales
             .contains_key(separate["message"]["id"].as_str().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn mock_bot_dm_trigger_emits_once_persists_and_is_host_scoped() {
+        let gateway_instance = gateway().await;
+        // Initialize fixtures before listening so this subscription observes
+        // only the deliberately triggered acceptance message.
+        call(&gateway_instance, "bootstrap", json!({})).await;
+        let created = call(
+            &gateway_instance,
+            "bot.create",
+            json!({"name":"Notification bot"}),
+        )
+        .await;
+        let bot_id = created["bot"]["id"].as_str().unwrap();
+        let chat_id = created["dm_chat"]["id"].as_str().unwrap();
+        assert_eq!(created["dm_chat"]["kind"], "direct");
+        let mut events = gateway_instance.state.events.subscribe();
+        let params = json!({
+            "bot_id":bot_id,
+            "chat_id":chat_id,
+            "text":"Notification acceptance message",
+            "client_request_id":"notify-bot-dm-1"
+        });
+        let first = call(&gateway_instance, "mock.trigger_bot_dm", params.clone()).await;
+        let message = first["message"].clone();
+        assert_eq!(message["sender"]["kind"], "bot");
+        assert_eq!(message["sender"]["bot_id"], bot_id);
+        assert_eq!(message["chat_id"], chat_id);
+        assert_eq!(message["fallback_text"], "Notification acceptance message");
+
+        let mut observed = false;
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while let Ok(event) = events.recv().await {
+                if event["event"] == "message.created"
+                    && event["data"]["message"]["id"] == message["id"]
+                {
+                    observed = true;
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("triggered Bot DM event is broadcast");
+        assert!(observed);
+
+        let replay = call(&gateway_instance, "mock.trigger_bot_dm", params).await;
+        assert_eq!(replay, first, "retry returns the original message");
+        assert!(events.try_recv().is_err(), "retry does not broadcast again");
+        let history = call(
+            &gateway_instance,
+            "chat.history",
+            json!({"chat_id":chat_id,"limit":100}),
+        )
+        .await;
+        assert_eq!(
+            history["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["id"] == message["id"])
+                .count(),
+            1
+        );
+        let chat =
+            call(&gateway_instance, "chat.get", json!({"chat_id":chat_id})).await["chat"].clone();
+        assert_eq!(chat["last_message"]["message_id"], message["id"]);
+        assert_eq!(chat["last_seq"], message["seq"]);
+
+        let other_host = gateway().await;
+        call(&other_host, "bootstrap", json!({})).await;
+        let other_bot = call(
+            &other_host,
+            "bot.create",
+            json!({"name":"Notification bot"}),
+        )
+        .await;
+        let other_bot_message = call(
+            &other_host,
+            "mock.trigger_bot_dm",
+            json!({
+                "bot_id":other_bot["bot"]["id"],
+                "chat_id":other_bot["dm_chat"]["id"],
+                "text":"Other Host message",
+                "client_request_id":"notify-bot-dm-1"
+            }),
+        )
+        .await;
+        assert_ne!(other_bot_message["message"]["id"], message["id"]);
+        let other_history = call(
+            &other_host,
+            "chat.history",
+            json!({"chat_id":other_bot["dm_chat"]["id"],"limit":100}),
+        )
+        .await;
+        assert!(other_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == other_bot_message["message"]["id"]));
+        assert!(!other_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == message["id"]));
+    }
+
+    #[tokio::test]
+    async fn mock_bot_dm_trigger_requires_valid_bot_chat_and_request_id() {
+        let gateway = gateway().await;
+        call(&gateway, "bootstrap", json!({})).await;
+        let base_seq = gateway.state.inner.read().await.seq;
+        let cases = [
+            json!({"bot_id":"missing","chat_id":"chat_main","text":"hello","client_request_id":"invalid-bot"}),
+            json!({"bot_id":"bot_main","chat_id":"missing","text":"hello","client_request_id":"invalid-chat"}),
+            json!({"bot_id":"bot_main","chat_id":"chat_login","text":"hello","client_request_id":"wrong-chat"}),
+            json!({"bot_id":"bot_main","chat_id":"chat_main","text":"hello"}),
+        ];
+        let expected = ["not_found", "not_found", "invalid_params", "invalid_params"];
+        for (params, code) in cases.into_iter().zip(expected) {
+            let error = gateway
+                .rpc("mock.trigger_bot_dm", params)
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, code);
+        }
+        let state = gateway.state.inner.read().await;
+        assert_eq!(state.seq, base_seq, "invalid calls emit no events");
+        assert!(!state.messages.values().flatten().any(|message| {
+            message["fallback_text"] == "hello"
+                && message["sender"]["kind"] == "bot"
+                && message["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("msg_"))
+        }));
     }
 
     #[tokio::test]

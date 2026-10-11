@@ -4848,11 +4848,32 @@ mod tests {
                     .uri("/api/v1/rpc")
                     .method("POST")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"method":"ping","params":{}}"#))
+                    .body(Body::from(r#"{"method":"mock.trigger_bot_dm","params":{"bot_id":"bot_main","chat_id":"chat_main","text":"unauthorized","client_request_id":"auth-test-1"}}"#))
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let authorized = gw
+            .router()
+            .oneshot(
+                http::Request::builder()
+                    .uri("/api/v1/rpc")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer dev")
+                    .body(Body::from(r#"{"method":"mock.trigger_bot_dm","params":{"bot_id":"bot_main","chat_id":"chat_main","text":"authorized","client_request_id":"auth-test-2"}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authorized.status(), StatusCode::OK);
+        let response = axum::body::to_bytes(authorized.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: Value = serde_json::from_slice(&response).unwrap();
+        assert_eq!(value["result"]["message"]["sender"]["kind"], "bot");
+        assert_eq!(value["result"]["message"]["fallback_text"], "authorized");
     }
 }
