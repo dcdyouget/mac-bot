@@ -1172,7 +1172,7 @@ fn routine_save_button(
             .collect::<Vec<_>>();
             if schedules.is_empty() {
                 this.emit_action(
-                    FeatureAction::Toast(t("routine.schedule_required").to_string()),
+                    FeatureAction::Toast(t("routines.schedule_required").to_string()),
                     cx,
                 );
                 return;
@@ -1655,7 +1655,7 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
         div()
             .p_4()
             .text_color(tokens.secondary)
-            .child(t("workbench.empty"))
+            .child(t("workbench.empty.running"))
             .into_any_element()
     } else {
         active_groups.into_any_element()
@@ -1694,20 +1694,28 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
                 &format!("{running} / {limit}"),
                 tokens,
             ),
-            stat(t("workbench.review"), &reviews.to_string(), tokens),
-            stat(t("workbench.approval"), &approvals.to_string(), tokens),
-            stat(t("workbench.question"), &questions.to_string(), tokens),
-            stat(t("workbench.takeover"), &takeovers.to_string(), tokens),
+            stat(t("workbench.waiting_review"), &reviews.to_string(), tokens),
+            stat(
+                t("workbench.waiting_approval"),
+                &approvals.to_string(),
+                tokens,
+            ),
+            stat(
+                t("workbench.waiting_questions"),
+                &questions.to_string(),
+                tokens,
+            ),
+            stat(t("block.takeover.title"), &takeovers.to_string(), tokens),
         ]))
         .child(workbench_waiting(&waiting, tokens, cx))
         .child(card(t("workbench.title"), active_groups, tokens))
         .child(card(
-            t("workbench.done_today"),
+            t("workbench.done_today_label"),
             if done.is_empty() {
                 div()
                     .p_3()
                     .text_color(tokens.secondary)
-                    .child(t("workbench.no_completed_today"))
+                    .child(t("workbench.empty.done_today"))
                     .into_any_element()
             } else {
                 rows(
@@ -1775,7 +1783,7 @@ fn workbench_group_key(job: &Value, mode: &str, data: &Value) -> String {
             data,
             "projects",
             job.get("project_id").and_then(Value::as_str),
-            t("workbench.no_project"),
+            t("workbench.unassigned"),
         ),
         "status" => workbench_status_label(job.get("status").and_then(Value::as_str)),
         _ => {
@@ -1817,13 +1825,13 @@ fn workbench_group_label(mode: &str) -> &'static str {
 fn workbench_status_label(status: Option<&str>) -> String {
     let raw = status.unwrap_or_default();
     match raw {
-        "queued" => t("workbench.status_queued").to_owned(),
-        "working" | "running" => t("workbench.status_working").to_owned(),
-        "waiting" => t("workbench.status_waiting").to_owned(),
-        "paused" => t("workbench.status_paused").to_owned(),
-        "failed" => t("workbench.status_failed").to_owned(),
-        "done" => t("workbench.status_done").to_owned(),
-        "cancelled" => t("workbench.status_cancelled").to_owned(),
+        "queued" => t("status.queued").to_owned(),
+        "working" | "running" => t("status.working").to_owned(),
+        "waiting" => t("status.waiting_user").to_owned(),
+        "paused" => t("workbench.status.paused").to_owned(),
+        "failed" => t("status.failed").to_owned(),
+        "done" => t("status.done").to_owned(),
+        "cancelled" => t("status.cancelled").to_owned(),
         "" => t("common.unknown").to_owned(),
         _ => raw.to_owned(),
     }
@@ -1854,7 +1862,7 @@ fn workbench_job_row(
         data,
         "projects",
         job.get("project_id").and_then(Value::as_str),
-        t("workbench.no_project"),
+        t("workbench.unassigned"),
     );
     let status_raw = job
         .get("status")
@@ -1878,7 +1886,7 @@ fn workbench_job_row(
     let assignment_id = string(job, "id", "");
     let mut actions = div().flex().gap_1().child(action_button_with_id(
         format!("workbench-{row_key}-detail"),
-        t("workbench.detail"),
+        t("common.details"),
         FeatureAction::Trace(assignment_id.clone()),
         cx,
     ));
@@ -1889,14 +1897,14 @@ fn workbench_job_row(
         };
         actions = actions.child(action_button_with_id(
             format!("workbench-{row_key}-stop"),
-            t("workbench.stop"),
+            t("common.stop"),
             stop.clone(),
             cx,
         ));
         if status_raw == "queued" {
             actions = actions.child(action_button_with_id(
                 format!("workbench-{row_key}-cancel"),
-                t("workbench.cancel"),
+                t("common.cancel"),
                 stop,
                 cx,
             ));
@@ -1910,7 +1918,7 @@ fn workbench_job_row(
                 .unwrap_or("failed");
             actions = actions.child(action_button_with_id(
                 format!("workbench-{row_key}-retry"),
-                t("workbench.retry"),
+                t("common.retry"),
                 FeatureAction::Rpc {
                     method: "assignment.retry".into(),
                     params: json!({
@@ -1935,7 +1943,7 @@ fn workbench_job_row(
                 .child(format!("{bot} · {name}"))
                 .child(div().text_sm().text_color(tokens.secondary).child(format!(
                     "{project} · {status} · {elapsed} · {usage} tok · {model} · {} {}",
-                    t("workbench.subagents"),
+                    t("trace.filter.subagents"),
                     subagents
                 ))),
         )
@@ -1947,7 +1955,7 @@ fn workbench_done_label(job: &Value, data: &Value) -> String {
         data,
         "projects",
         job.get("project_id").and_then(Value::as_str),
-        t("workbench.no_project"),
+        t("workbench.unassigned"),
     );
     format!(
         "✓ {} · {}",
@@ -1976,7 +1984,7 @@ fn workbench_elapsed(job: &Value) -> String {
     if minutes == 0 {
         t("common.just_now").to_owned()
     } else {
-        format!("{minutes} {}", t("workbench.minutes"))
+        format!("{minutes} {}", t("common.minutes_short"))
     }
 }
 
@@ -2037,7 +2045,7 @@ fn workbench_waiting(
                     row = row
                         .child(action_button_with_id(
                             format!("workbench-waiting-{item_index}-confirm"),
-                            t("workbench.confirm"),
+                            t("block.review_card.confirm"),
                             FeatureAction::Rpc {
                                 method: "project.confirm_done".into(),
                                 params: json!({"project_id": project_id}),
@@ -2046,7 +2054,7 @@ fn workbench_waiting(
                         ))
                         .child(action_button_with_id(
                             format!("workbench-waiting-{item_index}-changes"),
-                            t("workbench.changes"),
+                            t("block.review_card.request_changes"),
                             FeatureAction::Navigate(format!("project/{project_id}/changes")),
                             cx,
                         ));
@@ -2056,9 +2064,9 @@ fn workbench_waiting(
                 if let Some(approval) = item.get("approval") {
                     if let Some(approval_id) = approval.get("id").and_then(Value::as_str) {
                         for (label, decision) in [
-                            (t("workbench.allow_once"), "allow_once"),
-                            (t("workbench.always_allow"), "always_allow"),
-                            (t("workbench.deny"), "deny"),
+                            (t("block.approval.allow_once"), "allow_once"),
+                            (t("block.approval.always_allow"), "always_allow"),
+                            (t("block.approval.deny"), "deny"),
                         ] {
                             row = row.child(action_button_with_id(
                                 format!("workbench-waiting-{item_index}-approval-{decision}"),
@@ -2080,7 +2088,7 @@ fn workbench_waiting(
                             for (index, option) in options.iter().enumerate() {
                                 row = row.child(action_button_with_id(
                                     format!("workbench-waiting-{item_index}-question-{index}"),
-                                    option.as_str().unwrap_or(t("common.confirm")),
+                                    option.as_str().unwrap_or(t("common.ok")),
                                     FeatureAction::Rpc {
                                         method: "question.answer".into(),
                                         params: json!({"question_id": question_id, "option_index": index}),
@@ -2096,7 +2104,7 @@ fn workbench_waiting(
                         {
                             row = row.child(action_button_with_id(
                                 format!("workbench-waiting-{item_index}-answer"),
-                                t("workbench.answer"),
+                                t("block.question.other"),
                                 FeatureAction::Navigate(format!("question/{question_id}")),
                                 cx,
                             ));
@@ -2111,7 +2119,7 @@ fn workbench_waiting(
                     .unwrap_or_default();
                 row = row.child(action_button_with_id(
                     format!("workbench-waiting-{item_index}-takeover"),
-                    t("workbench.takeover"),
+                    t("block.takeover.title"),
                     FeatureAction::Rpc {
                         method: "takeover.start".into(),
                         params: json!({"bot_id": bot_id}),
@@ -2133,27 +2141,27 @@ fn waiting_title(item: &Value, kind: &str) -> String {
             .map(|approval| {
                 format!(
                     "{} · {}",
-                    t("workbench.approval"),
+                    t("workbench.waiting_approval"),
                     string(approval, "summary", t("common.unknown"))
                 )
             })
-            .unwrap_or_else(|| t("workbench.approval").to_string()),
+            .unwrap_or_else(|| t("workbench.waiting_approval").to_string()),
         "question" => item
             .get("question")
             .map(|question| {
                 format!(
                     "{} · {}",
-                    t("workbench.question"),
+                    t("block.question.title_deck"),
                     string(question, "text", t("common.unknown"))
                 )
             })
-            .unwrap_or_else(|| t("workbench.question").to_string()),
+            .unwrap_or_else(|| t("block.question.title_deck").to_string()),
         "takeover" => format!(
             "{} · {}",
-            t("workbench.takeover"),
+            t("block.takeover.title"),
             string(item, "reason", t("common.unknown"))
         ),
-        _ => t("workbench.review").to_string(),
+        _ => t("workbench.waiting_review").to_string(),
     }
 }
 
@@ -2240,27 +2248,27 @@ fn dashboard(
         )
         .child(div().flex().gap_3().children([
             stat(
-                t("dashboard.tokens"),
+                t("dashboard.kpi.tokens"),
                 &dashboard_metric_with_delta(data, "tokens", "0"),
                 tokens,
             ),
             stat(
-                t("dashboard.requests"),
+                t("dashboard.kpi.requests"),
                 &dashboard_metric_with_delta(data, "requests", "0"),
                 tokens,
             ),
             stat(
-                t("dashboard.cost"),
+                t("dashboard.kpi.cost"),
                 &dashboard_metric_with_delta(data, "cost", t("common.unknown")),
                 tokens,
             ),
             stat(
-                t("dashboard.tasks"),
+                t("dashboard.kpi.tasks_done"),
                 &dashboard_metric_with_delta(data, "tasks_done", "0"),
                 tokens,
             ),
             stat(
-                t("dashboard.cache"),
+                t("dashboard.kpi.cache_hit"),
                 &dashboard_cache_with_delta(data),
                 tokens,
             ),
@@ -2268,18 +2276,18 @@ fn dashboard(
         .child(card(t("dashboard.heatmap"), heat, tokens))
         .child(card(dashboard_trend_title(data), trend, tokens))
         .child(card(
-            t("dashboard.breakdown"),
+            t("dashboard.metric"),
             div()
                 .flex()
                 .flex_col()
                 .gap_2()
                 .child(
                     div().flex().gap_2().children([
-                        dashboard_dimension_button(t("dashboard.model"), "model", cx)
+                        dashboard_dimension_button(t("dashboard.dimension.model"), "model", cx)
                             .into_any_element(),
-                        dashboard_dimension_button(t("dashboard.bot"), "bot", cx)
+                        dashboard_dimension_button(t("dashboard.dimension.bot"), "bot", cx)
                             .into_any_element(),
-                        dashboard_dimension_button(t("dashboard.project"), "project", cx)
+                        dashboard_dimension_button(t("dashboard.dimension.project"), "project", cx)
                             .into_any_element(),
                     ]),
                 )
@@ -2300,21 +2308,21 @@ fn dashboard(
                         )
                         .into_any_element(),
                         dashboard_heatmap_metric_button(
-                            t("dashboard.metric_cost"),
+                            t("dashboard.kpi.cost"),
                             "cost",
                             "calendar",
                             cx,
                         )
                         .into_any_element(),
                         dashboard_heatmap_metric_button(
-                            t("dashboard.metric_requests"),
+                            t("dashboard.kpi.requests"),
                             "requests",
                             "calendar",
                             cx,
                         )
                         .into_any_element(),
                         dashboard_heatmap_metric_button(
-                            t("dashboard.weekhour"),
+                            t("dashboard.heatmap.week_hour"),
                             "tokens",
                             "weekhour",
                             cx,
@@ -2324,23 +2332,18 @@ fn dashboard(
                 )
                 .child(
                     div().flex().gap_2().children([
-                        dashboard_metric_button(t("dashboard.metric_tokens"), "tokens", false, cx)
+                        dashboard_metric_button(t("dashboard.kpi.tokens"), "tokens", false, cx)
                             .into_any_element(),
-                        dashboard_metric_button(t("dashboard.metric_cost"), "cost", false, cx)
+                        dashboard_metric_button(t("dashboard.kpi.cost"), "cost", false, cx)
                             .into_any_element(),
-                        dashboard_metric_button(
-                            t("dashboard.metric_requests"),
-                            "requests",
-                            false,
-                            cx,
-                        )
-                        .into_any_element(),
+                        dashboard_metric_button(t("dashboard.kpi.requests"), "requests", false, cx)
+                            .into_any_element(),
                         dashboard_metric_button(t("dashboard.split_io"), "tokens", true, cx)
                             .into_any_element(),
                     ]),
                 )
                 .child(action_button(
-                    t("dashboard.export"),
+                    t("dashboard.export_csv"),
                     FeatureAction::Navigate("usage/export.csv".into()),
                     cx,
                 ))
@@ -2438,7 +2441,7 @@ fn dashboard_detail_rows(
                 }
                 dashboard_rpc_button_with_id(
                     format!("dashboard-drill-{dimension}-{key}-{index}"),
-                    t("dashboard.drill"),
+                    t("dashboard.drill.phases"),
                     "usage.breakdown",
                     usage_breakdown_params(&drill_data, &dimension),
                     cx,
@@ -2468,7 +2471,7 @@ fn dashboard_detail_rows(
                             output,
                             t("dashboard.cache_read"),
                             cached,
-                            t("dashboard.requests"),
+                            t("dashboard.kpi.requests"),
                             requests,
                         ))
                         .child(
@@ -2514,7 +2517,7 @@ fn heatmap(
             return div()
                 .text_sm()
                 .text_color(tokens.secondary)
-                .child(t("dashboard.no_data"));
+                .child(t("dashboard.empty"));
         }
         let mut aligned_days = Vec::with_capacity(days.len() + 6);
         let offset = days
@@ -2628,9 +2631,9 @@ fn heatmap(
                             .tooltip({
                                 let tooltip = format!(
                                     "{date} · {} {} · {} {} · {} {top_bot}",
-                                    t("dashboard.tokens"),
+                                    t("dashboard.kpi.tokens"),
                                     value,
-                                    t("dashboard.cost"),
+                                    t("dashboard.kpi.cost"),
                                     cost,
                                     t("dashboard.top_bot")
                                 );
@@ -2697,7 +2700,7 @@ fn heatmap(
         return div()
             .text_sm()
             .text_color(tokens.secondary)
-            .child(t("dashboard.no_data"));
+            .child(t("dashboard.empty"));
     }
     div()
         .flex()
@@ -2770,7 +2773,7 @@ fn dashboard_trend_title(data: &Value) -> &'static str {
     match granularity {
         "hour" => t("dashboard.trend_hour"),
         "week" => t("dashboard.trend_week"),
-        _ => t("dashboard.trend_day"),
+        _ => t("dashboard.daily"),
     }
 }
 
@@ -2944,7 +2947,7 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
         return div()
             .text_sm()
             .text_color(tokens.secondary)
-            .child(t("dashboard.no_data"))
+            .child(t("dashboard.empty"))
             .into_any_element();
     }
     let points = values
@@ -3099,7 +3102,7 @@ fn format_bucket_label(label: &str, granularity: &str) -> String {
     if granularity == "hour" {
         let hour = label.get(11..13).unwrap_or_default();
         if !hour.is_empty() {
-            return format!("{date} {hour}时");
+            return format!("{date} {hour}{}", t("common.hour_suffix"));
         }
     }
     date.to_owned()
@@ -3208,9 +3211,9 @@ fn skills(
                     actions = actions.child(action_button_with_id(
                         format!("skill-{index}-toggle"),
                         if enabled {
-                            t("skills.disable")
+                            t("skills.disable_for")
                         } else {
-                            t("skills.enable")
+                            t("common.enable")
                         },
                         FeatureAction::Rpc {
                             method: "skill.set_enabled".into(),
@@ -3220,7 +3223,7 @@ fn skills(
                     ));
                     actions = actions.child(action_button_with_id(
                         format!("skill-{index}-edit"),
-                        t("skills.edit"),
+                        t("common.edit"),
                         FeatureAction::Navigate(format!("skill/{id}")),
                         cx,
                     ));
@@ -3251,7 +3254,7 @@ fn skills(
         .flex_col()
         .gap_2()
         .child(labeled_field(
-            t("skills.field_name"),
+            t("skills.new.name"),
             Input::new(input_state(inputs, "name"))
                 .id("skill-name-input")
                 .disabled(selected_builtin),
@@ -3264,7 +3267,7 @@ fn skills(
                 .child(
                     div()
                         .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
-                        .child(t("skills.preview")),
+                        .child(t("common.preview")),
                 )
                 .child(TextView::markdown(
                     "skill-edit-preview-markdown",
@@ -3276,14 +3279,19 @@ fn skills(
                 .into_any_element()
         } else {
             labeled_field(
-                t("skills.field_content"),
+                t("skills.instructions"),
                 Textarea::new(textarea_state(textareas, "content"))
                     .h(px(240.))
                     .disabled(selected_builtin),
             )
             .into_any_element()
         })
-        .child(skill_create_button(t("skills.new"), inputs, textareas, cx))
+        .child(skill_create_button(
+            t("skills.new.title"),
+            inputs,
+            textareas,
+            cx,
+        ))
         .child(card(
             t("skills.import_group"),
             div()
@@ -3304,17 +3312,21 @@ fn skills(
                     Input::new(input_state(inputs, "git_subdir"))
                         .id("skill-import-git-subdir-input"),
                 ))
-                .child(skill_import_git_button(t("skills.import_git"), inputs, cx))
-                .child(skill_upload_button(t("skills.import_upload"), cx)),
+                .child(skill_import_git_button(
+                    t("skills.new.mode.git"),
+                    inputs,
+                    cx,
+                ))
+                .child(skill_upload_button(t("skills.new.mode.zip"), cx)),
             tokens,
         ))
         .child(card(
-            t("skills.description"),
+            t("skills.new.desc"),
             div().child(string(selected, "description", t("skills.select_hint"))),
             tokens,
         ))
         .child(card(
-            t("skills.files"),
+            t("skills.attached_files"),
             rows(
                 array(selected, "files")
                     .iter()
@@ -3325,15 +3337,15 @@ fn skills(
             tokens,
         ))
         .child(card(
-            t("skills.bot_scope"),
+            t("skills.disable_for"),
             skill_bot_controls(selected, data, cx),
             tokens,
         ))
         .child({
             let preview_label = if previewing {
-                t("skills.edit")
+                t("common.edit")
             } else {
-                t("skills.preview")
+                t("common.preview")
             };
             let mut actions = div().flex().gap_2().child(
                 Button::new("skill-toggle-preview")
@@ -3352,7 +3364,7 @@ fn skills(
             if !selected_name.is_empty() && !selected_builtin {
                 actions = actions
                     .child(textarea_rpc_button(
-                        t("settings.save"),
+                        t("common.save"),
                         "skill.update",
                         skill_update_params(&selected_name, ""),
                         "content",
@@ -3361,7 +3373,7 @@ fn skills(
                         cx,
                     ))
                     .child(action_button(
-                        t("skills.delete"),
+                        t("common.delete"),
                         FeatureAction::Rpc {
                             method: "skill.delete".into(),
                             params: skill_delete_params(&selected_name),
@@ -3383,24 +3395,24 @@ fn skills(
                 .flex_wrap()
                 .gap_2()
                 .child(labeled_field(
-                    t("skills.field_search"),
+                    t("skills.search"),
                     Input::new(input_state(inputs, "query")).id("skill-search-input"),
                 ))
                 .child(skill_search_button(inputs, cx))
                 .child(skill_filter_button(
-                    t("skills.all"),
+                    t("common.all"),
                     None,
                     filter.as_deref(),
                     cx,
                 ))
                 .child(skill_filter_button(
-                    t("skills.builtin"),
+                    t("skills.source.builtin"),
                     Some("builtin"),
                     filter.as_deref(),
                     cx,
                 ))
                 .child(skill_filter_button(
-                    t("skills.user"),
+                    t("skills.source.mine"),
                     Some("user"),
                     filter.as_deref(),
                     cx,
@@ -3570,9 +3582,9 @@ fn skill_source(skill: &Value) -> &'static str {
         })
         .unwrap_or("user");
     match source {
-        "builtin" => t("skills.builtin"),
+        "builtin" => t("skills.source.builtin"),
         "draft" => t("skills.draft"),
-        _ => t("skills.user"),
+        _ => t("skills.source.mine"),
     }
 }
 
@@ -3593,40 +3605,40 @@ fn bot_editor(
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
     let title = if data.get("id").is_some() {
-        t("bot.edit")
+        t("bot.settings")
     } else {
-        t("bot.new")
+        t("new.bot")
     };
     let body = rows(
         [
             format!(
                 "{}   {}",
-                t("bot.name"),
+                t("bot.field.name"),
                 string(data, "name", t("bot.default_name"))
             ),
             format!(
                 "{}   {}",
-                t("bot.label"),
+                t("bot.field.label"),
                 string(data, "label", t("bot.default_label"))
             ),
             format!(
                 "{}   {}",
-                t("bot.description"),
+                t("bot.field.rules"),
                 string(data, "description", t("bot.default_description"))
             ),
             format!(
                 "{}   {}",
-                t("settings.model"),
+                t("bot.field.model"),
                 string(data, "model", t("bot.default_model"))
             ),
             format!(
                 "{}   {}",
-                t("bot.parallel"),
+                t("bot.field.max_parallel"),
                 string(data, "max_parallel", "3")
             ),
             format!(
                 "{}   {}",
-                t("bot.browser"),
+                t("bot.field.browser_mode"),
                 string(data, "browser_mode", t("bot.default_browser"))
             ),
         ],
@@ -3651,35 +3663,35 @@ fn bot_editor(
         .p_6()
         .child(page_header(title, t("bot.subtitle"), tokens))
         .child(labeled_field(
-            t("bot.name"),
+            t("bot.field.name"),
             Input::new(input_state(inputs, "name")).id("bot-name-input"),
         ))
         .child(labeled_field(
-            t("bot.label"),
+            t("bot.field.label"),
             Input::new(input_state(inputs, "label")).id("bot-label-input"),
         ))
         .child(labeled_field(
-            t("bot.description"),
+            t("bot.field.rules"),
             Textarea::new(textarea_state(textareas, "description")).h(px(120.)),
         ))
         .child(labeled_field(
-            t("settings.model"),
+            t("bot.field.model"),
             Input::new(input_state(inputs, "model")).id("bot-model-input"),
         ))
         .child(labeled_field(
-            t("bot.parallel"),
+            t("bot.field.max_parallel"),
             Input::new(input_state(inputs, "max_parallel")).id("bot-parallel-input"),
         ))
         .child(labeled_field(
-            t("bot.browser"),
+            t("bot.field.browser_mode"),
             Input::new(input_state(inputs, "browser_mode")).id("bot-browser-input"),
         ))
-        .child(labeled_field(t("bot.model_options"), model_picker))
+        .child(labeled_field(t("bot.models.available"), model_picker))
         .child(labeled_field(
-            t("bot.browser"),
+            t("bot.field.browser_mode"),
             bot_browser_picker(inputs, cx),
         ))
-        .child(labeled_field(t("settings.tools"), tool_picker))
+        .child(labeled_field(t("bot.field.tools"), tool_picker))
         .child(bot_notification_toggle(data, cx))
         .child(avatar_picker)
         .child(if data.get("id").is_some() {
@@ -3688,7 +3700,7 @@ fn bot_editor(
             div().into_any_element()
         })
         .child(bot_save_button(
-            t("settings.save"),
+            t("common.save"),
             data,
             inputs,
             textareas,
@@ -3711,7 +3723,7 @@ fn bot_notification_toggle(
         .and_then(Value::as_bool)
         .unwrap_or(true);
     Checkbox::new("bot-notifications")
-        .label(t("bot.notifications"))
+        .label(t("bot.field.notifications"))
         .checked(enabled)
         .on_change(cx.listener(move |this, next, _, cx| {
             if bot_id.is_empty() {
@@ -3922,7 +3934,11 @@ fn bot_actions(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoElement 
         .flex()
         .gap_2()
         .child(action_button(
-            if pinned { t("bot.unpin") } else { t("bot.pin") },
+            if pinned {
+                t("bot.action.unpin")
+            } else {
+                t("bot.action.pin")
+            },
             FeatureAction::Rpc {
                 method: "bot.update".into(),
                 params: bot_pinned_update_params(&bot_id, !pinned),
@@ -3930,7 +3946,11 @@ fn bot_actions(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoElement 
             cx,
         ))
         .child(action_button(
-            if hidden { t("bot.show") } else { t("bot.hide") },
+            if hidden {
+                t("bot.action.show")
+            } else {
+                t("bot.action.hide")
+            },
             FeatureAction::Rpc {
                 method: "bot.update".into(),
                 params: bot_visibility_update_params(&bot_id, !hidden),
@@ -3938,7 +3958,7 @@ fn bot_actions(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoElement 
             cx,
         ))
         .child(action_button(
-            t("bot.delete"),
+            t("bot.action.delete"),
             FeatureAction::Rpc {
                 method: "bot.delete".into(),
                 params: bot_delete_params(&bot_id),
@@ -3946,7 +3966,7 @@ fn bot_actions(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoElement 
             cx,
         ))
         .child(action_button(
-            t("bot.duplicate"),
+            t("bot.action.duplicate"),
             FeatureAction::Rpc {
                 method: "bot.duplicate".into(),
                 params: bot_duplicate_params(&bot_id, &duplicate_name),
@@ -4003,19 +4023,19 @@ fn group_editor(
         [
             format!(
                 "{}   {}",
-                t("group.name"),
+                t("group.field.name"),
                 string(data, "name", t("group.default_name"))
             ),
             format!(
                 "{}   {}",
                 t("group.announcement"),
-                string(data, "goal", t("group.goal_hint"))
+                string(data, "goal", t("group.field.goal_hint"))
             ),
             format!(
                 "{}   {}",
                 t("group.members"),
                 if members.is_empty() {
-                    t("group.main_bot").to_string()
+                    t("sidebar.main_bot.tag").to_string()
                 } else {
                     members.join("、")
                 }
@@ -4028,9 +4048,13 @@ fn group_editor(
         .flex_col()
         .gap_4()
         .p_6()
-        .child(page_header(t("group.new"), t("group.subtitle"), tokens))
+        .child(page_header(
+            t("group.new.title"),
+            t("group.subtitle"),
+            tokens,
+        ))
         .child(labeled_field(
-            t("group.name"),
+            t("group.field.name"),
             Input::new(input_state(inputs, "name")).id("group-name-input"),
         ))
         .child(labeled_field(
@@ -4039,9 +4063,9 @@ fn group_editor(
         ))
         .child(div().text_sm().child(t("group.members")))
         .child(member_checks)
-        .child(card(t("group.new"), body, tokens))
+        .child(card(t("group.new.title"), body, tokens))
         .child(group_create_button(
-            t("group.create"),
+            t("new.create_group"),
             selected_member_bot_ids,
             inputs,
             textareas,
@@ -4077,22 +4101,22 @@ fn routine_editor(
         div().into_any_element()
     } else {
         card(
-            t("routine.title"),
+            t("routines.title"),
             rows(
                 [
                     format!(
                         "{}   {}",
-                        t("routine.instruction"),
+                        t("routines.field.instruction"),
                         string(data, "instructions", t("routine.default_instruction"))
                     ),
-                    format!("{}   {}", t("routine.schedule"), routine_schedule(data)),
+                    format!("{}   {}", t("routines.field.when"), routine_schedule(data)),
                     format!(
                         "{}   {}",
-                        t("routine.active"),
+                        t("routine.state"),
                         if data.get("enabled").and_then(Value::as_bool).unwrap_or(true) {
-                            t("routine.enabled")
+                            t("routines.state.enabled")
                         } else {
-                            t("routine.disabled")
+                            t("routines.state.disabled")
                         }
                     ),
                 ],
@@ -4109,7 +4133,7 @@ fn routine_editor(
             .flex()
             .gap_2()
             .child(action_button(
-                t("routine.test_run"),
+                t("routines.test_run"),
                 FeatureAction::Rpc {
                     method: "routine.test_run".into(),
                     params: routine_test_params(&routine_id),
@@ -4117,7 +4141,7 @@ fn routine_editor(
                 cx,
             ))
             .child(action_button(
-                t("routine.toggle"),
+                t("routines.toggle"),
                 FeatureAction::Rpc {
                     method: "routine.set_enabled".into(),
                     params: routine_enabled_params(
@@ -4128,7 +4152,7 @@ fn routine_editor(
                 cx,
             ))
             .child(action_button(
-                t("routine.delete"),
+                t("common.delete"),
                 FeatureAction::Rpc {
                     method: "routine.delete".into(),
                     params: routine_test_params(&routine_id),
@@ -4142,37 +4166,37 @@ fn routine_editor(
         .gap_4()
         .p_6()
         .child(page_header(
-            t("routine.title"),
+            t("routines.title"),
             string(data, "name", t("routine.default_name")),
             tokens,
         ))
         .child(routine_list)
         .child(labeled_field(
-            t("routine.title"),
+            t("routines.title"),
             Input::new(input_state(inputs, "name")).id("routine-name-input"),
         ))
         .child(labeled_field(
-            t("routine.bot"),
+            t("routines.field.bot"),
             Input::new(input_state(inputs, "bot_id")).id("routine-bot-input"),
         ))
         .child(labeled_field(
-            t("routine.project"),
+            t("routines.field.project"),
             Input::new(input_state(inputs, "project_id")).id("routine-project-input"),
         ))
         .child(routine_selectors(data, inputs, cx))
         .child(labeled_field(
-            t("routine.instruction"),
+            t("routines.field.instruction"),
             Textarea::new(textarea_state(textareas, "instructions")).h(px(180.)),
         ))
         .child(routine_schedule_inputs(data, inputs, cx))
         .child(routine_add_schedule_button(cx))
         .child(labeled_field(
-            t("routine.timezone"),
+            t("routines.field.timezone"),
             Input::new(input_state(inputs, "timezone")).id("routine-timezone-input"),
         ))
         .child(summary)
         .child(card(
-            t("routine.history"),
+            t("routines.history"),
             rows(history.iter().cloned(), tokens),
             tokens,
         ))
@@ -4181,7 +4205,7 @@ fn routine_editor(
                 .flex()
                 .gap_2()
                 .child(routine_save_button(
-                    t("settings.save"),
+                    t("common.save"),
                     data,
                     inputs,
                     textareas,
@@ -4216,7 +4240,7 @@ fn routine_schedule_inputs(
                 .enumerate()
                 .map(|(index, field)| {
                     labeled_field(
-                        format!("{} {}", t("routine.schedule_slot"), index + 1),
+                        format!("{} {}", t("routines.field.schedule_slot"), index + 1),
                         Input::new(input_state(inputs, field)).id(format!("routine-{field}-input")),
                     )
                 }),
@@ -4225,7 +4249,7 @@ fn routine_schedule_inputs(
 
 fn routine_add_schedule_button(cx: &mut Context<FeaturePage>) -> impl IntoElement + use<> {
     Button::new("routine-add-schedule")
-        .label(t("routine.add_schedule"))
+        .label(t("routines.field.add_time"))
         .on_click(cx.listener(|this, _, _, cx| {
             let current = this
                 .data
@@ -4325,9 +4349,9 @@ fn routines_list(
         let label = format!(
             "{} · {name}",
             if enabled {
-                t("routine.enabled")
+                t("routines.state.enabled")
             } else {
-                t("routine.disabled")
+                t("routines.state.disabled")
             }
         );
         let selected_routine = routine.clone();
@@ -4357,9 +4381,9 @@ fn routines_list(
     list.child(div().flex().flex_wrap().gap_1().children(
         ["all", "running", "paused"].into_iter().map(|value| {
             let label = match value {
-                "running" => t("routines.running"),
-                "paused" => t("routines.paused"),
-                _ => t("routines.all"),
+                "running" => t("status.working"),
+                "paused" => t("routines.filter.paused"),
+                _ => t("common.all"),
             };
             let target = format!("routines?filter={value}");
             Button::new(format!("routine-filter-{value}"))
@@ -4372,7 +4396,7 @@ fn routines_list(
         }),
     ))
     .child(action_button(
-        t("routine.new"),
+        t("routines.new"),
         FeatureAction::Navigate("routine/new".into()),
         cx,
     ))
@@ -4431,33 +4455,33 @@ fn search(
             div()
                 .flex()
                 .gap_2()
-                .child(search_filter_button(t("search.all"), None, inputs, cx))
+                .child(search_filter_button(t("common.all"), None, inputs, cx))
                 .child(search_filter_button(
-                    t("search.messages"),
+                    t("search.filter.messages"),
                     Some("message"),
                     inputs,
                     cx,
                 ))
                 .child(search_filter_button(
-                    t("search.groups"),
+                    t("search.filter.groups"),
                     Some("chat"),
                     inputs,
                     cx,
                 ))
                 .child(search_filter_button(
-                    t("search.bots"),
+                    t("search.filter.bots"),
                     Some("bot"),
                     inputs,
                     cx,
                 ))
                 .child(search_filter_button(
-                    t("search.artifacts"),
+                    t("search.filter.artifacts"),
                     Some("artifact"),
                     inputs,
                     cx,
                 ))
                 .child(search_filter_button(
-                    t("search.routines"),
+                    t("search.filter.routines"),
                     Some("routine"),
                     inputs,
                     cx,
@@ -4472,11 +4496,11 @@ fn search(
 
 fn search_kind_label(kind: &str) -> String {
     match kind {
-        "message" => t("search.messages").to_owned(),
-        "chat" => t("search.groups").to_owned(),
-        "artifact" => t("search.artifacts").to_owned(),
-        "bot" => t("search.bots").to_owned(),
-        "routine" => t("search.routines").to_owned(),
+        "message" => t("search.filter.messages").to_owned(),
+        "chat" => t("search.filter.groups").to_owned(),
+        "artifact" => t("search.filter.artifacts").to_owned(),
+        "bot" => t("search.filter.bots").to_owned(),
+        "routine" => t("search.filter.routines").to_owned(),
         "" => t("common.unknown").to_owned(),
         _ => kind.to_owned(),
     }
@@ -4542,7 +4566,7 @@ fn search_result_rows(
             if let Some(target) = target {
                 row = row.child(div().flex_shrink_0().child(action_button_with_id(
                     format!("search-open-{index}"),
-                    t("search.open"),
+                    t("common.open"),
                     FeatureAction::Navigate(target),
                     cx,
                 )));
@@ -4618,8 +4642,8 @@ fn routine_schedule(data: &Value) -> String {
 
 fn routine_trigger(run: &Value) -> &'static str {
     match run.get("trigger").and_then(Value::as_str) {
-        Some("schedule") => t("routine.trigger_schedule"),
-        Some("test") => t("routine.trigger_test"),
+        Some("schedule") => t("routine.trigger.schedule"),
+        Some("test") => t("routine.trigger.test"),
         _ => t("common.unknown"),
     }
 }
