@@ -2441,6 +2441,11 @@ impl MacBot {
         let mut menu = div()
             .flex()
             .gap(px(t.space[2]))
+            .shadow(vec![
+                BoxShadow::new(px(0.), px(t.elevation_offset_y[2]), t.shadow)
+                    .blur_radius(px(t.elevation_blur[2]))
+                    .spread_radius(px(t.elevation_outline[2])),
+            ])
             .invisible()
             .group_hover("message-row", |style| style.visible())
             .child(
