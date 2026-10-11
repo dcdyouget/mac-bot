@@ -21,6 +21,9 @@ const SOUND_FILE: &str = "local-sound.json";
 const NOTIFICATION_PREFERENCES_FILE: &str = "local-notification-preferences.json";
 const MENUBAR_FILE: &str = "local-menubar.json";
 const MESSAGE_FONT_SIZE_FILE: &str = "local-message-font-size.json";
+const RECENT_SKILLS_FILE: &str = "local-recent-skills.json";
+const MAX_RECENT_SKILLS: usize = 20;
+const MAX_SKILL_NAME_LENGTH: usize = 64;
 static MESSAGE_FONT_SIZE: AtomicU8 = AtomicU8::new(1);
 const LAUNCH_AGENT_DIR: &str = "Library/LaunchAgents";
 const LAUNCH_AGENT_FILE: &str = "bot.mac.desktop.plist";
@@ -180,6 +183,73 @@ pub fn set_notification_preference(key: &str, enabled: bool) -> Result<Notificat
         serde_json::to_vec_pretty(&preferences).context("encode notification preferences")?;
     atomic_private_write(&path, &bytes)?;
     Ok(preferences)
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct RecentSkills {
+    names: Vec<String>,
+}
+
+/// Record a user-selected slash skill in the local-only recent list.
+/// New selections move to the front; the list keeps at most 20 names.
+pub fn record_recent_skill(name: &str) -> Result<()> {
+    if !valid_skill_name(name) {
+        return Err(anyhow!("invalid skill name for local recent history"));
+    }
+
+    let mut names = load_recent_skills()?.names;
+    names.retain(|existing| existing != name);
+    names.insert(0, name.to_owned());
+    names.truncate(MAX_RECENT_SKILLS);
+
+    let path = crate::storage_paths::data_file(RECENT_SKILLS_FILE)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("recent skills preference has no parent directory"))?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create local settings directory {}", parent.display()))?;
+    set_mode(parent, 0o700)?;
+    let bytes = serde_json::to_vec(&RecentSkills { names })
+        .context("encode local recent skills preference")?;
+    atomic_private_write(&path, &bytes)
+}
+
+/// Return local slash skills in most-recently-selected-first order.
+pub fn recent_skill_order() -> Result<Vec<String>> {
+    Ok(load_recent_skills()?.names)
+}
+
+fn load_recent_skills() -> Result<RecentSkills> {
+    let path = crate::storage_paths::data_file(RECENT_SKILLS_FILE)?;
+    let mut recent = match fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice::<RecentSkills>(&bytes)
+            .with_context(|| format!("decode local recent skills preference {}", path.display()))?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => RecentSkills::default(),
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("read local recent skills preference {}", path.display())
+            });
+        }
+    };
+    let mut unique = Vec::with_capacity(MAX_RECENT_SKILLS);
+    for name in recent.names.drain(..) {
+        if valid_skill_name(&name) && !unique.contains(&name) {
+            unique.push(name);
+            if unique.len() == MAX_RECENT_SKILLS {
+                break;
+            }
+        }
+    }
+    recent.names = unique;
+    Ok(recent)
+}
+
+fn valid_skill_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().count() <= MAX_SKILL_NAME_LENGTH
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
 impl Default for LocalSettings {
