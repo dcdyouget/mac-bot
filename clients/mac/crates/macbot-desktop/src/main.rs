@@ -173,6 +173,10 @@ fn open_main_window(cx: &mut App, menu_bar_available: bool, open_url_queue: app:
             window_min_size: Some(size(px(layout.window_min[0]), px(layout.window_min[1]))),
             titlebar: Some(TitlebarOptions {
                 title: Some("Mac Bot".into()),
+                traffic_light_position: Some(point(
+                    px(layout.traffic_lights_offset[0]),
+                    px(layout.traffic_lights_offset[1]),
+                )),
                 ..Default::default()
             }),
             ..Default::default()

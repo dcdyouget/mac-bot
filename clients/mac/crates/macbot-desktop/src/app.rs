@@ -2699,6 +2699,7 @@ impl MacBot {
             String::new()
         };
         div()
+            .min_h(px(layout.row_chat))
             .rounded(px(t.radius[8]))
             .bg(if selected { t.selected } else { t.sidebar })
             .p(px(t.space[2]))
