@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X } from 'lucide-react'
+import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type PendingMessage, type Question } from './types'
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
@@ -18,6 +18,7 @@ import { BotPanel, type BotProject, type BotRecord } from './components/BotPanel
 import { ArtifactPage, type ProjectArtifact } from './components/ArtifactPage'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
+import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './components/ChatAttachments'
 
 const NO_RULES: Record<string, Json>[] = []
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -34,10 +35,13 @@ type TraceSubscriptionState = { status?: string; stream?: string | null; assignm
 type TraceDelta = { stream?: string; request_id?: string; channel?: 'text' | 'thinking' | 'tool_args'; call_id?: string | null; text?: string }
 type TraceToolOutput = { stream?: string; call_id?: string; chunk?: string }
 type MessageWithDelivery = Message & { seq?: number; delivery?: { bot_id?: string; assignment_id?: string | null; state?: 'queued' | 'delivered' | 'read'; at?: string }[] }
+type AttachmentUploadProgress = { upload_id: string; loaded: number; total: number; state: 'uploading' | 'complete' | 'error'; error?: string }
+type AttachmentUploadResult = { upload_id: string; file: Record<string, Json> }
 
 const THEME_STORAGE_KEY = 'macbot.appearance.theme'
 const MATERIAL_STORAGE_KEY = 'macbot.appearance.translucent'
 const SELECTED_CHAT_STORAGE_KEY = 'macbot.chat.selected'
+const MAX_CHAT_ATTACHMENT_BYTES = 100 * 1024 * 1024
 
 function mergeMessages(...groups: Message[][]): Message[] {
   const byId = new Map<string, Message>()
@@ -125,6 +129,9 @@ function App() {
   const [groupCreating, setGroupCreating] = useState(false)
   const [groupCreateError, setGroupCreateError] = useState<string | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false)
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const [draggingFiles, setDraggingFiles] = useState(false)
   const [messageMenu, setMessageMenu] = useState<{ message: Message; x: number; y: number } | null>(null)
   const [quoteTarget, setQuoteTarget] = useState<QuoteTarget | null>(null)
   const [activePage, setActivePage] = useState<AppPage>('chat')
@@ -165,6 +172,8 @@ function App() {
   const [listenerReady, setListenerReady] = useState(false)
   const [historyLoadingChat, setHistoryLoadingChat] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [hostPermissions, setHostPermissions] = useState<Record<string, string> | null>(null)
   const [artifactPreview, setArtifactPreview] = useState<{ title: string; path: string; content: string; error?: string } | null>(null)
@@ -289,6 +298,9 @@ function App() {
     setCreateGroupOpen(false)
     setGroupCreateError(null)
     setSendError(null)
+    setAttachmentMenuOpen(false)
+    setAttachments([])
+    setDraggingFiles(false)
   }, [hostScope])
 
   useEffect(() => {
@@ -855,6 +867,158 @@ function App() {
     }
   }
 
+  async function uploadChatAttachment(localId: string, file: File) {
+    const scope = hostScope
+    const requestId = crypto.randomUUID()
+    setAttachments((current) => current.map((item) => item.localId === localId
+      ? { ...item, status: 'preparing', progress: 0, requestId, uploadId: undefined, error: undefined }
+      : item))
+    let unlisten: (() => void) | undefined
+    try {
+      unlisten = await listen<AttachmentUploadProgress>('chat-attachment-upload-progress', (event) => {
+        const progress = event.payload
+        if (progress.upload_id !== requestId || hostScopeRef.current !== scope) return
+        setAttachments((current) => current.map((item) => item.localId !== localId || item.requestId !== requestId ? item : {
+          ...item,
+          status: progress.state === 'error' ? 'error' : progress.state === 'complete' ? 'uploading' : 'uploading',
+          progress: progress.total > 0 ? Math.min(100, progress.loaded / progress.total * 100) : item.progress,
+          error: progress.state === 'error' ? progress.error ?? t('chat.attachment.failed') : undefined,
+        }))
+      })
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      assertHostScope(hostScopeRef.current, scope)
+      setAttachments((current) => current.map((item) => item.localId === localId && item.requestId === requestId ? { ...item, status: 'uploading' } : item))
+      const result = await invoke<AttachmentUploadResult>('upload_chat_attachment', bytes, {
+        headers: {
+          'x-file-name': encodeURIComponent(file.name.split(/[\\/]/).pop() ?? file.name),
+          'x-mime-type': file.type || 'application/octet-stream',
+          'x-upload-id': requestId,
+        },
+      })
+      assertHostScope(hostScopeRef.current, scope)
+      if (!result.upload_id) throw new Error(t('chat.attachment.invalid_response'))
+      setAttachments((current) => current.map((item) => item.localId === localId && item.requestId === requestId
+        ? { ...item, name: file.name, size: file.size, status: 'ready', progress: 100, requestId: undefined, uploadId: result.upload_id, error: undefined }
+        : item))
+    } catch (error) {
+      if (hostScopeRef.current === scope) setAttachments((current) => current.map((item) => item.localId === localId && item.requestId === requestId
+        ? { ...item, status: 'error', requestId: undefined, error: String(error) }
+        : item))
+    } finally {
+      unlisten?.()
+    }
+  }
+
+  async function uploadNativeAttachment(localId: string, source: 'home' | 'screenshot', homePath?: string) {
+    const scope = hostScope
+    const requestId = crypto.randomUUID()
+    setAttachments((current) => current.map((item) => item.localId === localId
+      ? { ...item, status: 'preparing', progress: 0, requestId, uploadId: undefined, error: undefined }
+      : item))
+    let unlisten: (() => void) | undefined
+    try {
+      unlisten = await listen<AttachmentUploadProgress>('chat-attachment-upload-progress', (event) => {
+        const progress = event.payload
+        if (progress.upload_id !== requestId || hostScopeRef.current !== scope) return
+        setAttachments((current) => current.map((item) => item.localId !== localId || item.requestId !== requestId ? item : {
+          ...item,
+          status: progress.state === 'error' ? 'error' : 'uploading',
+          progress: progress.total > 0 ? Math.min(100, progress.loaded / progress.total * 100) : item.progress,
+          error: progress.state === 'error' ? progress.error ?? t('chat.attachment.failed') : undefined,
+        }))
+      })
+      const result = source === 'home'
+        ? await invoke<AttachmentUploadResult | null>('pick_and_upload_home_attachment', { homePath, uploadId: requestId })
+        : await invoke<AttachmentUploadResult | null>('capture_and_upload_screenshot', { uploadId: requestId })
+      assertHostScope(hostScopeRef.current, scope)
+      if (!result) {
+        setAttachments((current) => current.filter((item) => item.localId !== localId))
+        return
+      }
+      if (!result.upload_id || typeof result.file?.name !== 'string' || typeof result.file.size !== 'number') {
+        throw new Error(t('chat.attachment.invalid_response'))
+      }
+      setAttachments((current) => current.map((item) => item.localId === localId && item.requestId === requestId
+        ? { ...item, name: result.file.name as string, size: result.file.size as number, status: 'ready', progress: 100, requestId: undefined, uploadId: result.upload_id, error: undefined }
+        : item))
+    } catch (error) {
+      if (hostScopeRef.current === scope) setAttachments((current) => current.map((item) => item.localId === localId && item.requestId === requestId
+        ? { ...item, status: 'error', requestId: undefined, error: String(error) }
+        : item))
+    } finally {
+      unlisten?.()
+    }
+  }
+
+  function addNativeAttachment(source: 'home' | 'screenshot') {
+    const homePath = source === 'home' && typeof currentProject?.home_path === 'string' ? currentProject.home_path : undefined
+    if (source === 'home' && !homePath) return
+    const localId = crypto.randomUUID()
+    setAttachmentMenuOpen(false)
+    setAttachments((current) => [...current, {
+      localId,
+      name: t(source === 'home' ? 'chat.composer.attach.from_home' : 'chat.composer.attach.screenshot'),
+      size: 0,
+      nativeSource: source,
+      ...(homePath ? { homePath } : {}),
+      status: 'preparing',
+      progress: 0,
+    }])
+    void uploadNativeAttachment(localId, source, homePath)
+  }
+
+  function retryChatAttachment(item: ChatAttachment) {
+    if (item.file) void uploadChatAttachment(item.localId, item.file)
+    else if (item.nativeSource) void uploadNativeAttachment(item.localId, item.nativeSource, item.homePath)
+  }
+
+  function addChatAttachments(files: FileList | File[]) {
+    const selected = Array.from(files)
+    if (!selected.length) return
+    setAttachmentMenuOpen(false)
+    const scope = hostScope
+    const added = selected.map((file) => ({
+      localId: crypto.randomUUID(),
+      name: file.name,
+      size: file.size,
+      file,
+      status: file.size > MAX_CHAT_ATTACHMENT_BYTES ? 'error' as const : 'preparing' as const,
+      progress: 0,
+      ...(file.size > MAX_CHAT_ATTACHMENT_BYTES ? { error: t('chat.attachment.too_large') } : {}),
+    }))
+    setAttachments((current) => [...current, ...added])
+    void (async () => {
+      for (const item of added) {
+        if (hostScopeRef.current !== scope) return
+        if (item.file.size <= MAX_CHAT_ATTACHMENT_BYTES) await uploadChatAttachment(item.localId, item.file)
+      }
+    })()
+  }
+
+  function handleFileDragEnter(event: React.DragEvent<HTMLElement>) {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return
+    event.preventDefault()
+    setDraggingFiles(true)
+  }
+
+  function handleFileDragOver(event: React.DragEvent<HTMLElement>) {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+  }
+
+  function handleFileDragLeave(event: React.DragEvent<HTMLElement>) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+    setDraggingFiles(false)
+  }
+
+  function handleFileDrop(event: React.DragEvent<HTMLElement>) {
+    if (!event.dataTransfer.files.length) return
+    event.preventDefault()
+    setDraggingFiles(false)
+    addChatAttachments(event.dataTransfer.files)
+  }
+
   function openWorkbenchChat(chatId: string) {
     selectChat(chatId)
     setActivePage('chat')
@@ -1022,6 +1186,8 @@ function App() {
     setCreateGroupOpen(false)
     setGroupCreateError(null)
     setSendError(null)
+    setAttachmentMenuOpen(false)
+    setAttachments([])
     setState((current) => ({ ...current, error: null, connection: 'connecting' }))
     try {
       await invoke('connect_saved_host', { hostId })
@@ -1721,6 +1887,8 @@ function App() {
     setCreateGroupOpen(false)
     setGroupCreateError(null)
     setSendError(null)
+    setAttachmentMenuOpen(false)
+    setAttachments([])
     setState((current) => ({ ...current, error: null, connection: 'connecting' }))
     try {
       await invoke('connect_host', { endpoint, password, name: hostName })
@@ -1733,17 +1901,19 @@ function App() {
 
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault()
-    if (!currentChat || !draft.trim() || sending || state.connection !== 'connected') return
+    const readyAttachments = attachments.filter((item) => item.status === 'ready' && item.uploadId)
+    if (!currentChat || (!draft.trim() && !readyAttachments.length) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || state.connection !== 'connected') return
     const scope = hostScope
     setSending(true)
     setSendError(null)
     try {
-      if (mentionBotId || quoteTarget) {
+      if (mentionBotId || quoteTarget || readyAttachments.length) {
         await invoke('protocol_request', { method: 'chat.send', params: {
           chat_id: currentChat.id,
           text: draft.trim(),
           mentions: mentionBotId ? [{ kind: 'bot', bot_id: mentionBotId, instruction: null }] : quoteTarget?.mode === 'reply' && quoteTarget.botId ? [{ kind: 'bot', bot_id: quoteTarget.botId, instruction: null }] : [],
           ...(quoteTarget ? { quote: quoteTarget.messageId, quote_mode: quoteTarget.mode } : {}),
+          ...(readyAttachments.length ? { attachments: readyAttachments.map((item) => item.uploadId) } : {}),
           client_request_id: crypto.randomUUID(),
         } })
       } else {
@@ -1753,6 +1923,8 @@ function App() {
       setDraft('')
       setMentionBotId(null)
       setQuoteTarget(null)
+      const sentIds = new Set(readyAttachments.map((item) => item.uploadId))
+      setAttachments((current) => current.filter((item) => !sentIds.has(item.uploadId)))
     } catch (error) {
       if (hostScopeRef.current === scope) setSendError(String(error))
     } finally {
@@ -1826,7 +1998,7 @@ function App() {
       </nav>
     </aside>
     {activePage === 'chat' && <>
-    <section className="conversation">
+    <section className="conversation" onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
       <header className="conversation-toolbar glass-toolbar drag-region">
         {currentChat?.kind === 'project' || currentChat?.project_id ? <div className="group-chat-avatar"><Users size={17} /></div> : currentChatBotId ? <button type="button" aria-label={t('bot.action.settings')} title={t('bot.action.settings')} onClick={() => openBotPanel(currentChatBotId)} style={{ width: 32, height: 32, display: 'grid', flex: 'none', placeItems: 'center', padding: 0, border: 0, borderRadius: '50%', background: 'transparent', cursor: 'pointer' }}><BeanAvatar main={state.bots[currentChatBotId]?.is_main === true} size="32" seed={state.bots[currentChatBotId]?.name ?? ''} /></button> : <BeanAvatar main size="32" />}
         <div className="conversation-heading"><strong>{currentChat ? chatTitle(currentChat) : (mainBot?.name ?? '总管')}</strong>
@@ -1840,6 +2012,7 @@ function App() {
         <span className="announcement-bar" /><span className="announcement-summary"><strong>{t('group.announcement')}</strong><small>{announcement ? summarizeMarkdown(announcement.text) : announcementLoading ? t('settings.permissions.loading') : t('group.announcement.empty')}</small></span><ChevronDown size={14} />
       </button>}
       {state.connection !== 'connected' && <div className="offline-bar">{t('host.reconnecting').replace('{host}', state.active_host?.name ?? hostName)} · {t('host.reconnecting_detail')}</div>}
+      {draggingFiles && <div className="chat-drop-overlay"><Paperclip size={24} /><strong>{t('chat.drop.title').replace('{group}', currentChat ? chatTitle(currentChat) : t('chat.empty.select'))}</strong><span>{t('chat.drop.desc')}</span></div>}
       <div className="message-scroll">
         {!currentChat ? <div className="empty-conversation"><BeanAvatar main size="72" /><strong>{t('onboarding.empty.title')}</strong><span>{t('onboarding.empty.desc')}</span></div>
           : currentMessages.length ? <div className="message-list">
@@ -1866,12 +2039,15 @@ function App() {
       </div>
       <form className="composer-wrap" onSubmit={sendMessage}>
         <div className="composer-box">
+          <AttachmentTray items={attachments} onRemove={(localId) => setAttachments((current) => current.filter((item) => item.localId !== localId))} onRetry={retryChatAttachment} />
           {sendError && <div className="chat-entry-error" role="alert">{t('chat.send.failed').replace('{error}', sendError)}</div>}
           {quoteTarget && <div className="chat-composer-quote"><div><strong>{t(quoteTarget.mode === 'reply' ? 'chat.message.replying_to' : 'chat.message.quoting').replace('{sender}', quoteTarget.senderName)}</strong><span>{quoteTarget.excerpt}</span></div><button type="button" aria-label={t('chat.message.cancel_quote')} onClick={() => setQuoteTarget(null)}><X size={14} /></button></div>}
           {mentionBotId && <div className="composer-mention-chip"><AtSign size={13} />{t('chat.queue.at_now').replace('{bot}', state.bots[mentionBotId]?.name ?? t('common.bot'))}<button type="button" aria-label={t('common.close')} onClick={() => setMentionBotId(null)}>×</button></div>}
           <textarea value={draft} onChange={(event) => { setDraft(event.target.value); setSendError(null) }} placeholder={currentChat ? t('chat.composer.placeholder.dm').replace('{name}', currentChat.title ?? '总管') : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
-          <div className="composer-actions"><div><button type="button" className="composer-tool" aria-label="提及"><AtSign size={17} /></button><span className="composer-hint"><Command size={11} /> ↵ 发送</span></div>
-            <button type="submit" className="send-button" disabled={!draft.trim() || sending || !currentChat || state.connection !== 'connected'} aria-label={t('common.send')}><Send size={16} /></button></div>
+          <div className="composer-actions"><div className="composer-attachment-anchor"><button type="button" className="composer-tool" aria-label={t('chat.composer.attach.file')} title={t('chat.composer.attach.file')} disabled={!currentChat || state.connection !== 'connected'} onClick={() => setAttachmentMenuOpen((open) => !open)}><Plus size={17} /></button>{attachmentMenuOpen && <AttachmentMenu onFiles={() => { setAttachmentMenuOpen(false); attachmentInputRef.current?.click() }} onImages={() => { setAttachmentMenuOpen(false); imageInputRef.current?.click() }} onScreenshot={() => addNativeAttachment('screenshot')} onHome={() => addNativeAttachment('home')} homeAvailable={typeof currentProject?.home_path === 'string' && currentProject.home_path.length > 0} onClose={() => setAttachmentMenuOpen(false)} />}</div><span className="composer-hint"><Command size={11} /> ↵ 发送</span>
+            <button type="submit" className="send-button" disabled={(!draft.trim() && !attachments.some((item) => item.status === 'ready' && item.uploadId)) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || !currentChat || state.connection !== 'connected'} aria-label={t('common.send')}><Send size={16} /></button></div>
+          <input ref={attachmentInputRef} type="file" multiple hidden onChange={(event) => { if (event.currentTarget.files) addChatAttachments(event.currentTarget.files); event.currentTarget.value = '' }} />
+          <input ref={imageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { if (event.currentTarget.files) addChatAttachments(event.currentTarget.files); event.currentTarget.value = '' }} />
         </div>
       </form>
     </section>

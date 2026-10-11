@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io::Read,
     path::{Component, Path, PathBuf},
     process::Command,
     sync::{Arc, Mutex},
@@ -67,24 +68,68 @@ fn resolve_project_artifact_path(home_path: &str, relative_path: &str) -> Result
     Ok(target)
 }
 
+fn resolve_home_attachment_path(home: &Path, selected: &Path) -> Result<PathBuf, String> {
+    if !home.is_absolute() || !selected.is_absolute() {
+        return Err("Home 与所选文件路径必须是绝对路径".into());
+    }
+    let home = home
+        .canonicalize()
+        .map_err(|error| format!("无法解析项目 Home：{error}"))?;
+    if !home.is_dir() {
+        return Err("项目 Home 不是目录".into());
+    }
+    let selected = selected
+        .canonicalize()
+        .map_err(|error| format!("无法解析所选文件：{error}"))?;
+    if !selected.starts_with(&home) {
+        return Err("所选文件超出项目 Home".into());
+    }
+    let metadata =
+        std::fs::metadata(&selected).map_err(|error| format!("无法读取文件信息：{error}"))?;
+    if !metadata.is_file() {
+        return Err("请选择文件，不能选择文件夹".into());
+    }
+    if metadata.len() == 0 {
+        return Err("不能上传空附件".into());
+    }
+    if metadata.len() > MAX_UPLOAD_BYTES as u64 {
+        return Err("附件不能超过 100 MB".into());
+    }
+    Ok(selected)
+}
+
 fn authorized_project_home(
     home_path: &str,
     projects: &BTreeMap<String, Value>,
 ) -> Result<PathBuf, String> {
-    let requested = Path::new(home_path)
+    let home_directory = std::env::var_os("HOME").map(PathBuf::from);
+    let requested = expand_home_path(home_path, home_directory.as_deref())?
         .canonicalize()
         .map_err(|error| format!("无法解析项目 Home：{error}"))?;
     let is_current_host_project = projects.values().any(|project| {
         project
             .get("home_path")
             .and_then(Value::as_str)
-            .and_then(|path| Path::new(path).canonicalize().ok())
+            .and_then(|path| expand_home_path(path, home_directory.as_deref()).ok())
+            .and_then(|path| path.canonicalize().ok())
             .is_some_and(|path| path == requested)
     });
     if !is_current_host_project {
         return Err("项目 Home 不属于当前连接的 Host".into());
     }
     Ok(requested)
+}
+
+fn expand_home_path(home_path: &str, home_directory: Option<&Path>) -> Result<PathBuf, String> {
+    if home_path == "~" || home_path.starts_with("~/") {
+        let home_directory = home_directory.ok_or_else(|| "无法确定当前用户 Home".to_string())?;
+        let suffix = home_path.strip_prefix("~/").unwrap_or("");
+        return Ok(home_directory.join(suffix));
+    }
+    if !Path::new(home_path).is_absolute() {
+        return Err("项目 Home 必须是绝对路径或以 ~/ 开头".into());
+    }
+    Ok(PathBuf::from(home_path))
 }
 
 #[tauri::command]
@@ -2100,6 +2145,381 @@ fn uploaded_skill_id(body: &Value) -> Result<String, String> {
         .ok_or_else(|| "技能包上传响应缺少 upload_id".to_string())
 }
 
+fn chat_attachment_payload(
+    body: &InvokeBody,
+    encoded_file_name: Option<&str>,
+    mime_type: Option<&str>,
+    upload_id: Option<&str>,
+) -> Result<(String, String, String, Vec<u8>), String> {
+    let file_name = encoded_file_name
+        .map(percent_encoding::percent_decode_str)
+        .ok_or_else(|| "附件文件名缺失".to_string())?
+        .decode_utf8()
+        .map_err(|error| format!("附件文件名无效：{error}"))?
+        .to_string();
+    let file_name = file_name
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| "附件文件名不能为空".to_string())?
+        .to_owned();
+    if file_name.len() > 255 || file_name.chars().any(char::is_control) {
+        return Err("附件文件名无效".into());
+    }
+    let mime_type = mime_type.unwrap_or("application/octet-stream").trim();
+    if mime_type.is_empty() || mime_type.len() > 127 || mime_type.chars().any(char::is_control) {
+        return Err("附件 MIME 类型无效".into());
+    }
+    // Let reqwest's MIME parser enforce the media type grammar as well.
+    reqwest::multipart::Part::bytes(Vec::new())
+        .mime_str(mime_type)
+        .map_err(|_| "附件 MIME 类型无效".to_string())?;
+    let upload_id = upload_id
+        .filter(|id| Uuid::parse_str(id).is_ok())
+        .ok_or_else(|| "附件上传标识无效".to_string())?
+        .to_owned();
+    let bytes = match body {
+        InvokeBody::Raw(bytes) => bytes.clone(),
+        InvokeBody::Json(_) => return Err("附件内容格式无效".into()),
+    };
+    if bytes.is_empty() {
+        return Err("不能上传空附件".into());
+    }
+    if bytes.len() > MAX_UPLOAD_BYTES {
+        return Err("附件不能超过 100 MB".into());
+    }
+    Ok((file_name, mime_type.to_owned(), upload_id, bytes))
+}
+
+fn uploaded_chat_attachment(body: &Value) -> Result<Value, String> {
+    let upload_id = body
+        .get("upload_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+        .ok_or_else(|| "附件上传响应缺少 upload_id".to_string())?;
+    let file = body
+        .get("file")
+        .filter(|file| file.is_object())
+        .ok_or_else(|| "附件上传响应缺少 file".to_string())?;
+    if file.get("root").and_then(Value::as_str) != Some("upload")
+        || file.get("root_id").and_then(Value::as_str).is_none()
+        || file.get("path").and_then(Value::as_str).is_none()
+        || file.get("name").and_then(Value::as_str).is_none()
+        || file.get("size").and_then(Value::as_u64).is_none()
+        || file.get("mime").and_then(Value::as_str).is_none()
+    {
+        return Err("附件上传响应中的 file 字段无效".into());
+    }
+    Ok(json!({"upload_id": upload_id, "file": file}))
+}
+
+fn emit_chat_upload_progress(
+    app: &AppHandle,
+    upload_id: &str,
+    loaded: usize,
+    total: usize,
+    state: &str,
+    error: Option<&str>,
+) {
+    let mut payload = json!({
+        "upload_id": upload_id,
+        "loaded": loaded,
+        "total": total,
+        "state": state,
+    });
+    if let Some(error) = error {
+        payload["error"] = json!(error);
+    }
+    let _ = app.emit("chat-attachment-upload-progress", payload);
+}
+
+fn attachment_upload_target(bridge: &State<'_, SharedBridge>) -> Result<(String, String), String> {
+    let host = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection != "connected" {
+            return Err("请先连接 Bot 主机".into());
+        }
+        data.active_host
+            .clone()
+            .ok_or_else(|| "当前连接没有已保存的主机凭证".to_string())?
+    };
+    let endpoint = host
+        .addresses
+        .first()
+        .cloned()
+        .ok_or_else(|| "当前主机没有可用地址".to_string())?;
+    let password = HostStore::load()
+        .and_then(|store| store.password(&host))
+        .map_err(|error| format!("无法读取主机凭证：{error}"))?;
+    Ok((endpoint, password))
+}
+
+async fn upload_chat_attachment_bytes(
+    app: &AppHandle,
+    endpoint: String,
+    password: String,
+    file_name: String,
+    mime_type: String,
+    client_upload_id: String,
+    bytes: Vec<u8>,
+) -> Result<Value, String> {
+    let total = bytes.len();
+    emit_chat_upload_progress(app, &client_upload_id, 0, total, "uploading", None);
+    let result = async {
+        let url = macbot_client_core::http_url(&endpoint, "/api/v1/uploads")
+            .map_err(|error| error.to_string())?;
+        let app_for_stream = app.clone();
+        let upload_id_for_stream = client_upload_id.clone();
+        let stream = futures_util::stream::unfold(
+            (bytes, 0usize, app_for_stream, upload_id_for_stream),
+            move |(bytes, offset, app, upload_id)| async move {
+                if offset >= bytes.len() {
+                    return None;
+                }
+                let end = (offset + 64 * 1024).min(bytes.len());
+                let chunk = bytes::Bytes::copy_from_slice(&bytes[offset..end]);
+                emit_chat_upload_progress(&app, &upload_id, end, total, "uploading", None);
+                Some((Ok::<_, std::io::Error>(chunk), (bytes, end, app, upload_id)))
+            },
+        );
+        let part = reqwest::multipart::Part::stream_with_length(
+            reqwest::Body::wrap_stream(stream),
+            total as u64,
+        )
+        .file_name(file_name)
+        .mime_str(&mime_type)
+        .map_err(|error| format!("附件 MIME 类型无效：{error}"))?;
+        let response = reqwest::Client::new()
+            .post(url)
+            .bearer_auth(password)
+            .multipart(reqwest::multipart::Form::new().part("file", part))
+            .send()
+            .await
+            .map_err(|error| format!("附件上传失败：{error}"))?
+            .error_for_status()
+            .map_err(|error| format!("附件上传失败：{error}"))?;
+        let body = response
+            .json::<Value>()
+            .await
+            .map_err(|error| format!("无法读取附件上传响应：{error}"))?;
+        uploaded_chat_attachment(&body)
+    }
+    .await;
+
+    match result {
+        Ok(uploaded) => {
+            emit_chat_upload_progress(app, &client_upload_id, total, total, "complete", None);
+            Ok(uploaded)
+        }
+        Err(error) => {
+            emit_chat_upload_progress(app, &client_upload_id, 0, total, "error", Some(&error));
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+async fn upload_chat_attachment(
+    app: AppHandle,
+    bridge: State<'_, SharedBridge>,
+    request: Request<'_>,
+) -> Result<Value, String> {
+    let headers = request.headers();
+    let encoded_file_name = headers
+        .get("x-file-name")
+        .and_then(|value| value.to_str().ok());
+    let mime_type = headers
+        .get("x-mime-type")
+        .and_then(|value| value.to_str().ok());
+    let client_upload_id = headers
+        .get("x-upload-id")
+        .and_then(|value| value.to_str().ok());
+    let (file_name, mime_type, client_upload_id, bytes) = chat_attachment_payload(
+        request.body(),
+        encoded_file_name,
+        mime_type,
+        client_upload_id,
+    )?;
+    let (endpoint, password) = attachment_upload_target(&bridge)?;
+    upload_chat_attachment_bytes(
+        &app,
+        endpoint,
+        password,
+        file_name,
+        mime_type,
+        client_upload_id,
+        bytes,
+    )
+    .await
+}
+
+struct TemporaryScreenshot(PathBuf);
+
+impl Drop for TemporaryScreenshot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn capture_screenshot() -> Result<Option<Vec<u8>>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let path = std::env::temp_dir().join(format!("macbot-{}.png", Uuid::new_v4()));
+        let _cleanup = TemporaryScreenshot(path.clone());
+        let output = Command::new("/usr/sbin/screencapture")
+            .arg("-i")
+            .arg("-x")
+            .arg(&path)
+            .output()
+            .map_err(|error| format!("无法启动 macOS 截图：{error}"))?;
+        if !output.status.success() && !path.exists() {
+            if output.stderr.is_empty() {
+                return Ok(None);
+            }
+            return Err(format!(
+                "macOS 截图失败：{}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        if !output.status.success() {
+            return Err(format!(
+                "macOS 截图失败：{}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let bytes = std::fs::read(&path).map_err(|error| format!("无法读取截图：{error}"))?;
+        if bytes.len() < 8 || !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            return Err("macOS 截图不是有效的 PNG 文件".into());
+        }
+        if bytes.len() > MAX_UPLOAD_BYTES {
+            return Err("截图不能超过 100 MB".into());
+        }
+        Ok(Some(bytes))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("截图附件仅支持 macOS".into())
+    }
+}
+
+fn home_attachment_context(
+    bridge: &State<'_, SharedBridge>,
+    home_path: &str,
+) -> Result<(PathBuf, String, String), String> {
+    let (home, host, endpoint) = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection != "connected" {
+            return Err("请先连接 Bot 主机".into());
+        }
+        let home = authorized_project_home(home_path, &data.state.projects)?;
+        let host = data
+            .active_host
+            .clone()
+            .ok_or_else(|| "当前连接没有已保存的主机凭证".to_string())?;
+        let endpoint = host
+            .addresses
+            .first()
+            .cloned()
+            .ok_or_else(|| "当前主机没有可用地址".to_string())?;
+        (home, host, endpoint)
+    };
+    let password = HostStore::load()
+        .and_then(|store| store.password(&host))
+        .map_err(|error| format!("无法读取主机凭证：{error}"))?;
+    Ok((home, endpoint, password))
+}
+
+fn screenshot_attachment_context(
+    bridge: &State<'_, SharedBridge>,
+) -> Result<(String, String), String> {
+    attachment_upload_target(bridge)
+}
+
+fn validate_upload_id(upload_id: &str) -> Result<(), String> {
+    Uuid::parse_str(upload_id)
+        .map(|_| ())
+        .map_err(|_| "附件上传标识无效".into())
+}
+
+#[tauri::command]
+async fn pick_and_upload_home_attachment(
+    app: AppHandle,
+    bridge: State<'_, SharedBridge>,
+    home_path: String,
+    upload_id: String,
+) -> Result<Option<Value>, String> {
+    validate_upload_id(&upload_id)?;
+    let (home, endpoint, password) = home_attachment_context(&bridge, &home_path)?;
+    let Some(file_path) = app
+        .dialog()
+        .file()
+        .set_directory(home.clone())
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let selected_path = file_path
+        .into_path()
+        .map_err(|error| format!("无法读取所选文件路径：{error}"))?;
+    let selected_path = resolve_home_attachment_path(&home, &selected_path)?;
+    let file_name = selected_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| "所选文件名无效".to_string())?
+        .to_owned();
+    if file_name.len() > 255 || file_name.chars().any(char::is_control) {
+        return Err("所选文件名无效".into());
+    }
+    let file = std::fs::File::open(&selected_path)
+        .map_err(|error| format!("无法读取所选文件：{error}"))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_UPLOAD_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("无法读取所选文件：{error}"))?;
+    if bytes.is_empty() || bytes.len() > MAX_UPLOAD_BYTES {
+        return Err("附件大小必须在 1 字节到 100 MB 之间".into());
+    }
+    let mime_type = mime_guess::from_path(&selected_path)
+        .first_or_octet_stream()
+        .to_string();
+    upload_chat_attachment_bytes(
+        &app, endpoint, password, file_name, mime_type, upload_id, bytes,
+    )
+    .await
+    .map(Some)
+}
+
+#[tauri::command]
+async fn capture_and_upload_screenshot(
+    app: AppHandle,
+    bridge: State<'_, SharedBridge>,
+    upload_id: String,
+) -> Result<Option<Value>, String> {
+    validate_upload_id(&upload_id)?;
+    let (endpoint, password) = screenshot_attachment_context(&bridge)?;
+    let Some(bytes) = capture_screenshot()? else {
+        return Ok(None);
+    };
+    upload_chat_attachment_bytes(
+        &app,
+        endpoint,
+        password,
+        "Screenshot.png".into(),
+        "image/png".into(),
+        upload_id,
+        bytes,
+    )
+    .await
+    .map(Some)
+}
+
 #[tauri::command]
 async fn upload_skill_zip(
     bridge: State<'_, SharedBridge>,
@@ -2170,6 +2590,9 @@ pub fn run() {
             protocol_request,
             save_usage_csv,
             upload_skill_zip,
+            upload_chat_attachment,
+            pick_and_upload_home_attachment,
+            capture_and_upload_screenshot,
             trace_subscribe,
             trace_unsubscribe,
             screen_connect,
@@ -2191,11 +2614,12 @@ pub fn run() {
 mod tests {
     use super::{
         activate_trace_subscription, apply_retry_result, authorized_project_home,
-        connection_is_current, encode_screen_frame, finish_trace_unsubscribe, inject_client_locale,
-        normalize_bcp47_locale, pending_message, resolve_project_artifact_path,
-        retain_trace_cleanup, route_trace_event, screen_connection_payload,
-        screen_generation_matches, skill_upload_payload, trace_subscription_state,
-        trace_tauri_event, uploaded_skill_id, validate_screen_input, BridgeData, InvokeBody,
+        chat_attachment_payload, connection_is_current, encode_screen_frame, expand_home_path,
+        finish_trace_unsubscribe, inject_client_locale, normalize_bcp47_locale, pending_message,
+        resolve_home_attachment_path, resolve_project_artifact_path, retain_trace_cleanup,
+        route_trace_event, screen_connection_payload, screen_generation_matches,
+        skill_upload_payload, trace_subscription_state, trace_tauri_event,
+        uploaded_chat_attachment, uploaded_skill_id, validate_screen_input, BridgeData, InvokeBody,
         PendingTraceCleanup, ScreenFrame, ScreenPoint, TraceScope, TraceSubscription,
         MAX_BUFFERED_TRACE_BYTES, MAX_SCREEN_JPEG_BYTES,
     };
@@ -2255,6 +2679,61 @@ mod tests {
             home.canonicalize().unwrap()
         );
         assert!(authorized_project_home(other.to_str().unwrap(), &projects).is_err());
+        assert!(authorized_project_home("", &projects).is_err());
+    }
+
+    #[test]
+    fn project_home_expands_tilde_without_accepting_relative_paths() {
+        let home = PathBuf::from("/Users/tester");
+        assert_eq!(
+            expand_home_path("~/MacBot/projects/demo", Some(&home)).unwrap(),
+            home.join("MacBot/projects/demo")
+        );
+        assert_eq!(expand_home_path("~", Some(&home)).unwrap(), home);
+        assert!(expand_home_path("relative/path", Some(&home)).is_err());
+        assert!(expand_home_path("~someone/path", Some(&home)).is_err());
+    }
+
+    #[test]
+    fn home_attachment_selection_stays_inside_project_and_enforces_file_limits() {
+        let root = TempDir::new();
+        let home = root.0.join("project");
+        let outside = root.0.join("outside");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(home.join("note.txt"), "safe").unwrap();
+        fs::write(outside.join("secret.txt"), "secret").unwrap();
+
+        assert_eq!(
+            resolve_home_attachment_path(&home, &home.join("note.txt")).unwrap(),
+            home.canonicalize().unwrap().join("note.txt")
+        );
+        assert!(resolve_home_attachment_path(&home, &outside.join("secret.txt")).is_err());
+        assert!(resolve_home_attachment_path(&home, &home).is_err());
+        assert!(resolve_home_attachment_path(PathBuf::from("relative").as_path(), &home).is_err());
+
+        let oversized = home.join("large.bin");
+        fs::File::create(&oversized)
+            .unwrap()
+            .set_len(100 * 1024 * 1024 + 1)
+            .unwrap();
+        assert!(resolve_home_attachment_path(&home, &oversized).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn home_attachment_selection_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempDir::new();
+        let home = root.0.join("project");
+        let outside = root.0.join("outside");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.txt"), "secret").unwrap();
+        symlink(&outside, home.join("linked")).unwrap();
+
+        assert!(resolve_home_attachment_path(&home, &home.join("linked/secret.txt")).is_err());
     }
 
     #[test]
@@ -2315,6 +2794,66 @@ mod tests {
         );
         assert!(uploaded_skill_id(&json!({"upload_id":"  "})).is_err());
         assert!(uploaded_skill_id(&json!({})).is_err());
+    }
+
+    #[test]
+    fn chat_attachment_payload_validates_raw_body_headers_and_file_name() {
+        let id = "5f8b6270-265c-4b60-bc44-d4e63bdb02b0";
+        let (name, mime, upload_id, bytes) = chat_attachment_payload(
+            &InvokeBody::Raw(vec![1, 2, 3]),
+            Some("..%2Freport%20final.pdf"),
+            Some("application/pdf"),
+            Some(id),
+        )
+        .unwrap();
+        assert_eq!(name, "report final.pdf");
+        assert_eq!(mime, "application/pdf");
+        assert_eq!(upload_id, id);
+        assert_eq!(bytes, [1, 2, 3]);
+
+        assert!(chat_attachment_payload(
+            &InvokeBody::Json(json!([1, 2])),
+            Some("file.txt"),
+            Some("text/plain"),
+            Some(id),
+        )
+        .is_err());
+        assert!(chat_attachment_payload(
+            &InvokeBody::Raw(vec![1]),
+            Some("file.txt"),
+            Some("not a mime"),
+            Some(id),
+        )
+        .is_err());
+        assert!(chat_attachment_payload(
+            &InvokeBody::Raw(vec![1]),
+            Some("file.txt"),
+            Some("text/plain"),
+            Some("bad-id"),
+        )
+        .is_err());
+        assert!(chat_attachment_payload(
+            &InvokeBody::Raw(vec![]),
+            Some("file.txt"),
+            None,
+            Some(id),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn chat_upload_response_requires_upload_file_ref_shape() {
+        let valid = json!({
+            "upload_id": "upl_1",
+            "file": {"root":"upload", "root_id":"upl_1", "path":"upl_1/a.pdf",
+                     "name":"a.pdf", "size":12, "mime":"application/pdf"}
+        });
+        assert_eq!(uploaded_chat_attachment(&valid).unwrap(), valid);
+        assert!(uploaded_chat_attachment(&json!({"upload_id":"upl_1"})).is_err());
+        assert!(uploaded_chat_attachment(&json!({
+            "upload_id":"upl_1", "file": {"root":"project"}
+        }))
+        .is_err());
     }
 
     #[test]

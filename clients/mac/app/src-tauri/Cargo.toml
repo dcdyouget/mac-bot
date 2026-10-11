@@ -23,10 +23,13 @@ tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-dialog = "2"
 tokio = { version = "1", features = ["sync"] }
 chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart", "stream"] }
 percent-encoding = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 sys-locale = "0.3"
+bytes = "1"
+futures-util = "0.3"
+mime_guess = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 window-vibrancy = "0.6"
