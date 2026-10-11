@@ -539,6 +539,20 @@
 | computer.request | {bot} 请求你接管：{reason}。完成后点「交还给 Bot」。 |
 | computer.you_control_hint | 鼠标、键盘、滚轮会实时发给浏览器 · 完成后点「交还给 Bot」，可以附一句说明 |
 | computer.quality | 画质 |
+| computer.quality.auto | 自动 |
+| computer.quality.high | 高清 |
+| computer.quality.low | 流畅 |
+| computer.connection.connecting | 正在连接浏览器画面… |
+| computer.connection.disconnected | 浏览器画面已断开 |
+| computer.connection.error | 浏览器画面连接失败 |
+| computer.empty.tabs | 暂无浏览器标签页 |
+| computer.empty.frame | 暂无浏览器画面 |
+| computer.tab.untitled | 未命名标签页 |
+| computer.tab.switch_hint | 接管后可切换标签页 |
+| computer.release.note | 给 Bot 留一句说明（可选） |
+| computer.fullscreen.enter | 全屏查看 |
+| computer.fullscreen.exit | 退出全屏 |
+| computer.tabs.label | 浏览器标签页 |
 
 ## settings · 设置
 
