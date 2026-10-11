@@ -2710,7 +2710,9 @@ impl MacBot {
         let preview = self.sidebar_summary_text(chat, &todo);
         let (attention_symbol, attention_count, attention_color, attention_surface) =
             self.sidebar_attention(chat, &todo, t);
-        let needs_attention = !todo.approvals.is_empty() || !todo.questions.is_empty();
+        let needs_attention = !todo.approvals.is_empty()
+            || !todo.questions.is_empty()
+            || s(chat, "attention") == "waiting_user";
         let mut row = div()
             .flex()
             .items_center()
@@ -2763,6 +2765,7 @@ impl MacBot {
             );
         }
         div()
+            .relative()
             .min_h(px(layout.row_chat))
             .rounded(px(t.radius[8]))
             .bg(if selected { t.selected } else { t.sidebar })
@@ -2776,6 +2779,18 @@ impl MacBot {
                         this.select_chat(id.clone(), window, cx)
                     })),
             )
+            .when(needs_attention && s(chat, "kind") == "project", |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .left(px(0.))
+                        .top(px((layout.row_chat - 28.) / 2.))
+                        .w(px(3.))
+                        .h(px(layout.row_chat - 28.))
+                        .rounded(px(2.))
+                        .bg(t.warning),
+                )
+            })
             .into_any_element()
     }
     fn sidebar_todo_summary(&self, chat: &Value) -> SidebarTodoSummary {
