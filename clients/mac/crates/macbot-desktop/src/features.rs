@@ -359,13 +359,17 @@ fn textarea_placeholder(page: &str, field: &str) -> Option<&'static str> {
     }
 }
 
-fn labeled_field<L: Into<String>, T: IntoElement>(label: L, field: T) -> gpui_kit::Div {
+fn labeled_field<L: Into<String>, T: IntoElement>(
+    label: L,
+    field: T,
+    tokens: &Tokens,
+) -> gpui_kit::Div {
     let label = label.into();
     div()
         .flex()
         .flex_col()
-        .gap_1()
-        .child(div().text_sm().child(label))
+        .gap(px(tokens.space[2]))
+        .child(div().text_size(px(tokens.desktop_type[1][0])).child(label))
         .child(field)
 }
 
@@ -561,11 +565,12 @@ fn card(title: impl Into<String>, body: impl IntoElement, tokens: &Tokens) -> im
         .gap(px(tokens.space[4]))
         .p(px(tokens.space[5]))
         .rounded(px(tokens.radius[8]))
-        .bg(tokens.window)
-        .border_1()
-        .border_color(tokens.border)
+        .bg(tokens.elevated)
+        .border(px(tokens.desktop_layout.divider))
+        .border_color(tokens.border_subtle)
         .child(
             div()
+                .text_size(px(tokens.desktop_type[2][0]))
                 .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
                 .child(title),
         )
@@ -582,10 +587,10 @@ fn stat(label: impl Into<String>, value: impl Into<String>, tokens: &Tokens) -> 
         .flex_1()
         .p(px(tokens.space[5]))
         .min_w(px(130.))
-        .rounded(px(tokens.radius[2]))
-        .bg(tokens.window)
-        .border_1()
-        .border_color(tokens.border)
+        .rounded(px(tokens.radius[8]))
+        .bg(tokens.elevated)
+        .border(px(tokens.desktop_layout.divider))
+        .border_color(tokens.border_subtle)
         .child(
             div()
                 .text_size(px(tokens.desktop_type[1][0]))
@@ -610,8 +615,8 @@ fn rows(items: impl IntoIterator<Item = String>, tokens: &Tokens) -> impl IntoEl
                 .flex()
                 .items_center()
                 .justify_between()
-                .py_2()
-                .border_b_1()
+                .py(px(tokens.space[4]))
+                .border_b(px(tokens.desktop_layout.divider))
                 .border_color(tokens.border)
                 .child(item)
         }))
@@ -1647,12 +1652,12 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
         div()
             .flex()
             .flex_col()
-            .gap_2()
+            .gap(px(tokens.space[4]))
             .children(groups.iter().map(|(key, jobs)| {
                 div()
                     .flex()
                     .flex_col()
-                    .gap_1()
+                    .gap(px(tokens.space[2]))
                     .child(
                         div()
                             .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
@@ -1664,7 +1669,7 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
             }));
     let active_groups = if groups.is_empty() {
         div()
-            .p_4()
+            .p(px(tokens.space[6]))
             .text_color(tokens.secondary)
             .child(t("workbench.empty.running"))
             .into_any_element()
@@ -1675,11 +1680,11 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
     let body = div()
         .flex()
         .flex_col()
-        .gap_3()
+        .gap(px(tokens.space[5]))
         .child(
             div()
                 .flex()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .child(workbench_mode_button(
                     t("workbench.view.by_bot"),
                     "bot",
@@ -1699,7 +1704,7 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
                     cx,
                 )),
         )
-        .child(div().flex().flex_wrap().gap_3().children([
+        .child(div().flex().flex_wrap().gap(px(tokens.space[5])).children([
             stat(
                 t("workbench.running_label"),
                 &format!("{running} / {limit}"),
@@ -1724,7 +1729,7 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
             &t("workbench.done_today").replace("{count}", &done.len().to_string()),
             if done.is_empty() {
                 div()
-                    .p_3()
+                    .p(px(tokens.space[5]))
                     .text_color(tokens.secondary)
                     .child(t("workbench.empty.done_today"))
                     .into_any_element()
@@ -1894,12 +1899,15 @@ fn workbench_job_row(
         .and_then(Value::as_u64)
         .unwrap_or(0);
     let assignment_id = string(job, "id", "");
-    let mut actions = div().flex().gap_1().child(action_button_with_id(
-        format!("workbench-{row_key}-detail"),
-        t("common.details"),
-        FeatureAction::Trace(assignment_id.clone()),
-        cx,
-    ));
+    let mut actions = div()
+        .flex()
+        .gap(px(tokens.space[2]))
+        .child(action_button_with_id(
+            format!("workbench-{row_key}-detail"),
+            t("common.details"),
+            FeatureAction::Trace(assignment_id.clone()),
+            cx,
+        ));
     if !assignment_id.is_empty() {
         let stop = FeatureAction::Rpc {
             method: "assignment.stop".into(),
@@ -1944,18 +1952,23 @@ fn workbench_job_row(
         .flex()
         .items_center()
         .justify_between()
-        .py_2()
+        .py(px(tokens.space[4]))
         .child(
             div()
                 .flex()
                 .flex_col()
-                .gap_1()
+                .gap(px(tokens.space[2]))
                 .child(format!("{bot} · {name}"))
-                .child(div().text_sm().text_color(tokens.secondary).child(format!(
-                    "{project} · {status} · {elapsed} · {usage} tok · {model} · {} {}",
-                    t("trace.filter.subagents"),
-                    subagents
-                ))),
+                .child(
+                    div()
+                        .text_size(px(tokens.desktop_type[1][0]))
+                        .text_color(tokens.secondary)
+                        .child(format!(
+                            "{project} · {status} · {elapsed} · {usage} tok · {model} · {} {}",
+                            t("trace.filter.subagents"),
+                            subagents
+                        )),
+                ),
         )
         .child(actions)
 }
@@ -2038,15 +2051,15 @@ fn workbench_waiting(
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
-    let mut container = div().flex().flex_col().gap_2();
+    let mut container = div().flex().flex_col().gap(px(tokens.space[4]));
     for (item_index, item) in waiting.iter().enumerate() {
         let kind = string(item, "kind", "");
         let mut row = div()
             .flex()
             .items_center()
             .justify_between()
-            .py_2()
-            .border_b_1()
+            .py(px(tokens.space[4]))
+            .border_b(px(tokens.desktop_layout.divider))
             .border_color(tokens.border)
             .child(waiting_title(item, &kind));
         match kind.as_str() {
@@ -2202,7 +2215,7 @@ fn dashboard(
         .child(
             div()
                 .flex()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .child(dashboard_range_button(
                     t("dashboard.range.today"),
                     "today",
@@ -2239,7 +2252,7 @@ fn dashboard(
         .child(
             div()
                 .flex()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .child(Input::new(input_state(inputs, "from")).id("dashboard-from-input"))
                 .child(Input::new(input_state(inputs, "to")).id("dashboard-to-input"))
                 .child(dashboard_period_rpc_button(
@@ -2257,7 +2270,7 @@ fn dashboard(
                     cx,
                 )),
         )
-        .child(div().flex().gap_3().children([
+        .child(div().flex().gap(px(tokens.space[5])).children([
             stat(
                 t("dashboard.kpi.tokens"),
                 &dashboard_metric_with_delta(data, "tokens", "0"),
@@ -2291,9 +2304,9 @@ fn dashboard(
             div()
                 .flex()
                 .flex_col()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .child(
-                    div().flex().gap_2().children([
+                    div().flex().gap(px(tokens.space[4])).children([
                         dashboard_dimension_button(t("dashboard.dimension.model"), "model", cx)
                             .into_any_element(),
                         dashboard_dimension_button(t("dashboard.dimension.bot"), "bot", cx)
@@ -2303,7 +2316,7 @@ fn dashboard(
                     ]),
                 )
                 .child(
-                    div().flex().gap_2().children([
+                    div().flex().gap(px(tokens.space[4])).children([
                         dashboard_rpc_button(
                             t("dashboard.refresh_summary"),
                             "usage.summary",
@@ -2342,7 +2355,7 @@ fn dashboard(
                     ]),
                 )
                 .child(
-                    div().flex().gap_2().children([
+                    div().flex().gap(px(tokens.space[4])).children([
                         dashboard_metric_button(t("dashboard.kpi.tokens"), "tokens", false, cx)
                             .into_any_element(),
                         dashboard_metric_button(t("dashboard.kpi.cost"), "cost", false, cx)
@@ -2373,7 +2386,7 @@ fn dashboard_detail_rows(
     div()
         .flex()
         .flex_col()
-        .gap_1()
+        .gap(px(tokens.space[2]))
         .children(details.iter().enumerate().map(|(index, item)| {
             let label = string(item, "label", &string(item, "source", t("common.unknown")));
             let usage = item.get("usage").unwrap_or(item);
@@ -2462,10 +2475,10 @@ fn dashboard_detail_rows(
             let mut row = div()
                 .flex()
                 .items_center()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .justify_between()
-                .py_2()
-                .border_b_1()
+                .py(px(tokens.space[4]))
+                .border_b(px(tokens.desktop_layout.divider))
                 .border_color(tokens.border)
                 .child(
                     div()
@@ -2473,7 +2486,7 @@ fn dashboard_detail_rows(
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .gap_1()
+                        .gap(px(tokens.space[2]))
                         .child(format!(
                             "{label}   {} {} · {} {} · {} {} · {} {}{cost_label}",
                             t("dashboard.input"),
@@ -2487,7 +2500,7 @@ fn dashboard_detail_rows(
                         ))
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(px(tokens.desktop_type[0][0]))
                                 .text_color(tokens.secondary)
                                 .child(phase_text),
                         ),
@@ -2526,7 +2539,7 @@ fn heatmap(
     if let Some(days) = heatmap_data.get("days").and_then(Value::as_array) {
         if days.is_empty() {
             return div()
-                .text_sm()
+                .text_size(px(tokens.desktop_type[1][0]))
                 .text_color(tokens.secondary)
                 .child(t("dashboard.empty"));
         }
@@ -2578,12 +2591,12 @@ fn heatmap(
         ];
         let month_row = div()
             .flex()
-            .gap(px(2.))
+            .gap(px(tokens.space[1]))
             .child(div().w(px(20.)).h(px(16.)))
             .children(month_labels.iter().map(|month| {
                 div()
                     .w(px(13.))
-                    .text_xs()
+                    .text_size(px(tokens.desktop_type[0][0]))
                     .text_color(tokens.secondary)
                     .child(month.clone())
             }));
@@ -2591,24 +2604,24 @@ fn heatmap(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(2.))
+                .gap(px(tokens.space[1]))
                 .children(weekday_labels.iter().map(|label| {
                     div()
                         .w(px(20.))
                         .h(px(16.))
-                        .text_xs()
+                        .text_size(px(tokens.desktop_type[0][0]))
                         .text_color(tokens.secondary)
                         .child(*label)
                 }));
         let weeks_grid = div()
             .flex()
-            .gap(px(2.))
+            .gap(px(tokens.space[1]))
             .child(weekday_column)
             .children(weeks.iter().map(|week| {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(2.))
+                    .gap(px(tokens.space[1]))
                     .children(week.iter().map(|day| {
                         if day.is_null() {
                             return div().size(px(11.)).into_any_element();
@@ -2635,10 +2648,10 @@ fn heatmap(
                         div()
                             .id(format!("heatmap-day-{date}"))
                             .size(px(if selected { 13. } else { 11. }))
-                            .rounded_sm()
+                            .rounded(px(tokens.radius[1]))
                             .bg(color)
-                            .border_1()
-                            .border_color(if selected { tokens.primary } else { color })
+                            .border(px(tokens.desktop_layout.divider))
+                            .border_color(if selected { tokens.accent } else { color })
                             .tooltip({
                                 let tooltip = format!(
                                     "{date} · {} {} · {} {} · {} {top_bot}",
@@ -2698,7 +2711,7 @@ fn heatmap(
         return div()
             .flex()
             .flex_col()
-            .gap_1()
+            .gap(px(tokens.space[2]))
             .child(month_row)
             .child(weeks_grid);
     }
@@ -2709,27 +2722,32 @@ fn heatmap(
         .unwrap_or_default();
     if matrix.is_empty() {
         return div()
-            .text_sm()
+            .text_size(px(tokens.desktop_type[1][0]))
             .text_color(tokens.secondary)
             .child(t("dashboard.empty"));
     }
     div()
         .flex()
         .flex_col()
-        .gap_1()
+        .gap(px(tokens.space[2]))
         .children(matrix.iter().map(|row| {
-            div()
-                .flex()
-                .gap_1()
-                .children(row.as_array().into_iter().flatten().map(|value| {
+            div().flex().gap(px(tokens.space[2])).children(
+                row.as_array().into_iter().flatten().map(|value| {
                     let color = heatmap_color(value.as_f64().unwrap_or(0.), &thresholds, tokens);
-                    div().size(px(14.)).rounded_sm().bg(color)
-                }))
+                    div().size(px(14.)).rounded(px(tokens.radius[1])).bg(color)
+                }),
+            )
         }))
 }
 
 fn heatmap_color(value: f64, thresholds: &[Value], tokens: &Tokens) -> gpui_kit::Hsla {
-    heatmap_palette_color(value, thresholds, tokens.bot, &tokens.heatmap_activity)
+    let activity = [
+        tokens.heat[1],
+        tokens.heat[2],
+        tokens.heat[3],
+        tokens.heat[4],
+    ];
+    heatmap_palette_color(value, thresholds, tokens.heat[0], &activity)
 }
 
 fn heatmap_palette_color(
@@ -2848,42 +2866,43 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
                 false,
             ));
         }
-        let legend = div()
-            .flex()
-            .flex_wrap()
-            .gap_1()
-            .children(variants.iter().map(|(label, _, color, dashed)| {
-                let label_for_event = label.clone();
-                let is_hidden = hidden
-                    .iter()
-                    .any(|value| value.as_str() == Some(label.as_str()));
-                Button::new(format!("usage-legend-{label}"))
-                    .label(format!(
-                        "{} {}{}",
-                        if is_hidden { "○" } else { "●" },
-                        if *dashed { "┄ " } else { "" },
-                        label
-                    ))
-                    .text_color(*color)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let mut selected = this
-                            .data
-                            .get("hidden_series")
-                            .and_then(Value::as_array)
-                            .cloned()
-                            .unwrap_or_default();
-                        if let Some(index) = selected
-                            .iter()
-                            .position(|value| value.as_str() == Some(label_for_event.as_str()))
-                        {
-                            selected.remove(index);
-                        } else {
-                            selected.push(json!(label_for_event.clone()));
-                        }
-                        this.data["hidden_series"] = Value::Array(selected);
-                        cx.notify();
-                    }))
-            }));
+        let legend =
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(tokens.space[2]))
+                .children(variants.iter().map(|(label, _, color, dashed)| {
+                    let label_for_event = label.clone();
+                    let is_hidden = hidden
+                        .iter()
+                        .any(|value| value.as_str() == Some(label.as_str()));
+                    Button::new(format!("usage-legend-{label}"))
+                        .label(format!(
+                            "{} {}{}",
+                            if is_hidden { "○" } else { "●" },
+                            if *dashed { "┄ " } else { "" },
+                            label
+                        ))
+                        .text_color(*color)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let mut selected = this
+                                .data
+                                .get("hidden_series")
+                                .and_then(Value::as_array)
+                                .cloned()
+                                .unwrap_or_default();
+                            if let Some(index) = selected
+                                .iter()
+                                .position(|value| value.as_str() == Some(label_for_event.as_str()))
+                            {
+                                selected.remove(index);
+                            } else {
+                                selected.push(json!(label_for_event.clone()));
+                            }
+                            this.data["hidden_series"] = Value::Array(selected);
+                            cx.notify();
+                        }))
+                }));
         let visible = variants
             .iter()
             .filter(|(label, _, _, _)| {
@@ -2941,7 +2960,7 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
         return div()
             .flex()
             .flex_col()
-            .gap_2()
+            .gap(px(tokens.space[4]))
             .child(legend)
             .child(shared_trend_plot(
                 lines,
@@ -2950,13 +2969,14 @@ fn trend_chart(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> 
                 y_max,
                 tokens.border,
                 tokens.secondary,
+                tokens,
             ))
             .into_any_element();
     }
     let values = array(data, "trend");
     if values.is_empty() {
         return div()
-            .text_sm()
+            .text_size(px(tokens.desktop_type[1][0]))
             .text_color(tokens.secondary)
             .child(t("dashboard.empty"))
             .into_any_element();
@@ -2993,8 +3013,10 @@ fn shared_trend_plot(
     y_max: f64,
     grid_color: Hsla,
     secondary_color: Hsla,
+    tokens: &Tokens,
 ) -> AnyElement {
     let plot_lines = lines.clone();
+    let grid_line_width = tokens.desktop_layout.divider;
     let plot = canvas(
         move |bounds: Bounds<gpui_kit::gpui::Pixels>, _, _| {
             let width = bounds.size.width.as_f32();
@@ -3009,7 +3031,7 @@ fn shared_trend_plot(
             // Paint the grid first so the data lines remain visually on top.
             for y_ratio in [0., 0.5, 1.] {
                 let y = bottom - (bottom - top) * y_ratio;
-                let mut builder = PathBuilder::stroke(px(1.));
+                let mut builder = PathBuilder::stroke(px(grid_line_width));
                 builder.move_to(point(origin.x + px(left), origin.y + px(y)));
                 builder.line_to(point(origin.x + px(right), origin.y + px(y)));
                 if let Ok(path) = builder.build() {
@@ -3075,7 +3097,7 @@ fn shared_trend_plot(
         .justify_between()
         .children(tick_indexes.iter().map(|index| {
             div()
-                .text_xs()
+                .text_size(px(tokens.desktop_type[0][0]))
                 .text_color(secondary_color)
                 .child(labels.get(*index).cloned().unwrap_or_default())
         }));
@@ -3090,11 +3112,11 @@ fn shared_trend_plot(
         .justify_between()
         .children([
             div()
-                .text_xs()
+                .text_size(px(tokens.desktop_type[0][0]))
                 .text_color(secondary_color)
                 .child(format_chart_value(y_max)),
             div()
-                .text_xs()
+                .text_size(px(tokens.desktop_type[0][0]))
                 .text_color(secondary_color)
                 .child(format_chart_value(y_min)),
         ]);
@@ -3130,14 +3152,7 @@ fn format_chart_value(value: f64) -> String {
 }
 
 fn series_color(tokens: &Tokens, index: usize) -> gpui_kit::Hsla {
-    match index % 6 {
-        0 => tokens.accent,
-        1 => tokens.success,
-        2 => tokens.attention,
-        3 => tokens.danger,
-        4 => tokens.primary,
-        _ => tokens.secondary,
-    }
+    tokens.chart[index % tokens.chart.len()]
 }
 
 fn aggregate_series_values(series: &[Vec<Value>]) -> Vec<Value> {
@@ -3188,77 +3203,82 @@ fn skills(
     let selected_source = skill_source_kind(selected);
     let selected_builtin = !selected_name.is_empty() && selected_source == "builtin";
     let selected_draft = !selected_name.is_empty() && selected_source == "draft";
-    let list_rows = div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .children(skills.iter().enumerate().map(|(index, skill)| {
-            let id = string(skill, "name", &format!("skill-{index}"));
-            let name = string(skill, "name", t("skills.unnamed"));
-            let enabled = skill
-                .get("enabled")
-                .and_then(Value::as_bool)
-                .unwrap_or(true);
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap_2()
-                .w_full()
-                .p(px(tokens.space[4]))
-                .rounded(px(tokens.radius[2]))
-                .bg(
-                    if selected.get("name").and_then(Value::as_str) == Some(id.as_str()) {
-                        tokens.bot
-                    } else {
-                        tokens.window
-                    },
-                )
-                .child(div().flex_1().min_w_0().truncate().child(format!(
-                    "ϟ {name} · {} · {}",
-                    skill_source(skill),
-                    skill_invocations(skill)
-                )))
-                .child({
-                    let mut actions = div().flex().flex_wrap().gap_2().flex_shrink_0();
-                    if skill_source_kind(skill) != "draft" {
+    let list_rows =
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(tokens.space[2]))
+            .children(skills.iter().enumerate().map(|(index, skill)| {
+                let id = string(skill, "name", &format!("skill-{index}"));
+                let name = string(skill, "name", t("skills.unnamed"));
+                let enabled = skill
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true);
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap(px(tokens.space[4]))
+                    .w_full()
+                    .p(px(tokens.space[4]))
+                    .rounded(px(tokens.radius[2]))
+                    .bg(
+                        if selected.get("name").and_then(Value::as_str) == Some(id.as_str()) {
+                            tokens.selected
+                        } else {
+                            tokens.window
+                        },
+                    )
+                    .child(div().flex_1().min_w_0().truncate().child(format!(
+                        "ϟ {name} · {} · {}",
+                        skill_source(skill),
+                        skill_invocations(skill)
+                    )))
+                    .child({
+                        let mut actions = div()
+                            .flex()
+                            .flex_wrap()
+                            .gap(px(tokens.space[4]))
+                            .flex_shrink_0();
+                        if skill_source_kind(skill) != "draft" {
+                            actions = actions.child(action_button_with_id(
+                                format!("skill-{index}-toggle"),
+                                if enabled {
+                                    t("skills.disable_for")
+                                } else {
+                                    t("common.enable")
+                                },
+                                FeatureAction::Rpc {
+                                    method: "skill.set_enabled".into(),
+                                    params: skill_enabled_params(&id, !enabled, None),
+                                },
+                                cx,
+                            ));
+                        }
                         actions = actions.child(action_button_with_id(
-                            format!("skill-{index}-toggle"),
-                            if enabled {
-                                t("skills.disable_for")
-                            } else {
-                                t("common.enable")
-                            },
-                            FeatureAction::Rpc {
-                                method: "skill.set_enabled".into(),
-                                params: skill_enabled_params(&id, !enabled, None),
-                            },
+                            format!("skill-{index}-edit"),
+                            t("common.edit"),
+                            FeatureAction::Navigate(format!("skill/{id}")),
                             cx,
                         ));
-                    }
-                    actions = actions.child(action_button_with_id(
-                        format!("skill-{index}-edit"),
-                        t("common.edit"),
-                        FeatureAction::Navigate(format!("skill/{id}")),
-                        cx,
-                    ));
-                    if skill_source_kind(skill) == "draft" {
-                        actions = actions.child(action_button_with_id(
-                            format!("skill-{index}-publish"),
-                            t("skills.publish"),
-                            FeatureAction::Rpc {
-                                method: "skill.publish".into(),
-                                params: skill_publish_params(&id),
-                            },
-                            cx,
-                        ));
-                    }
-                    actions
-                })
-        }));
+                        if skill_source_kind(skill) == "draft" {
+                            actions = actions.child(action_button_with_id(
+                                format!("skill-{index}-publish"),
+                                t("skills.publish"),
+                                FeatureAction::Rpc {
+                                    method: "skill.publish".into(),
+                                    params: skill_publish_params(&id),
+                                },
+                                cx,
+                            ));
+                        }
+                        actions
+                    })
+            }));
     let list = if skills.is_empty() {
         div()
-            .p_3()
+            .p(px(tokens.space[5]))
             .text_color(tokens.secondary)
             .child(t("skills.no_results"))
     } else {
@@ -3301,12 +3321,13 @@ fn skills(
             Input::new(input_state(inputs, "name"))
                 .id("skill-name-input")
                 .disabled(selected_builtin),
+            tokens,
         ))
         .child(if previewing {
             div()
                 .flex()
                 .flex_col()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .child(
                     div()
                         .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
@@ -3326,6 +3347,7 @@ fn skills(
                 Textarea::new(textarea_state(textareas, "content"))
                     .h(px(240.))
                     .disabled(selected_builtin),
+                tokens,
             )
             .into_any_element()
         })
@@ -3340,20 +3362,23 @@ fn skills(
             div()
                 .flex()
                 .flex_col()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .child(labeled_field(
                     t("skills.field_path"),
                     Input::new(input_state(inputs, "path")).id("skill-import-path-input"),
+                    tokens,
                 ))
                 .child(skill_import_button(t("skills.import"), inputs, cx))
                 .child(labeled_field(
                     t("skills.field_git_url"),
                     Input::new(input_state(inputs, "git_url")).id("skill-import-git-url-input"),
+                    tokens,
                 ))
                 .child(labeled_field(
                     t("skills.field_git_subdir"),
                     Input::new(input_state(inputs, "git_subdir"))
                         .id("skill-import-git-subdir-input"),
+                    tokens,
                 ))
                 .child(skill_import_git_button(
                     t("skills.new.mode.git"),
@@ -3381,7 +3406,7 @@ fn skills(
         ))
         .child(card(
             t("skills.disable_for"),
-            skill_bot_controls(selected, data, cx),
+            skill_bot_controls(selected, data, tokens, cx),
             tokens,
         ))
         .child({
@@ -3390,7 +3415,7 @@ fn skills(
             } else {
                 t("common.preview")
             };
-            let mut actions = div().flex().gap_2().child(
+            let mut actions = div().flex().gap(px(tokens.space[4])).child(
                 Button::new("skill-toggle-preview")
                     .label(preview_label)
                     .ghost()
@@ -3464,10 +3489,11 @@ fn skills(
             div()
                 .flex()
                 .flex_wrap()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .child(labeled_field(
                     t("skills.search"),
                     Input::new(input_state(inputs, "query")).id("skill-search-input"),
+                    tokens,
                 ))
                 .child(skill_search_button(inputs, cx))
                 .child(skill_filter_button(
@@ -3518,6 +3544,7 @@ fn skills(
 fn skill_bot_controls(
     selected: &Value,
     data: &Value,
+    tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
     let name = selected
@@ -3533,7 +3560,7 @@ fn skill_bot_controls(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    div().flex().flex_col().gap_1().children(
+    div().flex().flex_col().gap(px(tokens.space[2])).children(
         array(data, "bots")
             .iter()
             .filter(|bot| !bot.get("is_main").and_then(Value::as_bool).unwrap_or(false))
@@ -3723,9 +3750,9 @@ fn bot_editor(
         ],
         tokens,
     );
-    let model_picker = bot_model_picker(data, inputs, cx);
+    let model_picker = bot_model_picker(data, inputs, tokens, cx);
     let avatar_picker = bot_avatar_picker(data, tokens, cx);
-    let bot_actions = bot_actions(data, cx);
+    let bot_actions = bot_actions(data, tokens, cx);
     let tool_picker = if data
         .get("is_main")
         .and_then(Value::as_bool)
@@ -3733,7 +3760,7 @@ fn bot_editor(
     {
         div().into_any_element()
     } else {
-        bot_tools_picker(data, cx).into_any_element()
+        bot_tools_picker(data, tokens, cx).into_any_element()
     };
     div()
         .flex()
@@ -3755,33 +3782,43 @@ fn bot_editor(
         .child(labeled_field(
             t("bot.field.name"),
             Input::new(input_state(inputs, "name")).id("bot-name-input"),
+            tokens,
         ))
         .child(labeled_field(
             t("bot.field.label"),
             Input::new(input_state(inputs, "label")).id("bot-label-input"),
+            tokens,
         ))
         .child(labeled_field(
             t("bot.field.rules"),
             Textarea::new(textarea_state(textareas, "description")).h(px(120.)),
+            tokens,
         ))
         .child(labeled_field(
             t("bot.field.model"),
             Input::new(input_state(inputs, "model")).id("bot-model-input"),
+            tokens,
         ))
         .child(labeled_field(
             t("bot.field.max_parallel"),
             Input::new(input_state(inputs, "max_parallel")).id("bot-parallel-input"),
+            tokens,
         ))
         .child(labeled_field(
             t("bot.field.browser_mode"),
             Input::new(input_state(inputs, "browser_mode")).id("bot-browser-input"),
+            tokens,
         ))
-        .child(labeled_field(t("bot.models.available"), model_picker))
+        .child(labeled_field(
+            t("bot.models.available"),
+            model_picker,
+            tokens,
+        ))
         .child(labeled_field(
             t("bot.field.browser_mode"),
-            bot_browser_picker(inputs, cx),
+            bot_browser_picker(inputs, tokens, cx),
         ))
-        .child(labeled_field(t("bot.field.tools"), tool_picker))
+        .child(labeled_field(t("bot.field.tools"), tool_picker, tokens))
         .child(bot_notification_toggle(data, cx))
         .child(avatar_picker)
         .child(if data.get("id").is_some() {
@@ -4115,13 +4152,14 @@ fn bot_notification_toggle(
 fn bot_model_picker(
     data: &Value,
     inputs: &BTreeMap<String, Entity<InputState>>,
+    tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement + use<> {
     let model = input_state(inputs, "model").clone();
     let models = array(data, "models");
     div()
         .flex()
-        .gap_1()
+        .gap(px(tokens.space[2]))
         .children(models.iter().filter_map(|item| {
             let value = item
                 .as_str()
@@ -4147,10 +4185,11 @@ fn bot_model_picker(
 
 fn bot_browser_picker(
     inputs: &BTreeMap<String, Entity<InputState>>,
+    tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement + use<> {
     let browser = input_state(inputs, "browser_mode").clone();
-    div().flex().gap_1().children(
+    div().flex().gap(px(tokens.space[2])).children(
         [
             ("headless", "bot.browser_headless"),
             ("headless_profile", "bot.browser_profile"),
@@ -4170,14 +4209,18 @@ fn bot_browser_picker(
     )
 }
 
-fn bot_tools_picker(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoElement + use<> {
+fn bot_tools_picker(
+    data: &Value,
+    tokens: &Tokens,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
     let bot_id = data
         .get("id")
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
     let tools = data.get("tools").cloned().unwrap_or_else(default_bot_tools);
-    div().flex().flex_wrap().gap_2().children(
+    div().flex().flex_wrap().gap(px(tokens.space[4])).children(
         ["files", "bash", "browser", "subagent", "web", "mcp"]
             .into_iter()
             .map(|key| {
@@ -4227,7 +4270,7 @@ fn bot_tools_picker(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoEle
 
 fn bot_avatar_picker(
     data: &Value,
-    _tokens: &Tokens,
+    tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement + use<> {
     let bot_id = data
@@ -4253,7 +4296,7 @@ fn bot_avatar_picker(
                 .into_any_element(),
         );
     }
-    div().flex().gap_1().children(buttons)
+    div().flex().gap(px(tokens.space[2])).children(buttons)
 }
 
 fn bot_avatar_button(
@@ -4282,7 +4325,11 @@ fn bot_avatar_button(
         }))
 }
 
-fn bot_actions(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoElement + use<> {
+fn bot_actions(
+    data: &Value,
+    tokens: &Tokens,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
     let Some(bot_id) = data.get("id").and_then(Value::as_str) else {
         return div();
     };
@@ -4303,7 +4350,7 @@ fn bot_actions(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoElement 
     );
     div()
         .flex()
-        .gap_2()
+        .gap(px(tokens.space[4]))
         .child(action_button(
             if pinned {
                 t("bot.action.unpin")
@@ -4361,7 +4408,7 @@ fn group_editor(
         .collect::<Vec<_>>();
     let available_bots = array(data, "bots");
     let selected_count = selected_member_bot_ids.len();
-    let member_checks = div().flex().flex_col().gap_1().children(
+    let member_checks = div().flex().flex_col().gap(px(tokens.space[2])).children(
         available_bots
             .iter()
             .filter(|bot| {
@@ -4428,12 +4475,18 @@ fn group_editor(
         .child(labeled_field(
             t("group.field.name"),
             Input::new(input_state(inputs, "name")).id("group-name-input"),
+            tokens,
         ))
         .child(labeled_field(
             t("group.announcement"),
             Textarea::new(textarea_state(textareas, "goal")).h(px(120.)),
+            tokens,
         ))
-        .child(div().text_sm().child(t("group.members")))
+        .child(
+            div()
+                .text_size(px(tokens.desktop_type[1][0]))
+                .child(t("group.members")),
+        )
         .child(member_checks)
         .child(card(t("group.new.title"), body, tokens))
         .child(group_create_button(
@@ -4503,7 +4556,7 @@ fn routine_editor(
     } else {
         div()
             .flex()
-            .gap_2()
+            .gap(px(tokens.space[4]))
             .child(action_button(
                 t("routines.test_run"),
                 FeatureAction::Rpc {
@@ -4547,25 +4600,30 @@ fn routine_editor(
         .child(labeled_field(
             t("routines.field.name"),
             Input::new(input_state(inputs, "name")).id("routine-name-input"),
+            tokens,
         ))
         .child(labeled_field(
             t("routines.field.bot"),
             Input::new(input_state(inputs, "bot_id")).id("routine-bot-input"),
+            tokens,
         ))
         .child(labeled_field(
             t("routines.field.project"),
             Input::new(input_state(inputs, "project_id")).id("routine-project-input"),
+            tokens,
         ))
-        .child(routine_selectors(data, inputs, cx))
+        .child(routine_selectors(data, inputs, tokens, cx))
         .child(labeled_field(
             t("routines.field.instruction"),
             Textarea::new(textarea_state(textareas, "instructions")).h(px(180.)),
+            tokens,
         ))
-        .child(routine_schedule_inputs(data, inputs, cx))
+        .child(routine_schedule_inputs(data, inputs, tokens, cx))
         .child(routine_add_schedule_button(cx))
         .child(labeled_field(
             t("routines.field.timezone_label"),
             Input::new(input_state(inputs, "timezone")).id("routine-timezone-input"),
+            tokens,
         ))
         .child(summary)
         .child(card(
@@ -4576,7 +4634,7 @@ fn routine_editor(
         .child(
             div()
                 .flex()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .child(routine_save_button(
                     t("common.save"),
                     data,
@@ -4591,6 +4649,7 @@ fn routine_editor(
 fn routine_schedule_inputs(
     data: &Value,
     inputs: &BTreeMap<String, Entity<InputState>>,
+    tokens: &Tokens,
     _cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
     let slots = data
@@ -4602,22 +4661,19 @@ fn routine_schedule_inputs(
         })
         .clamp(1, 6);
     let fields = ["cron", "cron_1", "cron_2", "cron_3", "cron_4", "cron_5"];
-    div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .children(
-            fields
-                .iter()
-                .take(slots as usize)
-                .enumerate()
-                .map(|(index, field)| {
-                    labeled_field(
-                        format!("{} {}", t("routines.field.schedule_slot"), index + 1),
-                        Input::new(input_state(inputs, field)).id(format!("routine-{field}-input")),
-                    )
-                }),
-        )
+    div().flex().flex_col().gap(px(tokens.space[2])).children(
+        fields
+            .iter()
+            .take(slots as usize)
+            .enumerate()
+            .map(|(index, field)| {
+                labeled_field(
+                    format!("{} {}", t("routines.field.schedule_slot"), index + 1),
+                    Input::new(input_state(inputs, field)).id(format!("routine-{field}-input")),
+                    tokens,
+                )
+            }),
+    )
 }
 
 fn routine_add_schedule_button(cx: &mut Context<FeaturePage>) -> impl IntoElement + use<> {
@@ -4637,6 +4693,7 @@ fn routine_add_schedule_button(cx: &mut Context<FeaturePage>) -> impl IntoElemen
 fn routine_selectors(
     data: &Value,
     inputs: &BTreeMap<String, Entity<InputState>>,
+    tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement + use<> {
     let bot_input = input_state(inputs, "bot_id").clone();
@@ -4646,27 +4703,34 @@ fn routine_selectors(
     div()
         .flex()
         .flex_col()
-        .gap_1()
-        .child(div().flex().gap_1().children(bots.iter().filter_map(|bot| {
-            let id = bot.get("id").and_then(Value::as_str)?.to_owned();
-            let label = bot
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or(&id)
-                .to_owned();
-            let input = bot_input.clone();
-            Some(
-                Button::new(format!("routine-bot-{id}"))
-                    .label(label)
-                    .on_click(cx.listener(move |_this, _, window, cx| {
-                        input.update(cx, |state, cx| state.set_value(id.clone(), window, cx));
-                    })),
-            )
-        })))
+        .gap(px(tokens.space[2]))
         .child(
             div()
                 .flex()
-                .gap_1()
+                .gap(px(tokens.space[2]))
+                .children(bots.iter().filter_map(|bot| {
+                    let id = bot.get("id").and_then(Value::as_str)?.to_owned();
+                    let label = bot
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&id)
+                        .to_owned();
+                    let input = bot_input.clone();
+                    Some(
+                        Button::new(format!("routine-bot-{id}"))
+                            .label(label)
+                            .on_click(cx.listener(move |_this, _, window, cx| {
+                                input.update(cx, |state, cx| {
+                                    state.set_value(id.clone(), window, cx)
+                                });
+                            })),
+                    )
+                })),
+        )
+        .child(
+            div()
+                .flex()
+                .gap(px(tokens.space[2]))
                 .children(projects.iter().filter_map(|project| {
                     let id = project.get("id").and_then(Value::as_str)?.to_owned();
                     let label = project
@@ -4711,7 +4775,7 @@ fn routines_list(
         })
         .cloned()
         .collect::<Vec<_>>();
-    let mut list = div().flex().flex_col().gap_1();
+    let mut list = div().flex().flex_col().gap(px(tokens.space[2]));
     for routine in filtered {
         let id = string(&routine, "id", "");
         let name = string(&routine, "name", t("routine.default_name"));
@@ -4737,7 +4801,7 @@ fn routines_list(
                 .p(px(tokens.space[4]))
                 .rounded(px(tokens.radius[2]))
                 .bg(if id == selected_id {
-                    tokens.bot
+                    tokens.selected
                 } else {
                     tokens.window
                 })
@@ -4751,7 +4815,7 @@ fn routines_list(
                 ),
         );
     }
-    list.child(div().flex().flex_wrap().gap_1().children(
+    list.child(div().flex().flex_wrap().gap(px(tokens.space[2])).children(
         ["all", "running", "paused"].into_iter().map(|value| {
             let label = match value {
                 "running" => t("routines.filter.running"),
@@ -4828,7 +4892,7 @@ fn search(
         .child(
             div()
                 .flex()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .child(search_filter_button(t("common.all"), None, inputs, cx))
                 .child(search_filter_button(
                     t("search.filter.messages"),
@@ -4888,7 +4952,7 @@ fn search_result_rows(
     if results.is_empty() {
         return div()
             .w_full()
-            .p_4()
+            .p(px(tokens.space[6]))
             .text_color(tokens.secondary)
             .child(t("search.no_results"))
             .into_any_element();
@@ -4898,7 +4962,7 @@ fn search_result_rows(
         .min_w_0()
         .flex()
         .flex_col()
-        .gap_1()
+        .gap(px(tokens.space[2]))
         .children(results.iter().enumerate().map(|(index, result)| {
             let kind = string(result, "kind", "");
             let kind_label = search_kind_label(&kind);
@@ -4910,9 +4974,9 @@ fn search_result_rows(
                 .min_w_0()
                 .flex()
                 .items_center()
-                .gap_3()
-                .py_2()
-                .border_b_1()
+                .gap(px(tokens.space[5]))
+                .py(px(tokens.space[4]))
+                .border_b(px(tokens.desktop_layout.divider))
                 .border_color(tokens.border)
                 .child(
                     div()
@@ -4921,7 +4985,7 @@ fn search_result_rows(
                         .overflow_hidden()
                         .flex()
                         .flex_col()
-                        .gap_1()
+                        .gap(px(tokens.space[2]))
                         .child(
                             div()
                                 .w_full()
@@ -4932,7 +4996,7 @@ fn search_result_rows(
                             div()
                                 .w_full()
                                 .truncate()
-                                .text_sm()
+                                .text_size(px(tokens.desktop_type[1][0]))
                                 .text_color(tokens.secondary)
                                 .child(snippet),
                         ),
