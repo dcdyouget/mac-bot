@@ -395,6 +395,7 @@ interface Approval {
   summary: string;             // 一句话说明
   detail: string;              // Markdown，例如完整的命令
   state: "pending" | "allowed_once" | "always_allowed" | "denied" | "expired";
+  always_allow_supported?: boolean; // 旧服务端省略时兼容为 true；新服务端显式返回；false 时隐藏或禁用「总是允许」
   created_at: Time; decided_at: Time | null;
 }
 interface Question {
@@ -407,6 +408,8 @@ interface Question {
   answer: { option_index: number | null; option_indexes: number[]; text: string | null; at: Time } | null;
 }
 ```
+
+旧服务端快照迁移时，缺少 `always_allow_supported` 的普通审批保留原有“总是允许”能力；可从工具和详情识别的内置高风险审批会迁移为 `false`。旧审批不保存执行工作目录，因此历史 `rm -rf` 一律迁移为 `false`，避免绕过内置确认规则；已有显式值不变。该兼容收紧只影响对应历史审批的持久允许选项，不影响单次允许。
 
 ### 4.10 Skill、Routine
 
@@ -466,6 +469,7 @@ interface Settings {
   host_name: string;
   timezone: string;
   currency: string;
+  tools: { defaults: ToolToggles }; // 只作用于新建 Bot；没有旧设置时文件、bash、浏览器、子代理、网页开启，MCP 关闭
   concurrency: { global: number; bot_default: number; subagent_per_run: number;
                  subagent_global: number; loop_hops: number };
   models: { bot_default: ModelRef | null; main: ModelRef | null;
@@ -569,12 +573,12 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 |------|------|------|
 | `bot.list` | `{ include_hidden?: boolean }` | `{ bots: Bot[] }` |
 | `bot.get` | `{ bot_id }` | `{ bot: Bot }` |
-| `bot.create` | `{ name, label?, description?, avatar?, model?, max_parallel?, tools?, browser_mode? }` | `{ bot: Bot, dm_chat: Chat }` |
+| `bot.create` | `{ name, label?, description?, avatar?, model?, max_parallel?, tools?, browser_mode? }` | `{ bot: Bot, dm_chat: Chat }`（未传 `tools` 时使用 `settings.tools.defaults`；显式传入时使用请求值） |
 | `bot.update` | `{ bot_id, patch: Partial<Pick<Bot, "name"\|"label"\|"description"\|"avatar"\|"model"\|"max_parallel"\|"tools"\|"browser_mode"\|"pinned"\|"hidden"\|"notifications">> }` | `{ bot: Bot }` |
-| `bot.duplicate` | `{ bot_id, name }` | `{ bot: Bot, dm_chat: Chat }`（复制资料、技能停用设置和定时任务，不复制记忆和历史） |
+| `bot.duplicate` | `{ bot_id, name }` | `{ bot: Bot, dm_chat: Chat }`（复制资料、工具、技能停用设置和定时任务，不复制记忆和历史；不套用新 Bot 工具默认值） |
 | `bot.delete` | `{ bot_id }` | `{}`（主 Bot 返回 `forbidden`；有进行中任务时返回 `conflict`） |
 | `bot.templates` | `{}` | `{ templates: { id: string, name: string, description: string, bots: { name, label, description, avatar }[] }[] }`（服务端内置的团队模板，例如「产品 + 编码 + 测试」「调研 + 写作」） |
-| `bot.create_from_template` | `{ template_id: string }` | `{ bots: Bot[], dm_chats: Chat[] }`（同名 Bot 已经存在时跳过） |
+| `bot.create_from_template` | `{ template_id: string }` | `{ bots: Bot[], dm_chats: Chat[] }`（同名 Bot 已经存在时跳过；仅对实际新建的 Bot 使用 `settings.tools.defaults`） |
 
 ### 5.4 项目（群）
 
@@ -609,7 +613,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | 方法 | 参数 | 返回 |
 |------|------|------|
 | `approval.list` | `{ state?: Approval["state"][] }` | `{ approvals: Approval[] }` |
-| `approval.decide` | `{ approval_id, decision: "allow_once"\|"always_allow"\|"deny" }` | `{ approval: Approval }`（always_allow 会新增一条 auto_allow 规则） |
+| `approval.decide` | `{ approval_id, decision: "allow_once"\|"always_allow"\|"deny" }` | `{ approval: Approval }`（仅当 `always_allow_supported` 为 true 时提供 `always_allow`；该操作会新增一条 auto_allow 规则） |
 | `question.answer` | `{ question_id, option_index?: number, option_indexes?: number[] /* 多选 */, text?: string }` | `{ question: Question }`（已过期时返回 `conflict`） |
 | `loop.resolve` | `{ root_message_id, action: "continue"\|"end" }` | `{}` |
 | `takeover.start` | `{ bot_id }` | `{}`（之后 `/ws/screen` 上的输入才会被接受；客户端需要已经打开该 Bot 的画面连接） |
@@ -677,7 +681,7 @@ interface Workbench {
 | `model.upsert` | `{ ref?: ModelRef, provider_id, model_id, display_name?, context_window?, max_output?, caps?, price?, enabled? }` | `{ model: Model }` |
 | `model.delete` | `{ ref: ModelRef }` | `{}` |
 | `settings.get` | `{}` | `{ settings: Settings }` |
-| `settings.update` | `{ patch: DeepPartial<Settings>, web_search_key?: string }` | `{ settings: Settings }`（`push`、`web_search.has_key` 只读；`web_search_key` 写入密钥后端，空串删除，以 `web_search.provider` 为引用；不进入设置、响应、事件或日志） |
+| `settings.update` | `{ patch: DeepPartial<Settings>, web_search_key?: string }` | `{ settings: Settings }`（`tools.defaults` 可部分更新；只影响之后新建的 Bot，不改已有 Bot；`push`、`web_search.has_key` 只读；`web_search_key` 写入密钥后端，空串删除，以 `web_search.provider` 为引用；不进入设置、响应、事件或日志） |
 
 ### 5.11 仪表盘
 
