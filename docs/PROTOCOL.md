@@ -568,7 +568,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 - Bot 通过 `send_msg` 登记 project Home 内普通文件产物时，服务端保存当时文件内容快照；内容未变化不增加版本。历史从新版本部署后首次登记开始，既有产物不会伪造或回填旧版本。`artifact.versions.list` 与 `artifact.version.get` 只返回已真实保存的版本，不从当前文件推测旧内容。URL、目录、越界路径、敏感文件名和超过 5 MiB 的文件不会生成可读历史版本。
 - `bot_dm` 会话是只读的，对它调用 `chat.send` 返回 `forbidden`。
 - `message.delete` 只允许删除当前用户发送的消息（`sender.kind = "user"`）；删除 Bot、系统或其他非用户消息返回 `forbidden`。对已删除消息重试仍返回 `{}`，不重复产生 `message.deleted`；删除成功时持久化事件的 data 为 `{ chat_id, message_id }`。
-- `message.edit` 只允许修改 `sender.kind = "user"`、`mentions` 为空且 `blocks` 恰好包含一个 `type = "text"` block 的消息；其他消息返回 `forbidden`。`text` 非空；成功时替换该 block 的 `markdown` 和消息的 `fallback_text`，设置 `edited_at`，不重新解析 mention 或派发任务，返回更新后的 `{ message }` 并持久化 `message.updated`，data 为 `{ message }`。
+- `message.edit` 只允许修改 `sender.kind = "user"`、`mentions` 为空且 `blocks` 恰好包含一个 `type = "text"` block 的消息；其他发送者返回 `forbidden`，已删除、流式、有 mentions 或含其他内容块的消息返回 `conflict`。`text` 非空；成功时替换该 block 的 `markdown` 和消息的 `fallback_text`，设置 `edited_at`，不重新解析 mention 或派发任务，返回更新后的 `{ message }` 并持久化 `message.updated`，data 为 `{ message }`。
 - **强制使用技能**：`text` 以 `/<技能名>` 开头时（例如 `/web-auth-patterns 按这个规范做`），服务端把这个技能的全文加载进本次任务，其余文字作为指令。技能名不存在时，按普通文本处理。
 
 ### 5.3 Bot
