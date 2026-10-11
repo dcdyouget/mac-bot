@@ -3246,6 +3246,13 @@ impl MacBot {
         let is_bot = kind == "bot_dm";
         let bot_id = s(chat, "bot_id").to_owned();
         let project_id = s(chat, "project_id").to_owned();
+        let project_home_path = self
+            .state
+            .projects
+            .get(&project_id)
+            .map(|project| s(project, "home_path").to_owned())
+            .unwrap_or_default();
+        let can_open_home = is_project && !project_id.is_empty() && self.connected && !self.fixture;
         let entity = cx.entity();
         let bot = self.state.bots.get(s(chat, "bot_id"));
         let bot_name = bot.map(|bot| s(bot, "name").to_owned()).unwrap_or_default();
@@ -3438,6 +3445,27 @@ impl MacBot {
                             });
                         },
                     ));
+                    let home_entity = entity.clone();
+                    let home_project_id = project_id.clone();
+                    let home_path = project_home_path.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(tr("sidebar.menu.open_home"))
+                            .disabled(!can_open_home)
+                            .on_click(move |_, _, cx| {
+                                let _ = home_entity.update(cx, |this, cx| {
+                                    if can_open_home {
+                                        this.open_project_home(
+                                            home_project_id.clone(),
+                                            home_path.clone(),
+                                            cx,
+                                        );
+                                    } else {
+                                        this.notice = tr("home.error").to_string();
+                                        cx.notify();
+                                    }
+                                });
+                            }),
+                    );
                     let archive_entity = entity.clone();
                     let archive_project_id = project_id.clone();
                     menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.archive")).on_click(

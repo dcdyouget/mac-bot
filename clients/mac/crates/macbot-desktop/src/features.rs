@@ -15,7 +15,8 @@ use gpui_kit::component::text::TextView;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::gpui::{
     AnyElement, App, AppContext, Bounds, Context, Entity, EventEmitter, Hsla, InteractiveElement,
-    IntoElement, ParentElement, PathBuilder, Render, Styled, Window, canvas, div, point, px,
+    IntoElement, KeyDownEvent, ParentElement, PathBuilder, Render, Styled, Window, canvas, div,
+    point, px,
 };
 use gpui_kit::prelude::FluentBuilder;
 use serde_json::{Value, json};
@@ -63,6 +64,7 @@ pub struct FeaturePage {
     pub textareas: BTreeMap<String, Entity<TextareaState>>,
     pub selected_member_bot_ids: Vec<String>,
     pub last_action: Option<FeatureAction>,
+    search_selected_result: usize,
 }
 
 /// JSON keys consumed by each feature page. Results from RPCs may include
@@ -151,6 +153,7 @@ impl FeaturePage {
             textareas,
             selected_member_bot_ids,
             last_action: None,
+            search_selected_result: 0,
         }
     }
 
@@ -179,6 +182,7 @@ impl FeaturePage {
             textareas: BTreeMap::new(),
             selected_member_bot_ids,
             last_action: None,
+            search_selected_result: 0,
         }
     }
 
@@ -198,6 +202,9 @@ impl FeaturePage {
     /// Replace a bootstrap/RPC payload and ask GPUI to render the new page.
     #[allow(dead_code)]
     pub fn update_data(&mut self, data: Value, cx: &mut Context<Self>) {
+        if data.get("results").is_some() {
+            self.search_selected_result = 0;
+        }
         self.data = merge_feature_data(&self.data, data);
         cx.notify();
     }
@@ -217,6 +224,7 @@ impl FeaturePage {
         self.page = page;
         self.data = data;
         self.last_action = None;
+        self.search_selected_result = 0;
         cx.notify();
     }
 
@@ -237,15 +245,69 @@ impl FeaturePage {
     }
 
     pub fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        render_page(
+        let content = render_page(
             &self.page,
             &self.data,
             &self.inputs,
             &self.textareas,
             &self.selected_member_bot_ids,
+            self.search_selected_result,
             window,
             cx,
-        )
+        );
+        if self.page == "search" {
+            div()
+                .key_context("SearchPage")
+                .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    if this.page != "search"
+                        || !this.inputs.get("query").is_some_and(|query| {
+                            query.read(cx).focus_handle(cx).contains_focused(window, cx)
+                        })
+                    {
+                        return;
+                    }
+                    let results = this
+                        .data
+                        .get("results")
+                        .and_then(Value::as_array)
+                        .map(Vec::len)
+                        .unwrap_or_default();
+                    match event.keystroke.key.as_str() {
+                        "up" | "ArrowUp" if results > 0 => {
+                            cx.stop_propagation();
+                            this.search_selected_result =
+                                this.search_selected_result.saturating_sub(1);
+                            cx.notify();
+                        }
+                        "down" | "ArrowDown" if results > 0 => {
+                            cx.stop_propagation();
+                            this.search_selected_result =
+                                (this.search_selected_result + 1).min(results - 1);
+                            cx.notify();
+                        }
+                        "enter" | "Enter" if !event.keystroke.modifiers.modified() => {
+                            let Some(result) = this
+                                .data
+                                .get("results")
+                                .and_then(Value::as_array)
+                                .and_then(|results| results.get(this.search_selected_result))
+                            else {
+                                return;
+                            };
+                            let kind = string(result, "kind", "");
+                            if let Some(target) = search_target(result, &kind) {
+                                cx.stop_propagation();
+                                this.emit_action(FeatureAction::Navigate(target), cx);
+                            }
+                        }
+                        _ => {}
+                    }
+                }))
+                .child(content)
+                .into_any_element()
+        } else {
+            content
+        }
     }
 }
 
@@ -490,6 +552,7 @@ fn render_page(
     inputs: &BTreeMap<String, Entity<InputState>>,
     textareas: &BTreeMap<String, Entity<TextareaState>>,
     selected_member_bot_ids: &[String],
+    search_selected_result: usize,
     _window: &mut Window,
     cx: &mut Context<FeaturePage>,
 ) -> AnyElement {
@@ -523,7 +586,7 @@ fn render_page(
         "routine" | "routines" => {
             routine_editor(data, inputs, textareas, &tokens, cx).into_any_element()
         }
-        "search" => search(data, inputs, &tokens, cx).into_any_element(),
+        "search" => search(data, inputs, search_selected_result, &tokens, cx).into_any_element(),
         _ => empty_page(page, &tokens, cx).into_any_element(),
     };
     let scroll = div()
@@ -5828,6 +5891,12 @@ fn search(
             tokens,
         ))
         .child(Input::new(input_state(inputs, "query")).id("search-input"))
+        .child(
+            div()
+                .text_size(px(tokens.desktop_type[0][0]))
+                .text_color(tokens.tertiary)
+                .child(t("search.keys.available")),
+        )
         .child(input_rpc_button(
             t("common.search"),
             "search",
@@ -5874,7 +5943,7 @@ fn search(
         )
         .child(card(
             t("common.search"),
-            search_result_rows(&result, tokens, cx),
+            search_result_rows(&result, selected_result, tokens, cx),
             tokens,
         ))
 }
@@ -5893,6 +5962,7 @@ fn search_kind_label(kind: &str) -> String {
 
 fn search_result_rows(
     results: &[Value],
+    selected_result: usize,
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
@@ -5925,6 +5995,12 @@ fn search_result_rows(
                 .py(px(tokens.space[4]))
                 .border_b(px(tokens.desktop_layout.divider))
                 .border_color(tokens.border)
+                .rounded(px(tokens.radius[1]))
+                .bg(if index == selected_result {
+                    tokens.selected
+                } else {
+                    tokens.window
+                })
                 .child(
                     div()
                         .flex_1()
