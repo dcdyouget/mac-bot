@@ -555,7 +555,7 @@ private fun MessageTimeLabel(timestamp: String, modifier: Modifier, color: andro
     val today = Clock.System.now().toLocalDateTime(zone)
     val dayDifference = today.date.toEpochDays() - local.date.toEpochDays()
     val label = when {
-        dayDifference == 0L -> stringResource(Res.string.chat_time_today, local.hour, local.minute)
+        dayDifference == 0L -> stringResource(Res.string.chat_time_today, padChatTimePart(local.hour), padChatTimePart(local.minute))
         dayDifference == 1L -> stringResource(Res.string.chat_time_yesterday)
         dayDifference in 2L..7L -> {
             val weekday = when (local.dayOfWeek.ordinal + 1) {
@@ -569,11 +569,13 @@ private fun MessageTimeLabel(timestamp: String, modifier: Modifier, color: andro
             }
             stringResource(Res.string.chat_time_weekday, weekday)
         }
-        local.year == today.year -> stringResource(Res.string.chat_time_date, local.month.ordinal + 1, local.day)
-        else -> stringResource(Res.string.chat_time_date_year, local.year, local.month.ordinal + 1, local.day)
+        local.year == today.year -> stringResource(Res.string.chat_time_date, padChatTimePart(local.month.ordinal + 1), padChatTimePart(local.day))
+        else -> stringResource(Res.string.chat_time_date_year, local.year, padChatTimePart(local.month.ordinal + 1), padChatTimePart(local.day))
     }
     Text(label, modifier, style = MaterialTheme.typography.labelSmall, color = color)
 }
+
+internal fun padChatTimePart(value: Int): String = value.toString().padStart(2, '0')
 
 private data class ScrollAnchor(val id: String, val offset: Int)
 
@@ -648,11 +650,11 @@ internal fun ChatMessageRow(
     val spokenTime = if (messageLocalTime == null) message.str("created_at") else stringResource(
         Res.string.chat_time_full,
         messageLocalTime.year,
-        messageLocalTime.month.ordinal + 1,
-        messageLocalTime.day,
-        messageLocalTime.hour,
-        messageLocalTime.minute,
-        messageLocalTime.second,
+        padChatTimePart(messageLocalTime.month.ordinal + 1),
+        padChatTimePart(messageLocalTime.day),
+        padChatTimePart(messageLocalTime.hour),
+        padChatTimePart(messageLocalTime.minute),
+        padChatTimePart(messageLocalTime.second),
     )
     val blockText = blocks.mapNotNull { entry ->
         (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank)
@@ -833,7 +835,7 @@ internal fun ChatMessageRow(
                 runCatching { Instant.parse(message.str("created_at")).toLocalDateTime(TimeZone.currentSystemDefault()) }
                     .getOrNull()?.let { timestamp ->
                         Text(
-                            stringResource(Res.string.chat_time_full, timestamp.year, timestamp.month.ordinal + 1, timestamp.day, timestamp.hour, timestamp.minute, timestamp.second),
+                            stringResource(Res.string.chat_time_full, timestamp.year, padChatTimePart(timestamp.month.ordinal + 1), padChatTimePart(timestamp.day), padChatTimePart(timestamp.hour), padChatTimePart(timestamp.minute), padChatTimePart(timestamp.second)),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

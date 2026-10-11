@@ -131,12 +131,12 @@
     <string name="feature_dm_load_error">无法载入对话</string>
     <string name="feature_dm_retry">重试</string>
     <string name="feature_dm_empty">暂无对话消息</string>
-    <string name="chat_time_today">%1$02d:%2$02d</string>
+    <string name="chat_time_today">%1$s:%2$s</string>
     <string name="chat_time_yesterday">昨天</string>
     <string name="chat_time_weekday">%1$s</string>
-    <string name="chat_time_date">%1$02d/%2$02d</string>
-    <string name="chat_time_date_year">%1$d/%2$02d/%3$02d</string>
-    <string name="chat_time_full">%1$d/%2$02d/%3$02d %4$02d:%5$02d:%6$02d</string>
+    <string name="chat_time_date">%1$s/%2$s</string>
+    <string name="chat_time_date_year">%1$d/%2$s/%3$s</string>
+    <string name="chat_time_full">%1$d/%2$s/%3$s %4$s:%5$s:%6$s</string>
     <string name="chat_weekday_mon">周一</string>
     <string name="chat_weekday_tue">周二</string>
     <string name="chat_weekday_wed">周三</string>
