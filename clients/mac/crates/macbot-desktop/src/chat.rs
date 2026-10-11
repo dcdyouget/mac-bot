@@ -2700,6 +2700,14 @@ impl MacBot {
                 }
                 if s(&approval, "state") == "pending" {
                     for decision in ["allow_once", "always_allow", "deny"] {
+                        if decision == "always_allow"
+                            && approval
+                                .get("always_allow_supported")
+                                .and_then(Value::as_bool)
+                                == Some(false)
+                        {
+                            continue;
+                        }
                         let button_id = format!("{decision}-{id}");
                         let label = match decision {
                             "allow_once" => "block.approval.allow_once",
