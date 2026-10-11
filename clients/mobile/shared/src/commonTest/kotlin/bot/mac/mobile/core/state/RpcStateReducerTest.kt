@@ -2,6 +2,7 @@ package bot.mac.mobile.core.state
 
 import bot.mac.mobile.core.protocol.protocolJson
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.protocol.long
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -186,6 +187,48 @@ class RpcStateReducerTest {
         assertEquals(
             listOf("q-other" to "pending", "q-answered" to "answered", "q-expired" to "expired"),
             updated.questions.map { it.str("id") to it.str("state") },
+        )
+    }
+
+    @Test
+    fun memoryRpcsUpdateCachedEntriesQuotaAndProfile() {
+        val listed = RpcStateReducer.apply(
+            MobileState(),
+            "memory.user.list",
+            buildJsonObject {},
+            objectOf("""{"entries":[{"id":"m1","content":"one","version":1}],"quota":{"used_chars":3,"limit_chars":1500}}"""),
+        )
+        val updated = RpcStateReducer.apply(
+            listed,
+            "memory.user.update",
+            buildJsonObject { put("entry_id", "m1") },
+            objectOf("""{"entry":{"id":"m1","content":"two","version":2},"quota":{"used_chars":3,"limit_chars":1500}}"""),
+        )
+        val deleted = RpcStateReducer.apply(
+            updated,
+            "memory.user.delete",
+            buildJsonObject { put("entry_id", "m1") },
+            objectOf("""{"quota":{"used_chars":0,"limit_chars":1500}}"""),
+        )
+        val profile = RpcStateReducer.apply(
+            deleted,
+            "memory.profile.update",
+            buildJsonObject {},
+            objectOf("""{"profile":{"name":"Lin","version":4}}"""),
+        )
+
+        assertEquals("one", listed.memoryEntries.single().str("content"))
+        assertEquals("two", updated.memoryEntries.single().str("content"))
+        assertTrue(deleted.memoryEntries.isEmpty())
+        assertEquals(0L, deleted.memoryQuota.long("used_chars"))
+        assertEquals("Lin", profile.userProfile.str("name"))
+    }
+
+    @Test
+    fun memoryMutationsUseRepositoryIdempotencyLeases() {
+        assertTrue(
+            setOf("memory.user.create", "memory.user.update", "memory.user.delete", "memory.profile.update")
+                .all(ClientRepository.WRITE_METHODS::contains),
         )
     }
 }

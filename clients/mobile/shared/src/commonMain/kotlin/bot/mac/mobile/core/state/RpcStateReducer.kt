@@ -1,6 +1,10 @@
 package bot.mac.mobile.core.state
 
 import bot.mac.mobile.core.protocol.*
+import bot.mac.mobile.core.protocol.generated.MemoryProfileResult
+import bot.mac.mobile.core.protocol.generated.MemoryUserDeleteResult
+import bot.mac.mobile.core.protocol.generated.MemoryUserEntryResult
+import bot.mac.mobile.core.protocol.generated.MemoryUserListResult
 import bot.mac.mobile.core.protocol.generated.QuestionListResult
 import kotlinx.serialization.json.*
 
@@ -91,6 +95,21 @@ object RpcStateReducer {
             next = next.copy(models = mergeById(next.models, listOf(result.getValue("model").jsonObject), "ref"))
         }
         if (method == "model.refresh") next = next.copy(models = mergeById(next.models, result.objects("models"), "ref"))
+        when (method) {
+            "memory.user.list" -> next = next.copy(
+                memoryEntries = MemoryUserListResult(result).entries.map { it.raw },
+                memoryQuota = MemoryUserListResult(result).quota.raw,
+            )
+            "memory.user.create", "memory.user.update" -> next = next.copy(
+                memoryEntries = mergeById(next.memoryEntries, listOf(MemoryUserEntryResult(result).entry.raw)),
+                memoryQuota = MemoryUserEntryResult(result).quota.raw,
+            )
+            "memory.user.delete" -> next = next.copy(
+                memoryEntries = next.memoryEntries.filterNot { it.str("id") == params.str("entry_id") },
+                memoryQuota = MemoryUserDeleteResult(result).quota.raw,
+            )
+            "memory.profile.get", "memory.profile.update" -> next = next.copy(userProfile = MemoryProfileResult(result).profile.raw)
+        }
         if (method == "model.delete") {
             val ref = params.str("ref")
             next = next.copy(models = next.models.filterNot { it.str("ref") == ref })

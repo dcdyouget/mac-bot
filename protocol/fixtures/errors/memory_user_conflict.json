@@ -1,0 +1,29 @@
+{
+  "error": {
+    "code": "conflict",
+    "details": {
+      "current": {
+        "content": "更新后的记忆内容。",
+        "created_at": "2026-10-09T10:19:02.312Z",
+        "id": "mem_system",
+        "source": {
+          "by": {
+            "kind": "system"
+          },
+          "chat_id": "chat_login",
+          "message_id": "msg_1"
+        },
+        "updated_at": "2026-10-09T10:19:02.312Z",
+        "updated_by": {
+          "kind": "system"
+        },
+        "version": 4
+      }
+    },
+    "message": "memory entry changed"
+  },
+  "id": "req_memory_update",
+  "kind": "res",
+  "ok": false,
+  "v": 1
+}

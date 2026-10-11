@@ -18,18 +18,15 @@ pub type DateStr = String;
 pub type ModelRef = String;
 pub type Money = Option<f64>;
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Sender {
+    #[default]
     User,
-    Bot { bot_id: Id },
+    Bot {
+        bot_id: Id,
+    },
     System,
-}
-
-impl Default for Sender {
-    fn default() -> Self {
-        Self::User
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -2391,6 +2388,101 @@ pub struct SettingsResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemorySource {
+    pub by: Sender,
+    pub chat_id: Option<Id>,
+    pub message_id: Option<Id>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemoryEntry {
+    pub id: Id,
+    pub content: String,
+    pub version: u64,
+    pub source: MemorySource,
+    pub updated_by: Sender,
+    pub created_at: Time,
+    pub updated_at: Time,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemoryQuota {
+    pub used_chars: u64,
+    pub limit_chars: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct UserProfile {
+    pub name: Option<String>,
+    pub language: Option<String>,
+    pub identity: Option<String>,
+    pub timezone: String,
+    pub onboarded: bool,
+    pub version: u64,
+    pub updated_by: Sender,
+    pub updated_at: Time,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemoryUserCreateParams {
+    pub content: String,
+    #[serde(flatten)]
+    pub meta: WriteMeta,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemoryUserUpdateParams {
+    pub entry_id: Id,
+    pub content: String,
+    pub expected_version: u64,
+    #[serde(flatten)]
+    pub meta: WriteMeta,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemoryUserDeleteParams {
+    pub entry_id: Id,
+    pub expected_version: u64,
+    #[serde(flatten)]
+    pub meta: WriteMeta,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemoryUserListResult {
+    pub entries: Vec<MemoryEntry>,
+    pub quota: MemoryQuota,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemoryUserEntryResult {
+    pub entry: MemoryEntry,
+    pub quota: MemoryQuota,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemoryUserDeleteResult {
+    pub quota: MemoryQuota,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemoryProfileUpdateParams {
+    #[serde(default, skip_serializing_if = "Patch::is_unset")]
+    pub name: Patch<String>,
+    #[serde(default, skip_serializing_if = "Patch::is_unset")]
+    pub language: Patch<String>,
+    #[serde(default, skip_serializing_if = "Patch::is_unset")]
+    pub identity: Patch<String>,
+    pub expected_version: u64,
+    #[serde(flatten)]
+    pub meta: WriteMeta,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MemoryProfileResult {
+    pub profile: UserProfile,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct UsagePeriodParams {
     pub from: Time,
     pub to: Time,
@@ -2706,6 +2798,18 @@ pub enum Method {
     HostPermissions,
     #[serde(rename = "settings.update")]
     SettingsUpdate,
+    #[serde(rename = "memory.user.list")]
+    MemoryUserList,
+    #[serde(rename = "memory.user.create")]
+    MemoryUserCreate,
+    #[serde(rename = "memory.user.update")]
+    MemoryUserUpdate,
+    #[serde(rename = "memory.user.delete")]
+    MemoryUserDelete,
+    #[serde(rename = "memory.profile.get")]
+    MemoryProfileGet,
+    #[serde(rename = "memory.profile.update")]
+    MemoryProfileUpdate,
     #[serde(rename = "usage.summary")]
     UsageSummary,
     #[serde(rename = "usage.heatmap")]
@@ -2798,6 +2902,12 @@ pub enum MethodParams {
     SettingsGet(EmptyParams),
     HostPermissions(EmptyParams),
     SettingsUpdate(SettingsUpdateParams),
+    MemoryUserList(EmptyParams),
+    MemoryUserCreate(MemoryUserCreateParams),
+    MemoryUserUpdate(MemoryUserUpdateParams),
+    MemoryUserDelete(MemoryUserDeleteParams),
+    MemoryProfileGet(EmptyParams),
+    MemoryProfileUpdate(MemoryProfileUpdateParams),
     UsageSummary(UsagePeriodParams),
     UsageHeatmap(UsageHeatmapParams),
     UsageTimeseries(UsageTimeseriesParams),
@@ -2886,6 +2996,12 @@ pub enum MethodResult {
     SettingsGet(SettingsResult),
     HostPermissions(HostPermissionsResult),
     SettingsUpdate(SettingsResult),
+    MemoryUserList(MemoryUserListResult),
+    MemoryUserCreate(MemoryUserEntryResult),
+    MemoryUserUpdate(MemoryUserEntryResult),
+    MemoryUserDelete(MemoryUserDeleteResult),
+    MemoryProfileGet(MemoryProfileResult),
+    MemoryProfileUpdate(MemoryProfileResult),
     UsageSummary(UsageSummaryResult),
     UsageHeatmap(HeatmapResult),
     UsageTimeseries(UsageTimeseriesResult),
@@ -2979,6 +3095,12 @@ impl MethodParams {
             Method::SettingsGet => p!(SettingsGet, EmptyParams),
             Method::HostPermissions => p!(HostPermissions, EmptyParams),
             Method::SettingsUpdate => p!(SettingsUpdate, SettingsUpdateParams),
+            Method::MemoryUserList => p!(MemoryUserList, EmptyParams),
+            Method::MemoryUserCreate => p!(MemoryUserCreate, MemoryUserCreateParams),
+            Method::MemoryUserUpdate => p!(MemoryUserUpdate, MemoryUserUpdateParams),
+            Method::MemoryUserDelete => p!(MemoryUserDelete, MemoryUserDeleteParams),
+            Method::MemoryProfileGet => p!(MemoryProfileGet, EmptyParams),
+            Method::MemoryProfileUpdate => p!(MemoryProfileUpdate, MemoryProfileUpdateParams),
             Method::UsageSummary => p!(UsageSummary, UsagePeriodParams),
             Method::UsageHeatmap => p!(UsageHeatmap, UsageHeatmapParams),
             Method::UsageTimeseries => p!(UsageTimeseries, UsageTimeseriesParams),
@@ -3074,6 +3196,12 @@ impl MethodResult {
             Method::SettingsGet => r!(SettingsGet, SettingsResult),
             Method::HostPermissions => r!(HostPermissions, HostPermissionsResult),
             Method::SettingsUpdate => r!(SettingsUpdate, SettingsResult),
+            Method::MemoryUserList => r!(MemoryUserList, MemoryUserListResult),
+            Method::MemoryUserCreate => r!(MemoryUserCreate, MemoryUserEntryResult),
+            Method::MemoryUserUpdate => r!(MemoryUserUpdate, MemoryUserEntryResult),
+            Method::MemoryUserDelete => r!(MemoryUserDelete, MemoryUserDeleteResult),
+            Method::MemoryProfileGet => r!(MemoryProfileGet, MemoryProfileResult),
+            Method::MemoryProfileUpdate => r!(MemoryProfileUpdate, MemoryProfileResult),
             Method::UsageSummary => r!(UsageSummary, UsageSummaryResult),
             Method::UsageHeatmap => r!(UsageHeatmap, HeatmapResult),
             Method::UsageTimeseries => r!(UsageTimeseries, UsageTimeseriesResult),
@@ -3141,6 +3269,7 @@ pub enum ErrorCode {
     NotFound,
     Forbidden,
     Conflict,
+    QuotaFull,
     RateLimited,
     Busy,
     Unavailable,
@@ -3248,6 +3377,12 @@ pub enum EventName {
     ProviderDeleted,
     #[serde(rename = "settings.updated")]
     SettingsUpdated,
+    #[serde(rename = "memory.user.updated")]
+    MemoryUserUpdated,
+    #[serde(rename = "memory.user.deleted")]
+    MemoryUserDeleted,
+    #[serde(rename = "memory.profile.updated")]
+    MemoryProfileUpdated,
     Hello,
     #[serde(rename = "sync.done")]
     SyncDone,
@@ -3363,6 +3498,17 @@ pub enum EventData {
     ChatDeleted {
         chat_id: Id,
     },
+    MemoryUserUpdated {
+        entry: MemoryEntry,
+        quota: MemoryQuota,
+    },
+    MemoryUserDeleted {
+        entry_id: Id,
+        quota: MemoryQuota,
+    },
+    MemoryProfileUpdated {
+        profile: UserProfile,
+    },
 }
 
 impl EventData {
@@ -3425,6 +3571,20 @@ impl EventData {
         #[derive(Deserialize)]
         struct SettingsPayload {
             settings: Settings,
+        }
+        #[derive(Deserialize)]
+        struct MemoryUserUpdatedPayload {
+            entry: MemoryEntry,
+            quota: MemoryQuota,
+        }
+        #[derive(Deserialize)]
+        struct MemoryUserDeletedPayload {
+            entry_id: Id,
+            quota: MemoryQuota,
+        }
+        #[derive(Deserialize)]
+        struct MemoryProfileUpdatedPayload {
+            profile: UserProfile,
         }
         #[derive(Deserialize)]
         struct ReadPayload {
@@ -3557,6 +3717,20 @@ impl EventData {
             EventName::SettingsUpdated => val!(SettingsPayload).map(|x| Self::Settings {
                 settings: x.settings,
             }),
+            EventName::MemoryUserUpdated => {
+                val!(MemoryUserUpdatedPayload).map(|x| Self::MemoryUserUpdated {
+                    entry: x.entry,
+                    quota: x.quota,
+                })
+            }
+            EventName::MemoryUserDeleted => {
+                val!(MemoryUserDeletedPayload).map(|x| Self::MemoryUserDeleted {
+                    entry_id: x.entry_id,
+                    quota: x.quota,
+                })
+            }
+            EventName::MemoryProfileUpdated => val!(MemoryProfileUpdatedPayload)
+                .map(|x| Self::MemoryProfileUpdated { profile: x.profile }),
             EventName::Hello => val!(Hello).map(Self::Hello),
             EventName::SyncDone => val!(SeqEvent).map(Self::SyncDone),
             EventName::SyncCursor => val!(SeqEvent).map(Self::SyncCursor),

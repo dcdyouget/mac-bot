@@ -57,6 +57,7 @@ import org.jetbrains.compose.resources.stringResource
 fun GroupScreen(
     repository: MobileRepository,
     projectId: String,
+    initialMessageId: String? = null,
     onOpenTrace: (String) -> Unit = {},
     onBack: () -> Unit = {},
     onOpenProject: (String) -> Unit = {},
@@ -326,6 +327,7 @@ fun GroupScreen(
                 ChatScreen(
                     repository = repository,
                     chatId = id,
+                    initialMessageId = initialMessageId,
                     onOpenTrace = { assignment, _ -> assignment?.let(onOpenTrace) },
                     onOpenProject = onOpenProject,
                     onOpenArtifact = onOpenArtifact,

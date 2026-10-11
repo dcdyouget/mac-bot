@@ -28,6 +28,9 @@ data class MobileState(
     val settings: JsonObject = buildJsonObject {},
     val providers: List<JsonObject> = emptyList(),
     val models: List<JsonObject> = emptyList(),
+    val memoryEntries: List<JsonObject> = emptyList(),
+    val memoryQuota: JsonObject = buildJsonObject {},
+    val userProfile: JsonObject = buildJsonObject {},
     val traces: Map<String, List<JsonObject>> = emptyMap(),
     val traceFragments: Map<String, String> = emptyMap(),
     val typing: Map<String, Boolean> = emptyMap(),
@@ -62,6 +65,7 @@ object StateReducer {
         projects = data.objects("projects"), settings = data.obj("settings"), approvals = data.obj("pending").objects("approvals"),
         questions = data.obj("pending").objects("questions"), messages = emptyMap(), assignments = emptyList(),
         traces = emptyMap(), traceFragments = emptyMap(), announcements = emptyMap(),
+        memoryEntries = emptyList(), memoryQuota = buildJsonObject {}, userProfile = buildJsonObject {},
         skills = emptyList(), routines = emptyList(), providers = emptyList(), models = emptyList(), workbench = buildJsonObject {},
     )
     fun event(current: MobileState, event: String, data: JsonObject, seq: Long? = null): MobileState {
@@ -122,6 +126,15 @@ object StateReducer {
                 val run = data.obj("run")
                 result = current.copy(routines = current.routines.map { if (it.str("id") == run.str("routine_id")) JsonObject(it + ("last_run" to run)) else it })
             }
+            "memory.user.updated" -> result = current.copy(
+                memoryEntries = mergeById(current.memoryEntries, listOf(data.obj("entry"))),
+                memoryQuota = data.obj("quota"),
+            )
+            "memory.user.deleted" -> result = current.copy(
+                memoryEntries = remove(current.memoryEntries, data.str("entry_id")),
+                memoryQuota = data.obj("quota"),
+            )
+            "memory.profile.updated" -> result = current.copy(userProfile = data.obj("profile"))
             "artifact.registered" -> {
                 val artifact = data.obj("artifact"); val projectId = artifact.str("project_id")
                 val announcement = current.announcements[projectId] ?: buildJsonObject { put("project_id", projectId) }

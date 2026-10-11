@@ -200,6 +200,86 @@
     }
   },
   {
+    "source": "protocol/fixtures/errors/memory_profile_conflict.json",
+    "line": 1,
+    "value": {
+      "error": {
+        "code": "conflict",
+        "details": {
+          "current": {
+            "identity": "独立开发者",
+            "language": "zh-CN",
+            "name": "小林",
+            "onboarded": true,
+            "timezone": "Asia/Shanghai",
+            "updated_at": "2026-10-09T10:19:02.312Z",
+            "updated_by": {
+              "kind": "user"
+            },
+            "version": 4
+          }
+        },
+        "message": "profile changed"
+      },
+      "id": "req_profile_update",
+      "kind": "res",
+      "ok": false,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/errors/memory_user_conflict.json",
+    "line": 1,
+    "value": {
+      "error": {
+        "code": "conflict",
+        "details": {
+          "current": {
+            "content": "更新后的记忆内容。",
+            "created_at": "2026-10-09T10:19:02.312Z",
+            "id": "mem_system",
+            "source": {
+              "by": {
+                "kind": "system"
+              },
+              "chat_id": "chat_login",
+              "message_id": "msg_1"
+            },
+            "updated_at": "2026-10-09T10:19:02.312Z",
+            "updated_by": {
+              "kind": "system"
+            },
+            "version": 4
+          }
+        },
+        "message": "memory entry changed"
+      },
+      "id": "req_memory_update",
+      "kind": "res",
+      "ok": false,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/errors/memory_user_quota_full.json",
+    "line": 1,
+    "value": {
+      "error": {
+        "code": "quota_full",
+        "details": {
+          "limit_chars": 1500,
+          "requested_chars": 1,
+          "used_chars": 1500
+        },
+        "message": "user memory quota is full"
+      },
+      "id": "req_memory_create",
+      "kind": "res",
+      "ok": false,
+      "v": 1
+    }
+  },
+  {
     "source": "protocol/fixtures/events/announcement_updated.json",
     "line": 1,
     "value": {
@@ -463,7 +543,7 @@
       },
       "event": "bot.status",
       "kind": "evt",
-      "seq": 33,
+      "seq": 36,
       "v": 1
     }
   },
@@ -599,7 +679,7 @@
       },
       "event": "hello",
       "kind": "evt",
-      "seq": 29,
+      "seq": 32,
       "v": 1
     }
   },
@@ -615,7 +695,81 @@
       },
       "event": "host.status",
       "kind": "evt",
-      "seq": 35,
+      "seq": 38,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/memory_profile_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "profile": {
+          "identity": "独立开发者",
+          "language": "zh-CN",
+          "name": "小林",
+          "onboarded": true,
+          "timezone": "Asia/Shanghai",
+          "updated_at": "2026-10-09T10:19:02.312Z",
+          "updated_by": {
+            "kind": "user"
+          },
+          "version": 4
+        }
+      },
+      "event": "memory.profile.updated",
+      "kind": "evt",
+      "seq": 31,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/memory_user_deleted.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "entry_id": "mem_manual",
+        "quota": {
+          "limit_chars": 1500,
+          "used_chars": 1155
+        }
+      },
+      "event": "memory.user.deleted",
+      "kind": "evt",
+      "seq": 30,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/events/memory_user_updated.json",
+    "line": 1,
+    "value": {
+      "data": {
+        "entry": {
+          "content": "回复用中文，代码和注释用英文。",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "id": "mem_system",
+          "source": {
+            "by": {
+              "kind": "system"
+            },
+            "chat_id": "chat_login",
+            "message_id": "msg_1"
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z",
+          "updated_by": {
+            "kind": "user"
+          },
+          "version": 3
+        },
+        "quota": {
+          "limit_chars": 1500,
+          "used_chars": 1186
+        }
+      },
+      "event": "memory.user.updated",
+      "kind": "evt",
+      "seq": 29,
       "v": 1
     }
   },
@@ -683,7 +837,7 @@
       },
       "event": "message.delta",
       "kind": "evt",
-      "seq": 31,
+      "seq": 34,
       "v": 1
     }
   },
@@ -1179,11 +1333,11 @@
     "line": 1,
     "value": {
       "data": {
-        "seq": 39
+        "seq": 42
       },
       "event": "sync.cursor",
       "kind": "evt",
-      "seq": 39,
+      "seq": 42,
       "v": 1
     }
   },
@@ -1196,7 +1350,7 @@
       },
       "event": "sync.done",
       "kind": "evt",
-      "seq": 30,
+      "seq": 33,
       "v": 1
     }
   },
@@ -1213,7 +1367,7 @@
       },
       "event": "trace.delta",
       "kind": "evt",
-      "seq": 37,
+      "seq": 40,
       "v": 1
     }
   },
@@ -1240,7 +1394,7 @@
       },
       "event": "trace.item",
       "kind": "evt",
-      "seq": 36,
+      "seq": 39,
       "v": 1
     }
   },
@@ -1255,7 +1409,7 @@
       },
       "event": "trace.tool_output",
       "kind": "evt",
-      "seq": 38,
+      "seq": 41,
       "v": 1
     }
   },
@@ -1270,7 +1424,7 @@
       },
       "event": "typing",
       "kind": "evt",
-      "seq": 32,
+      "seq": 35,
       "v": 1
     }
   },
@@ -1291,7 +1445,7 @@
       },
       "event": "usage.tick",
       "kind": "evt",
-      "seq": 34,
+      "seq": 37,
       "v": 1
     }
   },
@@ -1554,6 +1708,56 @@
       "server_time": "2026-10-09T10:19:02.312Z",
       "server_version": "0.1.0",
       "timezone": "Asia/Shanghai"
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/memory_entry.json",
+    "line": 1,
+    "value": {
+      "content": "回复用中文，代码和注释用英文。",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "id": "mem_system",
+      "source": {
+        "by": {
+          "kind": "system"
+        },
+        "chat_id": "chat_login",
+        "message_id": "msg_1"
+      },
+      "updated_at": "2026-10-09T10:19:02.312Z",
+      "updated_by": {
+        "kind": "user"
+      },
+      "version": 3
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/memory_entry_500_chars.json",
+    "line": 1,
+    "value": {
+      "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "id": "mem_500",
+      "source": {
+        "by": {
+          "kind": "user"
+        },
+        "chat_id": null,
+        "message_id": null
+      },
+      "updated_at": "2026-10-09T10:19:02.312Z",
+      "updated_by": {
+        "kind": "user"
+      },
+      "version": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/objects/memory_quota_full.json",
+    "line": 1,
+    "value": {
+      "limit_chars": 1500,
+      "used_chars": 1500
     }
   },
   {
@@ -1948,6 +2152,22 @@
     }
   },
   {
+    "source": "protocol/fixtures/objects/user_profile.json",
+    "line": 1,
+    "value": {
+      "identity": "独立开发者",
+      "language": "zh-CN",
+      "name": "小林",
+      "onboarded": true,
+      "timezone": "Asia/Shanghai",
+      "updated_at": "2026-10-09T10:19:02.312Z",
+      "updated_by": {
+        "kind": "user"
+      },
+      "version": 4
+    }
+  },
+  {
     "source": "protocol/fixtures/requests/announcement_update.json",
     "line": 1,
     "value": {
@@ -2000,6 +2220,68 @@
     "value": {
       "method": "host.permissions",
       "params": {}
+    }
+  },
+  {
+    "source": "protocol/fixtures/requests/memory_profile_get.json",
+    "line": 1,
+    "value": {
+      "method": "memory.profile.get",
+      "params": {}
+    }
+  },
+  {
+    "source": "protocol/fixtures/requests/memory_profile_update.json",
+    "line": 1,
+    "value": {
+      "method": "memory.profile.update",
+      "params": {
+        "expected_version": 4,
+        "identity": null,
+        "language": "zh-CN",
+        "name": "林同学"
+      }
+    }
+  },
+  {
+    "source": "protocol/fixtures/requests/memory_user_create.json",
+    "line": 1,
+    "value": {
+      "method": "memory.user.create",
+      "params": {
+        "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  },
+  {
+    "source": "protocol/fixtures/requests/memory_user_delete.json",
+    "line": 1,
+    "value": {
+      "method": "memory.user.delete",
+      "params": {
+        "entry_id": "mem_manual",
+        "expected_version": 1
+      }
+    }
+  },
+  {
+    "source": "protocol/fixtures/requests/memory_user_list.json",
+    "line": 1,
+    "value": {
+      "method": "memory.user.list",
+      "params": {}
+    }
+  },
+  {
+    "source": "protocol/fixtures/requests/memory_user_update.json",
+    "line": 1,
+    "value": {
+      "method": "memory.user.update",
+      "params": {
+        "content": "回复尽量简洁，代码和注释用英文。",
+        "entry_id": "mem_system",
+        "expected_version": 3
+      }
     }
   },
   {
@@ -2180,6 +2462,170 @@
       "automation_chrome": "granted",
       "full_disk_access": "unknown",
       "screen_recording": "granted"
+    }
+  },
+  {
+    "source": "protocol/fixtures/results/memory_profile_get.json",
+    "line": 1,
+    "value": {
+      "profile": {
+        "identity": "独立开发者",
+        "language": "zh-CN",
+        "name": "小林",
+        "onboarded": true,
+        "timezone": "Asia/Shanghai",
+        "updated_at": "2026-10-09T10:19:02.312Z",
+        "updated_by": {
+          "kind": "user"
+        },
+        "version": 4
+      }
+    }
+  },
+  {
+    "source": "protocol/fixtures/results/memory_profile_update.json",
+    "line": 1,
+    "value": {
+      "profile": {
+        "identity": null,
+        "language": "zh-CN",
+        "name": "林同学",
+        "onboarded": true,
+        "timezone": "Asia/Shanghai",
+        "updated_at": "2026-10-09T10:19:02.312Z",
+        "updated_by": {
+          "kind": "user"
+        },
+        "version": 5
+      }
+    }
+  },
+  {
+    "source": "protocol/fixtures/results/memory_user_create.json",
+    "line": 1,
+    "value": {
+      "entry": {
+        "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "created_at": "2026-10-09T10:19:02.312Z",
+        "id": "mem_500",
+        "source": {
+          "by": {
+            "kind": "user"
+          },
+          "chat_id": null,
+          "message_id": null
+        },
+        "updated_at": "2026-10-09T10:19:02.312Z",
+        "updated_by": {
+          "kind": "user"
+        },
+        "version": 1
+      },
+      "quota": {
+        "limit_chars": 1500,
+        "used_chars": 500
+      }
+    }
+  },
+  {
+    "source": "protocol/fixtures/results/memory_user_delete.json",
+    "line": 1,
+    "value": {
+      "quota": {
+        "limit_chars": 1500,
+        "used_chars": 1155
+      }
+    }
+  },
+  {
+    "source": "protocol/fixtures/results/memory_user_list.json",
+    "line": 1,
+    "value": {
+      "entries": [
+        {
+          "content": "回复用中文，代码和注释用英文。",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "id": "mem_system",
+          "source": {
+            "by": {
+              "kind": "system"
+            },
+            "chat_id": "chat_login",
+            "message_id": "msg_1"
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z",
+          "updated_by": {
+            "kind": "user"
+          },
+          "version": 3
+        },
+        {
+          "content": "周末不要推送非紧急通知。",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "id": "mem_manual",
+          "source": {
+            "by": {
+              "kind": "user"
+            },
+            "chat_id": null,
+            "message_id": null
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z",
+          "updated_by": {
+            "kind": "user"
+          },
+          "version": 1
+        },
+        {
+          "content": "旧数据中的用户偏好。",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "id": "mem_legacy",
+          "source": {
+            "by": {
+              "bot_id": "bot_code",
+              "kind": "bot"
+            },
+            "chat_id": "chat_login",
+            "message_id": "msg_1"
+          },
+          "updated_at": "2026-10-09T10:19:02.312Z",
+          "updated_by": {
+            "kind": "system"
+          },
+          "version": 2
+        }
+      ],
+      "quota": {
+        "limit_chars": 1500,
+        "used_chars": 1186
+      }
+    }
+  },
+  {
+    "source": "protocol/fixtures/results/memory_user_update.json",
+    "line": 1,
+    "value": {
+      "entry": {
+        "content": "回复尽量简洁，代码和注释用英文。",
+        "created_at": "2026-10-09T10:19:02.312Z",
+        "id": "mem_system",
+        "source": {
+          "by": {
+            "kind": "system"
+          },
+          "chat_id": "chat_login",
+          "message_id": "msg_1"
+        },
+        "updated_at": "2026-10-09T10:19:02.312Z",
+        "updated_by": {
+          "kind": "user"
+        },
+        "version": 4
+      },
+      "quota": {
+        "limit_chars": 1500,
+        "used_chars": 1175
+      }
     }
   },
   {

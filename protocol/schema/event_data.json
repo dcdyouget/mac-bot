@@ -336,6 +336,47 @@
           "type": "string"
         }
       }
+    },
+    {
+      "type": "object",
+      "required": [
+        "entry",
+        "quota"
+      ],
+      "properties": {
+        "entry": {
+          "$ref": "#/definitions/MemoryEntry"
+        },
+        "quota": {
+          "$ref": "#/definitions/MemoryQuota"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "entry_id",
+        "quota"
+      ],
+      "properties": {
+        "entry_id": {
+          "type": "string"
+        },
+        "quota": {
+          "$ref": "#/definitions/MemoryQuota"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "profile"
+      ],
+      "properties": {
+        "profile": {
+          "$ref": "#/definitions/UserProfile"
+        }
+      }
     }
   ],
   "definitions": {
@@ -1855,6 +1896,85 @@
         "blocked",
         "done"
       ]
+    },
+    "MemoryEntry": {
+      "type": "object",
+      "required": [
+        "content",
+        "created_at",
+        "id",
+        "source",
+        "updated_at",
+        "updated_by",
+        "version"
+      ],
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/MemorySource"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "updated_by": {
+          "$ref": "#/definitions/Sender"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "MemoryQuota": {
+      "type": "object",
+      "required": [
+        "limit_chars",
+        "used_chars"
+      ],
+      "properties": {
+        "limit_chars": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "used_chars": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "MemorySource": {
+      "type": "object",
+      "required": [
+        "by"
+      ],
+      "properties": {
+        "by": {
+          "$ref": "#/definitions/Sender"
+        },
+        "chat_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "Mention": {
       "oneOf": [
@@ -3591,6 +3711,53 @@
           "minimum": 0.0
         },
         "requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "UserProfile": {
+      "type": "object",
+      "required": [
+        "onboarded",
+        "timezone",
+        "updated_at",
+        "updated_by",
+        "version"
+      ],
+      "properties": {
+        "identity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "language": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "onboarded": {
+          "type": "boolean"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "updated_by": {
+          "$ref": "#/definitions/Sender"
+        },
+        "version": {
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0

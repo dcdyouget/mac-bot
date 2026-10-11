@@ -1,0 +1,13 @@
+{
+  "data": {
+    "entry_id": "mem_manual",
+    "quota": {
+      "limit_chars": 1500,
+      "used_chars": 1155
+    }
+  },
+  "event": "memory.user.deleted",
+  "kind": "evt",
+  "seq": 30,
+  "v": 1
+}

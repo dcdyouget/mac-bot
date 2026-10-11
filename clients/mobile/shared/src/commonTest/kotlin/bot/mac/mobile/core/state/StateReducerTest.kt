@@ -47,4 +47,31 @@ class StateReducerTest {
         listOf(3,1,3,2).forEach { seq -> current=StateReducer.event(current,"trace.item",objectOf("""{"item":{"chat_id":"c","aseq":$seq,"type":"tool.start","data":{}}}""")) }
         assertEquals(listOf(1L,2L,3L),current.traces.getValue("c").map { it.long("aseq") })
     }
+    @Test fun memoryEventsSynchronizeEntryQuotaAndUserProfile() {
+        val updated = StateReducer.event(
+            MobileState(),
+            "memory.user.updated",
+            objectOf("""{"entry":{"id":"m1","content":"new","version":2},"quota":{"used_chars":3,"limit_chars":1500}}"""),
+            1,
+        )
+        assertEquals("new", updated.memoryEntries.single().str("content"))
+        assertEquals(3L, updated.memoryQuota.long("used_chars"))
+
+        val profile = StateReducer.event(
+            updated,
+            "memory.profile.updated",
+            objectOf("""{"profile":{"name":"Lin","timezone":"Asia/Shanghai","version":4}}"""),
+            2,
+        )
+        assertEquals("Lin", profile.userProfile.str("name"))
+
+        val deleted = StateReducer.event(
+            profile,
+            "memory.user.deleted",
+            objectOf("""{"entry_id":"m1","quota":{"used_chars":0,"limit_chars":1500}}"""),
+            3,
+        )
+        assertTrue(deleted.memoryEntries.isEmpty())
+        assertEquals(0L, deleted.memoryQuota.long("used_chars"))
+    }
 }

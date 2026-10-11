@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder } from 'lucide-react'
@@ -7,6 +7,10 @@ import { emptyState, type Announcement, type BridgeState, type Chat, type HostRe
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
 import { WorkbenchPage } from './components/WorkbenchPage'
 import { DashboardPage } from './components/DashboardPage'
+import { RoutinesPage, type RoutineRecord, type RoutineRun, type RoutineInput, type RoutinePatch } from './components/RoutinesPage'
+import type { RoutineBot, RoutineProject } from './components/RoutinesPage'
+import { SkillsPage, type SkillDetail, type SkillImportSource, type SkillRecord } from './components/SkillsPage'
+import { MemoryPage, type UserMemoryEntry, type UserMemoryQuota, type UserProfile, type UserProfilePatch } from './components/MemoryPage'
 
 const NO_RULES: Record<string, Json>[] = []
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -14,6 +18,21 @@ type ThemeMode = 'light' | 'dark' | 'system'
 const THEME_STORAGE_KEY = 'macbot.appearance.theme'
 const MATERIAL_STORAGE_KEY = 'macbot.appearance.translucent'
 const SELECTED_CHAT_STORAGE_KEY = 'macbot.chat.selected'
+
+function mergeMessages(...groups: Message[][]): Message[] {
+  const byId = new Map<string, Message>()
+  for (const group of groups) for (const message of group) byId.set(message.id, message)
+  return [...byId.values()].sort((left, right) => {
+    const leftSeq = (left as Message & { seq?: number }).seq
+    const rightSeq = (right as Message & { seq?: number }).seq
+    if (typeof leftSeq === 'number' && typeof rightSeq === 'number') return leftSeq - rightSeq
+    return String(left.created_at ?? '').localeCompare(String(right.created_at ?? ''))
+  })
+}
+
+function assertHostScope(current: string, expected: string) {
+  if (current !== expected) throw new Error('Host changed during request')
+}
 
 function App() {
   const [state, setState] = useState<BridgeState>(emptyState)
@@ -38,7 +57,7 @@ function App() {
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
   const [selectedChat, setSelectedChat] = useState('')
-  const [activePage, setActivePage] = useState<'chat' | 'workbench' | 'dashboard'>('chat')
+  const [activePage, setActivePage] = useState<'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory'>('chat')
   const [mentionBotId, setMentionBotId] = useState<string | null>(null)
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [draft, setDraft] = useState('')
@@ -53,6 +72,22 @@ function App() {
   const [artifactPreview, setArtifactPreview] = useState<{ title: string; path: string; content: string; error?: string } | null>(null)
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [routines, setRoutines] = useState<RoutineRecord[]>([])
+  const [routineRuns, setRoutineRuns] = useState<Record<string, RoutineRun[]>>({})
+  const [routinesLoading, setRoutinesLoading] = useState(false)
+  const [routinesError, setRoutinesError] = useState<string | null>(null)
+  const [routinesDataScope, setRoutinesDataScope] = useState<string | null>(null)
+  const [skills, setSkills] = useState<SkillRecord[]>([])
+  const [skillsLoading, setSkillsLoading] = useState(false)
+  const [skillsError, setSkillsError] = useState<string | null>(null)
+  const [skillsDataScope, setSkillsDataScope] = useState<string | null>(null)
+  const [memoryProfile, setMemoryProfile] = useState<UserProfile | null>(null)
+  const [memoryEntries, setMemoryEntries] = useState<UserMemoryEntry[]>([])
+  const [memoryQuota, setMemoryQuota] = useState<UserMemoryQuota | null>(null)
+  const [memoryLoading, setMemoryLoading] = useState(false)
+  const [memoryError, setMemoryError] = useState<string | null>(null)
+  const [memoryDataScope, setMemoryDataScope] = useState<string | null>(null)
+  const [memorySourceTarget, setMemorySourceTarget] = useState<{ scope: string; chatId: string; messageId: string } | null>(null)
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(THEME_STORAGE_KEY)
     return saved === 'light' || saved === 'dark' ? saved : 'system'
@@ -62,6 +97,9 @@ function App() {
   const [reducedTransparency, setReducedTransparency] = useState(false)
   const hostScope = state.active_host?.id ?? state.node_id ?? endpoint.trim()
   const hostScopeRef = useRef(hostScope)
+  const routinesDataScopeRef = useRef<string | null>(null)
+  const skillsDataScopeRef = useRef<string | null>(null)
+  const memoryDataScopeRef = useRef<string | null>(null)
   const sidebarSearchRef = useRef<HTMLInputElement>(null)
   const announcementPanelRef = useRef<HTMLElement>(null)
   hostScopeRef.current = hostScope
@@ -244,7 +282,7 @@ function App() {
       const questionList = questionResult.status === 'fulfilled' ? questionResult.value.questions ?? [] : []
       const approvalList = approvalResult.status === 'fulfilled' ? approvalResult.value.approvals ?? [] : []
       const loadError = [historyResult, questionResult, approvalResult].find((result) => result.status === 'rejected')
-      if (history) setHistoryByChat((current) => ({ ...current, [cacheKey]: history.messages ?? [] }))
+      if (history) setHistoryByChat((current) => ({ ...current, [cacheKey]: mergeMessages(current[cacheKey] ?? [], history.messages ?? []) }))
       setHistoryQuestions((current) => ({ ...current, [scope]: { ...current[scope], ...Object.fromEntries(questionList.map((question) => [question.id, question])) } }))
       setHistoryApprovals((current) => ({ ...current, [scope]: { ...current[scope], ...Object.fromEntries(approvalList.filter((approval) => approval.id).map((approval) => [String(approval.id), approval])) } }))
       setState((current) => {
@@ -255,6 +293,18 @@ function App() {
     })
     return () => { active = false }
   }, [currentChat?.id, state.connection, hostScope])
+
+  useEffect(() => {
+    if (!memorySourceTarget || memorySourceTarget.scope !== hostScope || currentChat?.id !== memorySourceTarget.chatId) return
+    const wrapper = document.getElementById(`message-${memorySourceTarget.messageId}`)
+    const target = wrapper?.querySelector<HTMLElement>('.message-group')
+    if (!target) return
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target.classList.add('memory-source-highlight')
+    const timer = window.setTimeout(() => target.classList.remove('memory-source-highlight'), 1800)
+    setMemorySourceTarget(null)
+    return () => window.clearTimeout(timer)
+  }, [memorySourceTarget, hostScope, currentChat?.id, currentMessages])
 
   const currentAssignments = Object.values(state.assignments).filter((assignment) =>
     (currentChat?.kind === 'project' || currentChat?.project_id)
@@ -387,6 +437,364 @@ function App() {
       setHostPermissions(result)
     } catch (error) {
       setSettingsError(String(error))
+    }
+  }
+
+  const loadRoutines = useCallback(async () => {
+    const scope = hostScope
+    if (hostScopeRef.current !== scope) return
+    if (routinesDataScopeRef.current !== scope) {
+      setRoutines([])
+      setRoutineRuns({})
+      routinesDataScopeRef.current = null
+      setRoutinesDataScope(null)
+    }
+    if (state.connection !== 'connected') {
+      setRoutines([])
+      setRoutineRuns({})
+      setRoutinesError(t('host.error.generic'))
+      setRoutinesLoading(false)
+      routinesDataScopeRef.current = scope
+      setRoutinesDataScope(scope)
+      return
+    }
+    setRoutinesLoading(true)
+    setRoutinesError(null)
+    try {
+      const result = await invoke<{ routines: RoutineRecord[] }>('protocol_request', { method: 'routine.list', params: {} })
+      if (hostScopeRef.current === scope) {
+        setRoutines(result.routines ?? [])
+        routinesDataScopeRef.current = scope
+        setRoutinesDataScope(scope)
+      }
+    } catch (error) {
+      if (hostScopeRef.current === scope) {
+        setRoutinesError(String(error))
+        routinesDataScopeRef.current = scope
+        setRoutinesDataScope(scope)
+      }
+    } finally {
+      if (hostScopeRef.current === scope) setRoutinesLoading(false)
+    }
+  }, [hostScope, state.connection])
+
+  const loadSkills = useCallback(async () => {
+    const scope = hostScope
+    if (hostScopeRef.current !== scope) return
+    if (skillsDataScopeRef.current !== scope) {
+      setSkills([])
+      skillsDataScopeRef.current = null
+      setSkillsDataScope(null)
+    }
+    if (state.connection !== 'connected') {
+      setSkills([])
+      setSkillsError(t('host.error.generic'))
+      setSkillsLoading(false)
+      skillsDataScopeRef.current = scope
+      setSkillsDataScope(scope)
+      return
+    }
+    setSkillsLoading(true)
+    setSkillsError(null)
+    try {
+      const result = await invoke<{ skills: SkillRecord[] }>('protocol_request', { method: 'skill.list', params: {} })
+      if (hostScopeRef.current === scope) {
+        setSkills(result.skills ?? [])
+        skillsDataScopeRef.current = scope
+        setSkillsDataScope(scope)
+      }
+    } catch (error) {
+      if (hostScopeRef.current === scope) {
+        setSkillsError(String(error))
+        skillsDataScopeRef.current = scope
+        setSkillsDataScope(scope)
+      }
+    } finally {
+      if (hostScopeRef.current === scope) setSkillsLoading(false)
+    }
+  }, [hostScope, state.connection])
+
+  const loadMemory = useCallback(async () => {
+    const scope = hostScope
+    if (hostScopeRef.current !== scope) return
+    if (memoryDataScopeRef.current !== scope) {
+      setMemoryProfile(null)
+      setMemoryEntries([])
+      setMemoryQuota(null)
+      memoryDataScopeRef.current = null
+      setMemoryDataScope(null)
+    }
+    if (state.connection !== 'connected') {
+      setMemoryProfile(null)
+      setMemoryEntries([])
+      setMemoryQuota(null)
+      setMemoryError(t('host.error.generic'))
+      setMemoryLoading(false)
+      memoryDataScopeRef.current = scope
+      setMemoryDataScope(scope)
+      return
+    }
+    setMemoryLoading(true)
+    setMemoryError(null)
+    const [profileResult, listResult] = await Promise.allSettled([
+      invoke<{ profile: UserProfile }>('protocol_request', { method: 'memory.profile.get', params: {} }),
+      invoke<{ entries: UserMemoryEntry[]; quota: UserMemoryQuota }>('protocol_request', { method: 'memory.user.list', params: {} }),
+    ])
+    if (hostScopeRef.current === scope) {
+      if (profileResult.status === 'fulfilled') setMemoryProfile(profileResult.value.profile)
+      else setMemoryProfile(null)
+      if (listResult.status === 'fulfilled') {
+        setMemoryEntries(listResult.value.entries ?? [])
+        setMemoryQuota(listResult.value.quota ?? null)
+      } else {
+        setMemoryEntries([])
+        setMemoryQuota(null)
+      }
+      const failure = profileResult.status === 'rejected' ? profileResult.reason : listResult.status === 'rejected' ? listResult.reason : null
+      setMemoryError(failure ? String(failure) : null)
+      setMemoryLoading(false)
+      memoryDataScopeRef.current = scope
+      setMemoryDataScope(scope)
+    }
+  }, [hostScope, state.connection])
+
+  const reloadActivePage = useCallback(() => {
+    if (activePage === 'routines') return loadRoutines()
+    if (activePage === 'skills') return loadSkills()
+    if (activePage === 'memory') return loadMemory()
+    return Promise.resolve()
+  }, [activePage, loadRoutines, loadSkills, loadMemory])
+
+  useEffect(() => {
+    if (!['routines', 'skills', 'memory'].includes(activePage)) return
+    void reloadActivePage()
+    let unlisten: (() => void) | undefined
+    let refreshTimer: number | null = null
+    void listen<BridgeState>('bridge-state', () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => { void reloadActivePage() }, 450)
+    }).then((dispose) => { unlisten = dispose }).catch((error: unknown) => {
+      if (activePage === 'routines') setRoutinesError(String(error))
+      else if (activePage === 'skills') setSkillsError(String(error))
+      else setMemoryError(String(error))
+    })
+    return () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      unlisten?.()
+    }
+  }, [activePage, reloadActivePage])
+
+  const loadRoutineRuns = useCallback(async (routineId: string) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<{ runs: RoutineRun[] }>('protocol_request', { method: 'routine.runs', params: { routine_id: routineId } })
+    assertHostScope(hostScopeRef.current, scope)
+    setRoutineRuns((current) => ({ ...current, [routineId]: result.runs ?? [] }))
+    return result.runs ?? []
+  }, [hostScope])
+
+  const createRoutine = useCallback(async (input: RoutineInput) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<{ routine: RoutineRecord }>('protocol_request', { method: 'routine.create', params: { ...input, client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    setRoutines((current) => [result.routine, ...current.filter((item) => item.id !== result.routine.id)])
+  }, [hostScope])
+
+  const updateRoutine = useCallback(async (routineId: string, patch: RoutinePatch) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<{ routine: RoutineRecord }>('protocol_request', { method: 'routine.update', params: { routine_id: routineId, patch, client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    setRoutines((current) => current.map((item) => item.id === result.routine.id ? result.routine : item))
+  }, [hostScope])
+
+  const setRoutineEnabled = useCallback(async (routineId: string, enabled: boolean) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<{ routine: RoutineRecord }>('protocol_request', { method: 'routine.set_enabled', params: { routine_id: routineId, enabled, client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    setRoutines((current) => current.map((item) => item.id === result.routine.id ? result.routine : item))
+  }, [hostScope])
+
+  const testRoutine = useCallback(async (routineId: string) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<{ run: RoutineRun }>('protocol_request', { method: 'routine.test_run', params: { routine_id: routineId, client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    setRoutineRuns((current) => ({ ...current, [routineId]: [result.run, ...(current[routineId] ?? []).filter((run) => run.id !== result.run.id)] }))
+    return result.run
+  }, [hostScope])
+
+  const deleteRoutine = useCallback(async (routineId: string) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    await invoke('protocol_request', { method: 'routine.delete', params: { routine_id: routineId, client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    setRoutines((current) => current.filter((item) => item.id !== routineId))
+    setRoutineRuns((current) => { const next = { ...current }; delete next[routineId]; return next })
+  }, [hostScope])
+
+  const getSkill = useCallback(async (name: string) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<{ skill: SkillDetail }>('protocol_request', { method: 'skill.get', params: { name } })
+    assertHostScope(hostScopeRef.current, scope)
+    return result.skill
+  }, [hostScope])
+
+  const createSkill = useCallback(async (name: string, description: string) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const content = `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`
+    const result = await invoke<{ skill: SkillRecord }>('protocol_request', { method: 'skill.create', params: { name, content, client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    setSkills((current) => [result.skill, ...current.filter((skill) => skill.name !== result.skill.name)])
+    return result.skill
+  }, [hostScope])
+
+  const updateSkill = useCallback(async (name: string, content: string) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<{ skill: SkillRecord }>('protocol_request', { method: 'skill.update', params: { name, content, client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    setSkills((current) => current.map((skill) => skill.name === result.skill.name ? result.skill : skill))
+    return result.skill
+  }, [hostScope])
+
+  const setSkillEnabled = useCallback(async (name: string, enabled: boolean, botId?: string) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<{ skill: SkillRecord }>('protocol_request', { method: 'skill.set_enabled', params: { name, enabled, ...(botId ? { bot_id: botId } : {}), client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    setSkills((current) => current.map((skill) => skill.name === result.skill.name ? result.skill : skill))
+    return result.skill
+  }, [hostScope])
+
+  const publishSkill = useCallback(async (name: string) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<{ skill: SkillRecord }>('protocol_request', { method: 'skill.publish', params: { name, client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    setSkills((current) => current.map((skill) => skill.name === result.skill.name ? result.skill : skill))
+    return result.skill
+  }, [hostScope])
+
+  const discardSkill = useCallback(async (name: string) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    await invoke('protocol_request', { method: 'skill.delete', params: { name, client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    setSkills((current) => current.filter((skill) => skill.name !== name))
+  }, [hostScope])
+
+  const importSkills = useCallback(async (source: SkillImportSource) => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    const result = await invoke<{ skills: SkillRecord[] }>('protocol_request', { method: 'skill.import', params: { source, client_request_id: crypto.randomUUID() } })
+    assertHostScope(hostScopeRef.current, scope)
+    const imported = result.skills ?? []
+    setSkills((current) => {
+      const merged = new Map(current.map((skill) => [skill.name, skill]))
+      for (const skill of imported) merged.set(skill.name, skill)
+      return [...merged.values()]
+    })
+    return imported
+  }, [hostScope])
+
+  const memoryRequest = useCallback(async <T,>(method: string, params: Record<string, unknown>): Promise<T> => {
+    const scope = hostScope
+    assertHostScope(hostScopeRef.current, scope)
+    try {
+      const result = await invoke<T>('protocol_request', { method, params })
+      assertHostScope(hostScopeRef.current, scope)
+      return result
+    }
+    catch (reason) {
+      assertHostScope(hostScopeRef.current, scope)
+      const message = String(reason)
+      if (!message.includes('conflict')) throw reason
+      const current = method.startsWith('memory.profile')
+        ? (await invoke<{ profile: UserProfile }>('protocol_request', { method: 'memory.profile.get', params: {} })).profile
+        : (await invoke<{ entries: UserMemoryEntry[]; quota: UserMemoryQuota }>('protocol_request', { method: 'memory.user.list', params: {} })).entries.find((entry) => entry.id === params.entry_id)
+      assertHostScope(hostScopeRef.current, scope)
+      const normalized = new Error(message) as Error & { code: string; details: { current?: UserMemoryEntry | UserProfile } }
+      normalized.code = 'conflict'
+      normalized.details = { current }
+      throw normalized
+    }
+  }, [hostScope])
+
+  const updateUserProfile = useCallback(async (patch: UserProfilePatch, expectedVersion: number) => {
+    const scope = hostScope
+    const result = await memoryRequest<{ profile: UserProfile }>('memory.profile.update', { ...patch, expected_version: expectedVersion, client_request_id: crypto.randomUUID() })
+    assertHostScope(hostScopeRef.current, scope)
+    setMemoryProfile(result.profile)
+    return result.profile
+  }, [hostScope, memoryRequest])
+
+  const createMemoryEntry = useCallback(async (content: string) => {
+    const scope = hostScope
+    const result = await memoryRequest<{ entry: UserMemoryEntry; quota: UserMemoryQuota }>('memory.user.create', { content, client_request_id: crypto.randomUUID() })
+    assertHostScope(hostScopeRef.current, scope)
+    setMemoryEntries((current) => [result.entry, ...current.filter((entry) => entry.id !== result.entry.id)])
+    setMemoryQuota(result.quota)
+    return result
+  }, [hostScope, memoryRequest])
+
+  const updateMemoryEntry = useCallback(async (entryId: string, content: string, expectedVersion: number) => {
+    const scope = hostScope
+    const result = await memoryRequest<{ entry: UserMemoryEntry; quota: UserMemoryQuota }>('memory.user.update', { entry_id: entryId, content, expected_version: expectedVersion, client_request_id: crypto.randomUUID() })
+    assertHostScope(hostScopeRef.current, scope)
+    setMemoryEntries((current) => current.map((entry) => entry.id === result.entry.id ? result.entry : entry).sort((a, b) => b.updated_at.localeCompare(a.updated_at)))
+    setMemoryQuota(result.quota)
+    return result
+  }, [hostScope, memoryRequest])
+
+  const deleteMemoryEntry = useCallback(async (entryId: string, expectedVersion: number) => {
+    const scope = hostScope
+    const result = await memoryRequest<{ quota: UserMemoryQuota }>('memory.user.delete', { entry_id: entryId, expected_version: expectedVersion, client_request_id: crypto.randomUUID() })
+    assertHostScope(hostScopeRef.current, scope)
+    setMemoryEntries((current) => current.filter((entry) => entry.id !== entryId))
+    setMemoryQuota(result.quota)
+    return result
+  }, [hostScope, memoryRequest])
+
+  async function openMemorySource(chatId: string, messageId: string | null) {
+    setActivePage('chat')
+    selectChat(chatId)
+    if (!messageId) return
+    const scope = hostScope
+    const cacheKey = historyCacheKey(scope, chatId)
+    setMemorySourceTarget({ scope, chatId, messageId })
+    const collected = new Map<string, Message>()
+    let beforeSeq: number | undefined
+    let hasMore = true
+    try {
+      while (hasMore && !collected.has(messageId)) {
+        const result = await invoke<{ messages?: Message[]; has_more?: boolean }>('protocol_request', {
+          method: 'chat.history', params: { chat_id: chatId, ...(beforeSeq !== undefined ? { before_seq: beforeSeq } : {}), limit: 100 },
+        })
+        if (hostScopeRef.current !== scope) return
+        const page = result.messages ?? []
+        for (const message of page) collected.set(message.id, message)
+        hasMore = result.has_more === true
+        const sequenceNumbers = page.map((message) => (message as Message & { seq?: number }).seq).filter((seq): seq is number => typeof seq === 'number')
+        if (!sequenceNumbers.length) break
+        const nextBeforeSeq = Math.min(...sequenceNumbers)
+        if (beforeSeq !== undefined && nextBeforeSeq >= beforeSeq) break
+        beforeSeq = nextBeforeSeq
+      }
+    } catch (error) {
+      if (hostScopeRef.current === scope) setState((current) => ({ ...current, error: String(error) }))
+      setMemorySourceTarget(null)
+      return
+    }
+    if (hostScopeRef.current !== scope) return
+    setHistoryByChat((current) => ({ ...current, [cacheKey]: mergeMessages(current[cacheKey] ?? [], [...collected.values()]) }))
+    if (!collected.has(messageId)) {
+      setMemorySourceTarget(null)
+      setState((current) => ({ ...current, error: t('memory.source.message_not_found') }))
     }
   }
 
@@ -579,8 +987,8 @@ function App() {
       <nav className="sidebar-footer">
         <button className={activePage === 'workbench' ? 'selected' : ''} onClick={() => setActivePage('workbench')}><Workflow size={15} />{t('nav.workbench')}</button>
         <button className={activePage === 'dashboard' ? 'selected' : ''} onClick={() => setActivePage('dashboard')}><Sparkles size={15} />{t('nav.dashboard')}</button>
-        <button><MessageCircle size={15} />{t('nav.routines')}</button>
-        <button><Sparkles size={15} />{t('nav.skills')}</button>
+        <button className={activePage === 'routines' ? 'selected' : ''} onClick={() => setActivePage('routines')}><MessageCircle size={15} />{t('nav.routines')}</button>
+        <button className={activePage === 'skills' ? 'selected' : ''} onClick={() => setActivePage('skills')}><Sparkles size={15} />{t('nav.skills')}</button>
         <button onClick={() => void openSettings()}><Settings size={15} />{t('nav.settings')}<kbd>⌘,</kbd></button>
       </nav>
     </aside>
@@ -601,7 +1009,7 @@ function App() {
       <div className="message-scroll">
         {!currentChat ? <div className="empty-conversation"><BeanAvatar main size="72" /><strong>{t('onboarding.empty.title')}</strong><span>{t('onboarding.empty.desc')}</span></div>
           : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages).map((entry) => <div className="timeline-fragment" key={entry.message.id}>
+          {buildMessageTimeline(currentMessages).map((entry) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className="timeline-fragment" key={entry.message.id}>
             {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
             <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={(id) => void loadAssignmentTrace(id)} onPreviewArtifact={(artifact) => void previewArtifact(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
@@ -692,6 +1100,66 @@ function App() {
       void loadAssignmentTrace(assignmentId)
     }} onMention={mentionAssignmentBot} onRefresh={() => { void invoke<BridgeState>('get_bridge_state').then(setState).catch((error: unknown) => setState((current) => ({ ...current, error: String(error) }))) }} />}
     {activePage === 'dashboard' && <DashboardPage />}
+    {activePage === 'routines' && <RoutinesPage key={hostScope}
+      routines={routinesDataScope === hostScope ? routines : []}
+      bots={Object.values(state.bots).map((bot): RoutineBot => ({ id: bot.id, name: bot.name ?? bot.id, is_main: bot.is_main }))}
+      projects={Object.values(state.projects).map((project): RoutineProject => ({ id: project.id, name: project.name ?? project.id, chat_id: typeof project.chat_id === 'string' ? project.chat_id : undefined }))}
+      runs={routinesDataScope === hostScope ? routineRuns : {}}
+      loading={routinesLoading || routinesDataScope !== hostScope}
+      error={routinesDataScope === hostScope ? routinesError : null}
+      onRetry={loadRoutines}
+      onCreate={createRoutine}
+      onUpdate={updateRoutine}
+      onSetEnabled={setRoutineEnabled}
+      onTestRun={testRoutine}
+      onLoadRuns={loadRoutineRuns}
+      onDelete={deleteRoutine}
+      onOpenTrace={(assignmentId, run) => {
+        setActivePage('chat')
+        const assignment = state.assignments[assignmentId]
+        const chatId = String(assignment?.origin_chat_id ?? '')
+        if (chatId) selectChat(chatId)
+        void loadAssignmentTrace(run.assignment_id ?? assignmentId)
+      }}
+      t={(key) => t(key)}
+    />}
+    {activePage === 'skills' && <SkillsPage key={hostScope}
+      skills={skillsDataScope === hostScope ? skills : []}
+      bots={Object.values(state.bots).map((bot) => ({ id: bot.id, name: bot.name ?? bot.id }))}
+      loading={skillsLoading || skillsDataScope !== hostScope}
+      loadError={skillsDataScope === hostScope ? skillsError : null}
+      onReload={loadSkills}
+      onGet={getSkill}
+      onCreate={createSkill}
+      onUpdate={updateSkill}
+      onSetEnabled={setSkillEnabled}
+      onPublish={publishSkill}
+      onDiscard={discardSkill}
+      onImport={importSkills}
+      onUploadZip={async (file) => {
+        const scope = hostScope
+        assertHostScope(hostScopeRef.current, scope)
+        const uploadId = await invoke<string>('upload_skill_zip', new Uint8Array(await file.arrayBuffer()), { headers: { 'x-file-name': encodeURIComponent(file.name) } })
+        assertHostScope(hostScopeRef.current, scope)
+        return uploadId
+      }}
+    />}
+    {activePage === 'memory' && <MemoryPage key={hostScope}
+      profile={memoryDataScope === hostScope ? memoryProfile : null}
+      entries={memoryDataScope === hostScope ? memoryEntries : []}
+      quota={memoryDataScope === hostScope ? memoryQuota : null}
+      chats={Object.fromEntries(Object.values(state.chats).map((chat) => [chat.id, chatTitle(chat)]))}
+      bots={Object.fromEntries(Object.values(state.bots).map((bot) => [bot.id, bot.name ?? bot.id]))}
+      loading={memoryLoading || memoryDataScope !== hostScope}
+      loadError={memoryDataScope === hostScope ? memoryError : null}
+      onReload={loadMemory}
+      onUpdateProfile={updateUserProfile}
+      onCreate={createMemoryEntry}
+      onUpdate={updateMemoryEntry}
+      onDelete={deleteMemoryEntry}
+      onOpenSource={openMemorySource}
+      onBack={() => { setActivePage('chat'); void openSettings() }}
+    />}
     {artifactPreview && <div className="artifact-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setArtifactPreview(null) }}>
       <section className="artifact-preview-panel" role="dialog" aria-modal="true" aria-label={artifactPreview.title}>
         <header><div><strong>{artifactPreview.title}</strong><small>{artifactPreview.path}</small></div><button type="button" className="icon-button" onClick={() => setArtifactPreview(null)} aria-label={t('common.close')}>×</button></header>
@@ -699,7 +1167,7 @@ function App() {
         {artifactPreview.error ? <p className="artifact-preview-error">{artifactPreview.error}</p> : artifactPreview.path.startsWith('http') ? <a className="artifact-preview-url" href={artifactPreview.path} target="_blank" rel="noreferrer">{artifactPreview.path}</a> : <pre>{artifactPreview.content || artifactPreview.path}</pre>}
       </section>
     </div>}
-    {showSettings && <SettingsPanel settings={state.settings} bots={state.bots} permissions={hostPermissions} busy={settingsBusy} error={settingsError} themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} onTheme={updateTheme} onTranslucency={updateTranslucency} onMode={updateApprovalMode} onRules={updateApprovalRules} onClose={() => setShowSettings(false)} />}
+    {showSettings && <SettingsPanel settings={state.settings} bots={state.bots} permissions={hostPermissions} busy={settingsBusy} error={settingsError} themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} onTheme={updateTheme} onTranslucency={updateTranslucency} onMode={updateApprovalMode} onRules={updateApprovalRules} onMemory={() => { setShowSettings(false); setActivePage('memory') }} onClose={() => setShowSettings(false)} />}
     {hostDialogOpen && <HostDialog endpoint={endpoint} setEndpoint={setEndpoint} password={password} setPassword={setPassword} hostName={hostName} setHostName={setHostName} error={state.error} connecting={connecting} onClose={() => setHostDialogOpen(false)} onSubmit={connect} />}
   </main>
 }
@@ -808,7 +1276,7 @@ function ConnectScreen(props: ConnectProps) {
   </main>
 }
 
-function SettingsPanel(props: { settings: Record<string, Json> | null; bots: BridgeState['bots']; permissions: Record<string, string> | null; busy: boolean; error: string | null; themeMode: ThemeMode; translucent: boolean; reducedTransparency: boolean; onTheme: (mode: ThemeMode) => void; onTranslucency: (enabled: boolean) => void; onMode: (mode: 'always_allow' | 'require') => void; onRules: (rules: Record<string, Json>[]) => void; onClose: () => void }) {
+function SettingsPanel(props: { settings: Record<string, Json> | null; bots: BridgeState['bots']; permissions: Record<string, string> | null; busy: boolean; error: string | null; themeMode: ThemeMode; translucent: boolean; reducedTransparency: boolean; onTheme: (mode: ThemeMode) => void; onTranslucency: (enabled: boolean) => void; onMode: (mode: 'always_allow' | 'require') => void; onRules: (rules: Record<string, Json>[]) => void; onMemory: () => void; onClose: () => void }) {
   const approvals = props.settings?.approvals as Record<string, Json> | undefined
   const rules = Array.isArray(approvals?.rules) ? approvals.rules as Record<string, Json>[] : NO_RULES
   const [draftRules, setDraftRules] = useState(rules)
@@ -817,7 +1285,7 @@ function SettingsPanel(props: { settings: Record<string, Json> | null; bots: Bri
   const labels: Record<string, string> = { screen_recording: t('settings.permission.screen_recording'), accessibility: t('settings.permission.accessibility'), full_disk_access: t('settings.permission.full_disk_access'), automation_chrome: t('settings.permission.automation_chrome') }
   const permissionStates: Record<string, string> = { granted: t('settings.permission.granted'), denied: t('settings.permission.denied'), unknown: t('settings.permission.unknown') }
   return <div className="settings-scrim" onMouseDown={props.onClose}><section className="settings-panel" onMouseDown={(event) => event.stopPropagation()}>
-    <header><div><div className="eyebrow">{t('nav.settings')}</div><h2>{t('settings.approvals.title')}</h2></div><button className="icon-button" onClick={props.onClose} aria-label={t('common.close')}>×</button></header>
+    <header><div><div className="eyebrow">{t('nav.settings')}</div><h2>{t('settings.approvals.title')}</h2></div><div className="settings-header-actions"><button type="button" className="text-button" onClick={props.onMemory}>{t('nav.memory')}</button><button className="icon-button" onClick={props.onClose} aria-label={t('common.close')}>×</button></div></header>
     <section className="settings-section"><h3>{t('settings.appearance')}</h3>
       <label className="appearance-row"><span>{t('settings.theme')}</span><select aria-label={t('settings.theme')} value={props.themeMode} onChange={(event) => props.onTheme(event.target.value as ThemeMode)}>
         <option value="light">{t('settings.theme.light')}</option><option value="dark">{t('settings.theme.dark')}</option><option value="system">{t('settings.theme.system')}</option>

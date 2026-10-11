@@ -12,6 +12,8 @@
     "protocol/schema/event_frame.json",
     "protocol/schema/event_name.json",
     "protocol/schema/hello.json",
+    "protocol/schema/memory_entry.json",
+    "protocol/schema/memory_quota.json",
     "protocol/schema/message.json",
     "protocol/schema/method.json",
     "protocol/schema/method_params.json",
@@ -34,9 +36,10 @@
     "protocol/schema/trace_item.json",
     "protocol/schema/usage_heatmap.json",
     "protocol/schema/usage_totals.json",
+    "protocol/schema/user_profile.json",
     "protocol/schema/workbench.json",
     "protocol/schema/write_meta.json"
   ],
-  "fixtures": 210,
+  "fixtures": 232,
   "generated_models": "clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/protocol/generated/SchemaModels.kt"
 }

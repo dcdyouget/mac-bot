@@ -1,9 +1,9 @@
 {
   "data": {
-    "seq": 39
+    "seq": 42
   },
   "event": "sync.cursor",
   "kind": "evt",
-  "seq": 39,
+  "seq": 42,
   "v": 1
 }

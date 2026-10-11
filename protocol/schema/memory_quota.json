@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MemoryQuota",
+  "type": "object",
+  "required": [
+    "limit_chars",
+    "used_chars"
+  ],
+  "properties": {
+    "limit_chars": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "used_chars": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    }
+  }
+}

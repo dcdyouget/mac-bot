@@ -63,7 +63,7 @@ fn question_history() -> Vec<Value> {
         answered_question(
             "que_login_1",
             "按钮放在哪里？",
-            json!(["顶部","表单下方"]),
+            json!(["顶部", "表单下方"]),
             false,
             json!({"option_index":1,"option_indexes":[],"text":null,"at":now()}),
         ),
@@ -77,7 +77,7 @@ fn question_history() -> Vec<Value> {
         answered_question(
             "que_login_3",
             "覆盖哪些浏览器？",
-            json!(["Chrome","Safari","Firefox"]),
+            json!(["Chrome", "Safari", "Firefox"]),
             true,
             json!({"option_index":null,"option_indexes":[0,1],"text":null,"at":now()}),
         ),
@@ -104,6 +104,75 @@ fn model() -> Value {
 }
 fn settings() -> Value {
     json!({"host_name":"Mac mini","timezone":"Asia/Shanghai","currency":"CNY","tools":{"defaults":{"files":true,"bash":true,"browser":true,"subagent":true,"web":true,"mcp":false}},"concurrency":{"global":4,"bot_default":2,"subagent_per_run":3,"subagent_global":8,"loop_hops":3},"models":{"bot_default":"prv_mock/mock-model","main":null,"subagent":"inherit","maintenance":null},"main_bot":{"auto_create_project":true},"approvals":{"mode":"always_allow","rules":[{"id":"apr_rule_builtin","kind":"ask_first","text":"git push","created_at":now(),"bot_id":null,"builtin":true},{"id":"apr_rule_bot","kind":"auto_allow","text":"cargo test","created_at":now(),"bot_id":"bot_code","builtin":false}]},"browser":{"default_mode":"headless","chrome_profile":"Default","stream":{"desktop":{"max_width":1280,"quality":70,"max_fps":15},"mobile":{"max_width":720,"quality":50,"max_fps":10}}},"skills":{"extra_dirs":[]},"trace":{"save_full_requests":false},"web_search":{"provider":null,"endpoint":null,"has_key":false},"push":{"apns_configured":false}})
+}
+
+fn memory_entry(
+    id: &str,
+    content: &str,
+    version: u64,
+    by: Value,
+    chat_id: Value,
+    message_id: Value,
+    updated_by: Value,
+) -> Value {
+    json!({
+        "id":id,
+        "content":content,
+        "version":version,
+        "source":{"by":by,"chat_id":chat_id,"message_id":message_id},
+        "updated_by":updated_by,
+        "created_at":now(),
+        "updated_at":now()
+    })
+}
+
+fn memory_user_entries() -> Vec<Value> {
+    vec![
+        memory_entry(
+            "mem_system",
+            "回复用中文，代码和注释用英文。",
+            3,
+            json!({"kind":"system"}),
+            json!("chat_login"),
+            json!("msg_1"),
+            json!({"kind":"user"}),
+        ),
+        memory_entry(
+            "mem_manual",
+            "周末不要推送非紧急通知。",
+            1,
+            json!({"kind":"user"}),
+            Value::Null,
+            Value::Null,
+            json!({"kind":"user"}),
+        ),
+        memory_entry(
+            "mem_legacy",
+            "旧数据中的用户偏好。",
+            2,
+            json!({"kind":"bot","bot_id":"bot_code"}),
+            json!("chat_login"),
+            json!("msg_1"),
+            json!({"kind":"system"}),
+        ),
+    ]
+}
+
+fn memory_quota(used_chars: u64) -> Value {
+    json!({"used_chars":used_chars,"limit_chars":1500})
+}
+
+fn user_profile() -> Value {
+    json!({
+        "name":"小林",
+        "language":"zh-CN",
+        "identity":"独立开发者",
+        "timezone":"Asia/Shanghai",
+        "onboarded":true,
+        "version":4,
+        "updated_by":{"kind":"user"},
+        "updated_at":now()
+    })
 }
 
 fn objects(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -133,6 +202,21 @@ fn objects(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
         ),
         ("routine", routine()),
         ("routine_run", routine_run()),
+        ("memory_entry", memory_user_entries()[0].clone()),
+        (
+            "memory_entry_500_chars",
+            memory_entry(
+                "mem_500",
+                &"x".repeat(500),
+                1,
+                json!({"kind":"user"}),
+                Value::Null,
+                Value::Null,
+                json!({"kind":"user"}),
+            ),
+        ),
+        ("memory_quota_full", memory_quota(1500)),
+        ("user_profile", user_profile()),
         ("provider", provider()),
         ("model", model()),
         ("settings", settings()),
@@ -406,6 +490,21 @@ fn events(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
             "settings_updated",
             "settings.updated",
             json!({"settings":settings()}),
+        ),
+        (
+            "memory_user_updated",
+            "memory.user.updated",
+            json!({"entry":memory_user_entries()[0].clone(),"quota":memory_quota(1186)}),
+        ),
+        (
+            "memory_user_deleted",
+            "memory.user.deleted",
+            json!({"entry_id":"mem_manual","quota":memory_quota(1155)}),
+        ),
+        (
+            "memory_profile_updated",
+            "memory.profile.updated",
+            json!({"profile":user_profile()}),
         ),
         (
             "hello",
@@ -1020,10 +1119,20 @@ fn question_approval_scenario(root: &Path) -> Result<(), Box<dyn std::error::Err
     for mut q in question_history() {
         q["state"] = json!("pending");
         q["answer"] = Value::Null;
-        push_frame(&mut lines, &mut seq, "question.asked", json!({"question":q}));
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "question.asked",
+            json!({"question":q}),
+        );
     }
     for q in question_history() {
-        push_frame(&mut lines, &mut seq, "question.answered", json!({"question":q}));
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "question.answered",
+            json!({"question":q}),
+        );
     }
     let approval = approval();
     push_frame(
@@ -1085,6 +1194,81 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         json!({"matrix":matrix,"thresholds":[25.0,50.0,100.0]}),
     )?;
     write(&root.join("results"), "workbench.json", workbench())?;
+    write(
+        &root.join("requests"),
+        "memory_user_list.json",
+        json!({"method":"memory.user.list","params":{}}),
+    )?;
+    write(
+        &root.join("results"),
+        "memory_user_list.json",
+        json!({"entries":memory_user_entries(),"quota":memory_quota(1186)}),
+    )?;
+    write(
+        &root.join("requests"),
+        "memory_user_create.json",
+        json!({"method":"memory.user.create","params":{"content":"x".repeat(500)}}),
+    )?;
+    write(
+        &root.join("results"),
+        "memory_user_create.json",
+        json!({"entry":memory_entry("mem_500", &"x".repeat(500), 1, json!({"kind":"user"}), Value::Null, Value::Null, json!({"kind":"user"})),"quota":memory_quota(500)}),
+    )?;
+    write(
+        &root.join("requests"),
+        "memory_user_update.json",
+        json!({"method":"memory.user.update","params":{"entry_id":"mem_system","content":"回复尽量简洁，代码和注释用英文。","expected_version":3}}),
+    )?;
+    write(
+        &root.join("results"),
+        "memory_user_update.json",
+        json!({"entry":memory_entry("mem_system", "回复尽量简洁，代码和注释用英文。", 4, json!({"kind":"system"}), json!("chat_login"), json!("msg_1"), json!({"kind":"user"})),"quota":memory_quota(1175)}),
+    )?;
+    write(
+        &root.join("requests"),
+        "memory_user_delete.json",
+        json!({"method":"memory.user.delete","params":{"entry_id":"mem_manual","expected_version":1}}),
+    )?;
+    write(
+        &root.join("results"),
+        "memory_user_delete.json",
+        json!({"quota":memory_quota(1155)}),
+    )?;
+    write(
+        &root.join("errors"),
+        "memory_user_conflict.json",
+        json!({"v":1,"kind":"res","id":"req_memory_update","ok":false,"error":{"code":"conflict","message":"memory entry changed","details":{"current":memory_entry("mem_system", "更新后的记忆内容。", 4, json!({"kind":"system"}), json!("chat_login"), json!("msg_1"), json!({"kind":"system"}))}}}),
+    )?;
+    write(
+        &root.join("errors"),
+        "memory_user_quota_full.json",
+        json!({"v":1,"kind":"res","id":"req_memory_create","ok":false,"error":{"code":"quota_full","message":"user memory quota is full","details":{"used_chars":1500,"limit_chars":1500,"requested_chars":1}}}),
+    )?;
+    write(
+        &root.join("requests"),
+        "memory_profile_get.json",
+        json!({"method":"memory.profile.get","params":{}}),
+    )?;
+    write(
+        &root.join("results"),
+        "memory_profile_get.json",
+        json!({"profile":user_profile()}),
+    )?;
+    write(
+        &root.join("requests"),
+        "memory_profile_update.json",
+        json!({"method":"memory.profile.update","params":{"name":"林同学","language":"zh-CN","identity":null,"expected_version":4}}),
+    )?;
+    write(
+        &root.join("results"),
+        "memory_profile_update.json",
+        json!({"profile":{"name":"林同学","language":"zh-CN","identity":null,"timezone":"Asia/Shanghai","onboarded":true,"version":5,"updated_by":{"kind":"user"},"updated_at":now()}}),
+    )?;
+    write(
+        &root.join("errors"),
+        "memory_profile_conflict.json",
+        json!({"v":1,"kind":"res","id":"req_profile_update","ok":false,"error":{"code":"conflict","message":"profile changed","details":{"current":user_profile()}}}),
+    )?;
     write(
         &root.join("requests"),
         "question_list_history.json",

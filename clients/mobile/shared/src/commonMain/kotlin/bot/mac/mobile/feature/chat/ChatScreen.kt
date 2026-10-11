@@ -100,6 +100,7 @@ import kotlinx.coroutines.launch
 fun ChatScreen(
     repository: MobileRepository,
     chatId: String,
+    initialMessageId: String? = null,
     onOpenTrace: (assignmentId: String?, chatId: String?) -> Unit = { _, _ -> },
     onOpenProject: (String) -> Unit = {},
     onBack: () -> Unit = {},
@@ -117,6 +118,7 @@ fun ChatScreen(
     showHeader: Boolean = true,
 ) {
     val state by repository.state.collectAsState()
+    val hostId = repository.activeHost.collectAsState().value?.id ?: "active"
     val animationsEnabled = LocalSystemAnimationsEnabled.current
     val messages = state.messages[chatId].orEmpty()
     val lastOwnMessageIndex = messages.indexOfLast { it.obj("sender").str("kind") == "user" }
@@ -145,7 +147,7 @@ fun ChatScreen(
     val composerFocusRequester = remember(chatId) { FocusRequester() }
     val mentionButtonFocusRequester = remember(chatId) { FocusRequester() }
     var mentionOpenedByButton by remember(chatId) { mutableStateOf(false) }
-    val hostId = repository.activeHost.collectAsState().value?.id ?: "active"
+    var initialJumpHandled by remember(hostId, chatId, initialMessageId) { mutableStateOf(initialMessageId.isNullOrBlank()) }
     val readOnly = chat?.str("kind") == "bot_dm"
     val memberIds = chat?.arr("member_bot_ids").orEmpty().map { it.toString().trim('"') }
     val mentionCandidates = state.bots.filter { it.str("id") in memberIds || memberIds.isEmpty() }
@@ -209,11 +211,13 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(chatId) {
+    LaunchedEffect(hostId, chatId) {
         historyLoaded = false
+        historyHasMore = false
+        historyBeforeSeq = null
         scrollState = ChatScrollState()
         runCatching {
-            repository.call("chat.history", buildJsonObject { put("chat_id", chatId); put("limit", 100) })
+            repository.callOnHost(hostId, "chat.history", buildJsonObject { put("chat_id", chatId); put("limit", 100) })
 
         }.onSuccess { result ->
             historyHasMore = result.boolean("has_more")
@@ -225,8 +229,45 @@ fun ChatScreen(
         // History carries question IDs in its message blocks. Fetch their complete states in one
         // chat-scoped query so answered and expired cards can be reconstructed after reconnect.
         runCatching {
-            repository.call("question.list", buildJsonObject { put("chat_id", chatId) })
+            repository.callOnHost(hostId, "question.list", buildJsonObject { put("chat_id", chatId) })
         }
+    }
+    LaunchedEffect(hostId, chatId, initialMessageId, historyLoaded) {
+        val targetId = initialMessageId?.takeIf(String::isNotBlank) ?: return@LaunchedEffect
+        if (!historyLoaded || initialJumpHandled) return@LaunchedEffect
+        var hasMore = historyHasMore
+        var beforeSeq = historyBeforeSeq
+        var pages = 0
+        while (repository.state.value.messages[chatId].orEmpty().none { it.str("id") == targetId } && hasMore && beforeSeq != null && pages < 100) {
+            val result = runCatching {
+                repository.callOnHost(hostId, "chat.history", buildJsonObject {
+                    put("chat_id", chatId)
+                    put("before_seq", beforeSeq!!)
+                    put("limit", 100)
+                })
+            }.getOrElse { failure ->
+                error = failure.message ?: loadingError
+                break
+            }
+            hasMore = result.boolean("has_more")
+            beforeSeq = result.objects("messages").minOfOrNull { it.longValue("seq") ?: Long.MAX_VALUE }
+                ?.takeIf { it != Long.MAX_VALUE }
+            historyHasMore = hasMore
+            historyBeforeSeq = beforeSeq
+            pages++
+        }
+        val index = repository.state.value.messages[chatId].orEmpty().indexOfFirst { it.str("id") == targetId }
+        if (index >= 0) {
+            withFrameNanos { }
+            listState.scrollToItem(index + if (historyHasMore) 1 else 0)
+            scrollState = scrollState.afterInitialPosition()
+            highlightedMessageId = targetId
+            kotlinx.coroutines.delay(900)
+            if (highlightedMessageId == targetId) highlightedMessageId = null
+        } else {
+            error = quoteOriginalUnloaded
+        }
+        initialJumpHandled = true
     }
     LaunchedEffect(draft.startsWith("/")) {
         if (draft.startsWith("/")) runCatching { repository.call("skill.list", buildJsonObject {}) }
@@ -254,6 +295,7 @@ fun ChatScreen(
     }
 
     LaunchedEffect(chatId, historyLoaded, messages.size, historyHasMore) {
+        if (initialMessageId != null && !initialJumpHandled) return@LaunchedEffect
         if (!historyLoaded || scrollState.initialPositioned) return@LaunchedEffect
         val lastIndex = latestChatItemIndex(messages.size, historyHasMore) ?: return@LaunchedEffect
         withFrameNanos { }
@@ -262,6 +304,7 @@ fun ChatScreen(
     }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), historyHasMore, scrollState) {
+        if (initialMessageId != null && !initialJumpHandled) return@LaunchedEffect
         if (!scrollState.shouldScrollToLatest(messages.size)) return@LaunchedEffect
         val lastIndex = latestChatItemIndex(messages.size, historyHasMore) ?: return@LaunchedEffect
         withFrameNanos { }

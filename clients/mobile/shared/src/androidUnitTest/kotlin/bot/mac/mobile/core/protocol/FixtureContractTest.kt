@@ -64,6 +64,12 @@ class FixtureContractTest {
         val permissions = decode(HostPermissionsResultSerializer, fixture("results/host_permissions.json"))
         assertEquals("granted", permissions.screenRecording)
         assertEquals("granted", permissions.automationChrome)
+
+        val userMemory = decode(MemoryUserListResultSerializer, fixture("results/memory_user_list.json"))
+        assertEquals("mem_system", userMemory.entries.first().id)
+        assertEquals(1186L, userMemory.quota.usedChars)
+        val userProfile = decode(MemoryProfileResultSerializer, fixture("results/memory_profile_get.json"))
+        assertEquals("Asia/Shanghai", userProfile.profile.timezone)
     }
 
     @Test
@@ -98,8 +104,14 @@ class FixtureContractTest {
     private fun serializerFor(source: String): KSerializer<*>? {
         val path = source.removePrefix("protocol/fixtures/")
         return when {
+        path.startsWith("errors/") -> RpcResponseSerializer
         path.startsWith("objects/") -> objectSerializers[path.substringAfter("objects/").substringBeforeLast('.')]
         path.startsWith("events/") || path.startsWith("scenarios/") -> EventFrameSerializer
+        path.startsWith("requests/memory_") -> RpcRequestSerializer
+        path == "results/memory_profile_get.json" || path == "results/memory_profile_update.json" -> MemoryProfileResultSerializer
+        path == "results/memory_user_create.json" || path == "results/memory_user_update.json" -> MemoryUserEntryResultSerializer
+        path == "results/memory_user_delete.json" -> MemoryUserDeleteResultSerializer
+        path == "results/memory_user_list.json" -> MemoryUserListResultSerializer
         path == "requests/announcement_update.json" -> AnnouncementUpdateParamsSerializer
         path == "requests/artifact_version_get.json" -> ArtifactVersionGetParamsSerializer
         path == "requests/artifact_versions_list.json" -> ArtifactVersionsParamsSerializer
@@ -139,6 +151,10 @@ class FixtureContractTest {
         "chat" to ChatSerializer,
         "device" to DeviceSerializer,
         "hello" to HelloSerializer,
+        "memory_entry" to MemoryEntrySerializer,
+        "memory_entry_500_chars" to MemoryEntrySerializer,
+        "memory_quota" to MemoryQuotaSerializer,
+        "memory_quota_full" to MemoryQuotaSerializer,
         "message" to MessageSerializer,
         "message_waiting" to MessageSerializer,
         "model" to ModelSerializer,
@@ -153,6 +169,7 @@ class FixtureContractTest {
         "skill" to SkillSerializer,
         "skill_draft" to SkillSerializer,
         "skill_detail" to SkillDetailSerializer,
+        "user_profile" to UserProfileSerializer,
     )
 
     private fun <T> decode(serializer: KSerializer<T>, value: JsonObject): T =

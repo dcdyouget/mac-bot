@@ -354,6 +354,33 @@ data class MainBotSettings(override val raw: JsonObject) : RawProtocolModel {
 }
 object MainBotSettingsSerializer : RawModelSerializer<MainBotSettings>(::MainBotSettings)
 
+@Serializable(with = MemoryEntrySerializer::class)
+data class MemoryEntry(override val raw: JsonObject) : RawProtocolModel {
+    val content: String get() = raw.str("content")
+    val createdAt: String get() = raw.str("created_at")
+    val id: String get() = raw.str("id")
+    val source: MemorySource get() = MemorySource(raw.obj("source"))
+    val updatedAt: String get() = raw.str("updated_at")
+    val updatedBy: Sender get() = Sender(raw.obj("updated_by"))
+    val version: Long get() = raw.long("version")
+}
+object MemoryEntrySerializer : RawModelSerializer<MemoryEntry>(::MemoryEntry)
+
+@Serializable(with = MemoryQuotaSerializer::class)
+data class MemoryQuota(override val raw: JsonObject) : RawProtocolModel {
+    val limitChars: Long get() = raw.long("limit_chars")
+    val usedChars: Long get() = raw.long("used_chars")
+}
+object MemoryQuotaSerializer : RawModelSerializer<MemoryQuota>(::MemoryQuota)
+
+@Serializable(with = MemorySourceSerializer::class)
+data class MemorySource(override val raw: JsonObject) : RawProtocolModel {
+    val `by`: Sender get() = Sender(raw.obj("by"))
+    val chatId: String? get() = raw.stringOrNull("chat_id")
+    val messageId: String? get() = raw.stringOrNull("message_id")
+}
+object MemorySourceSerializer : RawModelSerializer<MemorySource>(::MemorySource)
+
 @Serializable(with = MentionSerializer::class)
 data class Mention(override val raw: JsonObject) : RawProtocolModel {
 }
@@ -679,6 +706,19 @@ data class UsageTick(override val raw: JsonObject) : RawProtocolModel {
 }
 object UsageTickSerializer : RawModelSerializer<UsageTick>(::UsageTick)
 
+@Serializable(with = UserProfileSerializer::class)
+data class UserProfile(override val raw: JsonObject) : RawProtocolModel {
+    val identity: String? get() = raw.stringOrNull("identity")
+    val language: String? get() = raw.stringOrNull("language")
+    val name: String? get() = raw.stringOrNull("name")
+    val onboarded: Boolean get() = raw.boolean("onboarded")
+    val timezone: String get() = raw.str("timezone")
+    val updatedAt: String get() = raw.str("updated_at")
+    val updatedBy: Sender get() = Sender(raw.obj("updated_by"))
+    val version: Long get() = raw.long("version")
+}
+object UserProfileSerializer : RawModelSerializer<UserProfile>(::UserProfile)
+
 @Serializable(with = WebSearchSettingsSerializer::class)
 data class WebSearchSettings(override val raw: JsonObject) : RawProtocolModel {
     val endpoint: String? get() = raw.stringOrNull("endpoint")
@@ -967,6 +1007,40 @@ data class MainBotSettingsPatch(override val raw: JsonObject) : RawProtocolModel
     val autoCreateProject: Boolean? get() = raw.boolOrNull("auto_create_project")
 }
 object MainBotSettingsPatchSerializer : RawModelSerializer<MainBotSettingsPatch>(::MainBotSettingsPatch)
+
+@Serializable(with = MemoryProfileUpdateParamsSerializer::class)
+data class MemoryProfileUpdateParams(override val raw: JsonObject) : RawProtocolModel {
+    val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
+    val expectedVersion: Long get() = raw.long("expected_version")
+    val identity: String? get() = raw.stringOrNull("identity")
+    val language: String? get() = raw.stringOrNull("language")
+    val name: String? get() = raw.stringOrNull("name")
+}
+object MemoryProfileUpdateParamsSerializer : RawModelSerializer<MemoryProfileUpdateParams>(::MemoryProfileUpdateParams)
+
+@Serializable(with = MemoryUserCreateParamsSerializer::class)
+data class MemoryUserCreateParams(override val raw: JsonObject) : RawProtocolModel {
+    val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
+    val content: String get() = raw.str("content")
+}
+object MemoryUserCreateParamsSerializer : RawModelSerializer<MemoryUserCreateParams>(::MemoryUserCreateParams)
+
+@Serializable(with = MemoryUserDeleteParamsSerializer::class)
+data class MemoryUserDeleteParams(override val raw: JsonObject) : RawProtocolModel {
+    val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
+    val entryId: String get() = raw.str("entry_id")
+    val expectedVersion: Long get() = raw.long("expected_version")
+}
+object MemoryUserDeleteParamsSerializer : RawModelSerializer<MemoryUserDeleteParams>(::MemoryUserDeleteParams)
+
+@Serializable(with = MemoryUserUpdateParamsSerializer::class)
+data class MemoryUserUpdateParams(override val raw: JsonObject) : RawProtocolModel {
+    val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
+    val content: String get() = raw.str("content")
+    val entryId: String get() = raw.str("entry_id")
+    val expectedVersion: Long get() = raw.long("expected_version")
+}
+object MemoryUserUpdateParamsSerializer : RawModelSerializer<MemoryUserUpdateParams>(::MemoryUserUpdateParams)
 
 @Serializable(with = MessageDeleteParamsSerializer::class)
 data class MessageDeleteParams(override val raw: JsonObject) : RawProtocolModel {
@@ -1659,6 +1733,32 @@ data class InFlight(override val raw: JsonObject) : RawProtocolModel {
     val thinking: String get() = raw.str("thinking")
 }
 object InFlightSerializer : RawModelSerializer<InFlight>(::InFlight)
+
+@Serializable(with = MemoryProfileResultSerializer::class)
+data class MemoryProfileResult(override val raw: JsonObject) : RawProtocolModel {
+    val profile: UserProfile get() = UserProfile(raw.obj("profile"))
+}
+object MemoryProfileResultSerializer : RawModelSerializer<MemoryProfileResult>(::MemoryProfileResult)
+
+@Serializable(with = MemoryUserDeleteResultSerializer::class)
+data class MemoryUserDeleteResult(override val raw: JsonObject) : RawProtocolModel {
+    val quota: MemoryQuota get() = MemoryQuota(raw.obj("quota"))
+}
+object MemoryUserDeleteResultSerializer : RawModelSerializer<MemoryUserDeleteResult>(::MemoryUserDeleteResult)
+
+@Serializable(with = MemoryUserEntryResultSerializer::class)
+data class MemoryUserEntryResult(override val raw: JsonObject) : RawProtocolModel {
+    val entry: MemoryEntry get() = MemoryEntry(raw.obj("entry"))
+    val quota: MemoryQuota get() = MemoryQuota(raw.obj("quota"))
+}
+object MemoryUserEntryResultSerializer : RawModelSerializer<MemoryUserEntryResult>(::MemoryUserEntryResult)
+
+@Serializable(with = MemoryUserListResultSerializer::class)
+data class MemoryUserListResult(override val raw: JsonObject) : RawProtocolModel {
+    val entries: List<MemoryEntry> get() = raw.arr("entries").mapNotNull { (it as? JsonObject)?.let(::MemoryEntry) }
+    val quota: MemoryQuota get() = MemoryQuota(raw.obj("quota"))
+}
+object MemoryUserListResultSerializer : RawModelSerializer<MemoryUserListResult>(::MemoryUserListResult)
 
 @Serializable(with = MessageEditResultSerializer::class)
 data class MessageEditResult(override val raw: JsonObject) : RawProtocolModel {

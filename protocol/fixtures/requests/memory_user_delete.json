@@ -1,0 +1,7 @@
+{
+  "method": "memory.user.delete",
+  "params": {
+    "entry_id": "mem_manual",
+    "expected_version": 1
+  }
+}

@@ -17,8 +17,8 @@ use crate::{
         GatewayStateSink, GroupMessageBridge, ProviderResolver,
     },
     features::{
-        FeatureService, MaintenanceTickReport, MaintenanceUsageContext, MaintenanceUsageSink,
-        ModelMaintenanceAdapter, SharedFeatureService,
+        FeatureError, FeatureService, MaintenanceTickReport, MaintenanceUsageContext,
+        MaintenanceUsageSink, ModelMaintenanceAdapter, SharedFeatureService,
     },
     memory_tools::{FeatureExecutionSink, FeatureRunContext, FeatureToolRuntime},
     GatewayState, RpcBackend,
@@ -51,6 +51,20 @@ use thiserror::Error;
 use tokio::sync::Notify;
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
+
+fn feature_rpc_error(error: FeatureError) -> crate::RpcError {
+    let details = match &error {
+        FeatureError::UserMemoryConflict(current) | FeatureError::UserProfileConflict(current) => {
+            Some(current.clone())
+        }
+        _ => None,
+    };
+    crate::RpcError {
+        code: error.code().into(),
+        message: error.to_string(),
+        details,
+    }
+}
 
 #[cfg(test)]
 type StartupDispatchGate = Arc<Notify>;
@@ -3267,6 +3281,40 @@ impl crate::RpcBackend for ComposedBackend {
     async fn call(&self, method: &str, params: Value, state: &GatewayState) -> crate::RpcResult {
         if method == "trace.history" {
             return self.trace_history(&params);
+        }
+        if matches!(
+            method,
+            "memory.user.list"
+                | "memory.user.create"
+                | "memory.user.update"
+                | "memory.user.delete"
+                | "memory.profile.get"
+                | "memory.profile.update"
+        ) {
+            let timezone = self
+                .inner
+                .orchestrator
+                .rpc("settings.get", json!({}))
+                .await
+                .ok()
+                .and_then(|result| result.get("settings").cloned())
+                .and_then(|settings| {
+                    settings
+                        .get("timezone")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .unwrap_or_else(|| "UTC".to_owned());
+            let response = self
+                .feature_service
+                .user_memory_rpc(method, params, &timezone)
+                .map_err(feature_rpc_error)?;
+            for event in response.events {
+                state
+                    .publish_event(event.seq, &event.event, event.data)
+                    .await;
+            }
+            return Ok(response.result);
         }
         if method.starts_with("skill.") {
             if method == "skill.create_draft" {
@@ -7921,8 +7969,9 @@ mod persistence_tests {
         let args = json!({
             "action":"add",
             "content":format!("private-deny-{suffix}"),
-            "kind":"user_preference",
-            "scope":"user"
+            "kind":"bot_experience",
+            "scope":"bot",
+            "bot_id":bot_id.clone()
         });
         let approval = backend
             .call(

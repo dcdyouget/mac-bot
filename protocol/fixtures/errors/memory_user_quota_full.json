@@ -1,0 +1,15 @@
+{
+  "error": {
+    "code": "quota_full",
+    "details": {
+      "limit_chars": 1500,
+      "requested_chars": 1,
+      "used_chars": 1500
+    },
+    "message": "user memory quota is full"
+  },
+  "id": "req_memory_create",
+  "kind": "res",
+  "ok": false,
+  "v": 1
+}

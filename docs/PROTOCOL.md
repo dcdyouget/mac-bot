@@ -99,6 +99,7 @@ type ErrorCode =
   | "unauthorized" | "setup_required" | "version_unsupported"
   | "invalid_params" | "not_found" | "forbidden"   // forbidden：例如删除主 Bot
   | "conflict"                                     // 状态冲突：例如对已结束的任务调用 stop
+  | "quota_full"                                   // 用户记忆超出配额
   | "rate_limited" | "busy" | "unavailable"         // unavailable：例如没有配置 APNs
   | "internal"
 ```

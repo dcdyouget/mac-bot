@@ -1,0 +1,14 @@
+{
+  "profile": {
+    "identity": null,
+    "language": "zh-CN",
+    "name": "林同学",
+    "onboarded": true,
+    "timezone": "Asia/Shanghai",
+    "updated_at": "2026-10-09T10:19:02.312Z",
+    "updated_by": {
+      "kind": "user"
+    },
+    "version": 5
+  }
+}

@@ -260,6 +260,8 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .settings-scrim { position: fixed; z-index: 10; inset: 0; display: flex; justify-content: flex-end; background: rgb(0 0 0 / 28%); }
 .settings-panel { width: min(620px, 76vw); height: 100%; overflow: auto; padding: 28px 32px; background: var(--bg-window); box-shadow: var(--elevation-4); }
 .settings-panel > header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 26px; }
+.settings-header-actions { display: flex; align-items: center; gap: 8px; }
+.settings-header-actions .text-button { padding: 5px 9px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--bg-elevated); color: var(--text-primary); font-size: 12px; }
 .settings-panel h2 { margin: 6px 0 0; font-size: 22px; }
 .settings-section { margin-bottom: 24px; }
 .settings-section h3 { margin: 0 0 10px; font-size: 13px; }

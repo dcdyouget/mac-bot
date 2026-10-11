@@ -48,6 +48,7 @@
         "not_found",
         "forbidden",
         "conflict",
+        "quota_full",
         "rate_limited",
         "busy",
         "unavailable",

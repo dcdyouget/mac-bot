@@ -1105,6 +1105,105 @@
         }
       }
     },
+    "MemoryProfileUpdateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "expected_version"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expected_version": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "identity": {
+          "$ref": "#/definitions/PatchString"
+        },
+        "language": {
+          "$ref": "#/definitions/PatchString"
+        },
+        "name": {
+          "$ref": "#/definitions/PatchString"
+        }
+      }
+    },
+    "MemoryUserCreateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "content"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content": {
+          "type": "string"
+        }
+      }
+    },
+    "MemoryUserDeleteParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "entry_id",
+        "expected_version"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entry_id": {
+          "type": "string"
+        },
+        "expected_version": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "MemoryUserUpdateParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "content",
+        "entry_id",
+        "expected_version"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content": {
+          "type": "string"
+        },
+        "entry_id": {
+          "type": "string"
+        },
+        "expected_version": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
     "Mention": {
       "oneOf": [
         {
@@ -1322,6 +1421,12 @@
         "settings.get",
         "host.permissions",
         "settings.update",
+        "memory.user.list",
+        "memory.user.create",
+        "memory.user.update",
+        "memory.user.delete",
+        "memory.profile.get",
+        "memory.profile.update",
         "usage.summary",
         "usage.heatmap",
         "usage.timeseries",
@@ -1564,6 +1669,24 @@
         },
         {
           "$ref": "#/definitions/SettingsUpdateParams"
+        },
+        {
+          "$ref": "#/definitions/EmptyParams"
+        },
+        {
+          "$ref": "#/definitions/MemoryUserCreateParams"
+        },
+        {
+          "$ref": "#/definitions/MemoryUserUpdateParams"
+        },
+        {
+          "$ref": "#/definitions/MemoryUserDeleteParams"
+        },
+        {
+          "$ref": "#/definitions/EmptyParams"
+        },
+        {
+          "$ref": "#/definitions/MemoryProfileUpdateParams"
         },
         {
           "$ref": "#/definitions/UsagePeriodParams"

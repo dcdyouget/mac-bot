@@ -647,7 +647,7 @@ impl Tool for MemoryTool {
     }
 
     fn description(&self) -> &str {
-        "Stage a user, private Bot, or project memory change for the current run. Project and Bot targets require explicit project_id or bot_id; IDs are never inferred from run context."
+        "Immediately add, replace, or remove Bot/project memory. Replacement and removal require the entry's expected_version. User preferences are written only by the user or curator. Project and Bot targets require explicit project_id or bot_id."
     }
 
     fn schema(&self) -> Value {
@@ -656,15 +656,15 @@ impl Tool for MemoryTool {
             "description":"Project and Bot targets require explicit non-empty project_id or bot_id; never infer target IDs from context.",
             "required":["scope"],
             "properties":{
-                "scope":{"enum":["user","bot","project"]},"action":{"enum":["add","replace","remove"],"description":"Defaults to add when omitted."},
-                "content":{"type":"string"},"id":{"type":"string","minLength":1},"user_id":{"type":"string","minLength":1},
+                "scope":{"enum":["bot","project"]},"action":{"enum":["add","replace","remove"],"description":"Defaults to add when omitted."},
+                "content":{"type":"string"},"id":{"type":"string","minLength":1},"expected_version":{"type":"integer","minimum":1},"version":{"type":"integer","minimum":1,"description":"Legacy alias for expected_version."},"user_id":{"type":"string","minLength":1},
                 "bot_id":{"type":"string","minLength":1},"project_id":{"type":"string","minLength":1},"kind":{"type":"string","enum":["user_preference","bot_experience","bot_worklog","project"]}
             },
             "allOf":[
                 {"if":{"required":["scope"],"properties":{"scope":{"const":"bot"}}},"then":{"required":["bot_id"]}},
                 {"if":{"required":["scope"],"properties":{"scope":{"const":"project"}}},"then":{"required":["project_id"]}},
                 {"if":{"required":["action"],"properties":{"action":{"enum":["add","replace"]}}},"then":{"required":["content"]}},
-                {"if":{"required":["action"],"properties":{"action":{"enum":["replace","remove"]}}},"then":{"required":["id"]}}
+                {"if":{"required":["action"],"properties":{"action":{"enum":["replace","remove"]}}},"then":{"required":["id"],"anyOf":[{"required":["expected_version"]},{"required":["version"]}]}}
             ]
         })
     }
@@ -680,7 +680,7 @@ impl Tool for MemoryTool {
         if let Err(error) = validate_memory_tool_args(&args) {
             return ToolResult::error(error);
         }
-        into_result(self.runtime.service.memory_rpc_with_access(
+        into_memory_result(self.runtime.service.memory_rpc_with_access(
             &self.runtime.run.actor,
             &self.runtime.run.access,
             with_run_id(args, &ctx.run_id),
@@ -732,7 +732,13 @@ impl Tool for MemorySearchTool {
                 &self.runtime.run.access,
                 query,
                 target.as_ref(),
-            )?}),
+            )?.into_iter().map(|entry| {
+                let mut value = serde_json::to_value(&entry).unwrap_or(Value::Null);
+                if let Some(object) = value.as_object_mut() {
+                    object.insert("version".into(), json!(self.runtime.service.shared_memory.entry_version(&entry.id)?.unwrap_or(1)));
+                }
+                Ok(value)
+            }).collect::<Result<Vec<_>, FeatureError>>()?}),
             )
         })();
         into_result(result)
@@ -941,9 +947,7 @@ pub fn validate_memory_tool_args(args: &Value) -> Result<(), String> {
         }
     }
     match scope {
-        // `features::memory_target` intentionally defaults an omitted user
-        // owner to the authenticated user; do not reject that legacy shape.
-        "user" => {}
+        "user" => return Err("user preferences are written only by the user or curator".into()),
         "bot" => {
             required(object, "bot_id").map_err(|error| error.to_string())?;
         }
@@ -963,6 +967,13 @@ pub fn validate_memory_tool_args(args: &Value) -> Result<(), String> {
     }
     if matches!(action, "replace" | "remove") {
         required(object, "id").map_err(|error| error.to_string())?;
+        let version = object
+            .get("expected_version")
+            .or_else(|| object.get("version"))
+            .and_then(Value::as_u64);
+        if version.is_none() {
+            return Err("replace/remove require a non-negative expected_version".into());
+        }
     }
     if action != "remove" {
         let content = object
@@ -1046,6 +1057,37 @@ fn into_result<T: serde::Serialize>(result: Result<T, FeatureError>) -> ToolResu
     }
 }
 
+fn into_memory_result(result: Result<Value, FeatureError>) -> ToolResult {
+    let payload = match result {
+        Ok(value) => value,
+        Err(error) => match error {
+            FeatureError::MemoryMutationConflict(details) => json!({
+                "ok":false,
+                "code":"conflict",
+                "message":"memory entry changed since it was read",
+                "current":details.get("current").cloned().unwrap_or(Value::Null),
+            }),
+            FeatureError::MemoryToolQuotaFull(details) => json!({
+                "ok":false,
+                "code":"quota_full",
+                "message":"memory quota is full; merge or replace an existing entry",
+                "entries":details.get("entries").cloned().unwrap_or_else(|| json!([])),
+            }),
+            FeatureError::Memory(macbot_memory::MemoryError::NotFound(id)) => json!({
+                "ok":false,"code":"not_found","message":format!("memory entry not found: {id}"),
+            }),
+            other => json!({"ok":false,"code":"invalid","message":other.to_string()}),
+        },
+    };
+    let text = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
+    let is_error = payload.get("ok") == Some(&Value::Bool(false));
+    ToolResult {
+        content: vec![macbot_tools::Part::Text { text }],
+        details: payload,
+        is_error,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1096,6 +1138,7 @@ mod tests {
             "project_id": "project-a",
             "action": "replace",
             "id": "marker",
+            "expected_version": 1,
             "kind": "project_status",
             "content": "done"
         }))
@@ -1107,9 +1150,9 @@ mod tests {
     fn memory_argument_validator_matches_supported_actions_and_kinds() {
         assert!(validate_memory_tool_args(&json!({
             "scope": "user",
-            "content": "defaults to authenticated user and add"
+            "content": "bot tools cannot write user preferences"
         }))
-        .is_ok());
+        .is_err());
         assert!(validate_memory_tool_args(&json!({
             "scope": "bot",
             "bot_id": "bot-a",
@@ -1122,30 +1165,46 @@ mod tests {
             "scope": "project",
             "project_id": "project-a",
             "action": "remove",
-            "id": "entry-a"
+            "id": "entry-a",
+            "expected_version": 2
         }))
         .is_ok());
+        assert!(validate_memory_tool_args(&json!({
+            "scope": "bot",
+            "bot_id": "bot-a",
+            "action": "replace",
+            "id": "entry-a",
+            "version": 1,
+            "content": "legacy alias"
+        }))
+        .is_ok());
+        assert!(validate_memory_tool_args(&json!({
+            "scope": "bot",
+            "bot_id": "bot-a",
+            "action": "remove",
+            "id": "entry-a"
+        }))
+        .is_err());
         assert_eq!(
             validate_memory_tool_args(&json!({
                 "scope": "project",
                 "project_id": "project-a",
                 "action": "replace",
-                "content": "new"
+                "content": "new",
+                "expected_version": 1
             }))
             .unwrap_err(),
             "invalid feature request: id is required"
         );
-        assert_eq!(
-            validate_memory_tool_args(&json!({
-                "scope": "user",
-                "user_id": "user-a",
-                "action": "add",
-                "kind": "bot_experience",
-                "content": "wrong"
-            }))
-            .unwrap_err(),
-            "memory kind bot_experience is not valid for scope user"
-        );
+        assert!(validate_memory_tool_args(&json!({
+            "scope": "user",
+            "user_id": "user-a",
+            "action": "add",
+            "kind": "bot_experience",
+            "content": "wrong"
+        }))
+        .unwrap_err()
+        .contains("written only by the user or curator"));
     }
 
     #[test]
@@ -1221,7 +1280,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn memory_tool_stages_then_run_commit_persists() {
+    async fn memory_tool_commits_immediately_and_uses_compare_and_swap() {
         let runtime = runtime();
         let memory = runtime
             .tools()
@@ -1233,13 +1292,82 @@ mod tests {
         let result = memory
             .call(
                 &context,
-                json!({"scope":"user","user_id":"user-a","action":"add","kind":"user_preference","content":"likes tests"}),
+                json!({"scope":"bot","bot_id":"bot-a","action":"add","kind":"bot_experience","content":"likes tests"}),
             )
             .await;
         assert!(!result.is_error, "{}", result.content.len());
-        assert_eq!(runtime.service.shared_memory.entries().unwrap().len(), 0);
-        runtime.run_succeeded("run-1").unwrap();
+        assert_eq!(result.details["ok"], true);
+        assert_eq!(result.details["version"], 1);
+        assert!(runtime
+            .service
+            .shared_store
+            .events_since(0)
+            .unwrap()
+            .iter()
+            .any(|event| event.event == "memory.updated"));
         assert_eq!(runtime.service.shared_memory.entries().unwrap().len(), 1);
+        runtime.run_failed("run-1").unwrap();
+        assert_eq!(runtime.service.shared_memory.entries().unwrap().len(), 1);
+
+        let current = runtime.service.shared_memory.entries().unwrap().remove(0);
+        let entry_id = current.id.clone();
+        let search = runtime
+            .tools()
+            .into_iter()
+            .find(|tool| tool.name() == "memory_search")
+            .unwrap()
+            .call(&context, json!({"query":"likes tests"}))
+            .await;
+        assert_eq!(search.details["entries"][0]["version"], 1);
+        let stale = memory.call(
+            &context,
+            json!({"scope":"bot","bot_id":"bot-a","action":"replace","id":entry_id,"expected_version":0,"content":"stale"}),
+        ).await;
+        assert!(stale.is_error);
+        assert_eq!(stale.details["code"], "conflict");
+        assert_eq!(stale.details["current"]["version"], 1);
+        let updated = memory.call(
+            &context,
+            json!({"scope":"bot","bot_id":"bot-a","action":"replace","id":entry_id,"expected_version":1,"content":"new preference"}),
+        ).await;
+        assert!(!updated.is_error);
+        assert_eq!(updated.details["version"], 2);
+        let deleted = memory.call(
+            &context,
+            json!({"scope":"bot","bot_id":"bot-a","action":"remove","id":entry_id,"expected_version":2}),
+        ).await;
+        assert!(!deleted.is_error);
+        assert_eq!(deleted.details["version"], 3);
+        assert!(runtime.service.shared_memory.entries().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn memory_tool_returns_quota_full_with_existing_entry_directory() {
+        let runtime = runtime();
+        let memory = runtime
+            .tools()
+            .into_iter()
+            .find(|tool| tool.name() == "memory")
+            .unwrap();
+        let context = ToolContext::new("/tmp", "run-quota", "/tmp/runs");
+        for _ in 0..4 {
+            let result = memory
+                .call(
+                    &context,
+                    json!({"scope":"bot","bot_id":"bot-a","kind":"bot_experience","content":"x".repeat(500)}),
+                )
+                .await;
+            assert!(!result.is_error);
+        }
+        let full = memory
+            .call(
+                &context,
+                json!({"scope":"bot","bot_id":"bot-a","kind":"bot_experience","content":"x"}),
+            )
+            .await;
+        assert!(full.is_error);
+        assert_eq!(full.details["code"], "quota_full");
+        assert_eq!(full.details["entries"].as_array().unwrap().len(), 4);
     }
 
     #[tokio::test]
@@ -1293,7 +1421,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cross_session_memory_commits_on_finish_and_rolls_back_failures() {
+    async fn bot_memory_is_private_and_tool_writes_survive_run_failure() {
         let home = tempdir().unwrap().keep();
         let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
         let first = FeatureToolRuntime::new(
@@ -1313,11 +1441,11 @@ mod tests {
         assert!(!memory
             .call(
                 &context,
-                json!({"scope":"user","user_id":"user-a","action":"add","kind":"user_preference","content":"likes concise"}),
+                json!({"scope":"bot","bot_id":"bot-a","action":"add","kind":"bot_experience","content":"likes concise"}),
             )
             .await
             .is_error);
-        first.run_succeeded("run-a").unwrap();
+        first.run_failed("run-a").unwrap();
 
         let search = second
             .tools()
@@ -1337,15 +1465,18 @@ mod tests {
         assert!(!memory
             .call(
                 &ToolContext::new("/tmp", "run-failed", "/tmp/runs"),
-                json!({"scope":"user","user_id":"user-a","action":"add","kind":"user_preference","content":"must rollback"}),
+                json!({"scope":"bot","bot_id":"bot-a","action":"add","kind":"bot_experience","content":"must persist"}),
             )
             .await
             .is_error);
         first.run_failed("run-failed").unwrap();
-        assert!(service
-            .memory_search("must rollback", Some(&MemoryTarget::user("user-a")))
-            .unwrap()
-            .is_empty());
+        assert!(
+            service
+                .memory_search("must persist", Some(&MemoryTarget::bot("bot-a")))
+                .unwrap()
+                .len()
+                == 1
+        );
     }
 
     #[tokio::test]

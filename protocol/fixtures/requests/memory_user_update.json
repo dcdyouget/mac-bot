@@ -1,0 +1,8 @@
+{
+  "method": "memory.user.update",
+  "params": {
+    "content": "回复尽量简洁，代码和注释用英文。",
+    "entry_id": "mem_system",
+    "expected_version": 3
+  }
+}

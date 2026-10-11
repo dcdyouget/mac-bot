@@ -1,6 +1,6 @@
 # Mac Bot Android
 
-Android-only Kotlin Multiplatform + Compose Multiplatform 1.12.1. Package/applicationId: `bot.mac.mobile`; launcher: `bot.mac.mobile.MainActivity`. Shared code lives in `shared/src/commonMain` (`core/` and `feature/`); Android APIs are isolated behind platform interfaces in `androidMain` and the `androidApp` shell. No iOS target and no client memory page.
+Android-only Kotlin Multiplatform + Compose Multiplatform 1.12.1. Package/applicationId: `bot.mac.mobile`; launcher: `bot.mac.mobile.MainActivity`. Shared code lives in `shared/src/commonMain` (`core/` and `feature/`); Android APIs are isolated behind platform interfaces in `androidMain` and the `androidApp` shell. No iOS target. The only client memory screen is user memory, opened from **My → Memory**; Bot and project memories are not exposed. It uses the `memory.user.*` and `memory.profile.*` RPCs, reflects memory/profile events across Host sessions, and keeps Host timezone read-only.
 
 ## Build and test
 
@@ -15,6 +15,8 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 ./gradlew :androidApp:testDebugUnitTest
 ./gradlew :androidApp:connectedDebugAndroidTest
 ```
+
+Run the Android app against the mock service on the emulator with `10.0.2.2:7789` (password `dev`), then open **My → Memory** to inspect profile, quota, source details, and memory entries. Profile and memory changes are saved immediately; version conflicts show the current server value before offering either version.
 
 Gradle wrapper: 9.8.1; Kotlin: 2.4.21; AGP: 9.4.1; minSdk: 26; targetSdk: 36. AGP 9 runs `commonTest` and `src/androidUnitTest` together in `testAndroidHostTest`; the two aliases above execute that task. Reports: `shared/build/reports/tests/testAndroidHostTest/`.
 

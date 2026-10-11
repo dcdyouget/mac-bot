@@ -624,7 +624,16 @@ class ClientRepository(
 
 
     companion object {
-        val WRITE_METHODS = setOf("device.register", "chat.send", "chat.mark_read", "chat.react", "chat.set_pinned", "chat.set_muted", "message.steer", "bot.create", "bot.update", "bot.duplicate", "bot.delete", "bot.create_from_template", "project.create", "project.update", "project.add_member", "project.remove_member", "project.confirm_done", "project.request_changes", "project.archive", "project.reopen", "announcement.update", "assignment.stop", "assignment.retry", "approval.decide", "question.answer", "loop.resolve", "takeover.start", "takeover.release", "skill.create", "skill.update", "skill.delete", "skill.set_enabled", "skill.publish", "skill.import", "routine.create", "routine.update", "routine.delete", "routine.set_enabled", "routine.test_run", "provider.create", "provider.update", "provider.delete", "provider.test", "model.refresh", "model.upsert", "model.delete", "settings.update")
+        val WRITE_METHODS = setOf(
+            "device.register", "chat.send", "chat.mark_read", "chat.react", "chat.set_pinned", "chat.set_muted", "message.steer",
+            "bot.create", "bot.update", "bot.duplicate", "bot.delete", "bot.create_from_template",
+            "project.create", "project.update", "project.add_member", "project.remove_member", "project.confirm_done", "project.request_changes", "project.archive", "project.reopen",
+            "announcement.update", "assignment.stop", "assignment.retry", "approval.decide", "question.answer", "loop.resolve", "takeover.start", "takeover.release",
+            "memory.user.create", "memory.user.update", "memory.user.delete", "memory.profile.update",
+            "skill.create", "skill.update", "skill.delete", "skill.set_enabled", "skill.publish", "skill.import",
+            "routine.create", "routine.update", "routine.delete", "routine.set_enabled", "routine.test_run",
+            "provider.create", "provider.update", "provider.delete", "provider.test", "model.refresh", "model.upsert", "model.delete", "settings.update",
+        )
     }
 }
 

@@ -134,6 +134,12 @@ async fn dispatch(
         "question.ask" => question_ask(state, &params),
         "question.list" => question_list(state, &params),
         "question.answer" => question_answer(state, &params),
+        "memory.user.list" => user_memory_list(state),
+        "memory.user.create" => user_memory_create(state, &params),
+        "memory.user.update" => user_memory_update(state, &params),
+        "memory.user.delete" => user_memory_delete(state, &params),
+        "memory.profile.get" => user_profile_get(state),
+        "memory.profile.update" => user_profile_update(state, &params),
         "loop.resolve" => Ok(json!({})),
         "takeover.start" => takeover_start(state, &params),
         "takeover.release" => takeover_release(state, &params),
@@ -997,8 +1003,226 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     repair_waiting_references(state, home);
     ensure_pending_review_fixture(state);
     ensure_question_approval_history_fixture(state);
+    ensure_mock_user_memory(state);
     ensure_message_block_scenarios(state);
     ensure_mock_artifact_history(state);
+}
+
+fn ensure_mock_user_memory(state: &mut MockState) {
+    upsert_mock_message(
+        state,
+        "chat_main",
+        "msg_main_welcome",
+        json!({"kind":"user"}),
+        json!([{"type":"text","markdown":"我不喜欢长篇报告：先给结论，细节放后面。"}]),
+        "我不喜欢长篇报告：先给结论，细节放后面。".into(),
+        None,
+    );
+    if !state.extra.contains_key("memory_user_entries") {
+        extra_set(
+            state,
+            "memory_user_entries",
+            vec![
+                json!({"id":"mem_mock_1","content":"回复用中文，代码和注释用英文。","version":1,"source":{"by":{"kind":"system"},"chat_id":"chat_login","message_id":"msg_opening"},"updated_by":{"kind":"system"},"created_at":"2026-10-09T10:20:00Z","updated_at":"2026-10-09T10:20:00Z"}),
+                json!({"id":"mem_mock_2","content":"不喜欢长篇报告：先给结论，细节放后面。","version":2,"source":{"by":{"kind":"system"},"chat_id":"chat_main","message_id":"msg_main_welcome"},"updated_by":{"kind":"user"},"created_at":"2026-10-08T21:40:00Z","updated_at":"2026-10-10T09:15:00Z"}),
+                json!({"id":"mem_mock_3","content":"周末不要推送非紧急通知。","version":1,"source":{"by":{"kind":"user"},"chat_id":null,"message_id":null},"updated_by":{"kind":"user"},"created_at":"2026-10-06T09:15:00Z","updated_at":"2026-10-06T09:15:00Z"}),
+            ],
+        );
+    }
+    if extra_get(state, "memory_user_profile").is_empty() {
+        extra_set(
+            state,
+            "memory_user_profile",
+            vec![json!({
+                "name":null,
+                "language":null,
+                "identity":null,
+                "timezone":"Asia/Shanghai",
+                "onboarded":false,
+                "version":1,
+                "updated_by":{"kind":"system"},
+                "updated_at":now()
+            })],
+        );
+    }
+}
+
+fn user_memory_quota(state: &MockState) -> Value {
+    let used_chars = extra_get(state, "memory_user_entries")
+        .iter()
+        .filter_map(|entry| entry.get("content").and_then(Value::as_str))
+        .map(|content| content.chars().count() as u64)
+        .sum::<u64>();
+    json!({"used_chars":used_chars,"limit_chars":1500})
+}
+
+fn user_memory_list(state: &MockState) -> RpcResult {
+    let mut entries = extra_get(state, "memory_user_entries");
+    entries.sort_by(|left, right| {
+        right
+            .get("updated_at")
+            .and_then(Value::as_str)
+            .cmp(&left.get("updated_at").and_then(Value::as_str))
+    });
+    Ok(json!({"entries":entries,"quota":user_memory_quota(state)}))
+}
+
+fn user_memory_create(state: &mut MockState, params: &Value) -> RpcResult {
+    let request: macbot_protocol::MemoryUserCreateParams =
+        serde_json::from_value(params.clone())
+            .map_err(|error| rpc_error("invalid_params", &error.to_string(), None))?;
+    let content = request.content;
+    if content.is_empty() || content.chars().count() > 500 {
+        return Err(rpc_error(
+            "invalid_params",
+            "content must contain 1 to 500 characters",
+            None,
+        ));
+    }
+    let quota = user_memory_quota(state);
+    let used = quota["used_chars"].as_u64().unwrap_or_default();
+    if used + content.chars().count() as u64 > 1500 {
+        return Err(rpc_error("quota_full", "user memory quota is full", None));
+    }
+    let timestamp = now();
+    let entry = json!({"id":id("mem"),"content":content,"version":1,
+        "source":{"by":{"kind":"user"},"chat_id":null,"message_id":null},
+        "updated_by":{"kind":"user"},"created_at":timestamp,"updated_at":timestamp});
+    let mut entries = extra_get(state, "memory_user_entries");
+    entries.push(entry.clone());
+    extra_set(state, "memory_user_entries", entries);
+    let quota = user_memory_quota(state);
+    state.emit("memory.user.updated", json!({"entry":entry,"quota":quota}));
+    Ok(json!({"entry":entry,"quota":quota}))
+}
+
+fn user_memory_update(state: &mut MockState, params: &Value) -> RpcResult {
+    let request: macbot_protocol::MemoryUserUpdateParams =
+        serde_json::from_value(params.clone())
+            .map_err(|error| rpc_error("invalid_params", &error.to_string(), None))?;
+    let content = request.content;
+    if content.is_empty() || content.chars().count() > 500 {
+        return Err(rpc_error(
+            "invalid_params",
+            "content must contain 1 to 500 characters",
+            None,
+        ));
+    }
+    let mut entries = extra_get(state, "memory_user_entries");
+    let index = entries
+        .iter()
+        .position(|entry| entry["id"] == request.entry_id)
+        .ok_or_else(|| rpc_error("not_found", "memory entry not found", None))?;
+    let current = entries[index].clone();
+    if current["version"].as_u64() != Some(request.expected_version) {
+        return Err(rpc_error(
+            "conflict",
+            "memory entry version conflict",
+            Some(json!({"current":current})),
+        ));
+    }
+    let used = user_memory_quota(state)["used_chars"]
+        .as_u64()
+        .unwrap_or_default();
+    let old_chars = current["content"]
+        .as_str()
+        .unwrap_or_default()
+        .chars()
+        .count() as u64;
+    if used.saturating_sub(old_chars) + content.chars().count() as u64 > 1500 {
+        return Err(rpc_error("quota_full", "user memory quota is full", None));
+    }
+    let entry = &mut entries[index];
+    entry["content"] = json!(content);
+    entry["version"] = json!(request.expected_version.saturating_add(1));
+    entry["updated_by"] = json!({"kind":"user"});
+    entry["updated_at"] = json!(now());
+    let entry = entries[index].clone();
+    extra_set(state, "memory_user_entries", entries);
+    let quota = user_memory_quota(state);
+    state.emit("memory.user.updated", json!({"entry":entry,"quota":quota}));
+    Ok(json!({"entry":entry,"quota":quota}))
+}
+
+fn user_memory_delete(state: &mut MockState, params: &Value) -> RpcResult {
+    let request: macbot_protocol::MemoryUserDeleteParams =
+        serde_json::from_value(params.clone())
+            .map_err(|error| rpc_error("invalid_params", &error.to_string(), None))?;
+    let mut entries = extra_get(state, "memory_user_entries");
+    let index = entries
+        .iter()
+        .position(|entry| entry["id"] == request.entry_id)
+        .ok_or_else(|| rpc_error("not_found", "memory entry not found", None))?;
+    if entries[index]["version"].as_u64() != Some(request.expected_version) {
+        let current = entries[index].clone();
+        return Err(rpc_error(
+            "conflict",
+            "memory entry version conflict",
+            Some(json!({"current":current})),
+        ));
+    }
+    entries.remove(index);
+    extra_set(state, "memory_user_entries", entries);
+    let quota = user_memory_quota(state);
+    state.emit(
+        "memory.user.deleted",
+        json!({"entry_id":request.entry_id,"quota":quota}),
+    );
+    Ok(json!({"quota":quota}))
+}
+
+fn user_profile_get(state: &MockState) -> RpcResult {
+    Ok(
+        json!({"profile":extra_get(state, "memory_user_profile").into_iter().next().unwrap_or(Value::Null)}),
+    )
+}
+
+fn user_profile_update(state: &mut MockState, params: &Value) -> RpcResult {
+    let request: macbot_protocol::MemoryProfileUpdateParams =
+        serde_json::from_value(params.clone())
+            .map_err(|error| rpc_error("invalid_params", &error.to_string(), None))?;
+    let mut profile = extra_get(state, "memory_user_profile").into_iter().next()
+        .unwrap_or_else(|| json!({"name":null,"language":null,"identity":null,"timezone":"Asia/Shanghai","onboarded":false,"version":1,"updated_by":{"kind":"system"},"updated_at":now()}));
+    if profile["version"].as_u64() != Some(request.expected_version) {
+        return Err(rpc_error(
+            "conflict",
+            "user profile version conflict",
+            Some(json!({"current":profile})),
+        ));
+    }
+    for (key, value) in [
+        ("name", request.name),
+        ("language", request.language),
+        ("identity", request.identity),
+    ] {
+        match value {
+            macbot_protocol::Patch::Unset => {}
+            macbot_protocol::Patch::Null => profile[key] = Value::Null,
+            macbot_protocol::Patch::Value(value) => profile[key] = json!(value),
+        }
+    }
+    if profile["name"]
+        .as_str()
+        .is_some_and(|value| value.chars().count() > 20)
+        || profile["identity"]
+            .as_str()
+            .is_some_and(|value| value.chars().count() > 100)
+        || profile["language"]
+            .as_str()
+            .is_some_and(|value| value.chars().count() > 35)
+    {
+        return Err(rpc_error(
+            "invalid_params",
+            "profile field exceeds its maximum length",
+            None,
+        ));
+    }
+    profile["version"] = json!(request.expected_version.saturating_add(1));
+    profile["updated_by"] = json!({"kind":"user"});
+    profile["updated_at"] = json!(now());
+    extra_set(state, "memory_user_profile", vec![profile.clone()]);
+    state.emit("memory.profile.updated", json!({"profile":profile}));
+    Ok(json!({"profile":profile}))
 }
 
 fn ensure_mock_artifact_history(state: &mut MockState) {
@@ -1482,18 +1706,20 @@ fn ensure_pending_review_fixture(state: &mut MockState) {
                 ]
                 .iter()
                 .all(|message_id| {
-                    messages
-                        .iter()
-                        .any(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+                    messages.iter().any(|message| {
+                        message.get("id").and_then(Value::as_str) == Some(message_id)
+                    })
                 })
             })
-        && extra_get(state, "announcements").iter().any(|announcement| {
-            announcement.get("project_id").and_then(Value::as_str) == Some(PROJECT_ID)
-                && announcement
-                    .get("artifacts")
-                    .and_then(Value::as_array)
-                    .is_some_and(|artifacts| artifacts.len() == 3)
-        });
+        && extra_get(state, "announcements")
+            .iter()
+            .any(|announcement| {
+                announcement.get("project_id").and_then(Value::as_str) == Some(PROJECT_ID)
+                    && announcement
+                        .get("artifacts")
+                        .and_then(Value::as_array)
+                        .is_some_and(|artifacts| artifacts.len() == 3)
+            });
     if fixture_is_complete {
         return;
     }
@@ -1588,9 +1814,8 @@ fn ensure_pending_review_fixture(state: &mut MockState) {
         announcement["highlights"] = json!([{"at":updated_at,"text":"示例交付已完成，等待验收"}]);
         announcement["version"] = json!(1);
         announcement["updated_at"] = json!(updated_at);
-        announcements.retain(|item| {
-            item.get("project_id").and_then(Value::as_str) != Some(PROJECT_ID)
-        });
+        announcements
+            .retain(|item| item.get("project_id").and_then(Value::as_str) != Some(PROJECT_ID));
         announcements.push(announcement);
         extra_set(state, "announcements", announcements);
     }
@@ -4321,6 +4546,138 @@ mod contract_tests {
                 .filter_map(|artifact| artifact["id"].as_str())
                 .collect::<Vec<_>>(),
             ["art_mock_brief", "art_mock_build", "art_mock_report"]
+        );
+    }
+
+    #[tokio::test]
+    async fn mock_user_memory_and_profile_enforce_versions_and_emit_user_events() {
+        let gateway = gateway().await;
+        let initial = call(&gateway, "memory.user.list", json!({"owner_id":"ignored"})).await;
+        assert_eq!(initial["entries"].as_array().unwrap().len(), 3);
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        assert!(history["messages"].as_array().unwrap().iter().any(|message| {
+            message["id"] == "msg_main_welcome"
+                && message["chat_id"] == "chat_main"
+                && message["sender"]["kind"] == "user"
+        }));
+        assert!(initial["entries"].as_array().unwrap().iter().any(|entry| {
+            entry["source"]["chat_id"] == "chat_main"
+                && history["messages"].as_array().unwrap().iter().any(|message| {
+                    message["id"] == entry["source"]["message_id"]
+                })
+        }));
+        let created = call(
+            &gateway,
+            "memory.user.create",
+            json!({"content":"请使用简短列表","owner_id":"attacker"}),
+        )
+        .await;
+        assert_eq!(created["entry"]["source"]["by"]["kind"], "user");
+        let entry_id = created["entry"]["id"].as_str().unwrap();
+        let spaced = call(
+            &gateway,
+            "memory.user.create",
+            json!({"content":"  preserve surrounding spaces  "}),
+        )
+        .await;
+        assert_eq!(
+            spaced["entry"]["content"],
+            "  preserve surrounding spaces  "
+        );
+        let spaced_id = spaced["entry"]["id"].as_str().unwrap();
+        let conflict = gateway
+            .rpc(
+                "memory.user.update",
+                json!({"entry_id":entry_id,"content":"stale","expected_version":0}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(conflict.code, "conflict");
+        assert_eq!(conflict.details.unwrap()["current"]["version"], 1);
+        let updated = call(
+            &gateway,
+            "memory.user.update",
+            json!({"entry_id":entry_id,"content":"请使用简短编号列表","expected_version":1}),
+        )
+        .await;
+        assert_eq!(updated["entry"]["version"], 2);
+        let spaced_updated = call(
+            &gateway,
+            "memory.user.update",
+            json!({
+                "entry_id":spaced_id,
+                "content":"  updated with spaces  ",
+                "expected_version":1
+            }),
+        )
+        .await;
+        assert_eq!(
+            spaced_updated["entry"]["content"],
+            "  updated with spaces  "
+        );
+
+        let profile = call(&gateway, "memory.profile.get", json!({})).await;
+        assert_eq!(profile["profile"]["timezone"], "Asia/Shanghai");
+        let profile = call(
+            &gateway,
+            "memory.profile.update",
+            json!({"name":"Ari","expected_version":1}),
+        )
+        .await;
+        assert_eq!(profile["profile"]["name"], "Ari");
+        assert_eq!(profile["profile"]["version"], 2);
+        let profile_conflict = gateway
+            .rpc(
+                "memory.profile.update",
+                json!({"name":"Other","expected_version":1}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(profile_conflict.code, "conflict");
+        assert_eq!(profile_conflict.details.unwrap()["current"]["version"], 2);
+
+        let deleted = call(
+            &gateway,
+            "memory.user.delete",
+            json!({"entry_id":entry_id,"expected_version":2}),
+        )
+        .await;
+        assert_eq!(
+            deleted["quota"]["used_chars"].as_u64().unwrap(),
+            initial["quota"]["used_chars"].as_u64().unwrap()
+                + "  updated with spaces  ".chars().count() as u64
+        );
+        let events = gateway
+            .state
+            .inner
+            .read()
+            .await
+            .events
+            .iter()
+            .filter_map(|event| event.get("event").and_then(Value::as_str))
+            .filter(|name| {
+                matches!(
+                    *name,
+                    "memory.user.updated" | "memory.user.deleted" | "memory.profile.updated"
+                )
+            })
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            events,
+            [
+                "memory.user.updated",
+                "memory.user.updated",
+                "memory.user.updated",
+                "memory.user.updated",
+                "memory.profile.updated",
+                "memory.user.deleted"
+            ]
         );
     }
 

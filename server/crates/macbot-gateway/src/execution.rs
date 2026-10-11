@@ -3128,7 +3128,7 @@ pub(crate) fn invalid_memory_tool_args(name: &str, args: &Value) -> Option<Strin
         };
     };
     let owner_error = match scope {
-        "user" => None,
+        "user" => Some("user preferences are written only by the user or curator".into()),
         "bot"
             if object
                 .get("bot_id")
@@ -3870,7 +3870,7 @@ mod tests {
         );
         assert_eq!(
             invalid_memory_tool_args("memory", &json!({"scope":"user","content":"preference"})),
-            None
+            Some("user preferences are written only by the user or curator".into())
         );
         assert_eq!(
             invalid_memory_tool_args("memory", &json!({})),
@@ -3983,7 +3983,7 @@ mod tests {
     }
 
     #[test]
-    fn user_memory_validation_does_not_require_orchestrator_snapshot() {
+    fn user_memory_tool_writes_are_rejected_before_orchestrator_snapshot() {
         let dir = tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
         let engine = ExecutionEngine::new(
@@ -4001,7 +4001,7 @@ mod tests {
                 "memory",
                 &json!({"scope":"user","content":"preference"})
             )
-            .is_none());
+            .is_some_and(|error| error.contains("only by the user or curator")));
         assert!(engine
             .invalid_memory_args_for_request(&request, "memory_search", &json!({"query":"lookup"}))
             .is_none());

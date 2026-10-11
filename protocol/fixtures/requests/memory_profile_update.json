@@ -1,0 +1,9 @@
+{
+  "method": "memory.profile.update",
+  "params": {
+    "expected_version": 4,
+    "identity": null,
+    "language": "zh-CN",
+    "name": "林同学"
+  }
+}

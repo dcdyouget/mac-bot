@@ -1,0 +1,17 @@
+{
+  "content": "回复用中文，代码和注释用英文。",
+  "created_at": "2026-10-09T10:19:02.312Z",
+  "id": "mem_system",
+  "source": {
+    "by": {
+      "kind": "system"
+    },
+    "chat_id": "chat_login",
+    "message_id": "msg_1"
+  },
+  "updated_at": "2026-10-09T10:19:02.312Z",
+  "updated_by": {
+    "kind": "user"
+  },
+  "version": 3
+}

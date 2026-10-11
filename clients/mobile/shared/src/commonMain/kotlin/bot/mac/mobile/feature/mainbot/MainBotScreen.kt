@@ -9,6 +9,7 @@ import bot.mac.mobile.feature.chat.ChatScreen
 fun MainBotScreen(
     repository: MobileRepository,
     chatId: String,
+    initialMessageId: String? = null,
     onOpenTrace: (assignmentId: String?, chatId: String?) -> Unit = { _, _ -> },
     onOpenProject: (String) -> Unit = {},
     onOpenArtifact: (artifactId: String, pathOrUrl: String, projectId: String?) -> Unit = { _, _, _ -> },
@@ -24,6 +25,7 @@ fun MainBotScreen(
     ChatScreen(
         repository = repository,
         chatId = chatId,
+        initialMessageId = initialMessageId,
         onOpenTrace = onOpenTrace,
         onOpenProject = onOpenProject,
         onOpenArtifact = onOpenArtifact,

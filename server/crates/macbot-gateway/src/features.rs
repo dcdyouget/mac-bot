@@ -42,6 +42,14 @@ pub enum FeatureError {
     Invalid(String),
     #[error("feature request conflict: {0}")]
     Conflict(String),
+    #[error("user memory version conflict")]
+    UserMemoryConflict(Value),
+    #[error("user profile version conflict")]
+    UserProfileConflict(Value),
+    #[error("memory entry version conflict")]
+    MemoryMutationConflict(Value),
+    #[error("memory quota is full")]
+    MemoryToolQuotaFull(Value),
     #[error("provider: {0}")]
     Provider(String),
     #[error("I/O: {0}")]
@@ -56,9 +64,17 @@ impl FeatureError {
             Self::Skill(SkillError::NotFound(_)) | Self::Memory(MemoryError::NotFound(_)) => {
                 "not_found"
             }
-            Self::Skill(SkillError::Conflict(_)) | Self::Conflict(_) => "conflict",
+            Self::Skill(SkillError::Conflict(_))
+            | Self::Conflict(_)
+            | Self::UserMemoryConflict(_)
+            | Self::UserProfileConflict(_)
+            | Self::MemoryMutationConflict(_)
+            | Self::Memory(MemoryError::UserConflict(_))
+            | Self::Memory(MemoryError::ProfileConflict(_)) => "conflict",
             Self::Skill(SkillError::BuiltinReadOnly) => "forbidden",
             Self::Memory(MemoryError::QuotaExceeded { .. }) => "quota_exceeded",
+            Self::Memory(MemoryError::UserQuotaFull { .. }) => "quota_full",
+            Self::MemoryToolQuotaFull(_) => "quota_full",
             Self::Invalid(_) | Self::Skill(_) | Self::Memory(_) => "invalid_params",
             Self::Store(_) | Self::Io(_) | Self::Provider(_) => "internal",
         }
@@ -607,6 +623,11 @@ impl FeatureService {
                 record.method
             )));
         }
+        if method.starts_with("memory.") && record.signature != signature(method, params) {
+            return Err(FeatureError::Conflict(format!(
+                "client_request_id {key} was reused with different request content"
+            )));
+        }
         Ok(Some(FeatureResponse {
             result: record.result.clone(),
             events: Vec::new(),
@@ -890,7 +911,7 @@ impl FeatureService {
         let run_id = params
             .get("run_id")
             .and_then(Value::as_str)
-            .ok_or_else(|| FeatureError::Invalid("memory writes require run_id".into()))?;
+            .unwrap_or("legacy-run");
         // Source is provenance, not model input.  Keep the optional JSON
         // field for wire compatibility, but ignore all caller-supplied
         // provenance and assign only authenticated identity/run ownership.
@@ -901,13 +922,17 @@ impl FeatureService {
         };
         let request = MemoryRequest {
             target,
-            action,
+            action: action.clone(),
             content: params
                 .get("content")
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
-            id: params.get("id").and_then(Value::as_str).map(str::to_string),
+            id: if matches!(action, MemoryAction::Add) {
+                None
+            } else {
+                params.get("id").and_then(Value::as_str).map(str::to_string)
+            },
             kind: params
                 .get("kind")
                 .cloned()
@@ -917,8 +942,396 @@ impl FeatureService {
                 .transpose()?,
             source,
         };
-        self.stage_memory_with_access(actor, access, run_id, request)?;
-        Ok(json!({"staged":true,"run_id":run_id}))
+        if request.target.scope == macbot_memory::MemoryScope::User {
+            return Err(FeatureError::Invalid(
+                "user preferences are written only through the authenticated user RPC or curator"
+                    .into(),
+            ));
+        }
+        authorize_memory(actor, access, &request.target, &request.action)?;
+        let expected_version = params
+            .get("expected_version")
+            .or_else(|| params.get("version"))
+            .map(|value| {
+                value.as_u64().ok_or_else(|| {
+                    FeatureError::Invalid("expected_version must be a non-negative integer".into())
+                })
+            })
+            .transpose()?;
+        if matches!(request.action, MemoryAction::Replace | MemoryAction::Remove)
+            && expected_version.is_none()
+        {
+            return Err(FeatureError::Invalid(
+                "replace/remove require expected_version".into(),
+            ));
+        }
+        let result =
+            self.shared_memory
+                .mutate_persisted(&self.memory_path, request.clone(), expected_version)
+                .map_err(|error| match error {
+                    MemoryError::VersionConflict { current, version } => {
+                        FeatureError::MemoryMutationConflict(json!({
+                            "current": {
+                                "entry_id": current.id,
+                                "version": version,
+                                "content": current.content,
+                            }
+                        }))
+                    }
+                    MemoryError::QuotaExceeded { .. } => {
+                        let entries = self.shared_memory.entries().unwrap_or_default()
+                        .into_iter()
+                        .filter(|entry| entry.target == request.target)
+                        .map(|entry| json!({
+                            "entry_id":entry.id,
+                            "version":self.shared_memory.entry_version(&entry.id).ok().flatten().unwrap_or(1),
+                            "content":entry.content,
+                        }))
+                        .collect::<Vec<_>>();
+                        FeatureError::MemoryToolQuotaFull(json!({"entries":entries}))
+                    }
+                    other => FeatureError::Memory(other),
+                })?;
+        let entry_id = result
+            .entry
+            .as_ref()
+            .map(|entry| entry.id.clone())
+            .or_else(|| request.id.clone())
+            .unwrap_or_default();
+        self.shared_store.append_event(
+            "memory.updated",
+            json!({"entry":result.entry,"entry_id":entry_id,"version":result.version,"revision":result.revision}),
+        )?;
+        Ok(json!({
+            "ok":true,
+            "entry_id":entry_id,
+            "version":result.version,
+            "revision":result.revision,
+            "remaining_chars":result.remaining_chars,
+        }))
+    }
+
+    /// Execute the client protocol's user-memory and profile RPCs.  The
+    /// authenticated server currently has one local user, so ownership is
+    /// fixed here and never read from request parameters.
+    pub fn user_memory_rpc(
+        &self,
+        method: &str,
+        params: Value,
+        timezone: &str,
+    ) -> FeatureResult<FeatureResponse> {
+        const USER_ID: &str = "local-user";
+        if let Some(replay) = self.replay_idempotent(method, &params)? {
+            return Ok(replay);
+        }
+        let target = MemoryTarget::user(USER_ID);
+        match method {
+            "memory.user.list" => {
+                let entries = self
+                    .shared_memory
+                    .user_records(&target)?
+                    .iter()
+                    .map(protocol_user_entry)
+                    .collect::<Vec<_>>();
+                let quota = protocol_user_quota(self.shared_memory.user_quota(&target)?);
+                Ok(FeatureResponse {
+                    result: json!({"entries":entries,"quota":quota}),
+                    events: Vec::new(),
+                })
+            }
+            "memory.user.create" => {
+                let request: macbot_protocol::MemoryUserCreateParams =
+                    serde_json::from_value(params.clone())
+                        .map_err(|error| FeatureError::Invalid(error.to_string()))?;
+                self.transact_user_memory(method, &params, move |store| {
+                    let record = store.apply_user_create(
+                        target,
+                        request.content,
+                        macbot_memory::MemorySender::User,
+                        None,
+                        None,
+                    )?;
+                    let quota = protocol_user_quota(store.user_quota(&MemoryTarget::user(USER_ID)));
+                    let entry = protocol_user_entry(&record);
+                    let result = json!({"entry":entry,"quota":quota});
+                    Ok((
+                        result.clone(),
+                        "memory.user.updated".into(),
+                        json!({"entry":entry,"quota":quota}),
+                    ))
+                })
+            }
+            "memory.user.update" => {
+                let request: macbot_protocol::MemoryUserUpdateParams =
+                    serde_json::from_value(params.clone())
+                        .map_err(|error| FeatureError::Invalid(error.to_string()))?;
+                self.transact_user_memory(method, &params, move |store| {
+                    let record = store.apply_user_update(
+                        &target,
+                        &request.entry_id,
+                        request.content,
+                        request.expected_version,
+                        macbot_memory::MemorySender::User,
+                    )?;
+                    let quota = protocol_user_quota(store.user_quota(&target));
+                    let entry = protocol_user_entry(&record);
+                    let result = json!({"entry":entry,"quota":quota});
+                    Ok((
+                        result.clone(),
+                        "memory.user.updated".into(),
+                        json!({"entry":entry,"quota":quota}),
+                    ))
+                })
+            }
+            "memory.user.delete" => {
+                let request: macbot_protocol::MemoryUserDeleteParams =
+                    serde_json::from_value(params.clone())
+                        .map_err(|error| FeatureError::Invalid(error.to_string()))?;
+                self.transact_user_memory(method, &params, move |store| {
+                    store.apply_user_delete(
+                        &target,
+                        &request.entry_id,
+                        request.expected_version,
+                    )?;
+                    let quota = protocol_user_quota(store.user_quota(&target));
+                    let result = json!({"quota":quota});
+                    Ok((
+                        result.clone(),
+                        "memory.user.deleted".into(),
+                        json!({"entry_id":request.entry_id,"quota":quota}),
+                    ))
+                })
+            }
+            "memory.profile.get" => {
+                let profile = self
+                    .shared_memory
+                    .user_profile_get_or_init(&self.memory_path, timezone)?;
+                Ok(FeatureResponse {
+                    result: json!({"profile":protocol_user_profile(&profile)}),
+                    events: Vec::new(),
+                })
+            }
+            "memory.profile.update" => {
+                let request: macbot_protocol::MemoryProfileUpdateParams =
+                    serde_json::from_value(params.clone())
+                        .map_err(|error| FeatureError::Invalid(error.to_string()))?;
+                let timezone = timezone.to_owned();
+                self.transact_user_memory(method, &params, move |store| {
+                    let profile =
+                        store.apply_user_profile_update(macbot_memory::UserProfileUpdate {
+                            timezone,
+                            expected_version: request.expected_version,
+                            name: patch_to_option(request.name),
+                            language: patch_to_option(request.language),
+                            identity: patch_to_option(request.identity),
+                            updated_by: macbot_memory::MemorySender::User,
+                        })?;
+                    let profile = protocol_user_profile(&profile);
+                    let result = json!({"profile":profile});
+                    Ok((
+                        result.clone(),
+                        "memory.profile.updated".into(),
+                        json!({"profile":profile}),
+                    ))
+                })
+            }
+            _ => Err(FeatureError::Invalid(format!(
+                "unknown user-memory method: {method}"
+            ))),
+        }
+    }
+
+    /// Internal curator path. The target is fixed to this host's sole user;
+    /// provenance comes from the triggering user message, never a model
+    /// supplied owner id.
+    pub fn curate_user_memory_add(
+        &self,
+        content: String,
+        chat_id: &str,
+        message_id: &str,
+    ) -> FeatureResult<FeatureResponse> {
+        let target = MemoryTarget::user("local-user");
+        let record = self.shared_memory.user_create_persisted(
+            &self.memory_path,
+            target.clone(),
+            content,
+            macbot_memory::MemorySender::System,
+            Some(chat_id.to_owned()),
+            Some(message_id.to_owned()),
+        )?;
+        let entry = protocol_user_entry(&record);
+        let quota = protocol_user_quota(self.shared_memory.user_quota(&target)?);
+        let result = json!({"entry":entry,"quota":quota});
+        self.finish_user_memory_mutation(
+            "memory.user.curator.add",
+            &json!({}),
+            &result,
+            "memory.user.updated",
+            json!({"entry":entry,"quota":quota}),
+        )
+    }
+
+    pub fn curate_user_memory_update(
+        &self,
+        entry_id: &str,
+        content: String,
+        expected_version: u64,
+    ) -> FeatureResult<FeatureResponse> {
+        let target = MemoryTarget::user("local-user");
+        let record = self
+            .shared_memory
+            .user_update_persisted(
+                &self.memory_path,
+                &target,
+                entry_id,
+                content,
+                expected_version,
+                macbot_memory::MemorySender::System,
+            )
+            .map_err(|error| match error {
+                MemoryError::UserConflict(current) => FeatureError::UserMemoryConflict(
+                    json!({"current":protocol_user_entry(&current)}),
+                ),
+                other => FeatureError::Memory(other),
+            })?;
+        let entry = protocol_user_entry(&record);
+        let quota = protocol_user_quota(self.shared_memory.user_quota(&target)?);
+        let result = json!({"entry":entry,"quota":quota});
+        self.finish_user_memory_mutation(
+            "memory.user.curator.update",
+            &json!({}),
+            &result,
+            "memory.user.updated",
+            json!({"entry":entry,"quota":quota}),
+        )
+    }
+
+    pub fn curate_user_profile_update(
+        &self,
+        timezone: &str,
+        expected_version: u64,
+        name: Option<Option<String>>,
+        language: Option<Option<String>>,
+        identity: Option<Option<String>>,
+    ) -> FeatureResult<FeatureResponse> {
+        let profile = self
+            .shared_memory
+            .user_profile_update_persisted(
+                &self.memory_path,
+                macbot_memory::UserProfileUpdate {
+                    timezone: timezone.to_owned(),
+                    expected_version,
+                    name,
+                    language,
+                    identity,
+                    updated_by: macbot_memory::MemorySender::System,
+                },
+            )
+            .map_err(|error| match error {
+                MemoryError::ProfileConflict(current) => FeatureError::UserProfileConflict(
+                    json!({"current":protocol_user_profile(&current)}),
+                ),
+                other => FeatureError::Memory(other),
+            })?;
+        let profile = protocol_user_profile(&profile);
+        let result = json!({"profile":profile});
+        self.finish_user_memory_mutation(
+            "memory.profile.curator.update",
+            &json!({}),
+            &result,
+            "memory.profile.updated",
+            json!({"profile":profile}),
+        )
+    }
+
+    fn transact_user_memory<F>(
+        &self,
+        method: &str,
+        params: &Value,
+        operation: F,
+    ) -> FeatureResult<FeatureResponse>
+    where
+        F: FnOnce(&mut macbot_memory::MemoryStore) -> Result<(Value, String, Value), MemoryError>,
+    {
+        let transaction = self.persist_user_memory_transaction(method, params, operation)?;
+        self.publish_user_memory_transaction(method, params, transaction)
+    }
+
+    fn persist_user_memory_transaction<F>(
+        &self,
+        method: &str,
+        params: &Value,
+        operation: F,
+    ) -> FeatureResult<macbot_memory::MemoryTransactionResult>
+    where
+        F: FnOnce(&mut macbot_memory::MemoryStore) -> Result<(Value, String, Value), MemoryError>,
+    {
+        let request_id = params.get("client_request_id").and_then(Value::as_str);
+        let signature = signature(method, params);
+        let transaction = self
+            .shared_memory
+            .transact_user_persisted(&self.memory_path, request_id, &signature, operation)
+            .map_err(|error| match error {
+                MemoryError::UserConflict(current) => FeatureError::UserMemoryConflict(
+                    json!({"current":protocol_user_entry(&current)}),
+                ),
+                MemoryError::ProfileConflict(current) => FeatureError::UserProfileConflict(
+                    json!({"current":protocol_user_profile(&current)}),
+                ),
+                MemoryError::IdempotencyConflict(key) => FeatureError::Conflict(format!(
+                    "client_request_id {key} was reused with different request content"
+                )),
+                other => FeatureError::Memory(other),
+            })?;
+        Ok(transaction)
+    }
+
+    fn publish_user_memory_transaction(
+        &self,
+        method: &str,
+        params: &Value,
+        transaction: macbot_memory::MemoryTransactionResult,
+    ) -> FeatureResult<FeatureResponse> {
+        let request_id = params.get("client_request_id").and_then(Value::as_str);
+        let receipt = transaction.receipt;
+        let event = if let Some(request_id) = request_id {
+            self.shared_store.append_event_once(
+                &format!("memory-user-rpc:{request_id}"),
+                receipt.event_name.clone(),
+                receipt.event_data.clone(),
+            )?
+        } else {
+            Some(
+                self.shared_store
+                    .append_event(receipt.event_name.clone(), receipt.event_data.clone())?,
+            )
+        };
+        if let Err(error) = self.save_idempotency(method, params, &receipt.result) {
+            // The memory snapshot already contains the authoritative receipt;
+            // failure to refresh this secondary index must not turn a
+            // committed mutation into an error after its event was appended.
+            tracing::warn!(%error, method, "memory RPC idempotency index refresh failed");
+        }
+        Ok(FeatureResponse {
+            result: receipt.result,
+            events: event.into_iter().collect(),
+        })
+    }
+
+    fn finish_user_memory_mutation(
+        &self,
+        method: &str,
+        params: &Value,
+        result: &Value,
+        event_name: &str,
+        event_data: Value,
+    ) -> FeatureResult<FeatureResponse> {
+        let event = self.shared_store.append_event(event_name, event_data)?;
+        self.save_idempotency(method, params, result)?;
+        Ok(FeatureResponse {
+            result: result.clone(),
+            events: vec![event],
+        })
     }
 
     pub fn memory_search(
@@ -1727,6 +2140,60 @@ fn memory_target(params: &Value) -> FeatureResult<MemoryTarget> {
     })
 }
 
+fn protocol_memory_sender(sender: &macbot_memory::MemorySender) -> macbot_protocol::Sender {
+    match sender {
+        macbot_memory::MemorySender::User => macbot_protocol::Sender::User,
+        macbot_memory::MemorySender::System => macbot_protocol::Sender::System,
+        macbot_memory::MemorySender::Bot { bot_id } => macbot_protocol::Sender::Bot {
+            bot_id: bot_id.clone(),
+        },
+    }
+}
+
+fn protocol_user_entry(record: &macbot_memory::UserMemoryRecord) -> macbot_protocol::MemoryEntry {
+    macbot_protocol::MemoryEntry {
+        id: record.id.clone(),
+        content: record.content.clone(),
+        version: record.version,
+        source: macbot_protocol::MemorySource {
+            by: protocol_memory_sender(&record.source.by),
+            chat_id: record.source.chat_id.clone(),
+            message_id: record.source.message_id.clone(),
+        },
+        updated_by: protocol_memory_sender(&record.updated_by),
+        created_at: record.created_at.to_rfc3339(),
+        updated_at: record.updated_at.to_rfc3339(),
+    }
+}
+
+fn protocol_user_profile(profile: &macbot_memory::UserProfile) -> macbot_protocol::UserProfile {
+    macbot_protocol::UserProfile {
+        name: profile.name.clone(),
+        language: profile.language.clone(),
+        identity: profile.identity.clone(),
+        timezone: profile.timezone.clone(),
+        onboarded: profile.onboarded,
+        version: profile.version,
+        updated_by: protocol_memory_sender(&profile.updated_by),
+        updated_at: profile.updated_at.to_rfc3339(),
+    }
+}
+
+fn protocol_user_quota((used_chars, limit_chars): (usize, usize)) -> macbot_protocol::MemoryQuota {
+    macbot_protocol::MemoryQuota {
+        used_chars: used_chars as u64,
+        limit_chars: limit_chars as u64,
+    }
+}
+
+fn patch_to_option<T>(patch: macbot_protocol::Patch<T>) -> Option<Option<T>> {
+    match patch {
+        macbot_protocol::Patch::Unset => None,
+        macbot_protocol::Patch::Null => Some(None),
+        macbot_protocol::Patch::Value(value) => Some(Some(value)),
+    }
+}
+
 fn authorize_memory(
     actor: &MemoryActor,
     access: &MemoryAccess,
@@ -1736,6 +2203,14 @@ fn authorize_memory(
     if matches!(action, MemoryAction::Remove | MemoryAction::Replace) && target.owner_id.is_empty()
     {
         return Err(FeatureError::Invalid("memory owner is required".into()));
+    }
+    if matches!(actor, MemoryActor::System) {
+        return Ok(());
+    }
+    if target.scope == macbot_memory::MemoryScope::User {
+        return Err(FeatureError::Invalid(
+            "only the user or curator may write user preferences".into(),
+        ));
     }
     if actor.is_main() {
         return Ok(());
@@ -2076,6 +2551,337 @@ mod tests {
 
     fn skill(name: &str) -> String {
         format!("---\nname: {name}\ndescription: test\n---\n# test")
+    }
+
+    #[test]
+    fn user_memory_rpc_persists_cas_events_and_profile_without_owner_input() {
+        let home = tempdir().unwrap().keep();
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let created = service.user_memory_rpc(
+            "memory.user.create",
+            json!({"content":"中文回复","owner_id":"attacker","client_request_id":"user-add-1"}),
+            "Asia/Shanghai",
+        ).unwrap();
+        assert_eq!(created.events[0].event, "memory.user.updated");
+        let entry = &created.result["entry"];
+        assert_eq!(entry["source"]["by"]["kind"], "user");
+        assert_eq!(entry["source"]["chat_id"], Value::Null);
+        assert_eq!(entry["version"], 1);
+        let entry_id = entry["id"].as_str().unwrap().to_owned();
+
+        let stale = service
+            .user_memory_rpc(
+                "memory.user.update",
+                json!({"entry_id":entry_id,"content":"旧版本","expected_version":0}),
+                "Asia/Shanghai",
+            )
+            .unwrap_err();
+        assert!(
+            matches!(stale, FeatureError::UserMemoryConflict(details) if details["current"]["version"] == 1)
+        );
+        let updated = service
+            .user_memory_rpc(
+                "memory.user.update",
+                json!({"entry_id":entry_id,"content":"更新后的偏好","expected_version":1}),
+                "Asia/Shanghai",
+            )
+            .unwrap();
+        assert_eq!(updated.result["entry"]["version"], 2);
+        assert_eq!(updated.result["entry"]["source"]["by"]["kind"], "user");
+        assert_eq!(updated.result["entry"]["updated_by"]["kind"], "user");
+
+        let listed = service
+            .user_memory_rpc(
+                "memory.user.list",
+                json!({"owner_id":"another-user"}),
+                "Asia/Shanghai",
+            )
+            .unwrap();
+        assert_eq!(listed.result["entries"].as_array().unwrap().len(), 1);
+        let profile = service
+            .user_memory_rpc("memory.profile.get", json!({}), "Asia/Tokyo")
+            .unwrap();
+        assert_eq!(profile.result["profile"]["timezone"], "Asia/Tokyo");
+        let updated_profile = service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"name":"Ari","timezone":"Pacific/Auckland","expected_version":1}),
+                "UTC",
+            )
+            .unwrap();
+        assert_eq!(updated_profile.result["profile"]["name"], "Ari");
+        assert_eq!(updated_profile.result["profile"]["timezone"], "Asia/Tokyo");
+        assert_eq!(updated_profile.events[0].event, "memory.profile.updated");
+        let patched_profile = service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"identity":"human","expected_version":2}),
+                "UTC",
+            )
+            .unwrap();
+        assert_eq!(patched_profile.result["profile"]["name"], "Ari");
+        assert_eq!(patched_profile.result["profile"]["identity"], "human");
+        let cleared_profile = service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"name":null,"expected_version":3}),
+                "UTC",
+            )
+            .unwrap();
+        assert_eq!(cleared_profile.result["profile"]["name"], Value::Null);
+        assert_eq!(cleared_profile.result["profile"]["identity"], "human");
+
+        drop(service);
+        let restored = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
+        let listed = restored
+            .user_memory_rpc("memory.user.list", json!({}), "UTC")
+            .unwrap();
+        assert_eq!(listed.result["entries"][0]["content"], "更新后的偏好");
+        assert_eq!(listed.result["entries"][0]["version"], 2);
+        assert_eq!(
+            restored
+                .user_memory_rpc("memory.profile.get", json!({}), "UTC")
+                .unwrap()
+                .result["profile"]["name"],
+            Value::Null
+        );
+        let deleted = restored
+            .user_memory_rpc(
+                "memory.user.delete",
+                json!({"entry_id":entry_id,"expected_version":2}),
+                "UTC",
+            )
+            .unwrap();
+        assert_eq!(deleted.events[0].event, "memory.user.deleted");
+        assert_eq!(deleted.result["quota"]["used_chars"], 0);
+
+        let curated = restored
+            .curate_user_memory_add(
+                "Avoid weekend notifications".into(),
+                "chat-origin",
+                "msg-origin",
+            )
+            .unwrap();
+        assert_eq!(curated.result["entry"]["source"]["by"]["kind"], "system");
+        assert_eq!(curated.result["entry"]["source"]["chat_id"], "chat-origin");
+        assert_eq!(
+            curated.result["entry"]["source"]["message_id"],
+            "msg-origin"
+        );
+        let curator_profile = restored
+            .curate_user_profile_update("UTC", 4, None, Some(Some("zh-CN".into())), None)
+            .unwrap();
+        assert_eq!(
+            curator_profile.result["profile"]["updated_by"]["kind"],
+            "system"
+        );
+
+        let _ = restored
+            .shared_memory
+            .add(MemoryRequest {
+                target: MemoryTarget::bot("bot-private"),
+                action: MemoryAction::Add,
+                content: "private experience".into(),
+                id: None,
+                kind: Some(MemoryKind::BotExperience),
+                source: MemorySource::default(),
+            })
+            .unwrap();
+        let only_user_entries = restored
+            .user_memory_rpc("memory.user.list", json!({}), "UTC")
+            .unwrap();
+        assert_eq!(
+            only_user_entries.result["entries"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let bot_write = restored.memory_rpc_with_access(
+            &MemoryActor::main("bot-main"), &MemoryAccess::user("local-user"),
+            json!({"scope":"user","user_id":"local-user","run_id":"bot-run","content":"must not write user preference"}),
+        );
+        assert!(matches!(bot_write, Err(FeatureError::Invalid(_))));
+    }
+
+    #[test]
+    fn user_memory_mutations_recover_atomic_receipts_after_snapshot_before_event() {
+        let home = tempdir().unwrap().keep();
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let target = MemoryTarget::user("local-user");
+
+        let create_params = json!({"content":"remember tea","client_request_id":"tx-create"});
+        let prepared_create = service
+            .persist_user_memory_transaction("memory.user.create", &create_params, |store| {
+                let record = store.apply_user_create(
+                    target.clone(),
+                    "remember tea".into(),
+                    macbot_memory::MemorySender::User,
+                    None,
+                    None,
+                )?;
+                let entry = protocol_user_entry(&record);
+                let quota = protocol_user_quota(store.user_quota(&target));
+                let result = json!({"entry":entry,"quota":quota});
+                Ok((result.clone(), "memory.user.updated".into(), result))
+            })
+            .unwrap();
+        assert!(service.shared_store.events_since(0).unwrap().is_empty());
+        drop(service);
+
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let create_retry = service
+            .user_memory_rpc("memory.user.create", create_params.clone(), "UTC")
+            .unwrap();
+        assert_eq!(create_retry.result, prepared_create.receipt.result);
+        assert_eq!(create_retry.events.len(), 1);
+        let create_duplicate = service
+            .user_memory_rpc("memory.user.create", create_params.clone(), "UTC")
+            .unwrap();
+        assert_eq!(create_duplicate.result, prepared_create.receipt.result);
+        assert!(create_duplicate.events.is_empty());
+        assert_eq!(
+            service.shared_memory.user_records(&target).unwrap().len(),
+            1
+        );
+        let bad_reuse = service
+            .user_memory_rpc(
+                "memory.user.create",
+                json!({"content":"different","client_request_id":"tx-create"}),
+                "UTC",
+            )
+            .unwrap_err();
+        assert!(matches!(bad_reuse, FeatureError::Conflict(_)));
+
+        let entry_id = prepared_create.receipt.result["entry"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let update_params = json!({
+            "entry_id":entry_id,
+            "content":"remember green tea",
+            "expected_version":1,
+            "client_request_id":"tx-update"
+        });
+        let prepared_update = service
+            .persist_user_memory_transaction("memory.user.update", &update_params, |store| {
+                let record = store.apply_user_update(
+                    &target,
+                    &entry_id,
+                    "remember green tea".into(),
+                    1,
+                    macbot_memory::MemorySender::User,
+                )?;
+                let entry = protocol_user_entry(&record);
+                let quota = protocol_user_quota(store.user_quota(&target));
+                let result = json!({"entry":entry,"quota":quota});
+                Ok((result.clone(), "memory.user.updated".into(), result))
+            })
+            .unwrap();
+        drop(service);
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let update_retry = service
+            .user_memory_rpc("memory.user.update", update_params.clone(), "UTC")
+            .unwrap();
+        assert_eq!(update_retry.result, prepared_update.receipt.result);
+        assert_eq!(update_retry.events.len(), 1);
+        assert!(service
+            .user_memory_rpc("memory.user.update", update_params.clone(), "UTC")
+            .unwrap()
+            .events
+            .is_empty());
+        assert_eq!(
+            service.shared_memory.user_records(&target).unwrap()[0].version,
+            2
+        );
+
+        let delete_params = json!({
+            "entry_id":entry_id,
+            "expected_version":2,
+            "client_request_id":"tx-delete"
+        });
+        let prepared_delete = service
+            .persist_user_memory_transaction("memory.user.delete", &delete_params, |store| {
+                store.apply_user_delete(&target, &entry_id, 2)?;
+                let quota = protocol_user_quota(store.user_quota(&target));
+                let result = json!({"quota":quota});
+                Ok((
+                    result.clone(),
+                    "memory.user.deleted".into(),
+                    json!({"entry_id":entry_id,"quota":quota}),
+                ))
+            })
+            .unwrap();
+        drop(service);
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let delete_retry = service
+            .user_memory_rpc("memory.user.delete", delete_params.clone(), "UTC")
+            .unwrap();
+        assert_eq!(delete_retry.result, prepared_delete.receipt.result);
+        assert_eq!(delete_retry.events.len(), 1);
+        assert!(service
+            .user_memory_rpc("memory.user.delete", delete_params.clone(), "UTC")
+            .unwrap()
+            .events
+            .is_empty());
+        assert!(service
+            .shared_memory
+            .user_records(&target)
+            .unwrap()
+            .is_empty());
+
+        let _ = service
+            .user_memory_rpc("memory.profile.get", json!({}), "UTC")
+            .unwrap();
+        let profile_params = json!({
+            "name":"Ari",
+            "expected_version":1,
+            "client_request_id":"tx-profile"
+        });
+        let prepared_profile = service
+            .persist_user_memory_transaction("memory.profile.update", &profile_params, |store| {
+                let profile =
+                    store.apply_user_profile_update(macbot_memory::UserProfileUpdate {
+                        timezone: "UTC".into(),
+                        expected_version: 1,
+                        name: Some(Some("Ari".into())),
+                        language: None,
+                        identity: None,
+                        updated_by: macbot_memory::MemorySender::User,
+                    })?;
+                let profile = protocol_user_profile(&profile);
+                let result = json!({"profile":profile});
+                Ok((result.clone(), "memory.profile.updated".into(), result))
+            })
+            .unwrap();
+        drop(service);
+        let service = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
+        let profile_retry = service
+            .user_memory_rpc("memory.profile.update", profile_params.clone(), "UTC")
+            .unwrap();
+        assert_eq!(profile_retry.result, prepared_profile.receipt.result);
+        assert_eq!(profile_retry.events.len(), 1);
+        assert!(service
+            .user_memory_rpc("memory.profile.update", profile_params, "UTC")
+            .unwrap()
+            .events
+            .is_empty());
+        assert_eq!(service.shared_store.events_since(0).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn user_memory_rpc_reports_quota_full_at_the_user_limit() {
+        let service = service();
+        let content = "x".repeat(500);
+        for _ in 0..3 {
+            service
+                .user_memory_rpc("memory.user.create", json!({"content":content}), "UTC")
+                .unwrap();
+        }
+        let error = service
+            .user_memory_rpc("memory.user.create", json!({"content":"x"}), "UTC")
+            .unwrap_err();
+        assert_eq!(error.code(), "quota_full");
     }
 
     #[test]
@@ -2680,7 +3486,7 @@ mod tests {
         };
         assert!(service
             .stage_memory_with_access(&actor, &MemoryAccess::user("u"), "access", user)
-            .is_ok());
+            .is_err());
         let project = MemoryRequest {
             target: MemoryTarget::project("p"),
             action: MemoryAction::Add,
@@ -2706,7 +3512,7 @@ mod tests {
             )
             .is_ok());
         service.commit_memory_run("access").unwrap();
-        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
     }
 
     #[test]
@@ -2714,8 +3520,7 @@ mod tests {
         let service = service();
         let actor = MemoryActor::bot("bot-a");
         let access = MemoryAccess::user("user-a");
-        service.begin_memory_run("actual-run").unwrap();
-        service
+        let result = service
             .memory_rpc_with_access(
                 &actor,
                 &access,
@@ -2734,7 +3539,9 @@ mod tests {
                 }),
             )
             .unwrap();
-        let entries = service.commit_memory_run("actual-run").unwrap();
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["version"], 1);
+        let entries = service.shared_memory.entries().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].source.bot_id.as_deref(), Some("bot-a"));
         assert_eq!(entries[0].source.run_id.as_deref(), Some("actual-run"));

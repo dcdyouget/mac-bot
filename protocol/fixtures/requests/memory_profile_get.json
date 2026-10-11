@@ -1,0 +1,4 @@
+{
+  "method": "memory.profile.get",
+  "params": {}
+}

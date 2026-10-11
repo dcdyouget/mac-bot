@@ -1,0 +1,20 @@
+{
+  "data": {
+    "profile": {
+      "identity": "独立开发者",
+      "language": "zh-CN",
+      "name": "小林",
+      "onboarded": true,
+      "timezone": "Asia/Shanghai",
+      "updated_at": "2026-10-09T10:19:02.312Z",
+      "updated_by": {
+        "kind": "user"
+      },
+      "version": 4
+    }
+  },
+  "event": "memory.profile.updated",
+  "kind": "evt",
+  "seq": 31,
+  "v": 1
+}
