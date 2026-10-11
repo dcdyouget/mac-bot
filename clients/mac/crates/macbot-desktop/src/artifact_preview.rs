@@ -262,7 +262,7 @@ impl RenderOnce for ArtifactPreview {
             ArtifactPreviewState::Ready => {
                 let preview_id =
                     SharedString::from(format!("artifact-preview-content-{}", self.title));
-                let surface = div()
+                let mut surface = div()
                     .w_full()
                     .max_w(px(tokens.desktop_layout.chat_max_content))
                     .min_h_0()
