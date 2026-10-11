@@ -518,7 +518,19 @@ fn chat_tr(key: &str) -> SharedString {
         "group.announcement.server_latest" => "服务器最新版本",
         "group.announcement.keep_draft_retry" => "保留草稿并重试",
         "group.announcement.apply_latest_retry" => "采用最新并重试",
+        "group.announcement.cancel" => "取消并还原最新版本",
         "group.announcement.version" => "版本 {n} · {len} / 8000 字",
+        "context.pending_questions" => "待回答",
+        "context.no_pending_questions" => "暂无待回答问题",
+        "context.question_waiting" => "待回答的问题",
+        "context.pending_reviews" => "待验收",
+        "context.no_pending_reviews" => "暂无待验收项目",
+        "context.review_waiting" => "待验收 · {project}",
+        "context.followed_groups" => "我负责的群",
+        "context.no_followed_groups" => "暂无进行中的群",
+        "context.pending_approvals" => "本对话待审批",
+        "context.no_pending_approvals" => "暂无待审批操作",
+        "context.approval_waiting" => "待审批 · {tool}",
         "chat.composer.attach.file" => "文件…",
         "chat.composer.attach.image" => "图片…",
         "chat.composer.attach.screenshot" => "截图",
@@ -1921,34 +1933,131 @@ impl MacBot {
         {
             let query = query.to_lowercase();
             let mut choices = div().flex().flex_wrap().gap(px(t.space[2]));
-            let mut skill_count = 0;
-            for skill in self.state.skills.values().filter(|skill| {
-                let name = s(skill, "name");
-                !name.is_empty() && name.to_lowercase().starts_with(&query)
-            }) {
-                let name = s(skill, "name").to_owned();
-                let prefix = last.to_owned();
-                skill_count += 1;
-                choices = choices.child(
-                    Button::new(SharedString::from(format!("skill-suggest-{name}")))
-                        .ghost()
-                        .small()
-                        .label(format!("/{name}"))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            let text = this.composer.read(cx).value().to_string();
-                            let start = text.rfind(&prefix).unwrap_or(text.len());
-                            let result = format!("{}/{} ", &text[..start], name);
-                            this.composer
-                                .update(cx, |input, cx| input.set_value(result, window, cx));
-                        })),
-                );
+            let bot_id = self
+                .state
+                .chats
+                .get(&self.selected_chat)
+                .map(|chat| s(chat, "bot_id").to_owned())
+                .unwrap_or_default();
+            let mut matching_skills = self
+                .state
+                .skills
+                .values()
+                .filter_map(|skill| {
+                    let name = s(skill, "name");
+                    if name.is_empty() || !skill["enabled"].as_bool().unwrap_or(true) {
+                        return None;
+                    }
+                    let disabled_for_bot = arr(skill, "disabled_bot_ids")
+                        .iter()
+                        .any(|disabled_id| disabled_id.as_str() == Some(bot_id.as_str()));
+                    name.to_lowercase()
+                        .contains(&query)
+                        .then_some((name.to_owned(), disabled_for_bot))
+                })
+                .collect::<Vec<_>>();
+            let recent_skills = crate::local_settings::recent_skill_order().unwrap_or_default();
+            matching_skills.sort_by(|a, b| {
+                let a_recent = recent_skills.iter().position(|name| name == &a.0);
+                let b_recent = recent_skills.iter().position(|name| name == &b.0);
+                a_recent
+                    .cmp(&b_recent)
+                    .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
+            });
+            let has_recent_matches = matching_skills
+                .iter()
+                .any(|(name, _)| recent_skills.iter().any(|recent| recent == name));
+            let picker_state = window.use_keyed_state(
+                SharedString::from(format!("slash-picker-{}-{query}", self.selected_chat)),
+                cx,
+                |_, _| 0usize,
+            );
+            let selected_index = *picker_state.read(cx);
+            let picker_names = matching_skills
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect::<Vec<_>>();
+            let picker_options = matching_skills.clone();
+            let prefix = last.to_owned();
+            if !matching_skills.is_empty() {
+                let names_for_keys = picker_names.clone();
+                let options_for_keys = picker_options.clone();
+                let picker_state_for_keys = picker_state.clone();
+                let key_prefix = prefix.clone();
+                composer = composer.capture_key_down(cx.listener(
+                    move |this, event: &KeyDownEvent, window, cx| {
+                        let key = event.keystroke.key.to_lowercase();
+                        if matches!(key.as_str(), "up" | "arrowup" | "down" | "arrowdown") {
+                            cx.stop_propagation();
+                            picker_state_for_keys.update(cx, |index, _| {
+                                let len = names_for_keys.len();
+                                if len > 0 {
+                                    let current = (*index).min(len - 1);
+                                    *index = if matches!(key.as_str(), "up" | "arrowup") {
+                                        if current == 0 { len - 1 } else { current - 1 }
+                                    } else {
+                                        (current + 1) % len
+                                    };
+                                }
+                            });
+                            cx.notify();
+                        } else if key == "tab" {
+                            cx.stop_propagation();
+                            if let Some((name, false)) =
+                                options_for_keys.get(*picker_state_for_keys.read(cx))
+                            {
+                                let _ = crate::local_settings::record_recent_skill(name);
+                                let text = this.composer.read(cx).value().to_string();
+                                let start = text.rfind(&key_prefix).unwrap_or(text.len());
+                                let result = format!("{}/{} ", &text[..start], name);
+                                this.composer
+                                    .update(cx, |input, cx| input.set_value(result, window, cx));
+                            }
+                        }
+                    },
+                ));
             }
-            if skill_count > 0 {
+            for (index, (name, disabled_for_bot)) in matching_skills.into_iter().enumerate() {
+                let skill_name = name.clone();
+                let skill_prefix = prefix.clone();
+                let label = if disabled_for_bot {
+                    format!("/{name} · {}", chat_tr("chat.skill.disabled"))
+                } else {
+                    format!("/{name}")
+                };
+                let mut button = Button::new(SharedString::from(format!("skill-suggest-{name}")))
+                    .ghost()
+                    .small()
+                    .label(label)
+                    .disabled(disabled_for_bot)
+                    .when(index == selected_index, |button| button.primary());
+                if !disabled_for_bot {
+                    button = button.on_click(cx.listener(move |this, _, window, cx| {
+                        let _ = crate::local_settings::record_recent_skill(&skill_name);
+                        let text = this.composer.read(cx).value().to_string();
+                        let start = text.rfind(&skill_prefix).unwrap_or(text.len());
+                        let result = format!("{}/{} ", &text[..start], skill_name);
+                        this.composer
+                            .update(cx, |input, cx| input.set_value(result, window, cx));
+                    }));
+                }
+                choices = choices.child(button);
+            }
+            if !picker_names.is_empty() {
+                let heading = if has_recent_matches {
+                    format!(
+                        "{} · {}",
+                        chat_tr("chat.skill_hint"),
+                        chat_tr("chat.skill_recent")
+                    )
+                } else {
+                    chat_tr("chat.skill_hint").to_string()
+                };
                 composer = composer.child(
                     div()
                         .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.secondary)
-                        .child(chat_tr("chat.skill_hint")),
+                        .child(heading),
                 );
                 composer = composer.child(choices);
             }
@@ -2326,21 +2435,7 @@ impl MacBot {
                     .child(time),
             );
         }
-        let mut message_content = div()
-            .flex()
-            .flex_col()
-            .min_w_0()
-            .gap(px(t.space[2]))
-            .max_w(px(t.desktop_layout.chat_max_content))
-            .when(!user && !system && !merged_identity, |el| {
-                el.child(
-                    div()
-                        .text_size(px(t.desktop_type[1][0]))
-                        .text_color(t.secondary)
-                        .child(s(&bot, "name").to_string()),
-                )
-            })
-            .child(bubble);
+        let bot_label = s(&bot, "name").to_string();
         let mut mention_row = div().flex().items_center().gap(px(t.space[2]));
         let mut mention_count = 0;
         for (index, mention) in arr(message, "mentions").iter().enumerate() {
@@ -2415,8 +2510,26 @@ impl MacBot {
             }
         }
         if mention_count > 0 {
-            message_content = message_content.child(mention_row);
+            // Mention metadata has no text offsets in the protocol. Keep the
+            // clickable targets inside the same bubble without inventing an
+            // inline position in the message text.
+            bubble = bubble.child(mention_row);
         }
+        let mut message_content = div()
+            .flex()
+            .flex_col()
+            .min_w_0()
+            .gap(px(t.space[2]))
+            .max_w(px(t.desktop_layout.chat_max_content))
+            .when(!user && !system && !merged_identity, |el| {
+                el.child(
+                    div()
+                        .text_size(px(t.desktop_type[1][0]))
+                        .text_color(t.secondary)
+                        .child(bot_label),
+                )
+            })
+            .child(bubble);
         let is_focused = self
             .message_list_cache
             .index_of_message(&id)
@@ -2593,22 +2706,30 @@ impl MacBot {
                 let message_id = id.clone();
                 let emoji_value = emoji.to_owned();
                 menu = menu.child(
-                    Button::new(SharedString::from(format!("react-{id}-{index}")))
-                        .ghost()
-                        .xsmall()
-                        .label(emoji)
-                        .tooltip(
-                            chat_tr("chat.reaction.accessible")
-                                .to_string()
-                                .replace("{emoji}", emoji),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.rpc(
-                                "chat.react",
-                                json!({"message_id":message_id,"emoji":emoji_value,"on":true}),
-                                cx,
-                            );
-                        })),
+                    div()
+                        .w(px(30.))
+                        .h(px(30.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            Button::new(SharedString::from(format!("react-{id}-{index}")))
+                                .ghost()
+                                .xsmall()
+                                .label(emoji)
+                                .tooltip(
+                                    chat_tr("chat.reaction.accessible")
+                                        .to_string()
+                                        .replace("{emoji}", emoji),
+                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.rpc(
+                                        "chat.react",
+                                        json!({"message_id":message_id,"emoji":emoji_value,"on":true}),
+                                        cx,
+                                    );
+                                })),
+                        ),
                 );
             }
         }
@@ -3911,6 +4032,40 @@ impl MacBot {
                     }
                 }))
                 .into_any_element()
+        } else if kind == "approval"
+            && self
+                .state
+                .approvals
+                .get(s(block, "approval_id"))
+                .is_some_and(|approval| s(approval, "state") == "pending")
+        {
+            let approval_id = s(block, "approval_id").to_owned();
+            body.key_context("ApprovalCard")
+                .capture_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
+                    if event.keystroke.modifiers.platform
+                        && event.keystroke.key.eq_ignore_ascii_case("enter")
+                    {
+                        cx.stop_propagation();
+                        this.rpc(
+                            "approval.decide",
+                            json!({"approval_id":approval_id,"decision":"allow_once"}),
+                            cx,
+                        );
+                    }
+                }))
+                .into_any_element()
+        } else if kind == "review_card" && s(block, "state") == "pending" {
+            let project_id = s(block, "project_id").to_owned();
+            body.key_context("ReviewCard")
+                .capture_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
+                    if event.keystroke.modifiers.platform
+                        && event.keystroke.key.eq_ignore_ascii_case("enter")
+                    {
+                        cx.stop_propagation();
+                        this.rpc("project.confirm_done", json!({"project_id":project_id}), cx);
+                    }
+                }))
+                .into_any_element()
         } else {
             body.into_any_element()
         }
@@ -4681,6 +4836,25 @@ impl MacBot {
                             this.save_announcement(cx);
                         })),
                 );
+                let restore_project_id = announcement_project_id.clone();
+                let restore_text = announcement_text.clone();
+                body = body.child(
+                    Button::new("announcement-cancel-restore")
+                        .ghost()
+                        .small()
+                        .label(chat_tr("group.announcement.cancel"))
+                        .disabled(!self.connected)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.announcement_draft.update(cx, |input, cx| {
+                                input.set_value(restore_text.clone(), window, cx)
+                            });
+                            this.announcement_draft_project = Some(restore_project_id.clone());
+                            this.announcement_base_text = restore_text.clone();
+                            this.announcement_base_version = announcement_version;
+                            this.announcement_conflict = None;
+                            cx.notify();
+                        })),
+                );
                 for member in arr(&ann, "members") {
                     let bot = self
                         .state
@@ -4808,6 +4982,209 @@ impl MacBot {
             } else {
                 let bot_id = s(chat, "bot_id");
                 let bot = self.state.bots.get(bot_id).cloned().unwrap_or(Value::Null);
+                let main_dm = s(chat, "kind") == "main";
+                if main_dm {
+                    body = body.child(chat_tr("context.pending_questions"));
+                    let mut pending_questions = self
+                        .state
+                        .questions
+                        .values()
+                        .filter(|question| {
+                            s(question, "chat_id") == self.selected_chat
+                                && question_is_pending(question)
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    pending_questions.sort_by(|a, b| s(a, "created_at").cmp(s(b, "created_at")));
+                    if pending_questions.is_empty() {
+                        body = body.child(
+                            div()
+                                .text_size(px(t.desktop_type[1][0]))
+                                .text_color(t.secondary)
+                                .child(chat_tr("context.no_pending_questions")),
+                        );
+                    }
+                    for question in pending_questions {
+                        let question_id = s(&question, "id").to_owned();
+                        let message_id = self
+                            .state
+                            .messages
+                            .values()
+                            .find(|message| {
+                                s(message, "chat_id") == self.selected_chat
+                                    && arr(message, "blocks").iter().any(|block| {
+                                        s(block, "type") == "question"
+                                            && s(block, "question_id") == question_id
+                                    })
+                            })
+                            .map(|message| s(message, "id").to_owned());
+                        let label = if s(&question, "text").is_empty() {
+                            chat_tr("context.question_waiting").to_string()
+                        } else {
+                            s(&question, "text").to_owned()
+                        };
+                        body = body.child(
+                            Button::new(SharedString::from(format!(
+                                "context-question-{question_id}"
+                            )))
+                            .ghost()
+                            .small()
+                            .label(label)
+                            .disabled(message_id.is_none())
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    if let Some(message_id) = &message_id {
+                                        this.jump_to_message(message_id, cx);
+                                    }
+                                },
+                            )),
+                        );
+                    }
+                    body = body.child(chat_tr("context.pending_reviews"));
+                    let mut review_projects = self
+                        .state
+                        .projects
+                        .values()
+                        .filter(|project| {
+                            s(project, "lead_bot_id") == bot_id && s(project, "status") == "review"
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    review_projects.sort_by(|a, b| s(a, "name").cmp(s(b, "name")));
+                    if review_projects.is_empty() {
+                        body = body.child(
+                            div()
+                                .text_size(px(t.desktop_type[1][0]))
+                                .text_color(t.secondary)
+                                .child(chat_tr("context.no_pending_reviews")),
+                        );
+                    }
+                    for project in review_projects {
+                        let project_id = s(&project, "id").to_owned();
+                        let chat_id = s(&project, "chat_id").to_owned();
+                        let message_id = self
+                            .state
+                            .messages
+                            .values()
+                            .find(|message| {
+                                s(message, "chat_id") == chat_id
+                                    && arr(message, "blocks").iter().any(|block| {
+                                        s(block, "type") == "review_card"
+                                            && s(block, "project_id") == project_id
+                                            && s(block, "state") == "pending"
+                                    })
+                            })
+                            .map(|message| s(message, "id").to_owned());
+                        let label = chat_tr("context.review_waiting")
+                            .to_string()
+                            .replace("{project}", s(&project, "name"));
+                        body = body.child(
+                            Button::new(SharedString::from(format!("context-review-{project_id}")))
+                                .ghost()
+                                .small()
+                                .label(label)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    if let Some(message_id) = &message_id {
+                                        this.pending_chat_jump =
+                                            Some((chat_id.clone(), message_id.clone()));
+                                    }
+                                    this.select_chat(chat_id.clone(), window, cx);
+                                })),
+                        );
+                    }
+                    body = body.child(chat_tr("context.followed_groups"));
+                    let mut followed_groups = self
+                        .state
+                        .projects
+                        .values()
+                        .filter(|project| {
+                            s(project, "lead_bot_id") == bot_id
+                                && matches!(s(project, "status"), "active" | "review")
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    followed_groups.sort_by(|a, b| s(a, "name").cmp(s(b, "name")));
+                    if followed_groups.is_empty() {
+                        body = body.child(
+                            div()
+                                .text_size(px(t.desktop_type[1][0]))
+                                .text_color(t.secondary)
+                                .child(chat_tr("context.no_followed_groups")),
+                        );
+                    }
+                    for project in followed_groups {
+                        let project_id = s(&project, "id").to_owned();
+                        let chat_id = s(&project, "chat_id").to_owned();
+                        body = body.child(
+                            Button::new(SharedString::from(format!(
+                                "context-followed-group-{project_id}"
+                            )))
+                            .ghost()
+                            .small()
+                            .label(s(&project, "name").to_owned())
+                            .on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.select_chat(chat_id.clone(), window, cx);
+                                },
+                            )),
+                        );
+                    }
+                } else {
+                    body = body.child(chat_tr("context.pending_approvals"));
+                    let mut pending_approvals = self
+                        .state
+                        .approvals
+                        .values()
+                        .filter(|approval| {
+                            s(approval, "chat_id") == self.selected_chat
+                                && s(approval, "state") == "pending"
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    pending_approvals.sort_by(|a, b| s(a, "created_at").cmp(s(b, "created_at")));
+                    if pending_approvals.is_empty() {
+                        body = body.child(
+                            div()
+                                .text_size(px(t.desktop_type[1][0]))
+                                .text_color(t.secondary)
+                                .child(chat_tr("context.no_pending_approvals")),
+                        );
+                    }
+                    for approval in pending_approvals {
+                        let approval_id = s(&approval, "id").to_owned();
+                        let message_id = self
+                            .state
+                            .messages
+                            .values()
+                            .find(|message| {
+                                s(message, "chat_id") == self.selected_chat
+                                    && arr(message, "blocks").iter().any(|block| {
+                                        s(block, "type") == "approval"
+                                            && s(block, "approval_id") == approval_id
+                                    })
+                            })
+                            .map(|message| s(message, "id").to_owned());
+                        let label = chat_tr("context.approval_waiting")
+                            .to_string()
+                            .replace("{tool}", s(&approval, "tool"));
+                        body = body.child(
+                            Button::new(SharedString::from(format!(
+                                "context-approval-{approval_id}"
+                            )))
+                            .ghost()
+                            .small()
+                            .label(label)
+                            .disabled(message_id.is_none())
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    if let Some(message_id) = &message_id {
+                                        this.jump_to_message(message_id, cx);
+                                    }
+                                },
+                            )),
+                        );
+                    }
+                }
                 body = body
                     .child(bean(&bot, t.desktop_layout.avatar_panel, cx))
                     .child(
