@@ -178,8 +178,8 @@
     <string name="feature_more_accessibility">更多操作</string>
     <string name="feature_notify_needs_you">需要你处理（审批、提问、接管）</string>
     <string name="feature_notify_review">待验收</string>
-    <string name="feature_notify_completion">任务完成</string>
-    <string name="feature_notify_messages">新消息</string>
+    <string name="feature_notify_messages">私聊和 @ 你的消息</string>
+    <string name="feature_notify_group_messages">群里所有消息</string>
     <string name="feature_takeover_active">你正在操作，Bot 已暂停</string>
     <string name="feature_takeover_pending">等待接管</string>
     <string name="feature_takeover_done">接管已结束</string>
@@ -417,6 +417,10 @@
     <string name="feature_attachment_added">已添加附件：%1$s</string>
     <string name="feature_attachment_remove">移除附件</string>
     <string name="feature_attachment_uploading">正在上传附件…</string>
+    <string name="feature_attachment_ready">已上传</string>
+    <string name="feature_attachment_upload_failed">上传失败</string>
+    <string name="feature_attachment_retry">重试上传</string>
+    <string name="feature_attachment_too_large">附件不能超过 100 MB</string>
     <string name="feature_trace_search">搜索轨迹</string>
     <string name="feature_trace_older">加载更早记录</string>
     <string name="feature_trace_thinking">显示思考</string>

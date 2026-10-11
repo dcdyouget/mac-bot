@@ -32,7 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private val contextRef = AtomicReference<Context?>()
-private val filePickerProvider = AtomicReference<(suspend () -> PickedFile?)?>(null)
+private val filePickerProvider = AtomicReference<(suspend (FilePickerMode) -> PickedFile?)?>(null)
 private val fileExporterProvider = AtomicReference<(suspend (PickedFile) -> Boolean)?>(null)
 private const val CREDENTIAL_PREFS = "macbot_credentials"
 private const val STATE_PREFS = "macbot_state"
@@ -43,7 +43,7 @@ actual fun initializePlatform(context: Any) {
     contextRef.set(appContext.applicationContext)
 }
 
-actual fun installFilePickerProvider(provider: suspend () -> PickedFile?) {
+actual fun installFilePickerProvider(provider: suspend (FilePickerMode) -> PickedFile?) {
     filePickerProvider.set(provider)
 }
 
@@ -73,6 +73,31 @@ actual fun platformPersistentStore(): PersistentStore = AndroidPersistentStore(r
 actual fun platformFilePicker(): FilePicker = AndroidFilePicker()
 actual fun platformScreenImageDecoder(): ScreenImageDecoder = AndroidScreenImageDecoder()
 actual fun platformLocaleTag(): String = Locale.getDefault().toLanguageTag()
+
+private val deepLinkResourceIdPattern = Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
+
+actual fun parseMobileDeepLink(value: String): MobileDeepLink? {
+    if (value.length !in 1..512) return null
+    val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return null
+    if (!uri.isHierarchical || uri.scheme != "macbot" || uri.fragment != null || uri.port != -1) return null
+
+    val kind = DeepLinkKind.entries.firstOrNull { it.authority == uri.host } ?: return null
+    if (uri.encodedAuthority != kind.authority) return null
+
+    val encodedPath = uri.encodedPath ?: return null
+    if (!encodedPath.startsWith('/') || encodedPath.count { it == '/' } != 1) return null
+    val resourceId = uri.pathSegments.singleOrNull() ?: return null
+    if (!deepLinkResourceIdPattern.matches(resourceId)) return null
+
+    val encodedQuery = uri.encodedQuery
+    if (encodedQuery != null && (encodedQuery.isEmpty() || uri.queryParameterNames != setOf("host_id"))) return null
+    val hostValues = uri.getQueryParameters("host_id")
+    if (hostValues.size > 1) return null
+    val hostId = hostValues.singleOrNull()
+    if (hostId != null && !deepLinkResourceIdPattern.matches(hostId)) return null
+
+    return MobileDeepLink(kind, resourceId, hostId)
+}
 
 // Android blur-behind APIs only blur other windows; they cannot blur surfaces
 // within this single Activity, so design tokens require the opaque fallback.
@@ -173,7 +198,7 @@ private class AndroidPersistentStore(context: Context) : PersistentStore {
 
 /** The Activity may replace this with an ActivityResult-backed picker later. */
 private class AndroidFilePicker : FilePicker {
-    override suspend fun pickFile(): PickedFile? = filePickerProvider.get()?.invoke()
+    override suspend fun pickFile(mode: FilePickerMode): PickedFile? = filePickerProvider.get()?.invoke(mode)
 }
 
 private class AndroidScreenImageDecoder : ScreenImageDecoder {

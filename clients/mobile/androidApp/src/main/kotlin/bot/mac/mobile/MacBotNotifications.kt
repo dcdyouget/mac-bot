@@ -27,6 +27,16 @@ import kotlinx.serialization.encodeToString
 
 private const val NOTIFICATION_LEDGER_PREFS = "macbot_notification_ledger"
 
+internal object AppVisibility {
+    @Volatile var isForeground: Boolean = false
+}
+
+internal fun shouldDeliverSystemNotification(
+    kind: NotificationKind,
+    appForeground: Boolean,
+    foregroundAttentionHandled: Boolean = false,
+): Boolean = !(appForeground && foregroundAttentionHandled)
+
 internal fun PendingNotification.resolvedCategory(): String = category.ifBlank {
     when (kind) {
         NotificationKind.APPROVAL, NotificationKind.NEEDS_YOU -> "needs_you"
@@ -96,35 +106,42 @@ object MacBotNotifications {
     }
 
     suspend fun postNeedsYou(context: Context, hostId: String, approvalId: String, title: String, text: String, eventSeq: Long? = null) =
-        enqueue(context, PendingNotification(NotificationKind.APPROVAL, hostId, approvalId, title, text, eventSeq))
+        enqueue(context, PendingNotification(NotificationKind.APPROVAL, hostId, approvalId, title, text, eventSeq, foregroundAttentionHandled = true))
 
     suspend fun postCompleted(
         context: Context, hostId: String, id: String, title: String, text: String,
         eventSeq: Long? = null, projectId: String? = null, chatId: String? = null, category: String = "completion",
+        foregroundAttentionHandled: Boolean = false,
     ) {
         if (projectId.isNullOrBlank() && chatId.isNullOrBlank()) return
-        enqueue(context, PendingNotification(NotificationKind.COMPLETED, hostId, id, title, text, eventSeq, projectId, chatId, category = category))
+        enqueue(context, PendingNotification(NotificationKind.COMPLETED, hostId, id, title, text, eventSeq, projectId, chatId, category = category, foregroundAttentionHandled = foregroundAttentionHandled))
     }
 
     suspend fun postMessage(
         context: Context, hostId: String, id: String, title: String, text: String,
-        chatId: String? = null, muted: Boolean = false, botNotifications: Boolean = true, eventSeq: Long? = null,
+        chatId: String? = null, muted: Boolean = false, botNotifications: Boolean = true,
+        eventSeq: Long? = null, category: String = "messages",
     ) {
         if (muted || !botNotifications) return
-        enqueue(context, PendingNotification(NotificationKind.MESSAGE, hostId, id, title, text, eventSeq, chatId = chatId))
+        enqueue(context, PendingNotification(NotificationKind.MESSAGE, hostId, id, title, text, eventSeq, chatId = chatId, category = category))
     }
 
     suspend fun postNeedsYouEvent(
         context: Context, hostId: String, id: String, title: String, text: String,
         deepLinkKind: String, deepLinkId: String, eventSeq: Long? = null, category: String = "needs_you",
+        foregroundAttentionHandled: Boolean = false,
     ) = enqueue(context, PendingNotification(
         NotificationKind.NEEDS_YOU, hostId, id, title, text, eventSeq,
         deepLinkKind = deepLinkKind, deepLinkId = deepLinkId, category = category,
+        foregroundAttentionHandled = foregroundAttentionHandled,
     ))
 
     private suspend fun enqueue(context: Context, request: PendingNotification) {
         if (!AppRuntime.repository.notifications.value) return
         if (!AppRuntime.repository.notificationCategoryEnabled(request.resolvedCategory())) return
+        // App.kt presents foreground attention events as an in-app Snackbar.
+        // Avoid posting a duplicate system alert for the same event.
+        if (!shouldDeliverSystemNotification(request.kind, AppVisibility.isForeground, request.foregroundAttentionHandled)) return
         delivery(context).enqueue(request)
         resumePending(context)
     }
@@ -194,7 +211,6 @@ object MacBotNotifications {
                 builder.setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setContentIntent(activityIntent(context, "approval", request.id, request.hostId))
                     .addAction(action(context, request.hostId, request.id, "allow_once", R.string.approval_allow_once))
-                    .addAction(action(context, request.hostId, request.id, "always_allow", R.string.approval_always_allow))
                     .addAction(action(context, request.hostId, request.id, "deny", R.string.approval_reject))
             }
             NotificationKind.NEEDS_YOU -> builder.setPriority(NotificationCompat.PRIORITY_HIGH)

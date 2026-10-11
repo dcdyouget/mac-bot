@@ -53,8 +53,8 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
     var notificationSound by remember { mutableStateOf(clientRepository?.notificationSound?.value ?: true) }
     var notifyNeedsYou by remember { mutableStateOf(clientRepository?.notifyNeedsYou?.value ?: true) }
     var notifyReview by remember { mutableStateOf(clientRepository?.notifyReview?.value ?: true) }
-    var notifyCompletion by remember { mutableStateOf(clientRepository?.notifyCompletion?.value ?: true) }
     var notifyMessages by remember { mutableStateOf(clientRepository?.notifyMessages?.value ?: true) }
+    var notifyGroupMessages by remember { mutableStateOf(clientRepository?.notifyGroupMessages?.value ?: false) }
     var error by remember { mutableStateOf<String?>(null) }
     var hostPermissions by remember { mutableStateOf<HostPermissionsResult?>(null) }
     var editingProvider by remember { mutableStateOf<JsonObject?>(null) }
@@ -163,8 +163,8 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                 if (notifications) {
                     SettingSwitch(stringResource(Res.string.feature_notify_needs_you), notifyNeedsYou) { notifyNeedsYou = it; scope.launch { clientRepository?.setNotificationCategory("needs_you", it) } }
                     SettingSwitch(stringResource(Res.string.feature_notify_review), notifyReview) { notifyReview = it; scope.launch { clientRepository?.setNotificationCategory("review", it) } }
-                    SettingSwitch(stringResource(Res.string.feature_notify_completion), notifyCompletion) { notifyCompletion = it; scope.launch { clientRepository?.setNotificationCategory("completion", it) } }
                     SettingSwitch(stringResource(Res.string.feature_notify_messages), notifyMessages) { notifyMessages = it; scope.launch { clientRepository?.setNotificationCategory("messages", it) } }
+                    SettingSwitch(stringResource(Res.string.feature_notify_group_messages), notifyGroupMessages) { notifyGroupMessages = it; scope.launch { clientRepository?.setNotificationCategory("group_messages", it) } }
                 }
             }
             item {

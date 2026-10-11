@@ -31,6 +31,10 @@ import bot.mac.mobile.core.network.MainEvent
 import bot.mac.mobile.core.protocol.*
 import bot.mac.mobile.core.state.*
 import bot.mac.mobile.core.platform.PlatformBackHandler
+import bot.mac.mobile.core.platform.DeepLinkKind
+import bot.mac.mobile.core.platform.parseMobileDeepLink
+import bot.mac.mobile.core.platform.resolveHost
+import bot.mac.mobile.core.platform.containsDeepLinkResource
 import bot.mac.mobile.core.platform.platformLocaleTag
 import bot.mac.mobile.feature.connect.ConnectScreen
 import bot.mac.mobile.feature.mainbot.MainBotScreen
@@ -144,21 +148,38 @@ import org.jetbrains.compose.resources.stringResource
                 "group" -> projectId
                 else -> approval.str("id").ifBlank { question.str("id") }
             }
+            snackbarHostState.currentSnackbarData?.dismiss()
             val result = snackbarHostState.showSnackbar(attentionMessage, attentionAction, duration = SnackbarDuration.Short)
             if (result == SnackbarResult.ActionPerformed) open(destination, destinationId)
         }
     }
     LaunchedEffect(deepLink) {
-        val link = deepLink ?: return@LaunchedEffect
-        repository.initialize()
-        val hostId=link.substringAfter("host_id=","").substringBefore('&')
-        if(hostId.isNotBlank()) {
-            if(repository.hosts.value.none { it.id == hostId }) { open("connect");repository.deepLink.value=null;return@LaunchedEffect }
-            repository.selectHost(hostId)
+        val value = deepLink ?: return@LaunchedEffect
+        val link = parseMobileDeepLink(value)
+        if (link == null) {
+            repository.deepLink.value = null
+            return@LaunchedEffect
         }
-        val kind = link.substringAfter("://").substringBefore('/')
-        val id = link.substringAfterLast('/').substringBefore('?')
-        open(when(kind) { "approval" -> "approvals"; "review" -> "group"; "computer" -> "computer"; else -> "chat" }, id)
+        repository.initialize()
+        val hostId = link.resolveHost(
+            repository.hosts.value.map { it.id }.toSet(),
+            repository.activeHost.value?.id,
+        )
+        if (hostId == null) {
+            repository.deepLink.value = null
+            return@LaunchedEffect
+        }
+        repository.selectHost(hostId)
+        if (!repository.state.value.containsDeepLinkResource(link)) {
+            repository.deepLink.value = null
+            return@LaunchedEffect
+        }
+        when (link.kind) {
+            DeepLinkKind.APPROVAL -> open("approvals", link.resourceId)
+            DeepLinkKind.REVIEW -> open("group", link.resourceId)
+            DeepLinkKind.CHAT -> openChat(link.resourceId)
+            DeepLinkKind.COMPUTER -> open("computer", link.resourceId)
+        }
         repository.deepLink.value = null
     }
     PlatformBackHandler(page != "home", back)
@@ -237,7 +258,7 @@ import org.jetbrains.compose.resources.stringResource
                         page == "memory" -> MemoryScreen(repository, back, { open("memory_edit", it) }, { open("memory_profile", it) }, { chatId, messageId -> openChat(chatId, messageId) })
                         page == "memory_edit" -> MemoryEntryEditorScreen(repository, target, back) { chatId, messageId -> openChat(chatId, messageId) }
                         page == "memory_profile" -> MemoryProfileEditorScreen(repository, target, back)
-                        page == "approvals" -> ApprovalScreen(repository, back)
+                        page == "approvals" -> ApprovalScreen(repository, back, target.ifBlank { null })
                         page == "file" -> FilePreview(repository, target, secondTarget, back)
                         page == "dashboard" -> DashboardScreen(repository, back, { open("connect") })
                         page == "skills" -> SkillsScreen(repository, back)

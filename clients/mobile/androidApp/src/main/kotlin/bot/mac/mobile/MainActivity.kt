@@ -4,7 +4,10 @@ import android.Manifest
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.Bundle
+import android.graphics.Bitmap
+import android.view.PixelCopy
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.compose.setContent
@@ -17,9 +20,11 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.core.view.WindowCompat
 import bot.mac.mobile.core.platform.initializePlatform
+import bot.mac.mobile.core.platform.parseMobileDeepLink
 import bot.mac.mobile.core.platform.installFilePickerProvider
 import bot.mac.mobile.core.platform.installFileExporterProvider
 import bot.mac.mobile.core.platform.PickedFile
+import bot.mac.mobile.core.platform.FilePickerMode
 import bot.mac.mobile.core.state.AppRuntime
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellableContinuation
@@ -40,6 +45,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppVisibility.isForeground = true
         initializePlatform(applicationContext)
         if (savedInstanceState == null) MacBotDeepLinks.publish(intent)
         fileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -73,7 +79,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        installFilePickerProvider { pickFile() }
+        installFilePickerProvider { mode -> pickFile(mode) }
         installFileExporterProvider { file -> export(file) }
         MacBotNotifications.ensureChannels(this)
         MainConnectionService.start(this)
@@ -110,6 +116,16 @@ class MainActivity : ComponentActivity() {
         MacBotDeepLinks.publish(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        AppVisibility.isForeground = true
+    }
+
+    override fun onPause() {
+        AppVisibility.isForeground = false
+        super.onPause()
+    }
+
     override fun onDestroy() {
         fileContinuation?.let { continuation ->
             fileContinuation = null
@@ -124,7 +140,9 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private suspend fun pickFile(): PickedFile? = suspendCancellableCoroutine { continuation ->
+    private suspend fun pickFile(mode: FilePickerMode): PickedFile? {
+        if (mode == FilePickerMode.SCREENSHOT) return captureWindowScreenshot()
+        return suspendCancellableCoroutine { continuation ->
         if (fileContinuation != null) {
             continuation.resume(null)
             return@suspendCancellableCoroutine
@@ -134,7 +152,39 @@ class MainActivity : ComponentActivity() {
             if (fileContinuation === continuation) fileContinuation = null
         }
         lifecycleScope.launch(Dispatchers.Main.immediate) {
-            if (continuation.isActive) fileLauncher.launch(arrayOf("*/*"))
+            if (continuation.isActive) fileLauncher.launch(arrayOf(if (mode == FilePickerMode.IMAGE) "image/*" else "*/*"))
+        }
+        }
+    }
+
+    private suspend fun captureWindowScreenshot(): PickedFile? {
+        val bitmap = withContext(Dispatchers.Main.immediate) {
+            val decor = window.decorView
+            val width = decor.width
+            val height = decor.height
+            if (width <= 0 || height <= 0) return@withContext null
+            val captured = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            suspendCancellableCoroutine<Bitmap?> { continuation ->
+                PixelCopy.request(window, captured, { result ->
+                    if (result == PixelCopy.SUCCESS && continuation.isActive) continuation.resume(captured)
+                    else {
+                        captured.recycle()
+                        if (continuation.isActive) continuation.resume(null)
+                    }
+                }, Handler(mainLooper))
+                continuation.invokeOnCancellation { captured.recycle() }
+            }
+        } ?: return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val output = java.io.ByteArrayOutputStream()
+                if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) return@withContext null
+                val bytes = output.toByteArray()
+                if (bytes.size > MAX_ATTACHMENT_BYTES) return@withContext null
+                PickedFile("Screenshot.png", "image/png", bytes)
+            } finally {
+                bitmap.recycle()
+            }
         }
     }
 
@@ -203,7 +253,9 @@ class MainActivity : ComponentActivity() {
 object MacBotDeepLinks {
     fun publish(intent: android.content.Intent?) {
         val uri = intent?.data ?: return
-        AppRuntime.repository.deepLink.value = uri.toString()
         intent.data = null
+        if (parseMobileDeepLink(uri.toString()) != null) {
+            AppRuntime.repository.deepLink.value = uri.toString()
+        }
     }
 }

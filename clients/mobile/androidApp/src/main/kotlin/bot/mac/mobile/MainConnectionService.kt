@@ -144,7 +144,16 @@ private object NotificationEventRouter {
                 if (id.isNotBlank()) MacBotNotifications.postNeedsYouEvent(
                     context, hostId, id, context.getString(R.string.notification_question_title),
                     question.str("text").ifBlank { question.str("prompt") },
-                    "chat", question.str("chat_id"), seq,
+                    "chat", question.str("chat_id"), seq, foregroundAttentionHandled = true,
+                )
+            }
+            eventName == "takeover.requested" -> {
+                val botId = data.str("bot_id")
+                val id = data.str("id").ifBlank { data.str("request_id") }.ifBlank { botId }
+                if (id.isNotBlank() && botId.isNotBlank()) MacBotNotifications.postNeedsYouEvent(
+                    context, hostId, id, context.getString(R.string.notification_takeover_title),
+                    data.str("reason").ifBlank { context.getString(R.string.notification_takeover_default_text) },
+                    "computer", botId, seq, foregroundAttentionHandled = true,
                 )
             }
             eventName == "message.created" || eventName == "message.updated" -> {
@@ -159,13 +168,17 @@ private object NotificationEventRouter {
                 if (!shouldNotifyMessage(message)) return
                 val chat = snapshot.chats.firstOrNull { it.str("id") == chatId }
                 val sender = message.obj("sender")
-                val isBot = sender.str("kind") == "bot"
+                val route = classifyMessageNotification(
+                    message = message,
+                    chatKind = chat?.str("kind"),
+                    notifyAllGroupMessages = AppRuntime.repository.notifyGroupMessages.value,
+                )
                 val takeover = message.arr("blocks")
                     .asSequence()
                     .mapNotNull { it as? JsonObject }
                     .firstOrNull { it.str("type") == "takeover_request" && it.str("state") == "pending" }
                 val takeoverBotId = takeover?.str("bot_id").orEmpty()
-                if (takeoverBotId.isNotBlank()) {
+                if (route == MessageNotificationRoute.NEEDS_YOU && takeoverBotId.isNotBlank()) {
                     MacBotNotifications.postNeedsYouEvent(
                         context,
                         hostId,
@@ -176,12 +189,13 @@ private object NotificationEventRouter {
                         takeoverBotId,
                         null,
                     )
-                } else if (mentionsUser(message)) {
+                } else if (route == MessageNotificationRoute.NEEDS_YOU) {
                     MacBotNotifications.postNeedsYouEvent(
                         context, hostId, id, context.getString(R.string.notification_message_needs_you_title),
                         message.str("fallback_text"), "chat", chatId, null,
+                        category = if (mentionsUser(message)) "messages" else "needs_you",
                     )
-                } else if (isBot && chat?.str("kind") in setOf("main", "direct", "bot_dm")) {
+                } else if (route == MessageNotificationRoute.PRIVATE_MESSAGE || route == MessageNotificationRoute.GROUP_MESSAGE) {
                     val botId = sender.str("bot_id")
                     val notifications = snapshot.bots
                         .firstOrNull { it.str("id") == botId }?.boolean("notifications") ?: true
@@ -189,6 +203,7 @@ private object NotificationEventRouter {
                         context, hostId, id, message.str("sender_name").ifBlank { context.getString(R.string.app_name) },
                         message.str("fallback_text"),
                         chatId, chat?.boolean("muted") ?: false, notifications, null,
+                        if (route == MessageNotificationRoute.GROUP_MESSAGE) "group_messages" else "messages",
                     )
                 }
             }
@@ -231,6 +246,7 @@ private object NotificationEventRouter {
                     if (id.isNotBlank()) MacBotNotifications.postCompleted(
                         context, hostId, id, context.getString(R.string.notification_project_review_title),
                         project.str("name").ifBlank { project.str("goal") }, eventSeq = seq, projectId = id, category = "review",
+                        foregroundAttentionHandled = true,
                     )
                 }
             }
@@ -254,4 +270,33 @@ private object NotificationEventRouter {
 
 }
 
-internal fun shouldNotifyMessage(message: JsonObject): Boolean = !message.boolean("streaming")
+internal fun shouldNotifyMessage(message: JsonObject): Boolean =
+    !message.boolean("streaming") &&
+        message.arr("blocks").none { (it as? JsonObject)?.str("type") == "review_card" }
+
+internal enum class MessageNotificationRoute { IGNORE, NEEDS_YOU, PRIVATE_MESSAGE, GROUP_MESSAGE }
+
+internal fun classifyMessageNotification(
+    message: JsonObject,
+    chatKind: String?,
+    notifyAllGroupMessages: Boolean,
+): MessageNotificationRoute {
+    if (!shouldNotifyMessage(message)) return MessageNotificationRoute.IGNORE
+    val sender = message.obj("sender")
+    val senderKind = sender.str("kind")
+    // Echoed messages authored by this client must never notify, even if the
+    // payload contains a user mention.
+    if (senderKind == "user" || senderKind != "bot") return MessageNotificationRoute.IGNORE
+    val hasPendingTakeover = message.arr("blocks").any { raw ->
+        val block = raw as? JsonObject ?: return@any false
+        block.str("type") == "takeover_request" && block.str("state") == "pending"
+    }
+    if (hasPendingTakeover || message.arr("mentions").any { (it as? JsonObject)?.str("kind") == "user" }) {
+        return MessageNotificationRoute.NEEDS_YOU
+    }
+    return when {
+        chatKind in setOf("main", "direct", "bot_dm") -> MessageNotificationRoute.PRIVATE_MESSAGE
+        chatKind == "project" && notifyAllGroupMessages -> MessageNotificationRoute.GROUP_MESSAGE
+        else -> MessageNotificationRoute.IGNORE
+    }
+}

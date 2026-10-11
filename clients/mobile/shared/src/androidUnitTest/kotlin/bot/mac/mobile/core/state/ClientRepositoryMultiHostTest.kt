@@ -47,6 +47,37 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class ClientRepositoryMultiHostTest {
     @Test
+    fun groupMessageNotificationPreferenceIsIndependentAndPersists() = runBlocking {
+        val storage = MemoryPersistentStore()
+        val first = ClientRepository(storage, MemoryCredentialStore(emptyMap()))
+        first.initialize()
+        try {
+            assertFalse(first.notifyGroupMessages.value)
+            assertFalse(first.notificationCategoryEnabled("group_messages"))
+
+            first.setNotificationCategory("group_messages", true)
+            assertTrue(first.notificationCategoryEnabled("group_messages"))
+            first.setNotificationCategory("messages", false)
+            assertTrue(first.notificationCategoryEnabled("group_messages"))
+            first.setNotificationCategory("review", false)
+            assertFalse(first.notificationCategoryEnabled("completion"))
+        } finally {
+            first.scope.cancel()
+        }
+
+        val restored = ClientRepository(storage, MemoryCredentialStore(emptyMap()))
+        restored.initialize()
+        try {
+            assertTrue(restored.notifyGroupMessages.value)
+            assertFalse(restored.notifyMessages.value)
+            assertTrue(restored.notificationCategoryEnabled("group_messages"))
+            assertFalse(restored.notificationCategoryEnabled("completion"))
+        } finally {
+            restored.scope.cancel()
+        }
+    }
+
+    @Test
     fun uploadFileOnHostStaysBoundToItsHostAfterSelectionChanges() = runBlocking {
         val hostA = TestHost("node-a")
         val hostB = TestHost("node-b")

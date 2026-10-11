@@ -20,6 +20,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -63,6 +64,7 @@ import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.protocol.generated.Approval as ApprovalWireModel
 import bot.mac.mobile.core.platform.PickedFile
+import bot.mac.mobile.core.platform.FilePickerMode
 import bot.mac.mobile.core.platform.exportFile
 import bot.mac.mobile.core.platform.platformFilePicker
 import bot.mac.mobile.core.platform.platformLocaleTag
@@ -83,6 +85,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import bot.mac.mobile.core.network.ScreenConnection
+import bot.mac.mobile.core.network.RandomIdGenerator
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
@@ -131,9 +134,8 @@ fun ChatScreen(
     var quoteMode by remember(hostId, chatId) { mutableStateOf("reply") }
     var mentionBots by remember(hostId, chatId) { mutableStateOf(emptySet<String>()) }
     var showMentions by remember(hostId, chatId) { mutableStateOf(false) }
-    var attachments by remember(hostId, chatId) { mutableStateOf(emptyList<String>()) }
-    var attachmentNames by remember(hostId, chatId) { mutableStateOf(emptyList<String>()) }
-    var uploadingAttachment by remember(hostId, chatId) { mutableStateOf(false) }
+    var attachments by remember(hostId, chatId) { mutableStateOf(emptyList<ChatAttachmentItem>()) }
+    var showAttachmentMenu by remember(hostId, chatId) { mutableStateOf(false) }
     var error by remember(hostId, chatId) { mutableStateOf<String?>(null) }
     var filePreviews by remember(hostId, chatId) { mutableStateOf(emptyMap<String, String>()) }
     var imagePreviews by remember(hostId, chatId) { mutableStateOf(emptyMap<String, ImageBitmap>()) }
@@ -156,7 +158,9 @@ fun ChatScreen(
     val memberIds = chat?.arr("member_bot_ids").orEmpty().map { it.toString().trim('"') }
     val mentionCandidates = state.bots.filter { it.str("id") in memberIds || memberIds.isEmpty() }
     val groupChat = chat?.str("kind") == "project"
+    val mainBotChat = chat?.str("kind") == "main"
     val chatBot = chat?.str("bot_id")?.let { botId -> state.bots.firstOrNull { it.str("id") == botId } }
+    val showMainChatEmptyState = mainBotChat && messages.isEmpty() && historyLoaded
     val activeBotAssignments = state.assignments.count {
         it.str("bot_id") == chat?.str("bot_id") && it.str("status") in setOf("working", "queued")
     }
@@ -178,6 +182,12 @@ fun ChatScreen(
     val attachmentLabel = stringResource(Res.string.feature_attachment)
     val attachmentRemoveLabel = stringResource(Res.string.feature_attachment_remove)
     val attachmentUploadingLabel = stringResource(Res.string.feature_attachment_uploading)
+    val attachmentReadyLabel = stringResource(Res.string.feature_attachment_ready)
+    val attachmentFailedLabel = stringResource(Res.string.feature_attachment_upload_failed)
+    val attachmentRetryLabel = stringResource(Res.string.feature_attachment_retry)
+    val attachmentTooLargeLabel = stringResource(Res.string.feature_attachment_too_large)
+    val attachmentImageLabel = stringResource(Res.string.chat_composer_attach_image)
+    val attachmentScreenshotLabel = stringResource(Res.string.chat_composer_attach_screenshot)
     val mentionLabel = stringResource(Res.string.feature_mention_title)
     val backLabel = stringResource(Res.string.common_back)
     val openGroupLabel = stringResource(Res.string.feature_open_group)
@@ -193,6 +203,69 @@ fun ChatScreen(
         "project" -> stringResource(Res.string.chat_group_subtitle, memberIds.size)
         else -> chat?.str("attention").orEmpty()
     }
+    fun updateAttachment(localId: String, transform: (ChatAttachmentItem) -> ChatAttachmentItem) {
+        attachments = attachments.map { item -> if (item.localId == localId) transform(item) else item }
+    }
+    suspend fun uploadAttachment(item: ChatAttachmentItem, requestHostId: String) {
+        updateAttachment(item.localId) { it.copy(status = ChatAttachmentStatus.UPLOADING, error = null) }
+        try {
+            val source = item.source ?: error(sendError)
+            check(source.bytes.isNotEmpty() && source.bytes.size <= MAX_CHAT_ATTACHMENT_BYTES) { attachmentTooLargeLabel }
+            val upload = repository.uploadFileOnHost(requestHostId, source)
+            if (!isCurrentUploadHost(requestHostId, repository.activeHost.value?.id)) return
+            val uploadId = upload.str("upload_id")
+            check(uploadId.isNotBlank()) { sendError }
+            updateAttachment(item.localId) {
+                it.copy(
+                    status = ChatAttachmentStatus.READY,
+                    uploadId = uploadId,
+                    source = null,
+                    error = null,
+                )
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            if (isCurrentUploadHost(requestHostId, repository.activeHost.value?.id)) {
+                updateAttachment(item.localId) {
+                    it.copy(status = ChatAttachmentStatus.ERROR, error = failure.message ?: attachmentFailedLabel)
+                }
+            }
+        }
+    }
+    fun addAttachment(mode: FilePickerMode) {
+        if (readOnly) return
+        val requestHostId = hostId
+        scope.launch {
+            try {
+                val picked = platformFilePicker().pickFile(mode) ?: return@launch
+                if (!isCurrentUploadHost(requestHostId, repository.activeHost.value?.id)) return@launch
+                val localId = RandomIdGenerator.nextId()
+                val oversized = picked.bytes.size > MAX_CHAT_ATTACHMENT_BYTES
+                val preview = if (!oversized && picked.mimeType?.startsWith("image/") == true) {
+                    withContext(Dispatchers.Default) { platformScreenImageDecoder().decodeJpeg(picked.bytes) }
+                } else null
+                val item = ChatAttachmentItem(
+                    localId = localId,
+                    name = picked.name,
+                    size = picked.bytes.size.toLong(),
+                    mimeType = picked.mimeType,
+                    status = if (oversized) ChatAttachmentStatus.ERROR else ChatAttachmentStatus.UPLOADING,
+                    error = if (oversized) attachmentTooLargeLabel else null,
+                    source = picked,
+                    preview = preview,
+                )
+                attachments = attachments + item
+                if (!oversized) uploadAttachment(item, requestHostId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                if (isCurrentUploadHost(requestHostId, repository.activeHost.value?.id)) {
+                    error = failure.message ?: attachmentFailedLabel
+                }
+            }
+        }
+    }
     val composerPlaceholder = when {
         !state.connected -> stringResource(Res.string.chat_composer_placeholder_offline)
         groupChat -> stringResource(Res.string.chat_composer_placeholder_group, chat?.str("title").orEmpty())
@@ -200,11 +273,14 @@ fun ChatScreen(
     }
     LaunchedEffect(hostId, chatId) {
         draftLoaded = false
-        draft = runCatching { platformPersistentStore().read("draft:$hostId:$chatId") }.getOrNull().orEmpty()
+        val store = platformPersistentStore()
+        draft = runCatching { store.read(chatDraftKey(hostId, chatId)) }.getOrNull().orEmpty()
+        attachments = runCatching { decodeAttachmentDraft(store.read(chatAttachmentsDraftKey(hostId, chatId))) }.getOrDefault(emptyList())
         draftLoaded = true
     }
-    LaunchedEffect(chatId, draftLoaded, showHeader, readOnly) {
-        if (draftLoaded && showHeader && !readOnly) {
+    LaunchedEffect(chatId, draftLoaded, showHeader, readOnly, historyLoaded, messages.isNotEmpty(), mainBotChat) {
+        val canAutoFocus = !mainBotChat || (historyLoaded && messages.isNotEmpty())
+        if (draftLoaded && showHeader && !readOnly && canAutoFocus) {
             withFrameNanos { }
             runCatching { composerFocusRequester.requestFocus() }
         }
@@ -213,7 +289,15 @@ fun ChatScreen(
         if (draftLoaded) {
             // Drafts update for every IME key; debounce the disk-backed SharedPreferences commit.
             kotlinx.coroutines.delay(400)
-            runCatching { platformPersistentStore().write("draft:$hostId:$chatId", draft) }
+            runCatching { platformPersistentStore().write(chatDraftKey(hostId, chatId), draft) }
+        }
+    }
+    LaunchedEffect(attachments, hostId, chatId, draftLoaded) {
+        if (draftLoaded) {
+            kotlinx.coroutines.delay(400)
+            runCatching {
+                platformPersistentStore().write(chatAttachmentsDraftKey(hostId, chatId), encodeAttachmentDraft(attachments))
+            }
         }
     }
 
@@ -402,6 +486,24 @@ fun ChatScreen(
             modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
+            if (showMainChatEmptyState) {
+                item(key = "main-chat-empty-state") {
+                    MainBotEmptyState(
+                        onSuggestion = { suggestion ->
+                            applyMainBotSuggestion(
+                                suggestion,
+                                setDraft = { draft = it },
+                                requestFocus = {
+                                    scope.launch {
+                                        withFrameNanos { }
+                                        runCatching { composerFocusRequester.requestFocus() }
+                                    }
+                                },
+                            )
+                        },
+                    )
+                }
+            }
             if (historyHasMore) {
                 item(key = "load-older") {
                     Button(
@@ -557,24 +659,41 @@ fun ChatScreen(
             }
         }
         error?.let { Text(it, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
-        if (uploadingAttachment) {
-            Text(attachmentUploadingLabel, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (attachmentNames.isNotEmpty()) Row(
+        if (attachments.isNotEmpty()) Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            attachmentNames.forEachIndexed { index, name ->
+            attachments.forEach { item ->
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(18.dp)) {
-                    Row(Modifier.padding(start = 10.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        LucideIcon(LucideIconKind.FileText, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                        Text(name, Modifier.padding(start = 6.dp).widthIn(max = 180.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(Modifier.padding(start = 8.dp, end = 2.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (item.preview != null) {
+                            Image(
+                                bitmap = item.preview,
+                                contentDescription = null,
+                                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                        } else {
+                            LucideIcon(LucideIconKind.FileText, Modifier.size(20.dp).padding(2.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                        Column(Modifier.padding(start = 6.dp).widthIn(max = 180.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(item.name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val status = when (item.status) {
+                                ChatAttachmentStatus.UPLOADING -> attachmentUploadingLabel
+                                ChatAttachmentStatus.READY -> "${fileSizeLabel(item.size)} · $attachmentReadyLabel"
+                                ChatAttachmentStatus.ERROR -> item.error ?: attachmentFailedLabel
+                            }
+                            Text(status, style = MaterialTheme.typography.labelSmall, color = if (item.status == ChatAttachmentStatus.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (item.status == ChatAttachmentStatus.UPLOADING) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
+                        if (item.status == ChatAttachmentStatus.ERROR && item.source?.bytes?.size?.let { it <= MAX_CHAT_ATTACHMENT_BYTES } == true) IconButton(
+                            onClick = { item.source?.let { source -> scope.launch { uploadAttachment(item.copy(source = source), hostId) } } },
+                            modifier = Modifier.size(36.dp).semantics { contentDescription = "$attachmentRetryLabel ${item.name}" },
+                        ) { LucideIcon(LucideIconKind.RefreshCw, Modifier.size(16.dp)) }
                         IconButton(
-                            onClick = {
-                                attachments = attachments.filterIndexed { itemIndex, _ -> itemIndex != index }
-                                attachmentNames = attachmentNames.filterIndexed { itemIndex, _ -> itemIndex != index }
-                            },
-                            modifier = Modifier.size(36.dp).semantics { contentDescription = "$attachmentRemoveLabel $name" },
+                            enabled = item.status != ChatAttachmentStatus.UPLOADING,
+                            onClick = { attachments = attachments.filterNot { it.localId == item.localId } },
+                            modifier = Modifier.size(36.dp).semantics { contentDescription = "$attachmentRemoveLabel ${item.name}" },
                         ) { LucideIcon(LucideIconKind.X, Modifier.size(16.dp)) }
                     }
                 }
@@ -606,29 +725,7 @@ fun ChatScreen(
             )
         }
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
-            IconButton(enabled = !readOnly && !uploadingAttachment, onClick = {
-                scope.launch {
-                    val uploadHost = hostId
-                    uploadingAttachment = true
-                    try {
-                        val picked = platformFilePicker().pickFile() ?: return@launch
-                        val upload = repository.uploadFileOnHost(uploadHost, picked)
-                        if (repository.activeHost.value?.id == uploadHost) {
-                            val uploadId = upload.str("upload_id")
-                            check(uploadId.isNotBlank()) { sendError }
-                            attachments = attachments + uploadId
-                            attachmentNames = attachmentNames + upload.obj("file").str("name").ifBlank { picked.name }
-                            error = null
-                        }
-                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                        throw cancelled
-                    } catch (failure: Throwable) {
-                        if (repository.activeHost.value?.id == hostId) error = failure.message ?: sendError
-                    } finally {
-                        uploadingAttachment = false
-                    }
-                }
-            }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { LucideIcon(LucideIconKind.Paperclip, Modifier.size(20.dp)) }
+            IconButton(enabled = !readOnly, onClick = { showAttachmentMenu = true }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { LucideIcon(LucideIconKind.Plus, Modifier.size(20.dp)) }
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it; if (it.endsWith("@")) showMentions = true },
@@ -642,12 +739,14 @@ fun ChatScreen(
             ) { LucideIcon(LucideIconKind.AtSign, Modifier.size(20.dp), tint = LocalMobilePalette.current.accent) }
             Spacer(Modifier.padding(4.dp))
             Button(
-                enabled = (draft.isNotBlank() || attachments.isNotEmpty()) && !readOnly && !uploadingAttachment,
+                enabled = canSendChatMessage(draft, attachments, readOnly),
                 onClick = {
                     val text = draft.trim()
+                    val uploadIds = attachments.mapNotNull { it.uploadId }
+                    val sendHostId = hostId
                     scope.launch {
                         runCatching {
-                            repository.callOnHost(hostId, "chat.send", buildJsonObject {
+                            repository.callOnHost(sendHostId, "chat.send", buildJsonObject {
                                 put("chat_id", chatId)
                                 put("text", text)
                                 put("mentions", buildJsonArray {
@@ -656,21 +755,37 @@ fun ChatScreen(
                                         else add(buildJsonObject { put("kind", "bot"); put("bot_id", botId); put("instruction", JsonNull) })
                                     }
                                 })
-                                put("attachments", buildJsonArray { attachments.forEach { add(JsonPrimitive(it)) } })
+                                put("attachments", buildJsonArray { uploadIds.forEach { add(JsonPrimitive(it)) } })
                                 replyTo?.let { put("quote", it); put("quote_mode", quoteMode) }
                             }.withClientLocale(platformLocaleTag()))
                         }.onSuccess {
-                            draft = ""
-                            replyTo = null
-                            quoteMode = "reply"
-                            mentionBots = emptySet()
-                            attachments = emptyList()
-                            attachmentNames = emptyList()
-                            error = null
-                        }.onFailure { error = it.message ?: sendError }
+                            if (isCurrentUploadHost(sendHostId, repository.activeHost.value?.id)) {
+                                draft = ""
+                                replyTo = null
+                                quoteMode = "reply"
+                                mentionBots = emptySet()
+                                attachments = emptyList()
+                                error = null
+                            }
+                        }.onFailure {
+                            if (isCurrentUploadHost(sendHostId, repository.activeHost.value?.id)) error = it.message ?: sendError
+                        }
                     }
                 },
             ) { Text(if (readOnly) stringResource(Res.string.feature_readonly) else stringResource(Res.string.common_send)) }
+        }
+        if (showAttachmentMenu) androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showAttachmentMenu = false }) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = { showAttachmentMenu = false; addAttachment(FilePickerMode.FILE) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(Res.string.chat_composer_attach_file), modifier = Modifier.fillMaxWidth())
+                }
+                TextButton(onClick = { showAttachmentMenu = false; addAttachment(FilePickerMode.IMAGE) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(attachmentImageLabel, modifier = Modifier.fillMaxWidth())
+                }
+                TextButton(onClick = { showAttachmentMenu = false; addAttachment(FilePickerMode.SCREENSHOT) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(attachmentScreenshotLabel, modifier = Modifier.fillMaxWidth())
+                }
+            }
         }
         if (showMentions) androidx.compose.material3.ModalBottomSheet(onDismissRequest = {
             showMentions = false

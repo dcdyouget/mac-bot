@@ -119,8 +119,8 @@ class ClientRepository(
     val notificationSound = MutableStateFlow(true)
     val notifyNeedsYou = MutableStateFlow(true)
     val notifyReview = MutableStateFlow(true)
-    val notifyCompletion = MutableStateFlow(true)
     val notifyMessages = MutableStateFlow(true)
+    val notifyGroupMessages = MutableStateFlow(false)
     val deepLink = MutableStateFlow<String?>(null)
 
     suspend fun initialize() = initMutex.withLock {
@@ -133,8 +133,8 @@ class ClientRepository(
         notificationSound.value = storage.read("notification_sound") != "false"
         notifyNeedsYou.value = storage.read("notify_needs_you") != "false"
         notifyReview.value = storage.read("notify_review") != "false"
-        notifyCompletion.value = storage.read("notify_completion") != "false"
         notifyMessages.value = storage.read("notify_messages") != "false"
+        notifyGroupMessages.value = storage.read("notify_group_messages") == "true"
         _hostStates.value = _hosts.value.associate { it.id to loadState(it.id) }
         _hostStatuses.value = _hosts.value.associate { it.id to ConnectionSnapshot(ConnectionStatus.STOPPED) }
         initialized = true
@@ -150,15 +150,17 @@ class ClientRepository(
         when (category) {
             "needs_you" -> { notifyNeedsYou.value = value; storage.write("notify_needs_you", value.toString()) }
             "review" -> { notifyReview.value = value; storage.write("notify_review", value.toString()) }
-            "completion" -> { notifyCompletion.value = value; storage.write("notify_completion", value.toString()) }
+            "completion" -> { notifyReview.value = value; storage.write("notify_review", value.toString()) }
             "messages" -> { notifyMessages.value = value; storage.write("notify_messages", value.toString()) }
+            "group_messages" -> { notifyGroupMessages.value = value; storage.write("notify_group_messages", value.toString()) }
         }
     }
     fun notificationCategoryEnabled(category: String): Boolean = when (category) {
         "needs_you" -> notifyNeedsYou.value
         "review" -> notifyReview.value
-        "completion" -> notifyCompletion.value
+        "completion" -> notifyReview.value
         "messages" -> notifyMessages.value
+        "group_messages" -> notifyGroupMessages.value
         else -> true
     }
 

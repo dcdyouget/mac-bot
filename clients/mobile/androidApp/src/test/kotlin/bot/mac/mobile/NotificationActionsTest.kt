@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -15,6 +16,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import bot.mac.mobile.core.platform.initializePlatform
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -28,7 +31,7 @@ class NotificationActionsTest {
     }
 
     @Test
-    fun approvalNotificationHasThreeHostScopedActionsAndDeepLink() {
+    fun approvalNotificationHasTwoHostScopedActionsAndDeepLink() {
         val notification = buildNotification(
             context,
             PendingNotification(
@@ -50,9 +53,9 @@ class NotificationActionsTest {
         assertEquals("host-a", contentIntent.data?.getQueryParameter("host_id"))
 
         val actions = notification.actions.orEmpty()
-        assertEquals(3, actions.size)
+        assertEquals(2, actions.size)
         assertEquals(
-            setOf("allow_once", "always_allow", "deny"),
+            setOf("allow_once", "deny"),
             actions.map { savedIntent(it.actionIntent).getStringExtra("approval_action") }.toSet(),
         )
         actions.forEach { action ->
@@ -62,6 +65,31 @@ class NotificationActionsTest {
             assertEquals(ApprovalActionReceiver::class.java.name, intent.component?.className)
             assertNotNull("broadcast intent must have a unique data URI", intent.data)
         }
+    }
+
+    @Test
+    fun onlyAttentionAlreadyHandledBySnackbarSuppressesForegroundSystemAlert() {
+        assertTrue(shouldDeliverSystemNotification(NotificationKind.APPROVAL, appForeground = true))
+        assertFalse(shouldDeliverSystemNotification(NotificationKind.APPROVAL, appForeground = true, foregroundAttentionHandled = true))
+        assertTrue(shouldDeliverSystemNotification(NotificationKind.NEEDS_YOU, appForeground = true))
+        assertFalse(shouldDeliverSystemNotification(NotificationKind.NEEDS_YOU, appForeground = true, foregroundAttentionHandled = true))
+        assertTrue(shouldDeliverSystemNotification(NotificationKind.APPROVAL, appForeground = false, foregroundAttentionHandled = true))
+        assertTrue(shouldDeliverSystemNotification(NotificationKind.MESSAGE, appForeground = true))
+        assertTrue(shouldDeliverSystemNotification(NotificationKind.COMPLETED, appForeground = true))
+        assertFalse(shouldDeliverSystemNotification(NotificationKind.COMPLETED, appForeground = true, foregroundAttentionHandled = true))
+    }
+
+    @Test
+    fun reviewCardMessageIsNotDuplicatedAsARegularBotMessageNotification() {
+        val reviewCard = Json.parseToJsonElement(
+            """{"streaming":false,"blocks":[{"type":"review_card","project_id":"project-1"}]}""",
+        ).jsonObject
+        val regularBotMessage = Json.parseToJsonElement(
+            """{"streaming":false,"blocks":[{"type":"text","text":"完成了"}]}""",
+        ).jsonObject
+
+        assertFalse(shouldNotifyMessage(reviewCard))
+        assertTrue(shouldNotifyMessage(regularBotMessage))
     }
 
     @Test
@@ -80,6 +108,10 @@ class NotificationActionsTest {
             ),
         )
 
+        val content = savedIntent(notification.contentIntent)
+        assertEquals("review", content.data?.host)
+        assertEquals("/project-1", content.data?.path)
+        assertEquals("host-a", content.data?.getQueryParameter("host_id"))
         assertEquals(1, notification.actions.orEmpty().size)
         val intent = savedIntent(notification.actions!![0].actionIntent)
         assertEquals("host-a", intent.getStringExtra("host_id"))
@@ -87,6 +119,27 @@ class NotificationActionsTest {
         assertEquals("confirm_done", intent.getStringExtra("approval_action"))
         assertEquals(ApprovalActionReceiver::class.java.name, intent.component?.className)
         assertNotNull("review broadcast intent must have a unique data URI", intent.data)
+    }
+
+    @Test
+    fun messageNotificationTargetsItsChatOnTheSourceHost() {
+        val notification = buildNotification(
+            context,
+            PendingNotification(
+                kind = NotificationKind.MESSAGE,
+                hostId = "host-b",
+                id = "message-1",
+                title = "测试 Bot",
+                text = "构建已完成",
+                chatId = "chat-1",
+            ),
+        )
+
+        val content = savedIntent(notification.contentIntent)
+        assertEquals("chat", content.data?.host)
+        assertEquals("/chat-1", content.data?.path)
+        assertEquals("host-b", content.data?.getQueryParameter("host_id"))
+        assertEquals(0, notification.actions.orEmpty().size)
     }
 
     @Test

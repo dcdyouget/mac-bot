@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,12 +35,14 @@ import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
-fun ApprovalScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
+@OptIn(ExperimentalMaterial3Api::class)
+fun ApprovalScreen(repository: MobileRepository, onBack: () -> Unit = {}, focusedApprovalId: String? = null) {
     val state by repository.state.collectAsState()
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
     val pendingApprovals = state.approvals.filter { it.str("state") == "pending" }
     val pendingQuestions = state.questions.filter { it.str("state") == "pending" }
+    val focusedApproval = pendingApprovals.firstOrNull { it.str("id") == focusedApprovalId }
     LaunchedEffect(Unit) {
         try {
             repository.call("approval.list", buildJsonObject { put("state", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive("pending")) }) })
@@ -75,6 +79,17 @@ fun ApprovalScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                 }
             }
             if (pendingApprovals.isEmpty() && pendingQuestions.isEmpty()) item { Text(stringResource(Res.string.feature_no_approvals), Modifier.padding(24.dp)) }
+        }
+        focusedApproval?.let { approval ->
+            ModalBottomSheet(onDismissRequest = onBack) {
+                ApprovalCard(approval, approvalOriginName(approval, state)) { id, decision ->
+                    scope.launch {
+                        runCatching { repository.call("approval.decide", buildJsonObject { put("approval_id", id); put("decision", decision) }) }
+                            .onFailure { error = it.message }
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
         }
     }
 }
