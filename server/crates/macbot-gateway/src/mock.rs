@@ -113,6 +113,8 @@ async fn dispatch(
         "project.archive" => project_status(state, &params, "archived"),
         "project.reopen" => project_status(state, &params, "active"),
         "project.request_changes" => project_request_changes(state, &params),
+        "artifact.versions.list" => artifact_versions_list(state, &params),
+        "artifact.version.get" => artifact_version_get(state, &params),
         "assignment.list" => assignment_list(state, &params),
         "assignment.get" => find_wrapped(
             &state.assignments,
@@ -121,6 +123,8 @@ async fn dispatch(
         ),
         "assignment.stop" => assignment_stop(state, &params),
         "assignment.retry" => assignment_retry(state, &params),
+        "assignment.create" | "assign" => assignment_create(state, &params, false),
+        "delegate" => assignment_create(state, &params, true),
         "trace.history" => trace_history(state, &params),
         "trace.subscribe" => Ok(json!({"stream":id("stream"),"in_flight":[]})),
         "trace.unsubscribe" => Ok(json!({})),
@@ -993,6 +997,295 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     repair_waiting_references(state, home);
     ensure_pending_review_fixture(state);
     ensure_question_approval_history_fixture(state);
+    ensure_message_block_scenarios(state);
+    ensure_mock_artifact_history(state);
+}
+
+fn ensure_mock_artifact_history(state: &mut MockState) {
+    if !extra_get(state, "artifact_versions").is_empty() {
+        return;
+    }
+    let version_one = "# 登录功能 PRD\n\n版本 1：邮箱登录，支持邮箱验证码。";
+    let version_two =
+        "# 登录功能 PRD\n\n版本 2：仅做邮箱登录，不做手机号；密码至少 8 位并包含字母和数字。";
+    extra_set(
+        state,
+        "artifact_versions",
+        vec![
+            json!({
+                "version":{"artifact_id":"art_prd","version":1,"title":"PRD","path_or_url":"product/prd.md","bot_id":"bot_product","assignment_id":"asg_product","kind":"file","created_at":"2026-10-09T10:18:00Z","byte_size":version_one.len(),"mime":"text/markdown"},
+                "content":version_one
+            }),
+            json!({
+                "version":{"artifact_id":"art_prd","version":2,"title":"PRD","path_or_url":"product/prd.md","bot_id":"bot_product","assignment_id":"asg_product","kind":"file","created_at":"2026-10-09T10:24:00Z","byte_size":version_two.len(),"mime":"text/markdown"},
+                "content":version_two
+            }),
+        ],
+    );
+}
+
+fn artifact_versions_list(state: &MockState, params: &Value) -> RpcResult {
+    let request: macbot_protocol::ArtifactVersionsParams =
+        serde_json::from_value(params.clone())
+            .map_err(|error| rpc_error("invalid_params", &error.to_string(), None))?;
+    let artifact_id = request.artifact_id.as_str();
+    if !mock_artifact_exists(state, artifact_id) {
+        return Err(rpc_error("not_found", "artifact not found", None));
+    }
+    let mut versions = extra_get(state, "artifact_versions")
+        .into_iter()
+        .filter(|entry| {
+            entry
+                .pointer("/version/artifact_id")
+                .and_then(Value::as_str)
+                == Some(artifact_id)
+        })
+        .collect::<Vec<_>>();
+    if let Some(before) = request.before_version {
+        versions.retain(|entry| {
+            entry.pointer("/version/version").and_then(Value::as_u64) < Some(before)
+        });
+    }
+    versions.sort_by_key(|entry| {
+        std::cmp::Reverse(
+            entry
+                .pointer("/version/version")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+        )
+    });
+    let limit = request.limit.unwrap_or(20).clamp(1, 100) as usize;
+    let has_more = versions.len() > limit;
+    versions.truncate(limit);
+    Ok(json!({
+        "versions":versions.into_iter().filter_map(|entry| entry.get("version").cloned()).collect::<Vec<_>>(),
+        "has_more":has_more
+    }))
+}
+
+fn artifact_version_get(state: &MockState, params: &Value) -> RpcResult {
+    let request: macbot_protocol::ArtifactVersionGetParams = serde_json::from_value(params.clone())
+        .map_err(|error| rpc_error("invalid_params", &error.to_string(), None))?;
+    let artifact_id = request.artifact_id.as_str();
+    let version = request.version;
+    if !mock_artifact_exists(state, artifact_id) {
+        return Err(rpc_error("not_found", "artifact not found", None));
+    }
+    let entry = extra_get(state, "artifact_versions")
+        .into_iter()
+        .find(|entry| {
+            entry
+                .pointer("/version/artifact_id")
+                .and_then(Value::as_str)
+                == Some(artifact_id)
+                && entry.pointer("/version/version").and_then(Value::as_u64) == Some(version)
+        })
+        .ok_or_else(|| rpc_error("not_found", "artifact version not found", None))?;
+    Ok(json!({
+        "version":entry["version"],
+        "content":entry["content"],
+        "content_encoding":"utf8"
+    }))
+}
+
+fn mock_artifact_exists(state: &MockState, artifact_id: &str) -> bool {
+    let matches_artifact = |artifact: &Value| {
+        artifact.get("id").and_then(Value::as_str) == Some(artifact_id)
+            || artifact.get("artifact_id").and_then(Value::as_str) == Some(artifact_id)
+    };
+    extra_get(state, "artifacts").iter().any(matches_artifact)
+        || extra_get(state, "announcements")
+            .iter()
+            .any(|announcement| {
+                announcement
+                    .get("artifacts")
+                    .and_then(Value::as_array)
+                    .is_some_and(|artifacts| artifacts.iter().any(matches_artifact))
+            })
+        || state.messages.values().any(|messages| {
+            messages.iter().any(|message| {
+                message
+                    .get("blocks")
+                    .and_then(Value::as_array)
+                    .is_some_and(|blocks| {
+                        blocks.iter().any(|block| {
+                            block
+                                .get("artifacts")
+                                .and_then(Value::as_array)
+                                .is_some_and(|artifacts| artifacts.iter().any(matches_artifact))
+                        })
+                    })
+            })
+        })
+}
+
+fn ensure_message_block_scenarios(state: &mut MockState) {
+    const FIXTURES: [(&str, &str, &str, &str); 5] = [
+        ("asg_mock_queued", "queued", "等待执行示例", "chat_login"),
+        (
+            "asg_mock_waiting",
+            "waiting_user",
+            "等待确认示例",
+            "chat_login",
+        ),
+        ("asg_mock_working", "working", "执行中示例", "chat_login"),
+        ("asg_mock_done", "done", "已完成示例", "chat_login"),
+        ("asg_mock_failed", "failed", "失败任务示例", "chat_login"),
+    ];
+    let Some(template) = state
+        .assignments
+        .iter()
+        .find(|assignment| assignment.get("id").and_then(Value::as_str) == Some("asg_code"))
+        .cloned()
+    else {
+        return;
+    };
+    for (assignment_id, status, title, chat_id) in FIXTURES {
+        if !state
+            .assignments
+            .iter()
+            .any(|assignment| assignment.get("id").and_then(Value::as_str) == Some(assignment_id))
+        {
+            let mut assignment = template.clone();
+            assignment["id"] = json!(assignment_id);
+            assignment["status"] = json!(status);
+            assignment["title"] = json!(title);
+            assignment["instruction"] = json!(title);
+            assignment["origin_chat_id"] = json!(chat_id);
+            assignment["project_id"] = json!("prj_login");
+            assignment["queue_reason"] = if status == "queued" {
+                json!("serial_in_project")
+            } else {
+                Value::Null
+            };
+            assignment["wait"] = if status == "waiting_user" {
+                json!({"reason":"decision","message_id":"msg_mock_waiting"})
+            } else {
+                Value::Null
+            };
+            assignment["finished_at"] = if matches!(status, "failed" | "done") {
+                json!(now())
+            } else {
+                Value::Null
+            };
+            state.assignments.push(assignment);
+        }
+    }
+    if !state.assignments.iter().any(|assignment| {
+        assignment.get("id").and_then(Value::as_str) == Some("asg_mock_delegation")
+    }) {
+        let mut assignment = template;
+        assignment["id"] = json!("asg_mock_delegation");
+        assignment["title"] = json!("快速调研");
+        assignment["instruction"] = json!("查找登录竞品的邮箱验证流程");
+        assignment["bot_id"] = json!("bot_product");
+        assignment["project_id"] = Value::Null;
+        assignment["origin_chat_id"] = json!("chat_main");
+        assignment["status"] = json!("working");
+        assignment["queue_reason"] = Value::Null;
+        assignment["wait"] = Value::Null;
+        state.assignments.push(assignment);
+    }
+    let fixtures = state.assignments.clone();
+    for assignment in fixtures {
+        let assignment_id = assignment.get("id").and_then(Value::as_str).unwrap_or("");
+        if !matches!(
+            assignment_id,
+            "asg_mock_queued"
+                | "asg_mock_waiting"
+                | "asg_mock_working"
+                | "asg_mock_done"
+                | "asg_mock_failed"
+                | "asg_mock_delegation"
+        ) {
+            continue;
+        }
+        let chat_id = assignment
+            .get("origin_chat_id")
+            .and_then(Value::as_str)
+            .unwrap_or("chat_login");
+        let is_delegation = assignment_id == "asg_mock_delegation";
+        let message_id = if is_delegation {
+            "msg_mock_delegation"
+        } else {
+            match assignment_id {
+                "asg_mock_queued" => "msg_mock_task_queued",
+                "asg_mock_waiting" => "msg_mock_task_waiting",
+                "asg_mock_working" => "msg_mock_task_working",
+                "asg_mock_done" => "msg_mock_task_done",
+                "asg_mock_failed" => "msg_mock_task_failed",
+                _ => continue,
+            }
+        };
+        upsert_mock_message(
+            state,
+            chat_id,
+            message_id,
+            json!({"kind":"system"}),
+            json!([if is_delegation {
+                json!({"type":"delegation","bot_id":assignment["bot_id"],"assignment_id":assignment_id})
+            } else {
+                json!({"type":"task_card","assignment_id":assignment_id})
+            }]),
+            if is_delegation {
+                format!("已委派给 {}：{}", assignment["bot_id"], assignment["title"])
+            } else {
+                format!("任务：{}", assignment["title"])
+            },
+            Some(assignment_id),
+        );
+    }
+    upsert_mock_message(
+        state,
+        "chat_login",
+        "msg_mock_system",
+        json!({"kind":"system"}),
+        json!([{"type":"system","code":"announcement_updated","text":"总管 更新了公告"}]),
+        "总管 更新了公告".into(),
+        None,
+    );
+}
+
+fn upsert_mock_message(
+    state: &mut MockState,
+    chat_id: &str,
+    message_id: &str,
+    sender: Value,
+    blocks: Value,
+    fallback_text: String,
+    assignment_id: Option<&str>,
+) {
+    let messages = state.messages.entry(chat_id.to_owned()).or_default();
+    if messages
+        .iter()
+        .any(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+    {
+        return;
+    }
+    let seq = messages
+        .iter()
+        .filter_map(|message| message.get("seq").and_then(Value::as_u64))
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let created_at = now();
+    let message = json!({
+        "id":message_id,"chat_id":chat_id,"seq":seq,"sender":sender,"created_at":created_at,
+        "edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,"mentions":[],
+        "blocks":blocks,"fallback_text":fallback_text,"intent":null,"assignment_id":assignment_id,
+        "streaming":false,"delivery":[],"reactions":[]
+    });
+    messages.push(message.clone());
+    state.emit("message.created", json!({"message":message.clone()}));
+    if let Some(chat) = state
+        .chats
+        .iter_mut()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
+    {
+        chat["last_message"] = json!({"message_id":message_id,"sender":sender,"text":fallback_text,"created_at":created_at});
+        chat["last_seq"] = json!(seq);
+        chat["updated_at"] = json!(created_at);
+    }
 }
 
 fn ensure_question_approval_history_fixture(state: &mut MockState) {
@@ -2329,7 +2622,115 @@ fn create_project(state: &mut MockState, params: &Value) -> RpcResult {
     state.chats.push(chat.clone());
     state.emit("project.created", json!({"project":project.clone()}));
     state.emit("chat.created", json!({"chat":chat.clone()}));
+    upsert_mock_message(
+        state,
+        "chat_main",
+        &format!("msg_project_card_{project_id}"),
+        json!({"kind":"bot","bot_id":"bot_main"}),
+        json!([{"type":"project_card","project_id":project_id,"context":"created","note":null}]),
+        format!("项目「{}」已创建", name.as_str().unwrap_or(&project_id)),
+        None,
+    );
     Ok(json!({"project":project,"chat":chat}))
+}
+
+fn assignment_create(state: &mut MockState, params: &Value, delegation: bool) -> RpcResult {
+    let bot_id = params
+        .get("bot_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "bot_id is required", None))?;
+    let title = params
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(if delegation {
+            "转交任务"
+        } else {
+            "新任务"
+        });
+    let instruction = params
+        .get("instruction")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "instruction is required", None))?;
+    if !state
+        .bots
+        .iter()
+        .any(|bot| bot.get("id").and_then(Value::as_str) == Some(bot_id))
+    {
+        return Err(rpc_error("not_found", "Bot not found", None));
+    }
+    let project_id = params.get("project_id").and_then(Value::as_str);
+    let project = project_id
+        .map(|project_id| {
+            state
+                .projects
+                .iter()
+                .find(|project| project.get("id").and_then(Value::as_str) == Some(project_id))
+                .ok_or_else(|| rpc_error("not_found", "project not found", None))
+        })
+        .transpose()?;
+    let origin_chat_id = project
+        .and_then(|project| project.get("chat_id").and_then(Value::as_str))
+        .unwrap_or("chat_main")
+        .to_owned();
+    let created_at = now();
+    let model = state
+        .bots
+        .iter()
+        .find(|bot| bot.get("id").and_then(Value::as_str) == Some(bot_id))
+        .and_then(|bot| bot.get("model"))
+        .filter(|model| !model.is_null())
+        .cloned()
+        .unwrap_or(json!("prv_mock/mock-model"));
+    let from = params
+        .get("from")
+        .and_then(Value::as_str)
+        .unwrap_or("bot_main");
+    let sender = if from == "user" {
+        json!({"kind":"user"})
+    } else {
+        json!({"kind":"bot","bot_id":if from == "main" { "bot_main" } else { from }})
+    };
+    let assignment = json!({
+        "id":id("asg"),"project_id":project_id,"origin_chat_id":origin_chat_id,"bot_id":bot_id,
+        "title":title,"instruction":instruction,"from":sender,
+        "trigger_message_id":params.get("trigger_message_id").cloned().unwrap_or(Value::Null),
+        "parent_assignment_id":params.get("parent_assignment_id").cloned().unwrap_or(Value::Null),
+        "status":"working","queue_reason":null,"wait":null,"created_at":created_at,
+        "started_at":created_at,"finished_at":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"requests":0,"cost":null},
+        "subagents_active":0,"pending_messages":0,"steers":[],"result_message_id":null,"model":model,
+        "priority":params.get("priority").cloned().unwrap_or(json!(1)),"root_message_id":params.get("root_message_id").cloned().unwrap_or(Value::Null),
+        "loop_hops":params.get("loop_hops").cloned().unwrap_or(json!(0))
+    });
+    state.assignments.push(assignment.clone());
+    state.emit(
+        "assignment.created",
+        json!({"assignment":assignment.clone()}),
+    );
+    let assignment_id = assignment["id"].as_str().unwrap_or_default();
+    if !origin_chat_id.starts_with("dm_") {
+        let message_id = if delegation {
+            format!("msg_delegation_{assignment_id}")
+        } else {
+            format!("msg_task_card_{assignment_id}")
+        };
+        upsert_mock_message(
+            state,
+            &origin_chat_id,
+            &message_id,
+            json!({"kind":"system"}),
+            json!([if delegation && project_id.is_none() {
+                json!({"type":"delegation","bot_id":bot_id,"assignment_id":assignment_id})
+            } else {
+                json!({"type":"task_card","assignment_id":assignment_id})
+            }]),
+            format!("任务：{title}"),
+            Some(assignment_id),
+        );
+    }
+    Ok(assignment)
 }
 fn project_update(state: &mut MockState, params: &Value) -> RpcResult {
     let project_id = params
@@ -2639,7 +3040,8 @@ fn assignment_stop(state: &mut MockState, params: &Value) -> RpcResult {
         .iter_mut()
         .find(|x| x.get("id").and_then(Value::as_str) == Some(idv))
         .ok_or_else(|| rpc_error("not_found", "assignment not found", None))?;
-    item["status"] = json!("done");
+    item["status"] = json!("cancelled");
+    item["finished_at"] = json!(now());
     let result = item.clone();
     let mut questions = extra_get(state, "questions");
     for question in questions.iter_mut().filter(|question| {
@@ -2650,6 +3052,21 @@ fn assignment_stop(state: &mut MockState, params: &Value) -> RpcResult {
     }
     extra_set(state, "questions", questions);
     state.emit("assignment.updated", json!({"assignment":result.clone()}));
+    let origin_chat_id = result
+        .get("origin_chat_id")
+        .and_then(Value::as_str)
+        .unwrap_or("chat_main");
+    if !origin_chat_id.starts_with("dm_") {
+        upsert_mock_message(
+            state,
+            origin_chat_id,
+            &format!("msg_task_stopped_{idv}"),
+            json!({"kind":"system"}),
+            json!([{"type":"system","code":"task_stopped","text":"任务已停止"}]),
+            "任务已停止".into(),
+            Some(idv),
+        );
+    }
     Ok(json!({"assignment":result}))
 }
 
@@ -3659,6 +4076,238 @@ mod contract_tests {
             .collect::<Vec<_>>();
         assert_eq!(cards.len(), 1, "the review message is updated in place");
         assert_eq!(cards[0]["blocks"][0]["state"], "confirmed");
+    }
+
+    #[tokio::test]
+    async fn mock_message_block_scenarios_cover_clickable_project_task_and_delegation_cards() {
+        let gateway = gateway().await;
+        let login = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_login","limit":100}),
+        )
+        .await;
+        let messages = login["messages"].as_array().unwrap();
+        for block_type in ["completion", "progress", "task_card", "system"] {
+            assert!(
+                messages.iter().any(|message| {
+                    message["blocks"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|block| block["type"] == block_type)
+                }),
+                "chat_login contains {block_type} block"
+            );
+        }
+        for (assignment_id, status) in [
+            ("asg_mock_queued", "queued"),
+            ("asg_mock_waiting", "waiting_user"),
+            ("asg_mock_working", "working"),
+            ("asg_mock_done", "done"),
+            ("asg_mock_failed", "failed"),
+        ] {
+            let task = call(
+                &gateway,
+                "assignment.get",
+                json!({"assignment_id":assignment_id}),
+            )
+            .await;
+            assert_eq!(task["assignment"]["status"], status);
+            assert!(messages.iter().any(|message| {
+                message["blocks"][0]["type"] == "task_card"
+                    && message["blocks"][0]["assignment_id"] == assignment_id
+            }));
+            let trace = call(
+                &gateway,
+                "trace.history",
+                json!({"assignment_id":assignment_id}),
+            )
+            .await;
+            assert!(trace.get("items").is_some());
+        }
+        let main = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        assert!(main["messages"].as_array().unwrap().iter().any(|message| {
+            message["blocks"][0]["type"] == "delegation"
+                && message["blocks"][0]["assignment_id"] == "asg_mock_delegation"
+        }));
+        let project_card = main["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["blocks"][0]["type"] == "project_card")
+            .unwrap();
+        let project_id = project_card["blocks"][0]["project_id"].clone();
+        let project = call(&gateway, "project.get", json!({"project_id":project_id})).await;
+        assert_eq!(project["project"]["chat_id"], "chat_login");
+
+        let stopped = call(
+            &gateway,
+            "assignment.stop",
+            json!({"assignment_id":"asg_mock_waiting"}),
+        )
+        .await;
+        assert_eq!(stopped["assignment"]["status"], "cancelled");
+        let after_stop = call(
+            &gateway,
+            "assignment.get",
+            json!({"assignment_id":"asg_mock_waiting"}),
+        )
+        .await;
+        assert_eq!(after_stop["assignment"]["status"], "cancelled");
+        let stopped_history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_login","limit":100}),
+        )
+        .await;
+        assert!(stopped_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["blocks"][0]["type"] == "system"
+                    && message["blocks"][0]["code"] == "task_stopped"
+                    && message["assignment_id"] == "asg_mock_waiting"
+            }));
+    }
+
+    #[tokio::test]
+    async fn mock_project_and_assignment_creation_emit_cards_for_rpc_navigation() {
+        let gateway = gateway().await;
+        let created_project = call(
+            &gateway,
+            "project.create",
+            json!({"name":"卡片 RPC 示例","goal":"验证 project_card"}),
+        )
+        .await;
+        let project_id = created_project["project"]["id"].clone();
+        let main = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        assert!(main["messages"].as_array().unwrap().iter().any(|message| {
+            message["blocks"][0]["type"] == "project_card"
+                && message["blocks"][0]["project_id"] == project_id
+        }));
+        let target_project_chat = created_project["chat"]["id"].clone();
+
+        let task = call(
+            &gateway,
+            "assignment.create",
+            json!({
+                "bot_id":"bot_code","project_id":project_id,"title":"验证任务卡",
+                "instruction":"点任务卡打开详情"
+            }),
+        )
+        .await;
+        let _: macbot_protocol::Assignment = serde_json::from_value(task.clone()).unwrap();
+        let task_id = task["id"].clone();
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":target_project_chat,"limit":100}),
+        )
+        .await;
+        assert!(history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["blocks"][0]["type"] == "task_card"
+                    && message["blocks"][0]["assignment_id"] == task_id
+            }));
+        assert_eq!(
+            call(&gateway, "assignment.get", json!({"assignment_id":task_id}),).await["assignment"]
+                ["id"],
+            task_id
+        );
+
+        let delegation = call(
+            &gateway,
+            "delegate",
+            json!({"bot_id":"bot_product","title":"单 Bot 调研","instruction":"调研登录模式"}),
+        )
+        .await;
+        let main_after = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        assert!(main_after["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["blocks"][0]["type"] == "delegation"
+                    && message["blocks"][0]["assignment_id"] == delegation["id"]
+            }));
+    }
+
+    #[tokio::test]
+    async fn mock_artifact_history_supports_version_list_paging_and_content_reads() {
+        let gateway = gateway().await;
+        let latest = call(
+            &gateway,
+            "artifact.versions.list",
+            json!({"artifact_id":"art_prd"}),
+        )
+        .await;
+        let _: macbot_protocol::ArtifactVersionsResult =
+            serde_json::from_value(latest.clone()).unwrap();
+        assert_eq!(latest["has_more"], false);
+        assert_eq!(latest["versions"][0]["version"], 2);
+        assert_eq!(latest["versions"][1]["version"], 1);
+
+        let page = call(
+            &gateway,
+            "artifact.versions.list",
+            json!({"artifact_id":"art_prd","limit":1}),
+        )
+        .await;
+        assert_eq!(page["versions"].as_array().unwrap().len(), 1);
+        assert_eq!(page["versions"][0]["version"], 2);
+        assert_eq!(page["has_more"], true);
+        let earlier = call(
+            &gateway,
+            "artifact.versions.list",
+            json!({"artifact_id":"art_prd","before_version":2}),
+        )
+        .await;
+        assert_eq!(earlier["versions"][0]["version"], 1);
+
+        let content = call(
+            &gateway,
+            "artifact.version.get",
+            json!({"artifact_id":"art_prd","version":1}),
+        )
+        .await;
+        let _: macbot_protocol::ArtifactVersionGetResult =
+            serde_json::from_value(content.clone()).unwrap();
+        assert_eq!(content["content_encoding"], "utf8");
+        assert!(content["content"].as_str().unwrap().contains("版本 1"));
+
+        let no_history = call(
+            &gateway,
+            "artifact.versions.list",
+            json!({"artifact_id":"art_code"}),
+        )
+        .await;
+        assert_eq!(no_history["versions"].as_array().unwrap().len(), 0);
+        assert_eq!(no_history["has_more"], false);
+        let missing = gateway
+            .rpc("artifact.versions.list", json!({"artifact_id":"missing"}))
+            .await
+            .unwrap_err();
+        assert_eq!(missing.code, "not_found");
     }
 
     #[tokio::test]
