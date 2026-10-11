@@ -748,6 +748,13 @@ data class AssignmentListParams(override val raw: JsonObject) : RawProtocolModel
 }
 object AssignmentListParamsSerializer : RawModelSerializer<AssignmentListParams>(::AssignmentListParams)
 
+@Serializable(with = AssignmentRetryParamsSerializer::class)
+data class AssignmentRetryParams(override val raw: JsonObject) : RawProtocolModel {
+    val assignmentId: String get() = raw.str("assignment_id")
+    val clientRequestId: String get() = raw.str("client_request_id")
+}
+object AssignmentRetryParamsSerializer : RawModelSerializer<AssignmentRetryParams>(::AssignmentRetryParams)
+
 @Serializable(with = BotCreateParamsSerializer::class)
 data class BotCreateParams(override val raw: JsonObject) : RawProtocolModel {
     val avatar: Avatar? get() = raw["avatar"]?.jsonObject?.let(::Avatar)
