@@ -59,6 +59,9 @@ make_app() {
   rm -rf "$APP_DIR"
   mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
   cp "$BINARY" "$APP_DIR/Contents/MacOS/$BINARY_NAME"
+  mkdir -p "$APP_DIR/Contents/Resources/Sounds"
+  cp "$MAC_ROOT/crates/macbot-desktop/assets/Sounds/BubblePop.m4a" \
+    "$APP_DIR/Contents/Resources/Sounds/BubblePop.m4a"
   if [[ -d "$MAC_ROOT/../../protocol/fixtures" ]]; then
     cp -R "$MAC_ROOT/../../protocol/fixtures" "$APP_DIR/Contents/Resources/fixtures"
   fi

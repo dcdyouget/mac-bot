@@ -154,9 +154,7 @@ impl MessageListCache {
             .messages
             .values()
             .filter(|message| {
-                s(message, "chat_id") == view.selected_chat
-                    && message["deleted"] != true
-                    && message["reply_to"].is_null()
+                s(message, "chat_id") == view.selected_chat && message["deleted"] != true
             })
             .map(|message| {
                 (
@@ -201,7 +199,7 @@ fn message_list_signature(view: &MacBot) -> u64 {
         ^ (view.pending_messages.len() as u64).wrapping_mul(131)
         ^ (view.state.message_deltas.len() as u64).wrapping_mul(521);
     for message in view.state.messages.values() {
-        if s(message, "chat_id") == view.selected_chat && message["reply_to"].is_null() {
+        if s(message, "chat_id") == view.selected_chat {
             signature = signature
                 .wrapping_add(hash_text(&message.to_string()))
                 .wrapping_add(hash_text(s(message, "id")))
@@ -243,10 +241,13 @@ fn message_display_text(message: &Value) -> &str {
 }
 
 fn question_is_pending(question: &Value) -> bool {
-    s(question, "state") == "pending"
+    s(question, "state") == "pending" && question["expired"] != true
 }
 
 fn question_label(question: &Value) -> &'static str {
+    if question["expired"] == true || s(question, "state") == "expired" {
+        return "block.question_expired";
+    }
     match s(question, "state") {
         "pending" => "block.question",
         "answered" => "block.question_answered",
@@ -270,7 +271,9 @@ pub(super) fn pending_message(params: &Value) -> Value {
         "seq": u64::MAX,
         "sender": {"kind": "user"},
         "created_at": chrono::Utc::now().to_rfc3339(),
-        "reply_to": params["reply_to"],
+        "reply_to": null,
+        "quote": params.get("quote").cloned().unwrap_or(Value::Null),
+        "quote_mode": params.get("quote_mode").cloned().unwrap_or(Value::Null),
         "deleted": false,
         "blocks": [{"type": "text", "markdown": params["text"]}],
         "fallback_text": params["text"],
@@ -304,6 +307,7 @@ fn known_block(kind: &str) -> bool {
             | "takeover_request"
             | "file"
             | "image"
+            | "link_preview"
     )
 }
 
@@ -324,6 +328,12 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.everyone" => "所有成员",
         "chat.skill_hint" => "技能建议",
         "chat.project_status" => "当前状态",
+        "chat.question_submit" => "提交",
+        "chat.question_expired" => "已过期",
+        "chat.project_created" => "新建了群聊",
+        "chat.reference" => "引用",
+        "chat.announcement_reload" => "载入最新公告",
+        "chat.announcement_length" => "字",
         "chat.skill_uploaded" => "技能包已上传，正在导入",
         "chat.skill_upload_invalid" => "技能包上传响应无效",
         _ => key,
@@ -405,13 +415,18 @@ impl MacBot {
             if text.contains("@everyone") {
                 mentions = vec![json!({"kind":"everyone"})];
             }
-            self.rpc("chat.send",json!({"chat_id":self.selected_chat,"text":text,"mentions":mentions,"reply_to":self.reply_to,"attachments":self.attachments}),cx);
+            let quote_id = self.quote_message.as_ref().map(|message| s(message, "id"));
+            let quote_mode = self
+                .quote_message
+                .as_ref()
+                .map(|message| s(message, "quote_mode"));
+            self.rpc("chat.send",json!({"chat_id":self.selected_chat,"text":text,"mentions":mentions,"quote":quote_id,"quote_mode":quote_mode,"attachments":self.attachments}),cx);
         }
         self.composer
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.drafts.remove(&self.selected_chat);
         self.attachments.clear();
-        self.reply_to = None;
+        self.quote_message = None;
         cx.notify();
     }
     pub(super) fn chat_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -496,9 +511,7 @@ impl MacBot {
             .messages
             .values()
             .filter(|message| {
-                s(message, "chat_id") == self.selected_chat
-                    && message["deleted"] != true
-                    && message["reply_to"].is_null()
+                s(message, "chat_id") == self.selected_chat && message["deleted"] != true
             })
             .filter_map(|message| message["seq"].as_u64())
             .min();
@@ -612,12 +625,59 @@ impl MacBot {
             .flex()
             .flex_col()
             .gap_2();
-        if let Some(root) = &self.reply_to {
-            composer = composer.child(div().text_xs().text_color(t.accent).child(format!(
-                "{} · {}",
-                tr("chat.reply"),
-                root
-            )));
+        if let Some(quoted) = self.quote_message.clone() {
+            let quoted_id = s(&quoted, "id").to_owned();
+            let excerpt = message_display_text(&quoted)
+                .chars()
+                .take(120)
+                .collect::<String>();
+            let sender = if s(&quoted["sender"], "kind") == "user" {
+                tr("chat.me").to_string()
+            } else {
+                self.state
+                    .bots
+                    .get(s(&quoted["sender"], "bot_id"))
+                    .map(|bot| s(bot, "name").to_owned())
+                    .unwrap_or_else(|| tr("chat.system").to_string())
+            };
+            composer = composer.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .rounded(px(6.))
+                    .bg(t.active)
+                    .child(div().w(px(2.)).h(px(24.)).bg(t.accent))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(format!(
+                                "{} · {}",
+                                tr(if s(&quoted, "quote_mode") == "reference" {
+                                    "chat.reference"
+                                } else {
+                                    "chat.reply"
+                                }),
+                                sender
+                            ))
+                            .child(div().text_xs().text_color(t.secondary).child(excerpt)),
+                    )
+                    .child(
+                        Button::new("quote-cancel")
+                            .ghost()
+                            .xsmall()
+                            .label("×")
+                            .tooltip(tr("action.close"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.quote_message = None;
+                                cx.notify();
+                            })),
+                    )
+                    .id(SharedString::from(format!("quote-preview-{quoted_id}"))),
+            );
         }
         let text = self.composer.read(cx).value().to_string();
         if let Some(last) = text.split_whitespace().last()
@@ -824,7 +884,20 @@ impl MacBot {
                     .ghost()
                     .small()
                     .label(tr("context.announcement"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if let Some(announcement) =
+                            this.state.announcements.get(&announcement_project)
+                        {
+                            let draft = s(announcement, "text").to_owned();
+                            this.announcement_base_text = draft.clone();
+                            this.announcement_base_version = announcement
+                                .get("version")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            this.announcement_draft
+                                .update(cx, |input, cx| input.set_value(draft, window, cx));
+                            this.announcement_draft_project = Some(announcement_project.clone());
+                        }
                         this.rpc(
                             "project.get",
                             json!({"project_id": announcement_project}),
@@ -845,31 +918,28 @@ impl MacBot {
                 cx,
             ));
         }
-        let flow = arr(&project, "flow")
-            .iter()
-            .filter_map(Value::as_str)
-            .collect::<Vec<_>>()
-            .join(" → ");
-        let highlight_count = arr(&ann, "highlights").len();
+        let announcement_summary = s(&ann, "text")
+            .chars()
+            .filter(|character| {
+                !matches!(
+                    character,
+                    '#' | '*' | '_' | '`' | '[' | ']' | '(' | ')' | '>'
+                )
+            })
+            .take(80)
+            .collect::<String>();
         div()
             .flex()
             .flex_col()
             .child(row)
-            .child(div().px_4().py_1().text_xs().text_color(t.secondary).child(
-                if flow.is_empty() {
-                    format!("{} · {}", s(&project, "goal"), s(&project, "home_path"))
-                } else {
-                    format!(
-                        "{} · {} · {} · {} · {} {}",
-                        s(&project, "goal"),
-                        s(&project, "home_path"),
-                        tr("context.flow"),
-                        flow,
-                        tr("context.highlights"),
-                        highlight_count
-                    )
-                },
-            ))
+            .child(
+                div()
+                    .px_4()
+                    .py_1()
+                    .text_xs()
+                    .text_color(t.secondary)
+                    .child(announcement_summary),
+            )
             .into_any_element()
     }
     fn message_row(
@@ -900,10 +970,49 @@ impl MacBot {
             .gap_3()
             .px_4()
             .py_3()
-            .rounded(px(18.))
-            .max_w(px(620.))
-            .bg(if user { t.user } else { t.bot })
-            .text_color(if user { t.user_text } else { t.primary });
+            .rounded(px(16.))
+            .max_w(px(760.))
+            .bg(if user { t.bubble_out } else { t.bubble_in })
+            .text_color(if user {
+                t.bubble_out_text
+            } else {
+                t.bubble_in_text
+            });
+        if let Some(quote) = message.get("quote").filter(|quote| !quote.is_null()) {
+            let sender = if s(&quote["sender"], "kind") == "user" {
+                tr("chat.me").to_string()
+            } else {
+                self.state
+                    .bots
+                    .get(s(&quote["sender"], "bot_id"))
+                    .map(|bot| s(bot, "name").to_owned())
+                    .unwrap_or_else(|| tr("chat.system").to_string())
+            };
+            let excerpt = s(quote, "excerpt").to_owned();
+            bubble = bubble.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .rounded(px(6.))
+                    .bg(t.active)
+                    .child(div().w(px(2.)).h(px(28.)).bg(t.accent))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(sender),
+                            )
+                            .child(div().text_xs().text_color(t.secondary).child(excerpt)),
+                    ),
+            );
+        }
         if message["streaming"] == true {
             let delta = self
                 .state
@@ -955,15 +1064,51 @@ impl MacBot {
                 .get(s(delivery, "bot_id"))
                 .map(|b| s(b, "name"))
                 .unwrap_or("");
-            message_content =
-                message_content.child(div().text_xs().text_color(t.secondary).child(format!(
+            let delivery_state = s(delivery, "state");
+            let message_id = s(message, "id").to_owned();
+            let bot_id = s(delivery, "bot_id").to_owned();
+            let assignment_id = s(delivery, "assignment_id").to_owned();
+            let steer_key = format!("{message_id}:{bot_id}");
+            let steer_pending = self.steer_inflight.contains(&steer_key);
+            let mut delivery_row = div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_xs()
+                .text_color(t.secondary)
+                .child(format!(
                     "{name} {}",
-                    tr(match s(delivery, "state") {
+                    tr(match delivery_state {
                         "read" => "chat.read",
                         "delivered" => "chat.delivered",
                         _ => "chat.queued",
                     })
-                )));
+                ));
+            if delivery_state == "queued" && !assignment_id.is_empty() {
+                delivery_row = delivery_row.child(
+                    Button::new(SharedString::from(format!("steer-{message_id}-{bot_id}")))
+                        .ghost()
+                        .xsmall()
+                        .label(tr("trace.queue.to_steer"))
+                        .disabled(!self.connected || steer_pending)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !this.steer_inflight.insert(steer_key.clone()) {
+                                return;
+                            }
+                            this.rpc(
+                                "message.steer",
+                                json!({
+                                    "message_id":message_id,
+                                    "bot_id":bot_id,
+                                    "assignment_id":assignment_id,
+                                    "client_request_id":uuid::Uuid::new_v4().to_string(),
+                                }),
+                                cx,
+                            );
+                        })),
+                );
+            }
+            message_content = message_content.child(delivery_row);
         }
         if pending {
             let status = s(message, "send_status");
@@ -1004,28 +1149,14 @@ impl MacBot {
             message_content = message_content.child(pending_row);
         }
         let root = id.clone();
-        let chat = self.selected_chat.clone();
+        let reference_root = root.clone();
         let copy = message_display_text(message).to_string();
         let react = id.clone();
-        let menu = div()
+        let mut menu = div()
             .flex()
             .gap_1()
             .invisible()
             .group_hover("message-row", |style| style.visible())
-            .child(
-                Button::new(SharedString::from(format!("reply-{id}")))
-                    .ghost()
-                    .xsmall()
-                    .label(tr("chat.reply"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.reply_to = Some(root.clone());
-                        this.rpc(
-                            "chat.thread",
-                            json!({"chat_id":chat,"root_message_id":root}),
-                            cx,
-                        );
-                    })),
-            )
             .child(
                 Button::new(SharedString::from(format!("copy-{id}")))
                     .ghost()
@@ -1034,20 +1165,59 @@ impl MacBot {
                     .on_click(move |_, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                     }),
-            )
-            .child(
-                Button::new(SharedString::from(format!("react-{id}")))
-                    .ghost()
-                    .xsmall()
-                    .label(tr("chat.react"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.rpc(
-                            "chat.react",
-                            json!({"message_id":react,"emoji":"👍","on":true}),
-                            cx,
-                        )
-                    })),
             );
+        if !pending {
+            menu = menu
+                .child(
+                    Button::new(SharedString::from(format!("reply-{id}")))
+                        .ghost()
+                        .xsmall()
+                        .label(tr("chat.reply"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.quote_message = this.state.messages.get(&root).cloned();
+                            if let Some(quote) = this.quote_message.as_mut() {
+                                quote["quote_mode"] = json!("reply");
+                                let excerpt = message_display_text(quote)
+                                    .chars()
+                                    .take(120)
+                                    .collect::<String>();
+                                quote["excerpt"] = json!(excerpt);
+                            }
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new(SharedString::from(format!("reference-{id}")))
+                        .ghost()
+                        .xsmall()
+                        .label(chat_tr("chat.reference"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.quote_message = this.state.messages.get(&reference_root).cloned();
+                            if let Some(quote) = this.quote_message.as_mut() {
+                                quote["quote_mode"] = json!("reference");
+                                let excerpt = message_display_text(quote)
+                                    .chars()
+                                    .take(120)
+                                    .collect::<String>();
+                                quote["excerpt"] = json!(excerpt);
+                            }
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new(SharedString::from(format!("react-{id}")))
+                        .ghost()
+                        .xsmall()
+                        .label(tr("chat.react"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.rpc(
+                                "chat.react",
+                                json!({"message_id":react,"emoji":"👍","on":true}),
+                                cx,
+                            )
+                        })),
+                );
+        }
         div()
             .id(SharedString::from(id))
             .group("message-row")
@@ -1068,7 +1238,7 @@ impl MacBot {
     }
     fn block(
         &mut self,
-        _message: &Value,
+        message: &Value,
         block: &Value,
         id: &str,
         cx: &mut Context<Self>,
@@ -1098,7 +1268,29 @@ impl MacBot {
                         .text_xs()
                         .text_color(t.secondary)
                         .child(s(block, "text").to_string()),
-                )
+                );
+                if s(block, "code") == "announcement_updated" {
+                    let project_id = self
+                        .state
+                        .chats
+                        .get(s(message, "chat_id"))
+                        .map(|chat| s(chat, "project_id").to_owned())
+                        .unwrap_or_default();
+                    if !project_id.is_empty() {
+                        body = body.child(
+                            Button::new(SharedString::from(format!("announcement-{id}")))
+                                .ghost()
+                                .xsmall()
+                                .label(tr("context.announcement"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.rpc("project.get", json!({"project_id":project_id}), cx);
+                                    this.context.clear();
+                                    this.context_visible = true;
+                                    cx.notify();
+                                })),
+                        );
+                    }
+                }
             }
             "blocked" => {
                 body = body.child(div().text_color(t.danger).child(format!(
@@ -1116,17 +1308,38 @@ impl MacBot {
                     .unwrap_or(Value::Null);
                 let project_id = s(block, "project_id").to_string();
                 let chat = s(&project, "chat_id").to_string();
-                body = body
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(format!(
-                        "{} · {}",
-                        tr(if kind == "review_card" {
-                            "block.review"
-                        } else {
-                            "block.project"
-                        }),
-                        s(&project, "name")
-                    )))
-                    .child(s(&project, "goal").to_string());
+                body = body.child(
+                    Button::new(SharedString::from(format!("project-card-open-{id}")))
+                        .ghost()
+                        .small()
+                        .label(format!(
+                            "{} · {}",
+                            s(&project, "name"),
+                            state(s(&project, "status"))
+                        ))
+                        .on_click(cx.listener({
+                            let chat = chat.clone();
+                            move |this, _, window, cx| this.select_chat(chat.clone(), window, cx)
+                        })),
+                );
+                if s(block, "context") == "created" {
+                    body = body.child(
+                        div()
+                            .text_xs()
+                            .text_color(t.secondary)
+                            .child(chat_tr("chat.project_created")),
+                    );
+                }
+                let note = s(block, "note");
+                if !note.is_empty() {
+                    body = body.child(
+                        div()
+                            .text_sm()
+                            .max_h(px(36.))
+                            .overflow_hidden()
+                            .child(note.to_owned()),
+                    );
+                }
                 for artifact in arr(block, "artifacts") {
                     body = body.child(format!(
                         "▤ {} · {}",
@@ -1196,9 +1409,18 @@ impl MacBot {
                         .child(s(block, "summary").to_string()),
                 );
                 for artifact in arr(block, "artifacts") {
+                    let chat_id = s(message, "chat_id");
+                    let project_id = self
+                        .state
+                        .chats
+                        .get(chat_id)
+                        .map(|chat| s(chat, "project_id"))
+                        .unwrap_or("");
                     body = body.child(self.artifact_row(
                         artifact,
                         &format!("{id}-{}", s(artifact, "artifact_id")),
+                        project_id,
+                        s(&message["sender"], "bot_id"),
                         cx,
                     ));
                 }
@@ -1273,6 +1495,13 @@ impl MacBot {
                     .unwrap_or(Value::Null);
                 let question_id = s(&q, "id").to_string();
                 let pending = question_is_pending(&q);
+                let multi = q["multi"].as_bool().unwrap_or(false);
+                let allow_free_text = q["allow_free_text"].as_bool().unwrap_or(false);
+                let selected = self
+                    .question_selections
+                    .get(&question_id)
+                    .cloned()
+                    .unwrap_or_default();
                 body = body
                     .child(
                         div()
@@ -1282,48 +1511,161 @@ impl MacBot {
                     .child(question_text(&q, block).to_string());
                 if pending {
                     for (index, option) in arr(&q, "options").iter().enumerate() {
-                        body = body.child(self.rpc_button(
-                            &format!("option-{id}-{index}"),
-                            option.as_str().unwrap_or(""),
-                            "question.answer",
-                            json!({"question_id":question_id,"option_index":index}),
-                            cx,
-                        ));
-                    }
-                    let input_id = question_id.clone();
-                    let question_input = self.question_inputs.get(&question_id).cloned();
-                    let mut question_controls = div().flex().items_center().gap_2();
-                    if let Some(input) = question_input {
-                        question_controls = question_controls.child(Input::new(&input).flex_1());
-                    }
-                    body = body.child(
-                        question_controls.child(
-                            Button::new(SharedString::from(format!("question-text-{id}")))
-                                .outline()
-                                .small()
-                                .label(chat_tr("chat.question_text"))
-                                .disabled(!self.connected)
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    let Some(input) = this.question_inputs.get(&input_id).cloned()
-                                    else {
-                                        return;
-                                    };
-                                    let text = input.read(cx).value().to_string();
-                                    if text.trim().is_empty() {
-                                        this.notice = chat_tr("chat.question_empty").to_string();
+                        if multi {
+                            let question = question_id.clone();
+                            let label = option.as_str().unwrap_or("").to_owned();
+                            body = body.child(
+                                Button::new(SharedString::from(format!("option-{id}-{index}")))
+                                    .when(selected.contains(&index), |button| button.primary())
+                                    .when(!selected.contains(&index), |button| button.outline())
+                                    .small()
+                                    .label(label)
+                                    .disabled(!self.connected)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        let options = this
+                                            .question_selections
+                                            .entry(question.clone())
+                                            .or_default();
+                                        if !options.insert(index) {
+                                            options.remove(&index);
+                                        }
                                         cx.notify();
-                                        return;
-                                    }
+                                    })),
+                            );
+                        } else {
+                            body = body.child(self.rpc_button(
+                                &format!("option-{id}-{index}"),
+                                option.as_str().unwrap_or(""),
+                                "question.answer",
+                                json!({"question_id":question_id,"option_index":index}),
+                                cx,
+                            ));
+                        }
+                    }
+                    if multi {
+                        let submit_question_id = question_id.clone();
+                        body = body.child(
+                            Button::new(SharedString::from(format!("question-submit-{id}")))
+                                .primary()
+                                .small()
+                                .label(chat_tr("chat.question_submit"))
+                                .disabled(!self.connected || selected.is_empty())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    let indexes = this
+                                        .question_selections
+                                        .get(&submit_question_id)
+                                        .cloned()
+                                        .unwrap_or_default()
+                                        .into_iter()
+                                        .collect::<Vec<_>>();
                                     this.rpc(
                                         "question.answer",
-                                        json!({"question_id":input_id,"text":text}),
+                                        json!({"question_id":submit_question_id,"option_indexes":indexes}),
                                         cx,
                                     );
-                                    input.update(cx, |input, cx| input.set_value("", window, cx));
                                 })),
-                        ),
-                    );
+                        );
+                    }
+                    if allow_free_text {
+                        let input_id = question_id.clone();
+                        let question_input = self.question_inputs.get(&question_id).cloned();
+                        let mut question_controls = div().flex().items_center().gap_2();
+                        if let Some(input) = question_input {
+                            question_controls =
+                                question_controls.child(Input::new(&input).flex_1());
+                        }
+                        body = body.child(
+                            question_controls.child(
+                                Button::new(SharedString::from(format!("question-text-{id}")))
+                                    .outline()
+                                    .small()
+                                    .label(chat_tr("chat.question_text"))
+                                    .disabled(!self.connected)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        let Some(input) =
+                                            this.question_inputs.get(&input_id).cloned()
+                                        else {
+                                            return;
+                                        };
+                                        let text = input.read(cx).value().to_string();
+                                        if text.trim().is_empty() {
+                                            this.notice =
+                                                chat_tr("chat.question_empty").to_string();
+                                            cx.notify();
+                                            return;
+                                        }
+                                        this.rpc(
+                                            "question.answer",
+                                            json!({"question_id":input_id,"text":text}),
+                                            cx,
+                                        );
+                                        input.update(cx, |input, cx| {
+                                            input.set_value("", window, cx)
+                                        });
+                                    })),
+                            ),
+                        );
+                    }
+                } else if !q["answer"].is_null() {
+                    let answer = &q["answer"];
+                    let selected_indexes = answer
+                        .get("option_indexes")
+                        .and_then(Value::as_array)
+                        .map(|values| {
+                            values
+                                .iter()
+                                .filter_map(Value::as_u64)
+                                .map(|value| value as usize)
+                                .collect::<std::collections::BTreeSet<_>>()
+                        })
+                        .unwrap_or_else(|| {
+                            answer
+                                .get("option_index")
+                                .and_then(Value::as_u64)
+                                .map(|value| [value as usize].into_iter().collect())
+                                .unwrap_or_default()
+                        });
+                    for (index, option) in arr(&q, "options").iter().enumerate() {
+                        if selected_indexes.contains(&index) {
+                            body = body.child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(format!("✓ {}", option.as_str().unwrap_or(""))),
+                            );
+                        }
+                    }
+                    let text_answer = s(answer, "text");
+                    if !text_answer.is_empty() {
+                        body = body.child(text_answer.to_owned());
+                    }
                 }
+            }
+            "link_preview" => {
+                let url = s(block, "url").to_owned();
+                let site = s(block, "site").to_owned();
+                let title = s(block, "title").to_owned();
+                let description = s(block, "description").to_owned();
+                let image = block.get("image").filter(|image| !image.is_null()).cloned();
+                body = body
+                    .child(div().text_xs().text_color(t.accent).child(site))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                    .when(!description.is_empty(), |el| {
+                        el.child(div().text_sm().text_color(t.secondary).child(description))
+                    })
+                    .when_some(image, |el, image| {
+                        el.child(self.inline_image(&image, id, cx))
+                    })
+                    .child(
+                        Button::new(SharedString::from(format!("link-{id}")))
+                            .ghost()
+                            .small()
+                            .label(tr("action.open"))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                if let Ok(url) = reqwest::Url::parse(&url) {
+                                    cx.open_url(url.as_str());
+                                }
+                            })),
+                    );
             }
             "delegation" => {
                 let aid = s(block, "assignment_id").to_string();
@@ -1512,27 +1854,67 @@ impl MacBot {
         .detach();
     }
 
-    fn artifact_row(&self, artifact: &Value, id: &str, cx: &mut Context<Self>) -> AnyElement {
+    fn artifact_row(
+        &self,
+        artifact: &Value,
+        id: &str,
+        project_id: &str,
+        fallback_bot_id: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let path = s(artifact, "path_or_url").to_string();
-        let project = self
+        let bot_id = if s(artifact, "bot_id").is_empty() {
+            fallback_bot_id
+        } else {
+            s(artifact, "bot_id")
+        };
+        let author = self
             .state
-            .projects
-            .get(s(artifact, "project_id"))
-            .cloned()
-            .unwrap_or(Value::Null);
-        let file = json!({"root":"project","root_id":project["id"],"path":path,"name":s(artifact,"title")});
-        div()
+            .bots
+            .get(bot_id)
+            .map(|bot| s(bot, "name"))
+            .filter(|name| !name.is_empty())
+            .map(|name| format!("{} · {}", name, tr("artifact.provided_by")))
+            .unwrap_or_default();
+        let kind = s(artifact, "kind").to_owned();
+        let file =
+            json!({"root":"project","root_id":project_id,"path":path,"name":s(artifact,"title")});
+        let mut row = div()
             .flex()
             .flex_col()
             .gap_1()
             .child(format!("▤ {}", s(artifact, "title")))
+            .when(!author.is_empty(), |el| {
+                el.child(
+                    div()
+                        .text_xs()
+                        .text_color(Tokens::get(cx).secondary)
+                        .child(author),
+                )
+            })
             .child(
                 div()
                     .text_xs()
                     .text_color(Tokens::get(cx).code)
                     .child(path.clone()),
-            )
-            .child(
+            );
+        if kind == "dir" {
+            let directory = path.clone();
+            let project_id = project_id.to_owned();
+            row = row.child(
+                Button::new(SharedString::from(format!("artifact-{id}")))
+                    .ghost()
+                    .small()
+                    .label(tr("group.open_home"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.context.clear();
+                        this.context.push("home".to_owned());
+                        this.context_visible = true;
+                        this.load_home_directory(project_id.clone(), directory.clone(), cx);
+                    })),
+            );
+        } else {
+            row = row.child(
                 Button::new(SharedString::from(format!("artifact-{id}")))
                     .ghost()
                     .small()
@@ -1540,16 +1922,19 @@ impl MacBot {
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if path.starts_with("http://") || path.starts_with("https://") {
                             cx.open_url(&path);
+                        } else if kind == "url" {
+                            cx.open_url(&path);
                         } else {
                             this.download_file(file.clone(), cx);
                         }
                     })),
-            )
-            .into_any_element()
+            );
+        }
+        row.into_any_element()
     }
     pub(super) fn context_panel(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = Tokens::get(cx);
@@ -1566,7 +1951,7 @@ impl MacBot {
                     "context.replay"
                 }
             }
-            Some("thread") => "chat.thread",
+            Some("home") => "context.home",
             None if project_chat => "context.announcement",
             _ => "context.title",
         };
@@ -1603,15 +1988,139 @@ impl MacBot {
             .flex()
             .flex_col()
             .gap_4();
-        if self.context.last().is_some_and(|p| p == "trace") {
-            body = body.child(div().flex_1().min_h_0().child(self.trace_view.clone()));
-        } else if self.context.last().is_some_and(|p| p == "thread") {
-            if let Some(thread) = self.thread.clone() {
-                body = body.child(self.message_row(&thread["root"], false, cx));
-                for message in arr(&thread, "replies") {
-                    body = body.child(self.message_row(message, false, cx));
+        if self.context.last().is_some_and(|p| p == "home") {
+            let project = self
+                .state
+                .projects
+                .get(&self.home_project_id)
+                .cloned()
+                .unwrap_or(Value::Null);
+            let project_path = s(&project, "home_path").to_owned();
+            body = body.child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(tr("context.home")),
+            );
+            if !project_path.is_empty() {
+                let copy_path = project_path.clone();
+                body = body.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_xs()
+                                .text_color(t.code)
+                                .child(project_path),
+                        )
+                        .child(
+                            Button::new("home-copy-path")
+                                .ghost()
+                                .small()
+                                .label(tr("context.copy_path"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        copy_path.clone(),
+                                    ));
+                                    this.notice = tr("notice.path_copied").to_string();
+                                    cx.notify();
+                                })),
+                        ),
+                );
+            }
+            let shown_path = if self.home_path.is_empty() {
+                tr("home.root").to_string()
+            } else {
+                self.home_path.clone()
+            };
+            body = body.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Button::new("home-root")
+                            .ghost()
+                            .small()
+                            .label(tr("home.root"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let project_id = this.home_project_id.clone();
+                                this.load_home_directory(project_id, String::new(), cx);
+                            })),
+                    )
+                    .child(div().text_xs().text_color(t.secondary).child(shown_path))
+                    .when(!self.home_path.is_empty(), |el| {
+                        el.child(
+                            Button::new("home-up")
+                                .ghost()
+                                .small()
+                                .label(tr("home.parent"))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let parent = std::path::Path::new(&this.home_path)
+                                        .parent()
+                                        .filter(|path| path.to_str().is_some_and(|p| p != "."))
+                                        .and_then(|path| path.to_str())
+                                        .unwrap_or("")
+                                        .to_owned();
+                                    let project_id = this.home_project_id.clone();
+                                    this.load_home_directory(project_id, parent, cx);
+                                })),
+                        )
+                    }),
+            );
+            if self.home_loading {
+                body = body.child(tr("home.loading"));
+            } else if !self.home_error.is_empty() {
+                body = body.child(
+                    div()
+                        .text_xs()
+                        .text_color(t.danger)
+                        .child(tr("home.error"))
+                        .child(div().child(self.home_error.clone())),
+                );
+            } else if self.home_entries.is_empty() {
+                body = body.child(tr("home.empty"));
+            } else {
+                for (index, entry) in self.home_entries.iter().enumerate() {
+                    let entry_name = s(entry, "path").to_owned();
+                    let entry_path = if self.home_path.is_empty() {
+                        entry_name
+                    } else {
+                        format!("{}/{}", self.home_path, entry_name)
+                    };
+                    let is_dir = entry["is_dir"] == true;
+                    let entry_name = s(entry, "name").to_owned();
+                    let project_id = self.home_project_id.clone();
+                    body = body.child(
+                        Button::new(SharedString::from(format!("home-entry-{index}")))
+                            .ghost()
+                            .small()
+                            .label(format!("{} {}", if is_dir { "▸" } else { "▤" }, entry_name))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if is_dir {
+                                    this.load_home_directory(
+                                        project_id.clone(),
+                                        entry_path.clone(),
+                                        cx,
+                                    );
+                                } else {
+                                    this.download_file(
+                                        json!({
+                                            "root":"project",
+                                            "root_id":project_id,
+                                            "path":entry_path,
+                                        }),
+                                        cx,
+                                    );
+                                }
+                            })),
+                    );
                 }
             }
+        } else if self.context.last().is_some_and(|p| p == "trace") {
+            body = body.child(div().flex_1().min_h_0().child(self.trace_view.clone()));
         } else if let Some(chat) = self.state.chats.get(&self.selected_chat) {
             if s(chat, "kind") == "project" {
                 let project = self
@@ -1626,31 +2135,91 @@ impl MacBot {
                     .get(s(chat, "project_id"))
                     .cloned()
                     .unwrap_or(Value::Null);
-                body = body
-                    .child(
+                body = body.child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(tr("context.announcement")),
+                );
+                let announcement_project_id = s(&project, "id").to_owned();
+                let announcement_version = ann.get("version").and_then(Value::as_u64).unwrap_or(0);
+                let announcement_text = s(&ann, "text").to_owned();
+                let draft_text = self.announcement_draft.read(cx).value().to_string();
+                let project_changed =
+                    self.announcement_draft_project.as_deref() != Some(&announcement_project_id);
+                let server_changed_while_clean = !project_changed
+                    && announcement_version != self.announcement_base_version
+                    && draft_text == self.announcement_base_text;
+                if project_changed || server_changed_while_clean {
+                    self.announcement_draft.update(cx, |input, cx| {
+                        input.set_value(announcement_text.clone(), window, cx)
+                    });
+                    self.announcement_draft_project = Some(announcement_project_id.clone());
+                    self.announcement_base_text = announcement_text.clone();
+                    self.announcement_base_version = announcement_version;
+                }
+                body = body.child(TextView::markdown(
+                    SharedString::from(format!("announcement-text-{announcement_project_id}")),
+                    announcement_text,
+                ));
+                if let Some(conflict) = self.announcement_conflict.clone() {
+                    body = body.child(
                         div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(tr("context.announcement")),
-                    )
-                    .child(tr("context.home"))
-                    .child(
-                        div()
-                            .font_family("SF Mono")
+                            .px_3()
+                            .py_2()
+                            .rounded(px(6.))
+                            .bg(t.warning_soft)
                             .text_xs()
-                            .text_color(t.code)
-                            .child(s(&project, "home_path").to_string()),
-                    )
-                    .child(tr("context.goal"))
-                    .child(s(&project, "goal").to_string())
-                    .child(tr("context.flow"))
-                    .child(
-                        arr(&project, "flow")
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .collect::<Vec<_>>()
-                            .join(" → "),
-                    )
-                    .child(tr("context.members"));
+                            .text_color(t.warning)
+                            .child(tr("notice.announcement_conflict"))
+                            .child(
+                                Button::new("announcement-conflict-reload")
+                                    .ghost()
+                                    .small()
+                                    .label(chat_tr("chat.announcement_reload"))
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        let latest = s(&conflict, "text").to_owned();
+                                        this.announcement_base_text = latest.clone();
+                                        this.announcement_base_version = conflict
+                                            .get("version")
+                                            .and_then(Value::as_u64)
+                                            .unwrap_or(0);
+                                        this.announcement_draft.update(cx, |input, cx| {
+                                            input.set_value(latest, window, cx)
+                                        });
+                                        this.announcement_conflict = None;
+                                        cx.notify();
+                                    })),
+                            ),
+                    );
+                }
+                let announcement_len = self.announcement_draft.read(cx).value().chars().count();
+                let base_version = self.announcement_base_version;
+                body = body.child(div().text_xs().text_color(t.secondary).child(format!(
+                    "{} / 8000 {}",
+                    announcement_len,
+                    chat_tr("chat.announcement_length")
+                )));
+                body =
+                    body.child(Textarea::new(&self.announcement_draft).disabled(!self.connected));
+                body = body.child(
+                    Button::new("announcement-save")
+                        .primary()
+                        .small()
+                        .label(tr("action.save"))
+                        .disabled(!self.connected || base_version == 0 || announcement_len > 8000)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let text = this.announcement_draft.read(cx).value().to_string();
+                            this.rpc(
+                                "announcement.update",
+                                json!({
+                                    "project_id":announcement_project_id,
+                                    "text":text,
+                                    "base_version":base_version,
+                                }),
+                                cx,
+                            );
+                        })),
+                );
                 for member in arr(&ann, "members") {
                     let bot = self
                         .state
@@ -1707,7 +2276,13 @@ impl MacBot {
                 }
                 body = body.child(tr("context.artifacts"));
                 for artifact in arr(&ann, "artifacts") {
-                    body = body.child(self.artifact_row(artifact, s(artifact, "id"), cx));
+                    body = body.child(self.artifact_row(
+                        artifact,
+                        s(artifact, "id"),
+                        s(&project, "id"),
+                        "",
+                        cx,
+                    ));
                 }
                 body = body.child(tr("context.highlights"));
                 for highlight in arr(&ann, "highlights") {
@@ -1720,6 +2295,51 @@ impl MacBot {
                     json!({"project_id":project["id"]}),
                     cx,
                 ));
+                body = body.child(tr("context.home"));
+                let home_project_id = s(&project, "id").to_owned();
+                let home_path = s(&project, "home_path").to_owned();
+                let open_project_id = home_project_id.clone();
+                let home_button = Button::new("project-open-home")
+                    .ghost()
+                    .small()
+                    .label(tr("group.open_home"))
+                    .disabled(home_project_id.is_empty() || !self.connected || self.fixture)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.context.clear();
+                        this.context.push("home".to_owned());
+                        this.context_visible = true;
+                        this.load_home_directory(open_project_id.clone(), String::new(), cx);
+                    }));
+                let copy_home_path = home_path.clone();
+                body = body.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(home_button)
+                        .child(
+                            div()
+                                .flex_1()
+                                .font_family("SF Mono")
+                                .text_xs()
+                                .text_color(t.code)
+                                .child(home_path),
+                        )
+                        .child(
+                            Button::new("project-copy-home-path")
+                                .ghost()
+                                .small()
+                                .label(tr("context.copy_path"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        copy_home_path.clone(),
+                                    ));
+                                    this.notice = tr("notice.path_copied").to_string();
+                                    cx.notify();
+                                })),
+                        ),
+                );
+                body = body.child(tr("context.members"));
             } else {
                 let bot_id = s(chat, "bot_id");
                 let bot = self.state.bots.get(bot_id).cloned().unwrap_or(Value::Null);
@@ -1814,6 +2434,49 @@ impl MacBot {
         url.trim_end_matches('/')
             .trim_end_matches("/ws")
             .to_string()
+    }
+    fn load_home_directory(&mut self, project_id: String, path: String, cx: &mut Context<Self>) {
+        self.home_project_id = project_id.clone();
+        self.home_path = path.clone();
+        self.home_entries.clear();
+        self.home_loading = true;
+        self.home_error.clear();
+        let base = self.http_base(cx);
+        let password = self.password.read(cx).value().to_string();
+        let guard_project_id = project_id.clone();
+        let guard_path = path.clone();
+        let task = self.runtime.spawn(async move {
+            let response = reqwest::Client::new()
+                .get(format!("{base}/api/v1/files/list"))
+                .bearer_auth(password)
+                .query(&[
+                    ("root", "project"),
+                    ("root_id", project_id.as_str()),
+                    ("path", path.as_str()),
+                ])
+                .send()
+                .await?
+                .error_for_status()?;
+            let value: Value = response.json().await?;
+            Ok::<_, anyhow::Error>(arr(&value, "entries").to_vec())
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |view, cx| {
+                if view.home_project_id != guard_project_id || view.home_path != guard_path {
+                    return;
+                }
+                view.home_loading = false;
+                match result {
+                    Ok(Ok(entries)) => view.home_entries = entries,
+                    Ok(Err(error)) => view.home_error = error.to_string(),
+                    Err(error) => view.home_error = error.to_string(),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
     pub(super) fn download_file(&mut self, file: Value, cx: &mut Context<Self>) {
         let base = self.http_base(cx);

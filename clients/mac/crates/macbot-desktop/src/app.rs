@@ -16,7 +16,7 @@ use gpui_kit::*;
 use macbot_client_core::{AppState, Client, ClientConfig, ClientEvent, TraceTimeline};
 use macbot_client_core::{ScreenClient, ScreenEvent, ScreenHandle};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn diagnostic_error_class(error: &str) -> &'static str {
     let error = error.to_ascii_lowercase();
@@ -39,6 +39,39 @@ fn diagnostic_error_class(error: &str) -> &'static str {
     }
 }
 
+fn play_bubble_sound() {
+    let bundled = std::env::current_exe()
+        .ok()
+        .and_then(|executable| {
+            executable
+                .parent()
+                .map(|path| path.join("../Resources/Sounds/BubblePop.m4a"))
+        })
+        .filter(|path| path.is_file());
+    let source =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/Sounds/BubblePop.m4a");
+    let Some(sound) = bundled.or_else(|| source.is_file().then_some(source)) else {
+        return;
+    };
+    let _ = std::process::Command::new("/usr/bin/afplay")
+        .arg(sound)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+fn sync_window_material(window: &mut Window) {
+    let appearance = if crate::local_settings::translucent()
+        && !crate::local_settings::reduce_transparency_enabled()
+    {
+        gpui_kit::gpui::WindowBackgroundAppearance::Blurred
+    } else {
+        gpui_kit::gpui::WindowBackgroundAppearance::Opaque
+    };
+    window.set_background_appearance(appearance);
+}
+
 #[path = "chat.rs"]
 mod chat;
 #[path = "shell_features.rs"]
@@ -57,6 +90,7 @@ gpui_kit::actions!(
         Skills,
         ToggleSidebar,
         ToggleContext,
+        EditAnnouncement,
         Back,
         Chat1,
         Chat2,
@@ -104,9 +138,11 @@ pub struct MacBot {
     password: Entity<InputState>,
     host_name: Entity<InputState>,
     composer: Entity<TextareaState>,
+    announcement_draft: Entity<TextareaState>,
     pending_messages: BTreeMap<String, Value>,
     message_list_cache: chat::MessageListCache,
     question_inputs: BTreeMap<String, Entity<InputState>>,
+    question_selections: BTreeMap<String, std::collections::BTreeSet<usize>>,
     image_errors: BTreeMap<String, String>,
     message_following: bool,
     focus: FocusHandle,
@@ -129,13 +165,23 @@ pub struct MacBot {
     timeline: TraceTimeline,
     trace_target: Value,
     trace_stream: Option<String>,
-    thread: Option<Value>,
-    reply_to: Option<String>,
+    quote_message: Option<Value>,
+    announcement_conflict: Option<Value>,
+    announcement_draft_project: Option<String>,
+    announcement_base_version: u64,
+    announcement_base_text: String,
+    home_entries: Vec<Value>,
+    home_project_id: String,
+    home_path: String,
+    home_loading: bool,
+    home_error: String,
+    steer_inflight: BTreeSet<String>,
     changes_project: Option<String>,
     attachments: Vec<String>,
     message_virtual_scroll: gpui_kit::gpui::ListState,
     image_cache: BTreeMap<String, std::sync::Arc<Image>>,
     image_loading: std::collections::BTreeSet<String>,
+    last_notification_sound: Option<std::time::Instant>,
 }
 impl MacBot {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -147,6 +193,11 @@ impl MacBot {
                 .placeholder(tr("chat.placeholder"))
                 .auto_grow(1, 6)
                 .submit_on_enter(true)
+        });
+        let announcement_draft = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder(tr("context.announcement_placeholder"))
+                .auto_grow(3, 10)
         });
         let computer = cx.new(|cx| Computer::new(window, cx));
         let feature_view =
@@ -226,9 +277,11 @@ impl MacBot {
             password,
             host_name,
             composer,
+            announcement_draft,
             pending_messages: BTreeMap::new(),
             message_list_cache: chat::MessageListCache::default(),
             question_inputs: BTreeMap::new(),
+            question_selections: BTreeMap::new(),
             image_errors: BTreeMap::new(),
             message_following: true,
             focus: cx.focus_handle(),
@@ -251,8 +304,17 @@ impl MacBot {
             timeline: TraceTimeline::default(),
             trace_target: Value::Null,
             trace_stream: None,
-            thread: None,
-            reply_to: None,
+            quote_message: None,
+            announcement_conflict: None,
+            announcement_draft_project: None,
+            announcement_base_version: 0,
+            announcement_base_text: String::new(),
+            home_entries: Vec::new(),
+            home_project_id: String::new(),
+            home_path: String::new(),
+            home_loading: false,
+            home_error: String::new(),
+            steer_inflight: BTreeSet::new(),
             changes_project: None,
             attachments: vec![],
             message_virtual_scroll: gpui_kit::gpui::ListState::new(
@@ -262,6 +324,7 @@ impl MacBot {
             ),
             image_cache: BTreeMap::new(),
             image_loading: std::collections::BTreeSet::new(),
+            last_notification_sound: None,
         };
         if std::env::var_os("MACBOT_HOST").is_none()
             && let Some(host) = view
@@ -288,6 +351,7 @@ impl MacBot {
             _ => Theme::sync_system_appearance(Some(window), cx),
         }
         crate::tokens::sync_theme(cx);
+        sync_window_material(window);
         view.focus.focus(window, cx);
         if std::env::var_os("MACBOT_UPDATE_URL").is_some()
             || crate::update::load_update_url().ok().flatten().is_some()
@@ -493,10 +557,16 @@ impl MacBot {
                     match result {
                         Ok(Ok(value)) => view.rpc_result(&method, &params_copy, value, cx),
                         Ok(Err(error)) => {
-                            view.rpc_failed(&method, &params_copy, error.to_string(), cx);
+                            view.rpc_failed(
+                                &method,
+                                &params_copy,
+                                error.to_string(),
+                                error.details().cloned(),
+                                cx,
+                            );
                         }
                         Err(error) => {
-                            view.rpc_failed(&method, &params_copy, error.to_string(), cx);
+                            view.rpc_failed(&method, &params_copy, error.to_string(), None, cx);
                         }
                     }
                     cx.notify();
@@ -689,6 +759,34 @@ impl MacBot {
                     insert(&mut self.state.announcements, v, "project_id");
                 }
             }
+            "announcement.update" => {
+                if let Some(announcement) = value.get("announcement") {
+                    insert(&mut self.state.announcements, announcement, "project_id");
+                    self.announcement_base_text = s(announcement, "text").to_owned();
+                    self.announcement_base_version = announcement
+                        .get("version")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(self.announcement_base_version);
+                }
+                self.notice = tr("notice.announcement_saved").to_string();
+                self.announcement_conflict = None;
+            }
+            "question.answer" => {
+                if let Some(question) = value.get("question") {
+                    insert(&mut self.state.questions, question, "id");
+                    self.question_selections.remove(s(question, "id"));
+                }
+            }
+            "message.steer" => {
+                if let Some(assignment) = value.get("assignment") {
+                    insert(&mut self.state.assignments, assignment, "id");
+                }
+                self.steer_inflight.remove(&format!(
+                    "{}:{}",
+                    s(params, "message_id"),
+                    s(params, "bot_id")
+                ));
+            }
             "approval.list" => {
                 for v in arr(&value, "approvals") {
                     insert(&mut self.state.approvals, v, "id");
@@ -698,11 +796,6 @@ impl MacBot {
                 self.routines = arr(&value, "routines").to_vec();
             }
             "bot.templates" => self.templates = arr(&value, "templates").to_vec(),
-            "chat.thread" => {
-                self.thread = Some(value);
-                self.context.push("thread".into());
-                self.context_visible = true;
-            }
             "trace.history" => {
                 if params.get("assignment_id") != self.trace_target.get("assignment_id")
                     || params.get("chat_id") != self.trace_target.get("chat_id")
@@ -994,8 +1087,7 @@ impl MacBot {
         self.selected_chat = id.clone();
         self.page = "chat".into();
         self.context.clear();
-        self.reply_to = None;
-        self.thread = None;
+        self.quote_message = None;
         self.attachments.clear();
         let draft = self.drafts.get(&id).cloned().unwrap_or_default();
         self.composer
@@ -1197,11 +1289,8 @@ impl MacBot {
         }));
         cx.notify();
     }
-    fn notify_message(&self, message: &Value, cx: &App) {
-        if !self.local_settings.notifications
-            || cx.active_window().is_some()
-            || s(&message["sender"], "kind") == "user"
-        {
+    fn notify_message(&mut self, message: &Value, cx: &App) {
+        if !self.local_settings.notifications || s(&message["sender"], "kind") == "user" {
             return;
         }
         let chat_id = s(message, "chat_id");
@@ -1214,6 +1303,23 @@ impl MacBot {
         if let Some(bot) = self.state.bots.get(s(&message["sender"], "bot_id"))
             && bot["notifications"] == false
         {
+            return;
+        }
+        let app_is_active = cx.active_window().is_some();
+        let current_chat_is_open =
+            app_is_active && self.page == "chat" && self.selected_chat == chat_id;
+        if current_chat_is_open {
+            return;
+        }
+        if crate::local_settings::sound_enabled()
+            && self
+                .last_notification_sound
+                .is_none_or(|last| last.elapsed() >= std::time::Duration::from_secs(1))
+        {
+            play_bubble_sound();
+            self.last_notification_sound = Some(std::time::Instant::now());
+        }
+        if app_is_active {
             return;
         }
         let body = if s(message, "fallback_text").is_empty() {
@@ -1830,6 +1936,11 @@ impl Render for MacBot {
             );
         }
         let t = Tokens::get(cx);
+        let window_width = window.bounds().size.width;
+        let context_page = self.page == "chat" || self.context.last().is_some_and(|v| v == "trace");
+        let context_requested = self.context_visible && context_page;
+        let context_overlay = context_requested && window_width < px(1200.);
+        let context_inline = context_requested && !context_overlay;
         let center = if self.page == "computer" {
             self.computer.clone().into_any_element()
         } else if self.page == "connect" {
@@ -1860,6 +1971,34 @@ impl Render for MacBot {
             }))
             .on_action(cx.listener(|this, _: &ToggleContext, _, cx| {
                 this.context_visible = !this.context_visible;
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &EditAnnouncement, window, cx| {
+                let project_id = this
+                    .state
+                    .chats
+                    .get(&this.selected_chat)
+                    .map(|chat| s(chat, "project_id"))
+                    .unwrap_or("")
+                    .to_owned();
+                if project_id.is_empty() {
+                    return;
+                }
+                if let Some(announcement) = this.state.announcements.get(&project_id) {
+                    let draft = s(announcement, "text").to_owned();
+                    this.announcement_base_text = draft.clone();
+                    this.announcement_base_version = announcement
+                        .get("version")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    this.announcement_draft_project = Some(project_id.clone());
+                    this.announcement_draft.update(cx, |input, cx| {
+                        input.set_value(draft, window, cx);
+                        input.focus(window, cx);
+                    });
+                }
+                this.context.clear();
+                this.context_visible = true;
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &Back, window, cx| this.back(window, cx)))
@@ -1913,22 +2052,17 @@ impl Render for MacBot {
                 )
             })
             .child(
-                h_resizable(
-                    if self.context_visible
-                        && (self.page == "chat"
-                            || self.context.last().is_some_and(|v| v == "trace"))
-                    {
-                        "main-panes-three"
-                    } else {
-                        "main-panes-two"
-                    },
-                )
+                h_resizable(if context_inline {
+                    "main-panes-three"
+                } else {
+                    "main-panes-two"
+                })
                 .when(self.sidebar_visible, |el| {
                     el.child(
                         resizable_panel()
-                            .size(px(280.))
+                            .size(px(260.))
                             .flex_none()
-                            .size_range(px(200.)..px(400.))
+                            .size_range(px(220.)..px(320.))
                             .child(self.sidebar(cx)),
                     )
                 })
@@ -1937,21 +2071,30 @@ impl Render for MacBot {
                         .size_range(px(480.)..px(2000.))
                         .child(center),
                 )
-                .when(
-                    self.context_visible
-                        && (self.page == "chat"
-                            || self.context.last().is_some_and(|v| v == "trace")),
-                    |el| {
-                        el.child(
-                            resizable_panel()
-                                .size(px(340.))
-                                .flex_none()
-                                .size_range(px(260.)..px(600.))
-                                .child(self.context_panel(window, cx)),
-                        )
-                    },
-                ),
+                .when(context_inline, |el| {
+                    el.child(
+                        resizable_panel()
+                            .size(px(280.))
+                            .flex_none()
+                            .size_range(px(260.)..px(360.))
+                            .child(self.context_panel(window, cx)),
+                    )
+                }),
             )
+            .when(context_overlay, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .top(px(0.))
+                        .right(px(0.))
+                        .bottom(px(0.))
+                        .w(px(280.))
+                        .bg(t.panel)
+                        .border_l_1()
+                        .border_color(t.border)
+                        .child(self.context_panel(window, cx)),
+                )
+            })
     }
 }
 fn s<'a>(v: &'a Value, key: &str) -> &'a str {

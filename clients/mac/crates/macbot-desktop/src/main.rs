@@ -53,6 +53,7 @@ fn main() {
             KeyBinding::new("cmd-shift-w", app::Workbench, None),
             KeyBinding::new("cmd-shift-u", app::Dashboard, None),
             KeyBinding::new("cmd-shift-s", app::Skills, None),
+            KeyBinding::new("cmd-e", app::EditAnnouncement, None),
             KeyBinding::new("cmd-\\", app::ToggleSidebar, None),
             KeyBinding::new("cmd-shift-\\", app::ToggleContext, None),
             KeyBinding::new("escape", app::Back, None),
@@ -85,7 +86,7 @@ fn open_main_window(cx: &mut App) {
     let (handle, _) = gpui_kit::open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            window_min_size: Some(size(px(800.), px(560.))),
+            window_min_size: Some(size(px(960.), px(600.))),
             titlebar: Some(TitlebarOptions {
                 title: Some("Mac Bot".into()),
                 ..Default::default()

@@ -47,9 +47,22 @@ pub enum CoreError {
     #[error("connection closed")]
     Closed,
     #[error("server error {code}: {message}")]
-    Server { code: String, message: String },
+    Server {
+        code: String,
+        message: String,
+        details: Option<BTreeMap<String, Value>>,
+    },
     #[error("protocol: {0}")]
     Protocol(String),
+}
+
+impl CoreError {
+    pub fn details(&self) -> Option<&BTreeMap<String, Value>> {
+        match self {
+            Self::Server { details, .. } => details.as_ref(),
+            _ => None,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;
@@ -365,10 +378,12 @@ fn is_write_method(method: &str) -> bool {
     matches!(
         method,
         "chat.send"
+            | "announcement.update"
             | "chat.mark_read"
             | "chat.react"
             | "chat.set_pinned"
             | "chat.set_muted"
+            | "message.steer"
             | "bot.create"
             | "bot.update"
             | "bot.duplicate"
@@ -752,6 +767,7 @@ const KNOWN_BLOCK_TYPES: &[&str] = &[
     "bot_dm_ref",
     "system",
     "loop_paused",
+    "link_preview",
 ];
 
 const KNOWN_TRACE_TYPES: &[&str] = &[
@@ -957,6 +973,15 @@ fn response_result(frame: &Value) -> Result<Value> {
             .and_then(Value::as_str)
             .unwrap_or("request failed")
             .to_string(),
+        details: error
+            .get("details")
+            .and_then(Value::as_object)
+            .map(|details| {
+                details
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect()
+            }),
     })
 }
 

@@ -593,7 +593,7 @@ impl MacBot {
     pub(super) fn settings_action(
         &mut self,
         event: &SettingsAction,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match event {
@@ -610,6 +610,30 @@ impl MacBot {
                 cx.notify();
             }
             SettingsAction::Local { key, value } => {
+                if key == "sound_enabled" {
+                    let enabled = value.as_bool().unwrap_or(false);
+                    match crate::local_settings::set_sound_enabled(enabled) {
+                        Ok(()) => self.notice = tr("settings.saved").into(),
+                        Err(error) => self.notice = error.to_string(),
+                    }
+                    self.sync_views(cx);
+                    cx.notify();
+                    return;
+                }
+                if key == "translucent" {
+                    let enabled = value.as_bool().unwrap_or(false);
+                    match crate::local_settings::set_translucent(enabled) {
+                        Ok(()) => {
+                            crate::tokens::sync_theme(cx);
+                            super::sync_window_material(window);
+                            self.notice = tr("settings.saved").into();
+                        }
+                        Err(error) => self.notice = error.to_string(),
+                    }
+                    self.sync_views(cx);
+                    cx.notify();
+                    return;
+                }
                 let mut local = self.local_settings.clone();
                 match key.as_str() {
                     "theme" => {
@@ -645,7 +669,7 @@ impl MacBot {
             SettingsAction::CheckUpdate => self.check_update(cx),
             SettingsAction::Theme(mode) => {
                 if mode == "system" {
-                    Theme::sync_system_appearance(Some(_window), cx);
+                    Theme::sync_system_appearance(Some(window), cx);
                 } else {
                     Theme::change(
                         if mode == "dark" {
@@ -658,6 +682,7 @@ impl MacBot {
                     );
                 }
                 crate::tokens::sync_theme(cx);
+                super::sync_window_material(window);
                 cx.notify();
             }
         }
@@ -880,9 +905,22 @@ impl MacBot {
         method: &str,
         params: &Value,
         error: String,
+        details: Option<std::collections::BTreeMap<String, Value>>,
         cx: &mut Context<Self>,
     ) {
         self.notice = error.clone();
+        if method == "announcement.update"
+            && let Some(announcement) = details
+                .as_ref()
+                .and_then(|details| details.get("announcement"))
+        {
+            self.state.announcements.insert(
+                s(announcement, "project_id").to_owned(),
+                announcement.clone(),
+            );
+            self.announcement_conflict = Some(announcement.clone());
+            self.notice = tr("notice.announcement_conflict").to_string();
+        }
         if method == "chat.send" {
             if let Some(message) = self
                 .pending_messages
@@ -896,6 +934,13 @@ impl MacBot {
         }
         if method == "bootstrap" {
             self.resync_requested = false;
+        }
+        if method == "message.steer" {
+            self.steer_inflight.remove(&format!(
+                "{}:{}",
+                s(params, "message_id"),
+                s(params, "bot_id")
+            ));
         }
         cx.notify();
     }

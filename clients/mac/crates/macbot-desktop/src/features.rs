@@ -17,6 +17,7 @@ use gpui_kit::gpui::{
     AnyElement, App, AppContext, Bounds, Context, Entity, EventEmitter, Hsla, InteractiveElement,
     IntoElement, ParentElement, PathBuilder, Render, Styled, Window, canvas, div, point, px,
 };
+use gpui_kit::prelude::FluentBuilder;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -506,7 +507,7 @@ fn render_page(
             routine_editor(data, inputs, textareas, &tokens, cx).into_any_element()
         }
         "search" => search(data, inputs, &tokens, cx).into_any_element(),
-        _ => empty_page(page, &tokens).into_any_element(),
+        _ => empty_page(page, &tokens, cx).into_any_element(),
     };
     let scroll = div()
         .id(format!("feature-scroll-{page}"))
@@ -572,6 +573,7 @@ fn stat(label: impl Into<String>, value: impl Into<String>, tokens: &Tokens) -> 
         .flex()
         .flex_col()
         .gap_1()
+        .flex_1()
         .p_3()
         .min_w(px(130.))
         .rounded_md()
@@ -621,7 +623,7 @@ fn action_button_with_id(
     let label = label.to_string();
     Button::new(id)
         .label(label)
-        .primary()
+        .ghost()
         .on_click(cx.listener(move |this, _, _, cx| this.emit_action(action.clone(), cx)))
 }
 
@@ -767,7 +769,7 @@ pub fn assignment_stop_params(assignment_id: &str) -> Value {
 pub fn project_create_params(name: &str, goal: &str, member_bot_ids: &[String]) -> Value {
     json!({
         "name": name,
-        "goal": goal,
+        "announcement": goal,
         "member_bot_ids": member_bot_ids,
     })
 }
@@ -1561,6 +1563,15 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
                         workbench_job_row(job, data, tokens, cx, &format!("{key}-{index}"))
                     }))
             }));
+    let active_groups = if groups.is_empty() {
+        div()
+            .p_4()
+            .text_color(tokens.secondary)
+            .child(t("workbench.empty"))
+            .into_any_element()
+    } else {
+        active_groups.into_any_element()
+    };
     let done = workbench_done_jobs(data);
     let body = div()
         .flex()
@@ -1570,23 +1581,26 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
             div()
                 .flex()
                 .gap_2()
-                .child(action_button(
-                    t("workbench.by_bot"),
-                    FeatureAction::Navigate("workbench?by=bot".into()),
+                .child(workbench_mode_button(
+                    t("workbench.view.by_bot"),
+                    "bot",
+                    &group_mode,
                     cx,
                 ))
-                .child(action_button(
-                    t("workbench.by_project"),
-                    FeatureAction::Navigate("workbench?by=project".into()),
+                .child(workbench_mode_button(
+                    t("workbench.view.by_group"),
+                    "project",
+                    &group_mode,
                     cx,
                 ))
-                .child(action_button(
-                    t("workbench.by_status"),
-                    FeatureAction::Navigate("workbench?by=status".into()),
+                .child(workbench_mode_button(
+                    t("workbench.view.by_status"),
+                    "status",
+                    &group_mode,
                     cx,
                 )),
         )
-        .child(div().flex().gap_3().children([
+        .child(div().flex().flex_wrap().gap_3().children([
             stat(
                 t("workbench.running"),
                 &format!("{running} / {limit}"),
@@ -1601,10 +1615,19 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
         .child(card(t("workbench.title"), active_groups, tokens))
         .child(card(
             t("workbench.done_today"),
-            rows(
-                done.iter().map(|job| workbench_done_label(job, data)),
-                tokens,
-            ),
+            if done.is_empty() {
+                div()
+                    .p_3()
+                    .text_color(tokens.secondary)
+                    .child(t("workbench.no_completed_today"))
+                    .into_any_element()
+            } else {
+                rows(
+                    done.iter().map(|job| workbench_done_label(job, data)),
+                    tokens,
+                )
+                .into_any_element()
+            },
             tokens,
         ));
     div()
@@ -1622,6 +1645,22 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
             tokens,
         ))
         .child(body)
+}
+
+fn workbench_mode_button(
+    label: &str,
+    mode: &str,
+    selected: &str,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
+    let target = format!("workbench?by={mode}");
+    Button::new(format!("workbench-view-{mode}"))
+        .label(label)
+        .when(selected == mode, |button| button.primary())
+        .when(selected != mode, |button| button.ghost())
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.emit_action(FeatureAction::Navigate(target.clone()), cx)
+        }))
 }
 
 fn is_finished_assignment(job: &Value) -> bool {
@@ -1681,9 +1720,9 @@ fn workbench_entity_label(
 
 fn workbench_group_label(mode: &str) -> &'static str {
     match mode {
-        "project" => t("workbench.by_project"),
-        "status" => t("workbench.by_status"),
-        _ => t("workbench.by_bot"),
+        "project" => t("workbench.view.by_group"),
+        "status" => t("workbench.view.by_status"),
+        _ => t("workbench.view.by_bot"),
     }
 }
 
@@ -2967,6 +3006,10 @@ fn skills(
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
+    let previewing = data
+        .get("previewing")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let route_query = skill_route_query(data);
     let filter = query_value(data, "filter").filter(|value| {
         matches!(
@@ -2988,7 +3031,7 @@ fn skills(
         .unwrap_or_default()
         .to_owned();
     let selected_builtin = !selected_name.is_empty() && skill_source_kind(selected) == "builtin";
-    let list = div()
+    let list_rows = div()
         .flex()
         .flex_col()
         .gap_1()
@@ -3054,6 +3097,14 @@ fn skills(
                     actions
                 })
         }));
+    let list = if skills.is_empty() {
+        div()
+            .p_3()
+            .text_color(tokens.secondary)
+            .child(t("skills.no_results"))
+    } else {
+        list_rows
+    };
     let editor = div()
         .flex()
         .flex_col()
@@ -3064,12 +3115,33 @@ fn skills(
                 .id("skill-name-input")
                 .disabled(selected_builtin),
         ))
-        .child(labeled_field(
-            t("skills.field_content"),
-            Textarea::new(textarea_state(textareas, "content"))
-                .h(px(240.))
-                .disabled(selected_builtin),
-        ))
+        .child(if previewing {
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                        .child(t("skills.preview")),
+                )
+                .child(TextView::markdown(
+                    "skill-edit-preview-markdown",
+                    textarea_state(textareas, "content")
+                        .read(cx)
+                        .value()
+                        .to_string(),
+                ))
+                .into_any_element()
+        } else {
+            labeled_field(
+                t("skills.field_content"),
+                Textarea::new(textarea_state(textareas, "content"))
+                    .h(px(240.))
+                    .disabled(selected_builtin),
+            )
+            .into_any_element()
+        })
         .child(skill_create_button(t("skills.new"), inputs, textareas, cx))
         .child(card(
             t("skills.import_group"),
@@ -3101,14 +3173,6 @@ fn skills(
             tokens,
         ))
         .child(card(
-            t("skills.instructions"),
-            TextView::markdown(
-                "skill-preview-markdown",
-                string(selected, "content", t("skills.markdown_hint")),
-            ),
-            tokens,
-        ))
-        .child(card(
             t("skills.files"),
             rows(
                 array(selected, "files")
@@ -3125,11 +3189,25 @@ fn skills(
             tokens,
         ))
         .child({
-            let mut actions = div().flex().gap_2().child(action_button(
-                t("skills.preview"),
-                FeatureAction::Toast(t("skills.preview_ready").to_string()),
-                cx,
-            ));
+            let preview_label = if previewing {
+                t("skills.edit")
+            } else {
+                t("skills.preview")
+            };
+            let mut actions = div().flex().gap_2().child(
+                Button::new("skill-toggle-preview")
+                    .label(preview_label)
+                    .ghost()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let current = this
+                            .data
+                            .get("previewing")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
+                        this.data["previewing"] = json!(!current);
+                        cx.notify();
+                    })),
+            );
             if !selected_name.is_empty() && !selected_builtin {
                 actions = actions
                     .child(textarea_rpc_button(
@@ -3161,23 +3239,41 @@ fn skills(
         .child(
             div()
                 .flex()
+                .flex_wrap()
                 .gap_2()
                 .child(labeled_field(
                     t("skills.field_search"),
                     Input::new(input_state(inputs, "query")).id("skill-search-input"),
                 ))
                 .child(skill_search_button(inputs, cx))
-                .child(skill_filter_button(t("skills.all"), None, cx))
+                .child(skill_filter_button(
+                    t("skills.all"),
+                    None,
+                    filter.as_deref(),
+                    cx,
+                ))
                 .child(skill_filter_button(
                     t("skills.builtin"),
                     Some("builtin"),
+                    filter.as_deref(),
                     cx,
                 ))
-                .child(skill_filter_button(t("skills.user"), Some("user"), cx))
-                .child(skill_filter_button(t("skills.draft"), Some("draft"), cx))
+                .child(skill_filter_button(
+                    t("skills.user"),
+                    Some("user"),
+                    filter.as_deref(),
+                    cx,
+                ))
+                .child(skill_filter_button(
+                    t("skills.draft"),
+                    Some("draft"),
+                    filter.as_deref(),
+                    cx,
+                ))
                 .child(skill_filter_button(
                     t("skills.disabled"),
                     Some("disabled"),
+                    filter.as_deref(),
                     cx,
                 )),
         )
@@ -3248,12 +3344,21 @@ fn skill_bot_controls(
 fn skill_filter_button(
     label: &str,
     filter: Option<&str>,
+    selected: Option<&str>,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement + use<> {
     let target = filter
         .map(|filter| format!("skills?filter={filter}"))
         .unwrap_or_else(|| "skills?filter=all".to_owned());
-    action_button(label, FeatureAction::Navigate(target), cx)
+    let active = filter.unwrap_or("all") == selected.unwrap_or("all");
+    let label = label.to_string();
+    Button::new(format!("skill-filter-{}", filter.unwrap_or("all")))
+        .label(label)
+        .when(active, |button| button.primary())
+        .when(!active, |button| button.ghost())
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.emit_action(FeatureAction::Navigate(target.clone()), cx)
+        }))
 }
 
 fn skill_route_query(data: &Value) -> Option<String> {
@@ -3762,7 +3867,7 @@ fn group_editor(
             ),
             format!(
                 "{}   {}",
-                t("group.goal"),
+                t("group.announcement"),
                 string(data, "goal", t("group.goal_hint"))
             ),
             format!(
@@ -3788,7 +3893,7 @@ fn group_editor(
             Input::new(input_state(inputs, "name")).id("group-name-input"),
         ))
         .child(labeled_field(
-            t("group.goal"),
+            t("group.announcement"),
             Textarea::new(textarea_state(textareas, "goal")).h(px(120.)),
         ))
         .child(div().text_sm().child(t("group.members")))
@@ -4052,15 +4157,38 @@ fn routines_list(
 ) -> impl IntoElement + use<> {
     let routines = array(data, "routines");
     let selected_id = data.get("id").and_then(Value::as_str).unwrap_or_default();
+    let filter = query_value(data, "filter").unwrap_or_else(|| "all".to_owned());
+    let filtered = routines
+        .iter()
+        .filter(|routine| match filter.as_str() {
+            "running" => routine
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            "paused" => !routine
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            _ => true,
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     let mut list = div().flex().flex_col().gap_1();
-    for routine in routines {
+    for routine in filtered {
         let id = string(&routine, "id", "");
         let name = string(&routine, "name", t("routine.default_name"));
         let enabled = routine
             .get("enabled")
             .and_then(Value::as_bool)
             .unwrap_or(true);
-        let label = format!("{}{}", if enabled { "● " } else { "○ " }, name);
+        let label = format!(
+            "{} · {name}",
+            if enabled {
+                t("routine.enabled")
+            } else {
+                t("routine.disabled")
+            }
+        );
         let selected_routine = routine.clone();
         let route = format!("routine/{id}");
         list = list.child(
@@ -4085,7 +4213,24 @@ fn routines_list(
                 ),
         );
     }
-    list.child(action_button(
+    list.child(div().flex().flex_wrap().gap_1().children(
+        ["all", "running", "paused"].into_iter().map(|value| {
+            let label = match value {
+                "running" => t("routines.running"),
+                "paused" => t("routines.paused"),
+                _ => t("routines.all"),
+            };
+            let target = format!("routines?filter={value}");
+            Button::new(format!("routine-filter-{value}"))
+                .label(label)
+                .when(filter == value, |button| button.primary())
+                .when(filter != value, |button| button.ghost())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.emit_action(FeatureAction::Navigate(target.clone()), cx)
+                }))
+        }),
+    ))
+    .child(action_button(
         t("routine.new"),
         FeatureAction::Navigate("routine/new".into()),
         cx,
@@ -4201,6 +4346,14 @@ fn search_result_rows(
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
+    if results.is_empty() {
+        return div()
+            .w_full()
+            .p_4()
+            .text_color(tokens.secondary)
+            .child(t("search.no_results"))
+            .into_any_element();
+    }
     div()
         .w_full()
         .min_w_0()
@@ -4255,6 +4408,7 @@ fn search_result_rows(
             }
             row
         }))
+        .into_any_element()
 }
 
 fn search_target(result: &Value, kind: &str) -> Option<String> {
@@ -4278,14 +4432,18 @@ fn search_target(result: &Value, kind: &str) -> Option<String> {
     }
 }
 
-fn empty_page(page: &str, tokens: &Tokens) -> impl IntoElement {
+fn empty_page(page: &str, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
         .gap_2()
         .p_6()
-        .child(page_header(page, t("common.unknown"), tokens))
-        .child(t("common.loading"))
+        .child(page_header(page, t("common.unavailable_hint"), tokens))
+        .child(action_button(
+            t("workbench.title"),
+            FeatureAction::Navigate("workbench".into()),
+            cx,
+        ))
 }
 
 fn workbench_jobs(data: &Value) -> Vec<Value> {

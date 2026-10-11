@@ -1,64 +1,242 @@
+//! macOS projection of `design/tokens.json`.
+//!
+//! Keep these values in lockstep with the design source.  `Tokens` carries all
+//! palette and scale values so feature views can use a semantic role without
+//! inventing platform-specific approximations.
+
 use gpui_kit::App;
 use gpui_kit::component::{ActiveTheme, Theme};
-use gpui_kit::{Hsla, rgb};
+use gpui_kit::{Hsla, rgb, rgba};
 
 #[derive(Clone, Copy)]
 pub struct Tokens {
+    // Surface and interaction colors.
+    pub desktop: Hsla,
     pub window: Hsla,
     pub sidebar: Hsla,
+    pub panel: Hsla,
+    pub chat: Hsla,
+    pub elevated: Hsla,
+    pub input: Hsla,
+    pub hover: Hsla,
+    pub active: Hsla,
+    pub selected: Hsla,
+    pub overlay: Hsla,
+    pub border_subtle: Hsla,
+    pub border: Hsla,
+    pub border_strong: Hsla,
+    // Text and action colors.
+    pub primary: Hsla,
+    pub secondary: Hsla,
+    pub tertiary: Hsla,
+    pub inverse: Hsla,
+    pub link: Hsla,
+    pub accent: Hsla,
+    pub accent_hover: Hsla,
+    pub accent_pressed: Hsla,
+    pub accent_soft: Hsla,
+    pub accent_on: Hsla,
+    // Message surfaces.
+    pub bubble_in: Hsla,
+    pub bubble_in_text: Hsla,
+    pub bubble_out: Hsla,
+    pub bubble_out_text: Hsla,
+    pub bubble_meta: Hsla,
+    pub bubble_out_meta: Hsla,
+    // Status colors and their soft backgrounds.
+    pub success: Hsla,
+    pub success_soft: Hsla,
+    pub warning: Hsla,
+    pub warning_soft: Hsla,
+    pub danger: Hsla,
+    pub danger_soft: Hsla,
+    pub review: Hsla,
+    pub review_soft: Hsla,
+    pub code_text: Hsla,
+    pub code_bg: Hsla,
+    pub chart: [Hsla; 6],
+    pub heat: [Hsla; 5],
+    pub shadow: Hsla,
+    pub avatar: [Hsla; 10],
+    pub avatar_eye: Hsla,
+    pub avatar_glasses: Hsla,
+
+    // Desktop type scale [size, line height, weight, letter spacing].
+    pub desktop_type: [[f32; 4]; 10],
+    // Shared layout scales from tokens.json.
+    pub space: [f32; 13],
+    pub radius: [f32; 11],
+    pub motion_ms: [u64; 4],
+    pub motion_ease: [&'static str; 3],
+    pub blur: [f32; 4],
+    pub saturate: f32,
+    pub elevation_offset_y: [f32; 5],
+    pub elevation_blur: [f32; 5],
+    pub elevation_outline: [f32; 5],
+    pub font_ui: &'static str,
+    pub font_display: &'static str,
+    pub font_mono: &'static str,
+    pub font_weights: [u16; 4],
+    /// Desktop layout values: min/default window, titlebar, sidebar bounds,
+    /// list column, chat bounds, and context panel bounds.
+    pub desktop_layout: [f32; 16],
+
+    // Compatibility names retained while feature views migrate to semantics.
     pub bot: Hsla,
     pub user: Hsla,
     pub user_text: Hsla,
-    pub primary: Hsla,
-    pub secondary: Hsla,
-    pub accent: Hsla,
-    pub success: Hsla,
     pub heatmap_activity: [Hsla; 4],
     pub attention: Hsla,
-    pub danger: Hsla,
     pub code: Hsla,
-    pub border: Hsla,
 }
+
 impl Tokens {
     pub fn get(cx: &App) -> Self {
         let dark = cx.theme().mode.is_dark();
-        let color = |light, dark_color| rgb(if dark { dark_color } else { light }).into();
+        let translucent = crate::local_settings::translucent()
+            && !crate::local_settings::reduce_transparency_enabled();
+        let color = |light, dark_color| solid(if dark { dark_color } else { light });
+        let alpha = |light, dark_color| rgba(if dark { dark_color } else { light }).into();
+        let translucent_surface = |light, dark_color, light_alpha, dark_alpha| {
+            if translucent {
+                alpha(light_alpha, dark_alpha)
+            } else {
+                color(light, dark_color)
+            }
+        };
+        let accent = color(0x4a6a9b, 0x8aa6d6);
+        let success = color(0x3e8e66, 0x6dbe94);
+        let warning = color(0xb7812c, 0xddaa5c);
+        let danger = color(0xb9533f, 0xe08470);
+        let review = color(0x7b65a8, 0xae9bd6);
+        let chart = if dark {
+            [0x8aa6d6, 0x7fc2ac, 0xd9b08a, 0xb9a0d4, 0xd98f8f, 0x8e8e93]
+        } else {
+            [0x4a6a9b, 0x5e9c88, 0xc0956a, 0x9a7bb5, 0xb86b6b, 0x8c8c8c]
+        }
+        .map(solid);
+        let heat = if dark {
+            [0x1f1f22, 0x26324a, 0x3a5070, 0x5d7ba8, 0x8aa6d6]
+        } else {
+            [0xecece8, 0xcdd7e5, 0x9db0cc, 0x6b87b0, 0x4a6a9b]
+        }
+        .map(solid);
+        let avatar = [
+            0x7c93b8, 0x86a894, 0xc6a47e, 0xa08dbf, 0xc48a8a, 0x7fa9ae, 0xb5a36c, 0x9b9b9b,
+            0xc49ab0, 0x8c9bc4,
+        ]
+        .map(solid);
+        let heatmap_activity = heat[1..5].try_into().unwrap_or([heat[1]; 4]);
         Self {
-            window: color(0xffffff, 0x1c1c1e),
-            sidebar: color(0xf5f5f7, 0x232325),
-            bot: color(0xefeff1, 0x2c2c2e),
-            user: color(0x111111, 0xf2f2f2),
-            user_text: color(0xffffff, 0x111111),
-            primary: color(0x1d1d1f, 0xf5f5f7),
-            secondary: color(0x86868b, 0x98989d),
-            accent: color(0x2f7bf6, 0x4c8dff),
-            success: rgb(0x34c759).into(),
-            heatmap_activity: Self::activity_colors(),
-            attention: rgb(0xff9f0a).into(),
-            danger: rgb(0xff3b30).into(),
-            code: color(0xd63a5b, 0xff6b8a),
-            border: cx.theme().border,
+            desktop: color(0xe9e8e4, 0x0b0b0c),
+            window: translucent_surface(0xfbfbfa, 0x18181a, 0xfbfbfab8, 0x18181ab3),
+            sidebar: translucent_surface(0xf3f3f1, 0x141416, 0xf3f3f194, 0x1414168c),
+            panel: translucent_surface(0xf7f7f5, 0x1a1a1d, 0xf7f7f5a3, 0x1a1a1d9e),
+            chat: translucent_surface(0xefefeb, 0x111113, 0xefefebdb, 0x111113db),
+            elevated: translucent_surface(0xffffff, 0x232326, 0xffffffc7, 0x232326c7),
+            input: translucent_surface(0xffffff, 0x1f1f22, 0xffffffcc, 0x1f1f22cc),
+            hover: alpha(0x1414180b, 0xffffff0d),
+            active: alpha(0x14141813, 0xffffff14),
+            selected: alpha(0x4a6a9b1f, 0x8aa6d629),
+            overlay: alpha(0x14141847, 0x00000080),
+            border_subtle: alpha(0x1414180f, 0xffffff0f),
+            border: alpha(0x1414181a, 0xffffff1a),
+            border_strong: alpha(0x1414182e, 0xffffff2e),
+            primary: color(0x1c1c1e, 0xececee),
+            secondary: color(0x6e6e73, 0x9a9aa0),
+            tertiary: color(0xa1a1a6, 0x66666b),
+            inverse: color(0xffffff, 0x111113),
+            link: color(0x3f5f92, 0x9db5de),
+            accent,
+            accent_hover: color(0x3f5d8a, 0x9db5de),
+            accent_pressed: color(0x355079, 0x7a95c4),
+            accent_soft: alpha(0x4a6a9b1f, 0x8aa6d629),
+            accent_on: color(0xffffff, 0x111113),
+            bubble_in: color(0xffffff, 0x222225),
+            bubble_in_text: color(0x1c1c1e, 0xececee),
+            bubble_out: color(0xdde5f0, 0x2b3a52),
+            bubble_out_text: color(0x1c1c1e, 0xeceff5),
+            bubble_meta: color(0x8e8e93, 0x7c7c82),
+            bubble_out_meta: color(0x6f819c, 0x8fa2c0),
+            success,
+            success_soft: alpha(0x3e8e661f, 0x6dbe9424),
+            warning,
+            warning_soft: alpha(0xb7812c21, 0xddaa5c24),
+            danger,
+            danger_soft: alpha(0xb9533f1c, 0xe0847024),
+            review,
+            review_soft: alpha(0x7b65a81f, 0xae9bd626),
+            code_text: color(0x9a4a5e, 0xe3a3b3),
+            code_bg: alpha(0x1414180d, 0xffffff0f),
+            chart,
+            heat,
+            shadow: alpha(0x1414181a, 0x00000073),
+            avatar,
+            avatar_eye: solid(0x1c1c1e),
+            avatar_glasses: solid(0x1c1c1e),
+            desktop_type: [
+                [11., 14., 400., 0.1],
+                [12., 16., 400., 0.],
+                [13., 18., 400., 0.],
+                [14., 20., 400., 0.],
+                [13., 18., 500., 0.],
+                [15., 20., 600., -0.1],
+                [17., 22., 600., -0.2],
+                [22., 28., 700., -0.3],
+                [28., 34., 700., -0.4],
+                [12., 18., 400., 0.],
+            ],
+            space: [0., 2., 4., 6., 8., 12., 16., 20., 24., 32., 40., 48., 64.],
+            radius: [4., 6., 8., 12., 16., 20., 16., 6., 12., 20., 999.],
+            motion_ms: [80, 120, 200, 320],
+            motion_ease: [
+                "cubic-bezier(0.2, 0, 0, 1)",
+                "cubic-bezier(0, 0, 0, 1)",
+                "cubic-bezier(0.3, 0, 1, 1)",
+            ],
+            blur: [40., 40., 24., 30.],
+            saturate: 1.8,
+            elevation_offset_y: [0., 1., 2., 8., 20.],
+            elevation_blur: [0., 2., 8., 24., 60.],
+            elevation_outline: [0., 0., 0.5, 0.5, 0.5],
+            font_ui: "-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', system-ui, sans-serif",
+            font_display: "-apple-system, 'SF Pro Display', 'PingFang SC', system-ui, sans-serif",
+            font_mono: "'SF Mono', 'JetBrains Mono', Menlo, monospace",
+            font_weights: [400, 500, 600, 700],
+            desktop_layout: [
+                960., 600., 1280., 820., 52., 260., 220., 320., 260., 480., 760., 280., 260., 360.,
+                60., 44.,
+            ],
+            // Legacy aliases used by existing screen implementations.
+            bot: color(0xffffff, 0x222225),
+            user: color(0xdde5f0, 0x2b3a52),
+            user_text: color(0x1c1c1e, 0xeceff5),
+            heatmap_activity,
+            attention: warning,
+            code: color(0x9a4a5e, 0xe3a3b3),
         }
     }
-    pub fn activity_colors() -> [Hsla; 4] {
-        let activity: Hsla = rgb(0x34c759).into();
-        [0.35, 0.55, 0.75, 1.0].map(|opacity| activity.opacity(opacity))
-    }
-    pub fn bean(color: u64) -> Hsla {
+
+    pub fn bean(index: u64) -> Hsla {
         const COLORS: [u32; 10] = [
-            0x9d78d5, 0xffa163, 0x648ade, 0x75ba9a, 0xf07999, 0x75bccc, 0xc1b96d, 0xb9907d,
-            0x8494ad, 0xb88bb7,
+            0x7c93b8, 0x86a894, 0xc6a47e, 0xa08dbf, 0xc48a8a, 0x7fa9ae, 0xb5a36c, 0x9b9b9b,
+            0xc49ab0, 0x8c9bc4,
         ];
-        rgb(COLORS[color as usize % COLORS.len()]).into()
+        solid(COLORS[index as usize % COLORS.len()])
     }
 }
+
+fn solid(hex: u32) -> Hsla {
+    rgb(hex).into()
+}
+
 pub fn sync_theme(cx: &mut App) {
-    let t = Tokens::get(cx);
+    let tokens = Tokens::get(cx);
     let theme = Theme::global_mut(cx);
-    theme.background = t.window;
-    theme.foreground = t.primary;
-    theme.sidebar = t.sidebar;
-    theme.muted = t.bot;
-    theme.muted_foreground = t.secondary;
-    theme.primary = t.accent;
+    theme.background = tokens.window;
+    theme.foreground = tokens.primary;
+    theme.sidebar = tokens.sidebar;
+    theme.muted = tokens.bot;
+    theme.muted_foreground = tokens.secondary;
+    theme.primary = tokens.accent;
 }

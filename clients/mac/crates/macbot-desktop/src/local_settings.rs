@@ -15,6 +15,8 @@ use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 const STORE_FILE: &str = "local-settings.json";
+const TRANSLUCENCY_FILE: &str = "local-translucency.json";
+const SOUND_FILE: &str = "local-sound.json";
 const LAUNCH_AGENT_DIR: &str = "Library/LaunchAgents";
 const LAUNCH_AGENT_FILE: &str = "bot.mac.desktop.plist";
 const BUNDLE_LABEL: &str = "bot.mac.desktop";
@@ -42,6 +44,98 @@ pub fn load() -> Result<LocalSettings> {
 
 pub fn save(settings: &LocalSettings) -> Result<()> {
     save_to_path(&default_store_path()?, settings)
+}
+
+/// Whether native window vibrancy is enabled. This preference is stored
+/// separately so older `LocalSettings` snapshots remain readable.
+pub fn translucent() -> bool {
+    load_translucent().unwrap_or(true)
+}
+
+/// macOS exposes this accessibility preference through Core Foundation's
+/// global preference domain. If it is enabled, use the opaque token set and
+/// tell GPUI not to request a vibrancy material.
+pub fn reduce_transparency_enabled() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use core_foundation::{
+            base::TCFType,
+            boolean::{CFBoolean, CFBooleanRef},
+            string::{CFString, CFStringRef},
+        };
+        use std::ffi::c_void;
+
+        #[link(name = "CoreFoundation", kind = "framework")]
+        unsafe extern "C" {
+            fn CFPreferencesCopyAppValue(
+                key: CFStringRef,
+                application_id: CFStringRef,
+            ) -> *const c_void;
+        }
+
+        let key = CFString::new("AppleReduceTransparency");
+        let domain = CFString::new("Apple Global Domain");
+        let value = unsafe {
+            CFPreferencesCopyAppValue(key.as_concrete_TypeRef(), domain.as_concrete_TypeRef())
+        };
+        if value.is_null() {
+            return false;
+        }
+        let boolean = unsafe { CFBoolean::wrap_under_create_rule(value as CFBooleanRef) };
+        bool::from(boolean)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+pub fn set_translucent(enabled: bool) -> Result<()> {
+    let path = crate::storage_paths::data_file(TRANSLUCENCY_FILE)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("local translucency setting has no parent directory"))?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create local settings directory {}", parent.display()))?;
+    set_mode(parent, 0o700)?;
+    atomic_private_write(&path, if enabled { b"true" } else { b"false" })
+}
+
+pub fn sound_enabled() -> bool {
+    load_sound().unwrap_or(true)
+}
+
+pub fn set_sound_enabled(enabled: bool) -> Result<()> {
+    let path = crate::storage_paths::data_file(SOUND_FILE)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("local sound setting has no parent directory"))?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create local settings directory {}", parent.display()))?;
+    set_mode(parent, 0o700)?;
+    atomic_private_write(&path, if enabled { b"true" } else { b"false" })
+}
+
+fn load_translucent() -> Result<bool> {
+    let path = crate::storage_paths::data_file(TRANSLUCENCY_FILE)?;
+    match fs::read_to_string(&path) {
+        Ok(value) => serde_json::from_str(&value)
+            .with_context(|| format!("decode translucency setting {}", path.display())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
+        Err(error) => {
+            Err(error).with_context(|| format!("read translucency setting {}", path.display()))
+        }
+    }
+}
+
+fn load_sound() -> Result<bool> {
+    let path = crate::storage_paths::data_file(SOUND_FILE)?;
+    match fs::read_to_string(&path) {
+        Ok(value) => serde_json::from_str(&value)
+            .with_context(|| format!("decode sound setting {}", path.display())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
+        Err(error) => Err(error).with_context(|| format!("read sound setting {}", path.display())),
+    }
 }
 
 pub fn set_launch_at_login(enabled: bool) -> Result<()> {

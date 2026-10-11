@@ -79,6 +79,8 @@ pub struct SettingsView {
     rules_synced: bool,
     trace_full: bool,
     local_theme: String,
+    translucent: bool,
+    sound_enabled: bool,
     notifications: bool,
     launch_at_login: bool,
 }
@@ -139,6 +141,8 @@ impl SettingsView {
             rules_synced: false,
             trace_full: false,
             local_theme: local.theme,
+            translucent: crate::local_settings::translucent(),
+            sound_enabled: crate::local_settings::sound_enabled(),
             notifications: local.notifications,
             launch_at_login: local.launch_at_login,
         }
@@ -153,6 +157,8 @@ impl SettingsView {
                 serde_json::from_value::<crate::local_settings::LocalSettings>(local.clone())
         {
             self.local_theme = local.theme;
+            self.translucent = crate::local_settings::translucent();
+            self.sound_enabled = crate::local_settings::sound_enabled();
             self.notifications = local.notifications;
             self.launch_at_login = local.launch_at_login;
         }
@@ -1098,6 +1104,86 @@ impl Render for SettingsView {
                 t("general"),
                 Form::vertical()
                     .child(
+                        Field::new().label(t("appearance")).child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("theme-system")
+                                        .label(t("theme_system"))
+                                        .when(self.local_theme == "system", |button| {
+                                            button.primary()
+                                        })
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.local_theme = "system".into();
+                                            cx.emit(SettingsAction::Theme("system".into()));
+                                            cx.emit(SettingsAction::Local {
+                                                key: "theme".into(),
+                                                value: Value::String("system".into()),
+                                            });
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    Button::new("theme-light")
+                                        .label(t("theme_light"))
+                                        .when(self.local_theme == "light", |button| {
+                                            button.primary()
+                                        })
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.local_theme = "light".into();
+                                            cx.emit(SettingsAction::Theme("light".into()));
+                                            cx.emit(SettingsAction::Local {
+                                                key: "theme".into(),
+                                                value: Value::String("light".into()),
+                                            });
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    Button::new("theme-dark")
+                                        .label(t("theme_dark"))
+                                        .when(self.local_theme == "dark", |button| button.primary())
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.local_theme = "dark".into();
+                                            cx.emit(SettingsAction::Theme("dark".into()));
+                                            cx.emit(SettingsAction::Local {
+                                                key: "theme".into(),
+                                                value: Value::String("dark".into()),
+                                            });
+                                            cx.notify();
+                                        })),
+                                ),
+                        ),
+                    )
+                    .child(
+                        Field::new().child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(
+                                    Checkbox::new("settings-translucent")
+                                        .checked(self.translucent)
+                                        .label(t("translucent"))
+                                        .on_click(cx.listener(|this, checked, _, cx| {
+                                            this.translucent = *checked;
+                                            cx.emit(SettingsAction::Local {
+                                                key: "translucent".into(),
+                                                value: Value::Bool(*checked),
+                                            });
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(tokens.secondary)
+                                        .child(t("translucent_hint")),
+                                ),
+                        ),
+                    )
+                    .child(
                         Field::new().label(t("language")).child(
                             div()
                                 .text_sm()
@@ -1114,6 +1200,21 @@ impl Render for SettingsView {
                                     this.notifications = *checked;
                                     cx.emit(SettingsAction::Local {
                                         key: "notifications".into(),
+                                        value: Value::Bool(*checked),
+                                    });
+                                    cx.notify();
+                                })),
+                        ),
+                    )
+                    .child(
+                        Field::new().label(t("sound")).child(
+                            Checkbox::new("settings-sound")
+                                .checked(self.sound_enabled)
+                                .label(t("sound_enabled"))
+                                .on_click(cx.listener(|this, checked, _, cx| {
+                                    this.sound_enabled = *checked;
+                                    cx.emit(SettingsAction::Local {
+                                        key: "sound_enabled".into(),
                                         value: Value::Bool(*checked),
                                     });
                                     cx.notify();
@@ -1161,48 +1262,6 @@ impl Render for SettingsView {
                     .flex()
                     .gap_2()
                     .child(save_settings)
-                    .child(
-                        Button::new("theme-system")
-                            .label(t("theme_system"))
-                            .when(self.local_theme == "system", |b| b.primary())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.local_theme = "system".into();
-                                cx.emit(SettingsAction::Theme("system".into()));
-                                cx.emit(SettingsAction::Local {
-                                    key: "theme".into(),
-                                    value: Value::String("system".into()),
-                                });
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("theme-light")
-                            .label(t("theme_light"))
-                            .when(self.local_theme == "light", |b| b.primary())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.local_theme = "light".into();
-                                cx.emit(SettingsAction::Theme("light".into()));
-                                cx.emit(SettingsAction::Local {
-                                    key: "theme".into(),
-                                    value: Value::String("light".into()),
-                                });
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("theme-dark")
-                            .label(t("theme_dark"))
-                            .when(self.local_theme == "dark", |b| b.primary())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.local_theme = "dark".into();
-                                cx.emit(SettingsAction::Theme("dark".into()));
-                                cx.emit(SettingsAction::Local {
-                                    key: "theme".into(),
-                                    value: Value::String("dark".into()),
-                                });
-                                cx.notify();
-                            })),
-                    )
                     .child(
                         Button::new("settings-host")
                             .label(t("host"))
