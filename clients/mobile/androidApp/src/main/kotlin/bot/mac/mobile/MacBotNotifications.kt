@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.media.AudioAttributes
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -29,6 +30,8 @@ object MacBotNotifications {
     const val CHANNEL_NEEDS_YOU = "needs-you"
     const val CHANNEL_COMPLETED = "completed"
     const val CHANNEL_MESSAGES = "messages"
+    private const val SOUND_SUFFIX = "-sound"
+    private const val SILENT_SUFFIX = "-silent"
     internal const val DELIVERY_KEY = "macbot.delivery.key"
     internal const val DELIVERY_MARKER = "macbot.delivery.marker"
     private const val ACTION_APPROVAL = "bot.mac.mobile.APPROVAL_ACTION"
@@ -40,15 +43,35 @@ object MacBotNotifications {
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
+        val sound = android.net.Uri.parse("android.resource://${context.packageName}/${R.raw.bubble_pop}")
+        val audio = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
         manager.createNotificationChannels(
-            listOf(
-                NotificationChannel(CHANNEL_NEEDS_YOU, context.getString(R.string.channel_needs_you), NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = context.getString(R.string.channel_needs_you_description)
-                },
-                NotificationChannel(CHANNEL_COMPLETED, context.getString(R.string.channel_completed), NotificationManager.IMPORTANCE_DEFAULT),
-                NotificationChannel(CHANNEL_MESSAGES, context.getString(R.string.channel_messages), NotificationManager.IMPORTANCE_DEFAULT),
-            ),
+            listOf(CHANNEL_NEEDS_YOU, CHANNEL_COMPLETED, CHANNEL_MESSAGES).flatMap { id ->
+                val label = when (id) {
+                    CHANNEL_NEEDS_YOU -> context.getString(R.string.channel_needs_you)
+                    CHANNEL_COMPLETED -> context.getString(R.string.channel_completed)
+                    else -> context.getString(R.string.channel_messages)
+                }
+                listOf(true, false).map { enabled ->
+                    val channel = NotificationChannel(id + if (enabled) SOUND_SUFFIX else SILENT_SUFFIX, label, if (id == CHANNEL_NEEDS_YOU) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT)
+                    if (id == CHANNEL_NEEDS_YOU) channel.description = context.getString(R.string.channel_needs_you_description)
+                    channel.setSound(if (enabled) sound else null, if (enabled) audio else null)
+                    channel
+                }
+            },
         )
+    }
+
+    internal fun channelId(context: Context, kind: NotificationKind): String {
+        val base = when (kind) {
+            NotificationKind.APPROVAL, NotificationKind.NEEDS_YOU -> CHANNEL_NEEDS_YOU
+            NotificationKind.COMPLETED -> CHANNEL_COMPLETED
+            NotificationKind.MESSAGE -> CHANNEL_MESSAGES
+        }
+        return base + if (AppRuntime.repository.notificationSound.value) SOUND_SUFFIX else SILENT_SUFFIX
     }
 
     suspend fun postNeedsYou(context: Context, hostId: String, approvalId: String, title: String, text: String, eventSeq: Long? = null) =
@@ -120,11 +143,7 @@ object MacBotNotifications {
     }
 
     internal fun notification(context: Context, request: PendingNotification): android.app.Notification {
-        val channel = when (request.kind) {
-            NotificationKind.APPROVAL, NotificationKind.NEEDS_YOU -> CHANNEL_NEEDS_YOU
-            NotificationKind.COMPLETED -> CHANNEL_COMPLETED
-            NotificationKind.MESSAGE -> CHANNEL_MESSAGES
-        }
+        val channel = channelId(context, request.kind)
         val icon = when (request.kind) {
             NotificationKind.APPROVAL, NotificationKind.NEEDS_YOU -> android.R.drawable.ic_dialog_alert
             NotificationKind.COMPLETED -> android.R.drawable.stat_sys_download_done
@@ -238,18 +257,14 @@ internal class AndroidNotificationDeliveryBackend(
     private var prepared: Pair<PendingNotification, android.app.Notification>? = null
     override fun allowed(): Boolean = MacBotNotifications.canNotify(context) && notificationsEnabled()
     override fun allowed(request: PendingNotification): Boolean {
-        val channel = when (request.kind) {
-            NotificationKind.APPROVAL, NotificationKind.NEEDS_YOU -> MacBotNotifications.CHANNEL_NEEDS_YOU
-            NotificationKind.COMPLETED -> MacBotNotifications.CHANNEL_COMPLETED
-            NotificationKind.MESSAGE -> MacBotNotifications.CHANNEL_MESSAGES
-        }
+        val channel = MacBotNotifications.channelId(context, request.kind)
         return allowed() && manager.getNotificationChannel(channel)?.importance != NotificationManager.IMPORTANCE_NONE
     }
     override fun active(): List<RetainedNotification> = manager.activeNotifications.map { record ->
         val notification = record.notification
         val priority = when (notification.channelId) {
-            MacBotNotifications.CHANNEL_NEEDS_YOU -> 2
-            MacBotNotifications.CHANNEL_COMPLETED -> if (notification.actions.isNullOrEmpty()) 1 else 2
+            MacBotNotifications.CHANNEL_NEEDS_YOU, MacBotNotifications.CHANNEL_NEEDS_YOU + "-sound", MacBotNotifications.CHANNEL_NEEDS_YOU + "-silent" -> 2
+            MacBotNotifications.CHANNEL_COMPLETED, MacBotNotifications.CHANNEL_COMPLETED + "-sound", MacBotNotifications.CHANNEL_COMPLETED + "-silent" -> if (notification.actions.isNullOrEmpty()) 1 else 2
             else -> 0
         }
         RetainedNotification(

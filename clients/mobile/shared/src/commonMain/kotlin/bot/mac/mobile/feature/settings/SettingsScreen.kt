@@ -46,8 +46,9 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
     val state by repository.state.collectAsState()
     val scope = rememberCoroutineScope()
     val clientRepository = repository as? ClientRepository
-    var dark by remember { mutableStateOf(clientRepository?.theme?.value == "dark") }
+    val themeMode = clientRepository?.theme?.collectAsState()?.value ?: "system"
     var notifications by remember { mutableStateOf(clientRepository?.notifications?.value ?: true) }
+    var notificationSound by remember { mutableStateOf(clientRepository?.notificationSound?.value ?: true) }
     var error by remember { mutableStateOf<String?>(null) }
     var editingProvider by remember { mutableStateOf<JsonObject?>(null) }
     var deletingProvider by remember { mutableStateOf<JsonObject?>(null) }
@@ -119,9 +120,29 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
         LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Text(stringResource(Res.string.feature_appearance), style = MaterialTheme.typography.titleMedium)
-                SettingSwitch(stringResource(Res.string.feature_dark_mode), dark) {
-                    dark = it
-                    scope.launch { clientRepository?.setTheme(if (it) "dark" else "light") }
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("system" to Res.string.feature_theme_system, "light" to Res.string.feature_theme_light, "dark" to Res.string.feature_theme_dark).forEach { (mode, label) ->
+                        FilterChip(
+                            selected = if (themeMode.startsWith("translucent")) themeMode.endsWith(mode) else themeMode == mode,
+                            onClick = { scope.launch { clientRepository?.setTheme(if (themeMode.startsWith("translucent")) "translucent_$mode" else mode) } },
+                            label = { Text(stringResource(label)) },
+                        )
+                    }
+                }
+                SettingSwitch(stringResource(Res.string.feature_translucent), themeMode.startsWith("translucent")) { enabled ->
+                    val base = when {
+                        themeMode.endsWith("dark") -> "dark"
+                        themeMode.endsWith("light") -> "light"
+                        else -> "system"
+                    }
+                    scope.launch { clientRepository?.setTheme(if (enabled) "translucent_$base" else base) }
+                }
+                if (themeMode.startsWith("translucent")) {
+                    Text(stringResource(Res.string.feature_translucent_unavailable), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                SettingSwitch(stringResource(Res.string.feature_notification_sound), notificationSound) {
+                    notificationSound = it
+                    scope.launch { clientRepository?.setNotificationSound(it) }
                 }
                 SettingSwitch(stringResource(Res.string.feature_notifications), notifications) {
                     notifications = it

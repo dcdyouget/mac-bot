@@ -28,8 +28,10 @@ import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
+import bot.mac.mobile.core.network.NetworkError
 import bot.mac.mobile.feature.chat.ChatScreen
 import bot.mac.mobile.feature.chat.StatusLabel
+import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -64,15 +66,84 @@ fun GroupScreen(
     var showChangeInput by remember { mutableStateOf(false) }
     var changeProjectId by remember { mutableStateOf<String?>(null) }
     var showEdit by remember { mutableStateOf(false) }
+    var showAnnouncementEditor by remember { mutableStateOf(false) }
+    var announcementText by remember(projectId) { mutableStateOf(announcement?.str("text").orEmpty()) }
+    var announcementBaseVersion by remember(projectId) { mutableStateOf(announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L) }
+    var announcementConflict by remember { mutableStateOf<JsonObject?>(null) }
+    var announcementSaving by remember { mutableStateOf(false) }
     var editName by remember(projectId) { mutableStateOf(project?.str("name").orEmpty()) }
-    var editGoal by remember(projectId) { mutableStateOf(project?.str("goal").orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(project?.str("name"), project?.str("goal")) {
+    LaunchedEffect(announcement?.str("version"), showAnnouncementEditor) {
+        if (!showAnnouncementEditor || announcementConflict == null) announcementText = announcement?.str("text").orEmpty()
+    }
+
+    if (showAnnouncementEditor) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showAnnouncementEditor = false; announcementConflict = null },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(Modifier.fillMaxSize().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { showAnnouncementEditor = false; announcementConflict = null }) { Text(stringResource(Res.string.feature_back)) }
+                        Text(stringResource(Res.string.feature_announcement_edit), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                        Button(enabled = !announcementSaving && announcementText.length <= 8000, onClick = {
+                            announcementSaving = true
+                            scope.launch {
+                                runCatching {
+                                    repository.call("announcement.update", buildJsonObject {
+                                        put("project_id", projectId); put("text", announcementText); put("base_version", announcementBaseVersion)
+                                    })
+                                }.onSuccess {
+                                    announcementConflict = null
+                                    showAnnouncementEditor = false
+                                }.onFailure { failure ->
+                                    val network = failure as? NetworkError
+                                    val latest = network?.details?.obj("details")?.obj("announcement")
+                                    if (network?.code == "conflict" && latest != null) {
+                                        announcementConflict = latest
+                                        announcementBaseVersion = latest["version"]?.toString()?.trim('"')?.toLongOrNull() ?: announcementBaseVersion
+                                    }
+                                    else error = failure.message
+                                }
+                                announcementSaving = false
+                            }
+                        }) { Text(stringResource(Res.string.common_save)) }
+                    }
+                    Text(stringResource(Res.string.feature_announcement_edit_hint), style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("#", "**", "• ", "1. ", "`", "[ ]()").forEach { syntax ->
+                            FilterChip(selected = false, onClick = { announcementText += syntax }, label = { Text(syntax) })
+                        }
+                    }
+                    OutlinedTextField(
+                        value = announcementText, onValueChange = { announcementText = it.take(8000) },
+                        modifier = Modifier.fillMaxWidth().weight(1f), minLines = 8,
+                        label = { Text(stringResource(Res.string.feature_announcement_body)) },
+                        supportingText = { Text(stringResource(Res.string.feature_announcement_version, announcement?.str("version").orEmpty(), announcementText.length)) },
+                    )
+                    announcementConflict?.let { latest ->
+                        Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.medium) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(stringResource(Res.string.feature_announcement_conflict), color = MaterialTheme.colorScheme.onErrorContainer)
+                                Text(latest.str("text"), maxLines = 5, color = MaterialTheme.colorScheme.onErrorContainer)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = { announcementText = latest.str("text"); announcementBaseVersion = latest["version"]?.toString()?.trim('"')?.toLongOrNull() ?: announcementBaseVersion; announcementConflict = null }) { Text(stringResource(Res.string.feature_announcement_load_latest)) }
+                                    Button(onClick = { announcementBaseVersion = latest["version"]?.toString()?.trim('"')?.toLongOrNull() ?: announcementBaseVersion; announcementConflict = null }) { Text(stringResource(Res.string.feature_announcement_keep_draft)) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(project?.str("name")) {
         if (!showEdit) {
             editName = project?.str("name").orEmpty()
-            editGoal = project?.str("goal").orEmpty()
         }
     }
 
@@ -89,15 +160,15 @@ fun GroupScreen(
                 project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
             }
             Button(onClick = { showAnnouncement = !showAnnouncement }) { Text(stringResource(Res.string.feature_announcement)) }
+            Button(onClick = { announcementText = announcement?.str("text").orEmpty(); announcementBaseVersion = announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L; showAnnouncementEditor = true }) { Text(stringResource(Res.string.feature_edit)) }
             Button(onClick = { showEdit = !showEdit }) { Text(stringResource(Res.string.feature_edit_group)) }
         }
         if (showEdit) {
             Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(editName, { editName = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_group_name)) })
-                OutlinedTextField(editGoal, { editGoal = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_goal)) })
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
-                        scope.launch { runCatching { repository.call("project.update", buildJsonObject { put("project_id", projectId); put("patch", buildJsonObject { put("name", editName.trim()); put("goal", editGoal.trim()) }) }) }.onFailure { error = it.message } }
+                        scope.launch { runCatching { repository.call("project.update", buildJsonObject { put("project_id", projectId); put("patch", buildJsonObject { put("name", editName.trim()) }) }) }.onFailure { error = it.message } }
                         showEdit = false
                     }) { Text(stringResource(Res.string.feature_save_group)) }
                 }
@@ -220,7 +291,7 @@ fun GroupCreateScreen(
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(stringResource(Res.string.feature_create_group), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) }
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_group_name)) })
-        OutlinedTextField(goal, { goal = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text(stringResource(Res.string.feature_goal)) })
+        OutlinedTextField(goal, { goal = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text(stringResource(Res.string.feature_announcement_body)) })
         Text(stringResource(Res.string.feature_group_members), style = MaterialTheme.typography.titleSmall)
         state.bots.filter { !it.boolean("is_main") && !it.boolean("hidden") }.forEach { bot ->
             val id = bot.str("id").takeIf { it.isNotBlank() } ?: return@forEach
@@ -233,12 +304,12 @@ fun GroupCreateScreen(
             )
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Button(enabled = name.isNotBlank() && goal.isNotBlank() && selected.size in 1..6, onClick = {
+        Button(enabled = name.isNotBlank() && selected.size in 1..6, onClick = {
             scope.launch {
                 runCatching {
                     repository.call("project.create", buildJsonObject {
                         put("name", name.trim())
-                        put("goal", goal.trim())
+                        if (goal.isNotBlank()) put("announcement", goal.trim())
                         put("member_bot_ids", buildJsonArray { selected.forEach { add(JsonPrimitive(it)) } })
                     })
                 }.onSuccess { result ->
@@ -261,11 +332,10 @@ private fun AnnouncementPanel(
     Surface(Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
         Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(stringResource(Res.string.feature_announcement_title, project?.str("name") ?: ""), style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(stringResource(Res.string.feature_status_value, ""))
-                project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
-            }
-            Text(stringResource(Res.string.feature_goal_value, project?.str("goal") ?: ""))
+            project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+            if (announcement?.str("text").orEmpty().isNotBlank()) MarkdownText(announcement?.str("text").orEmpty(), Modifier.fillMaxWidth())
+            else Text(stringResource(Res.string.feature_announcement_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            announcement?.str("text_updated_at")?.takeIf { it.isNotBlank() }?.let { Text(stringResource(Res.string.feature_announcement_updated, it), style = MaterialTheme.typography.bodySmall) }
             val home = project?.str("home_path").orEmpty()
             Text(stringResource(Res.string.feature_home_value, home))
             if (home.isNotBlank()) {
@@ -274,16 +344,16 @@ private fun AnnouncementPanel(
                     Button(onClick = { onCopyHome(home) }) { Text(stringResource(Res.string.feature_home_copy)) }
                 }
             }
-            val flow = project?.arr("flow").orEmpty()
-            if (flow.isNotEmpty()) Text(stringResource(Res.string.feature_flow_value, flow.joinToString(" → ") { it.toString().trim('"') }))
-            announcement?.arr("highlights")?.forEach { item -> Text("· ${(item as? JsonObject)?.str("text") ?: item}") }
             announcement?.arr("artifacts")?.forEach { item ->
                 val artifact = item as? JsonObject ?: return@forEach
                 val artifactId = artifact.str("id")
                 val pathOrUrl = artifact.str("path_or_url")
                 if (artifactId.isNotBlank() && pathOrUrl.isNotBlank()) {
-                    Button(onClick = { onOpenArtifact(artifactId, pathOrUrl, project?.str("id")) }) {
-                        Text("▤ ${artifact.str("title").ifBlank { pathOrUrl }}")
+                    Column {
+                        Text(stringResource(Res.string.feature_artifact_author, artifact.str("bot_id").ifBlank { stringResource(Res.string.feature_bot) }), style = MaterialTheme.typography.labelSmall)
+                        Button(onClick = { onOpenArtifact(artifactId, pathOrUrl, project?.str("id")) }) {
+                            Text("▤ ${artifact.str("title").ifBlank { pathOrUrl }}")
+                        }
                     }
                 }
             }

@@ -83,11 +83,19 @@ class MainActivity : ComponentActivity() {
             val configuration = LocalConfiguration.current
             val systemDark = (configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
-            val dark = theme == "dark" || theme == "system" && systemDark
-            DisposableEffect(dark) {
-                val barColor = if (dark) Color(0xFF1C1C1E) else Color(0xFFF7F7FA)
+            val dark = theme == "dark" || theme == "translucent_dark" ||
+                (theme == "system" || theme == "translucent_system") && systemDark
+            val translucent = theme.startsWith("translucent")
+            DisposableEffect(dark, translucent) {
+                val barColor = when {
+                    translucent && dark -> Color(0xB2141416)
+                    translucent -> Color(0x94F3F3F1)
+                    dark -> Color(0xFF18181A)
+                    else -> Color(0xFFFBFBFA)
+                }
                 window.statusBarColor = barColor.toArgb()
                 window.navigationBarColor = barColor.toArgb()
+                if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
                 WindowCompat.getInsetsController(window, window.decorView).apply {
                     isAppearanceLightStatusBars = !dark
                     isAppearanceLightNavigationBars = !dark

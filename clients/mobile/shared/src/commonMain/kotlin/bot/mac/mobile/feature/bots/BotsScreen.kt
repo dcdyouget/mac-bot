@@ -1,6 +1,9 @@
 package bot.mac.mobile.feature.bots
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,8 +26,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import bot.mac.mobile.core.design.BotAvatar
+import bot.mac.mobile.core.protocol.arr
+import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
@@ -39,6 +46,8 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 @Composable
 fun BotsScreen(
@@ -46,6 +55,7 @@ fun BotsScreen(
     onOpenBot: (String) -> Unit = {},
     onCreate: () -> Unit = {},
     onBack: () -> Unit = {},
+    onOpenDetail: (String) -> Unit = onOpenBot,
 ) {
     val state by repository.state.collectAsState()
     var templates by remember { mutableStateOf(emptyList<JsonObject>()) }
@@ -60,14 +70,14 @@ fun BotsScreen(
     LaunchedEffect(Unit) {
         runCatching { templates = repository.call("bot.templates", buildJsonObject {}).objects("templates") }.onFailure { listError = it.message }
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(14.dp)) {
-        Row(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
             Text(stringResource(Res.string.feature_bot_management), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
             Button(onClick = onCreate) { Text("＋ ${stringResource(Res.string.feature_new_bot)}") }
         }
-        listError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = showHidden, onClick = { showHidden = !showHidden }, label = {
                 Text(stringResource(if (showHidden) Res.string.feature_hide_hidden else Res.string.feature_show_hidden))
             })
@@ -112,31 +122,152 @@ fun BotsScreen(
                 dismissButton = { TextButton(onClick = { selectedTemplate = null }) { Text(stringResource(Res.string.common_cancel)) } },
             )
         }
-        LazyColumn(Modifier.fillMaxSize().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.bots.filter { showHidden || !it.boolean("hidden") }, key = { it.str("id").ifBlank { "bot:${it.hashCode()}" } }) { bot ->
-                BotRow(bot, onOpenBot)
+        val visibleBots = state.bots.filter { showHidden || !it.boolean("hidden") }
+        val mainBot = visibleBots.firstOrNull { it.boolean("is_main") }
+        val regularBots = visibleBots.filterNot { it.boolean("is_main") }
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (mainBot != null) {
+                item { Text(stringResource(Res.string.feature_bot_main), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp)) }
+                item { BotRow(repository, mainBot, onOpenDetail, onOpenBot) }
+            }
+            if (regularBots.isNotEmpty()) {
+                item { Text(stringResource(Res.string.feature_bot), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 2.dp)) }
+                items(regularBots, key = { it.str("id").ifBlank { "bot:${it.hashCode()}" } }) { bot ->
+                    BotRow(repository, bot, onOpenDetail, onOpenBot)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun BotRow(bot: JsonObject, onOpen: (String) -> Unit) {
+private fun BotRow(repository: MobileRepository, bot: JsonObject, onOpen: (String) -> Unit, onEdit: (String) -> Unit) {
     val id = bot.str("id")
     val status = bot.obj("status")
-    Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-        Text(bot.str("name").ifBlank { id }, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-        Column(Modifier.weight(1f)) {
-            Text(bot.str("label"))
+    Row(
+        Modifier.fillMaxWidth().height(68.dp).clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceVariant).clickable { onOpen(id) }.padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            BotAvatar(repository, bot, main = bot.boolean("is_main"), status = status?.str("summary").orEmpty())
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(bot.str("name").ifBlank { id }, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+            Text(bot.str("label").ifBlank { bot.str("description") }, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        }
+        Column(horizontalAlignment = Alignment.End) {
             val summary = status?.str("summary").orEmpty()
-            val active = status?.str("active").orEmpty().ifBlank { "0" }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (summary.isNotBlank()) StatusLabel(summary) else Text(stringResource(Res.string.feature_idle), style = MaterialTheme.typography.labelSmall)
-                Text(stringResource(Res.string.feature_active_count, active), style = MaterialTheme.typography.labelSmall)
+            val active = status?.long("active") ?: 0L
+            if (summary.isNotBlank()) StatusLabel(summary) else Text(stringResource(Res.string.feature_idle), style = MaterialTheme.typography.labelSmall)
+            if (active > 0) Text(stringResource(Res.string.feature_active_count, active.toString()), style = MaterialTheme.typography.labelSmall)
+        }
+        TextButton(onClick = { onEdit(id) }) { Text(stringResource(Res.string.feature_edit)) }
+    }
+}
+
+/** Bot profile with live group, assignment history, and usage data from protocol RPCs. */
+@Composable
+fun BotDetailScreen(
+    repository: MobileRepository,
+    botId: String,
+    onOpenChat: (String) -> Unit = {},
+    onOpenScreen: (String) -> Unit = {},
+    onOpenRoutines: (String) -> Unit = {},
+    onOpenHistory: (String) -> Unit = {},
+    onEdit: (String) -> Unit = {},
+    onBack: () -> Unit = {},
+) {
+    val state by repository.state.collectAsState()
+    val bot = state.bots.firstOrNull { it.str("id") == botId }
+    var groups by remember(botId) { mutableStateOf(emptyList<JsonObject>()) }
+    var assignments by remember(botId) { mutableStateOf(emptyList<JsonObject>()) }
+    var usage by remember(botId) { mutableStateOf<JsonObject?>(null) }
+    var error by remember(botId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(botId, state.connected) {
+        if (!state.connected) return@LaunchedEffect
+        runCatching {
+            repository.call("bot.get", buildJsonObject { put("bot_id", botId) })
+            val projects = repository.call("project.list", buildJsonObject {}).objects("projects")
+            val history = repository.call("assignment.list", buildJsonObject { put("bot_id", botId); put("limit", 5) }).objects("items")
+            val now = Clock.System.now()
+            val from = Instant.fromEpochMilliseconds(now.toEpochMilliseconds() - 7L * 86_400_000L).toString()
+            val usageRows = repository.call("usage.breakdown", buildJsonObject {
+                put("from", from); put("to", now.toString()); put("dimension", "bot")
+            }).objects("rows")
+            groups = projects.filter { project -> project.arr("members").any { (it as? JsonObject)?.str("bot_id") == botId } }
+            assignments = history
+            usage = usageRows.firstOrNull { it.str("key") == botId || it.str("id") == botId }?.obj("usage")
+        }.onFailure { error = it.message ?: "" }
+    }
+    if (bot == null) {
+        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+            Text(stringResource(Res.string.feature_loading), style = MaterialTheme.typography.titleMedium)
+        }
+        return
+    }
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+            Text(bot.str("name"), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge, maxLines = 1)
+            TextButton(onClick = { onEdit(botId) }) { Text(stringResource(Res.string.feature_edit)) }
+        }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.size(72.dp), contentAlignment = Alignment.Center) { BotAvatar(repository, bot) }
+                    Text(bot.str("name"), style = MaterialTheme.typography.titleLarge)
+                    Text(listOf(bot.str("label"), bot.str("model")).filter(String::isNotBlank).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DetailShortcut(Modifier.weight(1f), stringResource(Res.string.feature_open_chat), onClick = { onOpenChat(bot.str("dm_chat_id")) })
+                        DetailShortcut(Modifier.weight(1f), stringResource(Res.string.feature_open_screen), onClick = { onOpenScreen(botId) })
+                        DetailShortcut(Modifier.weight(1f), stringResource(Res.string.nav_routines), onClick = { onOpenRoutines(botId) })
+                        DetailShortcut(Modifier.weight(1f), stringResource(Res.string.feature_settings), onClick = { onEdit(botId) })
+                    }
+                }
+            }
+            item { Text(stringResource(Res.string.feature_group), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp)) }
+            if (groups.isEmpty()) item { Text(stringResource(Res.string.feature_history_empty), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) }
+            items(groups, key = { it.str("id") }) { project ->
+                Row(Modifier.fillMaxWidth().height(56.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(project.str("name"), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    Text(project.arr("members").mapNotNull { it as? JsonObject }.firstOrNull { it.str("bot_id") == botId }?.str("state").orEmpty(), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item { Text(stringResource(Res.string.feature_history_title), Modifier.padding(start = 4.dp, top = 6.dp).clickable { onOpenHistory(botId) }, style = MaterialTheme.typography.titleSmall) }
+            if (assignments.isEmpty()) item { Text(stringResource(Res.string.feature_history_empty), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) }
+            items(assignments, key = { it.str("id") }) { assignment ->
+                Row(Modifier.fillMaxWidth().height(52.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(assignment.str("title").ifBlank { assignment.str("instruction") }.ifBlank { assignment.str("status") }, Modifier.weight(1f), maxLines = 1)
+                    Text(assignment.str("status"), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item { Text(stringResource(Res.string.dashboard_title), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val tokens = (usage?.long("input_tokens") ?: 0L) + (usage?.long("output_tokens") ?: 0L)
+                    UsageStat(tokens.toString(), Modifier.weight(1f))
+                    UsageStat(usage?.get("cost")?.toString()?.trim('"') ?: "—", Modifier.weight(1f))
+                }
             }
         }
-        if (bot.boolean("is_main")) Text(stringResource(Res.string.feature_bot_main), style = MaterialTheme.typography.labelSmall)
-        Button(onClick = { onOpen(id) }) { Text(stringResource(Res.string.feature_edit)) }
+    }
+}
+
+@Composable
+private fun DetailShortcut(modifier: Modifier, label: String, onClick: () -> Unit) {
+    Column(modifier.height(64.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceVariant).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Text(label, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+    }
+}
+
+@Composable
+private fun UsageStat(value: String, modifier: Modifier = Modifier) {
+    Column(modifier.height(72.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp), verticalArrangement = Arrangement.Center) {
+        Text(value, style = MaterialTheme.typography.titleMedium)
     }
 }
 

@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -108,10 +109,24 @@ import org.jetbrains.compose.resources.stringResource
         changesProject?.let { projectId -> AlertDialog(onDismissRequest={changesProject=null},title={Text(stringResource(Res.string.review_changes_title))},text={Column { OutlinedTextField(changesText,{changesText=it},label={Text(stringResource(Res.string.review_changes_hint))});actionError?.let{Text(it,color=MaterialTheme.colorScheme.error)} }},confirmButton={TextButton(enabled=changesText.isNotBlank(),onClick={scope.launch{runCatching{repository.call("project.request_changes",jsonParams("project_id" to projectId,"text" to changesText))}.onSuccess{changesProject=null}.onFailure{actionError=it.message}}}){Text(stringResource(Res.string.review_changes_submit))}},dismissButton={TextButton(onClick={changesProject=null}){Text(stringResource(Res.string.common_cancel))}}) }
         Surface(Modifier.fillMaxSize()) {
             Scaffold(
+                containerColor = LocalMobilePalette.current.window,
                 bottomBar = {
-                    if (page == "home" && hosts.isNotEmpty()) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                    if (page == "home" && hosts.isNotEmpty()) NavigationBar(
+                        modifier = Modifier.height(80.dp),
+                        containerColor = LocalMobilePalette.current.sidebar,
+                        contentColor = LocalMobilePalette.current.textSecondary,
+                    ) {
                         listOf(Res.string.tab_messages, Res.string.tab_workbench, Res.string.tab_mine).forEachIndexed { index, label ->
-                            NavigationBarItem(selected = tab == index, onClick = { tab = index }, icon = { Text(listOf("▢", "▦", "⚙")[index]) }, label = { Text(stringResource(label)) })
+                            NavigationBarItem(
+                                selected = tab == index, onClick = { tab = index },
+                                icon = { Text(listOf("◉", "⟳", "○")[index], style = MaterialTheme.typography.titleMedium) },
+                                label = { Text(stringResource(label)) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = LocalMobilePalette.current.accent,
+                                    selectedTextColor = LocalMobilePalette.current.textPrimary,
+                                    indicatorColor = LocalMobilePalette.current.accentSoft,
+                                ),
+                            )
                         }
                     }
                 }
@@ -126,7 +141,7 @@ import org.jetbrains.compose.resources.stringResource
                             connection.status == ConnectionStatus.CONNECTING -> Res.string.host_connecting
                             else -> Res.string.host_reconnecting
                         }
-                        Text(stringResource(message), Modifier.fillMaxWidth().background(DesignTokens.attention.copy(alpha=.12f)).clickable { open("connect") }.padding(8.dp), style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(message), Modifier.fillMaxWidth().background(LocalMobilePalette.current.warningSoft).clickable { open("connect") }.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = LocalMobilePalette.current.warning)
                     }
                     when {
                         page == "connect" || hosts.isEmpty() -> ConnectScreen(repository, back)
@@ -139,7 +154,17 @@ import org.jetbrains.compose.resources.stringResource
                             val hostId=repository.activeHost.value?.id
                             if(assignment!=null && hostId!=null) scope.launch { runCatching { repository.callOnHost(hostId,"chat.send",buildSteerChatParams(assignment, text)) }.onFailure{actionError=it.message} }
                         })
-                        page == "bots" -> BotsScreen(repository, { open("bot_editor", it) }, { open("bot_editor") }, back)
+                        page == "bots" -> BotsScreen(repository, { open("bot_editor", it) }, { open("bot_editor") }, back, onOpenDetail = { open("bot_detail", it) })
+                        page == "bot_detail" -> BotDetailScreen(
+                            repository = repository,
+                            botId = target,
+                            onOpenChat = { openChat(it) },
+                            onOpenScreen = { open("computer", it) },
+                            onOpenRoutines = { open("routines") },
+                            onOpenHistory = { tab = 1; page = "home"; target = ""; secondTarget = "" },
+                            onEdit = { open("bot_editor", it) },
+                            onBack = back,
+                        )
                         page == "bot_editor" -> BotEditorScreen(repository, target.ifBlank { null }, { open("bots") }, back)
                         page == "settings" -> SettingsScreen(repository, back)
                         page == "approvals" -> ApprovalScreen(repository, back)
@@ -178,20 +203,20 @@ import org.jetbrains.compose.resources.stringResource
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun MessagesScreen(repository: ClientRepository, onChat: (String)->Unit, onHost: ()->Unit, onSearch: ()->Unit, onGroup: ()->Unit, onBot: ()->Unit) {
     val state by repository.state.collectAsState()
     val active by repository.activeHost.collectAsState()
-    var add by remember { mutableStateOf(false) }
+    var newSheet by remember { mutableStateOf(false) }
+    var hostSheet by remember { mutableStateOf(false) }
     var completed by remember { mutableStateOf(false) }
+    val hostStatuses by repository.hostStatuses.collectAsState()
     val scope = rememberCoroutineScope()
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp, vertical=8.dp), verticalAlignment=Alignment.CenterVertically) {
-            TextButton(onClick=onHost, modifier=Modifier.weight(1f)) { Text("${active?.name.orEmpty()} ⌄", style=MaterialTheme.typography.titleMedium) }
+        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal=16.dp), verticalAlignment=Alignment.CenterVertically) {
+            TextButton(onClick={hostSheet=true}, modifier=Modifier.weight(1f)) { Text("${active?.name.orEmpty()} ⌄", style=MaterialTheme.typography.titleMedium) }
             TextButton(onClick=onSearch) { Text("⌕", style=MaterialTheme.typography.headlineSmall) }
-            Box { TextButton(onClick={add=true}) { Text("＋",style=MaterialTheme.typography.headlineSmall) }; DropdownMenu(expanded=add,onDismissRequest={add=false}) {
-                DropdownMenuItem(text={Text(stringResource(Res.string.new_group))},onClick={add=false;onGroup()})
-                DropdownMenuItem(text={Text(stringResource(Res.string.new_bot))},onClick={add=false;onBot()})
-            } }
         }
         HorizontalDivider()
         LazyColumn(Modifier.weight(1f), contentPadding=PaddingValues(vertical=8.dp)) {
@@ -207,6 +232,45 @@ import org.jetbrains.compose.resources.stringResource
             items(state.chats.filter { it.str("kind") in listOf("direct","bot_dm") && state.bots.firstOrNull { b->b.str("id")==it.str("bot_id") }?.boolean("hidden")!=true }.sortedByDescending{it.boolean("pinned")},key={it.str("id")}) { ChatRow(it,state,onChat,repository) }
         }
     }
+    androidx.compose.material3.FloatingActionButton(
+        onClick = { newSheet = true },
+        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).size(MobileLayout.fab),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        containerColor = LocalMobilePalette.current.accent,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+    ) { Text("＋", style = MaterialTheme.typography.headlineSmall) }
+    }
+    if (newSheet) androidx.compose.material3.ModalBottomSheet(onDismissRequest = { newSheet = false }) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(Res.string.common_new), style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = { newSheet = false; onGroup() }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.new_group), Modifier.fillMaxWidth()) }
+            TextButton(onClick = { newSheet = false; onBot() }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.new_bot), Modifier.fillMaxWidth()) }
+        }
+    }
+    if (hostSheet) androidx.compose.material3.ModalBottomSheet(onDismissRequest = { hostSheet = false }) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(Res.string.host_switch), style = MaterialTheme.typography.titleMedium)
+            repository.hosts.value.forEach { host ->
+                TextButton(onClick = {
+                    scope.launch { repository.selectHost(host.id); hostSheet = false }
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+                        Text("${if (active?.id == host.id) "✓ " else ""}${host.name}", style = MaterialTheme.typography.titleSmall)
+                        Text(host.addresses.firstOrNull().orEmpty(), style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            when (hostStatuses[host.id]?.status) {
+                                ConnectionStatus.CONNECTED -> stringResource(Res.string.host_online)
+                                ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> stringResource(Res.string.host_reconnecting)
+                                else -> stringResource(Res.string.host_offline)
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            }
+            Button(onClick = { hostSheet = false; onHost() }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.host_add)) }
+        }
+    }
 }
 @Composable private fun ChatRow(chat:JsonObject,state:MobileState,onChat:(String)->Unit,repository:ClientRepository) {
     val bot=state.bots.firstOrNull { it.str("id")==chat.str("bot_id") }
@@ -217,8 +281,9 @@ import org.jetbrains.compose.resources.stringResource
     val scope=rememberCoroutineScope()
     LaunchedEffect(menu) { if (!menu) suppressNextClick = false }
     Row(
-        Modifier
+            Modifier
             .fillMaxWidth()
+            .heightIn(min = 72.dp)
             .pointerInput(chat.str("id"), swipeThreshold) {
                 var swipeDistance = 0f
                 detectHorizontalDragGestures(
@@ -249,7 +314,10 @@ import org.jetbrains.compose.resources.stringResource
             Text(chat.obj("last_message").str("text"),maxLines=1,color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
         }
         Column(horizontalAlignment=Alignment.End) {
-            if(attention in listOf("waiting_user","review","blocked","working")) Text(when(attention){"waiting_user"->"⚠";"review"->"◎";"blocked"->"!";else->"⟳"},color=if(attention in listOf("waiting_user","review")) DesignTokens.attention else DesignTokens.accent)
+            if(attention in listOf("waiting_user","review","blocked","working")) Text(
+                when(attention){"waiting_user"->"⚠";"review"->"◎";"blocked"->"!";else->"⟳"},
+                color=when(attention){"waiting_user"->LocalMobilePalette.current.warning;"review"->LocalMobilePalette.current.review;"blocked"->LocalMobilePalette.current.danger;else->LocalMobilePalette.current.accent},
+            )
             if(chat.long("unread")>0) Badge { Text(chat.long("unread").toString()) }
         }
         Box { TextButton(onClick={menu=true}) { Text("⋮") }; DropdownMenu(menu,{menu=false}) {

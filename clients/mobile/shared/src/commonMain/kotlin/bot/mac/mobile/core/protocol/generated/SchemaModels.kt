@@ -50,13 +50,22 @@ data class Highlight(override val raw: JsonObject) : RawProtocolModel {
 }
 object HighlightSerializer : RawModelSerializer<Highlight>(::Highlight)
 
+@Serializable(with = SenderSerializer::class)
+data class Sender(override val raw: JsonObject) : RawProtocolModel {
+}
+object SenderSerializer : RawModelSerializer<Sender>(::Sender)
+
 @Serializable(with = AnnouncementSerializer::class)
 data class Announcement(override val raw: JsonObject) : RawProtocolModel {
     val artifacts: List<Artifact> get() = raw.arr("artifacts").mapNotNull { (it as? JsonObject)?.let(::Artifact) }
     val highlights: List<Highlight> get() = raw.arr("highlights").mapNotNull { (it as? JsonObject)?.let(::Highlight) }
     val members: List<AnnouncementMember> get() = raw.arr("members").mapNotNull { (it as? JsonObject)?.let(::AnnouncementMember) }
     val projectId: String get() = raw.str("project_id")
+    val text: String? get() = raw.stringOrNull("text")
+    val textUpdatedAt: String? get() = raw.stringOrNull("text_updated_at")
+    val textUpdatedBy: JsonElement? get() = raw["text_updated_by"]
     val updatedAt: String get() = raw.str("updated_at")
+    val version: Long? get() = raw.longOrNull("version")
 }
 object AnnouncementSerializer : RawModelSerializer<Announcement>(::Announcement)
 
@@ -75,11 +84,6 @@ data class Approval(override val raw: JsonObject) : RawProtocolModel {
     val tool: String get() = raw.str("tool")
 }
 object ApprovalSerializer : RawModelSerializer<Approval>(::Approval)
-
-@Serializable(with = SenderSerializer::class)
-data class Sender(override val raw: JsonObject) : RawProtocolModel {
-}
-object SenderSerializer : RawModelSerializer<Sender>(::Sender)
 
 @Serializable(with = SteerSerializer::class)
 data class Steer(override val raw: JsonObject) : RawProtocolModel {
@@ -136,6 +140,8 @@ object AssignmentSerializer : RawModelSerializer<Assignment>(::Assignment)
 @Serializable(with = ArtifactRefSerializer::class)
 data class ArtifactRef(override val raw: JsonObject) : RawProtocolModel {
     val artifactId: String get() = raw.str("artifact_id")
+    val botId: String? get() = raw.stringOrNull("bot_id")
+    val kind: String? get() = raw.stringOrNull("kind")
     val pathOrUrl: String get() = raw.str("path_or_url")
     val title: String get() = raw.str("title")
 }
@@ -361,6 +367,7 @@ data class Message(override val raw: JsonObject) : RawProtocolModel {
     val id: String get() = raw.str("id")
     val intent: String? get() = raw.stringOrNull("intent")
     val mentions: List<Mention> get() = raw.arr("mentions").mapNotNull { (it as? JsonObject)?.let(::Mention) }
+    val quote: Quote? get() = raw["quote"]?.jsonObject?.let(::Quote)
     val reactions: List<Reaction> get() = raw.arr("reactions").mapNotNull { (it as? JsonObject)?.let(::Reaction) }
     val replyTo: String? get() = raw.stringOrNull("reply_to")
     val sender: Sender get() = Sender(raw.obj("sender"))
@@ -473,6 +480,7 @@ data class Question(override val raw: JsonObject) : RawProtocolModel {
     val botId: String get() = raw.str("bot_id")
     val chatId: String get() = raw.str("chat_id")
     val id: String get() = raw.str("id")
+    val multi: Boolean? get() = raw.boolOrNull("multi")
     val options: List<String> get() = raw.arr("options").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val state: String get() = raw.str("state")
     val text: String get() = raw.str("text")
@@ -483,9 +491,18 @@ object QuestionSerializer : RawModelSerializer<Question>(::Question)
 data class QuestionAnswer(override val raw: JsonObject) : RawProtocolModel {
     val at: String get() = raw.str("at")
     val optionIndex: Long? get() = raw.longOrNull("option_index")
+    val optionIndexes: List<Long>? get() = if (raw["option_indexes"] == null) null else raw.arr("option_indexes").mapNotNull { (it as? JsonPrimitive)?.longOrNull }
     val text: String? get() = raw.stringOrNull("text")
 }
 object QuestionAnswerSerializer : RawModelSerializer<QuestionAnswer>(::QuestionAnswer)
+
+@Serializable(with = QuoteSerializer::class)
+data class Quote(override val raw: JsonObject) : RawProtocolModel {
+    val excerpt: String get() = raw.str("excerpt")
+    val messageId: String get() = raw.str("message_id")
+    val sender: Sender get() = Sender(raw.obj("sender"))
+}
+object QuoteSerializer : RawModelSerializer<Quote>(::Quote)
 
 @Serializable(with = ReactionSerializer::class)
 data class Reaction(override val raw: JsonObject) : RawProtocolModel {
@@ -669,6 +686,15 @@ data class EventFrame(override val raw: JsonObject) : RawProtocolModel {
 }
 object EventFrameSerializer : RawModelSerializer<EventFrame>(::EventFrame)
 
+@Serializable(with = AnnouncementUpdateParamsSerializer::class)
+data class AnnouncementUpdateParams(override val raw: JsonObject) : RawProtocolModel {
+    val baseVersion: Long get() = raw.long("base_version")
+    val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
+    val projectId: String get() = raw.str("project_id")
+    val text: String get() = raw.str("text")
+}
+object AnnouncementUpdateParamsSerializer : RawModelSerializer<AnnouncementUpdateParams>(::AnnouncementUpdateParams)
+
 @Serializable(with = ApprovalDecideParamsSerializer::class)
 data class ApprovalDecideParams(override val raw: JsonObject) : RawProtocolModel {
     val approvalId: String get() = raw.str("approval_id")
@@ -828,6 +854,8 @@ data class ChatSendParams(override val raw: JsonObject) : RawProtocolModel {
     val chatId: String get() = raw.str("chat_id")
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
     val mentions: List<Mention> get() = raw.arr("mentions").mapNotNull { (it as? JsonObject)?.let(::Mention) }
+    val quote: String? get() = raw.stringOrNull("quote")
+    val quoteMode: String? get() = raw.stringOrNull("quote_mode")
     val replyTo: String? get() = raw.stringOrNull("reply_to")
     val text: String get() = raw.str("text")
 }
@@ -942,10 +970,8 @@ object ProjectConfirmDoneParamsSerializer : RawModelSerializer<ProjectConfirmDon
 
 @Serializable(with = ProjectCreateParamsSerializer::class)
 data class ProjectCreateParams(override val raw: JsonObject) : RawProtocolModel {
+    val announcement: String? get() = raw.stringOrNull("announcement")
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
-    val deadline: String? get() = raw.stringOrNull("deadline")
-    val flow: List<String>? get() = if (raw["flow"] == null) null else raw.arr("flow").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-    val goal: String get() = raw.str("goal")
     val memberBotIds: List<String> get() = raw.arr("member_bot_ids").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val name: String get() = raw.str("name")
 }
@@ -1045,6 +1071,7 @@ object ProviderUpdateParamsSerializer : RawModelSerializer<ProviderUpdateParams>
 data class QuestionAnswerParams(override val raw: JsonObject) : RawProtocolModel {
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
     val optionIndex: Long? get() = raw.longOrNull("option_index")
+    val optionIndexes: List<Long>? get() = if (raw["option_indexes"] == null) null else raw.arr("option_indexes").mapNotNull { (it as? JsonPrimitive)?.longOrNull }
     val questionId: String get() = raw.str("question_id")
     val text: String? get() = raw.stringOrNull("text")
 }
@@ -1085,6 +1112,7 @@ object RoutineListParamsSerializer : RawModelSerializer<RoutineListParams>(::Rou
 
 @Serializable(with = RoutinePatchSerializer::class)
 data class RoutinePatch(override val raw: JsonObject) : RawProtocolModel {
+    val botId: String? get() = raw.stringOrNull("bot_id")
     val instructions: String? get() = raw.stringOrNull("instructions")
     val name: String? get() = raw.stringOrNull("name")
     val projectId: JsonElement? get() = raw["project_id"]
@@ -1298,6 +1326,12 @@ object WebSearchSettingsPatchSerializer : RawModelSerializer<WebSearchSettingsPa
 data class MethodParams(override val raw: JsonObject) : RawProtocolModel {
 }
 object MethodParamsSerializer : RawModelSerializer<MethodParams>(::MethodParams)
+
+@Serializable(with = AnnouncementUpdateResultSerializer::class)
+data class AnnouncementUpdateResult(override val raw: JsonObject) : RawProtocolModel {
+    val announcement: Announcement get() = Announcement(raw.obj("announcement"))
+}
+object AnnouncementUpdateResultSerializer : RawModelSerializer<AnnouncementUpdateResult>(::AnnouncementUpdateResult)
 
 @Serializable(with = ApprovalListResultSerializer::class)
 data class ApprovalListResult(override val raw: JsonObject) : RawProtocolModel {

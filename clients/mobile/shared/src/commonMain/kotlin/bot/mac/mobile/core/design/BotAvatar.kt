@@ -66,7 +66,7 @@ fun BotAvatar(
         kind == "image" && image != null -> Image(
             bitmap = image!!,
             contentDescription = null,
-            modifier = Modifier.size(42.dp).clip(CircleShape),
+            modifier = Modifier.size(48.dp).clip(CircleShape),
             contentScale = ContentScale.Crop,
         )
         else -> BeanAvatar(color = color, main = main, status = status)
@@ -76,7 +76,7 @@ fun BotAvatar(
 @Composable
 private fun EmojiAvatar(emoji: String) {
     Box(
-        modifier = Modifier.size(42.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+        modifier = Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center,
     ) {
         Text(emoji, maxLines = 1, style = MaterialTheme.typography.titleLarge)

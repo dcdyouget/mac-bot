@@ -85,6 +85,8 @@ data class ArtifactRef(override val raw: JsonObject) : RawProtocolModel {
     val artifactId: String get() = raw.str("artifact_id")
     val title: String get() = raw.str("title")
     val pathOrUrl: String get() = raw.str("path_or_url")
+    val botId: String get() = raw.str("bot_id")
+    val kind: String get() = raw.str("kind")
 }
 object ArtifactRefSerializer : RawModelSerializer<ArtifactRef>(::ArtifactRef)
 
@@ -201,6 +203,7 @@ data class Message(override val raw: JsonObject) : RawProtocolModel {
     val editedAt: String? get() = raw.stringOrNull("edited_at")
     val deleted: Boolean get() = raw.boolOrNull("deleted") ?: false
     val replyTo: String? get() = raw.stringOrNull("reply_to")
+    val quote: Quote? get() = raw.objectOrNull("quote")?.let(::Quote)
     val threadCount: Long get() = raw.long("thread_count")
     val mentions: List<Mention> get() = raw.modelObjects("mentions").map(::Mention)
     val blocks: List<Block> get() = raw.objects("blocks").map(Block::decode)
@@ -212,6 +215,14 @@ data class Message(override val raw: JsonObject) : RawProtocolModel {
     val reactions: List<Reaction> get() = raw.modelObjects("reactions").map(::Reaction)
 }
 object MessageSerializer : RawModelSerializer<Message>(::Message)
+
+@Serializable(with = QuoteSerializer::class)
+data class Quote(override val raw: JsonObject) : RawProtocolModel {
+    val messageId: String get() = raw.str("message_id")
+    val sender: Sender? get() = raw.objectOrNull("sender")?.let(::Sender)
+    val excerpt: String get() = raw.str("excerpt")
+}
+object QuoteSerializer : RawModelSerializer<Quote>(::Quote)
 
 @Serializable(with = ProjectMemberSerializer::class)
 data class ProjectMember(override val raw: JsonObject) : RawProtocolModel {
@@ -244,6 +255,10 @@ object ProjectSerializer : RawModelSerializer<Project>(::Project)
 @Serializable(with = AnnouncementSerializer::class)
 data class Announcement(override val raw: JsonObject) : RawProtocolModel {
     val projectId: String get() = raw.str("project_id")
+    val text: String get() = raw.str("text")
+    val version: Long get() = raw.long("version")
+    val textUpdatedBy: Sender? get() = raw.objectOrNull("text_updated_by")?.let(::Sender)
+    val textUpdatedAt: String get() = raw.str("text_updated_at")
     val members: List<JsonObject> get() = raw.objects("members")
     val artifacts: List<Artifact> get() = raw.modelObjects("artifacts").map(::Artifact)
     val highlights: List<JsonObject> get() = raw.modelObjects("highlights")
@@ -313,7 +328,9 @@ data class Question(override val raw: JsonObject) : RawProtocolModel {
     val text: String get() = raw.str("text")
     val options: List<String> get() = raw.arrayOrEmpty("options").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val allowFreeText: Boolean get() = raw.boolOrNull("allow_free_text") ?: false
+    val multi: Boolean get() = raw.boolOrNull("multi") ?: false
     val state: String get() = raw.str("state")
+    val expired: Boolean get() = state == "expired"
     val answer: JsonObject? get() = raw.objectOrNull("answer")
 }
 object QuestionSerializer : RawModelSerializer<Question>(::Question)

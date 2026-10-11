@@ -32,7 +32,7 @@ sealed class Block(open val raw: JsonObject) {
     data class Unknown(override val raw: JsonObject) : Block(raw)
     val type get() = raw.str("type")
     companion object {
-        val types = setOf("text", "image", "file", "task_card", "completion", "progress", "blocked", "question", "project_card", "review_card", "delegation", "approval", "approval_ref", "takeover_request", "bot_dm_ref", "system", "loop_paused")
+        val types = setOf("text", "image", "file", "task_card", "completion", "progress", "blocked", "question", "project_card", "review_card", "delegation", "approval", "approval_ref", "takeover_request", "bot_dm_ref", "system", "loop_paused", "link_preview")
         fun decode(raw: JsonObject): Block = if (raw.str("type") in types) Known(raw) else Unknown(raw)
     }
 }
