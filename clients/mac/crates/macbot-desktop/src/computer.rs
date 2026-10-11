@@ -835,14 +835,14 @@ impl Render for Computer {
         let fps = self.current_fps();
         let paint_latency = self.paint_latency_ms;
         let status = match driver.as_str() {
-            "bot" => tr("computer.bot_working"),
-            "user" => tr("computer.user_control"),
-            _ => tr("computer.idle"),
+            "bot" => tr("computer.state.bot"),
+            "user" => tr("computer.state.you"),
+            _ => tr("computer.state.idle"),
         };
         let action_label = if driver == "user" {
-            tr("computer.return")
+            tr("computer.release")
         } else {
-            tr("computer.takeover")
+            tr("computer.take_over")
         };
         let is_user = driver == "user";
         let width = self.frame.as_ref().map(|f| f.width).unwrap_or(0);
@@ -850,6 +850,15 @@ impl Render for Computer {
         let t = Tokens::get(cx);
         let request_banner = self.request_reason.clone().map(|reason| {
             let request_is_user = is_user;
+            let title_bot = self
+                .state
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let bot_name = title_bot.strip_suffix("的浏览器").unwrap_or(title_bot);
+            let request_copy = tr("computer.request")
+                .replace("{bot}", bot_name)
+                .replace("{reason}", &reason);
             div()
                 .flex()
                 .items_center()
@@ -858,15 +867,15 @@ impl Render for Computer {
                 .py_2()
                 .bg(t.attention)
                 .text_color(t.window)
-                .child(div().flex_1().child(format!("⚑ {reason}")))
+                .child(div().flex_1().child(request_copy))
                 .child(
                     Button::new("computer-request-control")
                         .primary()
                         .small()
                         .label(if request_is_user {
-                            tr("computer.return")
+                            tr("computer.release")
                         } else {
-                            tr("computer.takeover")
+                            tr("computer.take_over")
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if request_is_user {
@@ -956,6 +965,16 @@ impl Render for Computer {
                             }))
                     })),
             )
+            .when(is_user, |this| {
+                this.child(
+                    div()
+                        .px_4()
+                        .py_2()
+                        .text_xs()
+                        .text_color(t.secondary)
+                        .child(tr("computer.you_control_hint")),
+                )
+            })
             .child(div().flex_1().child(frame))
             .when_some(request_banner, |this, banner| this.child(banner))
             .child(
@@ -1057,14 +1076,18 @@ fn modifier_names(modifiers: Modifiers) -> Vec<&'static str> {
 fn tr(key: &str) -> &'static str {
     match key {
         "computer.title" => "Agent Computer",
-        "computer.bot_working" => "Bot 操作中",
-        "computer.user_control" => "你正在操作（Bot 已暂停）",
-        "computer.takeover" => "接管并处理",
-        "computer.return" => "交还给 Bot",
+        "computer.state.bot" => "● Bot 操作中",
+        "computer.state.you" => "● 你正在操作（Bot 已暂停）",
+        "computer.state.idle" => "○ 空闲",
+        "computer.take_over" => "接管",
+        "computer.release" => "交还给 Bot",
+        "computer.request" => "{bot} 请求你接管：{reason}。完成后点「交还给 Bot」。",
+        "computer.you_control_hint" => {
+            "鼠标、键盘、滚轮会实时发给浏览器 · 完成后点「交还给 Bot」，可以附一句说明"
+        }
         "computer.empty" => "暂无画面",
         "computer.loading" => "加载中…",
         "computer.decode_error" => "画面解码失败",
-        "computer.idle" => "空闲",
         "computer.quality" => "画质",
         "computer.quality_auto" => "自动",
         "computer.quality_high" => "高",
