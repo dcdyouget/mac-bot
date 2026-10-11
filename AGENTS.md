@@ -1,50 +1,49 @@
-# AGENTS.md：多 agent 并行开发约定
+# AGENTS.md：开发约定（单 agent + subagent）
 
-> 本仓库由多个 AI agent 同时开发。动手之前先读完本文，再读 `docs/` 下的文档。**每类规则只有一个权威来源**（见 PLAN 第 0 章）：协议字段看 PROTOCOL.md，产品行为看 DESIGN.md，界面视觉、像素、文案 key 看 `design/`，服务端实现和开发计划看 PLAN.md。各开发线的启动 prompt 在 `docs/AGENT_PROMPTS.md`。
+> 本仓库由**一个主 agent** 负责全部代码，按需派 **subagent** 写具体模块。动手之前先读完本文，再读文档。**每类规则只有一个权威来源**（见 PLAN 第 0 章）：协议字段看 PROTOCOL.md，产品行为看 DESIGN.md，界面视觉、像素、文案 key 看 `design/`，服务端实现和开发计划看 PLAN.md。主 agent 的启动 prompt 在 `docs/AGENT_PROMPTS.md`。
 
-## 1. 开发线和目录归属（v1：三条开发线）
+## 1. 模块划分（给 subagent 分配任务的单位）
 
-| 开发线 | 负责的目录（只改这些） | 产出 |
-|--------|------------------------|------|
-| **server-mac** | `server/`、`protocol/rust/`、`protocol/schema/`、`protocol/fixtures/` | `macbotd`（守护进程 + CLI + `--mock`）、协议的 Rust 类型、JSON Schema、fixtures |
-| **client-mac** | `clients/mac/` | macOS 桌面客户端（Tauri 2：Rust 网络层与数据层 `macbot-client-core` + React/TypeScript 界面） |
-| **client-android** | `clients/mobile/` 全部、`protocol/kotlin/` | Android 客户端的全部功能（KMP 工程，v1 只有 Android target） |
+| 模块 | 目录 | 产出 |
+|------|------|------|
+| **server** | `server/` | `macbotd`（守护进程 + CLI + `--mock` + `/admin`） |
+| **protocol** | `protocol/rust/`、`protocol/schema/`、`protocol/fixtures/`、`protocol/kotlin/` | 协议的 Rust 类型、JSON Schema、fixtures、Kotlin 模型生成 |
+| **desktop** | `clients/mac/` | macOS 桌面客户端（Tauri 2：Rust 网络层与数据层 `macbot-client-core` + React/TypeScript 界面） |
+| **mobile** | `clients/mobile/` | Android 客户端（KMP 工程，v1 只有 Android target） |
+| **design** | `design/` | 视觉规范、原型、token、文案 key、提示音 |
 
 **`clients/mobile` 的代码组织**（包名 `bot.mac.mobile`）：`shared/src/commonMain` 下分为 `core/`（网络、重连和补发、协议模型、状态、设计系统、导航、fixtures 加载）和 `feature/*`（connect、chat、trace、group、mainbot、approval、workbench、bots、settings、dashboard、skills、search、routines、computer）。**commonMain 里不要直接使用 Android API**，平台能力用 expect/actual，这样以后加 iOS 只需要增加 target 和 iosApp 外壳。
 
 > v1 不做 iOS。记忆完全由服务端管理，**任何客户端都没有记忆相关的页面**。
 
-- `docs/`、`AGENTS.md`、根目录文件：**不要随意修改**。确实需要修改时，单独提一个 commit，并在提交说明里写清楚理由。
-- 需要改别人目录里的东西时，不要直接改：在仓库根目录的 `COORDINATION.md` 里追加一条请求（谁、要什么、为什么），由负责的开发线处理。
-- 两条开发线都需要的代码（例如 mobile 的 core）由归属方先提供**接口**，另一方基于接口加 fixtures 开发，不必等实现完成。
+**主 agent 与 subagent 的分工**
+- 主 agent：拆任务、派 subagent、审查和合并、跑全量测试、实际打开应用验收、提交与推送。
+- subagent：**一次只负责一个模块**，只改该模块目录。任务说明里写清楚目标、要读的文档、验收标准。
+- **共享文件只由主 agent 改**：`docs/`、`design/`、`AGENTS.md`、`DECISIONS.md`、`protocol/` 的契约部分（`docs/PROTOCOL.md` 与 Rust 类型）。
+- 并行的 subagent 如果可能改到同一批文件，给它们各开一个临时 worktree（做完由主 agent 合并后删除）；只动各自目录时可以直接在主目录工作。
+- 主 agent 不能只看 subagent 的汇报：每批改动合入后，自己跑一遍相关测试，并对着 mock 实际打开看一眼。
 
 ## 2. 分支与提交
 
-- 每条开发线使用自己的 git worktree 和分支，互不干扰：
-  ```bash
-  git worktree add ../mac-bot-server        -b dev/server-mac
-  git worktree add ../mac-bot-client-mac    -b dev/client-mac
-  git worktree add ../mac-bot-client-android -b dev/client-android
-  ```
-- **小步提交，频繁合入 main**（至少每完成一个可以运行的小功能合一次）：先 `git fetch && git rebase origin/main`，确认能编译、测试通过，再合入 main 并推送。
-- 提交说明的前缀：`server:`、`protocol:`、`client-mac:`、`mobile-core:`、`android:`、`mobile-<feature>:`。
-- 每条开发线在自己目录的 README 里写清楚**怎么编译和运行**（命令、环境变量、产物路径）。结尾按仓库约定附上 Co-Authored-By。
+- 只有一条长期分支 `main`。小改动直接提交；大改动开**临时短分支**，完成后合并到 main 并删除。不保留按模块划分的长期分支。
+- 合入前确认能编译、测试通过，然后推送 origin。
+- 提交说明的前缀按模块：`server:`、`protocol:`、`desktop:`、`android:`、`design:`、`docs:`。结尾按仓库约定附上 Co-Authored-By。
+- 每个模块在自己目录的 README 里写清楚**怎么编译、运行、打包**（命令、环境变量、产物路径）。
 - 不要提交构建产物、密钥或 `local.properties`（见 `.gitignore`）。
 
-## 3. 协议变更流程（最重要）
+## 3. 协议变更（最重要）
 
-协议是各条开发线之间唯一的契约。
+协议是服务端和两个客户端之间唯一的契约。**一次协议变更在同一个提交（或同一个短分支）里改完所有地方**，不留两端对不上的中间状态：
+1. `docs/PROTOCOL.md`
+2. `protocol/rust` 的类型 → 重新导出 `protocol/schema` → 补充或更新 `protocol/fixtures`
+3. `protocol/kotlin` 运行生成脚本，更新 Kotlin 模型
+4. 服务端实现、mock、两个客户端的使用处
+5. 提交前缀 `protocol:`
 
-1. 任何一方需要改协议时，先在 `COORDINATION.md` 里写明需求。
-2. **server-mac** 负责落地，顺序是：
-   1. 修改 `docs/PROTOCOL.md`。
-   2. 修改 `protocol/rust` 中的类型。
-   3. 重新导出 `protocol/schema`。
-   4. 补充或更新 `protocol/fixtures`。
-   5. 用一个 `protocol:` 前缀的 commit 合入 main。
-3. 各客户端随后跟进：client-android 运行 `protocol/kotlin` 下的生成脚本，更新 Kotlin 模型；client-mac 直接依赖 `protocol/rust`，无需额外操作。
-4. 只新增字段、事件或消息块类型，属于兼容变更，不升协议版本；删除或修改已有字段，才需要升版本，并且要提前在 `COORDINATION.md` 里通知。
-5. 客户端必须**忽略不认识的字段和事件**，不认识的消息块用 `fallback_text` 显示。
+规则：
+- 只新增字段、事件或消息块类型，属于兼容变更，不升协议版本；删除或修改已有字段才需要升版本。不再使用的字段保留、写空值。
+- 客户端必须**忽略不认识的字段和事件**，不认识的消息块用 `fallback_text` 显示。
+- 重要的产品或技术决定（包括协议取舍）记进根目录的 `DECISIONS.md`，一条一行。
 
 ## 4. 共同的技术约定
 
@@ -56,13 +55,13 @@
   - Rust stable，crates.io 走清华 tuna 镜像；`cargo search` 需要加 `--registry crates-io`。
   - Xcode 26.6（Tauri 打包 macOS App 需要）；Node.js（Tauri 前端构建）。
   - JDK 21、Android SDK 36、Gradle 9.8；Android 模拟器（AVD `macbot_api36`：Android 16 / API 36、arm64，已经在这台 Mac mini 上装好）。模拟器里访问 Mac 本机要用 `10.0.2.2`：mock 是 `10.0.2.2:7789`，正式服务是 `10.0.2.2:7788`（已经验证可以连通；模拟器里没有 curl，测试连通性用 `adb shell toybox nc`）。
-- **在 Mac mini 上能看到效果**：这台 Mac mini（M4，192.168.31.162）就是目标 Host。每条开发线都要让自己的成果能在这台机器上直接运行和查看（README 写清楚命令）。
-- **mock 优先**：客户端先基于 `protocol/fixtures` 开发；server-mac 提供 `macbotd --mock` 之后，切换到 mock；最后再连接真实服务端。
+- **在 Mac mini 上能看到效果**：这台 Mac mini（M4，192.168.31.162）就是目标 Host。每个模块的成果都要能在这台机器上直接运行和查看（README 写清楚命令）。
+- **mock 优先**：客户端先基于 `protocol/fixtures` 开发；服务端提供 `macbotd --mock` 之后，切换到 mock；最后再连接真实服务端。
 - **测试**：
   - server：单元测试，加一个基于 mock provider 的场景测试。
   - 客户端：核心逻辑（重连、补发、状态合并）要有单元测试；界面至少能对着 mock 跑通。
-- **不确定时**：按文档地图找权威文档；文档没有覆盖到的，按最简单可行的做法实现，并在 `COORDINATION.md` 里记录你的决定。
+- **不确定时**：按文档地图找权威文档；文档没有覆盖到的，按最简单可行的做法实现，并把决定记进 `DECISIONS.md`。
 
-## 5. 阶段与汇合点
+## 5. 阶段
 
-阶段划分见 PLAN 第 6 章（唯一的开发计划）：S0 契约与骨架 → S1 单 Bot 闭环 → S2 主 Bot 与群协作 → S3 技能、仪表盘、记忆 → S4 浏览器、定时任务、推送 → S5 打磨与分发。**目标是一次做完全部功能**：每完成一个阶段，在 COORDINATION.md 打卡后直接进入下一阶段；只有被阻塞时才停下来。
+阶段划分见 PLAN 第 6 章：S0 契约与骨架 → S1 单 Bot 闭环 → S2 主 Bot 与群协作 → S3 技能、仪表盘、记忆 → S4 浏览器、定时任务、推送 → S5 打磨与分发。各阶段的功能已经实现过一轮；当前重点是**按 `design/` 改造三端界面**，其中桌面端界面层从 GPUI 迁移到 Tauri。

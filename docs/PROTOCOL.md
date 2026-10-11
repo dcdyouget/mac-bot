@@ -1,7 +1,7 @@
 # Mac Bot 客户端 ↔ 服务端协议 v1
 
-> **本文是协议的唯一权威来源**，所有开发线（v1：server-mac、client-mac、client-android）共同遵守。字段里保留了 iOS 相关的取值（如 `platform: "ios"`），供以后使用。
-> - 机器可读的定义由 server-mac 从 `protocol/rust` 导出到 `protocol/schema/`，必须与本文一致；两者冲突时以本文为准，并修正 schema。
+> **本文是协议的唯一权威来源**，服务端与所有客户端（v1：macOS 桌面、Android）共同遵守。字段里保留了 iOS 相关的取值（如 `platform: "ios"`），供以后使用。
+> - 机器可读的定义从 `protocol/rust` 导出到 `protocol/schema/`，必须与本文一致；两者冲突时以本文为准，并修正 schema。
 > - 修改协议走 AGENTS.md 第 3 节的流程。
 > - 下面的类型用 TypeScript 语法描述：`?` 表示可以省略，`| null` 表示值可以为 null。JSON 字段名一律为 `snake_case`。
 
@@ -845,6 +845,6 @@ type ScreenInput =
 
 ## 11. 开发用的 mock
 
-- `macbotd --mock --password <pw>`（由 server-mac 提供）：不调用模型，按 `protocol/fixtures/scenarios/*.jsonl` 回放场景。实现本文的全部方法：读类方法返回 fixtures，写类方法返回合理的假结果并发出相应事件。
+- `macbotd --mock --password <pw>`：不调用模型，按 `protocol/fixtures/scenarios/*.jsonl` 回放场景。实现本文的全部方法：读类方法返回 fixtures，写类方法返回合理的假结果并发出相应事件。
 - `login-feature.jsonl` 覆盖 DESIGN 第 3 章的完整场景，包括 trace 条目和画面帧（几张静态 JPEG 轮播）。
 - `protocol/fixtures/` 里每个对象、事件、块类型和 TraceItem 类型至少有一份示例；客户端的契约测试必须能把所有 fixture 反序列化再序列化而不丢字段。

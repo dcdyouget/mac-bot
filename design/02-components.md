@@ -106,7 +106,7 @@ Bot（主要是主 Bot，也包括普通 Bot 提到某个群时）发出的消�
 | 说明 | 可选；左缩进 62，12/17 `text.secondary`，最多 2 行（一句话目标，或「我在这个群里负责……」） |
 | 底栏 | 高 34，上边 1px `border.subtle`；消息图标 14 +「进入群聊」13/500 `accent` |
 
-协议上是一个新的消息块类型（`kind: "group"`，携带 `group_id`），属于兼容新增，需要按 AGENTS.md §3 的流程向 server-mac 提需求。
+协议上对应 `project_card` 块（`context`、`note`），见 06-message-blocks.md。
 
 ### 6.2 其他内嵌卡片
 

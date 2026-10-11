@@ -11,7 +11,7 @@
 | **[PROTOCOL.md](PROTOCOL.md)** | 客户端 ↔ 服务端协议：连接、帧、对象、方法、事件的全部字段 | 服务端怎么实现 |
 | **[REFERENCES.md](REFERENCES.md)** | 参考的开源项目和依赖库 | — |
 | **[AGENTS.md](../AGENTS.md)** | 多 agent 协作规则：目录归属、分支、协议变更流程 | 功能需求 |
-| **[AGENT_PROMPTS.md](AGENT_PROMPTS.md)** | 各开发线的启动 prompt，只引用上面的文档，不重复规则 | — |
+| **[AGENT_PROMPTS.md](AGENT_PROMPTS.md)** | 主 agent 的启动 prompt，只引用上面的文档，不重复规则 | — |
 
 文档之间有冲突时：协议字段以 PROTOCOL 为准；界面和交互以 DESIGN 为准；服务端实现和开发计划以 PLAN 为准。
 
@@ -115,14 +115,14 @@
 
 ```
 mac-bot/
-├── AGENTS.md  COORDINATION.md  LICENSE  README.md
+├── AGENTS.md  DECISIONS.md  LICENSE  README.md
 ├── docs/                    # 见第 0 章的文档地图
-├── protocol/                # 【server-mac】契约的代码形式（kotlin/ 归 client-android）
+├── protocol/                # 【protocol】契约的代码形式
 │   ├── rust/                #   macbot-protocol crate：PROTOCOL.md 里全部类型的 serde 定义
 │   ├── schema/              #   从 Rust 类型导出的 JSON Schema（生成物，提交到仓库）
 │   ├── fixtures/            #   每种对象、事件、块、TraceItem 的示例；scenarios/*.jsonl 供 mock 回放
 │   └── kotlin/              #   schema → kotlinx.serialization 的生成脚本
-├── server/                  # 【server-mac】独立的 Cargo workspace
+├── server/                  # 【server】独立的 Cargo workspace
 │   ├── crates/
 │   │   ├── macbot-store         # JSON 文件存储
 │   │   ├── macbot-durable       # Entry / Commit / Job / Inbox / Steer / Resume / Compaction
@@ -136,8 +136,8 @@ mac-bot/
 │   │   └── macbot-gateway       # axum：/ws、/ws/screen、/api/v1、/admin
 │   └── macbotd/                 # 二进制：守护进程 + CLI + --mock；packaging/（LaunchAgent、pkg 脚本）
 ├── clients/
-│   ├── mac/                 # 【client-mac】独立的 Cargo workspace：macbot-client-core + macbot-desktop
-│   └── mobile/              # 【client-android】Kotlin Multiplatform（v1 只有 Android target）
+│   ├── mac/                 # 【desktop】Tauri 2：macbot-client-core（网络层、数据层）+ app/（界面）
+│   └── mobile/              # 【mobile】Kotlin Multiplatform（v1 只有 Android target）
 │       ├── shared/          #   commonMain：core/ + feature/*（归属见 AGENTS.md）
 │       └── androidApp/          #   （iOS 以后再加 iosApp/）
 └── scripts/                 # 跨模块脚本：协议代码生成、端到端场景测试、打包
@@ -530,11 +530,11 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 
 ## 6. 开发计划（唯一的计划）
 
-**目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。**三条开发线**同时推进，归属见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
+**目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。由一个主 agent 按模块派 subagent 推进，约定见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
 
 **开发机就是目标机**：这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。**每个阶段的成果都要能在这台机器上直接运行和查看**：服务端以 LaunchAgent 方式常驻，桌面客户端打包成 .app 打开使用，Android 客户端跑在本机的 Android 模拟器里（连接 `10.0.2.2:7788`）。以后换成真机时，手机连接 `192.168.31.162:7788`。
 
-| 阶段 | server-mac | client-mac | client-android（Android 全部功能） | 验收（在 Mac mini 上实际操作） |
+| 阶段 | server | desktop | mobile（Android 全部功能） | 验收（在 Mac mini 上实际操作） |
 |------|-----------|-----------|----------------|---------|
 | **S0 契约与骨架** | protocol crate（PROTOCOL 全部类型）+ schema + fixtures + 场景；server workspace；`--mock` 实现全部方法 | 工程、client-core（连接、补发、状态）、设计 token、三栏布局、连接页；可以双击打开的 .app | KMP 工程（只有 Android target）、core（连接、补发、状态、画面连接）、设计系统、导航、androidApp 外壳、feature/connect | 桌面和 Android 模拟器都连上 mock，看到会话列表 |
 | **S1 单 Bot 闭环** | 存储、durable、模型接入、工具（文件、bash）、技能加载、私聊对话、基础压缩、运行轨迹、用量记账、鉴权、/admin、CLI、LaunchAgent | 私聊（流式）、消息块、运行轨迹（实时 + 回放）、模型与服务商设置 | feature/chat（私聊、消息块、送达状态）、feature/trace（运行轨迹、历史任务）、feature/settings | 真实服务端：桌面和手机都能和一个 Bot 私聊，Bot 能读写文件、跑命令；轨迹实时可看、可回放；kill -9 重启后能恢复 |
@@ -544,9 +544,8 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 | **S5 打磨与分发** | .pkg、install.sh、`macbot update` | .dmg、自动更新、快捷键、性能 | 发布版 APK、性能 | 全新安装：pkg → 设置密码 → 两端连接 → 完整场景 |
 
 **执行规则**
-- 每条线完成一个阶段后，在 `COORDINATION.md` 里打卡「Sx 完成」，然后**直接进入下一阶段**，不停下来等待。
-- 跨开发线的问题记录到 COORDINATION.md，交给对应的开发线。
-- 只有被其他开发线阻塞时才停下来，并在 COORDINATION.md 里写明原因。
+- 由一个主 agent 推进，按模块派 subagent（AGENTS.md）。每完成一个阶段，主 agent 在 Mac mini 上实际操作完成该阶段的验收，再进入下一阶段。
+- 重要决定记进 `DECISIONS.md`；只有需要用户提供密钥或做选择时才停下来。
 
 ## 7. 开发环境（这台 Mac 上已经装好）
 

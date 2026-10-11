@@ -63,4 +63,4 @@
 | 段落、换行、**粗体**、*斜体*、~~删除线~~、`行内代码`、链接（自动识别 URL）、有序 / 无序列表（最多 3 层）、引用 `>`、代码块（语言标签 + 复制按钮，深色终端样式，超过 20 行折叠）、表格（横向可滚动，表头 `bg.active`）、分隔线、h1–h3（在气泡里统一按 15/600 渲染，公告里按 h3 渲染） | 原始 HTML、脚注、数学公式、Mermaid、内嵌图片（图片走 `image` 块） |
 
 ## 5. 协议对应
-本次新增或扩展的字段（`project_card.context/note`、`question.multi/expired`、`ArtifactRef.bot_id/kind`、`link_preview`、`Message.quote`、SystemCode `announcement_updated`）已写进 PROTOCOL.md，并在 COORDINATION.md 里请 server-mac 落地。
+本次新增或扩展的字段（`project_card.context/note`、`question.multi/expired`、`ArtifactRef.bot_id/kind`、`link_preview`、`Message.quote`、SystemCode `announcement_updated`）已写进 PROTOCOL.md。
