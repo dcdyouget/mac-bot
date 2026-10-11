@@ -14,6 +14,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import bot.mac.mobile.core.platform.initializePlatform
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -23,6 +24,7 @@ class NotificationActionsTest {
     @Before
     fun setUp() {
         context = org.robolectric.RuntimeEnvironment.getApplication()
+        initializePlatform(context)
     }
 
     @Test
