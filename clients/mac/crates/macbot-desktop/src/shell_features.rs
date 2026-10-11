@@ -730,6 +730,34 @@ impl MacBot {
                 }
                 if let Some(id) = page.strip_prefix("chat/") {
                     self.select_chat(id.into(), window, cx);
+                    if let Some(bot_id) = reqwest::Url::parse(&format!("http://localhost/?{query}"))
+                        .ok()
+                        .and_then(|url| {
+                            url.query_pairs()
+                                .find(|(key, _)| key == "mention_bot")
+                                .map(|(_, value)| value.into_owned())
+                        })
+                        && let Some(bot) = self.state.bots.get(&bot_id)
+                    {
+                        let name = s(bot, "name");
+                        if !name.is_empty() {
+                            let mention = format!("@{name}");
+                            let draft = self.composer.read(cx).value().to_string();
+                            let draft = if draft.trim().is_empty() {
+                                format!("{mention} ")
+                            } else if draft.trim_start().starts_with(&mention) {
+                                draft
+                            } else {
+                                format!("{mention} {draft}")
+                            };
+                            self.drafts
+                                .insert(self.selected_chat.clone(), draft.clone());
+                            self.composer
+                                .update(cx, |input, cx| input.set_value(draft, window, cx));
+                            self.composer
+                                .update(cx, |input, cx| input.focus(window, cx));
+                        }
+                    }
                     return;
                 }
                 self.navigate(page, cx);

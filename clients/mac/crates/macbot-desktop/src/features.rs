@@ -2232,6 +2232,46 @@ fn workbench_job_row(
             ));
         }
     }
+    let project_id = job
+        .get("project_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let chat_id = if project_id.is_empty() {
+        string(job, "origin_chat_id", "")
+    } else {
+        array(data, "projects")
+            .iter()
+            .find(|project| string(project, "id", "") == project_id)
+            .map(|project| string(project, "chat_id", ""))
+            .filter(|chat_id| !chat_id.is_empty())
+            .unwrap_or_else(|| string(job, "origin_chat_id", ""))
+    };
+    if !chat_id.is_empty() {
+        actions = actions.child(action_button_with_id(
+            format!("workbench-{row_key}-chat"),
+            if project_id.is_empty() {
+                t("workbench.open_dm")
+            } else {
+                t("follow.jump_group")
+            },
+            FeatureAction::Navigate(format!("chat/{chat_id}")),
+            cx,
+        ));
+    }
+    let bot_id = string(job, "bot_id", "");
+    let bot_exists = array(data, "all_bots")
+        .iter()
+        .any(|candidate| string(candidate, "id", "") == bot_id && !bot_id.is_empty());
+    let origin_chat_id = string(job, "origin_chat_id", "");
+    if status_raw == "working" && bot_exists && !origin_chat_id.is_empty() {
+        let mention_target = format!("chat/{origin_chat_id}?mention_bot={bot_id}");
+        actions = actions.child(action_button_with_id(
+            format!("workbench-{row_key}-mention"),
+            t("trace.at_it"),
+            FeatureAction::Navigate(mention_target),
+            cx,
+        ));
+    }
     if status_raw == "blocked"
         && let Some(bot_id) = job.get("bot_id").and_then(Value::as_str)
         && !bot_id.is_empty()
