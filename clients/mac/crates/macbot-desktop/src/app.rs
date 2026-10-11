@@ -17,7 +17,17 @@ use gpui_kit::*;
 use macbot_client_core::{AppState, Client, ClientConfig, ClientEvent, TraceTimeline};
 use macbot_client_core::{ScreenClient, ScreenEvent, ScreenHandle};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::{Arc, Mutex};
+
+pub type OpenUrlQueue = Arc<Mutex<VecDeque<String>>>;
+
+#[derive(Clone)]
+struct MessageDeepLink {
+    message_id: String,
+    chat_id: String,
+    host_id: String,
+}
 
 fn diagnostic_error_class(error: &str) -> &'static str {
     let error = error.to_ascii_lowercase();
@@ -154,6 +164,9 @@ pub struct MacBot {
     runtime: tokio::runtime::Runtime,
     client: Option<Client>,
     event_task: Option<Task<()>>,
+    open_url_task: Option<Task<()>>,
+    open_url_queue: OpenUrlQueue,
+    pending_deep_links: VecDeque<MessageDeepLink>,
     state: AppState,
     address: Entity<InputState>,
     password: Entity<InputState>,
@@ -227,7 +240,7 @@ pub struct MacBot {
     last_notification_sound: Option<std::time::Instant>,
 }
 impl MacBot {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>, open_url_queue: OpenUrlQueue) -> Self {
         let address = cx.new(|cx| InputState::new(window, cx).placeholder("127.0.0.1:7788"));
         let password = cx.new(|cx| InputState::new(window, cx).masked(true));
         let host_name = cx.new(|cx| InputState::new(window, cx).placeholder("Mac mini"));
@@ -315,6 +328,9 @@ impl MacBot {
                 .expect("Tokio runtime"),
             client: None,
             event_task: None,
+            open_url_task: None,
+            open_url_queue,
+            pending_deep_links: VecDeque::new(),
             state: AppState::default(),
             address,
             password,
@@ -391,6 +407,31 @@ impl MacBot {
             image_loading: std::collections::BTreeSet::new(),
             last_notification_sound: None,
         };
+        let queue = view.open_url_queue.clone();
+        let window_handle = window.window_handle();
+        let executor = cx.background_executor().clone();
+        view.open_url_task = Some(cx.spawn(async move |this, cx| {
+            loop {
+                executor.timer(std::time::Duration::from_millis(80)).await;
+                let urls = queue
+                    .lock()
+                    .map(|mut urls| urls.drain(..).collect::<Vec<_>>())
+                    .unwrap_or_default();
+                if window_handle
+                    .update(cx, |_, window, cx| {
+                        for url in urls {
+                            let _ =
+                                this.update(cx, |view, cx| view.receive_open_url(&url, window, cx));
+                        }
+                        let _ =
+                            this.update(cx, |view, cx| view.resume_pending_deep_link(window, cx));
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
         if std::env::var_os("MACBOT_HOST").is_none()
             && let Some(host) = view
                 .hosts
@@ -455,6 +496,37 @@ impl MacBot {
         if self.notice == tr("search.opening_bot").as_ref() {
             self.notice.clear();
         }
+    }
+    fn receive_open_url(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if !url.starts_with("macbot:") {
+            return;
+        }
+        let Some(link) = parse_message_deep_link(url) else {
+            self.notice = tr("deep_link.invalid").to_string();
+            cx.notify();
+            return;
+        };
+        self.pending_deep_links.push_back(link);
+        self.notice = tr("deep_link.waiting").to_string();
+        self.resume_pending_deep_link(window, cx);
+    }
+    fn resume_pending_deep_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.connected || self.pending_chat_jump.is_some() {
+            return;
+        }
+        let Some(link) = self.pending_deep_links.front().cloned() else {
+            return;
+        };
+        if self.active_node_id.as_deref() != Some(link.host_id.as_str()) {
+            self.pending_deep_links.pop_front();
+            self.notice = tr("deep_link.host_mismatch").to_string();
+            cx.notify();
+            return;
+        }
+        self.pending_deep_links.pop_front();
+        self.pending_chat_jump = Some((link.chat_id.clone(), link.message_id));
+        self.notice.clear();
+        self.select_chat(link.chat_id, window, cx);
     }
     fn connect(&mut self, cx: &mut Context<Self>) {
         self.cancel_search_open();
@@ -830,6 +902,9 @@ impl MacBot {
                     {
                         self.pending_chat_jump = None;
                         self.jump_to_message(&message_id, cx);
+                    } else {
+                        self.pending_chat_jump = None;
+                        self.notice = tr("deep_link.message_missing").to_string();
                     }
                 }
             }
@@ -3011,6 +3086,62 @@ impl Render for MacBot {
             })
     }
 }
+fn parse_message_deep_link(url: &str) -> Option<MessageDeepLink> {
+    if url.contains('#') {
+        return None;
+    }
+    let remainder = url.strip_prefix("macbot://message/")?;
+    let (message_id, query) = remainder.split_once('?')?;
+    if message_id.is_empty() || message_id.contains('/') {
+        return None;
+    }
+    let message_id = decode_url_component(message_id)?;
+    let mut chat_id = None;
+    let mut host_id = None;
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=')?;
+        match decode_url_component(key)?.as_str() {
+            "chat_id" if chat_id.is_none() => chat_id = Some(decode_url_component(value)?),
+            "host_id" if host_id.is_none() => host_id = Some(decode_url_component(value)?),
+            "chat_id" | "host_id" => return None,
+            _ => {}
+        }
+    }
+    let chat_id = chat_id.filter(|value| !value.is_empty())?;
+    let host_id = host_id.filter(|value| !value.is_empty())?;
+    Some(MessageDeepLink {
+        message_id,
+        chat_id,
+        host_id,
+    })
+}
+
+fn decode_url_component(input: &str) -> Option<String> {
+    let mut bytes = Vec::with_capacity(input.len());
+    let mut index = 0;
+    let input = input.as_bytes();
+    while index < input.len() {
+        match input[index] {
+            b'%' if index + 2 < input.len() => {
+                let high = (input[index + 1] as char).to_digit(16)? as u8;
+                let low = (input[index + 2] as char).to_digit(16)? as u8;
+                bytes.push((high << 4) | low);
+                index += 3;
+            }
+            b'%' => return None,
+            b'+' => {
+                bytes.push(b' ');
+                index += 1;
+            }
+            byte => {
+                bytes.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8(bytes).ok()
+}
+
 fn s<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }

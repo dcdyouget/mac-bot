@@ -23,7 +23,12 @@ mod update;
 
 use gpui_kit::component::Theme;
 use gpui_kit::*;
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::Cell,
+    collections::VecDeque,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 struct StyledRoot {
     child: Entity<app::MacBot>,
@@ -44,12 +49,24 @@ impl Render for StyledRoot {
 fn main() {
     let menu_bar_available = Rc::new(Cell::new(false));
     let reopen_menu_bar_available = menu_bar_available.clone();
+    let open_url_queue: app::OpenUrlQueue = Arc::new(Mutex::new(VecDeque::new()));
+    let received_urls = open_url_queue.clone();
     let application = gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .with_quit_mode(QuitMode::Explicit);
+    application.on_open_urls(move |urls| {
+        if let Ok(mut queue) = received_urls.lock() {
+            queue.extend(urls);
+        }
+    });
+    let reopen_open_url_queue = open_url_queue.clone();
     application.on_reopen(move |cx| {
         if cx.windows().is_empty() {
-            open_main_window(cx, reopen_menu_bar_available.get());
+            open_main_window(
+                cx,
+                reopen_menu_bar_available.get(),
+                reopen_open_url_queue.clone(),
+            );
         } else {
             for handle in cx.windows() {
                 let _ = handle.update(cx, |_, window, _| window.activate_window());
@@ -138,11 +155,11 @@ fn main() {
         theme.font_size = px(tokens.desktop_type[3][0]);
         theme.mono_font_size = px(tokens.desktop_type[9][0]);
         tokens::sync_theme(cx);
-        open_main_window(cx, menu_bar_available.get());
+        open_main_window(cx, menu_bar_available.get(), open_url_queue.clone());
     });
 }
 
-fn open_main_window(cx: &mut App, menu_bar_available: bool) {
+fn open_main_window(cx: &mut App, menu_bar_available: bool, open_url_queue: app::OpenUrlQueue) {
     let tokens = tokens::Tokens::get(cx);
     let layout = tokens.desktop_layout;
     let bounds = Bounds::centered(
@@ -171,7 +188,7 @@ fn open_main_window(cx: &mut App, menu_bar_available: bool) {
                     true
                 }
             });
-            let child = cx.new(|cx| app::MacBot::new(window, cx));
+            let child = cx.new(|cx| app::MacBot::new(window, cx, open_url_queue));
             cx.new(|_| StyledRoot { child })
         },
     )
