@@ -5,6 +5,7 @@ import bot.mac.mobile.core.network.MainEvent
 import bot.mac.mobile.core.platform.CredentialStore
 import bot.mac.mobile.core.platform.PersistentStore
 import bot.mac.mobile.core.protocol.protocolJson
+import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import kotlinx.coroutines.CoroutineScope
@@ -165,6 +166,80 @@ class ClientRepositoryMultiHostTest {
             assertEquals(ConnectionStatus.CONNECTED, repository.hostStatuses.value.getValue("a").status)
             assertEquals(ConnectionStatus.CONNECTED, repository.hostStatuses.value.getValue("b").status)
         } finally {
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
+    @Test
+    fun inactiveHostMemoryResponsesAndEventsStayScoped() = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val repository = repository(hostA, hostB)
+        try {
+            awaitConnected(repository, "a", "b")
+            repository.callOnHost("b", "memory.user.list")
+            repository.callOnHost("b", "memory.profile.get")
+
+            // Hold Host A's already-issued response until after switching to B.
+            hostA.blockMemoryListResponse = true
+            val pendingHostAList = async { repository.callOnHost("a", "memory.user.list") }
+            withTimeout(2_000) { hostA.memoryListRequestReceived.await() }
+            assertFalse(pendingHostAList.isCompleted)
+            repository.selectHost("b")
+            val activeHostState = repository.state.value
+            assertEquals("node-b memory", activeHostState.memoryEntries.single().str("content"))
+            assertEquals("node-b profile", activeHostState.userProfile.str("name"))
+
+            hostA.releaseMemoryListResponse.complete(Unit)
+            pendingHostAList.await()
+            // A later Host A response also remains isolated after B is selected.
+            repository.callOnHost("a", "memory.profile.get")
+            assertEquals(activeHostState, repository.state.value)
+
+            val socketA = withTimeout(2_000) { hostA.sockets.receive() }
+            val entryEvent = async {
+                withTimeout(2_000) {
+                    repository.hostEvents.first {
+                        it.hostId == "a" && (it.event as? MainEvent.Persistent)?.let { event ->
+                            event.seq == 1L && event.event == "memory.user.updated"
+                        } == true
+                    }
+                }
+            }
+            yield()
+            socketA.send(event("memory.user.updated", buildJsonObject {
+                put("entry", buildJsonObject {
+                    put("id", "event-a")
+                    put("content", "Host A event")
+                })
+                put("quota", buildJsonObject { put("used_chars", 26); put("limit_chars", 1_500) })
+            }, 1))
+            entryEvent.await()
+
+            val profileEvent = async {
+                withTimeout(2_000) {
+                    repository.hostEvents.first {
+                        it.hostId == "a" && (it.event as? MainEvent.Persistent)?.let { event ->
+                            event.seq == 2L && event.event == "memory.profile.updated"
+                        } == true
+                    }
+                }
+            }
+            yield()
+            socketA.send(event("memory.profile.updated", buildJsonObject {
+                put("profile", buildJsonObject { put("name", "node-a updated") })
+            }, 2))
+            profileEvent.await()
+
+            assertEquals(activeHostState, repository.state.value)
+            val hostAState = repository.hostStates.value.getValue("a")
+            assertEquals(setOf("memory-node-a", "event-a"), hostAState.memoryEntries.map { it.str("id") }.toSet())
+            assertEquals(26L, hostAState.memoryQuota.long("used_chars"))
+            assertEquals("node-a updated", hostAState.userProfile.str("name"))
+        } finally {
+            hostA.releaseMemoryListResponse.complete(Unit)
             repository.scope.cancel()
             hostA.close()
             hostB.close()
@@ -406,6 +481,9 @@ class ClientRepositoryMultiHostTest {
         val releaseChatSends = CountDownLatch(1)
         val failNextChatSend = AtomicBoolean(false)
         var bootstrapBots: List<JsonObject> = emptyList()
+        @Volatile var blockMemoryListResponse = false
+        val memoryListRequestReceived = CompletableDeferred<Unit>()
+        val releaseMemoryListResponse = CompletableDeferred<Unit>()
         private val allSockets = mutableListOf<WebSocket>()
 
         init {
@@ -467,6 +545,29 @@ class ClientRepositoryMultiHostTest {
                 "bootstrap" -> webSocket.send(response(id, buildJsonObject {
                     put("seq", 0)
                     put("bots", buildJsonArray { host.bootstrapBots.forEach { add(it) } })
+                }))
+                "memory.user.list" -> {
+                    val result = buildJsonObject {
+                        put("entries", buildJsonArray {
+                            add(buildJsonObject {
+                                put("id", "memory-$nodeId")
+                                put("content", "$nodeId memory")
+                            })
+                        })
+                        put("quota", buildJsonObject { put("used_chars", 12); put("limit_chars", 1_500) })
+                    }
+                    if (host.blockMemoryListResponse) {
+                        host.memoryListRequestReceived.complete(Unit)
+                        Thread {
+                            runBlocking { host.releaseMemoryListResponse.await() }
+                            webSocket.send(response(id, result))
+                        }.start()
+                    } else {
+                        webSocket.send(response(id, result))
+                    }
+                }
+                "memory.profile.get" -> webSocket.send(response(id, buildJsonObject {
+                    put("profile", buildJsonObject { put("name", "$nodeId profile") })
                 }))
                 "chat.send" -> {
                     host.writeRequests.trySend(request)
