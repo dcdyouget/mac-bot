@@ -13,7 +13,8 @@ use gpui_kit::component::{
     text::TextView,
 };
 use gpui_kit::gpui::{
-    App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
+    App, BoxShadow, FontWeight, IntoElement, ParentElement, RenderOnce, SharedString, Styled,
+    Window, div, hsla, point, px,
 };
 use gpui_kit::prelude::FluentBuilder;
 
@@ -138,15 +139,18 @@ impl ArtifactPreview {
 impl RenderOnce for ArtifactPreview {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let tokens = Tokens::get(cx);
+        let title_type = tokens.desktop_type[5];
+        let footnote_type = tokens.desktop_type[1];
         let meta = div()
             .flex()
             .flex_col()
-            .gap_1()
+            .gap(px(tokens.space[2]))
             .min_w_0()
             .child(
                 div()
-                    .text_lg()
-                    .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                    .text_size(px(title_type[0]))
+                    .line_height(px(title_type[1]))
+                    .font_weight(FontWeight(title_type[2]))
                     .text_color(tokens.primary)
                     .child(self.title.clone()),
             )
@@ -155,8 +159,10 @@ impl RenderOnce for ArtifactPreview {
                     .flex()
                     .flex_wrap()
                     .items_center()
-                    .gap_2()
-                    .text_xs()
+                    .gap(px(tokens.space[4]))
+                    .text_size(px(footnote_type[0]))
+                    .line_height(px(footnote_type[1]))
+                    .font_weight(FontWeight(footnote_type[2]))
                     .text_color(tokens.secondary)
                     .when(!self.author.is_empty(), |row| {
                         row.child(format!(
@@ -168,8 +174,8 @@ impl RenderOnce for ArtifactPreview {
                     .when(!self.path.is_empty(), |row| {
                         row.child(
                             div()
-                                .font_family(tokens.font_mono)
-                                .text_color(tokens.code)
+                                .font_family(tokens.font_mono_gpui)
+                                .text_color(tokens.code_text)
                                 .child(self.path.clone()),
                         )
                     })
@@ -188,7 +194,7 @@ impl RenderOnce for ArtifactPreview {
                     }),
             );
 
-        let mut actions = div().flex().items_center().gap_2();
+        let mut actions = div().flex().items_center().gap(px(tokens.space[4]));
         if let Some(handler) = self.on_copy_path.clone().filter(|_| !self.path.is_empty()) {
             let path = self.path.clone();
             actions = actions.child(
@@ -216,9 +222,9 @@ impl RenderOnce for ArtifactPreview {
             .flex()
             .items_center()
             .justify_between()
-            .gap_3()
-            .p_4()
-            .border_b_1()
+            .gap(px(tokens.space[5]))
+            .p(px(tokens.space[6]))
+            .border_b(px(tokens.desktop_layout.divider))
             .border_color(tokens.border_subtle)
             .bg(tokens.panel)
             .child(meta)
@@ -230,9 +236,11 @@ impl RenderOnce for ArtifactPreview {
                 .flex_col()
                 .items_center()
                 .justify_center()
-                .gap_3()
+                .gap(px(tokens.space[5]))
                 .flex_1()
-                .text_sm()
+                .text_size(px(footnote_type[0]))
+                .line_height(px(footnote_type[1]))
+                .font_weight(FontWeight(footnote_type[2]))
                 .text_color(tokens.secondary)
                 .child(Spinner::new().color(tokens.accent))
                 .child(crate::i18n::tr("artifact.preview.loading"))
@@ -242,25 +250,33 @@ impl RenderOnce for ArtifactPreview {
                 detail,
                 tokens.danger,
                 tokens.secondary,
+                &tokens,
             ),
             ArtifactPreviewState::Unsupported(detail) => status_view(
                 crate::i18n::tr("artifact.preview.unsupported"),
                 detail,
                 tokens.secondary,
                 tokens.tertiary,
+                &tokens,
             ),
             ArtifactPreviewState::Ready => {
                 let preview_id =
                     SharedString::from(format!("artifact-preview-content-{}", self.title));
                 let surface = div()
                     .w_full()
-                    .max_w(px(720.))
+                    .max_w(px(tokens.desktop_layout.chat_max_content))
                     .min_h_0()
                     .p(px(tokens.space[10]))
                     .rounded(px(tokens.radius[3]))
-                    .border_1()
+                    .border(px(tokens.desktop_layout.divider))
                     .border_color(tokens.border_subtle)
                     .bg(tokens.chat);
+                surface.style().box_shadow = Some(vec![BoxShadow {
+                    color: hsla(0., 0., 0., tokens.elevation_1_shadow_alpha),
+                    offset: point(px(0.), px(tokens.elevation_offset_y[1])),
+                    blur_radius: px(tokens.elevation_blur[1]),
+                    spread_radius: px(0.),
+                }]);
                 match self.format {
                     ArtifactPreviewFormat::Markdown => surface
                         .child(TextView::markdown(preview_id, self.content))
@@ -268,8 +284,10 @@ impl RenderOnce for ArtifactPreview {
                     ArtifactPreviewFormat::PlainText => surface
                         .child(
                             div()
-                                .font_family(tokens.font_mono)
-                                .text_sm()
+                                .font_family(tokens.font_mono_gpui)
+                                .text_size(px(tokens.desktop_type[9][0]))
+                                .line_height(px(tokens.desktop_type[9][1]))
+                                .font_weight(FontWeight(tokens.desktop_type[9][2]))
                                 .text_color(tokens.primary)
                                 .child(self.content),
                         )
@@ -304,22 +322,33 @@ fn status_view(
     detail: SharedString,
     color: gpui_kit::Hsla,
     detail_color: gpui_kit::Hsla,
+    tokens: &Tokens,
 ) -> gpui_kit::gpui::AnyElement {
+    let title_type = tokens.desktop_type[5];
+    let footnote_type = tokens.desktop_type[1];
     div()
         .flex()
         .flex_col()
         .items_center()
         .justify_center()
-        .gap_2()
+        .gap(px(tokens.space[4]))
         .flex_1()
         .text_center()
         .child(
             div()
-                .text_sm()
-                .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                .text_size(px(title_type[0]))
+                .line_height(px(title_type[1]))
+                .font_weight(FontWeight(title_type[2]))
                 .text_color(color)
                 .child(title),
         )
-        .child(div().text_sm().text_color(detail_color).child(detail))
+        .child(
+            div()
+                .text_size(px(footnote_type[0]))
+                .line_height(px(footnote_type[1]))
+                .font_weight(FontWeight(footnote_type[2]))
+                .text_color(detail_color)
+                .child(detail),
+        )
         .into_any_element()
 }

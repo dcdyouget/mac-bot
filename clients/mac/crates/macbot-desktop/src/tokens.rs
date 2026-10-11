@@ -78,8 +78,12 @@ pub struct Tokens {
     /// Fixed alpha in `elevation.1`; levels 2–4 use the theme shadow token.
     pub elevation_1_shadow_alpha: f32,
     pub font_ui: &'static str,
+    /// GPUI's native spelling for the design's leading `-apple-system` font.
+    pub font_ui_gpui: &'static str,
     pub font_display: &'static str,
     pub font_mono: &'static str,
+    /// The first concrete family in the design's monospace stack.
+    pub font_mono_gpui: &'static str,
     pub font_weights: [u16; 4],
     /// Direct projection of all `layout.desktop` keys from `design/tokens.json`.
     pub desktop_layout: DesktopLayout,
@@ -233,8 +237,10 @@ impl Tokens {
             elevation_outline: [0., 0., 0.5, 0.5, 0.5],
             elevation_1_shadow_alpha: 0.06,
             font_ui: "-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', system-ui, sans-serif",
+            font_ui_gpui: ".SystemUIFont",
             font_display: "-apple-system, 'SF Pro Display', 'PingFang SC', system-ui, sans-serif",
             font_mono: "'SF Mono', 'JetBrains Mono', Menlo, monospace",
+            font_mono_gpui: "SF Mono",
             font_weights: [400, 500, 600, 700],
             desktop_layout: DesktopLayout {
                 window_min: [960., 600.],
@@ -271,12 +277,8 @@ impl Tokens {
         }
     }
 
-    pub fn bean(index: u64) -> Hsla {
-        const COLORS: [u32; 10] = [
-            0x7c93b8, 0x86a894, 0xc6a47e, 0xa08dbf, 0xc48a8a, 0x7fa9ae, 0xb5a36c, 0x9b9b9b,
-            0xc49ab0, 0x8c9bc4,
-        ];
-        solid(COLORS[index as usize % COLORS.len()])
+    pub fn bean(&self, index: u64) -> Hsla {
+        self.avatar[index as usize % self.avatar.len()]
     }
 }
 

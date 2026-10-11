@@ -25,6 +25,22 @@ use gpui_kit::component::Theme;
 use gpui_kit::*;
 use std::{cell::Cell, rc::Rc};
 
+struct StyledRoot {
+    child: Entity<app::MacBot>,
+    message_type: [f32; 4],
+}
+
+impl Render for StyledRoot {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .text_size(px(self.message_type[0]))
+            .line_height(px(self.message_type[1]))
+            .font_weight(gpui_kit::gpui::FontWeight(self.message_type[2]))
+            .child(self.child.clone())
+    }
+}
+
 fn main() {
     let menu_bar_available = Rc::new(Cell::new(false));
     let reopen_menu_bar_available = menu_bar_available.clone();
@@ -114,16 +130,21 @@ fn main() {
                 MenuItem::action(i18n::tr("nav.skills"), app::Skills),
             ]),
         ]);
+        let tokens = tokens::Tokens::get(cx);
         let theme = Theme::global_mut(cx);
-        theme.font_family = "PingFang SC".into();
-        theme.font_size = px(14.);
+        theme.font_family = tokens.font_ui_gpui.into();
+        theme.mono_font_family = tokens.font_mono_gpui.into();
+        theme.font_size = px(tokens.desktop_type[3][0]);
+        theme.mono_font_size = px(tokens.desktop_type[9][0]);
         tokens::sync_theme(cx);
         open_main_window(cx, menu_bar_available.get());
     });
 }
 
 fn open_main_window(cx: &mut App, menu_bar_available: bool) {
-    let layout = tokens::Tokens::get(cx).desktop_layout;
+    let tokens = tokens::Tokens::get(cx);
+    let layout = tokens.desktop_layout;
+    let message_type = tokens.desktop_type[3];
     let bounds = Bounds::centered(
         None,
         size(px(layout.window_default[0]), px(layout.window_default[1])),
@@ -150,7 +171,11 @@ fn open_main_window(cx: &mut App, menu_bar_available: bool) {
                     true
                 }
             });
-            cx.new(|cx| app::MacBot::new(window, cx))
+            let child = cx.new(|cx| app::MacBot::new(window, cx));
+            cx.new(|_| StyledRoot {
+                child,
+                message_type,
+            })
         },
     )
     .expect("Unable to open Mac Bot window");
