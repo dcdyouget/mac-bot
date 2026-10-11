@@ -3809,7 +3809,7 @@ fn skills(
     let filter = query_value(data, "filter").filter(|value| {
         matches!(
             value.as_str(),
-            "all" | "builtin" | "user" | "draft" | "disabled"
+            "all" | "builtin" | "user" | "imported" | "draft" | "disabled"
         )
     });
     let query = route_query
@@ -3858,7 +3858,7 @@ fn skills(
                     .child(div().flex_1().min_w_0().truncate().child(format!(
                         "ϟ {name} · {} · {}",
                         skill_source(skill),
-                        skill_invocations(skill)
+                        skill_usage_label(skill)
                     )))
                     .child({
                         let mut actions = div()
@@ -3976,12 +3976,26 @@ fn skills(
             )
             .into_any_element()
         })
+        .child(
+            div()
+                .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                .child(t("skills.new.mode.write")),
+        )
         .child(skill_create_button(
-            t("skills.new.title"),
+            t("skills.new.create"),
             inputs,
             textareas,
             cx,
         ))
+        .child(if selected_draft {
+            div()
+                .text_size(px(tokens.desktop_type[1][0]))
+                .text_color(tokens.secondary)
+                .child(t("skills.new.draft_hint"))
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        })
         .child(card(
             t("skills.import_group"),
             div()
@@ -4140,6 +4154,12 @@ fn skills(
                     cx,
                 ))
                 .child(skill_filter_button(
+                    t("skills.source.imported"),
+                    Some("imported"),
+                    filter.as_deref(),
+                    cx,
+                ))
+                .child(skill_filter_button(
                     t("skills.draft"),
                     Some("draft"),
                     filter.as_deref(),
@@ -4276,7 +4296,9 @@ fn skill_matches_filter(skill: &Value, filter: Option<&str>, query: &str) -> boo
             .get("enabled")
             .and_then(Value::as_bool)
             .unwrap_or(true),
-        Some("builtin" | "user" | "draft") => skill_source_kind(skill) == filter.unwrap(),
+        Some("builtin" | "user" | "imported" | "draft") => {
+            skill_source_kind(skill) == filter.unwrap()
+        }
         _ => true,
     }
 }
@@ -4291,7 +4313,6 @@ fn skill_source_kind(skill: &Value) -> &str {
         })
         .unwrap_or("user")
     {
-        "imported" => "user",
         source => source,
     }
 }
@@ -4308,7 +4329,25 @@ fn skill_source(skill: &Value) -> &'static str {
     match source {
         "builtin" => t("skills.source.builtin"),
         "draft" => t("skills.draft"),
+        "imported" => t("skills.source.imported"),
         _ => t("skills.source.mine"),
+    }
+}
+
+fn skill_usage_label(skill: &Value) -> String {
+    let count = skill_invocations(skill);
+    let disabled_for_bots = skill
+        .get("disabled_bot_ids")
+        .and_then(Value::as_array)
+        .is_some_and(|ids| !ids.is_empty());
+    let enabled = skill
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    if enabled && !disabled_for_bots {
+        t("skills.usage").replace("{count}", &count)
+    } else {
+        t("skills.usage.partial").replace("{count}", &count)
     }
 }
 
@@ -4378,6 +4417,15 @@ fn bot_editor(
     let model_picker = bot_model_picker(data, inputs, tokens, cx);
     let avatar_picker = bot_avatar_picker(data, tokens, cx);
     let bot_actions = bot_actions(data, tokens, cx);
+    let main_rule_picker = if data
+        .get("is_main")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        bot_main_rule_picker(data, tokens, cx).into_any_element()
+    } else {
+        div().into_any_element()
+    };
     let tool_picker = if data
         .get("is_main")
         .and_then(Value::as_bool)
@@ -4446,6 +4494,7 @@ fn bot_editor(
         ))
         .child(labeled_field(t("bot.field.tools"), tool_picker, tokens))
         .child(bot_notification_toggle(data, cx))
+        .child(main_rule_picker)
         .child(avatar_picker)
         .child(if data.get("id").is_some() {
             card(title, body, tokens).into_any_element()
@@ -4460,6 +4509,82 @@ fn bot_editor(
             cx,
         ))
         .child(bot_actions)
+}
+
+fn bot_main_rule_picker(
+    data: &Value,
+    tokens: &Tokens,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement {
+    let rules = data.get("main_bot_rules").unwrap_or(&Value::Null);
+    if data.get("main_bot_rules_loading").and_then(Value::as_bool) == Some(true) {
+        return div()
+            .text_color(tokens.secondary)
+            .child(t("common.loading"));
+    }
+    if data
+        .get("main_bot_rules_error")
+        .is_some_and(|error| !error.is_null())
+        || rules
+            .get("auto_create_project")
+            .and_then(Value::as_bool)
+            .is_none()
+    {
+        return div()
+            .flex()
+            .items_center()
+            .gap(px(tokens.space[3]))
+            .text_color(tokens.secondary)
+            .child(t("bot.main.rule.load_failed"))
+            .child(action_button(
+                t("common.retry"),
+                FeatureAction::Rpc {
+                    method: "settings.get".into(),
+                    params: json!({}),
+                },
+                cx,
+            ));
+    }
+    let auto_create = rules["auto_create_project"].as_bool().unwrap_or(false);
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(tokens.space[2]))
+        .child(
+            div()
+                .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                .child(t("bot.main.rule")),
+        )
+        .child(
+            div().flex().gap(px(tokens.space[2])).children([
+                Button::new("main-bot-rule-auto")
+                    .label(t("bot.main.rule.auto"))
+                    .when(auto_create, |button| button.primary())
+                    .when(!auto_create, |button| button.ghost())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.emit_action(
+                            FeatureAction::Rpc {
+                                method: "settings.update".into(),
+                                params: json!({"patch":{"main_bot":{"auto_create_project":true}}}),
+                            },
+                            cx,
+                        )
+                    })),
+                Button::new("main-bot-rule-ask")
+                    .label(t("bot.main.rule.ask"))
+                    .when(!auto_create, |button| button.primary())
+                    .when(auto_create, |button| button.ghost())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.emit_action(
+                            FeatureAction::Rpc {
+                                method: "settings.update".into(),
+                                params: json!({"patch":{"main_bot":{"auto_create_project":false}}}),
+                            },
+                            cx,
+                        )
+                    })),
+            ]),
+        )
 }
 
 fn bot_detail(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> impl IntoElement {
@@ -4657,6 +4782,23 @@ fn bot_detail(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> i
             tokens,
         ))
         .child(card(
+            t("bot.field.skills"),
+            if loading.get("skills").and_then(Value::as_bool) == Some(true) {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("common.loading"))
+                    .into_any_element()
+            } else if show_detail_error("skills") {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("bot.detail.load_failed"))
+                    .into_any_element()
+            } else {
+                bot_detail_skills(&array(detail, "skills"), &bot_id, tokens, cx).into_any_element()
+            },
+            tokens,
+        ))
+        .child(card(
             t("bot.week_usage"),
             if loading.get("weekly_usage").and_then(Value::as_bool) == Some(true) {
                 div()
@@ -4690,6 +4832,74 @@ fn bot_detail(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> i
             },
             tokens,
         ))
+}
+
+fn bot_detail_skills(
+    skills: &[Value],
+    bot_id: &str,
+    tokens: &Tokens,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement {
+    let active_count = skills
+        .iter()
+        .filter(|skill| skill_source_kind(skill) != "draft")
+        .filter(|skill| bot_skill_enabled(skill, bot_id))
+        .count();
+    let header = t("bot.field.skills_all").replace("{count}", &active_count.to_string());
+    let mut rows = div()
+        .flex()
+        .flex_col()
+        .gap(px(tokens.space[2]))
+        .child(header);
+    let mut visible = 0;
+    for skill in skills {
+        if skill_source_kind(skill) == "draft" {
+            continue;
+        }
+        visible += 1;
+        let name = string(skill, "name", "").to_owned();
+        if name.is_empty() {
+            continue;
+        }
+        let enabled = bot_skill_enabled(skill, bot_id);
+        rows = rows.child(
+            Checkbox::new(format!("bot-detail-skill-{name}"))
+                .label(format!("{} · {}", name, skill_source(skill)))
+                .checked(enabled)
+                .on_change(cx.listener(move |this, next, _, cx| {
+                    this.emit_action(
+                        FeatureAction::Rpc {
+                            method: "skill.set_enabled".into(),
+                            params: skill_enabled_params(&name, *next, Some(&bot_id)),
+                        },
+                        cx,
+                    );
+                })),
+        );
+    }
+    if visible == 0 {
+        rows = rows.child(
+            div()
+                .text_color(tokens.secondary)
+                .child(t("bot.detail.empty_skills")),
+        );
+    }
+    rows.child(action_button(
+        t("common.view_all"),
+        FeatureAction::Navigate("skills".into()),
+        cx,
+    ))
+}
+
+fn bot_skill_enabled(skill: &Value, bot_id: &str) -> bool {
+    skill
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+        && !skill
+            .get("disabled_bot_ids")
+            .and_then(Value::as_array)
+            .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(bot_id)))
 }
 
 fn project_has_bot(project: &Value, bot_id: &str) -> bool {

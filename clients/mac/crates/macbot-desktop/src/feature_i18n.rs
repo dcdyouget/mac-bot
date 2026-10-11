@@ -137,6 +137,14 @@ pub fn text(key: &str) -> &'static str {
         "skills.source.builtin" => "内置",
         "skills.source.mine" => "我的",
         "skills.source.imported" => "导入",
+        "skills.usage" => "所有 Bot 可用 · 最近 7 天调用 {count} 次",
+        "skills.usage.partial" => "最近 7 天调用 {count} 次",
+        "skills.new.mode.write" => "手写",
+        "skills.new.mode.folder" => "从文件夹",
+        "skills.new.draft_hint" => {
+            "草稿：Bot 生成的技能先放在「草稿」里，你点「发布」后才对所有 Bot 生效"
+        }
+        "skills.new.create" => "创建并编辑 SKILL.md",
         "skills.description" => "描述",
         "skills.instructions" => "SKILL.md 内容",
         "skills.files" => "附带文件",
@@ -156,6 +164,8 @@ pub fn text(key: &str) -> &'static str {
         "settings.test" => "测试连接",
         "settings.add" => "添加",
         "bot.new" => "新建 Bot",
+        "bot.main.rule.load_failed" => "无法读取建群规则",
+        "bot.detail.empty_skills" => "还没有可用技能",
         "bot.edit" => "Bot 设置",
         "bot.name" => "名称",
         "bot.label" => "头衔",

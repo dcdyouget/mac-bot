@@ -119,6 +119,21 @@ impl MacBot {
             };
         }
         data["models"] = json!(self.state.models.values().collect::<Vec<_>>());
+        if matches!(self.page.as_str(), "bot" | "bot_settings") {
+            if let Some(settings) = self.state.settings.as_ref() {
+                data["main_bot_rules"] = settings.get("main_bot").cloned().unwrap_or(Value::Null);
+            }
+            data["main_bot_rules_loading"] = self
+                .feature_data
+                .get("main_bot_rules_loading")
+                .cloned()
+                .unwrap_or(json!(false));
+            data["main_bot_rules_error"] = self
+                .feature_data
+                .get("main_bot_rules_error")
+                .cloned()
+                .unwrap_or(Value::Null);
+        }
         if matches!(self.page.as_str(), "bot" | "bot_settings")
             && let Some(bot_id) = self
                 .feature_data
@@ -194,7 +209,8 @@ impl MacBot {
                     "bot": false,
                     "assignments": false,
                     "projects": false,
-                    "weekly_usage": false
+                    "weekly_usage": false,
+                    "skills": false
                 });
             }
             return;
@@ -211,13 +227,15 @@ impl MacBot {
                             "bot": false,
                             "assignments": false,
                             "projects": false,
-                            "weekly_usage": false
+                            "weekly_usage": false,
+                            "skills": false
                         });
                         self.feature_data["bot_detail"]["errors"] = json!({
                             "bot": tr("error.offline"),
                             "assignments": tr("error.offline"),
                             "projects": tr("error.offline"),
-                            "weekly_usage": tr("error.offline")
+                            "weekly_usage": tr("error.offline"),
+                            "skills": tr("error.offline")
                         });
                     } else {
                         self.feature_data["bot_detail"] = json!({
@@ -226,11 +244,13 @@ impl MacBot {
                         "assignments": [],
                         "projects": [],
                         "weekly_usage": [],
+                        "skills": [],
                         "loading": {
                             "bot": true,
                             "assignments": true,
                             "projects": true,
-                            "weekly_usage": true
+                            "weekly_usage": true,
+                            "skills": true
                         },
                         "errors": {}
                         });
@@ -245,6 +265,35 @@ impl MacBot {
                             json!({"from":from,"to":to,"dimension":"bot"}),
                             cx,
                         );
+                        self.rpc("skill.list", json!({}), cx);
+                    }
+                }
+            }
+            "bot" if matches!(self.page.as_str(), "bot" | "bot_settings") => {
+                let bot_id = self
+                    .feature_data
+                    .get("bot_settings_bot_id")
+                    .and_then(Value::as_str)
+                    .or_else(|| {
+                        self.state
+                            .chats
+                            .get(&self.selected_chat)
+                            .map(|chat| s(chat, "bot_id"))
+                    })
+                    .unwrap_or_default();
+                if self
+                    .state
+                    .bots
+                    .get(bot_id)
+                    .is_some_and(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+                {
+                    if self.client.is_some() {
+                        self.feature_data["main_bot_rules_loading"] = json!(true);
+                        self.feature_data["main_bot_rules_error"] = Value::Null;
+                        self.rpc("settings.get", json!({}), cx);
+                    } else {
+                        self.feature_data["main_bot_rules_loading"] = json!(false);
+                        self.feature_data["main_bot_rules_error"] = json!(tr("error.offline"));
                     }
                 }
             }
@@ -368,12 +417,27 @@ impl MacBot {
                 }
             }
             "settings.get" | "settings.update" => {
-                self.state.settings = Some(value["settings"].clone())
+                self.state.settings = Some(value["settings"].clone());
+                if matches!(self.page.as_str(), "bot" | "bot_settings") {
+                    self.feature_data["main_bot_rules"] = value["settings"]["main_bot"].clone();
+                    self.feature_data["main_bot_rules_loading"] = json!(false);
+                    self.feature_data["main_bot_rules_error"] = Value::Null;
+                }
             }
             "skill.list" => {
                 self.state.skills.clear();
                 for v in arr(value, "skills") {
                     insert(&mut self.state.skills, v, "name");
+                }
+                if self.page == "bot/detail" {
+                    self.feature_data["bot_detail"]["skills"] = json!(arr(value, "skills"));
+                    self.feature_data["bot_detail"]["loading"]["skills"] = json!(false);
+                    if let Some(errors) = self.feature_data["bot_detail"]
+                        .get_mut("errors")
+                        .and_then(Value::as_object_mut)
+                    {
+                        errors.remove("skills");
+                    }
                 }
             }
             "skill.import" => {
@@ -386,6 +450,20 @@ impl MacBot {
                 self.editor_reload = true;
                 self.feature_data["selected"] = value["skill"].clone();
                 self.feature_data["content"] = value["skill"]["content"].clone();
+            }
+            "skill.set_enabled" | "skill.publish" => {
+                if let Some(skill) = value.get("skill") {
+                    insert(&mut self.state.skills, skill, "name");
+                    if self.page == "bot/detail"
+                        && let Some(skills) =
+                            self.feature_data["bot_detail"]["skills"].as_array_mut()
+                        && let Some(existing) = skills
+                            .iter_mut()
+                            .find(|existing| s(existing, "name") == s(skill, "name"))
+                    {
+                        *existing = skill.clone();
+                    }
+                }
             }
             "routine.runs" => self.feature_data["runs"] = value["runs"].clone(),
             "routine.test_run" => {
@@ -1181,11 +1259,16 @@ impl MacBot {
                 )
             });
         }
+        if method == "settings.get" && matches!(self.page.as_str(), "bot" | "bot_settings") {
+            self.feature_data["main_bot_rules_loading"] = json!(false);
+            self.feature_data["main_bot_rules_error"] = json!(error);
+        }
         let detail_key = match method {
             "bot.get" if self.page == "bot/detail" => Some("bot"),
             "assignment.list" if self.page == "bot/detail" => Some("assignments"),
             "project.list" if self.page == "bot/detail" => Some("projects"),
             "usage.breakdown" if self.page == "bot/detail" => Some("weekly_usage"),
+            "skill.list" if self.page == "bot/detail" => Some("skills"),
             _ => None,
         };
         if let Some(key) = detail_key {
