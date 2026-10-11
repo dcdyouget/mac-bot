@@ -118,6 +118,7 @@ pub fn tr(key: &str) -> SharedString {
         "nav.groups" => "群",
         "nav.bots" => "Bot",
         "nav.workbench" => "工作台",
+        "nav.workbench.running" => "{count} 进行中",
         "nav.dashboard" => "仪表盘",
         "nav.skills" => "技能",
         "nav.settings" => "设置",

@@ -3137,6 +3137,12 @@ impl MacBot {
             .filter(|s| !s.is_empty())
             .unwrap_or("Mac Bot")
             .to_string();
+        let workbench_running = self
+            .state
+            .assignments
+            .values()
+            .filter(|assignment| matches!(s(assignment, "status"), "working" | "waiting_bot"))
+            .count();
         let mut footer = div()
             .flex()
             .flex_col()
@@ -3152,14 +3158,36 @@ impl MacBot {
             ("settings", "nav.settings", IconName::Settings),
         ] {
             let page = key.to_string();
+            let running_label = (key == "workbench" && workbench_running > 0).then(|| {
+                tr("nav.workbench.running")
+                    .to_string()
+                    .replace("{count}", &workbench_running.to_string())
+            });
             footer = footer.child(
-                div().h(px(layout.row_nav)).flex().items_center().child(
-                    Button::new(SharedString::from(format!("nav-{key}")))
-                        .ghost()
-                        .icon(icon)
-                        .label(tr(title_key))
-                        .on_click(cx.listener(move |this, _, _, cx| this.navigate(&page, cx))),
-                ),
+                div()
+                    .h(px(layout.row_nav))
+                    .flex()
+                    .items_center()
+                    .child(
+                        Button::new(SharedString::from(format!("nav-{key}")))
+                            .ghost()
+                            .flex_1()
+                            .icon(icon)
+                            .label(tr(title_key))
+                            .on_click(cx.listener(move |this, _, _, cx| this.navigate(&page, cx))),
+                    )
+                    .when_some(running_label, |row, label| {
+                        row.child(
+                            div()
+                                .rounded(px(t.radius[6]))
+                                .px(px(t.space[2]))
+                                .py(px(t.space[1]))
+                                .bg(t.hover)
+                                .text_size(px(t.desktop_type[1][0]))
+                                .text_color(t.secondary)
+                                .child(label),
+                        )
+                    }),
             );
         }
         div()
