@@ -44,10 +44,10 @@
 | 安全 | v1 只做访问密码（5.0.1）。TLS、审计、设备管理都放到以后 |
 | 存储 | JSON 文件：JSONL 追加日志是事实来源，JSON 快照用于快速读取；不使用数据库（5.2） |
 | 主 Bot | 每台 Host 内置一个，不能删除。只协调、不干活：建群、分派、跟进、提醒用户验收（5.3） |
-| 群 = 一件事 = 项目 | 有 Home 目录和系统维护的公告（成员状态、产物、项目要点） |
+| 群 = 一件事 = 项目 | 有 Home 目录和公告（一段自由文本，Bot 和用户都可以改）；成员状态和产物由系统维护 |
 | Bot 执行模型 | 任务按 durable 流程执行（借鉴 pi-durable）；**群消息只来自 `send_msg` 工具**，不流式；插话走 steer；详细过程只在用户打开时推送（5.3、5.11） |
 | 并行 | 同一个 Bot 可以同时在多个群里干活，有全局上限和每个 Bot 的上限；同一个群里同一个 Bot 的活按顺序做（5.3.5） |
-| 记忆 | 三种（用户、Bot、项目），**完全由服务端管理**，客户端不展示也不编辑；只有公告里的「项目要点」只读展示（5.5） |
+| 记忆 | 三种（用户、Bot、项目），**完全由服务端管理**，客户端不展示也不编辑；需要让人看到的要点，由 Bot 直接写进公告（5.5.6） |
 | 工具 | 照搬 pi 的文件工具和 bash，另有 agent-browser、子代理、web、`send_msg`、技能（5.10） |
 | 技能 | Agent Skills 规范，所有 Bot 共用；客户端可以增删改，逻辑都在服务端 |
 | 浏览器 | agent-browser sidecar；**每个 Bot 一个浏览器会话**，同一个 Bot 并行的任务各用一个标签页（5.8） |
@@ -219,7 +219,9 @@ send_msg(
   to?: "task_chat" | "user" | {bot: id},          // 默认是任务所在的会话；"user" = 和用户的私聊；{bot} = Bot 间私信
   mentions?: [ bot_id | {bot, instruction?} | "main" | "user" ],   // @ 谁，谁就行动
   artifacts?: [{title, path_or_url}],             // done 时登记产物
-  options?: [string]                              // decision 时的选项
+  options?: [string],                             // decision 时的选项
+  multi?: boolean,                                // decision 时是否允许多选，默认 false
+  link_previews?: [{url, site?, title?, description?, image?: FileRef}] // 仅传入真实链接 metadata，由服务端校验后作为 link_preview 块
 ) -> { message_id, then: "continue" | "wait" | "end" }
 ```
 
@@ -261,7 +263,7 @@ send_msg(
 
 - **只协调，不干活**：没有文件、bash、浏览器、子代理工具。在群里同样只通过 `send_msg` 说话（开场、转派、待验收、总结）；和用户的私聊是对话模式。phase=`coordinate`，**不占任务并发名额**。
 - **工具**：
-  - `list_bots`、`create_project(name, goal, flow, members, deadline?)`
+  - `list_bots`、`create_project(name, members, announcement)`（announcement 是公告初稿：这件事要做什么、截止时间、谁负责什么，自由书写）
   - `assign(project, bot, instruction)`、`delegate(bot, instruction)`（小事不建群，结果回到主 Bot 私聊）
   - `project_status(project)`
   - `request_review(project, summary)`、`finish_project(project, summary)`（只能在用户确认之后调用）
@@ -313,7 +315,7 @@ send_msg(
 
 ### 5.5 记忆与上下文（完全由服务端管理）
 
-> 客户端不展示、也不编辑记忆。唯一的例外是公告里的「项目要点」（`Announcement.highlights`），它是项目记忆的只读摘录。
+> 客户端不展示、也不编辑记忆。项目里需要所有人看到的结论，由 Bot 用 `update_announcement` 写进公告正文。
 > 参考：hermes-agent（冻结快照、压缩前先存记忆）、OpenClaw（压缩和裁剪）、nightly-labs/openbot（每个 agent × 每个频道一条独立线程、频道上下文包、80% 阈值、记忆在一轮成功结束后才提交）。
 
 #### 5.5.1 三种记忆
@@ -360,7 +362,7 @@ send_msg(
 | 按需检索 | `session_search`、`memory_search`、`project_find`、`chat_history`、读文件 | Bot 自己调用 |
 
 **群上下文包**：
-- 公告的文本版：目标、流程、分工、成员状态、产物、项目要点。
+- 公告正文（`Announcement.text`），加上成员状态和产物清单的文本版。
 - 本次任务的指令，以及触发它的消息和它引用的消息。
 - 最近 30 条群消息。
 - 更早消息的版本化摘要。
@@ -375,7 +377,14 @@ send_msg(
 
 #### 5.5.6 公告
 
-公告不单独存储，由 Project、成员分工、各成员当前任务的状态、Artifact、项目记忆（取前 20 条作为 highlights）实时拼出来。任何相关变化都推送 `announcement.updated`。
+公告由两部分组成：
+- **正文** `Announcement.text`：一段自由文本，不规定格式，存在 `data/projects/<id>/announcement.json`（`{ text, version, updated_by, updated_at }`，每次修改追加一条到 `announcement.log.jsonl` 留痕）。主 Bot 建群时写入初稿；之后：
+  - **Bot 工具** `update_announcement(text: string, mode: "replace" | "append" = "replace")`：群里的所有成员 Bot（包括主 Bot）都有这个工具。L0 规则提醒：形成结论、用户改了需求、换了截止时间时，更新公告；只写对所有成员都有用的信息，不写过程。`append` 会在末尾另起一段追加。工具不需要审批。
+  - **用户** 通过 `announcement.update` 修改（带 `base_version` 防止覆盖别人的修改）。
+  - 每次修改都在群里生成一条系统事件「X 更新了公告」（`system` 块，`code: "announcement_updated"`），并推送 `announcement.updated`。
+- **群状态**：成员分工、各成员当前任务的状态、Artifact，由服务端实时拼出，只读。任何相关变化也推送 `announcement.updated`。
+
+`goal`、`flow`、`deadline`、`highlights` 不再使用（保留字段、写空值，兼容旧客户端）。
 
 ### 5.6 模型接入
 
