@@ -3619,12 +3619,13 @@ impl MacBot {
                 }
                 if is_bot {
                     let hide_entity = entity.clone();
+                    let hide_bot_id = bot_id.clone();
                     menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.hide")).on_click(
                         move |_, _, cx| {
                             let _ = hide_entity.update(cx, |this, cx| {
                                 this.rpc(
                                     "bot.update",
-                                    json!({"bot_id":bot_id,"patch":{"hidden":true}}),
+                                    json!({"bot_id":hide_bot_id,"patch":{"hidden":true}}),
                                     cx,
                                 );
                             });
