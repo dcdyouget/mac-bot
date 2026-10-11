@@ -29,8 +29,8 @@
 
 ### 影响的模块
 - **server**：`macbot-memory`（版本号、修改日志、立即提交）、`macbot-gateway`（增量消息、记忆提取接入、上下文拆块）、`macbot-providers`（缓存断点）。
-- **protocol**：`memory` 工具和增量消息是服务端内部的，不涉及协议。用户记忆页面的协议见 PROTOCOL 5.10a（另一次提交）。待定：curator 写入的条目在 `source.by` / `updated_by` 里如何表示（现在只有 bot / user）；用户档案是否在设置里展示。
-- **客户端**：本次改动不涉及；设置里的用户记忆页面单独设计。
+- **protocol**：`memory` 工具和增量消息是服务端内部的，不涉及协议。用户记忆页面的协议见 PROTOCOL 5.10a（另一次提交）。本次新增（兼容变更）：curator 写入的条目 `source.by = { kind: "system" }`，配合 `chat_id` / `message_id` 指向触发的会话；新增 `UserProfile`、`memory.profile.get / update` 和事件 `memory.profile.updated`（PROTOCOL 5.10a）。Rust 类型、schema、fixtures、Kotlin 模型尚未同步，随实现一起完成。
+- **客户端**：「设置 → 记忆」顶部新增「关于你」档案卡片（可编辑），来源行同时显示「记忆整理」和会话（design 03 §6.7、04、07、CHANGELOG 12）。原型尚未更新。
 
 ### 已定细节
 - `memory` 工具返回值：成功返回 `entry_id`、`version`、`revision`、`remaining_chars`；失败返回 `quota_full` / `conflict` / `not_found` 及当前内容（PLAN 5.5.1）。

@@ -520,7 +520,18 @@
 |-----|-------|
 | settings.section.general | 通用 |
 | settings.section.memory | 记忆 |
-| memory.desc | 这里是用户记忆：所有 Bot 共享的、关于你的习惯和偏好。Bot 会在对话中自动记下，你也可以直接修改、删除或添加。修改后，所有 Bot 在下一次思考前就会知道。 |
+| memory.desc | 这里是用户记忆：所有 Bot 共享的、关于你的习惯和偏好。「记忆整理」会根据你说的话自动记下，你也可以直接修改、删除或添加。修改后，所有 Bot 在下一次思考前就会知道。 |
+| memory.profile.title | 关于你 |
+| memory.profile.name | 称呼 |
+| memory.profile.name_hint | Bot 怎么叫你 |
+| memory.profile.language | 语言 |
+| memory.profile.language_system | 跟随系统 |
+| memory.profile.identity | 身份 |
+| memory.profile.identity_hint | 一句话介绍你，例如「独立开发者，主要做 Rust 和 Android」 |
+| memory.profile.timezone | 时区 |
+| memory.profile.timezone_value | {tz} · 跟随 Host |
+| memory.profile.saved | 已保存 |
+| memory.source.curator | 记忆整理 根据 |
 | memory.usage | 用量 |
 | memory.usage_value | {used} / {limit} 字 |
 | memory.usage_hint | 接近上限时，Bot 会自己合并相近的条目；你也可以删掉不需要的。 |

@@ -58,7 +58,12 @@
 - **文件**：03 §6.7、04、07（`memory.*`、`settings.section.memory`）、`base.css`（`.mem-row`）；原型 `mac.html#set_memory/#set_memory_edit/#set_memory_conflict`、`mobile.html?only=memory,memoryedit`；协议 PROTOCOL 5.10a（`memory.user.*`）；DESIGN.md 1、4.12、4.13、功能矩阵；PLAN 5.5；AGENTS.md。
 - **实现注意**：设置导航里「记忆」排在「通用」之后，其余分页序号顺延。用户的修改和 Bot 的 `memory` 工具走同一套条目、版本、配额和增量消息。
 
-### 12. 其他
+### 12. 用户档案与记忆整理
+- **改了什么**：「设置 → 记忆」顶部新增「关于你」档案卡片（称呼、语言、身份可编辑；时区跟随 Host 只读）。用户记忆改由后台「记忆整理」写入，来源行显示「记忆整理 根据 · 会话名 · 时间」；旧数据仍显示 Bot。
+- **文件**：03 §6.7、04、07（`memory.profile.*`、`memory.source.curator`、`memory.desc`）；协议 PROTOCOL 5.10a（`UserProfile`、`memory.profile.*`）；DESIGN.md 4.12；PLAN 5.5.8、5.5.9。
+- **待补**：原型 `mac.html#set_memory`、`mobile.html?only=memory` 尚未加入档案卡片和新来源行。
+
+### 13. 其他
 - 主 Bot 头像从皇冠改为黑框眼镜（01 §10，token `avatar.glasses`）。
 - 三端唯一提示音「啵啵 · 气泡」`sounds/04-bubble-pop`（01 §11）；设置里只有「提示音」开关。
 - 文案 key 对照表 `07-copy.md`；交互细则 `08-interaction.md`（焦点顺序、快捷键、无障碍、头像 / 截断 / 时间格式）。

@@ -716,13 +716,23 @@ interface MemoryEntry {
   content: string;             // 一条记忆的正文，最多 500 字
   version: number;             // 每次修改 +1；修改和删除必须带上 expected_version
   source: {                    // 最初是谁、在哪里记下的
-    by: Sender;                // bot = 某个 Bot 自动记下；user = 你手动添加
+    by: Sender;                // system = 用户记忆整理线程（curator，PLAN 5.5.9）根据对话记下；user = 你手动添加；bot = 旧数据（v1.0 起 Bot 不再写用户记忆）
     chat_id: Id | null; message_id: Id | null;   // 触发这条记忆的会话与消息（手动添加时为 null）
   };
   updated_by: Sender;
   created_at: Time; updated_at: Time;
 }
 interface MemoryQuota { used_chars: number; limit_chars: number }   // 用户记忆上限 1,500 字
+interface UserProfile {        // 用户档案（PLAN 5.5.8），不计入配额
+  name: string | null;         // 称呼，最多 20 字
+  language: string | null;     // BCP 47，例如 "zh-CN"；null = 跟随客户端系统语言
+  identity: string | null;     // 身份，一句话，最多 100 字
+  timezone: string;            // 只读：Host 机器的 IANA 时区
+  onboarded: boolean;          // 初始化对话是否已经完成或被跳过
+  version: number;
+  updated_by: Sender;          // system = 整理线程；bot = 主 Bot 初始化；user = 你在设置里修改
+  updated_at: Time;
+}
 ```
 
 | 方法 | 参数 | 返回 |
@@ -731,6 +741,8 @@ interface MemoryQuota { used_chars: number; limit_chars: number }   // 用户记
 | `memory.user.create` | `{ content }` | `{ entry: MemoryEntry, quota: MemoryQuota }`（超出配额返回 `quota_full`） |
 | `memory.user.update` | `{ entry_id, content, expected_version }` | `{ entry: MemoryEntry, quota: MemoryQuota }`（版本不一致返回 `conflict`，`error.details.current` 带最新条目；超出配额返回 `quota_full`） |
 | `memory.user.delete` | `{ entry_id, expected_version }` | `{ quota: MemoryQuota }`（版本不一致返回 `conflict`） |
+| `memory.profile.get` | `{}` | `{ profile: UserProfile }` |
+| `memory.profile.update` | `{ name?, language?, identity?, expected_version }`（只传要改的字段；传 null 表示清空） | `{ profile: UserProfile }`（版本不一致返回 `conflict`，`error.details.current` 带最新档案） |
 
 ### 5.11 仪表盘
 
@@ -784,8 +796,9 @@ interface MemoryQuota { used_chars: number; limit_chars: number }   // 用户记
 | `provider.updated` | `{ provider: Provider, models: Model[] }` |
 | `provider.deleted` | `{ provider_id: Id }` |
 | `settings.updated` | `{ settings: Settings }` |
-| `memory.user.updated` | `{ entry: MemoryEntry, quota: MemoryQuota }`（新增或修改，来源可以是 Bot 或用户） |
+| `memory.user.updated` | `{ entry: MemoryEntry, quota: MemoryQuota }`（新增或修改，来源可以是整理线程或用户） |
 | `memory.user.deleted` | `{ entry_id: Id, quota: MemoryQuota }` |
+| `memory.profile.updated` | `{ profile: UserProfile }` |
 | `sync.cursor` | `{ seq: number }`（与帧顶层 `seq` 相同；内部轨迹条目的全局游标占位，无业务数据，不表示补发结束） |
 
 ### 6.2 临时事件（没有 `seq`）
