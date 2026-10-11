@@ -3624,6 +3624,7 @@ impl ProductionBackend {
             .read_snapshot::<Value>(path)
             .map_err(store_error)?
             .unwrap_or_else(|| default_settings(&host_name));
+        merge_missing_settings(&mut value, default_settings(&host_name));
         ensure_settings_tool_defaults(&mut value).map_err(|message| RpcError {
             code: "internal".into(),
             message,
@@ -5642,6 +5643,10 @@ impl ProductionBackend {
         method: &str,
         event_index: Option<&mut AssignmentCardEventIndex>,
     ) -> Result<(), RpcError> {
+        // Most assignment mutations return the Assignment directly, while
+        // assignment.retry follows the public `{ assignment }` envelope.
+        // Card repair operates on the canonical object in either case.
+        let assignment = assignment.get("assignment").unwrap_or(assignment);
         assignment
             .get("id")
             .and_then(Value::as_str)
@@ -8559,6 +8564,25 @@ fn default_settings(host_name: &str) -> Value {
     })
 }
 
+/// Fill settings omitted by older or partial snapshots while preserving all
+/// stored values, including unknown forward-compatible fields.
+fn merge_missing_settings(value: &mut Value, defaults: Value) {
+    let (Some(value), Some(defaults)) = (value.as_object_mut(), defaults.as_object()) else {
+        return;
+    };
+    for (key, default) in defaults {
+        match value.get_mut(key) {
+            Some(existing) if existing.is_object() && default.is_object() => {
+                merge_missing_settings(existing, default.clone());
+            }
+            Some(_) => {}
+            None => {
+                value.insert(key.clone(), default.clone());
+            }
+        }
+    }
+}
+
 fn required_text(params: &Value, key: &str) -> Result<String, RpcError> {
     params
         .get(key)
@@ -11156,6 +11180,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn assignment_retry_returns_child_and_is_idempotent_after_card_persistence() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call("bot.create", json!({"name":"重试测试 Bot"}), &gateway.state)
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"重试测试项目",
+                    "goal":"验证 assignment.retry",
+                    "member_bot_ids":[bot_id]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let source = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":project["project"]["chat_id"],
+                    "bot_id":bot_id,
+                    "title":"首次执行",
+                    "instruction":"失败后重试",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let source_id = source["id"].as_str().unwrap().to_owned();
+        backend
+            .orchestrator
+            .finish_assignment(&source_id, "failed")
+            .unwrap();
+        let params = json!({
+            "assignment_id":source_id,
+            "client_request_id":"qa-retry-same-request"
+        });
+        let first = backend
+            .call("assignment.retry", params.clone(), &gateway.state)
+            .await
+            .unwrap();
+        let retry_id = first["assignment"]["id"].as_str().unwrap().to_owned();
+        assert_eq!(first["assignment"]["parent_assignment_id"], source_id);
+        let second = backend
+            .call("assignment.retry", params, &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(second["assignment"]["id"], retry_id);
+
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        let retry_children = snapshot["assignments"]
+            .as_object()
+            .unwrap()
+            .values()
+            .filter(|assignment| assignment["parent_assignment_id"] == source_id)
+            .count();
+        assert_eq!(retry_children, 1);
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":project["project"]["chat_id"],"limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let child_cards = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| {
+                message["blocks"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block["type"] == "task_card" && block["assignment_id"] == retry_id
+                    })
+                })
+            })
+            .count();
+        assert_eq!(child_cards, 1);
+    }
+
+    #[tokio::test]
     async fn assignment_cards_are_typed_sequenced_and_idempotent() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
@@ -13293,7 +13410,7 @@ mod tests {
         for bot in [&first, &second] {
             backend.call("assignment.create", json!({"bot_id":bot["bot"]["id"],"project_id":project["project"]["id"],"origin_chat_id":project["chat"]["id"],"title":"working", "instruction":"keep working", "from":"main"}), &gateway.state).await.unwrap();
         }
-        let sent = backend.call("chat.send", json!({"chat_id":project["chat"]["id"],"text":"邮箱登录优先", "mentions":[{"kind":"bot","bot_id":first["bot"]["id"],"instruction":null},{"kind":"bot","bot_id":second["bot"]["id"],"instruction":null}],"reply_to":"earlier", "client_request_id":"steer-users"}), &gateway.state).await.unwrap();
+        let sent = backend.call("chat.send", json!({"chat_id":project["chat"]["id"],"text":"邮箱登录优先", "mentions":[{"kind":"bot","bot_id":first["bot"]["id"],"instruction":null},{"kind":"bot","bot_id":second["bot"]["id"],"instruction":null}],"client_request_id":"steer-users"}), &gateway.state).await.unwrap();
         let canonical = sent["message"].clone();
         assert_eq!(canonical["delivery"].as_array().unwrap().len(), 2);
         assert!(canonical["delivery"]
@@ -13387,6 +13504,20 @@ mod tests {
             .await
             .unwrap();
         let chat_id = created["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        let root = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":chat_id,
+                    "text":"被引用的原消息",
+                    "mentions":[],
+                    "client_request_id":"chat-attachment-root"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let root_id = root["message"]["id"].as_str().unwrap().to_owned();
         let sent = backend
             .call(
                 "chat.send",
@@ -13394,7 +13525,7 @@ mod tests {
                     "chat_id":chat_id,
                     "text":"带附件的回复",
                     "mentions":[],
-                    "reply_to":"msg-root",
+                    "quote":root_id,
                     "attachments":["upload-chat-1"],
                     "client_request_id":"chat-attachment-1"
                 }),
@@ -13402,7 +13533,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(sent["message"]["reply_to"], "msg-root");
+        assert_eq!(sent["message"]["quote"]["message_id"], root_id);
+        assert_eq!(sent["message"]["reply_to"], Value::Null);
         assert_eq!(sent["message"]["blocks"][1]["type"], "file");
         assert_eq!(
             sent["message"]["blocks"][1]["file"]["root_id"],
@@ -13414,8 +13546,14 @@ mod tests {
             .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
             .await
             .unwrap();
-        let message = &history["messages"][0];
-        assert_eq!(message["reply_to"], "msg-root");
+        let message = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == sent["message"]["id"])
+            .unwrap();
+        assert_eq!(message["quote"]["message_id"], root_id);
+        assert_eq!(message["reply_to"], Value::Null);
         assert_eq!(message["blocks"][1]["file"]["root_id"], "upload-chat-1");
         drop(backend);
         drop(gateway);
@@ -13429,8 +13567,14 @@ mod tests {
             .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
             .await
             .unwrap();
-        let message = &history["messages"][0];
-        assert_eq!(message["reply_to"], "msg-root");
+        let message = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == sent["message"]["id"])
+            .unwrap();
+        assert_eq!(message["quote"]["message_id"], root_id);
+        assert_eq!(message["reply_to"], Value::Null);
         assert_eq!(message["blocks"][1]["file"]["root_id"], "upload-chat-1");
     }
 
@@ -13463,22 +13607,22 @@ mod tests {
         let reply = backend
             .call(
                 "chat.send",
-                json!({"chat_id":chat_id,"text":"回复","mentions":[],"reply_to":root_id,"client_request_id":"chat-reply"}),
+                json!({"chat_id":chat_id,"text":"回复","mentions":[],"quote":root_id,"client_request_id":"chat-reply"}),
                 &gateway.state,
             )
             .await
             .unwrap();
         let reply_id = reply["message"]["id"].as_str().unwrap().to_owned();
-        let thread = backend
-            .call(
-                "chat.thread",
-                json!({"chat_id":chat_id,"root_message_id":root_id}),
-                &gateway.state,
-            )
+        assert_eq!(reply["message"]["quote"]["message_id"], root_id);
+        assert_eq!(reply["message"]["reply_to"], Value::Null);
+        let history = backend
+            .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
             .await
             .unwrap();
-        assert_eq!(thread["root"]["id"], root_id);
-        assert_eq!(thread["replies"][0]["id"], reply_id);
+        assert_eq!(history["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(history["messages"][0]["id"], root_id);
+        assert_eq!(history["messages"][1]["id"], reply_id);
+        assert_eq!(history["messages"][1]["quote"]["message_id"], root_id);
 
         let reacted = backend
             .call(
@@ -13488,6 +13632,7 @@ mod tests {
             )
             .await
             .unwrap();
+        assert_eq!(reacted["message"]["id"], root_id);
         assert_eq!(reacted["message"]["reactions"][0]["emoji"], "👍");
         backend
             .call(
@@ -13598,6 +13743,14 @@ mod tests {
             .find(|message| message["id"] == root_id)
             .unwrap();
         assert_eq!(restored_root["reactions"][0]["emoji"], "👍");
+        let restored_reply = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == reply_id)
+            .unwrap();
+        assert_eq!(restored_reply["quote"]["message_id"], root_id);
+        assert_eq!(restored_reply["reply_to"], Value::Null);
     }
 
     #[tokio::test]

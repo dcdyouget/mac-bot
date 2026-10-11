@@ -3798,6 +3798,59 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(gw.state.host_name.read().await.as_str(), "after");
     }
+
+    #[tokio::test]
+    async fn fresh_admin_settings_keep_defaults_for_settings_and_usage_csv() {
+        let dir = tempfile::tempdir().unwrap();
+        let backend = Arc::new(crate::adapter::ProductionBackend::open(dir.path()).unwrap());
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            ..Default::default()
+        })
+        .with_backend(backend);
+        assert!(!dir.path().join("data/settings.json").exists());
+        let mut admin_headers = HeaderMap::new();
+        admin_headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic YWRtaW46ZGV2"),
+        );
+        let saved = admin_settings_handler(
+            State(gw.clone()),
+            ConnectInfo("127.0.0.1:1234".parse().unwrap()),
+            admin_headers,
+            Json(json!({"host_name":"QA Host","port":48155})),
+        )
+        .await;
+        assert_eq!(saved.status(), StatusCode::OK);
+        let stored: Value = serde_json::from_slice(
+            &fs::read(dir.path().join("data/settings.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(stored["host_name"], "QA Host");
+        assert_eq!(stored["port"], 48155);
+
+        let settings = gw.rpc("settings.get", json!({})).await.unwrap();
+        assert_eq!(settings["settings"]["timezone"], "Asia/Shanghai");
+        assert_eq!(settings["settings"]["host_name"], "QA Host");
+
+        let mut csv_headers = HeaderMap::new();
+        csv_headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer dev"),
+        );
+        let response =
+            usage_csv_handler(State(gw), csv_headers, Query(UsageCsvQuery::default())).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let csv = axum::body::to_bytes(response.into_body(), 8192)
+            .await
+            .unwrap();
+        assert!(String::from_utf8(csv.to_vec())
+            .unwrap()
+            .starts_with("key,label,input_tokens"));
+    }
     #[tokio::test]
     async fn mock_bootstrap_and_idempotency() {
         let dir = tempfile::tempdir().unwrap();
