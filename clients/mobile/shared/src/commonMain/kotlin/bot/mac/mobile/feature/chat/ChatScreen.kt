@@ -60,6 +60,7 @@ import bot.mac.mobile.core.platform.platformFilePicker
 import bot.mac.mobile.core.platform.platformScreenImageDecoder
 import bot.mac.mobile.core.platform.platformPersistentStore
 import bot.mac.mobile.core.platform.openExternalUrl
+import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.LocalMobilePalette
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.state.MobileState
@@ -282,7 +283,8 @@ fun ChatScreen(
                     repository = repository,
                     onQuoteAnnouncement = onQuoteAnnouncement,
                     showSender = !followsSameAuthor,
-                    showTime = !continuesSameAuthor,
+                    showAvatar = !continuesSameAuthor,
+                    showTime = true,
                     onJumpToMessage = { quotedId ->
                         val index = messages.indexOfFirst { it.str("id") == quotedId }
                         if (index >= 0) {
@@ -503,8 +505,8 @@ private fun MessageTimeLabel(timestamp: String, modifier: Modifier, color: andro
     val dayDifference = today.date.toEpochDays() - local.date.toEpochDays()
     val label = when {
         dayDifference == 0L -> stringResource(Res.string.chat_time_today, local.hour, local.minute)
-        dayDifference == 1L -> stringResource(Res.string.chat_time_yesterday, local.hour, local.minute)
-        dayDifference in 2L..6L -> {
+        dayDifference == 1L -> stringResource(Res.string.chat_time_yesterday)
+        dayDifference in 2L..7L -> {
             val weekday = when (local.dayOfWeek.ordinal + 1) {
                 1 -> stringResource(Res.string.chat_weekday_mon)
                 2 -> stringResource(Res.string.chat_weekday_tue)
@@ -514,7 +516,7 @@ private fun MessageTimeLabel(timestamp: String, modifier: Modifier, color: andro
                 6 -> stringResource(Res.string.chat_weekday_sat)
                 else -> stringResource(Res.string.chat_weekday_sun)
             }
-            stringResource(Res.string.chat_time_weekday, weekday, local.hour, local.minute)
+            stringResource(Res.string.chat_time_weekday, weekday)
         }
         local.year == today.year -> stringResource(Res.string.chat_time_date, local.month.ordinal + 1, local.day)
         else -> stringResource(Res.string.chat_time_date_year, local.year, local.month.ordinal + 1, local.day)
@@ -531,6 +533,7 @@ internal fun ChatMessageRow(
     repository: MobileRepository,
     onQuoteAnnouncement: (String) -> Unit,
     showSender: Boolean,
+    showAvatar: Boolean,
     showTime: Boolean,
     state: MobileState,
     onJumpToMessage: (String) -> Unit,
@@ -568,10 +571,27 @@ internal fun ChatMessageRow(
     val assignmentId = message.str("assignment_id")
     val senderId = sender.str("bot_id")
     val senderLabel = state.bots.firstOrNull { it.str("id")==senderId }?.str("name")?.takeIf { it.isNotBlank() } ?: if (senderId.isBlank()) stringResource(Res.string.feature_bot) else senderId
+    val senderBot = state.bots.firstOrNull { it.str("id") == senderId }
+    val senderStatus = senderBot?.obj("status")?.str("summary").orEmpty()
+    val avatarStatusLabel = stringResource(when (senderStatus) {
+        "working", "queued" -> Res.string.chat_avatar_status_working
+        "waiting_user" -> Res.string.chat_avatar_status_waiting_user
+        "review" -> Res.string.chat_avatar_status_review
+        "blocked" -> Res.string.chat_avatar_status_blocked
+        else -> Res.string.chat_avatar_status_idle
+    })
+    val avatarDescription = stringResource(Res.string.chat_avatar_description, senderLabel, avatarStatusLabel)
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
         if (showSender) Text(if (isUser) stringResource(Res.string.feature_you) else senderLabel, style = MaterialTheme.typography.labelSmall)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
+        if (!isUser) {
+            if (showAvatar) Box(Modifier.semantics { contentDescription = avatarDescription }) {
+                BotAvatar(repository, senderBot, main = senderBot?.boolean("is_main") == true, status = senderStatus, size = 32.dp)
+            }
+            else Spacer(Modifier.size(32.dp))
+        }
         Surface(
-            modifier = Modifier
+            modifier = (if (isUser) Modifier.fillMaxWidth(0.9f) else Modifier.weight(1f).padding(start = 8.dp))
                 .pointerInput(message.str("id"), swipeThreshold) {
                     var distance = 0f
                     detectHorizontalDragGestures(
@@ -725,9 +745,18 @@ internal fun ChatMessageRow(
                 if (showTime) MessageTimeLabel(message.str("created_at"), Modifier.align(Alignment.End), if (isUser) palette.textSecondary else palette.textTertiary)
             }
         }
+        }
         if (showMessageActions) androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showMessageActions = false }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(Res.string.feature_message_actions), style = MaterialTheme.typography.titleMedium)
+                runCatching { Instant.parse(message.str("created_at")).toLocalDateTime(TimeZone.currentSystemDefault()) }
+                    .getOrNull()?.let { timestamp ->
+                        Text(
+                            stringResource(Res.string.chat_time_full, timestamp.year, timestamp.month.ordinal + 1, timestamp.day, timestamp.hour, timestamp.minute, timestamp.second),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     listOf("👍", "❤️", "😂", "🎉", "🤔", "👀").forEach { emoji ->
                         TextButton(onClick = { if (id.isNotBlank()) onReact(id, emoji); showMessageActions = false }) { Text(emoji, style = MaterialTheme.typography.titleLarge) }

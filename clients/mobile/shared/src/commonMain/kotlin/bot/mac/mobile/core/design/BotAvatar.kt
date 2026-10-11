@@ -19,6 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
 import bot.mac.mobile.core.platform.platformScreenImageDecoder
 import bot.mac.mobile.core.protocol.FileRef
 import bot.mac.mobile.core.protocol.obj
@@ -34,6 +36,7 @@ fun BotAvatar(
     bot: JsonObject?,
     main: Boolean = false,
     status: String = "idle",
+    size: Dp = 48.dp,
 ) {
     val avatar = bot?.obj("avatar")
     val kind = avatar?.str("kind").orEmpty()
@@ -62,23 +65,23 @@ fun BotAvatar(
     }
 
     when {
-        kind == "emoji" && emoji.isNotBlank() -> EmojiAvatar(emoji)
+        kind == "emoji" && emoji.isNotBlank() -> EmojiAvatar(emoji, size)
         kind == "image" && image != null -> Image(
             bitmap = image!!,
             contentDescription = null,
-            modifier = Modifier.size(48.dp).clip(CircleShape),
+            modifier = Modifier.size(size).clip(CircleShape),
             contentScale = ContentScale.Crop,
         )
-        else -> BeanAvatar(color = color, main = main, status = status)
+        else -> BeanAvatar(color = color, main = main, status = status, avatarSize = size)
     }
 }
 
 @Composable
-private fun EmojiAvatar(emoji: String) {
+private fun EmojiAvatar(emoji: String, size: Dp) {
     Box(
-        modifier = Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+        modifier = Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center,
     ) {
-        Text(emoji, maxLines = 1, style = MaterialTheme.typography.titleLarge)
+        Text(emoji, maxLines = 1, style = MaterialTheme.typography.titleLarge.copy(fontSize = (size.value * 0.55f).sp))
     }
 }
