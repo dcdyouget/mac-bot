@@ -91,6 +91,8 @@ gpui_kit::actions!(
         Skills,
         ToggleSidebar,
         ToggleContext,
+        CycleFocus,
+        CycleFocusBack,
         EditAnnouncement,
         Back,
         Chat1,
@@ -147,6 +149,10 @@ pub struct MacBot {
     image_errors: BTreeMap<String, String>,
     message_following: bool,
     focus: FocusHandle,
+    focus_region: usize,
+    focus_messages: FocusHandle,
+    focus_context: FocusHandle,
+    focus_sidebar: FocusHandle,
     _subscriptions: Vec<Subscription>,
     resync_requested: bool,
     connected: bool,
@@ -298,6 +304,10 @@ impl MacBot {
             image_errors: BTreeMap::new(),
             message_following: true,
             focus: cx.focus_handle(),
+            focus_region: 0,
+            focus_messages: cx.focus_handle(),
+            focus_context: cx.focus_handle(),
+            focus_sidebar: cx.focus_handle(),
             _subscriptions: subscriptions,
             resync_requested: false,
             connected: false,
@@ -1174,7 +1184,7 @@ impl MacBot {
         self.close_trace(cx);
         self.close_screen();
         self.context.clear();
-        self.focus_root(cx);
+        self.focus_composer(cx);
         if let Some(chat) = self.state.chats.values().find(|v| s(v, "kind") == "main") {
             let id = s(chat, "id").to_owned();
             self.selected_chat = id.clone();
@@ -1202,7 +1212,6 @@ impl MacBot {
         self.cancel_search_open();
         self.close_trace(cx);
         self.close_screen();
-        self.focus.focus(window, cx);
         self.message_following = true;
         self.selected_chat = id.clone();
         self.page = "chat".into();
@@ -1212,6 +1221,8 @@ impl MacBot {
         let draft = self.drafts.get(&id).cloned().unwrap_or_default();
         self.composer
             .update(cx, |input, cx| input.set_value(draft, window, cx));
+        self.composer
+            .update(cx, |input, cx| input.focus(window, cx));
         self.rpc("chat.history", json!({"chat_id":id}), cx);
         if let Some(chat) = self.state.chats.get(&self.selected_chat) {
             let seq = chat["last_seq"].clone();
@@ -1590,6 +1601,64 @@ impl MacBot {
                 let _ = handle.update(cx, |_, window, cx| focus.focus(window, cx));
             }
         });
+    }
+    fn focus_composer(&self, cx: &mut Context<Self>) {
+        let composer = self.composer.clone();
+        let handle = cx.active_window();
+        cx.defer(move |cx| {
+            if let Some(handle) = handle {
+                let _ = handle.update(cx, |_, window, cx| {
+                    composer.update(cx, |input, cx| input.focus(window, cx));
+                });
+            }
+        });
+    }
+    fn cycle_focus(&mut self, reverse: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.page != "chat" {
+            return;
+        }
+        self.focus_region = if self
+            .composer
+            .read(cx)
+            .focus_handle(cx)
+            .contains_focused(window, cx)
+        {
+            0
+        } else if self.focus_messages.contains_focused(window, cx) {
+            1
+        } else if self.focus_context.contains_focused(window, cx) {
+            2
+        } else if self.focus_sidebar.contains_focused(window, cx) {
+            3
+        } else {
+            self.focus_region
+        };
+        let mut index = self.focus_region;
+        for _ in 0..4 {
+            index = if reverse {
+                (index + 3) % 4
+            } else {
+                (index + 1) % 4
+            };
+            match index {
+                0 => {
+                    self.composer
+                        .update(cx, |input, cx| input.focus(window, cx));
+                }
+                1 => self.focus_messages.focus(window, cx),
+                2 => {
+                    self.context_visible = true;
+                    self.focus_context.focus(window, cx);
+                }
+                _ => {
+                    self.sidebar_visible = true;
+                    self.focus_sidebar.focus(window, cx);
+                }
+            }
+            self.focus_region = index;
+            cx.notify();
+            return;
+        }
     }
     fn navigate(&mut self, page: &str, cx: &mut Context<Self>) {
         self.cancel_search_open();
@@ -2184,18 +2253,19 @@ impl MacBot {
             .p_3()
             .border_t_1()
             .border_color(t.border);
-        for (key, icon) in [
-            ("workbench", IconName::LayoutDashboard),
-            ("dashboard", IconName::LayoutDashboard),
-            ("skills", IconName::Star),
-            ("settings", IconName::Settings),
+        for (key, title_key, icon) in [
+            ("workbench", "nav.workbench", IconName::LayoutDashboard),
+            ("dashboard", "nav.dashboard", IconName::LayoutDashboard),
+            ("routines", "routines.title", IconName::Calendar),
+            ("skills", "nav.skills", IconName::Star),
+            ("settings", "nav.settings", IconName::Settings),
         ] {
             let page = key.to_string();
             footer = footer.child(
                 Button::new(SharedString::from(format!("nav-{key}")))
                     .ghost()
                     .icon(icon)
-                    .label(tr(&format!("nav.{key}")))
+                    .label(tr(title_key))
                     .on_click(cx.listener(move |this, _, _, cx| this.navigate(&page, cx))),
             );
         }
@@ -2204,6 +2274,7 @@ impl MacBot {
             .flex_col()
             .size_full()
             .bg(t.sidebar)
+            .track_focus(&self.focus_sidebar)
             .child(
                 div()
                     .p_3()
@@ -2530,6 +2601,12 @@ impl Render for MacBot {
             .on_action(cx.listener(|this, _: &ToggleContext, _, cx| {
                 this.context_visible = !this.context_visible;
                 cx.notify();
+            }))
+            .on_action(
+                cx.listener(|this, _: &CycleFocus, window, cx| this.cycle_focus(false, window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &CycleFocusBack, window, cx| {
+                this.cycle_focus(true, window, cx)
             }))
             .on_action(cx.listener(|this, _: &EditAnnouncement, window, cx| {
                 let project_id = this

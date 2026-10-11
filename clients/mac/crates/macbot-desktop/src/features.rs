@@ -4,7 +4,7 @@
 //! This module owns the feature page presentation and emits intent-like
 //! actions so the shell can turn a click into an RPC or navigation event.
 
-use chrono::{Datelike, Duration as ChronoDuration, NaiveDate, Utc};
+use chrono::{Datelike, Duration as ChronoDuration, Local, NaiveDate, Utc};
 use gpui_kit::StatefulInteractiveElement;
 use gpui_kit::component::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -1345,6 +1345,7 @@ fn dashboard_period_rpc_button(
             let to_value = to.read(cx).value().to_string();
             this.data["from"] = json!(from_value.clone());
             this.data["to"] = json!(to_value.clone());
+            this.data["range"] = json!("custom");
             let params = build(&from_value, &to_value);
             let refresh_all = method == "usage.summary" || method == "usage.heatmap";
             this.emit_action(
@@ -1400,6 +1401,93 @@ fn dashboard_period_rpc_button(
                     cx,
                 );
             }
+        }))
+}
+
+fn dashboard_range_period(days: u32) -> (String, String) {
+    let now = Local::now();
+    let first_day = now.date_naive() - ChronoDuration::days(i64::from(days.saturating_sub(1)));
+    let first_day_start = first_day
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight is a valid time")
+        .and_local_timezone(Local)
+        .earliest()
+        .unwrap_or(now);
+    (
+        first_day_start.with_timezone(&Utc).to_rfc3339(),
+        now.with_timezone(&Utc).to_rfc3339(),
+    )
+}
+
+fn dashboard_range_button(
+    label: &str,
+    range: &str,
+    days: u32,
+    inputs: &BTreeMap<String, Entity<InputState>>,
+    selected_range: &str,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
+    let label = label.to_owned();
+    let range = range.to_owned();
+    let from = input_state(inputs, "from").clone();
+    let to = input_state(inputs, "to").clone();
+    let selected = range == selected_range;
+    Button::new(format!("dashboard-range-{range}"))
+        .label(label)
+        .when(selected, |button| button.primary())
+        .when(!selected, |button| button.ghost())
+        .on_click(cx.listener(move |this, _, window, cx| {
+            let (from_value, to_value) = dashboard_range_period(days);
+            from.update(cx, |state, cx| {
+                state.set_value(from_value.clone(), window, cx);
+            });
+            to.update(cx, |state, cx| {
+                state.set_value(to_value.clone(), window, cx);
+            });
+            this.data["from"] = json!(from_value);
+            this.data["to"] = json!(to_value);
+            this.data["range"] = json!(range.clone());
+            let snapshot = this.data.clone();
+            this.emit_action(
+                FeatureAction::Rpc {
+                    method: "usage.summary".into(),
+                    params: usage_summary_params(&snapshot),
+                },
+                cx,
+            );
+            this.emit_action(
+                FeatureAction::Rpc {
+                    method: "usage.heatmap".into(),
+                    params: usage_heatmap_params(&snapshot, "calendar", "tokens"),
+                },
+                cx,
+            );
+            this.emit_action(
+                FeatureAction::Rpc {
+                    method: "usage.timeseries".into(),
+                    params: usage_timeseries_params(
+                        &snapshot,
+                        dashboard_dimension(&snapshot),
+                        snapshot
+                            .get("metric")
+                            .and_then(Value::as_str)
+                            .unwrap_or("tokens"),
+                        snapshot
+                            .get("split_io")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    ),
+                },
+                cx,
+            );
+            this.emit_action(
+                FeatureAction::Rpc {
+                    method: "usage.breakdown".into(),
+                    params: usage_breakdown_params(&snapshot, dashboard_dimension(&snapshot)),
+                },
+                cx,
+            );
+            cx.notify();
         }))
 }
 
@@ -2078,16 +2166,57 @@ fn dashboard(
     let details = dashboard_details(data);
     let heat = heatmap(data, inputs, tokens, cx);
     let trend = trend_chart(data, tokens, cx);
+    let selected_range = data.get("range").and_then(Value::as_str).unwrap_or("30d");
+    let period_label = match selected_range {
+        "today" => t("dashboard.range.today"),
+        "7d" => t("dashboard.range.7d"),
+        "30d" => t("dashboard.range.30d"),
+        "90d" => t("dashboard.range.90d"),
+        _ => "",
+    };
     div()
         .flex()
         .flex_col()
         .gap_4()
         .p_6()
-        .child(page_header(
-            t("dashboard.title"),
-            t("dashboard.period"),
-            tokens,
-        ))
+        .child(page_header(t("dashboard.title"), period_label, tokens))
+        .child(
+            div()
+                .flex()
+                .gap_2()
+                .child(dashboard_range_button(
+                    t("dashboard.range.today"),
+                    "today",
+                    1,
+                    inputs,
+                    selected_range,
+                    cx,
+                ))
+                .child(dashboard_range_button(
+                    t("dashboard.range.7d"),
+                    "7d",
+                    7,
+                    inputs,
+                    selected_range,
+                    cx,
+                ))
+                .child(dashboard_range_button(
+                    t("dashboard.range.30d"),
+                    "30d",
+                    30,
+                    inputs,
+                    selected_range,
+                    cx,
+                ))
+                .child(dashboard_range_button(
+                    t("dashboard.range.90d"),
+                    "90d",
+                    90,
+                    inputs,
+                    selected_range,
+                    cx,
+                )),
+        )
         .child(
             div()
                 .flex()

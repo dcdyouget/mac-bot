@@ -609,6 +609,7 @@ impl MacBot {
         .min_h_0();
         let mut contents = div()
             .id("messages")
+            .track_focus(&self.focus_messages)
             .flex()
             .flex_col()
             .flex_1()
@@ -2692,6 +2693,7 @@ impl MacBot {
             .flex()
             .flex_col()
             .bg(t.sidebar)
+            .track_focus(&self.focus_context)
             .child(header)
             .child(body)
             .into_any_element()

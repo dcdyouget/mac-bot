@@ -57,6 +57,8 @@ fn main() {
             KeyBinding::new("cmd-e", app::EditAnnouncement, None),
             KeyBinding::new("cmd-\\", app::ToggleSidebar, None),
             KeyBinding::new("cmd-shift-\\", app::ToggleContext, None),
+            KeyBinding::new("f6", app::CycleFocus, None),
+            KeyBinding::new("shift-f6", app::CycleFocusBack, None),
             KeyBinding::new("escape", app::Back, None),
         ]);
         cx.on_action(|_: &app::Quit, cx| cx.quit());

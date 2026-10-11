@@ -4,6 +4,8 @@
 
 界面和交互遵循 [DESIGN.md](../../docs/DESIGN.md) 第 4 章，协议遵循 [PROTOCOL.md](../../docs/PROTOCOL.md)。编译需要 Xcode 的 Metal 工具链（本机已安装）。
 
+桌面主题 token、消息块与交互细则同步采用新版 `design/` 规范。外观支持浅色、深色和跟随系统，并提供遵循 macOS「降低透明度」设置的半透明材质开关；唯一提示音 `04-bubble-pop.m4a` 会被打包到 App 的 `Contents/Resources/Sounds/`。远程 Home 浏览使用 Host 的文件 API；客户端没有远程打开 Finder 的能力，因此提供路径复制。
+
 S0 已在 main 安装版完成桌面与 Android 的 mock 联调。客户端已接入私聊、全部消息块、轨迹、群协作、工作台、Bot 管理、技能、仪表盘、搜索、Agent Computer 和定时任务。后续阶段的客户端原生验收证据见 `progress/S1` 至 `progress/S5`；真实模型执行和两端场景验收由集成线依赖服务端推进。自动更新未配置 manifest URL 时为 disabled；本地产出的 DMG 已通过独立目录内的安装替换测试，公开发布源与签名尚未配置。
 
 ## 编译、测试和检查
@@ -18,6 +20,13 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
 上述命令是集成线的验证入口；本 README 不宣称它们在每次改动后都已运行通过。
+
+仅做编译静态检查（不运行测试）：
+
+```sh
+cd clients/mac
+cargo check --workspace --locked
+```
 
 只运行桌面程序时（不设置环境变量时优先恢复已保存 Host；无记录时显示连接页）：
 
