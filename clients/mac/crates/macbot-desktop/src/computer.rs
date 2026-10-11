@@ -628,7 +628,7 @@ impl Computer {
                             .bottom_0()
                             .left_0()
                             .right_0()
-                            .p_2()
+                            .p(px(t.space[4]))
                             .bg(t.window)
                             .text_color(t.secondary)
                             .child(format!("{}: {}", tr("computer.decode_error"), error)),
@@ -643,7 +643,7 @@ impl Computer {
                 .items_center()
                 .justify_center()
                 .flex_col()
-                .gap_2()
+                .gap(px(t.space[4]))
                 .text_color(t.secondary)
                 .child(tr("computer.decode_error"))
                 .child(error.to_string())
@@ -862,9 +862,9 @@ impl Render for Computer {
             div()
                 .flex()
                 .items_center()
-                .gap_3()
-                .px_4()
-                .py_2()
+                .gap(px(t.space[5]))
+                .px(px(t.space[6]))
+                .py(px(t.space[4]))
                 .bg(t.attention)
                 .text_color(t.window)
                 .child(div().flex_1().child(request_copy))
@@ -899,23 +899,28 @@ impl Render for Computer {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .px_4()
-                    .py_2()
+                    .px(px(t.space[6]))
+                    .py(px(t.space[4]))
                     .border_b_1()
                     .border_color(t.border)
                     .child(
                         div()
                             .flex()
                             .items_center()
-                            .gap_2()
+                            .gap(px(t.space[4]))
                             .child(title)
-                            .child(div().text_sm().text_color(t.secondary).child(status)),
+                            .child(
+                                div()
+                                    .text_size(px(t.desktop_type[3][0]))
+                                    .text_color(t.secondary)
+                                    .child(status),
+                            ),
                     )
                     .child(
                         div()
                             .flex()
                             .items_center()
-                            .gap_1()
+                            .gap(px(t.space[2]))
                             .child(
                                 Button::new("computer-control")
                                     .primary()
@@ -942,9 +947,9 @@ impl Render for Computer {
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .px_4()
-                    .py_2()
+                    .gap(px(t.space[4]))
+                    .px(px(t.space[6]))
+                    .py(px(t.space[4]))
                     .border_b_1()
                     .border_color(t.border)
                     .children(tabs.into_iter().map(|tab| {
@@ -968,9 +973,9 @@ impl Render for Computer {
             .when(is_user, |this| {
                 this.child(
                     div()
-                        .px_4()
-                        .py_2()
-                        .text_xs()
+                        .px(px(t.space[6]))
+                        .py(px(t.space[4]))
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.secondary)
                         .child(tr("computer.you_control_hint")),
                 )
@@ -982,44 +987,46 @@ impl Render for Computer {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .px_4()
-                    .py_2()
+                    .px(px(t.space[6]))
+                    .py(px(t.space[4]))
                     .border_t_1()
                     .border_color(t.border)
-                    .child(div().text_sm().text_color(t.secondary).child(format!(
-                        "{} · {} × {} · {} {:.1}/s · {} {}",
-                        tr("computer.quality"),
-                        quality_display,
-                        if width == 0 {
-                            "—".to_string()
-                        } else {
-                            format!("{} × {}", width, height)
-                        },
-                        tr("computer.frames"),
-                        fps,
-                        tr("computer.paint_latency"),
-                        paint_latency
-                            .map(|latency| format!("{latency:.0}ms"))
-                            .unwrap_or_else(|| "—".to_string())
-                    )))
                     .child(
                         div()
-                            .flex()
-                            .gap_1()
-                            .children(["auto", "high", "low"].into_iter().map(|value| {
-                                let value = value.to_string();
-                                let label = quality_label(&value);
-                                let selected = value == quality;
-                                Button::new(SharedString::from(format!("computer-quality-{value}")))
-                                    .ghost()
-                                    .small()
-                                    .label(label)
-                                    .selected(selected)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.set_quality(value.clone(), cx)
-                                    }))
-                            })),
-                    ),
+                            .text_size(px(t.desktop_type[3][0]))
+                            .text_color(t.secondary)
+                            .child(format!(
+                                "{} · {} × {} · {} {:.1}/s · {} {}",
+                                tr("computer.quality"),
+                                quality_display,
+                                if width == 0 {
+                                    "—".to_string()
+                                } else {
+                                    format!("{} × {}", width, height)
+                                },
+                                tr("computer.frames"),
+                                fps,
+                                tr("computer.paint_latency"),
+                                paint_latency
+                                    .map(|latency| format!("{latency:.0}ms"))
+                                    .unwrap_or_else(|| "—".to_string())
+                            )),
+                    )
+                    .child(div().flex().gap(px(t.space[2])).children(
+                        ["auto", "high", "low"].into_iter().map(|value| {
+                            let value = value.to_string();
+                            let label = quality_label(&value);
+                            let selected = value == quality;
+                            Button::new(SharedString::from(format!("computer-quality-{value}")))
+                                .ghost()
+                                .small()
+                                .label(label)
+                                .selected(selected)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.set_quality(value.clone(), cx)
+                                }))
+                        }),
+                    )),
             )
             .into_any_element()
     }

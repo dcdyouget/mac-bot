@@ -733,7 +733,7 @@ impl Render for SettingsView {
         let model_ref_for_delete = self.selected_model.clone();
         let provider_actions = div()
             .flex()
-            .gap_2()
+            .gap(px(tokens.space[4]))
             .child(
                 Button::new("provider-new")
                     .label(t("settings.models.add_provider"))
@@ -817,7 +817,7 @@ impl Render for SettingsView {
             .child(
                 Field::new()
                     .label(t("provider_kind"))
-                    .child(div().flex().gap_1().children(kind_buttons)),
+                    .child(div().flex().gap(px(tokens.space[2])).children(kind_buttons)),
             )
             .child(
                 Field::new()
@@ -829,7 +829,7 @@ impl Render for SettingsView {
                     div()
                         .flex()
                         .flex_col()
-                        .gap_1()
+                        .gap(px(tokens.space[2]))
                         .child(
                             Input::new(&self.provider_key)
                                 .id("settings-provider-key")
@@ -837,7 +837,7 @@ impl Render for SettingsView {
                         )
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(px(tokens.desktop_type[1][0]))
                                 .text_color(tokens.secondary)
                                 .child(t("settings.models.keychain_hint")),
                         ),
@@ -851,7 +851,7 @@ impl Render for SettingsView {
             .child(Field::new().child(provider_actions));
         let model_actions = div()
             .flex()
-            .gap_2()
+            .gap(px(tokens.space[4]))
             .child(
                 Button::new("model-new")
                     .label(t("model_new"))
@@ -973,7 +973,7 @@ impl Render for SettingsView {
             ));
         let approval_mode = div()
             .flex()
-            .gap_2()
+            .gap(px(tokens.space[4]))
             .child(
                 Button::new("approval-require")
                     .label(t("approval_require"))
@@ -998,7 +998,7 @@ impl Render for SettingsView {
             div()
                 .flex()
                 .items_center()
-                .gap_2()
+                .gap(px(tokens.space[4]))
                 .child(
                     Button::new(format!("approval-rule-{index}-ask"))
                         .label(t("settings.tools.rule.ask"))
@@ -1037,7 +1037,7 @@ impl Render for SettingsView {
         let approval_rules = div()
             .flex()
             .flex_col()
-            .gap_2()
+            .gap(px(tokens.space[4]))
             .children(approval_rule_rows)
             .child(
                 Button::new("approval-rule-add")
@@ -1086,8 +1086,8 @@ impl Render for SettingsView {
             .id("settings-view")
             .flex()
             .flex_col()
-            .gap_4()
-            .p_6()
+            .gap(px(tokens.space[6]))
+            .p(px(tokens.space[8]))
             .overflow_y_scroll()
             .bg(tokens.window)
             .text_color(tokens.primary)
@@ -1097,11 +1097,11 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_col()
-                    .gap_2()
+                    .gap(px(tokens.space[4]))
                     .when(providers.is_empty(), |content| {
                         content.child(
                             div()
-                                .text_sm()
+                                .text_size(px(tokens.desktop_type[3][0]))
                                 .text_color(tokens.secondary)
                                 .child(t("settings.models.empty_providers")),
                         )
@@ -1111,15 +1111,20 @@ impl Render for SettingsView {
                         div()
                             .flex()
                             .flex_col()
-                            .gap_1()
+                            .gap(px(tokens.space[2]))
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(px(tokens.desktop_type[1][0]))
                                     .text_color(tokens.secondary)
                                     .child(provider_model_count_label),
                             )
                             .when_some(provider_test_status, |content, (status, color)| {
-                                content.child(div().text_xs().text_color(color).child(status))
+                                content.child(
+                                    div()
+                                        .text_size(px(tokens.desktop_type[1][0]))
+                                        .text_color(color)
+                                        .child(status),
+                                )
                             }),
                     )
                     .child(provider_form),
@@ -1130,11 +1135,11 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_col()
-                    .gap_2()
+                    .gap(px(tokens.space[4]))
                     .when(models.is_empty(), |content| {
                         content.child(
                             div()
-                                .text_sm()
+                                .text_size(px(tokens.desktop_type[3][0]))
                                 .text_color(tokens.secondary)
                                 .child(t("settings.models.empty_models")),
                         )
@@ -1205,7 +1210,7 @@ impl Render for SettingsView {
                             .label(t("settings.computer.permissions"))
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(px(tokens.desktop_type[3][0]))
                                     .text_color(tokens.secondary)
                                     .child(t("screen_permission_native")),
                             ),
@@ -1241,10 +1246,10 @@ impl Render for SettingsView {
                             div()
                                 .flex()
                                 .flex_col()
-                                .gap_2()
+                                .gap(px(tokens.space[4]))
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(px(tokens.desktop_type[1][0]))
                                         .text_color(tokens.secondary)
                                         .child(t("settings.theme")),
                                 )
@@ -1301,7 +1306,7 @@ impl Render for SettingsView {
                             div()
                                 .flex()
                                 .flex_col()
-                                .gap_1()
+                                .gap(px(tokens.space[2]))
                                 .child(
                                     Checkbox::new("settings-translucent")
                                         .checked(self.translucent)
@@ -1317,7 +1322,7 @@ impl Render for SettingsView {
                                 )
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(px(tokens.desktop_type[1][0]))
                                         .text_color(tokens.secondary)
                                         .child(t("settings.translucent_hint")),
                                 ),
@@ -1326,7 +1331,7 @@ impl Render for SettingsView {
                     .child(
                         Field::new().label(t("settings.language")).child(
                             div()
-                                .text_sm()
+                                .text_size(px(tokens.desktop_type[3][0]))
                                 .text_color(tokens.secondary)
                                 .child(t("language_zh_cn")),
                         ),
@@ -1336,7 +1341,7 @@ impl Render for SettingsView {
                             div()
                                 .flex()
                                 .flex_col()
-                                .gap_2()
+                                .gap(px(tokens.space[4]))
                                 .child(
                                     Checkbox::new("settings-notify-need-you")
                                         .checked(self.notify_need_you)
@@ -1441,11 +1446,11 @@ impl Render for SettingsView {
                             div()
                                 .flex()
                                 .items_center()
-                                .gap_2()
+                                .gap(px(tokens.space[4]))
                                 .child(Input::new(&self.update_url).id("settings-update-url"))
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(px(tokens.desktop_type[1][0]))
                                         .text_color(tokens.secondary)
                                         .child(t("update_url_hint")),
                                 )
@@ -1466,7 +1471,7 @@ impl Render for SettingsView {
             .child(
                 div()
                     .flex()
-                    .gap_2()
+                    .gap(px(tokens.space[4]))
                     .child(save_settings)
                     .child(
                         Button::new("settings-host")
@@ -1492,18 +1497,21 @@ impl Render for SettingsView {
                                 cx.emit(SettingsAction::ExportDiagnostics)
                             })),
                     )
-                    .child(div().text_sm().text_color(tokens.secondary).child(format!(
+                    .child(
+                        div()
+                            .text_size(px(tokens.desktop_type[3][0]))
+                            .text_color(tokens.secondary)
+                            .child(format!(
                                 "{} · v{} · {}",
                                 t("settings.section.about"),
                                 crate::update::current_version(),
                                 std::env::var("MACBOT_UPDATE_URL")
                                     .ok()
                                     .filter(|url| !url.trim().is_empty())
-                                    .or_else(|| {
-                                        crate::update::load_update_url().ok().flatten()
-                                    })
+                                    .or_else(|| { crate::update::load_update_url().ok().flatten() })
                                     .unwrap_or_else(|| t("update_unconfigured").to_string())
-                            ))),
+                            )),
+                    ),
             )
     }
 }
@@ -1545,22 +1553,27 @@ fn header(title: &'static str, subtitle: &'static str, tokens: &Tokens) -> impl 
     div()
         .flex()
         .flex_col()
-        .gap_1()
-        .pb_2()
-        .child(div().text_xl().child(title))
-        .child(div().text_sm().text_color(tokens.secondary).child(subtitle))
+        .gap(px(tokens.space[2]))
+        .pb(px(tokens.space[4]))
+        .child(div().text_size(px(tokens.desktop_type[7][0])).child(title))
+        .child(
+            div()
+                .text_size(px(tokens.desktop_type[3][0]))
+                .text_color(tokens.secondary)
+                .child(subtitle),
+        )
 }
 fn section(title: &'static str, body: impl IntoElement, tokens: &Tokens) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
-        .gap_2()
-        .p_4()
-        .rounded_lg()
+        .gap(px(tokens.space[4]))
+        .p(px(tokens.space[6]))
+        .rounded(px(tokens.radius[3]))
         .border_1()
         .border_color(tokens.border)
         .bg(tokens.sidebar)
-        .child(div().text_lg().child(title))
+        .child(div().text_size(px(tokens.desktop_type[6][0])).child(title))
         .child(body)
 }
 fn list<'a>(data: &'a Value, key: &str) -> Vec<&'a Value> {

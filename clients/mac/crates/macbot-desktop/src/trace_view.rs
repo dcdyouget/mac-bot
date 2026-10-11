@@ -412,10 +412,10 @@ impl TraceView {
             .min_w_0()
             .flex()
             .flex_col()
-            .gap_1()
-            .px_3()
-            .py_2()
-            .ml(px(depth as f32 * 16.0))
+            .gap(px(t.space[2]))
+            .px(px(t.space[5]))
+            .py(px(t.space[4]))
+            .ml(px(depth as f32 * t.space[6]))
             .border_b_1()
             .border_color(t.border)
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -429,16 +429,16 @@ impl TraceView {
             div()
                 .flex()
                 .items_center()
-                .gap_2()
+                .gap(px(t.space[4]))
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.secondary)
                         .child(format!("#{aseq}")),
                 )
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(Self::kind_color(&kind, t))
                         .child(kind.clone()),
                 )
@@ -453,7 +453,7 @@ impl TraceView {
                     el.child(
                         div()
                             .flex_1()
-                            .text_xs()
+                            .text_size(px(t.desktop_type[1][0]))
                             .text_color(t.secondary)
                             .truncate()
                             .child(preview.to_owned()),
@@ -466,7 +466,7 @@ impl TraceView {
                     .w_full()
                     .min_w_0()
                     .whitespace_normal()
-                    .text_sm()
+                    .text_size(px(t.desktop_type[3][0]))
                     .text_color(t.primary)
                     .child(preview.to_owned()),
             );
@@ -475,14 +475,14 @@ impl TraceView {
             let detail = div()
                 .flex()
                 .flex_col()
-                .gap_1()
-                .p_2()
-                .rounded(px(6.))
+                .gap(px(t.space[2]))
+                .p(px(t.space[4]))
+                .rounded(px(t.radius[1]))
                 .bg(t.sidebar)
                 .child(
                     div()
                         .font_family("SF Mono")
-                        .text_xs()
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.code)
                         .child(body),
                 );
@@ -492,24 +492,30 @@ impl TraceView {
             {
                 row = row.child(
                     div()
-                        .text_xs()
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.secondary)
                         .child(format!("{}：{instruction}", trace_tr("trace.instruction"))),
                 );
             }
             if let Some(output) = &output {
-                row = row.child(div().text_xs().text_color(t.secondary).child(format!(
-                    "{}：{}",
-                    trace_tr("trace.output"),
-                    output
-                )));
+                row = row.child(
+                    div()
+                        .text_size(px(t.desktop_type[1][0]))
+                        .text_color(t.secondary)
+                        .child(format!("{}：{}", trace_tr("trace.output"), output)),
+                );
             }
             if let Some(tool_output) = &tool_output {
-                row = row.child(div().text_xs().text_color(t.secondary).child(format!(
-                    "{}：{}",
-                    trace_tr("trace.tool_output"),
-                    tool_output
-                )));
+                row = row.child(
+                    div()
+                        .text_size(px(t.desktop_type[1][0]))
+                        .text_color(t.secondary)
+                        .child(format!(
+                            "{}：{}",
+                            trace_tr("trace.tool_output"),
+                            tool_output
+                        )),
+                );
             }
             let stats = [
                 data.get("input_tokens")
@@ -531,7 +537,7 @@ impl TraceView {
             if !stats.is_empty() {
                 row = row.child(
                     div()
-                        .text_xs()
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.secondary)
                         .child(stats.join(" · ")),
                 );
@@ -539,12 +545,17 @@ impl TraceView {
             if let Some(request_id) = data.get("request_id").and_then(Value::as_str)
                 && let Some((text, thinking)) = self.timeline.rendered_request(request_id)
             {
-                row = row.child(div().text_xs().text_color(t.secondary).child(format!(
-                    "{}：{} · {}",
-                    trace_tr("trace.thinking_summary"),
-                    thinking,
-                    text
-                )));
+                row = row.child(
+                    div()
+                        .text_size(px(t.desktop_type[1][0]))
+                        .text_color(t.secondary)
+                        .child(format!(
+                            "{}：{} · {}",
+                            trace_tr("trace.thinking_summary"),
+                            thinking,
+                            text
+                        )),
+                );
             }
             if can_download {
                 let file_copy = file.clone();
@@ -590,7 +601,13 @@ impl TraceView {
                             bot_id: bot_id.clone(),
                         });
                     }));
-                row = row.child(div().flex().gap_1().child(mention).child(computer));
+                row = row.child(
+                    div()
+                        .flex()
+                        .gap(px(t.space[2]))
+                        .child(mention)
+                        .child(computer),
+                );
             }
             if let (Some(chat_id), Some(message_id)) = (
                 data.get("chat_id").and_then(Value::as_str),
@@ -820,7 +837,7 @@ impl Render for TraceView {
             })
         })
         .size_full();
-        let filters = div().flex().items_center().gap_1().children([
+        let filters = div().flex().items_center().gap(px(t.space[2])).children([
             self.filter_button("trace-all", trace_tr("trace.all"), TraceFilter::All, cx),
             self.filter_button(
                 "trace-model",
@@ -850,8 +867,8 @@ impl Render for TraceView {
         let mut top = div()
             .flex()
             .items_center()
-            .gap_2()
-            .p_3()
+            .gap(px(t.space[4]))
+            .p(px(t.space[5]))
             .border_b_1()
             .border_color(t.border)
             .child(Input::new(&self.search).flex_1())
@@ -889,17 +906,22 @@ impl Render for TraceView {
             let content = if thinking.is_empty() { text } else { thinking };
             live_rows = live_rows.child(
                 div()
-                    .px_3()
-                    .py_2()
+                    .px(px(t.space[5]))
+                    .py(px(t.space[4]))
                     .border_b_1()
                     .border_color(t.border)
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(px(t.desktop_type[1][0]))
                             .text_color(t.attention)
                             .child(format!("{} · {}", label, request_id)),
                     )
-                    .child(div().text_sm().text_color(t.primary).child(content.clone())),
+                    .child(
+                        div()
+                            .text_size(px(t.desktop_type[3][0]))
+                            .text_color(t.primary)
+                            .child(content.clone()),
+                    ),
             );
         }
         let has_rows = !self.visible_ids.is_empty() || !self.inflight.is_empty();
@@ -934,8 +956,8 @@ impl Render for TraceView {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .px_4()
-                    .py_3()
+                    .px(px(t.space[6]))
+                    .py(px(t.space[5]))
                     .border_b_1()
                     .border_color(t.border)
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(heading))
@@ -949,9 +971,9 @@ impl Render for TraceView {
             .child(top)
             .child(
                 div()
-                    .px_3()
-                    .py_1()
-                    .text_xs()
+                    .px(px(t.space[5]))
+                    .py(px(t.space[2]))
+                    .text_size(px(t.desktop_type[1][0]))
                     .text_color(t.secondary)
                     .child(summary),
             )
