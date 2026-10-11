@@ -5306,9 +5306,22 @@ impl ProductionBackend {
         result["message"]["reply_to"] = Value::Null;
         result["message"]["quote"] = quote.unwrap_or(Value::Null);
         if !attachment_blocks.is_empty() {
-            let mut blocks = vec![json!({"type":"text","markdown":text})];
+            let attachment_only = text.trim().is_empty();
+            let fallback_text = attachment_blocks
+                .iter()
+                .filter_map(|block| block.pointer("/file/name").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let mut blocks =
+                Vec::with_capacity(usize::from(!attachment_only) + attachment_blocks.len());
+            if !attachment_only {
+                blocks.push(json!({"type":"text","markdown":text}));
+            }
             blocks.extend(attachment_blocks);
             result["message"]["blocks"] = Value::Array(blocks);
+            if attachment_only {
+                result["message"]["fallback_text"] = json!(fallback_text);
+            }
         }
         Ok(result)
     }
@@ -14089,6 +14102,30 @@ mod tests {
         );
         assert_eq!(sent["message"]["blocks"][1]["file"]["name"], "note.txt");
 
+        let attachment_only = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":chat_id,
+                    "text":"",
+                    "mentions":[],
+                    "attachments":["upload-chat-1"],
+                    "client_request_id":"chat-attachment-only"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(attachment_only["message"]["fallback_text"], "note.txt");
+        assert_eq!(
+            attachment_only["message"]["blocks"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(attachment_only["message"]["blocks"][0]["type"], "file");
+
         let history = backend
             .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
             .await
@@ -14102,6 +14139,18 @@ mod tests {
         assert_eq!(message["quote"]["message_id"], root_id);
         assert_eq!(message["reply_to"], Value::Null);
         assert_eq!(message["blocks"][1]["file"]["root_id"], "upload-chat-1");
+        let attachment_only_history = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == attachment_only["message"]["id"])
+            .unwrap();
+        assert_eq!(attachment_only_history["fallback_text"], "note.txt");
+        assert_eq!(
+            attachment_only_history["blocks"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(attachment_only_history["blocks"][0]["type"], "file");
         drop(backend);
         drop(gateway);
 
@@ -14123,6 +14172,18 @@ mod tests {
         assert_eq!(message["quote"]["message_id"], root_id);
         assert_eq!(message["reply_to"], Value::Null);
         assert_eq!(message["blocks"][1]["file"]["root_id"], "upload-chat-1");
+        let attachment_only_history = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == attachment_only["message"]["id"])
+            .unwrap();
+        assert_eq!(attachment_only_history["fallback_text"], "note.txt");
+        assert_eq!(
+            attachment_only_history["blocks"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(attachment_only_history["blocks"][0]["type"], "file");
     }
 
     #[tokio::test]

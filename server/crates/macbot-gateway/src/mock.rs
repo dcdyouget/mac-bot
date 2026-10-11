@@ -87,7 +87,7 @@ async fn dispatch(
         "chat.get" => find_wrapped(&state.chats, params.get("chat_id"), "chat"),
         "chat.history" => chat_history(state, &params),
         "chat.thread" => chat_thread(state, &params),
-        "chat.send" => send_chat(state, &params),
+        "chat.send" => send_chat(state, &params, &gateway.home),
         "message.delete" => message_delete(state, &params),
         "message.edit" => message_edit(state, &params),
         "message.steer" => message_steer(state, &params),
@@ -113,7 +113,7 @@ async fn dispatch(
         "project.request_review" => project_request_review(state, &params),
         "project.archive" => project_status(state, &params, "archived"),
         "project.reopen" => project_status(state, &params, "active"),
-        "project.request_changes" => project_request_changes(state, &params),
+        "project.request_changes" => project_request_changes(state, &params, &gateway.home),
         "artifact.versions.list" => artifact_versions_list(state, &params),
         "artifact.version.get" => artifact_version_get(state, &params),
         "assignment.list" => assignment_list(state, &params),
@@ -2398,7 +2398,7 @@ fn chat_thread(state: &MockState, params: &Value) -> RpcResult {
     Ok(json!({"root":root,"replies":replies}))
 }
 
-fn send_chat(state: &mut MockState, params: &Value) -> RpcResult {
+fn send_chat(state: &mut MockState, params: &Value, home: &std::path::Path) -> RpcResult {
     crate::validate_client_locale(params)?;
     let chat_id = params
         .get("chat_id")
@@ -2428,6 +2428,54 @@ fn send_chat(state: &mut MockState, params: &Value) -> RpcResult {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
+    let attachments = params
+        .get("attachments")
+        .map(|value| {
+            value.as_array().ok_or_else(|| {
+                rpc_error("invalid_params", "attachments must be an array", None)
+            })
+        })
+        .transpose()?
+        .into_iter()
+        .flatten()
+        .map(|attachment| {
+            let upload_id = attachment.as_str().ok_or_else(|| {
+                rpc_error("invalid_params", "attachment ids must be strings", None)
+            })?;
+            if upload_id.is_empty()
+                || !upload_id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            {
+                return Err(rpc_error("invalid_params", "invalid upload_id", None));
+            }
+            let metadata_path = home
+                .join("data/uploads")
+                .join(format!("{upload_id}.json"));
+            let metadata = std::fs::read(&metadata_path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                .ok_or_else(|| {
+                    rpc_error(
+                        "not_found",
+                        &format!("upload {upload_id} metadata not found"),
+                        None,
+                    )
+                })?;
+            let file = metadata.get("file").unwrap_or(&metadata);
+            Ok(json!({
+                "type":"file",
+                "file":{
+                    "root":"upload",
+                    "root_id":upload_id,
+                    "path":"",
+                    "name":file.get("name").and_then(Value::as_str).unwrap_or(upload_id),
+                    "size":file.get("size").and_then(Value::as_u64).unwrap_or(0),
+                    "mime":file.get("mime").and_then(Value::as_str).unwrap_or("application/octet-stream")
+                }
+            }))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut mentions = params
         .get("mentions")
         .and_then(Value::as_array)
@@ -2514,7 +2562,21 @@ fn send_chat(state: &mut MockState, params: &Value) -> RpcResult {
     } else {
         Vec::new()
     };
-    let message = json!({"id":id("msg"),"chat_id":chat_id,"seq":seq,"sender":{"kind":"user"},"created_at":created_at,"edited_at":null,"deleted":false,"reply_to":null,"quote":quote,"thread_count":0,"mentions":mentions,"blocks":[{"type":"text","markdown":text}],"fallback_text":text,"intent":null,"assignment_id":null,"streaming":false,"delivery":delivery,"reactions":[]});
+    let fallback_text = if text.trim().is_empty() && !attachments.is_empty() {
+        attachments
+            .iter()
+            .filter_map(|block| block.pointer("/file/name").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join(", ")
+    } else {
+        text.clone()
+    };
+    let mut blocks = Vec::with_capacity(usize::from(!text.is_empty()) + attachments.len());
+    if !text.is_empty() {
+        blocks.push(json!({"type":"text","markdown":text}));
+    }
+    blocks.extend(attachments);
+    let message = json!({"id":id("msg"),"chat_id":chat_id,"seq":seq,"sender":{"kind":"user"},"created_at":created_at,"edited_at":null,"deleted":false,"reply_to":null,"quote":quote,"thread_count":0,"mentions":mentions,"blocks":blocks,"fallback_text":fallback_text,"intent":null,"assignment_id":null,"streaming":false,"delivery":delivery,"reactions":[]});
     if let Some(locale) = params.get("client_locale").and_then(Value::as_str) {
         state.client_locales.insert(
             message["id"].as_str().unwrap().to_owned(),
@@ -3356,7 +3418,11 @@ fn set_review_card_mock(
     Ok(())
 }
 
-fn project_request_changes(state: &mut MockState, params: &Value) -> RpcResult {
+fn project_request_changes(
+    state: &mut MockState,
+    params: &Value,
+    home: &std::path::Path,
+) -> RpcResult {
     let project_id = params
         .get("project_id")
         .and_then(Value::as_str)
@@ -3398,6 +3464,7 @@ fn project_request_changes(state: &mut MockState, params: &Value) -> RpcResult {
     send_chat(
         state,
         &json!({"chat_id":chat_id,"text":params.get("text").cloned().unwrap_or(json!("")),"mentions":[{"kind":"main"}]}),
+        home,
     )
 }
 
@@ -4876,6 +4943,74 @@ mod contract_tests {
             .await
             .unwrap_err();
         assert_eq!(invalid_mode.code, "invalid_argument");
+    }
+
+    #[tokio::test]
+    async fn mock_chat_send_persists_uploaded_file_blocks_including_attachment_only() {
+        let gateway = gateway().await;
+        let uploads = gateway.state.home.join("data/uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        std::fs::write(
+            uploads.join("upl_mock-note.json"),
+            serde_json::to_vec(&json!({
+                "root":"upload",
+                "root_id":"upl_mock-note",
+                "path":"",
+                "name":"notes.txt",
+                "size":42,
+                "mime":"text/plain"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let with_text = call(
+            &gateway,
+            "chat.send",
+            json!({"chat_id":"chat_main","text":"请看附件","attachments":["upl_mock-note"]}),
+        )
+        .await;
+        assert_eq!(with_text["message"]["blocks"][0]["markdown"], "请看附件");
+        assert_eq!(with_text["message"]["blocks"][1]["type"], "file");
+        assert_eq!(
+            with_text["message"]["blocks"][1]["file"]["root_id"],
+            "upl_mock-note"
+        );
+        assert_eq!(
+            with_text["message"]["blocks"][1]["file"]["name"],
+            "notes.txt"
+        );
+
+        let attachment_only = call(
+            &gateway,
+            "chat.send",
+            json!({"chat_id":"chat_main","text":"","attachments":["upl_mock-note"]}),
+        )
+        .await;
+        assert_eq!(attachment_only["message"]["fallback_text"], "notes.txt");
+        assert_eq!(
+            attachment_only["message"]["blocks"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(attachment_only["message"]["blocks"][0]["type"], "file");
+
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        let persisted = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == attachment_only["message"]["id"])
+            .unwrap();
+        assert_eq!(persisted["fallback_text"], "notes.txt");
+        assert_eq!(persisted["blocks"][0]["file"]["mime"], "text/plain");
     }
 
     #[tokio::test]
