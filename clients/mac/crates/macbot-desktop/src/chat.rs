@@ -251,6 +251,19 @@ fn hash_text(text: &str) -> u64 {
         })
 }
 
+fn uri_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write;
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
+}
+
 fn message_display_text(message: &Value) -> &str {
     if !s(message, "fallback_text").is_empty() {
         s(message, "fallback_text")
@@ -405,6 +418,7 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.menu.copy" => "复制",
         "chat.menu.quote" => "引用",
         "chat.menu.copy_text" => "复制文字",
+        "chat.menu.copy_link" => "复制消息链接",
         "chat.menu.quote_to_announcement" => "引用到公告",
         "chat.menu.view_trace" => "查看工作详情",
         "chat.menu.delete" => "删除",
@@ -459,6 +473,10 @@ fn chat_tr(key: &str) -> SharedString {
         "block.system.created" => "总管 创建了群，拉入 {members}",
         "block.fallback.hint" => "这类消息需要更新客户端才能完整显示",
         "group.announcement.conflict" => "{who} 刚刚也改了公告（版本 {n}）。查看差异后再保存",
+        "group.announcement.local_draft" => "你的草稿",
+        "group.announcement.server_latest" => "服务器最新版本",
+        "group.announcement.keep_draft_retry" => "保留草稿并重试",
+        "group.announcement.apply_latest_retry" => "采用最新并重试",
         "group.announcement.version" => "版本 {n} · {len} / 8000 字",
         "chat.composer.attach.file" => "文件…",
         "chat.composer.attach.image" => "图片…",
@@ -2173,6 +2191,16 @@ impl MacBot {
                 message_assignment
             };
             let selected_chat = self.selected_chat.clone();
+            let node_id = self.active_node_id.clone().unwrap_or_default();
+            let message_id = s(&source_message, "id").to_owned();
+            let deep_link_available =
+                !node_id.is_empty() && !selected_chat.is_empty() && !message_id.is_empty();
+            let deep_link = format!(
+                "macbot://message/{}?chat_id={}&host_id={}",
+                uri_component(&message_id),
+                uri_component(&selected_chat),
+                uri_component(&node_id),
+            );
             let project_id = self
                 .state
                 .chats
@@ -2192,6 +2220,18 @@ impl MacBot {
                     }),
                 );
                 menu = menu
+                    .item(
+                        PopupMenuItem::new(chat_tr("chat.menu.copy_link"))
+                            .disabled(!deep_link_available)
+                            .on_click({
+                                let deep_link = deep_link.clone();
+                                move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        deep_link.clone(),
+                                    ))
+                                }
+                            }),
+                    )
                     .separator()
                     .item(PopupMenuItem::new(chat_tr("chat.menu.reply")).on_click({
                         let entity = entity.clone();
@@ -3749,8 +3789,58 @@ impl MacBot {
                     announcement_text,
                 ));
                 if let Some(conflict) = self.announcement_conflict.clone() {
+                    let latest_text = s(&conflict, "text").to_owned();
+                    let latest_version =
+                        conflict.get("version").and_then(Value::as_u64).unwrap_or(0);
+                    let local_draft = self.announcement_draft.read(cx).value().to_string();
+                    let conflict_project = announcement_project_id.clone();
+                    let keep_project = conflict_project.clone();
+                    let keep_latest_text = latest_text.clone();
+                    let apply_project = conflict_project.clone();
+                    let apply_latest_text = latest_text.clone();
+                    let local_preview = div()
+                        .flex_1()
+                        .min_w_0()
+                        .rounded(px(t.radius[6]))
+                        .border_1()
+                        .border_color(t.border)
+                        .p(px(t.space[3]))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(t.secondary)
+                                .child(chat_tr("group.announcement.local_draft")),
+                        )
+                        .child(TextView::markdown(
+                            SharedString::from(format!(
+                                "announcement-local-conflict-{announcement_project_id}"
+                            )),
+                            local_draft,
+                        ));
+                    let server_preview = div()
+                        .flex_1()
+                        .min_w_0()
+                        .rounded(px(t.radius[6]))
+                        .border_1()
+                        .border_color(t.border)
+                        .p(px(t.space[3]))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(t.secondary)
+                                .child(chat_tr("group.announcement.server_latest")),
+                        )
+                        .child(TextView::markdown(
+                            SharedString::from(format!(
+                                "announcement-server-conflict-{announcement_project_id}"
+                            )),
+                            latest_text.clone(),
+                        ));
                     body = body.child(
                         div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(t.space[3]))
                             .px_3()
                             .py_2()
                             .rounded(px(6.))
@@ -3774,23 +3864,76 @@ impl MacBot {
                                     ),
                             )
                             .child(
-                                Button::new("announcement-conflict-reload")
-                                    .ghost()
-                                    .small()
-                                    .label(tr("common.retry"))
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        let latest = s(&conflict, "text").to_owned();
-                                        this.announcement_base_text = latest.clone();
-                                        this.announcement_base_version = conflict
-                                            .get("version")
-                                            .and_then(Value::as_u64)
-                                            .unwrap_or(0);
-                                        this.announcement_draft.update(cx, |input, cx| {
-                                            input.set_value(latest, window, cx)
-                                        });
-                                        this.announcement_conflict = None;
-                                        cx.notify();
-                                    })),
+                                div()
+                                    .flex()
+                                    .gap(px(t.space[2]))
+                                    .child(local_preview)
+                                    .child(server_preview),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap(px(t.space[2]))
+                                    .child(
+                                        Button::new("announcement-conflict-keep-draft")
+                                            .ghost()
+                                            .small()
+                                            .label(chat_tr("group.announcement.keep_draft_retry"))
+                                            .disabled(!self.connected || latest_version == 0)
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                let draft = this
+                                                    .announcement_draft
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string();
+                                                this.announcement_base_text =
+                                                    keep_latest_text.clone();
+                                                this.announcement_base_version = latest_version;
+                                                this.announcement_draft_project =
+                                                    Some(keep_project.clone());
+                                                this.announcement_conflict = None;
+                                                this.rpc(
+                                                    "announcement.update",
+                                                    json!({
+                                                        "project_id": keep_project,
+                                                        "text": draft,
+                                                        "base_version": latest_version,
+                                                    }),
+                                                    cx,
+                                                );
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("announcement-conflict-apply-latest")
+                                            .primary()
+                                            .small()
+                                            .label(chat_tr("group.announcement.apply_latest_retry"))
+                                            .disabled(!self.connected || latest_version == 0)
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                this.announcement_base_text =
+                                                    apply_latest_text.clone();
+                                                this.announcement_base_version = latest_version;
+                                                this.announcement_draft_project =
+                                                    Some(apply_project.clone());
+                                                this.announcement_draft.update(cx, |input, cx| {
+                                                    input.set_value(
+                                                        apply_latest_text.clone(),
+                                                        window,
+                                                        cx,
+                                                    )
+                                                });
+                                                this.announcement_conflict = None;
+                                                this.rpc(
+                                                    "announcement.update",
+                                                    json!({
+                                                        "project_id": apply_project,
+                                                        "text": apply_latest_text,
+                                                        "base_version": latest_version,
+                                                    }),
+                                                    cx,
+                                                );
+                                            })),
+                                    ),
                             ),
                     );
                 }
