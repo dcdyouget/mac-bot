@@ -61,7 +61,7 @@ enum TraceFilter {
     Model,
     Tool,
     Agent,
-    State,
+    Steer,
 }
 
 impl TraceFilter {
@@ -73,7 +73,7 @@ impl TraceFilter {
             Self::Agent => {
                 kind.contains("agent") || kind.contains("delegat") || kind == "run.start"
             }
-            Self::State => matches!(kind, "run.wait" | "steer" | "compaction" | "run.end"),
+            Self::Steer => kind == "steer" || kind.starts_with("steer."),
         }
     }
 }
@@ -373,11 +373,7 @@ impl TraceView {
         let data = item.get("data").cloned().unwrap_or(Value::Null);
         let expanded = self.expanded.contains(&aseq);
         let depth = self.row_depth(&item);
-        let title = data
-            .get("name")
-            .and_then(Value::as_str)
-            .or_else(|| data.get("model").and_then(Value::as_str))
-            .unwrap_or(&kind);
+        let title = trace_item_title(&kind, &data, aseq);
         let preview = data
             .get("preview")
             .and_then(Value::as_str)
@@ -451,7 +447,7 @@ impl TraceView {
                         .min_w_0()
                         .truncate()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(title.to_owned()),
+                        .child(title),
                 )
                 .when(!preview.is_empty(), |el| {
                     el.child(
@@ -491,6 +487,16 @@ impl TraceView {
                         .child(body),
                 );
             row = row.child(detail);
+            if kind == "run.start"
+                && let Some(instruction) = data.get("subagent_task").and_then(Value::as_str)
+            {
+                row = row.child(
+                    div()
+                        .text_xs()
+                        .text_color(t.secondary)
+                        .child(format!("{}：{instruction}", trace_tr("trace.instruction"))),
+                );
+            }
             if let Some(output) = &output {
                 row = row.child(div().text_xs().text_color(t.secondary).child(format!(
                     "{}：{}",
@@ -533,12 +539,12 @@ impl TraceView {
             if let Some(request_id) = data.get("request_id").and_then(Value::as_str)
                 && let Some((text, thinking)) = self.timeline.rendered_request(request_id)
             {
-                row = row.child(
-                    div()
-                        .text_xs()
-                        .text_color(t.secondary)
-                        .child(format!("{} · {}", thinking, text)),
-                );
+                row = row.child(div().text_xs().text_color(t.secondary).child(format!(
+                    "{}：{} · {}",
+                    trace_tr("trace.thinking_summary"),
+                    thinking,
+                    text
+                )));
             }
             if can_download {
                 let file_copy = file.clone();
@@ -548,7 +554,7 @@ impl TraceView {
                     Button::new(SharedString::from(format!("trace-output-{aseq}")))
                         .ghost()
                         .small()
-                        .label(tr("trace.full_output"))
+                        .label(trace_tr("trace.full_log"))
                         .on_click(cx.listener(move |_, _, _, cx| {
                             cx.emit(TraceAction::DownloadOutput {
                                 file: file_copy.clone(),
@@ -569,7 +575,7 @@ impl TraceView {
                 let mention = Button::new(SharedString::from(format!("trace-mention-{aseq}")))
                     .ghost()
                     .small()
-                    .label(tr("action.mention"))
+                    .label(trace_tr("trace.at_it"))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         cx.emit(TraceAction::Mention {
                             bot_id: mention_bot.clone(),
@@ -578,7 +584,7 @@ impl TraceView {
                 let computer = Button::new(SharedString::from(format!("trace-computer-{aseq}")))
                     .ghost()
                     .small()
-                    .label(tr("action.screen"))
+                    .label(trace_tr("trace.screen"))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         cx.emit(TraceAction::Computer {
                             bot_id: bot_id.clone(),
@@ -711,6 +717,93 @@ fn index_tool_result(outputs: &mut BTreeMap<String, String>, item: &Value) {
     outputs.insert(call_id.to_owned(), capped);
 }
 
+fn trace_item_title(kind: &str, data: &Value, aseq: u64) -> String {
+    match kind {
+        "run.start" => trace_tr("trace.item.start").to_string(),
+        "llm.request" => trace_tr("trace.item.model_request")
+            .to_string()
+            .replace("{n}", &aseq.to_string()),
+        "steer" => {
+            let sender_kind = data
+                .get("from")
+                .and_then(|sender| sender.get("kind"))
+                .and_then(Value::as_str);
+            let who_key = match sender_kind {
+                Some("user") => Some("trace.who.user"),
+                Some("bot") => Some("trace.who.bot"),
+                Some("system") => Some("trace.who.system"),
+                _ => None,
+            };
+            if let Some(who_key) = who_key {
+                trace_tr("trace.item.steer")
+                    .to_string()
+                    .replace("{who}", &trace_tr(who_key).to_string())
+            } else {
+                kind.to_owned()
+            }
+        }
+        _ => data
+            .get("name")
+            .and_then(Value::as_str)
+            .or_else(|| data.get("model").and_then(Value::as_str))
+            .unwrap_or(kind)
+            .to_owned(),
+    }
+}
+
+fn trace_summary(items: &BTreeMap<u64, Value>) -> String {
+    let (mut requests, mut tools, mut subagents, mut steers) = (0_u64, 0_u64, 0_u64, 0_u64);
+    let (mut input, mut output, mut cost) = (None, None, None);
+    for item in items.values() {
+        let kind = item.get("type").and_then(Value::as_str).unwrap_or_default();
+        let data = item.get("data").unwrap_or(&Value::Null);
+        match kind {
+            "llm.request" => requests += 1,
+            "tool.start" => tools += 1,
+            "run.start"
+                if data.get("phase").and_then(Value::as_str) == Some("subagent")
+                    && data
+                        .get("parent_run_id")
+                        .is_some_and(|value| !value.is_null()) =>
+            {
+                subagents += 1;
+            }
+            "steer" => steers += 1,
+            _ => {}
+        }
+        if kind == "llm.response" {
+            let usage = data.get("usage").unwrap_or(&Value::Null);
+            if let Some(tokens) = usage.get("input_tokens").and_then(Value::as_u64) {
+                *input.get_or_insert(0_u64) += tokens;
+            }
+            if let Some(tokens) = usage.get("output_tokens").and_then(Value::as_u64) {
+                *output.get_or_insert(0_u64) += tokens;
+            }
+            if let Some(amount) = usage.get("cost").and_then(Value::as_f64) {
+                *cost.get_or_insert(0_f64) += amount;
+            }
+        }
+    }
+    trace_tr("trace.summary")
+        .to_string()
+        .replace("{req}", &requests.to_string())
+        .replace("{tools}", &tools.to_string())
+        .replace("{sub}", &subagents.to_string())
+        .replace("{steer}", &steers.to_string())
+        .replace(
+            "{in}",
+            &input.map_or_else(|| "—".to_owned(), |tokens| tokens.to_string()),
+        )
+        .replace(
+            "{out}",
+            &output.map_or_else(|| "—".to_owned(), |tokens| tokens.to_string()),
+        )
+        .replace(
+            "{cost}",
+            &cost.map_or_else(|| "—".to_owned(), |amount| format!("{amount:.4}")),
+        )
+}
+
 impl Render for TraceView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Tokens::get(cx);
@@ -731,21 +824,26 @@ impl Render for TraceView {
             self.filter_button("trace-all", trace_tr("trace.all"), TraceFilter::All, cx),
             self.filter_button(
                 "trace-model",
-                trace_tr("trace.model"),
+                trace_tr("trace.filter.model"),
                 TraceFilter::Model,
                 cx,
             ),
-            self.filter_button("trace-tool", trace_tr("trace.tool"), TraceFilter::Tool, cx),
+            self.filter_button(
+                "trace-tool",
+                trace_tr("trace.filter.tools"),
+                TraceFilter::Tool,
+                cx,
+            ),
             self.filter_button(
                 "trace-agent",
-                trace_tr("trace.agent"),
+                trace_tr("trace.filter.subagents"),
                 TraceFilter::Agent,
                 cx,
             ),
             self.filter_button(
-                "trace-state",
-                trace_tr("trace.state"),
-                TraceFilter::State,
+                "trace-steer",
+                trace_tr("trace.filter.steer"),
+                TraceFilter::Steer,
                 cx,
             ),
         ]);
@@ -762,9 +860,9 @@ impl Render for TraceView {
                 Button::new("trace-follow")
                     .small()
                     .label(if self.following {
-                        tr("trace.follow")
+                        trace_tr("trace.follow_latest")
                     } else {
-                        trace_tr("trace.manual")
+                        trace_tr("trace.back_to_latest")
                     })
                     .when(self.following, |button| button.primary())
                     .when(!self.following, |button| button.ghost())
@@ -778,7 +876,7 @@ impl Render for TraceView {
                 Button::new("trace-history-before")
                     .ghost()
                     .small()
-                    .label(tr("trace.load"))
+                    .label(trace_tr("trace.load"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         let params = this.history_params();
                         this.emit_rpc("trace.history", params, cx);
@@ -787,11 +885,7 @@ impl Render for TraceView {
         }
         let mut live_rows = div().flex().flex_col();
         for (request_id, (text, thinking)) in &self.inflight {
-            let label = if thinking.is_empty() {
-                trace_tr("trace.generating")
-            } else {
-                trace_tr("trace.thinking")
-            };
+            let label = trace_tr("trace.running");
             let content = if thinking.is_empty() { text } else { thinking };
             live_rows = live_rows.child(
                 div()
@@ -812,17 +906,23 @@ impl Render for TraceView {
         let heading = if self.assignment.is_some() {
             format!(
                 "{} · {}",
-                tr("context.details"),
+                trace_tr("trace.process"),
                 if self.timeline.live {
-                    tr("trace.live")
+                    trace_tr("trace.running")
                 } else {
                     tr("context.replay")
                 }
             )
         } else if self.timeline.live {
-            tr("trace.live").to_string()
+            trace_tr("trace.running").to_string()
         } else {
             tr("context.replay").to_string()
+        };
+        let summary = trace_summary(&self.timeline.items);
+        let summary = if self.timeline.has_more_before {
+            format!("{}：{summary}", trace_tr("trace.summary_loaded"))
+        } else {
+            summary
         };
         div()
             .size_full()
@@ -847,6 +947,14 @@ impl Render for TraceView {
                     ),
             )
             .child(top)
+            .child(
+                div()
+                    .px_3()
+                    .py_1()
+                    .text_xs()
+                    .text_color(t.secondary)
+                    .child(summary),
+            )
             .child(live_rows)
             .child(
                 div()
@@ -864,7 +972,7 @@ impl Render for TraceView {
                                 .items_center()
                                 .justify_center()
                                 .text_color(t.secondary)
-                                .child(tr("trace.empty")),
+                                .child(trace_tr("trace.empty")),
                         )
                     })
                     .when(!self.visible_ids.is_empty(), |el| el.child(list)),
