@@ -107,9 +107,11 @@
     const sep = m !== null && (lastMin === null || m - lastMin >= 5) && o.sep !== false ? MB.timesep(o.time) : '';
     if (m !== null) lastMin = m;
     const head = !out && (o.name !== false || sep) ? `<div class="grp-head"><b>${name(k)}</b>${o.role ? `<span class="role">${BOT[k][2]}</span>` : ''}${o.time && !sep ? `<span class="t">${o.time}</span>` : ''}</div>` : '';
-    const bubbles = parts.map((p) => {
+    // tapback reactions (02 §5.8): pinned to the last bubble; o.tapback = [[emoji, count, mine?], ...]
+    const tb = o.tapback ? `<span class="tapback ${o.tapback.some((r) => r[2]) ? 'mine' : ''}">${o.tapback.map(([e, n]) => `${e}${n > 1 ? `<b>${n}</b>` : ''}`).join('')}</span>` : '';
+    const bubbles = parts.map((p, i) => {
       const wide = /mb-card|mb-img|mb-file|mb-linkp/.test(p);
-      return `<div class="bubble ${wide ? 'wide' : ''}">${p}${o.time ? `<span class="htime">${o.time}</span>` : ''}</div>`;
+      return `<div class="bubble ${wide ? 'wide' : ''}">${p}${o.time ? `<span class="htime">${o.time}</span>` : ''}${i === parts.length - 1 ? tb : ''}</div>`;
     }).join('');
     const status = o.delivery ? `<div class="delivery">${o.delivery}</div>` : out && o.status ? `<div class="delivery">${o.status}</div>` : '';
     return `${sep}<div class="grp ${out ? 'out' : ''}" data-sender="${k}">${out ? '' : `<div class="avatar-slot">${av(k)}</div>`}<div class="stack">${head}${bubbles}${status}</div></div>`;

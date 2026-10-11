@@ -451,3 +451,92 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .mem-row .mem-acts { display: flex; gap: 2px; opacity: 0; transition: opacity var(--duration-instant); }
 .mem-row:hover .mem-acts { opacity: 1; }
 .mem-row.editing { background: var(--accent-soft); }
+
+/* =====================================================================
+   v1.2 精致与灵动 — refs: Apple Messages (tail, tapback, glass, spring), Grok Bot (floating composer, calm chrome)
+   Spec: ../01-foundations.md §8.1, ../02-components.md §5.7–5.9, ../CHANGELOG.md v1.2
+   ===================================================================== */
+body { letter-spacing: -0.01em; }
+
+/* --- bubbles: full 18 radius, out bubble filled with a soft vertical gradient, Apple-style tail on the last bubble --- */
+.grp .bubble, .grp:not(.out) .bubble ~ .bubble, .grp.out .bubble ~ .bubble,
+.grp:not(.out) .bubble:not(:has(~ .bubble)), .grp.out .bubble:not(:has(~ .bubble)) { border-radius: 18px; }
+.bubble { padding: 8px 13px; box-shadow: 0 1px 1.5px rgba(0,0,0,.05), 0 0 0 .5px var(--border-subtle); }
+.grp.out .bubble { background: linear-gradient(180deg, var(--bubble-out-top), var(--bubble-out)); color: var(--bubble-out-text); box-shadow: 0 1px 2px rgba(30,50,90,.18); }
+.grp .stack { gap: 3px; }
+.grp:not(.out) .bubble:not(.wide):not(:has(~ .bubble))::before,
+.grp.out .bubble:not(.wide):not(:has(~ .bubble))::before { content: ''; position: absolute; bottom: 0; width: 18px; height: 18px; background: inherit; z-index: -1; }
+.grp:not(.out) .bubble:not(.wide):not(:has(~ .bubble))::before { left: -6px; background: var(--bubble-in); border-bottom-right-radius: 15px 13px; }
+.grp.out .bubble:not(.wide):not(:has(~ .bubble))::before { right: -6px; background: var(--bubble-out); border-bottom-left-radius: 15px 13px; }
+.grp:not(.out) .bubble:not(.wide):not(:has(~ .bubble))::after,
+.grp.out .bubble:not(.wide):not(:has(~ .bubble))::after { content: ''; position: absolute; bottom: 0; width: 10px; height: 20px; background: var(--bg-chat); z-index: -1; }
+.grp:not(.out) .bubble:not(.wide):not(:has(~ .bubble))::after { left: -10px; border-bottom-right-radius: 10px; }
+.grp.out .bubble:not(.wide):not(:has(~ .bubble))::after { right: -10px; border-bottom-left-radius: 10px; }
+.bubble { isolation: isolate; }
+/* text on the filled out bubble */
+.grp.out .bubble .mb-at, .grp.out .bubble a { color: #fff; text-decoration: underline; text-decoration-color: rgba(255,255,255,.45); text-underline-offset: 2px; }
+.grp.out .bubble .mb-at.me { background: rgba(255,255,255,.18); text-decoration: none; }
+.grp.out .bubble code { color: #fff; background: rgba(255,255,255,.18); }
+.grp.out .mb-quote { background: rgba(255,255,255,.16); border-left-color: rgba(255,255,255,.8); }
+.grp.out .mb-quote b, .grp.out .mb-quote span { color: rgba(255,255,255,.92); }
+.grp.out .skill-chip { background: rgba(255,255,255,.2); color: #fff; }
+.grp.out .mb-card { background: rgba(255,255,255,.96); color: var(--text-primary); }
+[data-theme='dark'] .grp.out .mb-card { background: rgba(20,20,24,.5); color: var(--text-primary); }
+
+/* --- tapback reactions (Apple): small glass bubble pinned to the bubble's top corner --- */
+.tapback { position: absolute; top: -14px; right: -10px; display: inline-flex; align-items: center; gap: 2px; height: 26px; min-width: 26px; padding: 0 7px; border-radius: 13px;
+  background: var(--bg-elevated); box-shadow: 0 2px 8px var(--shadow-color), 0 0 0 .5px var(--border-default); font-size: 14px; line-height: 1; z-index: 2;
+  animation: pop var(--duration-spring) var(--ease-spring) both; }
+.tapback b { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.tapback.mine { background: var(--accent); } .tapback.mine b { color: var(--accent-on); }
+.grp.out .tapback { right: auto; left: -10px; }
+.bubble:has(.tapback) { margin-top: 10px; }
+
+/* --- floating glass composer (Grok-style): chat scrolls underneath, capsule floats with soft shadow --- */
+.composer { background: linear-gradient(180deg, transparent, var(--bg-chat) 40%); }
+.composer .box { border-radius: 24px; background: var(--glass); box-shadow: var(--elevation-float); -webkit-backdrop-filter: blur(24px) saturate(1.8); backdrop-filter: blur(24px) saturate(1.8); transition: box-shadow var(--duration-normal) var(--ease-standard); }
+.composer .box:focus-within, .composer .box:has(.send:not(.off)) { box-shadow: var(--elevation-float), 0 0 0 3px var(--ring-focus); }
+.composer .send { transition: transform var(--duration-spring) var(--ease-spring), background var(--duration-fast); }
+.composer .send:not(.off) { animation: pop var(--duration-spring) var(--ease-spring) both; box-shadow: 0 2px 8px rgba(30,50,90,.3); }
+.phone .mcomp { background: var(--glass); -webkit-backdrop-filter: blur(24px) saturate(1.8); backdrop-filter: blur(24px) saturate(1.8); }
+.phone .mcomp .box { border-radius: 22px; box-shadow: 0 0 0 .5px var(--border-default); }
+
+/* --- glass chrome: sticky toolbar, day chip, hover tools, popovers --- */
+.toolbar, .panel-h { -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6); }
+.daysep { position: sticky; top: 8px; z-index: 3; background: var(--glass); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: 0 1px 4px var(--shadow-color), 0 0 0 .5px var(--border-subtle); font-weight: 600; letter-spacing: .02em; }
+.hover-tools { background: var(--glass); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-radius: 14px; box-shadow: var(--elevation-float); animation: rise var(--duration-normal) var(--ease-spring) both; }
+.pop { border-radius: 14px; box-shadow: var(--elevation-float); animation: popIn var(--duration-normal) var(--ease-spring) both; transform-origin: bottom left; }
+.dialog { border-radius: 18px; animation: dialogIn var(--duration-spring) var(--ease-spring) both; }
+.overlay { animation: fade var(--duration-normal) var(--ease-standard) both; }
+.sheet { animation: sheetUp var(--duration-spring) var(--ease-spring-soft) both; }
+
+/* --- cards & lists: hairline + soft shadow, gentle hover lift --- */
+.card { border-radius: 14px; box-shadow: 0 0 0 .5px var(--border-default), 0 1px 3px rgba(0,0,0,.04); }
+.mb-card { border-radius: 14px; transition: transform var(--duration-normal) var(--ease-spring), box-shadow var(--duration-normal); }
+.mb-group:hover, .mb-arts .mb-art:hover { transform: translateY(-1px); }
+.chatrow { border-radius: 12px; transition: background var(--duration-instant); }
+.chatrow.sel { background: var(--bg-selected); box-shadow: inset 0 0 0 .5px var(--border-subtle); }
+.badge { height: 20px; min-width: 20px; border-radius: 10px; font-size: 11.5px; box-shadow: 0 1px 2px rgba(30,50,90,.25); }
+.chip { border-radius: 10px; height: 22px; padding: 0 8px; }
+.seg { border-radius: 10px; } .seg button { border-radius: 8px; transition: background var(--duration-fast), box-shadow var(--duration-fast); }
+
+/* --- motion: springy press, message entrance, typing wave --- */
+.btn, .mb-btn, .iconbtn, .mb-opt, .chatrow, .send, .rb { transition: transform var(--duration-instant) var(--ease-standard), background var(--duration-instant), box-shadow var(--duration-fast); }
+.btn:active, .mb-btn:active, .iconbtn:active, .mb-opt:active, .chatrow:active, .send:active, .rb:active { transform: scale(.97); }
+.mb-opt.on { animation: pop var(--duration-spring) var(--ease-spring) both; }
+.toggle::after { transition: left var(--duration-spring) var(--ease-spring); }
+.msgs > .grp, .msgs > .mb-task, .msgs > .mb-task-line, .msgs > .sysmsg, .msgs > .timesep { animation: msgIn var(--duration-spring) var(--ease-spring-soft) both; }
+.msgs > .grp.out { animation-name: msgInOut; }
+.mb-typing { background: var(--bubble-in); }
+.mb-typing i { animation: wave 1.2s var(--ease-standard) infinite; }
+
+@keyframes pop { 0% { transform: scale(.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes popIn { 0% { transform: scale(.94) translateY(4px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes rise { 0% { transform: translateY(4px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes dialogIn { 0% { transform: scale(.95); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes sheetUp { 0% { transform: translateY(40%); } 100% { transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes msgIn { 0% { transform: translateY(10px) scale(.98); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes msgInOut { 0% { transform: translate(8px, 10px) scale(.96); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes wave { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-4px); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; } }
