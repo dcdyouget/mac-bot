@@ -92,6 +92,9 @@ async fn dispatch(
         // protocol or production adapter; it creates a canonical Bot DM event
         // so clients can exercise notification delivery and deep links.
         "mock.trigger_bot_dm" => trigger_bot_dm(state, &params),
+        // Acceptance-only group counterpart used to exercise Bot-authored
+        // project notifications without changing the production contract.
+        "mock.trigger_bot_group_message" => trigger_bot_group_message(state, &params),
         "message.delete" => message_delete(state, &params),
         "message.edit" => message_edit(state, &params),
         "message.steer" => message_steer(state, &params),
@@ -2462,6 +2465,119 @@ fn trigger_bot_dm(state: &mut MockState, params: &Value) -> RpcResult {
         return Err(rpc_error(
             "invalid_params",
             "chat_id must be the selected Bot's private chat",
+            None,
+        ));
+    }
+
+    let messages = state.messages.entry(chat_id.to_owned()).or_default();
+    let seq = messages
+        .iter()
+        .filter_map(|message| message.get("seq").and_then(Value::as_u64))
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let created_at = now();
+    let message = json!({
+        "id":id("msg"),"chat_id":chat_id,"seq":seq,
+        "sender":{"kind":"bot","bot_id":bot_id},"sender_name":bot.get("name").cloned().unwrap_or(json!("Bot")),
+        "created_at":created_at,"edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,
+        "mentions":[],"blocks":[{"type":"text","markdown":text}],"fallback_text":text,
+        "intent":null,"assignment_id":null,"streaming":false,"delivery":[],"reactions":[]
+    });
+    messages.push(message.clone());
+    if let Some(chat) = state
+        .chats
+        .iter_mut()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
+    {
+        chat["last_message"] = json!({
+            "message_id":message["id"],"sender":message["sender"],
+            "text":text,"created_at":created_at
+        });
+        chat["last_seq"] = json!(seq);
+        chat["updated_at"] = json!(created_at);
+    }
+    state.emit("message.created", json!({"message":message.clone()}));
+    Ok(json!({"message":message}))
+}
+
+/// Acceptance-only mock action for a Bot-authored project-group message.
+/// Generic mock RPC authentication and `client_request_id` caching apply.
+/// This method must never be added to the protocol or production adapter.
+fn trigger_bot_group_message(state: &mut MockState, params: &Value) -> RpcResult {
+    let request_id = params
+        .get("client_request_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or_else(|| {
+            rpc_error(
+                "invalid_params",
+                "client_request_id must contain 1 to 128 bytes",
+                None,
+            )
+        })?;
+    let _ = request_id;
+    let bot_id = params
+        .get("bot_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "bot_id is required", None))?;
+    let chat_id = params
+        .get("chat_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "chat_id is required", None))?;
+    let text = params
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "text is required", None))?;
+
+    let bot = state
+        .bots
+        .iter()
+        .find(|bot| bot.get("id").and_then(Value::as_str) == Some(bot_id))
+        .cloned()
+        .ok_or_else(|| rpc_error("not_found", "bot not found", None))?;
+    let chat = state
+        .chats
+        .iter()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
+        .cloned()
+        .ok_or_else(|| rpc_error("not_found", "chat not found", None))?;
+    let project_id = chat
+        .get("project_id")
+        .and_then(Value::as_str)
+        .filter(|_| chat.get("kind").and_then(Value::as_str) == Some("project"))
+        .ok_or_else(|| rpc_error("invalid_params", "chat_id must be a project group", None))?;
+    let project = state
+        .projects
+        .iter()
+        .find(|project| {
+            project.get("id").and_then(Value::as_str) == Some(project_id)
+                && project.get("chat_id").and_then(Value::as_str) == Some(chat_id)
+        })
+        .ok_or_else(|| rpc_error("not_found", "project chat not found", None))?;
+    let chat_member = chat
+        .get("member_bot_ids")
+        .and_then(Value::as_array)
+        .is_some_and(|members| members.iter().any(|member| member.as_str() == Some(bot_id)));
+    let project_member = project
+        .get("members")
+        .and_then(Value::as_array)
+        .is_some_and(|members| {
+            members
+                .iter()
+                .any(|member| member.get("bot_id").and_then(Value::as_str) == Some(bot_id))
+        });
+    if !chat_member || !project_member {
+        return Err(rpc_error(
+            "invalid_params",
+            "Bot must be a member of the project group",
             None,
         ));
     }
@@ -5118,6 +5234,170 @@ mod contract_tests {
                     .as_str()
                     .is_some_and(|id| id.starts_with("msg_"))
         }));
+    }
+
+    #[tokio::test]
+    async fn mock_bot_group_trigger_is_member_scoped_idempotent_and_broadcast() {
+        let gateway_instance = gateway().await;
+        call(&gateway_instance, "bootstrap", json!({})).await;
+        let project = call(
+            &gateway_instance,
+            "project.create",
+            json!({"name":"Group notification test","member_bot_ids":["bot_code"]}),
+        )
+        .await;
+        let chat_id = project["chat"]["id"].as_str().unwrap().to_owned();
+        let mut events = gateway_instance.state.events.subscribe();
+        let params = json!({
+            "bot_id":"bot_code",
+            "chat_id":chat_id,
+            "text":"Group notification acceptance message",
+            "client_request_id":"notify-bot-group-1"
+        });
+        let first = call(
+            &gateway_instance,
+            "mock.trigger_bot_group_message",
+            params.clone(),
+        )
+        .await;
+        let message = first["message"].clone();
+        assert_eq!(message["sender"]["kind"], "bot");
+        assert_eq!(message["sender"]["bot_id"], "bot_code");
+        assert_eq!(message["chat_id"], chat_id);
+        assert_eq!(
+            message["fallback_text"],
+            "Group notification acceptance message"
+        );
+        assert_eq!(message["seq"], 1);
+
+        let observed = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event["event"] == "message.created"
+                    && event["data"]["message"]["id"] == message["id"]
+                {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("triggered Bot group message should be broadcast");
+        assert_eq!(observed["data"]["message"], message);
+
+        let replay = call(&gateway_instance, "mock.trigger_bot_group_message", params).await;
+        assert_eq!(replay, first, "retry returns the original message");
+        assert!(events.try_recv().is_err(), "retry does not broadcast twice");
+        let history = call(
+            &gateway_instance,
+            "chat.history",
+            json!({"chat_id":chat_id,"limit":100}),
+        )
+        .await;
+        assert_eq!(
+            history["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["id"] == message["id"])
+                .count(),
+            1
+        );
+        let chat =
+            call(&gateway_instance, "chat.get", json!({"chat_id":chat_id})).await["chat"].clone();
+        assert_eq!(chat["last_message"]["message_id"], message["id"]);
+        assert_eq!(chat["last_seq"], message["seq"]);
+
+        let other_host = gateway().await;
+        call(&other_host, "bootstrap", json!({})).await;
+        let other_project = call(
+            &other_host,
+            "project.create",
+            json!({"name":"Other host group","member_bot_ids":["bot_code"]}),
+        )
+        .await;
+        let other_chat_id = other_project["chat"]["id"].as_str().unwrap();
+        let other_message = call(
+            &other_host,
+            "mock.trigger_bot_group_message",
+            json!({
+                "bot_id":"bot_code",
+                "chat_id":other_chat_id,
+                "text":"Other Host message",
+                "client_request_id":"notify-bot-group-1"
+            }),
+        )
+        .await;
+        assert_ne!(other_message["message"]["id"], message["id"]);
+        let other_history = call(
+            &other_host,
+            "chat.history",
+            json!({"chat_id":other_chat_id,"limit":100}),
+        )
+        .await;
+        assert!(other_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == other_message["message"]["id"]));
+        assert!(!other_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == message["id"]));
+    }
+
+    #[tokio::test]
+    async fn mock_bot_group_trigger_rejects_non_members_and_non_project_chats() {
+        let gateway = gateway().await;
+        call(&gateway, "bootstrap", json!({})).await;
+        let project = call(
+            &gateway,
+            "project.create",
+            json!({"name":"Group permission test","member_bot_ids":["bot_product"]}),
+        )
+        .await;
+        let chat_id = project["chat"]["id"].as_str().unwrap();
+        let base_seq = gateway.state.inner.read().await.seq;
+        let cases = [
+            (
+                json!({"bot_id":"bot_code","chat_id":chat_id,"text":"not a member","client_request_id":"group-not-member"}),
+                "invalid_params",
+            ),
+            (
+                json!({"bot_id":"bot_main","chat_id":"chat_main","text":"not a group","client_request_id":"group-not-group"}),
+                "invalid_params",
+            ),
+            (
+                json!({"bot_id":"missing","chat_id":chat_id,"text":"unknown bot","client_request_id":"group-missing-bot"}),
+                "not_found",
+            ),
+            (
+                json!({"bot_id":"bot_product","chat_id":"missing","text":"unknown chat","client_request_id":"group-missing-chat"}),
+                "not_found",
+            ),
+            (
+                json!({"bot_id":"bot_product","chat_id":chat_id,"text":"missing request id"}),
+                "invalid_params",
+            ),
+        ];
+        for (params, expected_code) in cases {
+            let error = gateway
+                .rpc("mock.trigger_bot_group_message", params)
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, expected_code);
+        }
+        let state = gateway.state.inner.read().await;
+        assert_eq!(state.seq, base_seq, "invalid requests emit no events");
+        assert!(!state
+            .messages
+            .get(chat_id)
+            .into_iter()
+            .flatten()
+            .any(|message| {
+                message["fallback_text"] == "not a member"
+                    || message["fallback_text"] == "unknown bot"
+            }));
     }
 
     #[tokio::test]

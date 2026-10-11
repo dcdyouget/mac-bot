@@ -4875,5 +4875,58 @@ mod tests {
         let value: Value = serde_json::from_slice(&response).unwrap();
         assert_eq!(value["result"]["message"]["sender"]["kind"], "bot");
         assert_eq!(value["result"]["message"]["fallback_text"], "authorized");
+
+        let group = gw
+            .rpc(
+                "project.create",
+                json!({"name":"Group notification auth","member_bot_ids":["bot_code"]}),
+            )
+            .await
+            .unwrap();
+        let group_params = json!({
+            "bot_id":"bot_code",
+            "chat_id":group["chat"]["id"],
+            "text":"authorized group",
+            "client_request_id":"auth-group-1"
+        });
+        let group_body = serde_json::to_string(&json!({
+            "method":"mock.trigger_bot_group_message",
+            "params":group_params
+        }))
+        .unwrap();
+        let unauthorized_group = gw
+            .router()
+            .oneshot(
+                http::Request::builder()
+                    .uri("/api/v1/rpc")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .body(Body::from(group_body.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized_group.status(), StatusCode::UNAUTHORIZED);
+
+        let authorized_group = gw
+            .router()
+            .oneshot(
+                http::Request::builder()
+                    .uri("/api/v1/rpc")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer dev")
+                    .body(Body::from(group_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authorized_group.status(), StatusCode::OK);
+        let response = axum::body::to_bytes(authorized_group.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: Value = serde_json::from_slice(&response).unwrap();
+        assert_eq!(value["result"]["message"]["sender"]["bot_id"], "bot_code");
+        assert_eq!(value["result"]["message"]["chat_id"], group["chat"]["id"]);
     }
 }
