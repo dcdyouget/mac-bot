@@ -1,6 +1,9 @@
 package bot.mac.mobile.feature.bots
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
@@ -28,6 +31,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.protocol.arr
@@ -36,6 +43,8 @@ import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.design.DesignTokens
+import bot.mac.mobile.core.platform.platformFilePicker
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
@@ -291,6 +300,17 @@ fun BotEditorScreen(
     var hidden by remember(botId) { mutableStateOf(existing?.boolean("hidden") == true) }
     var notifications by remember(botId) { mutableStateOf(existing?.boolean("notifications") != false) }
     var emoji by remember(botId) { mutableStateOf(existing?.obj("avatar")?.str("emoji") ?: "") }
+    val leastUsedAvatarColor = remember(state.bots, botId) {
+        (0..9).minWithOrNull(compareBy<Int> { color ->
+            state.bots.count { bot -> bot.str("id") != botId && bot.obj("avatar").str("kind") == "bean" && bot.obj("avatar").str("color").toIntOrNull() == color }
+        }.thenBy { it }) ?: 0
+    }
+    var avatarColor by remember(botId, leastUsedAvatarColor) {
+        mutableStateOf(if (isMainBot) 0 else existing?.obj("avatar")?.str("color")?.toIntOrNull() ?: leastUsedAvatarColor)
+    }
+    var avatarFile by remember(botId) {
+        mutableStateOf(existing?.obj("avatar")?.takeIf { it.str("kind") == "image" }?.obj("file"))
+    }
     var tools by remember(botId) { mutableStateOf(mapOf("files" to true, "bash" to true, "browser" to true, "subagent" to false, "web" to true, "mcp" to false).mapValues { (key, fallback) -> existing?.obj("tools")?.boolean(key) ?: fallback }) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -337,7 +357,36 @@ fun BotEditorScreen(
             }
         }
         Text(stringResource(Res.string.feature_avatar), style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(emoji, { emoji = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_emoji)) })
+        OutlinedTextField(emoji, { emoji = it; if (it.isNotBlank()) avatarFile = null }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_emoji)) })
+        if (!isMainBot) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                DesignTokens.avatarColors.forEachIndexed { colorIndex, color ->
+                    val colorA11y = stringResource(Res.string.feature_avatar_color, colorIndex + 1)
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.size(48.dp)
+                            .semantics { contentDescription = colorA11y; selected = avatarColor == colorIndex }
+                            .clickable { avatarColor = colorIndex; avatarFile = null; emoji = "" },
+                        contentAlignment = androidx.compose.ui.Alignment.Center,
+                    ) {
+                        androidx.compose.foundation.layout.Box(
+                            Modifier.size(28.dp).clip(CircleShape).background(color)
+                                .then(if (avatarColor == colorIndex) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CircleShape) else Modifier),
+                        )
+                    }
+                }
+            }
+            val invalidImage = stringResource(Res.string.feature_avatar_image_invalid)
+            Button(onClick = {
+                scope.launch {
+                    runCatching {
+                        val picked = platformFilePicker().pickFile() ?: return@launch
+                        require(picked.mimeType.orEmpty().startsWith("image/")) { invalidImage }
+                        avatarFile = repository.uploadFile(picked).obj("file")
+                        emoji = ""
+                    }.onFailure { error = it.message ?: invalidImage }
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_avatar_image)) }
+        }
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.feature_pin), Modifier.weight(1f)); Switch(checked = pinned, onCheckedChange = { pinned = it }) }
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.feature_bot_notifications), Modifier.weight(1f)); Switch(checked = notifications, onCheckedChange = { notifications = it }) }
         if (botId != null && !isMainBot) {
@@ -351,7 +400,7 @@ fun BotEditorScreen(
                         put("name", name.trim())
                         put("label", label.trim())
                         put("description", description.trim())
-                        put("avatar", avatarJson(emoji))
+                        put("avatar", avatarJson(emoji, if (isMainBot) 0 else avatarColor, avatarFile))
                         put("model", model.ifBlank { null })
                         if (!isMainBot) {
                             put("max_parallel", maxParallel.toIntOrNull() ?: 1)
@@ -388,8 +437,12 @@ fun BotEditorScreen(
     }
 }
 
-private fun avatarJson(emoji: String) = buildJsonObject {
-    if (emoji.isBlank()) { put("kind", "bean"); put("color", 0) } else { put("kind", "emoji"); put("emoji", emoji.trim()) }
+private fun avatarJson(emoji: String, color: Int, file: JsonObject?) = buildJsonObject {
+    when {
+        file != null -> { put("kind", "image"); put("file", file) }
+        emoji.isNotBlank() -> { put("kind", "emoji"); put("emoji", emoji.trim()) }
+        else -> { put("kind", "bean"); put("color", color) }
+    }
 }
 
 private fun toolsJson(tools: Map<String, Boolean>) = buildJsonObject { tools.forEach { (key, value) -> put(key, value) } }

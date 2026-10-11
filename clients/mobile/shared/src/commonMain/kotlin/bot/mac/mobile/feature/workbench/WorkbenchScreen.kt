@@ -22,12 +22,12 @@ import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.obj
+import bot.mac.mobile.core.network.NetworkError
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
-import kotlin.uuid.Uuid
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -49,6 +49,7 @@ fun WorkbenchScreen(
     var historyLoading by remember { mutableStateOf(false) }
     var historyError by remember { mutableStateOf<String?>(null) }
     var steering by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var staleSteers by remember { mutableStateOf<Set<String>>(emptySet()) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { runCatching { repository.call("workbench.get", buildJsonObject {}) }.onFailure { error = it.message } }
     LaunchedEffect(state.assignments, state.chats, state.connected) {
@@ -81,7 +82,10 @@ fun WorkbenchScreen(
         .flatMap { message ->
             message.arr("delivery").mapNotNull { it as? JsonObject }
                 .filter { it.str("state") == "queued" && it.str("bot_id").isNotBlank() }
-                .map { delivery -> QueuedSteer(message, delivery, message.str("assignment_id")) }
+                .map { delivery ->
+                    val lastRead = state.chats.firstOrNull { it.str("id") == message.str("chat_id") }?.long("last_read_seq") ?: Long.MAX_VALUE
+                    QueuedSteer(message, delivery, message.str("assignment_id"), read = message.long("seq") <= lastRead)
+                }
         }
         .distinctBy { "${it.message.str("id")}:${it.delivery.str("bot_id")}:${it.assignmentId}" }
         .sortedBy { it.message.long("seq") }
@@ -126,24 +130,30 @@ fun WorkbenchScreen(
                     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(12.dp)) {
                         Text("$assignmentTitle · $botName", style = MaterialTheme.typography.titleSmall)
                         Text(queued.message.str("fallback_text").ifBlank { stringResource(Res.string.feature_task) }, maxLines = 3)
-                        Button(
-                            enabled = state.connected && key !in steering,
-                            onClick = {
-                                steering = steering + key
-                                scope.launch {
-                                    runCatching {
-                                        repository.call("message.steer", buildJsonObject {
-                                            put("message_id", queued.message.str("id"))
-                                            put("bot_id", queued.delivery.str("bot_id"))
-                                            put("assignment_id", queued.assignmentId)
-                                            put("client_request_id", Uuid.random().toString())
-                                        })
-                                    }.onFailure { historyError = it.message ?: "" }
-                                    steering = steering - key
-                                }
-                            },
-                        ) {
-                            Text(if (key in steering) stringResource(Res.string.feature_loading) else stringResource(Res.string.feature_trace_steer_action))
+                        if (queued.read || key in staleSteers) {
+                            Text(stringResource(Res.string.feature_trace_steer_stale), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            Button(
+                                enabled = state.connected && key !in steering,
+                                onClick = {
+                                    steering = steering + key
+                                    scope.launch {
+                                        runCatching {
+                                            repository.call("message.steer", buildJsonObject {
+                                                put("message_id", queued.message.str("id"))
+                                                put("bot_id", queued.delivery.str("bot_id"))
+                                                put("assignment_id", queued.assignmentId)
+                                            })
+                                        }.onFailure { failure ->
+                                            if ((failure as? NetworkError)?.code == "conflict") staleSteers = staleSteers + key
+                                            else historyError = failure.message ?: ""
+                                        }
+                                        steering = steering - key
+                                    }
+                                },
+                            ) {
+                                Text(if (key in steering) stringResource(Res.string.feature_loading) else stringResource(Res.string.feature_trace_steer_action))
+                            }
                         }
                     }
                 }
@@ -183,7 +193,7 @@ fun WorkbenchScreen(
     }
 }
 
-private data class QueuedSteer(val message: JsonObject, val delivery: JsonObject, val assignmentId: String)
+private data class QueuedSteer(val message: JsonObject, val delivery: JsonObject, val assignmentId: String, val read: Boolean)
 
 private enum class WorkbenchGrouping {
     BOT, PROJECT, STATUS;

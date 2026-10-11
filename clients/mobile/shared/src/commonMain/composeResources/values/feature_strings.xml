@@ -21,10 +21,19 @@
     <string name="feature_reply">回复</string>
     <string name="feature_quote_reference">引用</string>
     <string name="feature_quote_original_unloaded">原消息暂未加载，请先加载更早消息</string>
+    <string name="feature_chat_history">聊天记录</string>
+    <string name="feature_cancel_quote">取消引用</string>
+    <string name="feature_reply_to">回复 %1$s</string>
+    <string name="feature_quote_to">引用 %1$s · 不指定谁回应</string>
     <string name="feature_attention_banner">有新的事项需要你处理</string>
     <string name="feature_attention_open">查看</string>
     <string name="feature_completion_notify_main">@总管 全部完成，请汇总验收</string>
     <string name="feature_question_stack_title">需要你决定 %1$d 道题 · 第 %2$d / %1$d 题 · 已答 %3$d</string>
+    <string name="feature_question_stack_answered">已回答 %1$d 个问题</string>
+    <string name="feature_question_answered_option">✓ 你选择了 %1$s</string>
+    <string name="feature_question_answered_text">✓ 你回复了</string>
+    <string name="feature_question_kind_single">单选 · 来自 %1$s</string>
+    <string name="feature_question_kind_multi">多选 · 来自 %1$s</string>
     <string name="feature_notify_needs_you">需要你处理（审批、提问、接管）</string>
     <string name="feature_notify_review">待验收</string>
     <string name="feature_notify_completion">任务完成</string>
@@ -224,6 +233,9 @@
     <string name="feature_waiting_action">去处理</string>
     <string name="feature_waiting_title">需要你处理 · %1$s</string>
     <string name="feature_avatar">头像</string>
+    <string name="feature_avatar_color">头像颜色 %1$d</string>
+    <string name="feature_avatar_image">选择图片</string>
+    <string name="feature_avatar_image_invalid">请选择图片文件</string>
     <string name="feature_emoji">Emoji</string>
     <string name="feature_tools">工具开关</string>
     <string name="feature_files">文件</string>
@@ -288,6 +300,7 @@
     <string name="feature_flow_value">协作流程：%1$s</string>
     <string name="feature_trace_steer_hint">给任务插话</string>
     <string name="feature_trace_steer_action">插话</string>
+    <string name="feature_trace_steer_stale">此消息已读或已处理，无法再插话</string>
     <string name="feature_assignment_meta">模型 %1$s · 子代理 %2$s · %3$s tokens</string>
     <string name="feature_provider_management">模型服务商</string>
     <string name="feature_provider_create">添加服务商</string>

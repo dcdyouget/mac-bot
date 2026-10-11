@@ -42,6 +42,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
@@ -122,6 +124,11 @@ fun ChatScreen(
     val loadingError = stringResource(Res.string.feature_loading_error)
     val sendError = stringResource(Res.string.feature_send_error)
     val quoteOriginalUnloaded = stringResource(Res.string.feature_quote_original_unloaded)
+    val groupInfoLabel = stringResource(Res.string.feature_group_info)
+    val historyLabel = stringResource(Res.string.feature_chat_history)
+    val cancelQuoteLabel = stringResource(Res.string.feature_cancel_quote)
+    val attachmentLabel = stringResource(Res.string.feature_attachment)
+    val mentionLabel = stringResource(Res.string.feature_mention_title)
     LaunchedEffect(hostId, chatId) {
         draftLoaded = false
         draft = runCatching { platformPersistentStore().read("draft:$hostId:$chatId") }.getOrNull().orEmpty()
@@ -201,7 +208,7 @@ fun ChatScreen(
                     chat?.str("attention")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
                 }
                 chat?.str("project_id")?.takeIf { it.isNotBlank() }?.let { projectId ->
-                    IconButton(onClick = { onOpenGroupInfo(projectId) }) { Text("ⓘ") }
+                    IconButton(onClick = { onOpenGroupInfo(projectId) }, modifier = Modifier.semantics { contentDescription = groupInfoLabel }) { Text("ⓘ") }
                     IconButton(onClick = { onOpenProject(projectId) }) { Text("›") }
                 }
                 if (chat?.str("kind") in setOf("main", "direct")) {
@@ -212,7 +219,7 @@ fun ChatScreen(
                         Text(stringResource(Res.string.feature_trace))
                     }
                 }
-                IconButton(onClick = { onOpenHistory(chatId) }) { Text("↺") }
+                IconButton(onClick = { onOpenHistory(chatId) }, modifier = Modifier.semantics { contentDescription = historyLabel }) { Text("↺") }
             }
             HorizontalDivider()
         }
@@ -320,16 +327,28 @@ fun ChatScreen(
             }
         }
         replyTo?.let { id ->
-            Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondaryContainer) {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     val quoted = messages.firstOrNull { it.str("id") == id }
-                    Text(
-                        quoted?.str("fallback_text")?.takeIf { it.isNotBlank() }?.let {
-                            "${stringResource(if (quoteMode == "reference") Res.string.feature_quote_reference else Res.string.feature_reply)} · ${it.take(96)}"
-                        } ?: stringResource(Res.string.feature_reply_message, id.take(8)),
-                        Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, maxLines = 2,
-                    )
-                    IconButton(onClick = { replyTo = null; quoteMode = "reply" }) { Text("×") }
+                    val sender = quoted?.obj("sender")?.str("bot_id")?.let { botId -> state.bots.firstOrNull { it.str("id") == botId }?.str("name") }
+                        ?.takeIf(String::isNotBlank) ?: stringResource(Res.string.feature_you)
+                    Spacer(Modifier.width(2.dp).heightIn(min = 36.dp).background(MaterialTheme.colorScheme.primary))
+                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                        Text(
+                            stringResource(if (quoteMode == "reference") Res.string.feature_quote_to else Res.string.feature_reply_to, sender),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                        )
+                        Text(
+                            quoted?.str("fallback_text")?.takeIf { it.isNotBlank() }?.take(96)
+                                ?: stringResource(Res.string.feature_reply_message, id.take(8)),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    IconButton(onClick = { replyTo = null; quoteMode = "reply" }, modifier = Modifier.semantics { contentDescription = cancelQuoteLabel }) { Text("×") }
                 }
             }
         }
@@ -364,7 +383,7 @@ fun ChatScreen(
                             .onFailure { error = it.message ?: sendError }
                     }
                 }
-            }) { Text("＋") }
+            }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { Text("＋") }
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it; if (it.endsWith("@")) showMentions = true },
@@ -372,7 +391,7 @@ fun ChatScreen(
                 placeholder = { Text(stringResource(Res.string.feature_send)) },
                 maxLines = 4,
             )
-            if (groupChat || mentionCandidates.isNotEmpty()) IconButton(onClick = { showMentions = true }) { Text("@", color = LocalMobilePalette.current.accent) }
+            if (groupChat || mentionCandidates.isNotEmpty()) IconButton(onClick = { showMentions = true }, modifier = Modifier.semantics { contentDescription = mentionLabel }) { Text("@", color = LocalMobilePalette.current.accent) }
             Spacer(Modifier.padding(4.dp))
             Button(
                 enabled = draft.isNotBlank() && !readOnly,
@@ -559,7 +578,11 @@ internal fun ChatMessageRow(
                 if (questionBlocks.size > 1) {
                     val answered = questionBlocks.count { block -> state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "answered" }
                     Column(Modifier.fillMaxWidth().background(palette.panel, RoundedCornerShape(12.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(stringResource(Res.string.feature_question_stack_title, questionBlocks.size, selectedQuestion + 1, answered), style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            if (answered == questionBlocks.size) stringResource(Res.string.feature_question_stack_answered, questionBlocks.size)
+                            else stringResource(Res.string.feature_question_stack_title, questionBlocks.size, selectedQuestion + 1, answered),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             TextButton(enabled = selectedQuestion > 0, onClick = { selectedQuestion-- }) { Text("‹") }
                             questionBlocks.forEachIndexed { index, block ->
@@ -723,16 +746,34 @@ private fun BlockView(
             val questionId = block.str("question_id")
             val question = state.questions.firstOrNull { it.str("id") == questionId }
             val questionText = question?.str("text").orEmpty().ifBlank { questionId }
+            val questionBot = state.bots.firstOrNull { it.str("id") == question?.str("bot_id") }
+                ?.str("name")?.takeIf(String::isNotBlank) ?: stringResource(Res.string.feature_bot)
             var freeText by remember(questionId) { mutableStateOf("") }
             var selectedOptions by remember(questionId) { mutableStateOf(emptySet<Int>()) }
-            Text(stringResource(Res.string.feature_decision_title, questionText), style = MaterialTheme.typography.titleSmall)
+            Text(
+                stringResource(if (question?.boolean("multi") == true) Res.string.feature_question_kind_multi else Res.string.feature_question_kind_single, questionBot),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(questionText, style = MaterialTheme.typography.titleSmall)
             when {
-                question?.str("state") == "expired" -> Text(stringResource(Res.string.feature_decision_expired), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                question?.str("state") == "expired" -> {
+                    question.arr("options").forEach { option ->
+                        Text(option.toString().trim('"'), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .4f))
+                    }
+                    Text(stringResource(Res.string.feature_decision_expired), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 question?.str("state") == "answered" -> {
                     val answer = question.obj("answer")
                     val indexes = answer.arr("option_indexes").mapNotNull { it.toString().trim('"').toIntOrNull() }
                     val single = answer["option_index"]?.toString()?.trim('"')?.toIntOrNull()?.let(::listOf).orEmpty()
                     val selected = if (indexes.isNotEmpty()) indexes else single
+                    Text(
+                        if (selected.isNotEmpty()) stringResource(Res.string.feature_question_answered_option, question.arr("options").getOrNull(selected.first())?.toString()?.trim('"').orEmpty())
+                        else stringResource(Res.string.feature_question_answered_text),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
                     question.arr("options").forEachIndexed { index, option ->
                         Text("${if (index in selected) "✓ " else ""}${option.toString().trim('"')}", color = if (index in selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -742,6 +783,7 @@ private fun BlockView(
                     question.arr("options").forEachIndexed { index, option ->
                         FilterChip(
                             selected = index in selectedOptions,
+                            modifier = Modifier.heightIn(min = 44.dp),
                             onClick = {
                                 if (question.boolean("multi")) selectedOptions = if (index in selectedOptions) selectedOptions - index else selectedOptions + index
                                 else onQuestion(questionId, index, null, null)
