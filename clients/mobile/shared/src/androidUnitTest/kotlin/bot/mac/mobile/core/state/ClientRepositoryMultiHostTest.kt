@@ -3,6 +3,7 @@ package bot.mac.mobile.core.state
 import bot.mac.mobile.core.network.ConnectionStatus
 import bot.mac.mobile.core.network.MainEvent
 import bot.mac.mobile.core.platform.CredentialStore
+import bot.mac.mobile.core.platform.PickedFile
 import bot.mac.mobile.core.platform.PersistentStore
 import bot.mac.mobile.core.protocol.protocolJson
 import bot.mac.mobile.core.protocol.long
@@ -45,6 +46,31 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ClientRepositoryMultiHostTest {
+    @Test
+    fun uploadFileOnHostStaysBoundToItsHostAfterSelectionChanges() = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val repository = repository(hostA, hostB)
+        try {
+            awaitConnected(repository, "a", "b")
+            repository.selectHost("b")
+
+            val result = repository.uploadFileOnHost("a", PickedFile("note.txt", "text/plain", byteArrayOf(1, 2, 3)))
+            val request = withTimeout(2_000) { hostA.uploadRequests.receive() }
+
+            assertEquals("upload-node-a", result.str("upload_id"))
+            assertEquals("POST", request.method)
+            assertEquals("/api/v1/uploads", request.url?.encodedPath)
+            assertEquals("Bearer dev", request.headers["Authorization"])
+            assertTrue(request.body?.utf8().orEmpty().contains("note.txt"))
+            assertTrue(hostB.uploadRequests.tryReceive().isFailure)
+        } finally {
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
     @Test
     fun identicalConcurrentWritesLeaseDistinctClientRequestIds(): Unit = runBlocking {
         val hostA = TestHost("node-a")
@@ -475,6 +501,7 @@ class ClientRepositoryMultiHostTest {
     private class TestHost(private val nodeId: String) {
         val server = MockWebServer()
         val sockets = Channel<WebSocket>(Channel.UNLIMITED)
+        val uploadRequests = Channel<RecordedRequest>(Channel.UNLIMITED)
         val requests = Channel<JsonObject>(Channel.UNLIMITED)
         val writeRequests = Channel<JsonObject>(Channel.UNLIMITED)
         var blockChatSends = false
@@ -488,10 +515,18 @@ class ClientRepositoryMultiHostTest {
 
         init {
             server.dispatcher = object : Dispatcher() {
-                override fun dispatch(request: RecordedRequest): MockResponse =
-                    MockResponse.Builder().webSocketUpgrade(
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.url?.encodedPath == "/api/v1/uploads") {
+                        uploadRequests.trySend(request)
+                        return MockResponse.Builder()
+                            .setHeader("Content-Type", "application/json")
+                            .body("""{"upload_id":"upload-$nodeId","file":{"name":"note.txt","size":3,"mime":"text/plain"}}""")
+                            .build()
+                    }
+                    return MockResponse.Builder().webSocketUpgrade(
                         Listener(nodeId, sockets, allSockets, requests, this@TestHost),
                     ).build()
+                }
             }
             server.start()
         }

@@ -59,6 +59,7 @@ import bot.mac.mobile.core.protocol.withClientLocale
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
+import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.protocol.generated.Approval as ApprovalWireModel
 import bot.mac.mobile.core.platform.PickedFile
@@ -125,30 +126,31 @@ fun ChatScreen(
     val messages = state.messages[chatId].orEmpty()
     val lastOwnMessageIndex = messages.indexOfLast { it.obj("sender").str("kind") == "user" }
     val chat = state.chats.firstOrNull { it.str("id") == chatId }
-    var draft by remember(chatId) { mutableStateOf("") }
-    var replyTo by remember(chatId) { mutableStateOf<String?>(null) }
-    var quoteMode by remember(chatId) { mutableStateOf("reply") }
-    var mentionBots by remember(chatId) { mutableStateOf(emptySet<String>()) }
-    var showMentions by remember(chatId) { mutableStateOf(false) }
-    var attachments by remember(chatId) { mutableStateOf(emptyList<String>()) }
-    var attachmentNames by remember(chatId) { mutableStateOf(emptyList<String>()) }
-    var error by remember(chatId) { mutableStateOf<String?>(null) }
-    var filePreviews by remember(chatId) { mutableStateOf(emptyMap<String, String>()) }
-    var imagePreviews by remember(chatId) { mutableStateOf(emptyMap<String, ImageBitmap>()) }
-    var draftLoaded by remember(chatId) { mutableStateOf(false) }
-    var historyHasMore by remember(chatId) { mutableStateOf(false) }
-    var historyBeforeSeq by remember(chatId) { mutableStateOf<Long?>(null) }
-    var loadingOlder by remember(chatId) { mutableStateOf(false) }
-    var pendingAnchor by remember(chatId) { mutableStateOf<ScrollAnchor?>(null) }
-    var highlightedMessageId by remember(chatId) { mutableStateOf<String?>(null) }
-    var exactTimesRevealed by remember(chatId) { mutableStateOf(false) }
-    var scrollState by remember(chatId) { mutableStateOf(ChatScrollState()) }
-    var historyLoaded by remember(chatId) { mutableStateOf(false) }
+    var draft by remember(hostId, chatId) { mutableStateOf("") }
+    var replyTo by remember(hostId, chatId) { mutableStateOf<String?>(null) }
+    var quoteMode by remember(hostId, chatId) { mutableStateOf("reply") }
+    var mentionBots by remember(hostId, chatId) { mutableStateOf(emptySet<String>()) }
+    var showMentions by remember(hostId, chatId) { mutableStateOf(false) }
+    var attachments by remember(hostId, chatId) { mutableStateOf(emptyList<String>()) }
+    var attachmentNames by remember(hostId, chatId) { mutableStateOf(emptyList<String>()) }
+    var uploadingAttachment by remember(hostId, chatId) { mutableStateOf(false) }
+    var error by remember(hostId, chatId) { mutableStateOf<String?>(null) }
+    var filePreviews by remember(hostId, chatId) { mutableStateOf(emptyMap<String, String>()) }
+    var imagePreviews by remember(hostId, chatId) { mutableStateOf(emptyMap<String, ImageBitmap>()) }
+    var draftLoaded by remember(hostId, chatId) { mutableStateOf(false) }
+    var historyHasMore by remember(hostId, chatId) { mutableStateOf(false) }
+    var historyBeforeSeq by remember(hostId, chatId) { mutableStateOf<Long?>(null) }
+    var loadingOlder by remember(hostId, chatId) { mutableStateOf(false) }
+    var pendingAnchor by remember(hostId, chatId) { mutableStateOf<ScrollAnchor?>(null) }
+    var highlightedMessageId by remember(hostId, chatId) { mutableStateOf<String?>(null) }
+    var exactTimesRevealed by remember(hostId, chatId) { mutableStateOf(false) }
+    var scrollState by remember(hostId, chatId) { mutableStateOf(ChatScrollState()) }
+    var historyLoaded by remember(hostId, chatId) { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val composerFocusRequester = remember(chatId) { FocusRequester() }
-    val mentionButtonFocusRequester = remember(chatId) { FocusRequester() }
-    var mentionOpenedByButton by remember(chatId) { mutableStateOf(false) }
+    val composerFocusRequester = remember(hostId, chatId) { FocusRequester() }
+    val mentionButtonFocusRequester = remember(hostId, chatId) { FocusRequester() }
+    var mentionOpenedByButton by remember(hostId, chatId) { mutableStateOf(false) }
     var initialJumpHandled by remember(hostId, chatId, initialMessageId) { mutableStateOf(initialMessageId.isNullOrBlank()) }
     val readOnly = chat?.str("kind") == "bot_dm"
     val memberIds = chat?.arr("member_bot_ids").orEmpty().map { it.toString().trim('"') }
@@ -174,6 +176,8 @@ fun ChatScreen(
     val followupLabel = stringResource(Res.string.feature_followup)
     val cancelQuoteLabel = stringResource(Res.string.feature_cancel_quote)
     val attachmentLabel = stringResource(Res.string.feature_attachment)
+    val attachmentRemoveLabel = stringResource(Res.string.feature_attachment_remove)
+    val attachmentUploadingLabel = stringResource(Res.string.feature_attachment_uploading)
     val mentionLabel = stringResource(Res.string.feature_mention_title)
     val backLabel = stringResource(Res.string.common_back)
     val openGroupLabel = stringResource(Res.string.feature_open_group)
@@ -493,11 +497,11 @@ fun ChatScreen(
                             val params = fileParams(ref)
                             runCatching {
                                 if (ref.str("mime").startsWith("image/")) {
-                                    val image = platformScreenImageDecoder().decodeJpeg(repository.fetchBytes("/api/v1/files", params))
+                                    val image = platformScreenImageDecoder().decodeJpeg(repository.fetchBytesOnHost(hostId, "/api/v1/files", params))
                                         ?: throw IllegalStateException("Unable to decode image")
                                     imagePreviews = imagePreviews + (fileKey(ref) to image)
                                 } else {
-                                    filePreviews = filePreviews + (fileKey(ref) to repository.fetchText("/api/v1/files", params))
+                                    filePreviews = filePreviews + (fileKey(ref) to repository.fetchTextOnHost(hostId, "/api/v1/files", params))
                                 }
                             }.onFailure { error = it.message ?: sendError }
                         }
@@ -505,7 +509,7 @@ fun ChatScreen(
                     onExportFile = { file ->
                         scope.launch {
                             val ref = fileRef(file)
-                            runCatching { repository.fetchBytes("/api/v1/files", fileParams(ref)) }
+                            runCatching { repository.fetchBytesOnHost(hostId, "/api/v1/files", fileParams(ref)) }
                                 .mapCatching { bytes -> check(exportFile(PickedFile(ref.str("name").ifBlank { "download" }, ref.str("mime"), bytes))) { "Unable to export file" } }
                                 .onFailure { error = it.message ?: sendError }
                         }
@@ -553,7 +557,29 @@ fun ChatScreen(
             }
         }
         error?.let { Text(it, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
-        attachmentNames.forEach { name -> Text(stringResource(Res.string.feature_attachment_added, name), Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.labelSmall) }
+        if (uploadingAttachment) {
+            Text(attachmentUploadingLabel, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (attachmentNames.isNotEmpty()) Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            attachmentNames.forEachIndexed { index, name ->
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(18.dp)) {
+                    Row(Modifier.padding(start = 10.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        LucideIcon(LucideIconKind.FileText, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Text(name, Modifier.padding(start = 6.dp).widthIn(max = 180.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        IconButton(
+                            onClick = {
+                                attachments = attachments.filterIndexed { itemIndex, _ -> itemIndex != index }
+                                attachmentNames = attachmentNames.filterIndexed { itemIndex, _ -> itemIndex != index }
+                            },
+                            modifier = Modifier.size(36.dp).semantics { contentDescription = "$attachmentRemoveLabel $name" },
+                        ) { LucideIcon(LucideIconKind.X, Modifier.size(16.dp)) }
+                    }
+                }
+            }
+        }
         val slashQuery = draft.takeIf { it.startsWith("/") }?.substringAfter('/').orEmpty().substringBefore(' ')
         if (draft.startsWith("/") && !draft.substringAfter('/', "").contains(' ')) {
             Surface(Modifier.fillMaxWidth().padding(horizontal = 12.dp), color = LocalMobilePalette.current.sidebar, shape = RoundedCornerShape(10.dp)) {
@@ -580,15 +606,26 @@ fun ChatScreen(
             )
         }
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
-            IconButton(enabled = !readOnly, onClick = {
+            IconButton(enabled = !readOnly && !uploadingAttachment, onClick = {
                 scope.launch {
-                    runCatching { platformFilePicker().pickFile() }.getOrNull()?.let { picked ->
-                        runCatching { repository.uploadFile(picked) }
-                            .onSuccess { upload ->
-                                val uploadId = upload.str("upload_id")
-                                if (uploadId.isNotBlank()) { attachments = attachments + uploadId; attachmentNames = attachmentNames + picked.name }
-                            }
-                            .onFailure { error = it.message ?: sendError }
+                    val uploadHost = hostId
+                    uploadingAttachment = true
+                    try {
+                        val picked = platformFilePicker().pickFile() ?: return@launch
+                        val upload = repository.uploadFileOnHost(uploadHost, picked)
+                        if (repository.activeHost.value?.id == uploadHost) {
+                            val uploadId = upload.str("upload_id")
+                            check(uploadId.isNotBlank()) { sendError }
+                            attachments = attachments + uploadId
+                            attachmentNames = attachmentNames + upload.obj("file").str("name").ifBlank { picked.name }
+                            error = null
+                        }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Throwable) {
+                        if (repository.activeHost.value?.id == hostId) error = failure.message ?: sendError
+                    } finally {
+                        uploadingAttachment = false
                     }
                 }
             }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { LucideIcon(LucideIconKind.Paperclip, Modifier.size(20.dp)) }
@@ -605,12 +642,12 @@ fun ChatScreen(
             ) { LucideIcon(LucideIconKind.AtSign, Modifier.size(20.dp), tint = LocalMobilePalette.current.accent) }
             Spacer(Modifier.padding(4.dp))
             Button(
-                enabled = draft.isNotBlank() && !readOnly,
+                enabled = (draft.isNotBlank() || attachments.isNotEmpty()) && !readOnly && !uploadingAttachment,
                 onClick = {
                     val text = draft.trim()
                     scope.launch {
                         runCatching {
-                            repository.call("chat.send", buildJsonObject {
+                            repository.callOnHost(hostId, "chat.send", buildJsonObject {
                                 put("chat_id", chatId)
                                 put("text", text)
                                 put("mentions", buildJsonArray {
@@ -1185,10 +1222,42 @@ private fun BlockView(
         "file" -> {
             val file = fileRef(block)
             val key = fileKey(file)
-            Text(file.str("name").ifBlank { file.str("path") }, style = MaterialTheme.typography.bodyMedium)
+            val size = file.long("size")
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = LocalMobilePalette.current.panel,
+                border = androidx.compose.foundation.BorderStroke(1.dp, LocalMobilePalette.current.borderSubtle),
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(LocalMobilePalette.current.accentSoft),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        LucideIcon(LucideIconKind.FileText, Modifier.size(20.dp), LocalMobilePalette.current.accent)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            file.str("name").ifBlank { file.str("path") },
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(fileSizeLabel(size), style = MaterialTheme.typography.bodySmall, color = LocalMobilePalette.current.textSecondary)
+                    }
+                    LucideIcon(LucideIconKind.ChevronDown, Modifier.size(16.dp), LocalMobilePalette.current.textTertiary)
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(onClick = { onPreviewFile(file) }) { Text(stringResource(Res.string.feature_preview_file)) }
-                Button(onClick = { onExportFile(file) }) { Text(stringResource(Res.string.feature_export_file)) }
+                TextButton(onClick = { onPreviewFile(file) }) { Text(stringResource(Res.string.feature_preview_file)) }
+                TextButton(onClick = { onExportFile(file) }) { Text(stringResource(Res.string.feature_export_file)) }
             }
             filePreviews[key]?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
@@ -1669,6 +1738,24 @@ internal fun fileRef(block: JsonObject): JsonObject {
 }
 
 internal fun fileKey(file: JsonObject): String = "${file.str("root")}:${file.str("root_id")}:${file.str("path")}"
+
+@Composable
+private fun fileSizeLabel(sizeBytes: Long): String {
+    val size = sizeBytes.coerceAtLeast(0L)
+    return when {
+        size < 1_024L -> stringResource(Res.string.feature_file_size_bytes, size.toInt())
+        size < 1_048_576L -> stringResource(Res.string.feature_file_size_kb, ((size + 512L) / 1_024L).toInt())
+        size < 1_073_741_824L -> {
+            val tenths = (size * 10L / 1_048_576L).toInt()
+            stringResource(Res.string.feature_file_size_mb, tenths / 10, tenths % 10)
+        }
+        else -> {
+            val tenths = ((size / 1_073_741_824L) * 10L + (size % 1_073_741_824L) * 10L / 1_073_741_824L)
+                .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            stringResource(Res.string.feature_file_size_gb, tenths / 10, tenths % 10)
+        }
+    }
+}
 internal fun fileParams(file: JsonObject): Map<String, String> = mapOf("root" to file.str("root"), "root_id" to file.str("root_id"), "path" to file.str("path"))
 
 @Composable

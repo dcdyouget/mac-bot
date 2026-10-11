@@ -49,8 +49,20 @@ interface MobileRepository {
     val activeHost: StateFlow<bot.mac.mobile.core.network.HostProfile?>
     fun createScreen(botId: String, quality: String = "auto", tabId: String? = null, onFrame: suspend (bot.mac.mobile.core.network.ScreenFrame) -> Unit): bot.mac.mobile.core.network.ScreenConnection
     suspend fun uploadFile(file: bot.mac.mobile.core.platform.PickedFile): JsonObject
+    suspend fun uploadFileOnHost(hostId: String, file: bot.mac.mobile.core.platform.PickedFile): JsonObject {
+        check(activeHost.value?.id == hostId) { "Host is no longer active" }
+        return uploadFile(file)
+    }
     suspend fun fetchText(path: String, params: Map<String, String>): String
+    suspend fun fetchTextOnHost(hostId: String, path: String, params: Map<String, String>): String {
+        check(activeHost.value?.id == hostId) { "Host is no longer active" }
+        return fetchText(path, params)
+    }
     suspend fun fetchBytes(path: String, params: Map<String, String>): ByteArray
+    suspend fun fetchBytesOnHost(hostId: String, path: String, params: Map<String, String>): ByteArray {
+        check(activeHost.value?.id == hostId) { "Host is no longer active" }
+        return fetchBytes(path, params)
+    }
     suspend fun refresh()
 }
 fun mergeById(old: List<JsonObject>, incoming: List<JsonObject>, key: String = "id"): List<JsonObject> =

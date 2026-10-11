@@ -86,6 +86,10 @@
     <string name="feature_mention_everyone">@所有人</string>
     <string name="feature_preview_file">预览</string>
     <string name="feature_export_file">保存文件</string>
+    <string name="feature_file_size_bytes">%1$d B</string>
+    <string name="feature_file_size_kb">%1$d KB</string>
+    <string name="feature_file_size_mb">%1$d.%2$d MB</string>
+    <string name="feature_file_size_gb">%1$d.%2$d GB</string>
     <string name="feature_review_project">项目：%1$s</string>
     <string name="feature_review_state">验收状态：%1$s</string>
     <string name="feature_approval_ref">审批在私聊中等待</string>
@@ -411,6 +415,8 @@
     <string name="feature_save_group">保存群信息</string>
     <string name="feature_attachment">附件</string>
     <string name="feature_attachment_added">已添加附件：%1$s</string>
+    <string name="feature_attachment_remove">移除附件</string>
+    <string name="feature_attachment_uploading">正在上传附件…</string>
     <string name="feature_trace_search">搜索轨迹</string>
     <string name="feature_trace_older">加载更早记录</string>
     <string name="feature_trace_thinking">显示思考</string>

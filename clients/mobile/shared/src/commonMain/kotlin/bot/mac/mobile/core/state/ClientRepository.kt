@@ -359,8 +359,13 @@ class ClientRepository(
     }
 
     override suspend fun uploadFile(file: PickedFile): JsonObject {
+        val hostId = activeHost.value?.id ?: error("Host is not selected")
+        return uploadFileOnHost(hostId, file)
+    }
+
+    override suspend fun uploadFileOnHost(hostId: String, file: PickedFile): JsonObject {
         require(file.bytes.size <= 100 * 1024 * 1024) { "File exceeds 100 MB" }
-        val session = activeSession()
+        val session = hostMutex.withLock { hostSessions[hostId] ?: error("Host is not connected: " + hostId) }
         val endpoint = EndpointBuilder.http(currentAddress(session), "/api/v1/uploads")
         val response = client.submitFormWithBinaryData(endpoint, formData {
             append("file", file.bytes, Headers.build {
@@ -374,8 +379,16 @@ class ClientRepository(
 
     override suspend fun fetchText(path: String, params: Map<String, String>): String = fetchBytes(path, params).decodeToString()
 
+    override suspend fun fetchTextOnHost(hostId: String, path: String, params: Map<String, String>): String =
+        fetchBytesOnHost(hostId, path, params).decodeToString()
+
     override suspend fun fetchBytes(path: String, params: Map<String, String>): ByteArray {
-        val session = activeSession()
+        val hostId = activeHost.value?.id ?: error("Host is not selected")
+        return fetchBytesOnHost(hostId, path, params)
+    }
+
+    override suspend fun fetchBytesOnHost(hostId: String, path: String, params: Map<String, String>): ByteArray {
+        val session = hostMutex.withLock { hostSessions[hostId] ?: error("Host is not connected: " + hostId) }
         val response = client.get(EndpointBuilder.http(currentAddress(session), path)) {
             header(HttpHeaders.Authorization, "Bearer " + session.profile.password)
             params.forEach { (key, value) -> parameter(key, value) }

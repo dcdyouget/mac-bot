@@ -1,0 +1,32 @@
+{
+  "mock": {
+    "binary_commit": "85258b5",
+    "host_address": "10.0.2.2:17890",
+    "host_home": "/tmp/macbot-attachment-verify-20261012",
+    "password": "dev"
+  },
+  "http_roundtrip": {
+    "chat_id": "chat_main",
+    "message_id": "msg_01a12c79-2ff9-73b5-806b-a2562b6efe84",
+    "seq": 9,
+    "upload_id": "upl_01a12c79-2f10-72c2-a9b4-43ef371ca4e1",
+    "file": {
+      "root": "upload",
+      "root_id": "upl_01a12c79-2f10-72c2-a9b4-43ef371ca4e1",
+      "path": "",
+      "name": "mobile-attachment-only.txt",
+      "mime": "text/plain",
+      "size": 29
+    },
+    "send_text": "",
+    "result": "chat.send returned a file block and chat.history returned the same message id, sequence, and FileRef"
+  },
+  "android_ui_roundtrip": {
+    "chat_id": "chat_main",
+    "message_id": "msg_01a12c7a-d4fd-71ec-a993-5c63d4f60591",
+    "seq": 10,
+    "upload_id": "upl_01a12c7a-abd6-721c-baac-b8da9faf31e6",
+    "file_name": "macbot-attachment-roundtrip.txt",
+    "result": "file card rendered with Preview and Save File actions"
+  }
+}
