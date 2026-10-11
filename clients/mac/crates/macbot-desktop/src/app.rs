@@ -2066,7 +2066,7 @@ impl MacBot {
                 .unwrap_or_else(|| tr("common.bot").to_string());
             let title = tr("notify.need_you.title")
                 .to_string()
-                .replace("{bot}", bot_name);
+                .replace("{bot}", &bot_name);
             let summary = s(approval, "summary");
             let body = tr("notify.approval.body").to_string().replace(
                 "{summary}",
