@@ -6,6 +6,7 @@
 use crate::features::{FeatureError, FeatureService, MemoryAccess, MemoryActor};
 use async_trait::async_trait;
 use macbot_memory::{ContextPackage, ContextRequest, MemoryEntry, MemorySource, MemoryTarget};
+use macbot_skills::SkillDraftFrom;
 use macbot_store::Event;
 use macbot_tools::{Risk, Tool, ToolContext, ToolResult};
 use serde_json::{json, Map, Value};
@@ -31,6 +32,7 @@ pub struct FeatureRunContext {
     /// Bot/project settings.
     pub model_context_window: usize,
     pub bot_identity: Option<String>,
+    pub draft_from: Option<SkillDraftFrom>,
     pub announcement: String,
     pub references: Vec<String>,
     pub segment_summary: String,
@@ -53,6 +55,7 @@ impl FeatureRunContext {
             allow_memory: true,
             model_context_window: 128_000,
             bot_identity: None,
+            draft_from: None,
             announcement: String::new(),
             references: Vec::new(),
             segment_summary: String::new(),
@@ -75,6 +78,7 @@ impl FeatureRunContext {
             allow_memory: true,
             model_context_window: 128_000,
             bot_identity: None,
+            draft_from: None,
             announcement: String::new(),
             references: Vec::new(),
             segment_summary: String::new(),
@@ -553,7 +557,11 @@ impl Tool for SkillDraftTool {
             let object = object(&args)?;
             let name = required(&object, "name")?;
             let content = required(&object, "content")?;
-            let skill = self.runtime.service.create_skill_draft(name, content)?;
+            let skill = self.runtime.service.create_skill_draft_with_origin(
+                name,
+                content,
+                self.runtime.run.draft_from.clone(),
+            )?;
             // FeatureExecutionSink consumes this private result metadata and
             // emits the normal durable/live skill.updated event after the
             // trace item has been recorded.

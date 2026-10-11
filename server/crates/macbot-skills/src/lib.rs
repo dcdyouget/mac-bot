@@ -96,12 +96,24 @@ pub struct Skill {
     pub name: String,
     pub description: String,
     pub source: SkillSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_from: Option<SkillDraftFrom>,
     pub path: String,
     pub files: Vec<String>,
     pub enabled: bool,
     pub disabled_bot_ids: Vec<String>,
     pub invocations_7d: InvocationStats,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillDraftFrom {
+    pub bot_id: String,
+    pub bot_name: String,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub project_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -165,6 +177,7 @@ impl SkillRegistry {
                         name: (*name).to_string(),
                         description: (*description).to_string(),
                         source: SkillSource::Builtin,
+                        draft_from: None,
                         path: (*path).to_string(),
                         files: Vec::new(),
                         enabled: true,
@@ -200,6 +213,7 @@ impl SkillRegistry {
                     fresh.skill.enabled = previous.skill.enabled;
                     fresh.skill.disabled_bot_ids = previous.skill.disabled_bot_ids.clone();
                     fresh.skill.invocations_7d = previous.skill.invocations_7d.clone();
+                    fresh.skill.draft_from = previous.skill.draft_from.clone();
                     fresh
                 } else {
                     indexed
@@ -225,6 +239,7 @@ impl SkillRegistry {
             entry.skill.enabled = saved_skill.enabled;
             entry.skill.disabled_bot_ids = saved_skill.disabled_bot_ids.clone();
             entry.skill.invocations_7d = saved_skill.invocations_7d.clone();
+            entry.skill.draft_from = saved_skill.draft_from.clone();
             entry.skill.updated_at = saved_skill.updated_at;
         }
     }
@@ -357,6 +372,15 @@ impl SkillRegistry {
 
     /// Create an unpublished Bot-generated draft under `skills/.drafts`.
     pub fn create_draft(&mut self, name: &str, content: &str) -> Result<Skill, SkillError> {
+        self.create_draft_with_origin(name, content, None)
+    }
+
+    pub fn create_draft_with_origin(
+        &mut self,
+        name: &str,
+        content: &str,
+        draft_from: Option<SkillDraftFrom>,
+    ) -> Result<Skill, SkillError> {
         validate_name(name)?;
         if self.entries.contains_key(name) {
             return Err(SkillError::Conflict(name.to_string()));
@@ -367,14 +391,15 @@ impl SkillRegistry {
         }
         let dir = self.install_root.join(".drafts").join(name);
         write_skill_dir(&dir, content)?;
-        let indexed = make_indexed(dir, SkillSource::Draft)?;
+        let mut indexed = make_indexed(dir, SkillSource::Draft)?;
+        indexed.skill.draft_from = draft_from;
         let skill = indexed.skill.clone();
         self.entries.insert(name.to_string(), indexed);
         Ok(skill)
     }
 
     pub fn update(&mut self, name: &str, content: &str) -> Result<Skill, SkillError> {
-        let (path, source, enabled, disabled_bot_ids, invocations_7d) = {
+        let (path, source, enabled, disabled_bot_ids, invocations_7d, draft_from) = {
             let entry = self
                 .entries
                 .get(name)
@@ -385,6 +410,7 @@ impl SkillRegistry {
                 entry.skill.enabled,
                 entry.skill.disabled_bot_ids.clone(),
                 entry.skill.invocations_7d.clone(),
+                entry.skill.draft_from.clone(),
             )
         };
         if source == SkillSource::Builtin {
@@ -403,6 +429,7 @@ impl SkillRegistry {
         indexed.skill.enabled = enabled;
         indexed.skill.disabled_bot_ids = disabled_bot_ids;
         indexed.skill.invocations_7d = invocations_7d;
+        indexed.skill.draft_from = draft_from;
         let skill = indexed.skill.clone();
         self.entries.insert(name.to_string(), indexed);
         Ok(skill)
@@ -577,7 +604,8 @@ impl SkillRegistry {
             return Err(SkillError::Conflict(name.to_string()));
         }
         fs::rename(&old_dir, &new_dir)?;
-        let indexed = make_indexed(new_dir, SkillSource::User)?;
+        let mut indexed = make_indexed(new_dir, SkillSource::User)?;
+        indexed.skill.draft_from = entry.skill.draft_from;
         let skill = indexed.skill.clone();
         self.entries.insert(name.to_string(), indexed);
         Ok(skill)
@@ -864,6 +892,7 @@ fn make_indexed(dir: PathBuf, source: SkillSource) -> Result<IndexedSkill, Skill
             name: parsed.name,
             description: parsed.description,
             source,
+            draft_from: None,
             path: dir.to_string_lossy().to_string(),
             files,
             enabled: true,

@@ -30,6 +30,7 @@ use macbot_orchestrator::Orchestrator;
 use macbot_providers::{
     registry::ProviderRegistry, Completion, ModelEvent, ModelProvider, ModelRequest, TokenUsage,
 };
+use macbot_skills::SkillDraftFrom;
 use macbot_store::{Event, Store};
 use macbot_tools::{
     BashJobManager, BashJobTool, BashTool, EditTool, FileMutationQueue, FindTool, GrepTool, LsTool,
@@ -5484,7 +5485,10 @@ impl RuntimeExecution {
             .unwrap_or(128_000)
     }
 
-    fn context_metadata(&self, request: &ExecutionRequest) -> (usize, String, String, Vec<String>) {
+    fn context_metadata(
+        &self,
+        request: &ExecutionRequest,
+    ) -> (usize, String, String, Vec<String>, Option<SkillDraftFrom>) {
         let snapshot = self.backend.orchestrator.snapshot().unwrap_or_default();
         let bot = snapshot
             .get("bots")
@@ -5510,6 +5514,20 @@ impl RuntimeExecution {
                 .get("projects")
                 .and_then(Value::as_object)
                 .and_then(|projects| projects.get(project_id))
+        });
+        let draft_from = Some(SkillDraftFrom {
+            bot_id: request.bot_id.clone(),
+            bot_name: bot
+                .and_then(|bot| bot.get("name"))
+                .and_then(Value::as_str)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(&request.bot_id)
+                .to_owned(),
+            project_id: request.project_id.clone(),
+            project_name: project
+                .and_then(|project| project.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_owned),
         });
         let mut announcement = project
             .and_then(|project| {
@@ -5601,6 +5619,7 @@ impl RuntimeExecution {
             identity,
             announcement,
             references,
+            draft_from,
         )
     }
 
@@ -5771,6 +5790,7 @@ impl RuntimeExecution {
             })
             .unwrap_or(request.bot_id == "main");
         let context_metadata = self.context_metadata(request);
+        let draft_from = context_metadata.4.clone();
         let mut context = if is_main {
             FeatureRunContext::main(request.bot_id.clone(), "user")
         } else {
@@ -5782,6 +5802,7 @@ impl RuntimeExecution {
             context_metadata.2,
             context_metadata.3,
         );
+        context.draft_from = draft_from;
         context.run_id = Some(request.run_id.clone());
         context.private = request.private;
         context.project_id = request.project_id.clone();

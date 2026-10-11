@@ -14,7 +14,7 @@ use macbot_memory::{
 use macbot_providers::{
     Completion, HttpProvider, ModelProvider, ModelRequest, ProviderConfig, SecretStore, TokenUsage,
 };
-use macbot_skills::{BotSkillSettingsSnapshot, Skill, SkillError, SkillRegistry};
+use macbot_skills::{BotSkillSettingsSnapshot, Skill, SkillDraftFrom, SkillError, SkillRegistry};
 use macbot_store::{Event, Store, StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -469,11 +469,20 @@ impl FeatureService {
     }
 
     pub fn create_skill_draft(&self, name: &str, content: &str) -> FeatureResult<Skill> {
+        self.create_skill_draft_with_origin(name, content, None)
+    }
+
+    pub fn create_skill_draft_with_origin(
+        &self,
+        name: &str,
+        content: &str,
+        draft_from: Option<SkillDraftFrom>,
+    ) -> FeatureResult<Skill> {
         let skill = self
             .skill_registry
             .write()
             .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?
-            .create_draft(name, content)?;
+            .create_draft_with_origin(name, content, draft_from)?;
         self.persist_skills()?;
         Ok(skill)
     }
