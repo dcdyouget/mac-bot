@@ -1,5 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    path::{Component, Path, PathBuf},
+    process::Command,
     sync::{Arc, Mutex},
 };
 
@@ -26,6 +28,105 @@ const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024;
 // IPC is capped at 8 MiB of JPEG data (plus the small wire header). The core
 // parser has already allocated the incoming JPEG before this native limit runs.
 const MAX_SCREEN_JPEG_BYTES: usize = 8 * 1024 * 1024;
+
+fn resolve_project_artifact_path(home_path: &str, relative_path: &str) -> Result<PathBuf, String> {
+    if !Path::new(home_path).is_absolute() {
+        return Err("项目 Home 必须是绝对路径".into());
+    }
+    let relative = Path::new(relative_path);
+    if relative_path.trim().is_empty() || relative.is_absolute() {
+        return Err("产物路径必须是项目 Home 下的相对路径".into());
+    }
+    let mut has_normal_component = false;
+    for component in relative.components() {
+        match component {
+            Component::Normal(_) => has_normal_component = true,
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err("产物路径不能离开项目 Home".into());
+            }
+        }
+    }
+    if !has_normal_component {
+        return Err("产物路径不能为空".into());
+    }
+
+    let home = Path::new(home_path)
+        .canonicalize()
+        .map_err(|error| format!("无法解析项目 Home：{error}"))?;
+    if !home.is_dir() {
+        return Err("项目 Home 不是目录".into());
+    }
+    let target = home
+        .join(relative)
+        .canonicalize()
+        .map_err(|error| format!("无法解析产物路径：{error}"))?;
+    if !target.starts_with(&home) {
+        return Err("产物路径超出项目 Home".into());
+    }
+    Ok(target)
+}
+
+fn authorized_project_home(
+    home_path: &str,
+    projects: &BTreeMap<String, Value>,
+) -> Result<PathBuf, String> {
+    let requested = Path::new(home_path)
+        .canonicalize()
+        .map_err(|error| format!("无法解析项目 Home：{error}"))?;
+    let is_current_host_project = projects.values().any(|project| {
+        project
+            .get("home_path")
+            .and_then(Value::as_str)
+            .and_then(|path| Path::new(path).canonicalize().ok())
+            .is_some_and(|path| path == requested)
+    });
+    if !is_current_host_project {
+        return Err("项目 Home 不属于当前连接的 Host".into());
+    }
+    Ok(requested)
+}
+
+#[tauri::command]
+fn reveal_in_finder(
+    bridge: State<'_, SharedBridge>,
+    home_path: String,
+    relative_path: String,
+) -> Result<(), String> {
+    let data = bridge
+        .0
+        .lock()
+        .map_err(|_| "客户端状态不可用".to_string())?;
+    if data.connection != "connected" {
+        return Err("尚未连接 Bot 主机".into());
+    }
+    let home = authorized_project_home(&home_path, &data.state.projects)?;
+    let target = resolve_project_artifact_path(
+        home.to_str()
+            .ok_or_else(|| "项目 Home 路径无效".to_string())?,
+        &relative_path,
+    )?;
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("/usr/bin/open")
+            .arg("-R")
+            .arg(target)
+            .status()
+            .map_err(|error| format!("无法在 Finder 中显示产物：{error}"))
+            .and_then(|status| {
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(format!("Finder 无法显示产物（退出码 {:?}）", status.code()))
+                }
+            })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = target;
+        Err("在 Finder 中显示仅支持 macOS".into())
+    }
+}
 
 struct BridgeData {
     connection: &'static str,
@@ -2064,6 +2165,7 @@ pub fn run() {
             connect_saved_host,
             list_hosts,
             remove_host,
+            reveal_in_finder,
             send_message,
             protocol_request,
             save_usage_csv,
@@ -2088,17 +2190,104 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        activate_trace_subscription, apply_retry_result, connection_is_current,
-        encode_screen_frame, finish_trace_unsubscribe, inject_client_locale,
-        normalize_bcp47_locale, pending_message, retain_trace_cleanup, route_trace_event,
-        screen_connection_payload, screen_generation_matches, skill_upload_payload,
-        trace_subscription_state, trace_tauri_event, uploaded_skill_id, validate_screen_input,
-        BridgeData, InvokeBody, PendingTraceCleanup, ScreenFrame, ScreenPoint, TraceScope,
-        TraceSubscription, MAX_BUFFERED_TRACE_BYTES, MAX_SCREEN_JPEG_BYTES,
+        activate_trace_subscription, apply_retry_result, authorized_project_home,
+        connection_is_current, encode_screen_frame, finish_trace_unsubscribe, inject_client_locale,
+        normalize_bcp47_locale, pending_message, resolve_project_artifact_path,
+        retain_trace_cleanup, route_trace_event, screen_connection_payload,
+        screen_generation_matches, skill_upload_payload, trace_subscription_state,
+        trace_tauri_event, uploaded_skill_id, validate_screen_input, BridgeData, InvokeBody,
+        PendingTraceCleanup, ScreenFrame, ScreenPoint, TraceScope, TraceSubscription,
+        MAX_BUFFERED_TRACE_BYTES, MAX_SCREEN_JPEG_BYTES,
     };
     use macbot_client_core::ScreenFrameHeader;
     use serde_json::json;
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fs;
+    use std::path::PathBuf;
+    use uuid::Uuid;
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!("macbot-artifact-{}", Uuid::new_v4()));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn artifact_path_resolves_inside_project_home() {
+        let root = TempDir::new();
+        let home = root.0.join("project");
+        fs::create_dir_all(home.join("product")).unwrap();
+        fs::write(home.join("product/prd.md"), "content").unwrap();
+
+        let resolved =
+            resolve_project_artifact_path(home.to_str().unwrap(), "product/prd.md").unwrap();
+        assert_eq!(
+            resolved,
+            home.canonicalize().unwrap().join("product/prd.md")
+        );
+    }
+
+    #[test]
+    fn reveal_requires_a_home_path_owned_by_the_current_host() {
+        let root = TempDir::new();
+        let home = root.0.join("project");
+        let other = root.0.join("other");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&other).unwrap();
+        let mut projects = BTreeMap::new();
+        projects.insert(
+            "project-id".to_string(),
+            json!({ "home_path": home.to_str().unwrap() }),
+        );
+
+        assert_eq!(
+            authorized_project_home(home.to_str().unwrap(), &projects).unwrap(),
+            home.canonicalize().unwrap()
+        );
+        assert!(authorized_project_home(other.to_str().unwrap(), &projects).is_err());
+    }
+
+    #[test]
+    fn artifact_path_rejects_absolute_traversal_empty_and_missing_paths() {
+        let root = TempDir::new();
+        let home = root.0.join("project");
+        fs::create_dir_all(&home).unwrap();
+
+        assert!(resolve_project_artifact_path(home.to_str().unwrap(), "../outside").is_err());
+        assert!(
+            resolve_project_artifact_path(home.to_str().unwrap(), home.to_str().unwrap()).is_err()
+        );
+        assert!(resolve_project_artifact_path(home.to_str().unwrap(), "./").is_err());
+        assert!(resolve_project_artifact_path(home.to_str().unwrap(), "missing.txt").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn artifact_path_rejects_symlinks_that_escape_project_home() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempDir::new();
+        let home = root.0.join("project");
+        let outside = root.0.join("outside");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.txt"), "secret").unwrap();
+        symlink(&outside, home.join("linked")).unwrap();
+
+        assert!(
+            resolve_project_artifact_path(home.to_str().unwrap(), "linked/secret.txt").is_err()
+        );
+    }
 
     #[test]
     fn raw_upload_bytes_keep_the_decoded_file_name() {

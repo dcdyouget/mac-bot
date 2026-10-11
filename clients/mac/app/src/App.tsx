@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder } from 'lucide-react'
+import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type PendingMessage, type Question } from './types'
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
@@ -14,13 +14,18 @@ import { MemoryPage, type UserMemoryEntry, type UserMemoryQuota, type UserProfil
 import { TracePage, type TraceAssignment, type TraceInFlight, type TraceItem, type TraceQueueMessage } from './components/TracePage'
 import { SearchPage, type SearchRequest, type SearchResponse, type SearchResult } from './components/SearchPage'
 import { ComputerPage, type ComputerConnection, type ComputerDriver, type ComputerFrame, type ComputerInput, type ComputerQuality, type ComputerTab } from './components/ComputerPage'
+import { BotPanel, type BotProject, type BotRecord } from './components/BotPanel'
+import { ArtifactPage, type ProjectArtifact } from './components/ArtifactPage'
+import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
+import './components/ChatEntry.css'
 
 const NO_RULES: Record<string, Json>[] = []
 type ThemeMode = 'light' | 'dark' | 'system'
-type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory' | 'trace' | 'computer'
-type TraceReturnPage = Exclude<AppPage, 'trace' | 'computer'>
+type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory' | 'trace' | 'computer' | 'artifact'
+type TraceReturnPage = Exclude<AppPage, 'trace' | 'computer' | 'artifact'>
 type TraceRoute = { assignmentId: string; hostScope: string; returnPage: TraceReturnPage; returnChatId: string; returnSelectedAssignment: string | null }
-type ComputerRoute = { botId: string; hostScope: string; returnPage: Exclude<AppPage, 'computer'>; returnChatId: string; returnSelectedAssignment: string | null; requestId: string; tabId?: string }
+type ComputerRoute = { botId: string; hostScope: string; returnPage: Exclude<AppPage, 'computer' | 'artifact'>; returnChatId: string; returnSelectedAssignment: string | null; requestId: string; tabId?: string }
+type ArtifactRoute = { hostScope: string; projectId: string; projectName: string; homePath: string; artifacts: ProjectArtifact[]; artifactId: string; returnPage: Exclude<AppPage, 'artifact'>; returnChatId: string }
 type ScreenState = { bot_id: string; driver: ComputerDriver; tabs: ComputerTab[]; width: number; height: number }
 type ComputerConnectionEvent = { status?: string; bot_id?: string; generation?: number; error?: string | null }
 type ComputerStateEvent = { generation?: number; state?: ScreenState }
@@ -116,6 +121,12 @@ function App() {
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
   const [selectedChat, setSelectedChat] = useState('')
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  const [groupCreating, setGroupCreating] = useState(false)
+  const [groupCreateError, setGroupCreateError] = useState<string | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [messageMenu, setMessageMenu] = useState<{ message: Message; x: number; y: number } | null>(null)
+  const [quoteTarget, setQuoteTarget] = useState<QuoteTarget | null>(null)
   const [activePage, setActivePage] = useState<AppPage>('chat')
   const [showSearch, setShowSearch] = useState(false)
   const [searchSideTarget, setSearchSideTarget] = useState<{ scope: string; result: SearchResult } | null>(null)
@@ -146,6 +157,8 @@ function App() {
   const [computerError, setComputerError] = useState<string | null>(null)
   const [computerRetry, setComputerRetry] = useState(0)
   const [computerFullscreen, setComputerFullscreen] = useState(false)
+  const [botPanelId, setBotPanelId] = useState<string | null>(null)
+  const [artifactRoute, setArtifactRoute] = useState<ArtifactRoute | null>(null)
   const [mentionBotId, setMentionBotId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [connecting, setConnecting] = useState(false)
@@ -271,6 +284,11 @@ function App() {
   useEffect(() => {
     setSearchSideTarget(null)
     setSearchRoutineTarget(null)
+    setQuoteTarget(null)
+    setMessageMenu(null)
+    setCreateGroupOpen(false)
+    setGroupCreateError(null)
+    setSendError(null)
   }, [hostScope])
 
   useEffect(() => {
@@ -479,6 +497,18 @@ function App() {
   }, [activePage, computerRoute, hostScope])
 
   useEffect(() => {
+    if (activePage !== 'chat' || (botPanelId && !state.bots[botPanelId])) setBotPanelId(null)
+  }, [activePage, botPanelId, state.bots])
+
+  useEffect(() => {
+    if (!artifactRoute) return
+    if (artifactRoute.hostScope !== hostScope) {
+      setArtifactRoute(null)
+      if (activePage === 'artifact') setActivePage('chat')
+    } else if (activePage !== 'artifact') setArtifactRoute(null)
+  }, [activePage, artifactRoute, hostScope])
+
+  useEffect(() => {
     const route = traceRoute
     if (!route || activePage !== 'trace') return
     if (route.hostScope !== hostScope) {
@@ -647,6 +677,7 @@ function App() {
   const bots = useMemo(() => Object.values(state.bots), [state.bots])
   const mainBot = bots.find((bot) => bot.is_main) ?? bots[0]
   const currentChat = chats.find((chat) => chat.id === selectedChat) ?? chats.find((chat) => chat.kind === 'main') ?? chats[0]
+  const currentChatBotId = currentChat?.bot_id ?? (currentChat?.kind === 'main' ? mainBot?.id : null)
   const currentMessages = useMemo(() => {
     const byId = new Map<string, Message>()
     for (const message of historyByChat[historyCacheKey(hostScope, currentChat?.id ?? '')] ?? []) byId.set(message.id, message)
@@ -757,8 +788,71 @@ function App() {
   function selectChat(chatId: string) {
     setSelectedChat(chatId)
     setActivePage('chat')
+    setQuoteTarget(null)
+    setMessageMenu(null)
+    setSendError(null)
     localStorage.setItem(SELECTED_CHAT_STORAGE_KEY, chatId)
     localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScope}`, chatId)
+  }
+
+  function openBotPanel(botId: string) {
+    if (!botId || !stateRef.current.bots[botId]) return
+    setBotPanelId(botId)
+    setActivePage('chat')
+  }
+
+  async function createGroup(input: { name: string; memberBotIds: string[]; announcement: string }) {
+    if (groupCreating || state.connection !== 'connected') return
+    const scope = hostScope
+    setGroupCreating(true)
+    setGroupCreateError(null)
+    try {
+      const result = await invoke<{ project: BridgeState['projects'][string]; chat: Chat }>('protocol_request', {
+        method: 'project.create',
+        params: { name: input.name, member_bot_ids: input.memberBotIds, ...(input.announcement ? { announcement: input.announcement } : {}) },
+      })
+      assertHostScope(hostScopeRef.current, scope)
+      setState((current) => ({
+        ...current,
+        projects: { ...current.projects, [result.project.id]: result.project },
+        chats: { ...current.chats, [result.chat.id]: result.chat },
+      }))
+      setCreateGroupOpen(false)
+      selectChat(result.chat.id)
+    } catch (error) {
+      if (hostScopeRef.current === scope) setGroupCreateError(String(error))
+    } finally {
+      setGroupCreating(false)
+    }
+  }
+
+  function quoteMessage(message: Message, mode: QuoteTarget['mode']) {
+    const sender = message.sender
+    const senderName = sender?.kind === 'user' ? t('common.user') : state.bots[sender?.bot_id ?? '']?.name ?? t('common.bot')
+    const text = (message.fallback_text?.trim() || (message.blocks ?? []).map((block) => String(block.markdown ?? block.text ?? '')).filter(Boolean).join('\n')).trim()
+    setQuoteTarget({ messageId: message.id, senderName, excerpt: text.slice(0, 120), mode, ...(mode === 'reply' && sender?.kind === 'bot' && sender.bot_id ? { botId: sender.bot_id } : {}) })
+    setMessageMenu(null)
+    document.querySelector<HTMLTextAreaElement>('.composer-box textarea')?.focus()
+  }
+
+  async function copyMessage(message: Message) {
+    const text = message.fallback_text?.trim() || (message.blocks ?? []).map((block) => String(block.markdown ?? block.text ?? '')).filter(Boolean).join('\n')
+    try { await navigator.clipboard.writeText(text); setMessageMenu(null) }
+    catch (error) { setState((current) => ({ ...current, error: `${t('common.copy_failed')}: ${String(error)}` })) }
+  }
+
+  async function deleteMessage(message: Message) {
+    if (message.sender?.kind !== 'user') return
+    const scope = hostScope
+    try {
+      await invoke('protocol_request', { method: 'message.delete', params: { message_id: message.id } })
+      assertHostScope(hostScopeRef.current, scope)
+      setHistoryByChat((current) => Object.fromEntries(Object.entries(current).map(([key, items]) => [key, items.map((item) => item.id === message.id ? { ...item, deleted: true, fallback_text: '', blocks: [] } as Message : item)])))
+      setState((current) => ({ ...current, messages: Object.fromEntries(Object.entries(current.messages).map(([id, item]) => [id, id === message.id ? { ...item, deleted: true, fallback_text: '', blocks: [] } as Message : item])) }))
+      setMessageMenu(null)
+    } catch (error) {
+      if (hostScopeRef.current === scope) setState((current) => ({ ...current, error: `${t('chat.message.delete_failed')}: ${String(error)}` }))
+    }
   }
 
   function openWorkbenchChat(chatId: string) {
@@ -771,7 +865,7 @@ function App() {
     const route: TraceRoute = {
       assignmentId,
       hostScope,
-      returnPage: existingRoute?.returnPage ?? (activePage === 'trace' || activePage === 'computer' ? 'chat' : activePage),
+      returnPage: existingRoute?.returnPage ?? (activePage === 'trace' || activePage === 'computer' || activePage === 'artifact' ? 'chat' : activePage),
       returnChatId: existingRoute?.returnChatId ?? selectedChat,
       returnSelectedAssignment: existingRoute?.returnSelectedAssignment ?? selectedAssignment,
     }
@@ -806,7 +900,7 @@ function App() {
     const route: ComputerRoute = {
       botId,
       hostScope,
-      returnPage: existingTraceRoute ? 'trace' : activePage === 'computer' ? 'chat' : activePage,
+      returnPage: existingTraceRoute ? 'trace' : activePage === 'computer' || activePage === 'artifact' ? 'chat' : activePage,
       returnChatId: existingTraceRoute?.returnChatId ?? selectedChat,
       returnSelectedAssignment: existingTraceRoute?.returnSelectedAssignment ?? selectedAssignment,
       requestId: crypto.randomUUID(),
@@ -923,6 +1017,11 @@ function App() {
     setShowSearch(false)
     setConnecting(true)
     setHostMenuOpen(false)
+    setQuoteTarget(null)
+    setMessageMenu(null)
+    setCreateGroupOpen(false)
+    setGroupCreateError(null)
+    setSendError(null)
     setState((current) => ({ ...current, error: null, connection: 'connecting' }))
     try {
       await invoke('connect_saved_host', { hostId })
@@ -1442,6 +1541,56 @@ function App() {
     }
   }
 
+  async function openArtifactPage(projectId: string, artifactId: string) {
+    if (!projectId || !artifactId) return false
+    const scope = hostScopeRef.current
+    const result = await invoke<{ project: BridgeState['projects'][string] & { home_path?: string }; announcement: Announcement }>('protocol_request', {
+      method: 'project.get', params: { project_id: projectId },
+    })
+    assertHostScope(hostScopeRef.current, scope)
+    const artifacts = result.announcement?.artifacts ?? []
+    if (!artifacts.some((artifact) => artifact.id === artifactId)) return false
+    const currentRoute = artifactRoute
+    const returnPage = activePage === 'artifact' ? currentRoute?.returnPage ?? 'chat' : activePage
+    const returnChatId = activePage === 'artifact' ? currentRoute?.returnChatId ?? selectedChat : selectedChat
+    setArtifactRoute({
+      hostScope: scope,
+      projectId,
+      projectName: result.project.name ?? projectId,
+      homePath: typeof result.project.home_path === 'string' ? result.project.home_path : '',
+      artifacts,
+      artifactId,
+      returnPage,
+      returnChatId,
+    })
+    setBotPanelId(null)
+    setActivePage('artifact')
+    return true
+  }
+
+  async function openArtifactReference(artifact: ArtifactRef) {
+    const chat = currentChat
+    const projectId = typeof chat?.project_id === 'string' ? chat.project_id : null
+    if (projectId) {
+      try {
+        if (await openArtifactPage(projectId, artifact.artifact_id)) return
+      } catch (error) {
+        if (hostScopeRef.current === hostScope) setState((current) => ({ ...current, error: String(error) }))
+      }
+    } else {
+      try {
+        const scope = hostScopeRef.current
+        const result = await invoke<SearchResponse>('protocol_request', { method: 'search', params: { query: artifact.title, kinds: ['artifact'], limit: 50 } })
+        assertHostScope(hostScopeRef.current, scope)
+        const match = result.results.find((item) => item.kind === 'artifact' && item.id === artifact.artifact_id)
+        const artifactChat = match?.chat_id ? stateRef.current.chats[match.chat_id] : undefined
+        const ownerProjectId = typeof artifactChat?.project_id === 'string' ? artifactChat.project_id : undefined
+        if (ownerProjectId && await openArtifactPage(ownerProjectId, artifact.artifact_id)) return
+      } catch { /* fallback to the inline preview if search or project lookup is unavailable */ }
+    }
+    void previewArtifact(artifact)
+  }
+
   function updateMessageBlock(scope: string, chatId: string, messageId: string, blockIndex: number, patch: Record<string, Json>) {
     const update = (message: Message): Message => ({ ...message, blocks: message.blocks?.map((block, index) => index === blockIndex ? { ...block, ...patch } : block) })
     setState((current) => ({ ...current, messages: Object.fromEntries(Object.entries(current.messages).map(([id, message]) => [id, id === messageId ? update(message) : message])) }))
@@ -1496,6 +1645,17 @@ function App() {
   function openSearchResult(result: SearchResult, options: { sidePanel: boolean }) {
     setShowSearch(false)
     setSearchSideTarget(options.sidePanel ? { scope: hostScope, result } : null)
+    if (result.kind === 'artifact') {
+      const chat = result.chat_id ? stateRef.current.chats[result.chat_id] : undefined
+      if (typeof chat?.project_id === 'string') {
+        setSearchSideTarget(null)
+        void openArtifactPage(chat.project_id, result.id).catch((error: unknown) => setState((current) => ({ ...current, error: String(error) })))
+      } else {
+        setSearchSideTarget({ scope: hostScope, result })
+        setActivePage('chat')
+      }
+      return
+    }
     if (result.kind === 'routine') {
       setSearchRoutineTarget({ scope: hostScope, id: result.id })
       setSearchRoutineRequest((request) => request + 1)
@@ -1556,6 +1716,11 @@ function App() {
     event.preventDefault()
     setShowSearch(false)
     setConnecting(true)
+    setQuoteTarget(null)
+    setMessageMenu(null)
+    setCreateGroupOpen(false)
+    setGroupCreateError(null)
+    setSendError(null)
     setState((current) => ({ ...current, error: null, connection: 'connecting' }))
     try {
       await invoke('connect_host', { endpoint, password, name: hostName })
@@ -1569,20 +1734,27 @@ function App() {
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault()
     if (!currentChat || !draft.trim() || sending || state.connection !== 'connected') return
+    const scope = hostScope
     setSending(true)
+    setSendError(null)
     try {
-      if (mentionBotId) {
+      if (mentionBotId || quoteTarget) {
         await invoke('protocol_request', { method: 'chat.send', params: {
           chat_id: currentChat.id,
           text: draft.trim(),
-          mentions: [{ kind: 'bot', bot_id: mentionBotId, instruction: null }],
+          mentions: mentionBotId ? [{ kind: 'bot', bot_id: mentionBotId, instruction: null }] : quoteTarget?.mode === 'reply' && quoteTarget.botId ? [{ kind: 'bot', bot_id: quoteTarget.botId, instruction: null }] : [],
+          ...(quoteTarget ? { quote: quoteTarget.messageId, quote_mode: quoteTarget.mode } : {}),
           client_request_id: crypto.randomUUID(),
         } })
       } else {
         await invoke('send_message', { chatId: currentChat.id, text: draft.trim() })
       }
+      assertHostScope(hostScopeRef.current, scope)
       setDraft('')
       setMentionBotId(null)
+      setQuoteTarget(null)
+    } catch (error) {
+      if (hostScopeRef.current === scope) setSendError(String(error))
     } finally {
       setSending(false)
     }
@@ -1621,7 +1793,7 @@ function App() {
     <aside className="sidebar glass-sidebar">
       <div className="sidebar-head drag-region">
         <button className="host-switch" aria-expanded={hostMenuOpen} onClick={() => setHostMenuOpen((open) => !open)}><span className={`status-dot ${state.connection}`} />{state.active_host?.name ?? hostName}<ChevronDown size={14} /></button>
-        <button className="icon-button" aria-label="新建"><Plus size={17} /></button>
+        <button className="icon-button" aria-label={t('chat.group.create')} title={t('chat.group.create')} disabled={state.connection !== 'connected'} onClick={() => { setGroupCreateError(null); setCreateGroupOpen(true) }}><Plus size={17} /></button>
         {hostMenuOpen && <div className="host-popover">
           <div className="host-popover-title">{t('host.switch.title')}</div>
           {savedHosts.map((host) => <div className="host-popover-row" key={host.id}>
@@ -1635,14 +1807,14 @@ function App() {
       <button type="button" className="search-entry" onClick={() => setShowSearch(true)} aria-label={t('sidebar.search.placeholder')}><Search size={14} /><span className="grow">{t('sidebar.search.placeholder')}</span><kbd>⌘K</kbd></button>
       <div className="sidebar-scroll">
         <div className="nav-section"><div className="section-label">{t('sidebar.main_bot.tag')}</div>
-          {mainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} main />)}
+          {mainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} onDetails={() => openBotPanel(chat.bot_id ?? mainBot?.id ?? '')} detailsLabel={t('bot.action.settings')} main />)}
         </div>
         <div className="nav-section"><div className="section-label">{t('sidebar.section.groups').replace('{count}', String(groups.length))}</div>
           {groups.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
           {groups.length === 0 && <div className="nav-empty">{t('sidebar.empty_groups')}</div>}
         </div>
         <div className="nav-section"><div className="section-label">{t('sidebar.section.bots').replace('{count}', String(botChats.length))}</div>
-          {botChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
+          {botChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} onDetails={() => openBotPanel(chat.bot_id ?? '')} detailsLabel={t('bot.action.settings')} />)}
         </div>
       </div>
       <nav className="sidebar-footer">
@@ -1656,12 +1828,12 @@ function App() {
     {activePage === 'chat' && <>
     <section className="conversation">
       <header className="conversation-toolbar glass-toolbar drag-region">
-        {currentChat?.kind === 'project' || currentChat?.project_id ? <div className="group-chat-avatar"><Users size={17} /></div> : <BeanAvatar main={currentChat?.kind === 'main' || !currentChat?.bot_id} size="32" seed={currentChat?.bot_id ? state.bots[currentChat.bot_id]?.name ?? '' : ''} />}
+        {currentChat?.kind === 'project' || currentChat?.project_id ? <div className="group-chat-avatar"><Users size={17} /></div> : currentChatBotId ? <button type="button" aria-label={t('bot.action.settings')} title={t('bot.action.settings')} onClick={() => openBotPanel(currentChatBotId)} style={{ width: 32, height: 32, display: 'grid', flex: 'none', placeItems: 'center', padding: 0, border: 0, borderRadius: '50%', background: 'transparent', cursor: 'pointer' }}><BeanAvatar main={state.bots[currentChatBotId]?.is_main === true} size="32" seed={state.bots[currentChatBotId]?.name ?? ''} /></button> : <BeanAvatar main size="32" />}
         <div className="conversation-heading"><strong>{currentChat ? chatTitle(currentChat) : (mainBot?.name ?? '总管')}</strong>
           <span>{currentChat?.kind === 'project' || currentChat?.project_id ? groupSubtitle(currentChat, currentProject, announcement) : currentChat?.bot_id ? botSubtitle(currentChat, currentAssignments, state.bots) : t('chat.main.subtitle')}</span></div>
         {currentChat?.bot_id && <button className="icon-button" type="button" aria-label={t('computer.title').replace('{bot}', chatTitle(currentChat))} title={t('computer.title').replace('{bot}', chatTitle(currentChat))} onClick={() => openComputer(currentChat.bot_id!)}><Monitor size={16} /></button>}
         <button className="icon-button" aria-label={t('chat.search')} onClick={() => setShowSearch(true)}><Search size={17} /></button>
-        <button className="icon-button" aria-label="切换右面板"><PanelRight size={17} /></button>
+        <button className="icon-button" aria-label={currentChatBotId ? t('bot.action.settings') : t('group.info')} title={currentChatBotId ? t('bot.action.settings') : t('group.info')} onClick={() => { if (currentChatBotId) openBotPanel(currentChatBotId) }}><PanelRight size={17} /></button>
       </header>
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={openTrace} />}
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
@@ -1671,10 +1843,10 @@ function App() {
       <div className="message-scroll">
         {!currentChat ? <div className="empty-conversation"><BeanAvatar main size="72" /><strong>{t('onboarding.empty.title')}</strong><span>{t('onboarding.empty.desc')}</span></div>
           : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages).map((entry) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className="timeline-fragment" key={entry.message.id}>
+          {buildMessageTimeline(currentMessages).map((entry) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} key={entry.message.id} onContextMenu={(event) => { event.preventDefault(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
             {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-            <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void previewArtifact(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
+            <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
             const decisionScope = hostScope
             const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
             if (result.approval && hostScopeRef.current === decisionScope) {
@@ -1694,14 +1866,55 @@ function App() {
       </div>
       <form className="composer-wrap" onSubmit={sendMessage}>
         <div className="composer-box">
+          {sendError && <div className="chat-entry-error" role="alert">{t('chat.send.failed').replace('{error}', sendError)}</div>}
+          {quoteTarget && <div className="chat-composer-quote"><div><strong>{t(quoteTarget.mode === 'reply' ? 'chat.message.replying_to' : 'chat.message.quoting').replace('{sender}', quoteTarget.senderName)}</strong><span>{quoteTarget.excerpt}</span></div><button type="button" aria-label={t('chat.message.cancel_quote')} onClick={() => setQuoteTarget(null)}><X size={14} /></button></div>}
           {mentionBotId && <div className="composer-mention-chip"><AtSign size={13} />{t('chat.queue.at_now').replace('{bot}', state.bots[mentionBotId]?.name ?? t('common.bot'))}<button type="button" aria-label={t('common.close')} onClick={() => setMentionBotId(null)}>×</button></div>}
-          <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={currentChat ? t('chat.composer.placeholder.dm').replace('{name}', currentChat.title ?? '总管') : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
+          <textarea value={draft} onChange={(event) => { setDraft(event.target.value); setSendError(null) }} placeholder={currentChat ? t('chat.composer.placeholder.dm').replace('{name}', currentChat.title ?? '总管') : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
           <div className="composer-actions"><div><button type="button" className="composer-tool" aria-label="提及"><AtSign size={17} /></button><span className="composer-hint"><Command size={11} /> ↵ 发送</span></div>
             <button type="submit" className="send-button" disabled={!draft.trim() || sending || !currentChat || state.connection !== 'connected'} aria-label={t('common.send')}><Send size={16} /></button></div>
         </div>
       </form>
     </section>
-    <aside className="context-panel glass-sidebar">
+    {botPanelId && state.bots[botPanelId] ? <BotPanel
+      key={`${hostScope}:${botPanelId}`}
+      botId={botPanelId}
+      bot={state.bots[botPanelId] as unknown as BotRecord}
+      projects={Object.values(state.projects).map((project): BotProject => ({
+        id: project.id,
+        name: project.name ?? project.id,
+        chat_id: project.chat_id,
+        status: typeof project.status === 'string' ? project.status : undefined,
+        members: Array.isArray(project.members) ? project.members as unknown as BotProject['members'] : [],
+      }))}
+      chats={Object.fromEntries(Object.values(state.chats).map((chat) => [chat.id, { id: chat.id, title: chat.title, project_id: chat.project_id }]))}
+      assignments={state.assignments}
+      hostScope={hostScope}
+      onClose={() => setBotPanelId(null)}
+      onOpenChat={(chatId) => { setBotPanelId(null); selectChat(chatId) }}
+      onOpenTrace={(assignmentId) => { setBotPanelId(null); openTrace(assignmentId) }}
+      onOpenComputer={(botId) => { setBotPanelId(null); openComputer(botId) }}
+      onOpenSkills={() => { setBotPanelId(null); setActivePage('skills') }}
+      onBotUpdated={(bot) => setState((current) => ({ ...current, bots: { ...current.bots, [bot.id]: bot as unknown as BridgeState['bots'][string] } }))}
+      onBotDeleted={(botId) => {
+        const fallbackChatId = chats.find((chat) => chat.kind === 'main')?.id ?? ''
+        setState((current) => ({ ...current, bots: Object.fromEntries(Object.entries(current.bots).filter(([id]) => id !== botId)), chats: Object.fromEntries(Object.entries(current.chats).filter(([, chat]) => chat.bot_id !== botId)) }))
+        setBotPanelId(null)
+        if (currentChat?.bot_id === botId) selectChat(fallbackChatId)
+      }}
+      onBotDuplicated={(bot, dmChatId) => {
+        const scope = hostScope
+        setBotPanelId(null)
+        setState((current) => ({ ...current, bots: { ...current.bots, [bot.id]: bot as unknown as BridgeState['bots'][string] } }))
+        void invoke<{ chat: Chat }>('protocol_request', { method: 'chat.get', params: { chat_id: dmChatId } }).then((result) => {
+          if (hostScopeRef.current !== scope) return
+          setState((current) => ({ ...current, chats: { ...current.chats, [result.chat.id]: result.chat } }))
+          selectChat(result.chat.id)
+        }).catch((error: unknown) => {
+          if (hostScopeRef.current === scope) setState((current) => ({ ...current, error: String(error) }))
+        })
+      }}
+      t={(key) => t(key as CopyKey)}
+    /> : <aside className="context-panel glass-sidebar">
       <div className="panel-heading drag-region"><strong>{currentProjectId ? t('group.info') : t('follow.title')}</strong><button className="icon-button" aria-label={t('follow.collapse')}><PanelRight size={16} /></button></div>
       {currentChat && currentProjectId ? <div className="panel-content group-context-panel">
         <section className="follow-section" ref={announcementPanelRef}>
@@ -1735,7 +1948,7 @@ function App() {
         </section>
         <section className="follow-section"><div className="section-label">{t('group.artifacts')}<span className="panel-section-count">{announcement?.artifacts.length ?? 0}</span></div>
           {announcement?.artifacts.length ? announcement.artifacts.map((artifact) => <div className="group-artifact-row" key={artifact.id}>
-            <span className="group-artifact-icon">{artifact.kind === 'dir' ? <Folder size={14} /> : <MessageCircle size={14} />}</span><span className="group-artifact-copy"><strong>{artifact.title}</strong><small>{t('common.provided_by').replace('{bot}', state.bots[artifact.bot_id]?.name ?? t('common.bot'))}</small><code>{artifact.path_or_url}</code><small>{t('common.updated_at').replace('{time}', formatShortTime(artifact.updated_at))}</small></span><button type="button" className="trace-button" onClick={() => void previewArtifact({ artifact_id: artifact.id, title: artifact.title, path_or_url: artifact.path_or_url, bot_id: artifact.bot_id, kind: artifact.kind })}>{t('common.preview')}</button>
+            <span className="group-artifact-icon">{artifact.kind === 'dir' ? <Folder size={14} /> : <MessageCircle size={14} />}</span><span className="group-artifact-copy"><strong>{artifact.title}</strong><small>{t('common.provided_by').replace('{bot}', state.bots[artifact.bot_id]?.name ?? t('common.bot'))}</small><code>{artifact.path_or_url}</code><small>{t('common.updated_at').replace('{time}', formatShortTime(artifact.updated_at))}</small></span><button type="button" className="trace-button" onClick={() => void openArtifactPage(currentProjectId, artifact.id)}>{t('common.preview')}</button>
           </div>) : <div className="panel-empty">{announcementLoading ? t('settings.permissions.loading') : t('group.artifacts')}</div>}
         </section>
         {selectedAssignment && state.assignments[selectedAssignment] && <section className="follow-section"><div className="section-label">{t('trace.show')}</div><div className="assignment-card"><strong>{String(state.assignments[selectedAssignment].title ?? '')}</strong><div className="assignment-meta">{String(state.assignments[selectedAssignment].instruction ?? '')}</div><button className="trace-button" type="button" onClick={() => openTrace(selectedAssignment)}>{t('common.open')}</button></div></section>}
@@ -1751,8 +1964,28 @@ function App() {
           </div>)}
         </section>
       </div> : null}
-    </aside>
+    </aside>}
     </>}
+    {activePage === 'artifact' && artifactRoute && <ArtifactPage
+      key={`${artifactRoute.hostScope}:${artifactRoute.projectId}:${artifactRoute.artifactId}`}
+      hostScope={artifactRoute.hostScope}
+      projectId={artifactRoute.projectId}
+      projectName={artifactRoute.projectName}
+      artifacts={artifactRoute.artifacts}
+      botNames={Object.fromEntries(Object.values(state.bots).map((bot) => [bot.id, bot.name ?? bot.id]))}
+      initialArtifactId={artifactRoute.artifactId}
+      onBack={() => {
+        const route = artifactRoute
+        setArtifactRoute(null)
+        setActivePage(route.returnPage)
+        if (route.returnPage === 'chat') {
+          setSelectedChat(route.returnChatId)
+          localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScopeRef.current}`, route.returnChatId)
+        }
+      }}
+      onRevealInFinder={artifactRoute.homePath ? (artifact) => invoke('reveal_in_finder', { homePath: artifactRoute.homePath, relativePath: artifact.path_or_url }).then(() => undefined) : undefined}
+      t={(key) => t(key as CopyKey)}
+    />}
     {activePage === 'trace' && <TracePage
       assignment={traceAssignment ?? { id: traceRoute?.assignmentId ?? '' }}
       projectName={traceAssignment?.project_id ? state.projects[traceAssignment.project_id]?.name : undefined}
@@ -1880,6 +2113,8 @@ function App() {
       </div>
     </aside>}
     {hostDialogOpen && <HostDialog endpoint={endpoint} setEndpoint={setEndpoint} password={password} setPassword={setPassword} hostName={hostName} setHostName={setHostName} error={state.error} connecting={connecting} onClose={() => setHostDialogOpen(false)} onSubmit={connect} />}
+    {createGroupOpen && <CreateGroupDialog key={hostScope} bots={bots.map((bot) => ({ id: bot.id, name: bot.name, is_main: bot.is_main, description: typeof bot.description === 'string' ? bot.description : undefined }))} busy={groupCreating} error={groupCreateError} onClose={() => { if (!groupCreating) setCreateGroupOpen(false) }} onCreate={createGroup} />}
+    {messageMenu && <MessageContextMenu message={messageMenu.message as ChatEntryMessage} ownMessage={messageMenu.message.sender?.kind === 'user'} x={messageMenu.x} y={messageMenu.y} senderName={messageMenu.message.sender?.kind === 'user' ? t('common.user') : state.bots[messageMenu.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} onReply={() => quoteMessage(messageMenu.message, 'reply')} onQuote={() => quoteMessage(messageMenu.message, 'reference')} onCopy={() => void copyMessage(messageMenu.message)} onDelete={() => void deleteMessage(messageMenu.message)} onClose={() => setMessageMenu(null)} />}
   </main>
 }
 
@@ -2018,12 +2253,15 @@ function SettingsPanel(props: { settings: Record<string, Json> | null; bots: Bri
   </section></div>
 }
 
-function ChatRow(props: { title: string; subtitle: string; selected: boolean; main?: boolean; onClick: () => void }) {
-  return <button className={`chat-row ${props.selected ? 'selected' : ''}`} onClick={props.onClick}>
-    <BeanAvatar main={props.main} size="40" seed={props.title} />
-    <span className="chat-row-text"><strong>{props.title}</strong>{props.subtitle && <small>{props.subtitle}</small>}</span>
-    {props.selected && <ChevronRight size={14} className="row-chevron" />}
-  </button>
+function ChatRow(props: { title: string; subtitle: string; selected: boolean; main?: boolean; onClick: () => void; onDetails?: () => void; detailsLabel?: string }) {
+  return <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+    <button className={`chat-row ${props.selected ? 'selected' : ''}`} style={{ minWidth: 0, flex: 1, width: 'auto', paddingRight: props.onDetails ? 40 : undefined }} onClick={props.onClick}>
+      <BeanAvatar main={props.main} size="40" seed={props.title} />
+      <span className="chat-row-text"><strong>{props.title}</strong>{props.subtitle && <small>{props.subtitle}</small>}</span>
+      {props.selected && <ChevronRight size={14} className="row-chevron" />}
+    </button>
+    {props.onDetails && <button type="button" className="icon-button" style={{ flex: 'none', width: 26, height: 26, margin: '0 4px 0 -34px', background: 'var(--bg-sidebar)', zIndex: 1 }} aria-label={props.detailsLabel ?? t('bot.action.settings')} title={props.detailsLabel ?? t('bot.action.settings')} onClick={props.onDetails}><Settings size={13} /></button>}
+  </div>
 }
 
 function BeanAvatar({ main = false, size = '32', seed = '' }: { main?: boolean; size?: '32' | '40' | '64' | '72'; seed?: string }) {
@@ -2082,9 +2320,11 @@ function dateLabel(date: Date) {
 
 function MessageBubble({ message, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onOpenComputer, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: { message: Message; pending?: boolean; senderName: string; senderRole: string; groupStart: boolean; groupEnd: boolean; headerTime: string; exactTime: string; questions: BridgeState['questions']; approvals: BridgeState['approvals']; assignments: BridgeState['assignments']; projects: BridgeState['projects']; bots: BridgeState['bots']; chats: BridgeState['chats']; chatTitle: string; onOpenProject: (projectId: string, chatId?: string) => Promise<void>; onTaskDetail: (assignmentId: string) => void; onOpenComputer: (botId: string) => void; onPreviewArtifact: (artifact: ArtifactRef) => void; onConfirmProject: (projectId: string, messageId: string, blockIndex: number) => Promise<void>; onRequestChanges: (projectId: string, messageId: string, blockIndex: number, text: string) => Promise<void>; onApprovalDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void>; onQuestionAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
   const isUser = message.sender?.kind === 'user'
+  const deleted = Boolean((message as Message & { deleted?: boolean }).deleted)
+  const quote = (message as Message & { quote?: { sender?: { kind?: string; bot_id?: string }; excerpt?: string; message_id?: string } | null }).quote
   const blocks = message.blocks ?? []
-  const hasRenderable = blocks.some((block) => block.type && block.type !== 'text')
-  const text = blocks.map((block) => typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : '').filter(Boolean).join('\n')
+  const hasRenderable = !deleted && blocks.some((block) => block.type && block.type !== 'text')
+  const text = deleted ? '' : blocks.map((block) => typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : '').filter(Boolean).join('\n')
   if (blocks.length === 1 && blocks[0].type === 'task_card') {
     const assignmentId = typeof blocks[0].assignment_id === 'string' ? blocks[0].assignment_id : ''
     return assignments[assignmentId] ? <TaskCard assignment={assignments[assignmentId]} groupName={chatTitle} botName={bots[String(assignments[assignmentId].bot_id ?? '')]?.name ?? senderName} onDetail={onTaskDetail} /> : <div className="block-fallback">{message.fallback_text || t('common.unsupported_block')}</div>
@@ -2097,7 +2337,8 @@ function MessageBubble({ message, pending = false, senderName, senderRole, group
       {!isUser && groupStart && <div className="message-author">{senderName}{senderRole && <span className="message-author-role"> · {senderRole}</span>}{headerTime && <span className="message-author-time"> · {headerTime}</span>}{message.sender?.bot_id && <button type="button" className="message-computer-action" aria-label={t('computer.title').replace('{bot}', senderName)} title={t('computer.title').replace('{bot}', senderName)} onClick={() => onOpenComputer(message.sender!.bot_id!)}><Monitor size={12} /></button>}</div>}
       <div className="bubble">
         {exactTime && <span className="hover-time">{exactTime}</span>}
-        {hasRenderable ? <div className="message-blocks">{blocks.map((block, index) => {
+        {quote && <div className="chat-message-quote"><strong>{quote.sender?.kind === 'user' ? t('common.user') : bots[quote.sender?.bot_id ?? '']?.name ?? t('common.bot')}</strong><span>{quote.excerpt ?? ''}</span></div>}
+        {deleted ? <span className="message-deleted-copy">{t('chat.message.deleted')}</span> : hasRenderable ? <div className="message-blocks">{blocks.map((block, index) => {
           if (block.type === 'text') return <p className="message-text-block" key={index}>{String(block.markdown ?? block.text ?? '')}</p>
           if (block.type === 'question') {
             if (blocks[index - 1]?.type === 'question') return null
