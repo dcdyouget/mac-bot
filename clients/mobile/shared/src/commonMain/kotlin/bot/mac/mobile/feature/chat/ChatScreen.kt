@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -65,6 +66,11 @@ import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Clock
+import kotlin.math.abs
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonNull
@@ -265,11 +271,15 @@ fun ChatScreen(
                     ) { Text(if (loadingOlder) stringResource(Res.string.feature_loading) else stringResource(Res.string.feature_load_older)) }
                 }
             }
-            items(messages, key = { it.str("id").ifBlank { "message:${it.hashCode()}" } }) { message ->
+            itemsIndexed(messages, key = { _, message -> message.str("id").ifBlank { "message:${message.hashCode()}" } }) { messageIndex, message ->
+                val followsSameAuthor = messages.getOrNull(messageIndex - 1)?.let { sameMessageGroup(it, message) } == true
+                val continuesSameAuthor = messages.getOrNull(messageIndex + 1)?.let { sameMessageGroup(message, it) } == true
                 ChatMessageRow(
                     message = message,
                     repository = repository,
                     onQuoteAnnouncement = onQuoteAnnouncement,
+                    showSender = !followsSameAuthor,
+                    showTime = !continuesSameAuthor,
                     onJumpToMessage = { quotedId ->
                         val index = messages.indexOfFirst { it.str("id") == quotedId }
                         if (index >= 0) {
@@ -458,6 +468,47 @@ fun ChatScreen(
     }
 }
 
+private fun sameMessageGroup(first: JsonObject, second: JsonObject): Boolean {
+    val firstSender = first.obj("sender")
+    val secondSender = second.obj("sender")
+    if (firstSender.str("kind") != secondSender.str("kind") || firstSender.str("bot_id") != secondSender.str("bot_id")) return false
+    val firstAt = runCatching { Instant.parse(first.str("created_at")).toEpochMilliseconds() }.getOrNull() ?: return false
+    val secondAt = runCatching { Instant.parse(second.str("created_at")).toEpochMilliseconds() }.getOrNull() ?: return false
+    return abs(firstAt - secondAt) <= 5 * 60 * 1000L
+}
+
+@Composable
+private fun MessageTimeLabel(timestamp: String, modifier: Modifier, color: androidx.compose.ui.graphics.Color) {
+    val instant = runCatching { Instant.parse(timestamp) }.getOrNull()
+    if (instant == null) {
+        Text(timestamp.substringAfter('T').take(5), modifier, style = MaterialTheme.typography.labelSmall, color = color)
+        return
+    }
+    val zone = TimeZone.currentSystemDefault()
+    val local = instant.toLocalDateTime(zone)
+    val today = Clock.System.now().toLocalDateTime(zone)
+    val dayDifference = today.date.toEpochDays() - local.date.toEpochDays()
+    val label = when {
+        dayDifference == 0L -> stringResource(Res.string.chat_time_today, local.hour, local.minute)
+        dayDifference == 1L -> stringResource(Res.string.chat_time_yesterday, local.hour, local.minute)
+        dayDifference in 2L..6L -> {
+            val weekday = when (local.dayOfWeek.ordinal + 1) {
+                1 -> stringResource(Res.string.chat_weekday_mon)
+                2 -> stringResource(Res.string.chat_weekday_tue)
+                3 -> stringResource(Res.string.chat_weekday_wed)
+                4 -> stringResource(Res.string.chat_weekday_thu)
+                5 -> stringResource(Res.string.chat_weekday_fri)
+                6 -> stringResource(Res.string.chat_weekday_sat)
+                else -> stringResource(Res.string.chat_weekday_sun)
+            }
+            stringResource(Res.string.chat_time_weekday, weekday, local.hour, local.minute)
+        }
+        local.year == today.year -> stringResource(Res.string.chat_time_date, local.monthNumber, local.dayOfMonth)
+        else -> stringResource(Res.string.chat_time_date_year, local.year, local.monthNumber, local.dayOfMonth)
+    }
+    Text(label, modifier, style = MaterialTheme.typography.labelSmall, color = color)
+}
+
 private data class ScrollAnchor(val id: String, val offset: Int)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -466,6 +517,8 @@ internal fun ChatMessageRow(
     message: JsonObject,
     repository: MobileRepository,
     onQuoteAnnouncement: (String) -> Unit,
+    showSender: Boolean,
+    showTime: Boolean,
     state: MobileState,
     onJumpToMessage: (String) -> Unit,
     highlighted: Boolean,
@@ -503,7 +556,7 @@ internal fun ChatMessageRow(
     val senderId = sender.str("bot_id")
     val senderLabel = state.bots.firstOrNull { it.str("id")==senderId }?.str("name")?.takeIf { it.isNotBlank() } ?: if (senderId.isBlank()) stringResource(Res.string.feature_bot) else senderId
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
-        Text(if (isUser) stringResource(Res.string.feature_you) else senderLabel, style = MaterialTheme.typography.labelSmall)
+        if (showSender) Text(if (isUser) stringResource(Res.string.feature_you) else senderLabel, style = MaterialTheme.typography.labelSmall)
         Surface(
             modifier = Modifier
                 .pointerInput(message.str("id"), swipeThreshold) {
@@ -656,11 +709,7 @@ internal fun ChatMessageRow(
                     Button(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
                 }
                 DeliveryView(message.arr("delivery"), state)
-                Text(
-                    message.str("created_at").substringAfter('T').take(5),
-                    Modifier.align(Alignment.End), style = MaterialTheme.typography.labelSmall,
-                    color = if (isUser) palette.textSecondary else palette.textTertiary,
-                )
+                if (showTime) MessageTimeLabel(message.str("created_at"), Modifier.align(Alignment.End), if (isUser) palette.textSecondary else palette.textTertiary)
             }
         }
         if (showMessageActions) androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showMessageActions = false }) {
