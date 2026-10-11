@@ -213,7 +213,7 @@ import org.jetbrains.compose.resources.stringResource
                             question?.str("chat_id")?.takeIf(String::isNotBlank)?.let { openChat(it) } ?: open("approvals")
                         })
                         page == "create_group" -> GroupCreateScreen(repository, onCreated = { open("group", it) }, onBack = back)
-                        page == "history" -> HistoryAssignmentScreen(repository,chatId=target.ifBlank{null},onOpenTrace={open("trace",it)},onBack=back)
+                        page == "history" -> HistoryAssignmentScreen(repository,chatId=target.ifBlank{null},botId=secondTarget.ifBlank{null},onOpenTrace={open("trace",it)},onBack=back)
                         page == "trace" -> TraceScreen(repository, target.ifBlank { null }, secondTarget.ifBlank { null }, { bot, tabId -> open("computer", bot, tabId.orEmpty()) }, onBack=back, onOpenAssignmentTrace = { open("trace", it, secondTarget) }, onSteer={assignmentId,text ->
                             val assignment=repository.state.value.assignments.firstOrNull{it.str("id")==assignmentId}
                             val hostId=repository.activeHost.value?.id
@@ -226,7 +226,9 @@ import org.jetbrains.compose.resources.stringResource
                             onOpenChat = { openChat(it) },
                             onOpenScreen = { open("computer", it) },
                             onOpenRoutines = { open("routines") },
-                            onOpenHistory = { tab = 1; page = "home"; target = ""; secondTarget = "" },
+                            onOpenHistory = { open("history", "", it) },
+                            onOpenGroup = { open("group", it) },
+                            onOpenAssignment = { open("trace", it) },
                             onEdit = { open("bot_editor", it) },
                             onBack = back,
                         )

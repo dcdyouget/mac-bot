@@ -34,6 +34,7 @@ import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -50,17 +51,19 @@ fun HistoryAssignmentScreen(
     onBack: () -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
+    val activeHost by repository.activeHost.collectAsState()
+    val activeHostId = activeHost?.id
     val contextChat = chatId?.let { id -> state.chats.firstOrNull { it.str("id") == id } }
     val contextProjectId = contextChat?.takeIf { it.str("kind") == "project" }?.str("project_id")?.takeIf { it.isNotBlank() }
     val queryProjectId = contextProjectId?.takeIf { botId == null }
     val contextBotId = botId ?: contextChat?.takeIf { it.str("kind") == "main" || it.str("kind") == "direct" }
         ?.str("bot_id")?.takeIf { it.isNotBlank() }
     val contextReady = botId != null || chatId == null || contextChat != null
-    var status by remember { mutableStateOf<String?>(null) }
-    var assignments by remember { mutableStateOf(emptyList<kotlinx.serialization.json.JsonObject>()) }
-    var nextCursor by remember { mutableStateOf<String?>(null) }
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var status by remember(chatId, botId, activeHostId) { mutableStateOf<String?>(null) }
+    var assignments by remember(chatId, botId, activeHostId) { mutableStateOf(emptyList<kotlinx.serialization.json.JsonObject>()) }
+    var nextCursor by remember(chatId, botId, activeHostId) { mutableStateOf<String?>(null) }
+    var loading by remember(chatId, botId, activeHostId) { mutableStateOf(false) }
+    var error by remember(chatId, botId, activeHostId) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val statusOptions = listOf(
         null to stringResource(Res.string.common_all),
@@ -73,12 +76,12 @@ fun HistoryAssignmentScreen(
         "stopped" to stringResource(Res.string.feature_history_stopped),
     )
 
-    suspend fun load(reset: Boolean) {
+    suspend fun load(reset: Boolean, requestHost: String) {
         if (loading) return
         loading = true
         error = null
-        runCatching {
-            repository.call("assignment.list", buildJsonObject {
+        try {
+            val result = repository.callOnHost(requestHost, "assignment.list", buildJsonObject {
                 queryProjectId?.let { put("project_id", it) }
                 if (queryProjectId == null) contextBotId?.let { put("bot_id", it) }
                 status?.let { selected ->
@@ -87,19 +90,28 @@ fun HistoryAssignmentScreen(
                 if (!reset) nextCursor?.let { put("cursor", it) }
                 put("limit", 50)
             })
-        }.onSuccess { result ->
+            if (repository.activeHost.value?.id != requestHost) return
             val page = result.objects("items")
             assignments = if (reset) page else (assignments + page).distinctBy { it.str("id") }
             nextCursor = result.str("next_cursor").takeIf { it.isNotBlank() }
-        }.onFailure { failure -> error = failure.message }
-        loading = false
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            if (repository.activeHost.value?.id == requestHost) error = failure.message
+        } finally {
+            if (repository.activeHost.value?.id == requestHost) loading = false
+        }
     }
 
-    LaunchedEffect(chatId, botId, queryProjectId, contextBotId, status, state.connected) {
+    LaunchedEffect(chatId, botId, queryProjectId, contextBotId, status, state.connected, activeHostId) {
+        assignments = emptyList()
+        nextCursor = null
+        error = null
+        val requestHost = activeHostId ?: return@LaunchedEffect
         if (state.connected && contextReady) {
             nextCursor = null
             assignments = emptyList()
-            load(reset = true)
+            load(reset = true, requestHost = requestHost)
         }
     }
 
@@ -136,7 +148,7 @@ fun HistoryAssignmentScreen(
             if (!loading && assignments.isEmpty()) item { Text(stringResource(Res.string.feature_history_empty), Modifier.padding(24.dp)) }
             if (loading) item { Text(stringResource(Res.string.feature_history_loading), Modifier.padding(24.dp)) }
             if (!loading && nextCursor != null) item {
-                Button(onClick = { scope.launch { load(reset = false) } }, Modifier.fillMaxWidth()) {
+                Button(onClick = { activeHostId?.let { hostId -> scope.launch { load(reset = false, requestHost = hostId) } } }, Modifier.fillMaxWidth()) {
                     Text(stringResource(Res.string.feature_history_load_more))
                 }
             }

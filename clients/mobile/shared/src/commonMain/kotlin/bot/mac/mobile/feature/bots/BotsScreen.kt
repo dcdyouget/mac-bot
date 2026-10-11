@@ -16,6 +16,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -53,6 +55,7 @@ import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -196,30 +199,45 @@ fun BotDetailScreen(
     onOpenScreen: (String) -> Unit = {},
     onOpenRoutines: (String) -> Unit = {},
     onOpenHistory: (String) -> Unit = {},
+    onOpenGroup: (String) -> Unit = {},
+    onOpenAssignment: (String) -> Unit = {},
     onEdit: (String) -> Unit = {},
     onBack: () -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
+    val activeHost by repository.activeHost.collectAsState()
+    val hostId = activeHost?.id
     val bot = state.bots.firstOrNull { it.str("id") == botId }
-    var groups by remember(botId) { mutableStateOf(emptyList<JsonObject>()) }
-    var assignments by remember(botId) { mutableStateOf(emptyList<JsonObject>()) }
-    var usage by remember(botId) { mutableStateOf<JsonObject?>(null) }
-    var error by remember(botId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(botId, state.connected) {
+    var groups by remember(botId, hostId) { mutableStateOf(emptyList<JsonObject>()) }
+    var assignments by remember(botId, hostId) { mutableStateOf(emptyList<JsonObject>()) }
+    var usage by remember(botId, hostId) { mutableStateOf<JsonObject?>(null) }
+    var error by remember(botId, hostId) { mutableStateOf<String?>(null) }
+    var showMore by remember(botId, hostId) { mutableStateOf(false) }
+    LaunchedEffect(botId, hostId, state.connected) {
+        groups = emptyList()
+        assignments = emptyList()
+        usage = null
+        error = null
+        val requestHost = hostId ?: return@LaunchedEffect
         if (!state.connected) return@LaunchedEffect
-        runCatching {
-            repository.call("bot.get", buildJsonObject { put("bot_id", botId) })
-            val projects = repository.call("project.list", buildJsonObject {}).objects("projects")
-            val history = repository.call("assignment.list", buildJsonObject { put("bot_id", botId); put("limit", 5) }).objects("items")
+        try {
+            repository.callOnHost(requestHost, "bot.get", buildJsonObject { put("bot_id", botId) })
+            val projects = repository.callOnHost(requestHost, "project.list", buildJsonObject {}).objects("projects")
+            val history = repository.callOnHost(requestHost, "assignment.list", buildJsonObject { put("bot_id", botId); put("limit", 5) }).objects("items")
             val now = Clock.System.now()
             val from = Instant.fromEpochMilliseconds(now.toEpochMilliseconds() - 7L * 86_400_000L).toString()
-            val usageRows = repository.call("usage.breakdown", buildJsonObject {
+            val usageRows = repository.callOnHost(requestHost, "usage.breakdown", buildJsonObject {
                 put("from", from); put("to", now.toString()); put("dimension", "bot")
             }).objects("rows")
+            if (repository.activeHost.value?.id != requestHost) return@LaunchedEffect
             groups = projects.filter { project -> project.arr("members").any { (it as? JsonObject)?.str("bot_id") == botId } }
             assignments = history
             usage = usageRows.firstOrNull { it.str("key") == botId || it.str("id") == botId }?.obj("usage")
-        }.onFailure { error = it.message ?: "" }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            if (repository.activeHost.value?.id == requestHost) error = failure.message ?: ""
+        }
     }
     if (bot == null) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -244,35 +262,86 @@ fun BotDetailScreen(
                     Text(bot.str("name"), style = MaterialTheme.typography.titleLarge)
                     Text(listOf(bot.str("label"), bot.str("model")).filter(String::isNotBlank).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        DetailShortcut(Modifier.weight(1f), stringResource(Res.string.feature_open_chat), onClick = { onOpenChat(bot.str("dm_chat_id")) })
-                        DetailShortcut(Modifier.weight(1f), stringResource(Res.string.feature_open_screen), onClick = { onOpenScreen(botId) })
-                        DetailShortcut(Modifier.weight(1f), stringResource(Res.string.nav_routines), onClick = { onOpenRoutines(botId) })
-                        DetailShortcut(Modifier.weight(1f), stringResource(Res.string.nav_settings), onClick = { onEdit(botId) })
+                        DetailShortcut(Modifier.weight(1f), LucideIconKind.MessageCircle, stringResource(Res.string.feature_open_chat), onClick = { onOpenChat(bot.str("dm_chat_id")) })
+                        DetailShortcut(Modifier.weight(1f), LucideIconKind.Monitor, stringResource(Res.string.feature_open_screen), onClick = { onOpenScreen(botId) })
+                        DetailShortcut(Modifier.weight(1f), LucideIconKind.Clock, stringResource(Res.string.nav_routines), onClick = { onOpenRoutines(botId) })
+                        Box(Modifier.weight(1f)) {
+                            DetailShortcut(Modifier.fillMaxWidth(), LucideIconKind.Ellipsis, stringResource(Res.string.common_more), onClick = { showMore = true })
+                            DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
+                                DropdownMenuItem(text = { Text(stringResource(Res.string.common_edit)) }, onClick = { showMore = false; onEdit(botId) })
+                                DropdownMenuItem(text = { Text(stringResource(Res.string.bot_history)) }, onClick = { showMore = false; onOpenHistory(botId) })
+                            }
+                        }
                     }
                 }
             }
-            item { Text(stringResource(Res.string.search_filter_groups), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp)) }
-            if (groups.isEmpty()) item { Text(stringResource(Res.string.feature_history_empty), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) }
-            items(groups, key = { it.str("id") }) { project ->
-                Row(Modifier.fillMaxWidth().height(56.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(project.str("name"), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                    Text(project.arr("members").mapNotNull { it as? JsonObject }.firstOrNull { it.str("bot_id") == botId }?.str("state").orEmpty(), style = MaterialTheme.typography.bodySmall)
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(stringResource(Res.string.search_filter_groups), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                    Text(groups.size.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            item { Text(stringResource(Res.string.bot_history), Modifier.padding(start = 4.dp, top = 6.dp).clickable { onOpenHistory(botId) }, style = MaterialTheme.typography.titleSmall) }
+            if (groups.isEmpty()) item { Text(stringResource(Res.string.feature_history_empty), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) }
+            if (groups.isNotEmpty()) item {
+                Column(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                    groups.forEachIndexed { index, project ->
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { onOpenGroup(project.str("id")) }.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val memberIds = project.arr("members").mapNotNull { (it as? JsonObject)?.str("bot_id") }.distinct().take(3)
+                            Box(Modifier.width(68.dp).height(32.dp)) {
+                                memberIds.forEachIndexed { avatarIndex, memberId ->
+                                    val memberBot = state.bots.firstOrNull { it.str("id") == memberId }
+                                    Box(Modifier.offset(x = (avatarIndex * 18).dp).size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant).border(1.dp, MaterialTheme.colorScheme.surface, CircleShape), contentAlignment = Alignment.Center) {
+                                        BotAvatar(repository, memberBot, size = 28.dp)
+                                    }
+                                }
+                            }
+                            Column(Modifier.weight(1f).padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(project.str("name"), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                val memberState = project.arr("members").mapNotNull { it as? JsonObject }.firstOrNull { it.str("bot_id") == botId }?.str("state")
+                                if (!memberState.isNullOrBlank()) StatusLabel(memberState)
+                            }
+                            LucideIcon(LucideIconKind.ChevronRight, Modifier.padding(start = 8.dp).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (index < groups.lastIndex) androidx.compose.material3.HorizontalDivider(Modifier.padding(start = 88.dp))
+                    }
+                }
+            }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 40.dp).clickable { onOpenHistory(botId) }.padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(stringResource(Res.string.bot_history), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(Res.string.common_all), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    LucideIcon(LucideIconKind.ChevronRight, Modifier.padding(start = 4.dp).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             if (assignments.isEmpty()) item { Text(stringResource(Res.string.feature_history_empty), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) }
             items(assignments, key = { it.str("id") }) { assignment ->
-                Row(Modifier.fillMaxWidth().height(52.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(assignment.str("title").ifBlank { assignment.str("instruction") }.ifBlank { assignment.str("status") }, Modifier.weight(1f), maxLines = 1)
-                    Text(assignment.str("status"), style = MaterialTheme.typography.bodySmall)
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(MaterialTheme.shapes.medium)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { onOpenAssignment(assignment.str("id")) }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(assignment.str("title").ifBlank { assignment.str("instruction") }.ifBlank { assignment.str("status") }, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    StatusLabel(assignment.str("status"))
+                    LucideIcon(LucideIconKind.ChevronRight, Modifier.padding(start = 8.dp).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             item { Text(stringResource(Res.string.dashboard_title), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val tokens = (usage?.long("input_tokens") ?: 0L) + (usage?.long("output_tokens") ?: 0L)
-                    UsageStat(tokens.toString(), Modifier.weight(1f))
-                    UsageStat(usage?.get("cost")?.toString()?.trim('"') ?: "—", Modifier.weight(1f))
+                    UsageStat(stringResource(Res.string.dashboard_tokens_metric), tokens.toString(), Modifier.weight(1f))
+                    UsageStat(stringResource(Res.string.dashboard_cost), usage?.get("cost")?.toString()?.trim('"') ?: "—", Modifier.weight(1f))
                 }
             }
         }
@@ -280,15 +349,17 @@ fun BotDetailScreen(
 }
 
 @Composable
-private fun DetailShortcut(modifier: Modifier, label: String, onClick: () -> Unit) {
+private fun DetailShortcut(modifier: Modifier, icon: LucideIconKind, label: String, onClick: () -> Unit) {
     Column(modifier.height(64.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceVariant).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text(label, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        LucideIcon(icon, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+        Text(label, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
 }
 
 @Composable
-private fun UsageStat(value: String, modifier: Modifier = Modifier) {
+private fun UsageStat(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier.height(72.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp), verticalArrangement = Arrangement.Center) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.titleMedium)
     }
 }
