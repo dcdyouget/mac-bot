@@ -95,6 +95,9 @@ async fn dispatch(
         // Acceptance-only group counterpart used to exercise Bot-authored
         // project notifications without changing the production contract.
         "mock.trigger_bot_group_message" => trigger_bot_group_message(state, &params),
+        // Acceptance-only test control for an empty main-chat state. Never
+        // expose this operation through protocol or production adapters.
+        "mock.clear_main_chat" => clear_mock_main_chat(state, &params),
         "message.delete" => message_delete(state, &params),
         "message.edit" => message_edit(state, &params),
         "message.steer" => message_steer(state, &params),
@@ -1018,15 +1021,17 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
 }
 
 fn ensure_mock_user_memory(state: &mut MockState) {
-    upsert_mock_message(
-        state,
-        "chat_main",
-        "msg_main_welcome",
-        json!({"kind":"user"}),
-        json!([{"type":"text","markdown":"我不喜欢长篇报告：先给结论，细节放后面。"}]),
-        "我不喜欢长篇报告：先给结论，细节放后面。".into(),
-        None,
-    );
+    if !mock_main_chat_is_cleared(state) {
+        upsert_mock_message(
+            state,
+            "chat_main",
+            "msg_main_welcome",
+            json!({"kind":"user"}),
+            json!([{"type":"text","markdown":"我不喜欢长篇报告：先给结论，细节放后面。"}]),
+            "我不喜欢长篇报告：先给结论，细节放后面。".into(),
+            None,
+        );
+    }
     if !state.extra.contains_key("memory_user_entries") {
         extra_set(
             state,
@@ -1057,6 +1062,9 @@ fn ensure_mock_user_memory(state: &mut MockState) {
 }
 
 fn ensure_mock_profile_greeting(state: &mut MockState) {
+    if mock_main_chat_is_cleared(state) {
+        return;
+    }
     let profile = extra_get(state, "memory_user_profile")
         .into_iter()
         .next()
@@ -1076,6 +1084,13 @@ fn ensure_mock_profile_greeting(state: &mut MockState) {
             None,
         );
     }
+}
+
+fn mock_main_chat_is_cleared(state: &MockState) -> bool {
+    extra_get(state, "mock_main_chat_cleared")
+        .first()
+        .and_then(Value::as_bool)
+        == Some(true)
 }
 
 fn user_memory_quota(state: &MockState) -> Value {
@@ -1459,6 +1474,9 @@ fn ensure_message_block_scenarios(state: &mut MockState) {
             .get("origin_chat_id")
             .and_then(Value::as_str)
             .unwrap_or("chat_login");
+        if chat_id == "chat_main" && mock_main_chat_is_cleared(state) {
+            continue;
+        }
         let is_delegation = assignment_id == "asg_mock_delegation";
         let message_id = if is_delegation {
             "msg_mock_delegation"
@@ -1510,6 +1528,7 @@ fn upsert_mock_message(
     fallback_text: String,
     assignment_id: Option<&str>,
 ) {
+    let seq = next_chat_message_seq(state, chat_id);
     let messages = state.messages.entry(chat_id.to_owned()).or_default();
     if messages
         .iter()
@@ -1517,12 +1536,6 @@ fn upsert_mock_message(
     {
         return;
     }
-    let seq = messages
-        .iter()
-        .filter_map(|message| message.get("seq").and_then(Value::as_u64))
-        .max()
-        .unwrap_or(0)
-        + 1;
     let created_at = now();
     let message = json!({
         "id":message_id,"chat_id":chat_id,"seq":seq,"sender":sender,"created_at":created_at,
@@ -1541,6 +1554,25 @@ fn upsert_mock_message(
         chat["last_seq"] = json!(seq);
         chat["updated_at"] = json!(created_at);
     }
+}
+
+fn next_chat_message_seq(state: &MockState, chat_id: &str) -> u64 {
+    let message_seq = state
+        .messages
+        .get(chat_id)
+        .into_iter()
+        .flatten()
+        .filter_map(|message| message.get("seq").and_then(Value::as_u64))
+        .max()
+        .unwrap_or(0);
+    let chat_seq = state
+        .chats
+        .iter()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
+        .and_then(|chat| chat.get("last_seq"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    message_seq.max(chat_seq).saturating_add(1)
 }
 
 fn ensure_question_approval_history_fixture(state: &mut MockState) {
@@ -1645,16 +1677,16 @@ fn ensure_question_approval_history_fixture(state: &mut MockState) {
     }
     extra_set(state, "approvals", approvals);
 
-    let messages = state.messages.entry(CHAT_ID.to_owned()).or_default();
-    if !messages.iter().any(|message| {
-        message.get("id").and_then(Value::as_str) == Some("msg_mock_question_history")
-    }) {
-        let seq = messages
-            .iter()
-            .filter_map(|message| message.get("seq").and_then(Value::as_u64))
-            .max()
-            .unwrap_or(0)
-            + 1;
+    if !state
+        .messages
+        .get(CHAT_ID)
+        .into_iter()
+        .flatten()
+        .any(|message| {
+            message.get("id").and_then(Value::as_str) == Some("msg_mock_question_history")
+        })
+    {
+        let seq = next_chat_message_seq(state, CHAT_ID);
         let message = json!({
             "id":"msg_mock_question_history","chat_id":CHAT_ID,"seq":seq,"sender":{"kind":"bot","bot_id":bot_id},
             "created_at":"2026-10-10T10:50:00Z","edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,
@@ -1680,20 +1712,24 @@ fn ensure_question_approval_history_fixture(state: &mut MockState) {
             chat["last_seq"] = json!(seq);
             chat["updated_at"] = message["created_at"].clone();
         }
-        messages.push(message.clone());
+        state
+            .messages
+            .entry(CHAT_ID.to_owned())
+            .or_default()
+            .push(message.clone());
         state.emit("message.created", json!({"message":message}));
     }
 
-    let messages = state.messages.entry(dm_chat_id.to_owned()).or_default();
-    if !messages.iter().any(|message| {
-        message.get("id").and_then(Value::as_str) == Some("msg_mock_approval_history")
-    }) {
-        let seq = messages
-            .iter()
-            .filter_map(|message| message.get("seq").and_then(Value::as_u64))
-            .max()
-            .unwrap_or(0)
-            + 1;
+    if !state
+        .messages
+        .get(&dm_chat_id)
+        .into_iter()
+        .flatten()
+        .any(|message| {
+            message.get("id").and_then(Value::as_str) == Some("msg_mock_approval_history")
+        })
+    {
+        let seq = next_chat_message_seq(state, &dm_chat_id);
         let message = json!({
             "id":"msg_mock_approval_history","chat_id":dm_chat_id,"seq":seq,"sender":{"kind":"bot","bot_id":bot_id},
             "created_at":"2026-10-10T10:55:00Z","edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,
@@ -1715,7 +1751,11 @@ fn ensure_question_approval_history_fixture(state: &mut MockState) {
             chat["last_seq"] = json!(seq);
             chat["updated_at"] = message["created_at"].clone();
         }
-        messages.push(message.clone());
+        state
+            .messages
+            .entry(dm_chat_id.to_owned())
+            .or_default()
+            .push(message.clone());
         state.emit("message.created", json!({"message":message}));
     }
 }
@@ -2469,13 +2509,8 @@ fn trigger_bot_dm(state: &mut MockState, params: &Value) -> RpcResult {
         ));
     }
 
+    let seq = next_chat_message_seq(state, chat_id);
     let messages = state.messages.entry(chat_id.to_owned()).or_default();
-    let seq = messages
-        .iter()
-        .filter_map(|message| message.get("seq").and_then(Value::as_u64))
-        .max()
-        .unwrap_or(0)
-        + 1;
     let created_at = now();
     let message = json!({
         "id":id("msg"),"chat_id":chat_id,"seq":seq,
@@ -2582,13 +2617,8 @@ fn trigger_bot_group_message(state: &mut MockState, params: &Value) -> RpcResult
         ));
     }
 
+    let seq = next_chat_message_seq(state, chat_id);
     let messages = state.messages.entry(chat_id.to_owned()).or_default();
-    let seq = messages
-        .iter()
-        .filter_map(|message| message.get("seq").and_then(Value::as_u64))
-        .max()
-        .unwrap_or(0)
-        + 1;
     let created_at = now();
     let message = json!({
         "id":id("msg"),"chat_id":chat_id,"seq":seq,
@@ -2614,6 +2644,83 @@ fn trigger_bot_group_message(state: &mut MockState, params: &Value) -> RpcResult
     Ok(json!({"message":message}))
 }
 
+fn clear_mock_main_chat(state: &mut MockState, params: &Value) -> RpcResult {
+    let request_id = params
+        .get("client_request_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or_else(|| {
+            rpc_error(
+                "invalid_params",
+                "client_request_id must contain 1 to 128 bytes",
+                None,
+            )
+        })?;
+    let _ = request_id;
+    let chat_id = params
+        .get("chat_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "chat_id is required", None))?;
+    if chat_id != "chat_main" {
+        return Err(rpc_error(
+            "invalid_params",
+            "only the current Host main chat can be cleared",
+            None,
+        ));
+    }
+    let exists = state.chats.iter().any(|chat| {
+        chat.get("id").and_then(Value::as_str) == Some("chat_main")
+            && chat.get("kind").and_then(Value::as_str) == Some("main")
+            && chat.get("bot_id").and_then(Value::as_str) == Some("bot_main")
+    });
+    if !exists {
+        return Err(rpc_error("not_found", "main chat not found", None));
+    }
+
+    let messages = state.messages.remove("chat_main").unwrap_or_default();
+    let had_state = !mock_main_chat_is_cleared(state)
+        || !messages.is_empty()
+        || state.chats.iter().any(|chat| {
+            chat.get("id").and_then(Value::as_str) == Some("chat_main")
+                && (chat
+                    .get("last_message")
+                    .is_some_and(|message| !message.is_null())
+                    || chat.get("unread").and_then(Value::as_u64).unwrap_or(0) != 0)
+        });
+    extra_set(state, "mock_main_chat_cleared", vec![json!(true)]);
+    for message in messages {
+        if let Some(message_id) = message.get("id").and_then(Value::as_str) {
+            state.emit(
+                "message.deleted",
+                json!({"chat_id":"chat_main","message_id":message_id}),
+            );
+        }
+    }
+    let mut updated_chat = None;
+    if let Some(chat) = state
+        .chats
+        .iter_mut()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some("chat_main"))
+    {
+        chat["last_message"] = Value::Null;
+        chat["last_read_seq"] = json!(0);
+        chat["unread"] = json!(0);
+        if had_state {
+            chat["updated_at"] = json!(now());
+        }
+        updated_chat = Some(chat.clone());
+    }
+    let updated_chat =
+        updated_chat.ok_or_else(|| rpc_error("not_found", "main chat not found", None))?;
+    if had_state {
+        state.emit("chat.updated", json!({"chat":updated_chat.clone()}));
+    }
+    Ok(json!({"chat":updated_chat,"cleared":true}))
+}
+
 fn send_chat(state: &mut MockState, params: &Value, home: &std::path::Path) -> RpcResult {
     crate::validate_client_locale(params)?;
     let chat_id = params
@@ -2628,17 +2735,7 @@ fn send_chat(state: &mut MockState, params: &Value, home: &std::path::Path) -> R
     {
         return Err(rpc_error("not_found", "chat not found", None));
     }
-    let seq = state
-        .messages
-        .get(&chat_id)
-        .and_then(|messages| {
-            messages
-                .iter()
-                .filter_map(|message| message.get("seq").and_then(Value::as_u64))
-                .max()
-        })
-        .unwrap_or(0)
-        + 1;
+    let seq = next_chat_message_seq(state, &chat_id);
     let text = params
         .get("text")
         .and_then(Value::as_str)
@@ -3557,6 +3654,7 @@ fn set_review_card_mock(
     summary: &str,
 ) -> Result<(), super::RpcError> {
     let message_id = format!("msg_project_review_{project_id}");
+    let next_seq = next_chat_message_seq(state, "chat_main");
     let messages = state.messages.entry("chat_main".into()).or_default();
     let existing = messages
         .iter()
@@ -3581,12 +3679,7 @@ fn set_review_card_mock(
         message["fallback_text"] = json!(summary);
         message.clone()
     } else {
-        let seq = messages
-            .iter()
-            .filter_map(|message| message.get("seq").and_then(Value::as_u64))
-            .max()
-            .unwrap_or(0)
-            + 1;
+        let seq = next_seq;
         let message = json!({
             "id":message_id,
             "chat_id":"chat_main",
@@ -5398,6 +5491,147 @@ mod contract_tests {
                 message["fallback_text"] == "not a member"
                     || message["fallback_text"] == "unknown bot"
             }));
+    }
+
+    #[tokio::test]
+    async fn mock_clear_main_chat_is_host_scoped_idempotent_and_stable_on_reconnect() {
+        let gateway_instance = gateway().await;
+        call(&gateway_instance, "bootstrap", json!({})).await;
+        let main_before = call(
+            &gateway_instance,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        assert!(!main_before["messages"].as_array().unwrap().is_empty());
+        let prior_chat = call(
+            &gateway_instance,
+            "chat.get",
+            json!({"chat_id":"chat_main"}),
+        )
+        .await["chat"]
+            .clone();
+        let prior_high_water = prior_chat["last_seq"].as_u64().unwrap();
+        assert!(
+            main_before["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|message| message["seq"].as_u64())
+                .max()
+                .unwrap_or(0)
+                <= prior_high_water
+        );
+        let login_before = call(
+            &gateway_instance,
+            "chat.history",
+            json!({"chat_id":"chat_login","limit":100}),
+        )
+        .await;
+        let login_count = login_before["messages"].as_array().unwrap().len();
+
+        let mut events = gateway_instance.state.events.subscribe();
+        let params = json!({
+            "chat_id":"chat_main",
+            "client_request_id":"clear-main-for-empty-state"
+        });
+        let cleared = call(&gateway_instance, "mock.clear_main_chat", params.clone()).await;
+        assert_eq!(cleared["cleared"], true);
+        assert_eq!(cleared["chat"]["id"], "chat_main");
+        assert!(cleared["chat"]["last_message"].is_null());
+        assert_eq!(cleared["chat"]["last_seq"], prior_high_water);
+
+        let mut deleted_ids = Vec::new();
+        let mut chat_updated = false;
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while let Ok(event) = events.recv().await {
+                match event["event"].as_str() {
+                    Some("message.deleted") if event["data"]["chat_id"] == "chat_main" => {
+                        deleted_ids.push(event["data"]["message_id"].as_str().unwrap().to_owned());
+                    }
+                    Some("chat.updated") if event["data"]["chat"]["id"] == "chat_main" => {
+                        chat_updated = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .expect("main-chat clearing events should be broadcast");
+        assert_eq!(
+            deleted_ids.len(),
+            main_before["messages"].as_array().unwrap().len()
+        );
+        assert!(chat_updated);
+
+        let retry = call(&gateway_instance, "mock.clear_main_chat", params).await;
+        assert_eq!(retry, cleared, "retry returns the original clear result");
+        assert!(events.try_recv().is_err(), "retry does not broadcast twice");
+
+        // A fresh client bootstrap and history read must not reseed the empty
+        // main conversation for this mock Host.
+        call(&gateway_instance, "bootstrap", json!({})).await;
+        let main_after = call(
+            &gateway_instance,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        assert!(main_after["messages"].as_array().unwrap().is_empty());
+        let next_message = call(
+            &gateway_instance,
+            "chat.send",
+            json!({"chat_id":"chat_main","text":"after clear","client_request_id":"send-after-clear"}),
+        )
+        .await;
+        assert!(next_message["message"]["seq"].as_u64().unwrap() > prior_high_water);
+        let login_after = call(
+            &gateway_instance,
+            "chat.history",
+            json!({"chat_id":"chat_login","limit":100}),
+        )
+        .await;
+        assert_eq!(
+            login_after["messages"].as_array().unwrap().len(),
+            login_count
+        );
+
+        let other_host = gateway().await;
+        call(&other_host, "bootstrap", json!({})).await;
+        let other_main = call(
+            &other_host,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        assert!(!other_main["messages"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn mock_clear_main_chat_rejects_other_chats_and_missing_request_id() {
+        let gateway_instance = gateway().await;
+        call(&gateway_instance, "bootstrap", json!({})).await;
+        let base_seq = gateway_instance.state.inner.read().await.seq;
+        let wrong_chat = gateway_instance
+            .rpc(
+                "mock.clear_main_chat",
+                json!({"chat_id":"chat_login","client_request_id":"clear-not-main"}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(wrong_chat.code, "invalid_params");
+        let missing_request = gateway_instance
+            .rpc("mock.clear_main_chat", json!({"chat_id":"chat_main"}))
+            .await
+            .unwrap_err();
+        assert_eq!(missing_request.code, "invalid_params");
+        let state = gateway_instance.state.inner.read().await;
+        assert_eq!(state.seq, base_seq, "invalid calls emit no events");
+        assert!(state
+            .messages
+            .get("chat_main")
+            .is_some_and(|messages| !messages.is_empty()));
     }
 
     #[tokio::test]

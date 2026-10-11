@@ -4928,5 +4928,40 @@ mod tests {
         let value: Value = serde_json::from_slice(&response).unwrap();
         assert_eq!(value["result"]["message"]["sender"]["bot_id"], "bot_code");
         assert_eq!(value["result"]["message"]["chat_id"], group["chat"]["id"]);
+
+        let clear_body = r#"{"method":"mock.clear_main_chat","params":{"chat_id":"chat_main","client_request_id":"auth-clear-main-1"}}"#;
+        let unauthorized_clear = gw
+            .router()
+            .oneshot(
+                http::Request::builder()
+                    .uri("/api/v1/rpc")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .body(Body::from(clear_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized_clear.status(), StatusCode::UNAUTHORIZED);
+        let authorized_clear = gw
+            .router()
+            .oneshot(
+                http::Request::builder()
+                    .uri("/api/v1/rpc")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer dev")
+                    .body(Body::from(clear_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authorized_clear.status(), StatusCode::OK);
+        let response = axum::body::to_bytes(authorized_clear.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: Value = serde_json::from_slice(&response).unwrap();
+        assert_eq!(value["result"]["cleared"], true);
+        assert_eq!(value["result"]["chat"]["id"], "chat_main");
     }
 }
