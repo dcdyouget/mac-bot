@@ -3082,6 +3082,34 @@ impl RpcBackend for ProductionBackend {
             "chat.history" => self.chat_history(&params).await?,
             "chat.thread" => self.chat_thread(&params).await?,
             "chat.mark_read" => self.chat_mark_read(&params).await?,
+            "message.steer" => {
+                let message_id = required_text(&params, "message_id")?;
+                let (chat_id, message) = self.find_chat_message(&message_id)?;
+                let seq = message
+                    .get("seq")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| RpcError {
+                        code: "internal".into(),
+                        message: "queued message has no sequence number".into(),
+                        details: None,
+                    })?;
+                let last_read_seq = self
+                    .read_chat_overlay(&chat_id)?
+                    .get("last_read_seq")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                if seq <= last_read_seq {
+                    return Err(RpcError {
+                        code: "conflict".into(),
+                        message: "message is no longer unread".into(),
+                        details: None,
+                    });
+                }
+                self.orchestrator
+                    .rpc(method, params.clone())
+                    .await
+                    .map_err(Self::error)?
+            }
             "chat.react" => self.chat_react(&params).await?,
             "chat.set_pinned" => self.chat_set_flag(&params, "pinned").await?,
             "chat.set_muted" => self.chat_set_flag(&params, "muted").await?,
