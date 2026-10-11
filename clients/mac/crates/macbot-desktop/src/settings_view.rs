@@ -1450,7 +1450,7 @@ impl Render for SettingsView {
                         ),
                     )
                     .child(
-                        Field::new().label(t("notifications")).child(
+                        Field::new().label(t("settings.notify.section")).child(
                             div()
                                 .flex()
                                 .flex_col()
@@ -1513,7 +1513,7 @@ impl Render for SettingsView {
                         Field::new().label(t("settings.notify.sound")).child(
                             Checkbox::new("settings-sound")
                                 .checked(self.sound_enabled)
-                                .label(t("sound_enabled"))
+                                .label(t("settings.notify.sound_hint"))
                                 .on_click(cx.listener(|this, checked, _, cx| {
                                     this.sound_enabled = *checked;
                                     cx.emit(SettingsAction::Local {
