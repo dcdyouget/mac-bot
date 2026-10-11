@@ -440,3 +440,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .mb-task-line > .ic { color: var(--success); }
 .mb-task-line .mb-link { font-size: 12px; }
 .timesep { align-self: stretch; text-align: center; }
+/* tail corners by bubble position (group head / delivery lines are siblings too) */
+.grp .bubble { border-radius: 16px; }
+.grp:not(.out) .bubble:not(:has(~ .bubble)) { border-bottom-left-radius: 6px; }
+.grp:not(.out) .bubble ~ .bubble { border-top-left-radius: 6px; }
+.grp.out .bubble:not(:has(~ .bubble)) { border-bottom-right-radius: 6px; }
+.grp.out .bubble ~ .bubble { border-top-right-radius: 6px; }

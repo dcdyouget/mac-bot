@@ -80,6 +80,7 @@ document.getElementById('list').innerHTML = B.map(([t, k, d, notes, f]) => `<div
   <div><h3>${t}</h3><div class="kind">${k}</div><p>${d}</p>${notes.length ? `<ul>${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}</div>
   <div class="lane"><div class="msgs">${(M.resetTime(), f())}</div></div>
   <div class="lane ctx-m"><div class="msgs">${(M.resetTime(), f())}</div></div></div>`).join('');
+MB.mergeGroups();
 </script>
 </body>
 </html>

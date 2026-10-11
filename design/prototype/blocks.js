@@ -106,13 +106,13 @@
     const m = toMin(o.time);
     const sep = m !== null && (lastMin === null || m - lastMin >= 5) && o.sep !== false ? MB.timesep(o.time) : '';
     if (m !== null) lastMin = m;
-    const head = !out && o.name !== false ? `<div class="grp-head"><b>${name(k)}</b>${o.role ? `<span class="role">${BOT[k][2]}</span>` : ''}${o.time && !sep ? `<span class="t">${o.time}</span>` : ''}</div>` : '';
+    const head = !out && (o.name !== false || sep) ? `<div class="grp-head"><b>${name(k)}</b>${o.role ? `<span class="role">${BOT[k][2]}</span>` : ''}${o.time && !sep ? `<span class="t">${o.time}</span>` : ''}</div>` : '';
     const bubbles = parts.map((p) => {
       const wide = /mb-card|mb-img|mb-file|mb-linkp/.test(p);
       return `<div class="bubble ${wide ? 'wide' : ''}">${p}${o.time ? `<span class="htime">${o.time}</span>` : ''}</div>`;
     }).join('');
     const status = o.delivery ? `<div class="delivery">${o.delivery}</div>` : out && o.status ? `<div class="delivery">${o.status}</div>` : '';
-    return `${sep}<div class="grp ${out ? 'out' : ''}">${out ? '' : `<div class="avatar-slot">${av(k)}</div>`}<div class="stack">${head}${bubbles}${status}</div></div>`;
+    return `${sep}<div class="grp ${out ? 'out' : ''}" data-sender="${k}">${out ? '' : `<div class="avatar-slot">${av(k)}</div>`}<div class="stack">${head}${bubbles}${status}</div></div>`;
   };
 
   /* ---------- additional protocol blocks ---------- */
@@ -200,6 +200,20 @@
   MB.queueHint = (bots) => `<div class="mb-qhint">${I('clock', 's14')}<span class="grow">${bots.map((k) => `<b>${name(k)}</b>`).join('、')} 正在干活，这条消息不会打断${bots.length > 1 ? '它们' : '它'}，会在交付前看到</span>${bots.map((k) => `<button class="mb-btn secondary">${I('at', 's14')}${name(k)} 立即生效</button>`).join('')}</div>`;
   // queue list item (work detail panel / mobile trace page)
   MB.queueItem = (k, text, time, state = 'waiting') => `<div class="mb-qitem ${state}"><div class="row gap6">${k === 'me' ? '<b>你</b>' : `${av(k, 16)}<b>${name(k)}</b>`}<span class="t3">${time}</span><span class="grow"></span>${state === 'seen' ? `<span class="chip ok">${I('check', 's14')}已查看</span>` : `<button class="mb-btn ghost" style="height:22px;font-size:12px;padding:0 6px">改为插话</button>`}</div><div class="x">${text}</div></div>`;
+
+  // Merge consecutive messages from the same sender into one group (02 §5.1):
+  // one header on top, avatar only beside the last bubble, tail corner only on the last bubble.
+  MB.mergeGroups = (root = document) => {
+    root.querySelectorAll('.grp[data-sender]').forEach((g) => {
+      const prev = g.previousElementSibling;
+      if (!prev || !prev.matches('.grp[data-sender]') || prev.dataset.sender !== g.dataset.sender) return;
+      const dst = prev.querySelector(':scope > .stack'), src = g.querySelector(':scope > .stack');
+      dst.querySelectorAll(':scope > .delivery').forEach((d) => d.remove());
+      src.querySelectorAll(':scope > .grp-head').forEach((h) => h.remove());
+      while (src.firstChild) dst.appendChild(src.firstChild);
+      g.remove();
+    });
+  };
 
   window.MB = MB;
 })();

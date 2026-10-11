@@ -422,6 +422,7 @@ document.getElementById('board').innerHTML = LIST.filter(([k]) => !only || only.
   <div id="m-${k}"><div class="screen-label t-title" style="text-align:center;color:var(--text-primary)">${t}</div>
   <div class="rowp"><div><div class="plat">Android · 412 × 915 dp · Material 3 结构</div><div class="phone a">${S[k]('a')}</div></div>
   <div><div class="plat">iOS · 393 × 852 pt · HIG 结构</div><div class="phone i">${S[k]('i')}</div></div></div></div>`).join('');
+MB.mergeGroups();
 document.querySelectorAll('.content.chat').forEach((e) => { e.scrollTop = e.scrollHeight; });
 </script>
 </body>

@@ -714,6 +714,7 @@ function show(k) {
   win.innerHTML = `<div class="lights"><span></span><span></span><span></span></div>` + V[k]();
   screens.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === k));
   location.hash = k;
+  MB.mergeGroups(win);
   win.querySelectorAll('.main .scroll').forEach((e) => { e.scrollTop = e.scrollHeight; });
 }
 screens.onclick = (e) => e.target.dataset.v && show(e.target.dataset.v);
