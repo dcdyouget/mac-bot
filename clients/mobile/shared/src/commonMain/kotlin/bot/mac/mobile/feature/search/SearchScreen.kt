@@ -41,6 +41,14 @@ import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.resources.Res
+import bot.mac.mobile.resources.common_all
+import bot.mac.mobile.resources.common_search
+import bot.mac.mobile.resources.search_filter_artifacts
+import bot.mac.mobile.resources.search_filter_bots
+import bot.mac.mobile.resources.search_filter_groups
+import bot.mac.mobile.resources.search_filter_messages
+import bot.mac.mobile.resources.search_filter_routines
+import bot.mac.mobile.resources.search_placeholder
 import bot.mac.mobile.resources.search_error
 import bot.mac.mobile.resources.search_all
 import bot.mac.mobile.resources.search_artifact
@@ -106,10 +114,10 @@ fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Uni
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
-                Text(stringResource(Res.string.search_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(Res.string.common_search), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
             }
         }
-        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), singleLine = true, placeholder = { Text(stringResource(Res.string.search_hint)) })
+        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), singleLine = true, placeholder = { Text(stringResource(Res.string.search_placeholder)) })
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SearchKind.entries.forEach { candidate -> FilterChip(kind == candidate, { kind = candidate }, label = { Text(candidate.label()) }) }
         }
@@ -149,18 +157,18 @@ internal fun searchKindParameter(kind: String): String? = when (kind) {
 }
 private fun kindsJson(kind: SearchKind): kotlinx.serialization.json.JsonPrimitive = kotlinx.serialization.json.JsonPrimitive(kind.name.lowercase())
 @Composable private fun SearchKind.label(): String = when (this) {
-    SearchKind.ALL -> stringResource(Res.string.search_all)
-    SearchKind.MESSAGE -> stringResource(Res.string.search_message)
-    SearchKind.CHAT -> stringResource(Res.string.search_chat)
-    SearchKind.BOT -> stringResource(Res.string.search_bot)
-    SearchKind.ARTIFACT -> stringResource(Res.string.search_artifact)
-    SearchKind.ROUTINE -> stringResource(Res.string.search_routine)
+    SearchKind.ALL -> stringResource(Res.string.common_all)
+    SearchKind.MESSAGE -> stringResource(Res.string.search_filter_messages)
+    SearchKind.CHAT -> stringResource(Res.string.search_filter_groups)
+    SearchKind.BOT -> stringResource(Res.string.search_filter_bots)
+    SearchKind.ARTIFACT -> stringResource(Res.string.search_filter_artifacts)
+    SearchKind.ROUTINE -> stringResource(Res.string.search_filter_routines)
 }
 @Composable private fun kindLabel(kind: String): String = when (kind) {
-    "message" -> stringResource(Res.string.search_message)
-    "chat" -> stringResource(Res.string.search_chat)
-    "bot" -> stringResource(Res.string.search_bot)
-    "artifact" -> stringResource(Res.string.search_artifact)
-    "routine" -> stringResource(Res.string.search_routine)
-    else -> stringResource(Res.string.search_all)
+    "message" -> stringResource(Res.string.search_filter_messages)
+    "chat" -> stringResource(Res.string.search_filter_groups)
+    "bot" -> stringResource(Res.string.search_filter_bots)
+    "artifact" -> stringResource(Res.string.search_filter_artifacts)
+    "routine" -> stringResource(Res.string.search_filter_routines)
+    else -> stringResource(Res.string.common_all)
 }

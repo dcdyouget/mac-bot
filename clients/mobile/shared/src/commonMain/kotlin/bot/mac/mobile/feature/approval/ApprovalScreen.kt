@@ -49,7 +49,7 @@ fun ApprovalScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
         }
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
-        FontScaleToolbar { Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }; Text(stringResource(Res.string.feature_approval), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) } }
+        FontScaleToolbar { Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }; Text(stringResource(Res.string.status_need_approval), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) } }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
             items(pendingApprovals, key = { it.str("id").ifBlank { "approval:${it.hashCode()}" } }) { approval ->
@@ -82,7 +82,7 @@ fun ApprovalScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
 fun ApprovalCard(approval: JsonObject, onDecide: (approvalId: String, decision: String) -> Unit) {
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val tool = approval.str("tool")
-        val toolLabel = if (tool.isBlank()) stringResource(Res.string.feature_tool) else tool
+        val toolLabel = if (tool.isBlank()) stringResource(Res.string.trace_filter_tools) else tool
         Text(stringResource(Res.string.block_approval_title, toolLabel), style = MaterialTheme.typography.titleMedium)
         Text(approval.str("summary"))
         MarkdownText(approval.str("detail"), Modifier.fillMaxWidth())

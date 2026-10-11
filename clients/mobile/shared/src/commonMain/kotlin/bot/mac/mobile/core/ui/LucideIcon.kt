@@ -14,7 +14,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /** Small, platform-neutral Lucide-style outline icons (24×24, 1.5 dp stroke). */
-enum class LucideIconKind { ArrowLeft, Plus, Search, RefreshCw, ChevronDown, ChevronRight, Clock, CalendarDays, Ellipsis }
+enum class LucideIconKind { ArrowLeft, ArrowUp, Plus, Search, RefreshCw, RotateCcw, ChevronDown, ChevronLeft, ChevronRight, Clock, CalendarDays, Ellipsis, Info, X, AtSign, Paperclip, FileText, Check, MessageCircle, Reply, Smile }
 
 @Composable
 fun LucideIcon(
@@ -41,6 +41,7 @@ fun LucideIcon(
         }
         when (kind) {
             LucideIconKind.ArrowLeft -> { path(19f, 12f, 5f, 12f); path(12f, 19f, 5f, 12f, 12f, 5f) }
+            LucideIconKind.ArrowUp -> { path(12f, 19f, 12f, 5f); path(5f, 12f, 12f, 5f, 19f, 12f) }
             LucideIconKind.Plus -> { line(12f, 5f, 12f, 19f); line(5f, 12f, 19f, 12f) }
             LucideIconKind.Search -> {
                 drawCircle(resolvedTint, radius = 7f, center = Offset(10.8f, 10.8f), style = stroke)
@@ -52,7 +53,12 @@ fun LucideIcon(
                 path(4f, 17f, 4f, 21f, 8f, 21f)
                 path(4f, 17f, 7.5f, 20f, 11f, 21f, 15f, 20.5f, 18.5f, 17.5f, 20f, 13f)
             }
+            LucideIconKind.RotateCcw -> {
+                path(3f, 7f, 3f, 3f, 7f, 3f)
+                path(3f, 7f, 6.2f, 4.4f, 10f, 3f, 14f, 3.5f, 18f, 6f, 20f, 10f, 20f, 14f, 18f, 18f, 14f, 20f, 10f, 20f, 6f, 18f)
+            }
             LucideIconKind.ChevronDown -> path(6f, 9f, 12f, 15f, 18f, 9f)
+            LucideIconKind.ChevronLeft -> path(15f, 18f, 9f, 12f, 15f, 6f)
             LucideIconKind.ChevronRight -> path(9f, 18f, 15f, 12f, 9f, 6f)
             LucideIconKind.Clock -> {
                 drawCircle(resolvedTint, radius = 9f, center = Offset(12f, 12f), style = stroke)
@@ -65,6 +71,33 @@ fun LucideIcon(
                 line(8f, 15f, 8f, 15.1f); line(12f, 15f, 12f, 15.1f)
             }
             LucideIconKind.Ellipsis -> listOf(5f, 12f, 19f).forEach { drawCircle(resolvedTint, radius = 1f, center = Offset(it, 12f)) }
+            LucideIconKind.Info -> {
+                drawCircle(resolvedTint, radius = 9f, center = Offset(12f, 12f), style = stroke)
+                drawCircle(resolvedTint, radius = 0.8f, center = Offset(12f, 8f))
+                line(12f, 11f, 12f, 16f)
+            }
+            LucideIconKind.X -> { line(18f, 6f, 6f, 18f); line(6f, 6f, 18f, 18f) }
+            LucideIconKind.AtSign -> {
+                drawCircle(resolvedTint, radius = 9f, center = Offset(12f, 12f), style = stroke)
+                drawCircle(resolvedTint, radius = 4f, center = Offset(11f, 12f), style = stroke)
+                path(15f, 12f, 15f, 15f, 17f, 16f, 19f, 15f, 20f, 12f)
+            }
+            LucideIconKind.Paperclip -> path(8f, 12f, 14f, 6f, 17f, 9f, 10f, 16f, 7f, 13f, 14f, 6f, 17f, 6f, 20f, 9f, 20f, 12f, 11f, 21f, 8f, 21f, 4f, 17f, 4f, 14f, 13f, 5f)
+            LucideIconKind.FileText -> {
+                path(14f, 2f, 6f, 2f, 6f, 22f, 18f, 22f, 18f, 6f, 14f, 2f, 14f, 6f, 18f, 6f)
+                line(9f, 12f, 15f, 12f); line(9f, 16f, 15f, 16f)
+            }
+            LucideIconKind.Check -> path(20f, 6f, 9f, 17f, 4f, 12f)
+            LucideIconKind.MessageCircle -> {
+                path(21f, 11.5f, 21f, 12f, 20f, 16f, 17f, 19f, 13f, 20f, 8f, 19f, 4f, 16f, 3f, 12f, 4f, 8f, 7f, 5f, 12f, 4f, 16f, 5f, 19f, 8f, 20f, 11f)
+                drawCircle(resolvedTint, radius = 0.8f, center = Offset(8f, 12f)); drawCircle(resolvedTint, radius = 0.8f, center = Offset(12f, 12f)); drawCircle(resolvedTint, radius = 0.8f, center = Offset(16f, 12f))
+            }
+            LucideIconKind.Reply -> { path(9f, 17f, 4f, 12f, 9f, 7f); path(4f, 12f, 13f, 12f, 17f, 14f, 20f, 18f, 20f, 21f) }
+            LucideIconKind.Smile -> {
+                drawCircle(resolvedTint, radius = 9f, center = Offset(12f, 12f), style = stroke)
+                drawCircle(resolvedTint, radius = 0.8f, center = Offset(9f, 9f)); drawCircle(resolvedTint, radius = 0.8f, center = Offset(15f, 9f))
+                path(8f, 13f, 9f, 15f, 12f, 16f, 15f, 15f, 16f, 13f)
+            }
         }
         drawContext.transform.scale(1f / scale, 1f / scale, Offset.Zero)
     }

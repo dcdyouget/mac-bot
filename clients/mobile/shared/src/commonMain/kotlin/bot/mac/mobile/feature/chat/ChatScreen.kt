@@ -70,6 +70,8 @@ import bot.mac.mobile.core.design.LocalSystemAnimationsEnabled
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.core.ui.MarkdownText
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -241,14 +243,14 @@ fun ChatScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text(stringResource(Res.string.feature_back), style = MaterialTheme.typography.headlineSmall) }
+                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
                 Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
                     Text(chat?.str("title").orEmpty(), style = MaterialTheme.typography.titleLarge)
                     chat?.str("attention")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
                 }
                 chat?.str("project_id")?.takeIf { it.isNotBlank() }?.let { projectId ->
-                    IconButton(onClick = { onOpenGroupInfo(projectId) }, modifier = Modifier.semantics { contentDescription = groupInfoLabel }) { Text("ⓘ") }
-                    IconButton(onClick = { onOpenProject(projectId) }, modifier = Modifier.semantics { contentDescription = openGroupLabel }) { Text("›") }
+                    IconButton(onClick = { onOpenGroupInfo(projectId) }, modifier = Modifier.semantics { contentDescription = groupInfoLabel }) { LucideIcon(LucideIconKind.Info, Modifier.size(20.dp)) }
+                    IconButton(onClick = { onOpenProject(projectId) }, modifier = Modifier.semantics { contentDescription = openGroupLabel }) { LucideIcon(LucideIconKind.ChevronRight, Modifier.size(20.dp)) }
                 }
                 if (chat?.str("kind") in setOf("main", "direct")) {
                     TextButton(onClick = { onOpenFollowup(chatId) }) {
@@ -258,7 +260,7 @@ fun ChatScreen(
                         Text(stringResource(Res.string.feature_trace))
                     }
                 }
-                IconButton(onClick = { onOpenHistory(chatId) }, modifier = Modifier.semantics { contentDescription = historyLabel }) { Text("↺") }
+                IconButton(onClick = { onOpenHistory(chatId) }, modifier = Modifier.semantics { contentDescription = historyLabel }) { LucideIcon(LucideIconKind.RotateCcw, Modifier.size(20.dp)) }
             }
             }
             HorizontalDivider()
@@ -300,7 +302,7 @@ fun ChatScreen(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (loadingOlder) stringResource(Res.string.feature_loading) else stringResource(Res.string.feature_load_older)) }
+                    ) { Text(if (loadingOlder) stringResource(Res.string.feature_loading) else stringResource(Res.string.chat_loading_older)) }
                 }
             }
             itemsIndexed(messages, key = { _, message -> message.str("id").ifBlank { "message:${message.hashCode()}" } }) { messageIndex, message ->
@@ -385,11 +387,11 @@ fun ChatScreen(
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     val quoted = messages.firstOrNull { it.str("id") == id }
                     val sender = quoted?.obj("sender")?.str("bot_id")?.let { botId -> state.bots.firstOrNull { it.str("id") == botId }?.str("name") }
-                        ?.takeIf(String::isNotBlank) ?: stringResource(Res.string.feature_you)
+                        ?.takeIf(String::isNotBlank) ?: stringResource(Res.string.common_you)
                     Spacer(Modifier.width(2.dp).heightIn(min = 36.dp).background(MaterialTheme.colorScheme.primary))
                     Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                         Text(
-                            stringResource(if (quoteMode == "reference") Res.string.feature_quote_to else Res.string.feature_reply_to, sender),
+                            stringResource(if (quoteMode == "reference") Res.string.chat_quote_bar_title else Res.string.chat_reply_bar_title, sender),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
@@ -402,7 +404,7 @@ fun ChatScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    IconButton(onClick = { replyTo = null; quoteMode = "reply" }, modifier = Modifier.semantics { contentDescription = cancelQuoteLabel }) { Text("×") }
+                    IconButton(onClick = { replyTo = null; quoteMode = "reply" }, modifier = Modifier.semantics { contentDescription = cancelQuoteLabel }) { LucideIcon(LucideIconKind.X, Modifier.size(18.dp)) }
                 }
             }
         }
@@ -445,7 +447,7 @@ fun ChatScreen(
                             .onFailure { error = it.message ?: sendError }
                     }
                 }
-            }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { Text("＋") }
+            }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { LucideIcon(LucideIconKind.Paperclip, Modifier.size(20.dp)) }
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it; if (it.endsWith("@")) showMentions = true },
@@ -456,7 +458,7 @@ fun ChatScreen(
             if (groupChat || mentionCandidates.isNotEmpty()) IconButton(
                 onClick = { mentionOpenedByButton = true; showMentions = true },
                 modifier = Modifier.focusRequester(mentionButtonFocusRequester).semantics { contentDescription = mentionLabel },
-            ) { Text("@", color = LocalMobilePalette.current.accent) }
+            ) { LucideIcon(LucideIconKind.AtSign, Modifier.size(20.dp), tint = LocalMobilePalette.current.accent) }
             Spacer(Modifier.padding(4.dp))
             Button(
                 enabled = draft.isNotBlank() && !readOnly,
@@ -487,7 +489,7 @@ fun ChatScreen(
                         }.onFailure { error = it.message ?: sendError }
                     }
                 },
-            ) { Text(if (readOnly) stringResource(Res.string.feature_readonly) else stringResource(Res.string.feature_send)) }
+            ) { Text(if (readOnly) stringResource(Res.string.feature_readonly) else stringResource(Res.string.common_send)) }
         }
         if (showMentions) androidx.compose.material3.ModalBottomSheet(onDismissRequest = {
             showMentions = false
@@ -498,14 +500,14 @@ fun ChatScreen(
             mentionOpenedByButton = false
         }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(Res.string.feature_mention_title), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(Res.string.chat_mention_title), style = MaterialTheme.typography.titleMedium)
                 if (groupChat) TextButton(onClick = {
                     mentionOpenedByButton = false
                     mentionBots = mentionBots + "__everyone__"
                     draft = draft.removeSuffix("@") + "@everyone "
                     showMentions = false
                     scope.launch { withFrameNanos { }; runCatching { composerFocusRequester.requestFocus() } }
-                }) { Text(stringResource(Res.string.feature_mention_everyone)) }
+                }) { Text(stringResource(Res.string.chat_mention_everyone)) }
                 mentionCandidates.forEach { bot ->
                     val id = bot.str("id")
                     TextButton(onClick = {
@@ -518,7 +520,7 @@ fun ChatScreen(
                         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
                             Text(bot.str("name"), style = MaterialTheme.typography.titleSmall)
                             Text(
-                                if (bot.obj("status").str("summary") in setOf("working", "queued")) stringResource(Res.string.feature_mention_steer) else stringResource(Res.string.feature_idle),
+                                if (bot.obj("status").str("summary") in setOf("working", "queued")) stringResource(Res.string.chat_mention_steer_hint) else stringResource(Res.string.feature_idle),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
@@ -619,6 +621,8 @@ internal fun ChatMessageRow(
     }
     val haptics = LocalHapticFeedback.current
     val clipboard = LocalClipboardManager.current
+    val previousQuestionLabel = stringResource(Res.string.feature_question_previous)
+    val nextQuestionLabel = stringResource(Res.string.feature_question_next)
     val swipeThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
     var didSwipeReply by remember(message.str("id")) { mutableStateOf(false) }
     val sender = message.obj("sender")
@@ -654,9 +658,9 @@ internal fun ChatMessageRow(
     }.joinToString(" ")
     val messageBody = blockText.ifBlank { message.str("fallback_text") }
     val spokenBody = messageBody.ifBlank { if (blocks.isNotEmpty()) stringResource(Res.string.chat_message_accessibility_card) else "" }
-    val messageDescription = stringResource(Res.string.chat_message_accessibility, if (isUser) stringResource(Res.string.feature_you) else senderLabel, spokenTime, spokenBody)
+    val messageDescription = stringResource(Res.string.chat_message_accessibility, if (isUser) stringResource(Res.string.common_you) else senderLabel, spokenTime, spokenBody)
     Column(Modifier.fillMaxWidth().semantics { isTraversalGroup = true; contentDescription = messageDescription }, horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
-        if (showSender) Text(if (isUser) stringResource(Res.string.feature_you) else senderLabel, style = MaterialTheme.typography.labelSmall)
+        if (showSender) Text(if (isUser) stringResource(Res.string.common_you) else senderLabel, style = MaterialTheme.typography.labelSmall)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
         if (!isUser) {
             if (showAvatar) Box(Modifier.semantics { contentDescription = avatarDescription }) {
@@ -710,14 +714,14 @@ internal fun ChatMessageRow(
                             Column(Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 5.dp)) {
                             val quoteSenderId = quote.obj("sender").str("bot_id")
                             val quoteSender = state.bots.firstOrNull { it.str("id") == quoteSenderId }?.str("name")
-                                ?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.feature_you)
+                                ?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.common_you)
                             Text(quoteSender, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             Text(quote.str("excerpt"), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                 }
-                if (message.boolean("streaming")) Text(stringResource(Res.string.feature_typing), style = MaterialTheme.typography.labelMedium)
+                if (message.boolean("streaming")) Text(stringResource(Res.string.chat_typing), style = MaterialTheme.typography.labelMedium)
                 val fallback = message.str("fallback_text")
                 val unknown = blocks.any { element ->
                     val block = element as? JsonObject ?: return@any true
@@ -779,11 +783,11 @@ internal fun ChatMessageRow(
                             style = MaterialTheme.typography.labelMedium,
                         )
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(enabled = selectedQuestion > 0, onClick = { selectedQuestion-- }) { Text("‹") }
+                            TextButton(enabled = selectedQuestion > 0, onClick = { selectedQuestion-- }, modifier = Modifier.semantics { contentDescription = previousQuestionLabel }) { LucideIcon(LucideIconKind.ChevronLeft, Modifier.size(18.dp)) }
                             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                                 questionBlocks.forEachIndexed { index, block ->
                                     val status = state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state")
-                                    val tabLabel = stringResource(Res.string.feature_question_tab, index + 1)
+                                    val tabLabel = stringResource(Res.string.block_question_tab, index + 1)
                                     TextButton(onClick = { selectedQuestion = index }, modifier = Modifier.semantics {
                                         contentDescription = tabLabel
                                     }) {
@@ -791,7 +795,7 @@ internal fun ChatMessageRow(
                                     }
                                 }
                             }
-                            TextButton(enabled = selectedQuestion < questionBlocks.lastIndex, onClick = { selectedQuestion++ }) { Text("›") }
+                            TextButton(enabled = selectedQuestion < questionBlocks.lastIndex, onClick = { selectedQuestion++ }, modifier = Modifier.semantics { contentDescription = nextQuestionLabel }) { LucideIcon(LucideIconKind.ChevronRight, Modifier.size(18.dp)) }
                         }
                         questionBlocks.getOrNull(selectedQuestion)?.let { block ->
                             BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
@@ -841,7 +845,7 @@ internal fun ChatMessageRow(
                 TextButton(onClick = { if (id.isNotBlank()) onQuote(id, "reply"); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_reply)) }
                 TextButton(onClick = { if (id.isNotBlank()) onQuote(id, "reference"); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_quote)) }
                 if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null); dismissMessageActions() }) {
-                    Text(stringResource(Res.string.feature_message_view_work))
+                    Text(stringResource(Res.string.chat_menu_view_trace))
                 }
                 val projectId = artifactProjectId.orEmpty()
                 val quoteBody = blocks.mapNotNull { entry -> (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank) }
@@ -850,7 +854,7 @@ internal fun ChatMessageRow(
                     val quoted = quoteBody.lines().joinToString("\n") { "> $it" }
                     onQuoteAnnouncement("**$senderLabel**\n$quoted")
                     dismissMessageActions()
-                }) { Text(stringResource(Res.string.feature_message_quote_announcement)) }
+                }) { Text(stringResource(Res.string.chat_menu_quote_to_announcement)) }
                 TextButton(onClick = { clipboard.setText(AnnotatedString(message.str("fallback_text"))); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_copy)) }
             }
         }
@@ -938,7 +942,12 @@ private fun BlockView(
                     .ifBlank { artifact.str("bot_id") }
                 Column {
                     Text(stringResource(Res.string.feature_artifact_author, author), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(onClick = { onOpenArtifact(artifact.str("artifact_id"), url, artifactProjectId) }) { Text("▤ ${artifact.str("title").ifBlank { url }}") }
+                    Button(onClick = { onOpenArtifact(artifact.str("artifact_id"), url, artifactProjectId) }) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            LucideIcon(LucideIconKind.FileText, Modifier.size(18.dp))
+                            Text(artifact.str("title").ifBlank { url })
+                        }
+                    }
                 }
             }
         }
@@ -974,7 +983,7 @@ private fun BlockView(
             val freeTextFocus = remember(questionId) { FocusRequester() }
             LaunchedEffect(showFreeText) { if (showFreeText) runCatching { freeTextFocus.requestFocus() } }
             Text(
-                stringResource(if (question?.boolean("multi") == true) Res.string.feature_question_kind_multi else Res.string.feature_question_kind_single, questionBot),
+                stringResource(if (question?.boolean("multi") == true) Res.string.block_question_multi else Res.string.block_question_single),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -1007,7 +1016,7 @@ private fun BlockView(
                             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Spacer(Modifier.width(2.dp).heightIn(min = 24.dp).background(MaterialTheme.colorScheme.primary))
                                 Column(Modifier.padding(start = 8.dp)) {
-                                    Text(stringResource(Res.string.feature_question_your_reply), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                Text(stringResource(Res.string.block_question_your_reply), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                     Text(text, style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
@@ -1033,7 +1042,7 @@ private fun BlockView(
                     if (question.boolean("allow_free_text")) {
                         if (!showFreeText) {
                             TextButton(onClick = { showFreeText = true }, modifier = Modifier.heightIn(min = 44.dp)) {
-                                Text(stringResource(Res.string.feature_question_other))
+                                Text(stringResource(Res.string.block_question_other))
                             }
                         } else {
                             OutlinedTextField(
@@ -1130,9 +1139,9 @@ private fun BlockView(
             Text(approval?.str("summary").orEmpty().ifBlank { approvalId })
             MarkdownText(approval?.str("detail").orEmpty(), Modifier.fillMaxWidth())
             if (approval?.str("state") == "pending") Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(onClick = { onApproval(approvalId, "allow_once") }) { Text(stringResource(Res.string.feature_allow_once)) }
-                Button(onClick = { onApproval(approvalId, "always_allow") }) { Text(stringResource(Res.string.feature_always_allow)) }
-                Button(onClick = { onApproval(approvalId, "deny") }) { Text(stringResource(Res.string.feature_deny)) }
+                Button(onClick = { onApproval(approvalId, "allow_once") }) { Text(stringResource(Res.string.block_approval_allow_once)) }
+                Button(onClick = { onApproval(approvalId, "always_allow") }) { Text(stringResource(Res.string.block_approval_always_allow)) }
+                Button(onClick = { onApproval(approvalId, "deny") }) { Text(stringResource(Res.string.block_approval_deny)) }
             } else if (approval != null) StatusLabel(approval.str("state"))
         }
         "approval_ref" -> {

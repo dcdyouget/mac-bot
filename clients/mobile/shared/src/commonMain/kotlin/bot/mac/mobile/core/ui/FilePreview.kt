@@ -190,7 +190,7 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
                         Text(title, maxLines = 1, style = MaterialTheme.typography.titleLarge)
                         Text(
                             text = if (artifactAuthor.isBlank()) stringResource(Res.string.file_preview_author_unknown)
-                            else stringResource(Res.string.feature_artifact_author, artifactAuthor),
+                            else stringResource(Res.string.common_provided_by, artifactAuthor),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -350,7 +350,7 @@ private fun ArtifactHistory(
                         )
                     },
                     modifier = Modifier.clickable { onSelect(version) },
-                    trailingContent = { if (selectedVersion == number) Text("✓", color = MaterialTheme.colorScheme.primary) },
+                    trailingContent = { if (selectedVersion == number) LucideIcon(LucideIconKind.Check, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) },
                 )
             }
             if (hasMore) item {

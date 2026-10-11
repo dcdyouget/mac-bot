@@ -20,6 +20,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.boolean
@@ -32,6 +34,8 @@ import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.network.NetworkError
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.CancellationException
@@ -83,7 +87,7 @@ fun TraceScreen(
     val currentBotId = currentAssignment?.str("bot_id").orEmpty()
     val currentBot = state.bots.firstOrNull { it.str("id") == currentBotId }
     val currentBotName = state.bots.firstOrNull { it.str("id") == currentBotId }?.str("name").orEmpty().ifBlank { currentBotId }
-    val currentBotLabel = currentBotName.ifBlank { stringResource(Res.string.feature_bot) }
+    val currentBotLabel = currentBotName.ifBlank { stringResource(Res.string.search_filter_bots) }
     val currentTitle = currentAssignment?.str("title").orEmpty().ifBlank { stringResource(Res.string.feature_task) }
     val assignmentProjectId = currentAssignment?.str("project_id").orEmpty()
     val assignmentChat = state.chats.firstOrNull { it.str("project_id") == assignmentProjectId && assignmentProjectId.isNotBlank() }
@@ -167,7 +171,7 @@ fun TraceScreen(
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+                Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(stringResource(Res.string.feature_trace), style = MaterialTheme.typography.titleLarge)
                     if (assignmentId != null) {
@@ -198,7 +202,7 @@ fun TraceScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    "${stringResource(Res.string.feature_history_queued)} · ${stringResource(Res.string.feature_trace_steer_hint)}",
+                    "${stringResource(Res.string.status_queued)} · ${stringResource(Res.string.feature_trace_steer_hint)}",
                     style = MaterialTheme.typography.titleSmall,
                 )
                 if (!state.connected) {
@@ -238,7 +242,7 @@ fun TraceScreen(
                                     }
                                 },
                             ) {
-                                Text(if (queued.key in steering) stringResource(Res.string.feature_loading) else stringResource(Res.string.feature_trace_steer_action))
+                                Text(if (queued.key in steering) stringResource(Res.string.feature_loading) else stringResource(Res.string.trace_queue_to_steer))
                             }
                         }
                     }
@@ -251,7 +255,7 @@ fun TraceScreen(
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(search, { search = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text(stringResource(Res.string.feature_trace_search)) })
+            OutlinedTextField(search, { search = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text(stringResource(Res.string.trace_search)) })
             Column {
                 Row { Text(stringResource(Res.string.feature_trace_thinking)); Switch(showThinking, { showThinking = it }) }
                 Row { Text(stringResource(Res.string.feature_trace_output)); Switch(showOutput, { showOutput = it }) }
@@ -277,6 +281,7 @@ fun TraceScreen(
                 parent.isBlank() || parent !in collapsedRuns
             }.filter { (activeFilter == null || activeFilter.accept(it)) && (search.isBlank() || it.toString().contains(search, ignoreCase = true)) }, key = { "${it.str("run_id")}:${it.longValue("aseq")}:${it.hashCode()}" }) { item ->
                 TraceItemCard(item, fragments, onOpenScreen, showThinking, showOutput, fullOutputs,
+                    runCollapsed = item.str("run_id") in collapsedRuns,
                     onToggleRun = { runId -> collapsedRuns = if (runId in collapsedRuns) collapsedRuns - runId else collapsedRuns + runId },
                     onFetchFull = { runId, callId ->
                         scope.launch {
@@ -305,7 +310,7 @@ fun TraceScreen(
                     enabled = state.connected && canStop && steerText.isNotBlank(),
                     onClick = { onSteer(assignmentId, steerText.trim()); steerText = "" },
                 ) { Text(stringResource(Res.string.feature_trace_steer_action)) }
-                Button(enabled = canStop, onClick = { scope.launch { runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", assignmentId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_stop)) }
+                Button(enabled = canStop, onClick = { scope.launch { runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", assignmentId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.common_stop)) }
                 if (assignmentStatus == "failed") Button(
                     enabled = state.connected && !retryingAssignment,
                     onClick = {
@@ -333,7 +338,7 @@ private data class QueuedSteer(
 private enum class TraceFilter {
     ALL, MODEL, TOOL, MESSAGE, WAIT;
     @Composable fun label(): String = when (this) {
-        ALL -> stringResource(Res.string.feature_trace_all)
+        ALL -> stringResource(Res.string.common_all)
         MODEL -> stringResource(Res.string.feature_trace_model)
         TOOL -> stringResource(Res.string.feature_trace_tool)
         MESSAGE -> stringResource(Res.string.feature_trace_message)
@@ -356,11 +361,13 @@ private fun TraceItemCard(
     showThinking: Boolean,
     showOutput: Boolean,
     fullOutputs: Map<String, String>,
+    runCollapsed: Boolean,
     onToggleRun: (String) -> Unit,
     onFetchFull: (runId: String, callId: String) -> Unit,
 ) {
     val type = item.str("type").ifBlank { "event" }
     val data = item.obj("data")
+    val runDisclosureLabel = stringResource(if (runCollapsed) Res.string.feature_trace_run_expand else Res.string.feature_trace_run_collapse)
     val summary = when (type) {
         "run.start" -> stringResource(Res.string.feature_trace_start, data?.str("phase") ?: "")
         "run.end" -> stringResource(Res.string.feature_trace_end_label)
@@ -382,7 +389,11 @@ private fun TraceItemCard(
                 if (type == "run.end") data.str("status").takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
             }
             Text(item.str("at"), style = MaterialTheme.typography.labelSmall)
-            if (type == "run.start" && item.str("run_id").isNotBlank()) Button(onClick = { onToggleRun(item.str("run_id")) }) { Text("▾") }
+            if (type == "run.start" && item.str("run_id").isNotBlank()) {
+                Button(onClick = { onToggleRun(item.str("run_id")) }, modifier = Modifier.semantics { contentDescription = runDisclosureLabel }) {
+                    LucideIcon(if (runCollapsed) LucideIconKind.ChevronRight else LucideIconKind.ChevronDown, Modifier.size(18.dp))
+                }
+            }
         }
         if (type == "llm.response") {
             data.str("text").takeIf { it.isNotBlank() }?.let { MarkdownText(it, Modifier.fillMaxWidth().padding(top = 6.dp)) }

@@ -63,13 +63,13 @@ fun HistoryAssignmentScreen(
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val statusOptions = listOf(
-        null to stringResource(Res.string.feature_history_all),
-        "queued" to stringResource(Res.string.feature_history_queued),
-        "working" to stringResource(Res.string.feature_history_working),
-        "waiting_user" to stringResource(Res.string.feature_history_waiting_user),
+        null to stringResource(Res.string.common_all),
+        "queued" to stringResource(Res.string.status_queued),
+        "working" to stringResource(Res.string.status_working),
+        "waiting_user" to stringResource(Res.string.status_waiting_user),
         "waiting_bot" to stringResource(Res.string.feature_history_waiting_bot),
-        "blocked" to stringResource(Res.string.feature_history_blocked),
-        "done" to stringResource(Res.string.feature_history_done),
+        "blocked" to stringResource(Res.string.status_blocked),
+        "done" to stringResource(Res.string.status_done),
         "stopped" to stringResource(Res.string.feature_history_stopped),
     )
 
@@ -106,8 +106,8 @@ fun HistoryAssignmentScreen(
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
-                Text(stringResource(Res.string.feature_history_title), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
+                Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
+                Text(stringResource(Res.string.bot_history), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
             }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

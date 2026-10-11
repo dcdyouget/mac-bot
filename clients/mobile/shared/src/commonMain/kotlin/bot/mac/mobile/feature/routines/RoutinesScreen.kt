@@ -45,6 +45,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.FontScaleToolbar
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
@@ -56,6 +58,8 @@ import bot.mac.mobile.resources.common_cancel
 import bot.mac.mobile.resources.common_back
 import bot.mac.mobile.resources.common_save
 import bot.mac.mobile.resources.common_retry
+import bot.mac.mobile.resources.common_all
+import bot.mac.mobile.resources.common_details
 import bot.mac.mobile.resources.feature_loading
 import bot.mac.mobile.resources.feature_name
 import bot.mac.mobile.resources.feature_no_records
@@ -86,6 +90,10 @@ import bot.mac.mobile.resources.routines_schedule_label
 import bot.mac.mobile.resources.routines_select_bot
 import bot.mac.mobile.resources.routines_status_done
 import bot.mac.mobile.resources.routines_status_failed
+import bot.mac.mobile.resources.routines_field_add_time
+import bot.mac.mobile.resources.routines_field_when
+import bot.mac.mobile.resources.routines_test_run
+import bot.mac.mobile.resources.status_failed
 import bot.mac.mobile.resources.routines_status_running
 import bot.mac.mobile.resources.routines_status_skipped
 import bot.mac.mobile.resources.routines_timezone
@@ -289,13 +297,13 @@ private fun RoutineListScreen(
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
                 Text(stringResource(Res.string.routines_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                IconButton(onClick = onCreate, modifier = Modifier.semantics { contentDescription = createLabel }) { Text("＋", style = MaterialTheme.typography.titleLarge) }
+                IconButton(onClick = onCreate, modifier = Modifier.semantics { contentDescription = createLabel }) { LucideIcon(LucideIconKind.Plus, Modifier.size(20.dp)) }
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("all" to Res.string.routines_filter_all, "running" to Res.string.routines_filter_running, "paused" to Res.string.routines_filter_paused).forEach { (value, label) ->
+            listOf("all" to Res.string.common_all, "running" to Res.string.routines_filter_running, "paused" to Res.string.routines_filter_paused).forEach { (value, label) ->
                 FilterChip(selected = filter == value, onClick = { onFilter(value) }, label = { Text(stringResource(label)) })
             }
         }
@@ -310,7 +318,12 @@ private fun RoutineListScreen(
             loading -> Text(stringResource(Res.string.feature_loading), Modifier.padding(20.dp))
             filtered.isEmpty() -> Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(Res.string.routines_empty), style = MaterialTheme.typography.bodyLarge)
-                TextButton(onClick = onCreate) { Text("＋ ${stringResource(Res.string.routines_new)}") }
+                TextButton(onClick = onCreate) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LucideIcon(LucideIconKind.Plus, Modifier.size(16.dp))
+                        Text(stringResource(Res.string.routines_new))
+                    }
+                }
             }
             else -> LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 items(filtered, key = { it.str("id").ifBlank { "routine:${it.hashCode()}" } }) { routine ->
@@ -395,13 +408,14 @@ private fun RoutineDetailScreen(
     val selectedProject = projects.firstOrNull { it.str("id") == projectId }
     val enabled = routine?.boolean("enabled") == true
     val nextRun = routine?.str("next_run_at").orEmpty().takeIf { it.isNotBlank() }
+    val editLabel = stringResource(Res.string.routines_edit)
 
     Column(Modifier.fillMaxSize().imePadding().background(MaterialTheme.colorScheme.background)) {
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
                 Text(if (creating) stringResource(Res.string.routines_new) else routine?.str("name").orEmpty(), Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.titleLarge)
-                if (!creating && !editing) IconButton(onClick = onEdit) { Text(stringResource(Res.string.routines_edit), style = MaterialTheme.typography.labelLarge) }
+                if (!creating && !editing) IconButton(onClick = onEdit, modifier = Modifier.semantics { contentDescription = editLabel }) { Text(editLabel, style = MaterialTheme.typography.labelLarge) }
             }
         }
         HorizontalDivider()
@@ -435,7 +449,7 @@ private fun RoutineDetailScreen(
                         Text(selectedBot?.str("name").orEmpty().ifBlank { stringResource(if (creating) Res.string.routines_select_bot else Res.string.routines_no_bots) }, style = MaterialTheme.typography.bodyLarge)
                         if (!creating && !editing) Text(stringResource(Res.string.feature_readonly), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (creating || editing) Text("⌄", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (creating || editing) LucideIcon(LucideIconKind.ChevronDown, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 DropdownMenu(expanded = botMenu, onDismissRequest = { botMenu = false }) {
                     bots.forEach { bot ->
@@ -444,7 +458,7 @@ private fun RoutineDetailScreen(
                 }
             }
 
-            RoutineSectionTitle(stringResource(Res.string.routines_when))
+            RoutineSectionTitle(stringResource(Res.string.routines_field_when))
             schedules.forEachIndexed { index, schedule ->
                 if (editing) {
                     OutlinedTextField(
@@ -465,7 +479,7 @@ private fun RoutineDetailScreen(
                 } else {
                     Card(Modifier.fillMaxWidth()) {
                         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("◷", color = MaterialTheme.colorScheme.primary)
+                            LucideIcon(LucideIconKind.Clock, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                             Column {
                                 Text(schedule.label.ifBlank { schedule.cron }, style = MaterialTheme.typography.bodyLarge)
                                 if (schedule.label.isNotBlank() && schedule.cron.isNotBlank()) Text(schedule.cron, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -474,7 +488,12 @@ private fun RoutineDetailScreen(
                     }
                 }
             }
-            if (editing) TextButton(onClick = { schedules = schedules + RoutineScheduleDraft() }) { Text("＋ ${stringResource(Res.string.routines_add_time)}") }
+            if (editing) TextButton(onClick = { schedules = schedules + RoutineScheduleDraft() }) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LucideIcon(LucideIconKind.Plus, Modifier.size(16.dp))
+                    Text(stringResource(Res.string.routines_field_add_time))
+                }
+            }
             if (editing) {
                 OutlinedTextField(timezone, { timezone = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.routines_timezone)) }, singleLine = true)
             }
@@ -486,12 +505,12 @@ private fun RoutineDetailScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("◎", color = MaterialTheme.colorScheme.primary)
+                    LucideIcon(LucideIconKind.MessageCircle, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                     Column(Modifier.weight(1f)) {
                         Text(selectedProject?.str("name").orEmpty().ifBlank { stringResource(Res.string.routines_dm) }, style = MaterialTheme.typography.bodyLarge)
                         Text(selectedBot?.str("name").orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (editing) Text("⌄", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (editing) LucideIcon(LucideIconKind.ChevronDown, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 DropdownMenu(expanded = projectMenu, onDismissRequest = { projectMenu = false }) {
                     DropdownMenuItem(text = { Text(stringResource(Res.string.routines_dm)) }, onClick = { projectId = null; projectMenu = false })
@@ -531,7 +550,7 @@ private fun RoutineDetailScreen(
                 }
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onTry, modifier = Modifier.weight(1f)) { Text(stringResource(Res.string.routines_try)) }
+                    Button(onClick = onTry, modifier = Modifier.weight(1f)) { Text(stringResource(Res.string.routines_test_run)) }
                     TextButton(onClick = onDelete, modifier = Modifier.weight(1f)) { Text(stringResource(Res.string.routines_delete), color = MaterialTheme.colorScheme.error) }
                 }
             }
@@ -549,9 +568,9 @@ private fun RoutineSectionTitle(text: String) {
 private fun RoutineRunRow(run: JsonObject, onOpenAssignment: (String) -> Unit) {
     val status = run.str("status")
     val statusLabel = when (status.lowercase()) {
-        "running" -> stringResource(Res.string.routines_status_running)
+        "running" -> stringResource(Res.string.routines_filter_running)
         "done" -> stringResource(Res.string.routines_status_done)
-        "failed" -> stringResource(Res.string.routines_status_failed)
+        "failed" -> stringResource(Res.string.status_failed)
         "skipped" -> stringResource(Res.string.routines_status_skipped)
         else -> status
     }
@@ -564,7 +583,7 @@ private fun RoutineRunRow(run: JsonObject, onOpenAssignment: (String) -> Unit) {
             }
             run.str("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             run.str("assignment_id").takeIf { it.isNotBlank() }?.let { assignmentId ->
-                TextButton(onClick = { onOpenAssignment(assignmentId) }) { Text(stringResource(Res.string.routines_details)) }
+                TextButton(onClick = { onOpenAssignment(assignmentId) }) { Text(stringResource(Res.string.common_details)) }
             }
         }
     }

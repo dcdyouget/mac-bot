@@ -102,7 +102,7 @@ fun WorkbenchScreen(
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(14.dp)) {
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth()) {
-                Text(stringResource(Res.string.feature_workbench), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                Text(stringResource(Res.string.workbench_title), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                 Text(stringResource(Res.string.feature_running_count, state.workbench.str("running").ifBlank { "0" }, state.workbench.str("global_limit").ifBlank { "—" }), style = MaterialTheme.typography.labelLarge)
             }
         }
@@ -121,7 +121,7 @@ fun WorkbenchScreen(
             if (queuedMessages.isNotEmpty() || historyLoading) {
                 item {
                     Text(
-                        "${stringResource(Res.string.feature_history_queued)} · ${stringResource(Res.string.feature_trace_steer_hint)}",
+                        "${stringResource(Res.string.status_queued)} · ${stringResource(Res.string.feature_trace_steer_hint)}",
                         style = MaterialTheme.typography.titleMedium,
                     )
                 }
@@ -203,7 +203,7 @@ fun WorkbenchScreen(
             }
             if (assignments.isEmpty()) item { Text(stringResource(Res.string.feature_no_tasks), Modifier.padding(24.dp)) }
         }
-        Text(stringResource(Res.string.feature_done_today, state.workbench.str("done_today").ifBlank { "0" }), style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(Res.string.workbench_done_today, state.workbench.str("done_today").ifBlank { "0" }), style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -212,9 +212,9 @@ private data class QueuedSteer(val message: JsonObject, val delivery: JsonObject
 private enum class WorkbenchGrouping {
     BOT, PROJECT, STATUS;
     @Composable fun label(): String = when (this) {
-        BOT -> stringResource(Res.string.feature_group_by_bot)
-        PROJECT -> stringResource(Res.string.feature_group_by_project)
-        STATUS -> stringResource(Res.string.feature_group_by_status)
+        BOT -> stringResource(Res.string.workbench_view_by_bot)
+        PROJECT -> stringResource(Res.string.workbench_view_by_group)
+        STATUS -> stringResource(Res.string.workbench_view_by_status)
     }
 }
 
@@ -228,10 +228,10 @@ private fun WaitingCard(
 ) {
     val kind = item.str("kind")
     val title = when (kind) {
-        "review" -> stringResource(Res.string.feature_waiting_review)
-        "approval" -> stringResource(Res.string.feature_waiting_approval)
+        "review" -> stringResource(Res.string.workbench_waiting_review)
+        "approval" -> stringResource(Res.string.status_need_approval)
         "question" -> stringResource(Res.string.feature_waiting_question)
-        "takeover" -> stringResource(Res.string.feature_waiting_takeover)
+        "takeover" -> stringResource(Res.string.computer_take_over)
         else -> if (kind.isBlank()) stringResource(Res.string.feature_waiting) else kind
     }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.tertiaryContainer).padding(12.dp)) {
@@ -249,11 +249,11 @@ private fun WaitingCard(
 private enum class WorkbenchFilter {
     ALL, WORKING, WAITING, BLOCKED, DONE;
     @Composable fun label(): String = when (this) {
-        ALL -> stringResource(Res.string.feature_all)
-        WORKING -> stringResource(Res.string.feature_filter_working)
+        ALL -> stringResource(Res.string.common_all)
+        WORKING -> stringResource(Res.string.project_status_active)
         WAITING -> stringResource(Res.string.feature_filter_waiting)
-        BLOCKED -> stringResource(Res.string.feature_filter_blocked)
-        DONE -> stringResource(Res.string.feature_filter_done)
+        BLOCKED -> stringResource(Res.string.status_blocked)
+        DONE -> stringResource(Res.string.project_status_done)
     }
     fun accept(value: JsonObject): Boolean = when (this) {
         ALL -> true
@@ -285,11 +285,11 @@ private fun AssignmentCard(assignment: JsonObject, state: MobileState, onOpen: (
             style = MaterialTheme.typography.labelSmall,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { onOpen(id) }) { Text(stringResource(Res.string.feature_detail)) }
+            Button(onClick = { onOpen(id) }) { Text(stringResource(Res.string.common_details)) }
             if (assignment.str("status") == "failed") Button(enabled = retryEnabled, onClick = { onRetry(id) }) {
                 Text(stringResource(if (retrying) Res.string.feature_assignment_retrying else Res.string.feature_assignment_retry))
             }
-            if (assignment.str("status") in listOf("working", "queued", "waiting_user", "waiting_bot")) Button(onClick = { onStop(id) }) { Text(stringResource(Res.string.feature_stop)) }
+            if (assignment.str("status") in listOf("working", "queued", "waiting_user", "waiting_bot")) Button(onClick = { onStop(id) }) { Text(stringResource(Res.string.common_stop)) }
             assignment.str("project_id").takeIf { it.isNotBlank() }?.let { projectId ->
                 val projectName = state.projects.firstOrNull { it.str("id") == projectId }?.str("name").orEmpty().ifBlank { projectId }
                 Text(stringResource(Res.string.feature_group_value, projectName), modifier = Modifier.padding(top = 12.dp), style = MaterialTheme.typography.labelSmall)

@@ -352,6 +352,10 @@
     <string name="feature_answer">回答</string>
     <string name="feature_submit">提交</string>
     <string name="feature_trace_start">开始运行 · %1$s</string>
+    <string name="feature_trace_run_expand">展开运行详情</string>
+    <string name="feature_trace_run_collapse">收起运行详情</string>
+    <string name="feature_question_previous">返回上一题</string>
+    <string name="feature_question_next">前往下一题</string>
     <string name="feature_trace_end">运行结束 · %1$s</string>
     <string name="feature_trace_end_label">运行结束</string>
     <string name="feature_trace_assignment_context">任务：%1$s · %2$s</string>

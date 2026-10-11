@@ -160,10 +160,10 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
                 TextButton(onClick = { selectedName = null; detail = null; showEditor = true }) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         LucideIcon(LucideIconKind.Plus, Modifier.size(16.dp))
-                        Text(stringResource(Res.string.skills_new))
+                        Text(stringResource(Res.string.skills_new_title))
                     }
                 }
-                TextButton(onClick = { showImport = true }) { Text(stringResource(Res.string.skills_import)) }
+                TextButton(onClick = { showImport = true }) { Text(stringResource(Res.string.skills_source_imported)) }
             }
         }
         }
@@ -264,7 +264,7 @@ private fun SkillDetail(skill: JsonObject, bots: List<JsonObject>, modifier: Mod
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (source != "builtin") {
-                TextButton(onClick = onEdit) { Text(stringResource(Res.string.skills_edit)) }
+                TextButton(onClick = onEdit) { Text(stringResource(Res.string.common_edit)) }
                 TextButton(onClick = onDelete) { Text(stringResource(Res.string.skills_delete), color = MaterialTheme.colorScheme.error) }
             }
             if (skillCanPublish(skill.str("source"))) TextButton(onClick = onPublish) { Text(stringResource(Res.string.skills_publish)) }
@@ -284,7 +284,7 @@ private fun SkillDetail(skill: JsonObject, bots: List<JsonObject>, modifier: Mod
                 Text(stringResource(Res.string.skills_draft_bot_access_hint), style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text(skill.str("content") ?: stringResource(Res.string.skills_preview), Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall)
+        Text(skill.str("content") ?: stringResource(Res.string.common_preview), Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -297,9 +297,9 @@ internal fun botDisplayName(bot: JsonObject): String =
 
 @Composable
 private fun sourceLabel(source: String): String = when (source) {
-    "builtin" -> stringResource(Res.string.skills_builtin)
-    "user" -> stringResource(Res.string.skills_mine)
-    "imported" -> stringResource(Res.string.skills_imported)
+    "builtin" -> stringResource(Res.string.skills_source_builtin)
+    "user" -> stringResource(Res.string.skills_source_mine)
+    "imported" -> stringResource(Res.string.skills_source_imported)
     "draft" -> stringResource(Res.string.skills_draft)
     else -> stringResource(Res.string.skills_source_unknown)
 }
@@ -310,11 +310,11 @@ private fun SkillEditor(skill: JsonObject?, onDismiss: () -> Unit, onSaved: (Jso
     var content by remember(skill) { mutableStateOf(skill?.str("content") ?: "") }
     var description by remember(skill) { mutableStateOf(skill?.str("description") ?: "") }
     val scope = rememberCoroutineScope()
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (skill == null) stringResource(Res.string.skills_new) else stringResource(Res.string.skills_edit)) }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (skill == null) stringResource(Res.string.skills_new_title) else stringResource(Res.string.common_edit)) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(name, { name = it }, enabled = skill == null, label = { Text(stringResource(Res.string.skills_name)) }, singleLine = true)
-            OutlinedTextField(description, { description = it }, label = { Text(stringResource(Res.string.skills_description)) }, singleLine = false)
-            OutlinedTextField(content, { content = it }, label = { Text(stringResource(Res.string.skills_content)) }, minLines = 8)
+            OutlinedTextField(description, { description = it }, label = { Text(stringResource(Res.string.skills_new_desc)) }, singleLine = false)
+            OutlinedTextField(content, { content = it }, label = { Text(stringResource(Res.string.skills_new_desc)) }, minLines = 8)
         }
     }, confirmButton = { Button(enabled = name.isNotBlank() && content.isNotBlank(), onClick = {
         scope.launch {
@@ -322,7 +322,7 @@ private fun SkillEditor(skill: JsonObject?, onDismiss: () -> Unit, onSaved: (Jso
                 saveSkillAndRefresh(repository, skill?.str("name"), name, description, content)
             }?.let(onSaved)
         }
-    }) { Text(stringResource(Res.string.skills_save)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_close)) } })
+    }) { Text(stringResource(Res.string.common_save)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_close)) } })
 }
 
 @Composable
@@ -330,7 +330,7 @@ private fun SkillImportDialog(onDismiss: () -> Unit, onError: (String) -> Unit, 
     var url by remember { mutableStateOf("") }
     var file by remember { mutableStateOf<PickedFile?>(null) }
     val scope = rememberCoroutineScope()
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(Res.string.skills_import)) }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(Res.string.skills_source_imported)) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(url, { url = it }, label = { Text(stringResource(Res.string.skills_git_url)) }, singleLine = true)
             TextButton(onClick = { scope.launch {
@@ -341,8 +341,8 @@ private fun SkillImportDialog(onDismiss: () -> Unit, onError: (String) -> Unit, 
                 } catch (_: Throwable) {
                     null
                 }
-            } }) { Text(stringResource(Res.string.skills_import)) }
-            file?.let { Text("${stringResource(Res.string.skills_files)}: ${it.name}", style = MaterialTheme.typography.labelSmall) }
+            } }) { Text(stringResource(Res.string.skills_source_imported)) }
+            file?.let { Text("${stringResource(Res.string.skills_attached_files)}: ${it.name}", style = MaterialTheme.typography.labelSmall) }
         }
     }, confirmButton = { Button(enabled = url.isNotBlank() || file != null, onClick = {
         scope.launch {
@@ -355,7 +355,7 @@ private fun SkillImportDialog(onDismiss: () -> Unit, onError: (String) -> Unit, 
                 }
             }?.let { onDismiss() }
         }
-    }) { Text(stringResource(Res.string.skills_import)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_close)) } })
+    }) { Text(stringResource(Res.string.skills_source_imported)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_close)) } })
 }
 
 private fun skillContent(name: String, description: String, content: String): String {
@@ -366,9 +366,9 @@ private fun skillContent(name: String, description: String, content: String): St
 
 @Composable
 private fun SkillFilter.label(): String = when (this) {
-    SkillFilter.ALL -> stringResource(Res.string.skills_all)
-    SkillFilter.BUILTIN -> stringResource(Res.string.skills_builtin)
-    SkillFilter.MINE -> stringResource(Res.string.skills_mine)
-    SkillFilter.IMPORTED -> stringResource(Res.string.skills_imported)
+    SkillFilter.ALL -> stringResource(Res.string.common_all)
+    SkillFilter.BUILTIN -> stringResource(Res.string.skills_source_builtin)
+    SkillFilter.MINE -> stringResource(Res.string.skills_source_mine)
+    SkillFilter.IMPORTED -> stringResource(Res.string.skills_source_imported)
     SkillFilter.DRAFT -> stringResource(Res.string.skills_draft)
 }

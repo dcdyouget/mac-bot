@@ -39,6 +39,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.FontScaleToolbar
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.boolean
@@ -84,9 +86,14 @@ fun BotsScreen(
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
-                Text(stringResource(Res.string.feature_bot_management), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
-                Button(onClick = onCreate) { Text("＋ ${stringResource(Res.string.feature_new_bot)}") }
+                Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
+                Text(stringResource(Res.string.nav_bots_manage), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
+                Button(onClick = onCreate) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LucideIcon(LucideIconKind.Plus, Modifier.size(16.dp))
+                        Text(stringResource(Res.string.feature_new_bot))
+                    }
+                }
             }
         }
         listError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
@@ -140,11 +147,11 @@ fun BotsScreen(
         val regularBots = visibleBots.filterNot { it.boolean("is_main") }
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (mainBot != null) {
-                item { Text(stringResource(Res.string.feature_bot_main), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp)) }
+                item { Text(stringResource(Res.string.sidebar_main_bot_tag), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp)) }
                 item { BotRow(repository, mainBot, onOpenDetail, onOpenBot) }
             }
             if (regularBots.isNotEmpty()) {
-                item { Text(stringResource(Res.string.feature_bot), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 2.dp)) }
+                item { Text(stringResource(Res.string.search_filter_bots), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 2.dp)) }
                 items(regularBots, key = { it.str("id").ifBlank { "bot:${it.hashCode()}" } }) { bot ->
                     BotRow(repository, bot, onOpenDetail, onOpenBot)
                 }
@@ -173,10 +180,10 @@ private fun BotRow(repository: MobileRepository, bot: JsonObject, onOpen: (Strin
         Column(horizontalAlignment = Alignment.End) {
             val summary = status?.str("summary").orEmpty()
             val active = status?.long("active") ?: 0L
-            if (summary.isNotBlank()) StatusLabel(summary) else Text(stringResource(Res.string.feature_idle), style = MaterialTheme.typography.labelSmall)
+            if (summary.isNotBlank()) StatusLabel(summary) else Text(stringResource(Res.string.status_idle), style = MaterialTheme.typography.labelSmall)
             if (active > 0) Text(stringResource(Res.string.feature_active_count, active.toString()), style = MaterialTheme.typography.labelSmall)
         }
-        TextButton(onClick = { onEdit(id) }) { Text(stringResource(Res.string.feature_edit)) }
+        TextButton(onClick = { onEdit(id) }) { Text(stringResource(Res.string.common_edit)) }
     }
 }
 
@@ -216,7 +223,7 @@ fun BotDetailScreen(
     }
     if (bot == null) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+            Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
             Text(stringResource(Res.string.feature_loading), style = MaterialTheme.typography.titleMedium)
         }
         return
@@ -224,9 +231,9 @@ fun BotDetailScreen(
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+                Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
                 Text(bot.str("name"), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge, maxLines = 1)
-                TextButton(onClick = { onEdit(botId) }) { Text(stringResource(Res.string.feature_edit)) }
+                TextButton(onClick = { onEdit(botId) }) { Text(stringResource(Res.string.common_edit)) }
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
@@ -240,11 +247,11 @@ fun BotDetailScreen(
                         DetailShortcut(Modifier.weight(1f), stringResource(Res.string.feature_open_chat), onClick = { onOpenChat(bot.str("dm_chat_id")) })
                         DetailShortcut(Modifier.weight(1f), stringResource(Res.string.feature_open_screen), onClick = { onOpenScreen(botId) })
                         DetailShortcut(Modifier.weight(1f), stringResource(Res.string.nav_routines), onClick = { onOpenRoutines(botId) })
-                        DetailShortcut(Modifier.weight(1f), stringResource(Res.string.feature_settings), onClick = { onEdit(botId) })
+                        DetailShortcut(Modifier.weight(1f), stringResource(Res.string.nav_settings), onClick = { onEdit(botId) })
                     }
                 }
             }
-            item { Text(stringResource(Res.string.feature_group), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp)) }
+            item { Text(stringResource(Res.string.search_filter_groups), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp)) }
             if (groups.isEmpty()) item { Text(stringResource(Res.string.feature_history_empty), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) }
             items(groups, key = { it.str("id") }) { project ->
                 Row(Modifier.fillMaxWidth().height(56.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -252,7 +259,7 @@ fun BotDetailScreen(
                     Text(project.arr("members").mapNotNull { it as? JsonObject }.firstOrNull { it.str("bot_id") == botId }?.str("state").orEmpty(), style = MaterialTheme.typography.bodySmall)
                 }
             }
-            item { Text(stringResource(Res.string.feature_history_title), Modifier.padding(start = 4.dp, top = 6.dp).clickable { onOpenHistory(botId) }, style = MaterialTheme.typography.titleSmall) }
+            item { Text(stringResource(Res.string.bot_history), Modifier.padding(start = 4.dp, top = 6.dp).clickable { onOpenHistory(botId) }, style = MaterialTheme.typography.titleSmall) }
             if (assignments.isEmpty()) item { Text(stringResource(Res.string.feature_history_empty), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) }
             items(assignments, key = { it.str("id") }) { assignment ->
                 Row(Modifier.fillMaxWidth().height(52.dp).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -325,16 +332,16 @@ fun BotEditorScreen(
     val duplicateName = stringResource(Res.string.feature_copy_suffix, name.trim())
     if (botId != null && existing == null) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+            Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
             Text(stringResource(Res.string.feature_loading), style = MaterialTheme.typography.titleMedium)
         }
         return
     }
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FontScaleToolbar { Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(if (botId == null) stringResource(Res.string.feature_new_bot) else stringResource(Res.string.feature_edit), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) } }
-        OutlinedTextField(name, { name = it.take(16) }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_name)) }, supportingText = { Text(stringResource(Res.string.feature_name_max_length, 16)) })
-        OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_label)) })
-        OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text(stringResource(Res.string.feature_description)) })
+        FontScaleToolbar { Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }; Text(if (botId == null) stringResource(Res.string.feature_new_bot) else stringResource(Res.string.common_edit), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) } }
+        OutlinedTextField(name, { name = it.take(16) }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.bot_field_name)) }, supportingText = { Text(stringResource(Res.string.feature_name_max_length, 16)) })
+        OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.bot_field_label)) })
+        OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text(stringResource(Res.string.bot_field_rules)) })
         OutlinedTextField(model, { model = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_model_optional)) })
         if (state.models.isNotEmpty()) {
             Text(stringResource(Res.string.feature_model_choices), style = MaterialTheme.typography.labelSmall)
@@ -352,17 +359,17 @@ fun BotEditorScreen(
             }
         }
         if (!isMainBot) {
-            OutlinedTextField(maxParallel, { maxParallel = it.filter(Char::isDigit) }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_parallel_limit)) })
-            OutlinedTextField(browser, { browser = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_browser_mode)) })
-            Text(stringResource(Res.string.feature_tools), style = MaterialTheme.typography.titleSmall)
-            listOf("files" to Res.string.feature_files, "bash" to Res.string.feature_bash, "browser" to Res.string.feature_browser, "subagent" to Res.string.feature_subagent, "web" to Res.string.feature_web, "mcp" to Res.string.feature_mcp).forEach { (key, title) ->
+            OutlinedTextField(maxParallel, { maxParallel = it.filter(Char::isDigit) }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.bot_field_max_parallel)) })
+            OutlinedTextField(browser, { browser = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.bot_field_browser_mode)) })
+            Text(stringResource(Res.string.trace_filter_tools), style = MaterialTheme.typography.titleSmall)
+            listOf("files" to Res.string.bot_tool_file, "bash" to Res.string.bot_tool_bash, "browser" to Res.string.bot_tool_browser, "subagent" to Res.string.bot_tool_subagent, "web" to Res.string.bot_tool_web, "mcp" to Res.string.bot_tool_mcp).forEach { (key, title) ->
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Text(stringResource(title), Modifier.weight(1f))
                     Switch(checked = tools[key] == true, onCheckedChange = { value -> tools = tools + (key to value) })
                 }
             }
         }
-        Text(stringResource(Res.string.feature_avatar), style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(Res.string.bot_avatar_other), style = MaterialTheme.typography.titleSmall)
         OutlinedTextField(emoji, { emoji = it; if (it.isNotBlank()) avatarFile = null }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_emoji)) })
         if (!isMainBot) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -393,10 +400,10 @@ fun BotEditorScreen(
                 }
             }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_avatar_image)) }
         }
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.feature_pin), Modifier.weight(1f)); Switch(checked = pinned, onCheckedChange = { pinned = it }) }
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.feature_bot_notifications), Modifier.weight(1f)); Switch(checked = notifications, onCheckedChange = { notifications = it }) }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.bot_action_pin), Modifier.weight(1f)); Switch(checked = pinned, onCheckedChange = { pinned = it }) }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.bot_field_notifications), Modifier.weight(1f)); Switch(checked = notifications, onCheckedChange = { notifications = it }) }
         if (botId != null && !isMainBot) {
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.feature_hidden), Modifier.weight(1f)); Switch(checked = hidden, onCheckedChange = { hidden = it }) }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(stringResource(Res.string.bot_action_hide), Modifier.weight(1f)); Switch(checked = hidden, onCheckedChange = { hidden = it }) }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(enabled = name.isNotBlank(), onClick = {
@@ -421,16 +428,16 @@ fun BotEditorScreen(
                     else repository.call("bot.update", buildJsonObject { put("bot_id", botId); put("patch", payload) })
                 }.onSuccess { onSaved() }.onFailure { error = it.message ?: saveFailed }
             }
-        }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_save)) }
+        }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.common_save)) }
         if (botId != null && !isMainBot) {
-            Button(onClick = { scope.launch { runCatching { repository.call("bot.duplicate", buildJsonObject { put("bot_id", botId); put("name", duplicateName) }) }.onSuccess { onSaved() }.onFailure { error = it.message ?: saveFailed } } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_duplicate)) }
-            Button(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_delete_bot)) }
+            Button(onClick = { scope.launch { runCatching { repository.call("bot.duplicate", buildJsonObject { put("bot_id", botId); put("name", duplicateName) }) }.onSuccess { onSaved() }.onFailure { error = it.message ?: saveFailed } } }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.bot_action_duplicate)) }
+            Button(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.bot_action_delete)) }
         }
     }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text(stringResource(Res.string.feature_delete_bot)) },
+            title = { Text(stringResource(Res.string.bot_action_delete)) },
             text = { Text(stringResource(Res.string.feature_delete_confirm, name.trim())) },
             confirmButton = {
                 TextButton(onClick = {

@@ -39,9 +39,24 @@ import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.ui.MotionAwareCircularProgressIndicator
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.resources.Res
+import bot.mac.mobile.resources.common_back
+import bot.mac.mobile.resources.common_details
+import bot.mac.mobile.resources.follow_go_review
+import bot.mac.mobile.resources.follow_groups
+import bot.mac.mobile.resources.follow_handle
+import bot.mac.mobile.resources.follow_jump_group
+import bot.mac.mobile.resources.follow_title
+import bot.mac.mobile.resources.status_blocked
+import bot.mac.mobile.resources.status_done
+import bot.mac.mobile.resources.status_queued
+import bot.mac.mobile.resources.status_review
+import bot.mac.mobile.resources.status_waiting_user
+import bot.mac.mobile.resources.status_working
 import bot.mac.mobile.resources.followup_current_pending
 import bot.mac.mobile.resources.followup_details
 import bot.mac.mobile.resources.followup_error
@@ -153,7 +168,7 @@ fun FollowupScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButtonBack(onBack)
-                Text(stringResource(Res.string.followup_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(Res.string.follow_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             }
         }
         if (!state.connected) {
@@ -183,9 +198,9 @@ fun FollowupScreen(
                     items(reviewProjects, key = { "review:${it.str("id")}" }) { project ->
                         PendingCard(
                             title = project.str("name").ifBlank { project.str("id") },
-                            detail = stringResource(Res.string.followup_review_action),
+                            detail = stringResource(Res.string.follow_go_review),
                             tint = MaterialTheme.colorScheme.tertiaryContainer,
-                            action = stringResource(Res.string.followup_review_action),
+                            action = stringResource(Res.string.follow_go_review),
                         ) { onOpenProject(project.str("id")) }
                     }
                 } else {
@@ -197,7 +212,7 @@ fun FollowupScreen(
                                 approval.str("tool").takeIf(String::isNotBlank),
                             ).joinToString(" · "),
                             tint = MaterialTheme.colorScheme.errorContainer,
-                            action = stringResource(Res.string.followup_handle),
+                            action = stringResource(Res.string.follow_handle),
                         ) { onOpenApproval(approval.str("id")) }
                     }
                     items(pendingQuestions, key = { "question:${it.str("id")}" }) { question ->
@@ -205,7 +220,7 @@ fun FollowupScreen(
                             title = question.str("text"),
                             detail = question.str("assignment_id").takeIf(String::isNotBlank).orEmpty(),
                             tint = MaterialTheme.colorScheme.tertiaryContainer,
-                            action = stringResource(Res.string.followup_handle),
+                            action = stringResource(Res.string.follow_handle),
                         ) { onOpenQuestion(question.str("id")) }
                     }
                 }
@@ -214,7 +229,7 @@ fun FollowupScreen(
                 }
 
                 if (isMainBot) {
-                    item { SectionHeading(stringResource(Res.string.followup_groups), relatedProjects.size) }
+                    item { SectionHeading(stringResource(Res.string.follow_groups), relatedProjects.size) }
                     if (relatedProjects.isEmpty()) item { EmptyCard(stringResource(Res.string.followup_no_groups)) }
                     items(relatedProjects, key = { "project:${it.str("id")}" }) { project ->
                         val status = project.str("status")
@@ -261,7 +276,7 @@ private val ACTIVE_STATUSES = setOf("working", "waiting_user", "waiting_bot", "b
 @Composable
 private fun TextButtonBack(onClick: () -> Unit) {
     androidx.compose.material3.TextButton(onClick = onClick, modifier = Modifier.padding(end = 4.dp)) {
-        Text(stringResource(Res.string.feature_back))
+        Text(stringResource(Res.string.common_back))
     }
 }
 
@@ -307,7 +322,7 @@ private fun ProjectRow(title: String, status: String, working: Boolean, onClick:
                 Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                 Text(status, style = MaterialTheme.typography.labelSmall, color = if (working) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary)
             }
-            Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleLarge)
+            LucideIcon(LucideIconKind.ChevronRight, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -334,8 +349,8 @@ private fun FollowupTaskCard(
             ).joinToString(" · ")
             if (meta.isNotBlank()) Text(meta, Modifier.padding(start = 18.dp, top = 3.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth().padding(start = 18.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onOpenChat, modifier = Modifier.weight(1f)) { Text(stringResource(Res.string.followup_open_chat)) }
-                Button(onClick = onOpenTrace, modifier = Modifier.weight(1f)) { Text(stringResource(Res.string.followup_details)) }
+                OutlinedButton(onClick = onOpenChat, modifier = Modifier.weight(1f)) { Text(stringResource(Res.string.follow_jump_group)) }
+                Button(onClick = onOpenTrace, modifier = Modifier.weight(1f)) { Text(stringResource(Res.string.common_details)) }
             }
         }
     }
@@ -365,13 +380,13 @@ private fun EmptyCard(text: String) {
 
 @Composable
 private fun statusLabel(status: String): String = when (status) {
-    "working" -> stringResource(Res.string.feature_status_working)
-    "queued" -> stringResource(Res.string.feature_status_queued)
-    "waiting_user" -> stringResource(Res.string.feature_status_waiting_user)
+    "working" -> stringResource(Res.string.status_working)
+    "queued" -> stringResource(Res.string.status_queued)
+    "waiting_user" -> stringResource(Res.string.status_waiting_user)
     "waiting_bot" -> stringResource(Res.string.feature_status_waiting_bot)
-    "blocked" -> stringResource(Res.string.feature_status_blocked)
-    "review" -> stringResource(Res.string.feature_status_review)
-    "done" -> stringResource(Res.string.feature_status_done)
+    "blocked" -> stringResource(Res.string.status_blocked)
+    "review" -> stringResource(Res.string.status_review)
+    "done" -> stringResource(Res.string.status_done)
     else -> stringResource(Res.string.feature_status_unknown)
 }
 

@@ -241,7 +241,7 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                             takeoverError = captureError(requestError) { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
                             if (takeoverError == null) takeoverHostId = activeHost?.id
                         }
-                    }, modifier = Modifier.height(32.dp)) { Text(stringResource(Res.string.computer_takeover), style = MaterialTheme.typography.labelSmall, maxLines = 1) }
+                    }, modifier = Modifier.height(32.dp)) { Text(stringResource(Res.string.block_takeover_start), style = MaterialTheme.typography.labelSmall, maxLines = 1) }
                 }
             }
         }
@@ -494,5 +494,5 @@ internal fun mapToFrame(offset: Offset, viewport: IntSize, frame: ScreenFrame?, 
     val localY = (offset.y - viewport.height / 2f - pan.y) / zoom + viewport.height / 2f
     return Offset(((localX - left) / scale).coerceIn(0f, header.width.toFloat()), ((localY - top) / scale).coerceIn(0f, header.height.toFloat()))
 }
-@Composable private fun statusLabel(driver: String?): String = when { driver == "user" -> stringResource(Res.string.computer_takeover_active); driver == "idle" || driver == null -> stringResource(Res.string.computer_idle); else -> stringResource(Res.string.computer_bot_working) }
+@Composable private fun statusLabel(driver: String?): String = when { driver == "user" -> stringResource(Res.string.computer_takeover_active); driver == "idle" || driver == null -> stringResource(Res.string.status_idle); else -> stringResource(Res.string.computer_bot_working) }
 @Composable private fun Quality.label(): String = when (this) { Quality.AUTO -> stringResource(Res.string.computer_auto); Quality.LOW -> stringResource(Res.string.computer_quality_low); Quality.HIGH -> stringResource(Res.string.computer_quality_high) }

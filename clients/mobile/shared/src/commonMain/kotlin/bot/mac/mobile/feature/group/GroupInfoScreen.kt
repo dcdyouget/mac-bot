@@ -37,6 +37,8 @@ import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.Res
 import bot.mac.mobile.resources.feature_announcement_empty
@@ -53,6 +55,12 @@ import bot.mac.mobile.resources.group_announcement
 import bot.mac.mobile.resources.group_members
 import bot.mac.mobile.resources.group_artifacts
 import bot.mac.mobile.resources.group_info_preview
+import bot.mac.mobile.resources.common_copy_path
+import bot.mac.mobile.resources.common_provided_by
+import bot.mac.mobile.resources.group_announcement_edit_title
+import bot.mac.mobile.resources.group_announcement_empty
+import bot.mac.mobile.resources.group_open_home
+import bot.mac.mobile.resources.search_filter_bots
 import org.jetbrains.compose.resources.stringResource
 
 /** Group information page backed by the project, announcement, bot, and artifact snapshots. */
@@ -136,7 +144,7 @@ fun GroupInfoScreen(
                             MarkdownText(announcementText, Modifier.fillMaxWidth())
                         } else {
                             Text(
-                                stringResource(Res.string.feature_announcement_empty),
+                                stringResource(Res.string.group_announcement_empty),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium,
                             )
@@ -148,18 +156,18 @@ fun GroupInfoScreen(
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { onEditAnnouncement(projectId) }, modifier = Modifier.weight(1f)) {
-                        Text(stringResource(Res.string.feature_announcement_edit), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(stringResource(Res.string.group_announcement_edit_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     OutlinedButton(
                         onClick = { if (homePath.isNotBlank()) onOpenHome(homePath) },
                         enabled = homePath.isNotBlank(),
                         modifier = Modifier.weight(1f),
-                    ) { Text(stringResource(Res.string.feature_home_open), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    ) { Text(stringResource(Res.string.group_open_home), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     OutlinedButton(
                         onClick = { if (homePath.isNotBlank()) onCopyHome(homePath) },
                         enabled = homePath.isNotBlank(),
                         modifier = Modifier.weight(1f),
-                    ) { Text(stringResource(Res.string.feature_home_copy), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    ) { Text(stringResource(Res.string.common_copy_path), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
                 Text(stringResource(Res.string.feature_home_value, homePath), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -207,7 +215,7 @@ fun GroupInfoScreen(
                             val path = artifact.str("path_or_url")
                             val author = botsById[artifact.str("bot_id")]?.str("name")
                                 ?.takeIf(String::isNotBlank)
-                                ?: stringResource(Res.string.feature_bot)
+                                ?: stringResource(Res.string.search_filter_bots)
                             Row(
                                 Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -217,7 +225,7 @@ fun GroupInfoScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(artifact.str("title").ifBlank { path }, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Spacer(Modifier.width(6.dp))
-                                        Text(stringResource(Res.string.feature_artifact_author, author), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(stringResource(Res.string.common_provided_by, author), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                     Text(path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
@@ -269,6 +277,6 @@ private fun ArtifactGlyph() {
         Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
-        Text("▤", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
+        LucideIcon(LucideIconKind.FileText, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }

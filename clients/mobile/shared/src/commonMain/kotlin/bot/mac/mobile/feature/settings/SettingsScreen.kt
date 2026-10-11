@@ -119,16 +119,16 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
-                Text(stringResource(Res.string.feature_settings), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
+                Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
+                Text(stringResource(Res.string.nav_settings), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
-                Text(stringResource(Res.string.feature_appearance), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(Res.string.settings_appearance), style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("system" to Res.string.feature_theme_system, "light" to Res.string.feature_theme_light, "dark" to Res.string.feature_theme_dark).forEach { (mode, label) ->
+                    listOf("system" to Res.string.settings_theme_system, "light" to Res.string.settings_theme_light, "dark" to Res.string.settings_theme_dark).forEach { (mode, label) ->
                         FilterChip(
                             selected = if (themeMode.startsWith("translucent")) themeMode.endsWith(mode) else themeMode == mode,
                             onClick = { scope.launch { clientRepository?.setTheme(if (themeMode.startsWith("translucent")) "translucent_$mode" else mode) } },
@@ -136,7 +136,7 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                         )
                     }
                 }
-                SettingSwitch(stringResource(Res.string.feature_translucent), themeMode.startsWith("translucent")) { enabled ->
+                SettingSwitch(stringResource(Res.string.settings_translucent), themeMode.startsWith("translucent")) { enabled ->
                     val base = when {
                         themeMode.endsWith("dark") -> "dark"
                         themeMode.endsWith("light") -> "light"
@@ -147,11 +147,11 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                 if (themeMode.startsWith("translucent")) {
                     Text(stringResource(Res.string.feature_translucent_android_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                SettingSwitch(stringResource(Res.string.feature_notification_sound), notificationSound) {
+                SettingSwitch(stringResource(Res.string.settings_notify_sound), notificationSound) {
                     notificationSound = it
                     scope.launch { clientRepository?.setNotificationSound(it) }
                 }
-                SettingSwitch(stringResource(Res.string.feature_notifications), notifications) {
+                SettingSwitch(stringResource(Res.string.bot_field_notifications), notifications) {
                     notifications = it
                     scope.launch { clientRepository?.setNotifications(it) }
                 }
@@ -172,7 +172,7 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(Res.string.feature_provider_management), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                    Button(onClick = { openProvider(null) }) { Text(stringResource(Res.string.feature_provider_create)) }
+                    Button(onClick = { openProvider(null) }) { Text(stringResource(Res.string.settings_models_add_provider)) }
                 }
             }
             items(state.providers, key = { it.str("id").ifBlank { "provider:${it.hashCode()}" } }) { provider ->
@@ -183,7 +183,7 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                     Text(if (provider.boolean("has_key")) stringResource(Res.string.feature_key_configured) else stringResource(Res.string.feature_key_missing), style = MaterialTheme.typography.labelSmall)
                     providerFeedback[provider.str("id")]?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button(onClick = { openProvider(provider) }) { Text(stringResource(Res.string.feature_edit)) }
+                        Button(onClick = { openProvider(provider) }) { Text(stringResource(Res.string.common_edit)) }
                         Button(onClick = {
                             scope.launch {
                                 runCatching { repository.call("provider.test", buildJsonObject { put("provider_id", provider.str("id")) }) }
@@ -194,7 +194,7 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                                     }
                                     .onFailure { providerFeedback = providerFeedback + (provider.str("id") to (it.message ?: loadError)) }
                             }
-                        }) { Text(stringResource(Res.string.feature_provider_test)) }
+                        }) { Text(stringResource(Res.string.settings_models_test)) }
                         Button(onClick = {
                             scope.launch {
                                 runCatching { repository.call("model.refresh", buildJsonObject { put("provider_id", provider.str("id")) }) }
@@ -231,7 +231,7 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                         style = MaterialTheme.typography.labelSmall,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button(onClick = { openModel(model) }) { Text(stringResource(Res.string.feature_edit)) }
+                        Button(onClick = { openModel(model) }) { Text(stringResource(Res.string.common_edit)) }
                         Button(onClick = { deletingModel = model }) { Text(stringResource(Res.string.feature_model_delete)) }
                     }
                 }
@@ -245,7 +245,7 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
     editingProvider?.let { provider ->
         AlertDialog(
             onDismissRequest = { editingProvider = null },
-            title = { Text(stringResource(if (provider.str("id").isBlank()) Res.string.feature_provider_create else Res.string.feature_provider_edit)) },
+            title = { Text(stringResource(if (provider.str("id").isBlank()) Res.string.settings_models_add_provider else Res.string.feature_provider_edit)) },
             text = {
                 Column(Modifier.imePadding().heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(providerName, { providerName = it }, label = { Text(stringResource(Res.string.feature_provider_name)) })

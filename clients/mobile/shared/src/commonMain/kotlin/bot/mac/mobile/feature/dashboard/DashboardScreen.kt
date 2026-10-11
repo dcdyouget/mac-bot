@@ -168,7 +168,7 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
                 Text(stringResource(Res.string.dashboard_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = onSelectHost) { Text(stringResource(Res.string.dashboard_host_select)) }
+                TextButton(onClick = onSelectHost) { Text(stringResource(Res.string.host_switch_title)) }
                 IconButton(onClick = { reload() }, modifier = Modifier.semantics { contentDescription = refreshLabel }) { LucideIcon(LucideIconKind.RefreshCw, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) }
             }
         }
@@ -195,8 +195,8 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
             item {
                 SectionHeader(stringResource(Res.string.dashboard_heatmap))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(heatMode == HeatMode.CALENDAR, { heatMode = HeatMode.CALENDAR }, label = { Text(stringResource(Res.string.dashboard_calendar)) })
-                    FilterChip(heatMode == HeatMode.WEEK_HOUR, { heatMode = HeatMode.WEEK_HOUR }, label = { Text(stringResource(Res.string.dashboard_weekhour)) })
+                    FilterChip(heatMode == HeatMode.CALENDAR, { heatMode = HeatMode.CALENDAR }, label = { Text(stringResource(Res.string.dashboard_heatmap_calendar)) })
+                    FilterChip(heatMode == HeatMode.WEEK_HOUR, { heatMode = HeatMode.WEEK_HOUR }, label = { Text(stringResource(Res.string.dashboard_heatmap_week_hour)) })
                 }
                 Heatmap(data = heatmap, mode = heatMode, onDaySelected = { selectedDay = it })
             }
@@ -286,11 +286,11 @@ private fun SummaryCards(summary: JsonObject?) {
     val currentCost = current?.number("cost")
     val previousCost = previous?.number("cost")
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SummaryCard(stringResource(Res.string.dashboard_tokens), current?.long("input_tokens", "output_tokens") ?: current?.long("tokens") ?: 0L, previous?.long("input_tokens", "output_tokens") ?: previous?.long("tokens") ?: 0L)
-        SummaryCard(stringResource(Res.string.dashboard_cost), currentCost?.let(::formatCost) ?: stringResource(Res.string.dashboard_unpriced), previousCost?.let(::formatCost) ?: stringResource(Res.string.dashboard_unpriced))
-        SummaryCard(stringResource(Res.string.dashboard_requests), current?.long("requests") ?: 0L, previous?.long("requests") ?: 0L)
-        SummaryCard(stringResource(Res.string.dashboard_cache_hit), formatPercent(cacheHitRatio(current)), formatPercent(cacheHitRatio(previous)))
-        SummaryCard(stringResource(Res.string.dashboard_tasks), current?.long("tasks_done") ?: 0L, previous?.long("tasks_done") ?: 0L)
+        SummaryCard(stringResource(Res.string.dashboard_kpi_tokens), current?.long("input_tokens", "output_tokens") ?: current?.long("tokens") ?: 0L, previous?.long("input_tokens", "output_tokens") ?: previous?.long("tokens") ?: 0L)
+        SummaryCard(stringResource(Res.string.dashboard_kpi_cost), currentCost?.let(::formatCost) ?: stringResource(Res.string.dashboard_unpriced), previousCost?.let(::formatCost) ?: stringResource(Res.string.dashboard_unpriced))
+        SummaryCard(stringResource(Res.string.dashboard_kpi_requests), current?.long("requests") ?: 0L, previous?.long("requests") ?: 0L)
+        SummaryCard(stringResource(Res.string.dashboard_kpi_cache_hit), formatPercent(cacheHitRatio(current)), formatPercent(cacheHitRatio(previous)))
+        SummaryCard(stringResource(Res.string.dashboard_kpi_tasks_done), current?.long("tasks_done") ?: 0L, previous?.long("tasks_done") ?: 0L)
     }
 }
 
@@ -547,20 +547,20 @@ private fun bucketLabel(value: JsonElement?, fallback: Int): String {
 
 private fun Dimension.label(): String = name.lowercase()
 @Composable private fun dimensionLabel(value: Dimension): String = when (value) {
-    Dimension.MODEL -> stringResource(Res.string.dashboard_model)
-    Dimension.BOT -> stringResource(Res.string.dashboard_bot)
-    Dimension.PROJECT -> stringResource(Res.string.dashboard_project)
+    Dimension.MODEL -> stringResource(Res.string.dashboard_dimension_model)
+    Dimension.BOT -> stringResource(Res.string.dashboard_dimension_bot)
+    Dimension.PROJECT -> stringResource(Res.string.dashboard_dimension_project)
 }
 @Composable private fun metricLabel(value: Metric): String = when (value) {
-    Metric.TOKENS -> stringResource(Res.string.dashboard_tokens)
-    Metric.COST -> stringResource(Res.string.dashboard_cost)
-    Metric.REQUESTS -> stringResource(Res.string.dashboard_requests)
+    Metric.TOKENS -> stringResource(Res.string.dashboard_kpi_tokens)
+    Metric.COST -> stringResource(Res.string.dashboard_kpi_cost)
+    Metric.REQUESTS -> stringResource(Res.string.dashboard_kpi_requests)
 }
 @Composable private fun Range.label(): String = when (this) {
-    Range.TODAY -> stringResource(Res.string.dashboard_today)
-    Range.DAYS_7 -> stringResource(Res.string.dashboard_seven_days)
-    Range.DAYS_30 -> stringResource(Res.string.dashboard_thirty_days)
-    Range.DAYS_90 -> stringResource(Res.string.dashboard_ninety_days)
+    Range.TODAY -> stringResource(Res.string.dashboard_range_today)
+    Range.DAYS_7 -> stringResource(Res.string.dashboard_range_7d)
+    Range.DAYS_30 -> stringResource(Res.string.dashboard_range_30d)
+    Range.DAYS_90 -> stringResource(Res.string.dashboard_range_90d)
     Range.CUSTOM -> stringResource(Res.string.dashboard_custom)
 }
 private fun formatValue(value: Any): String = when (value) {

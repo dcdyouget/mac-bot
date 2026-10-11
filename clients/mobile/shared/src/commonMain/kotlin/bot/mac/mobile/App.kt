@@ -169,7 +169,7 @@ import org.jetbrains.compose.resources.stringResource
                             containerColor = LocalMobilePalette.current.sidebar,
                             contentColor = LocalMobilePalette.current.textSecondary,
                         ) {
-                            listOf(Res.string.tab_messages, Res.string.tab_workbench, Res.string.tab_mine).forEachIndexed { index, label ->
+                            listOf(Res.string.nav_tab_messages, Res.string.nav_tab_workbench, Res.string.nav_tab_me).forEachIndexed { index, label ->
                                 NavigationBarItem(
                                     selected = tab == index, onClick = { tab = index },
                                     icon = { Text(listOf("◉", "⟳", "○")[index], style = MaterialTheme.typography.titleMedium) },
@@ -273,25 +273,27 @@ import org.jetbrains.compose.resources.stringResource
     val scope = rememberCoroutineScope()
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
+        FontScaleToolbar {
         Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal=16.dp), verticalAlignment=Alignment.CenterVertically) {
             TextButton(onClick={hostSheet=true}, modifier=Modifier.weight(1f)) { Text("${active?.name.orEmpty()} ⌄", style=MaterialTheme.typography.titleMedium) }
             TextButton(onClick=onSearch) { Text("⌕", style=MaterialTheme.typography.headlineSmall) }
+        }
         }
         HorizontalDivider()
         LazyColumn(Modifier.weight(1f), contentPadding=PaddingValues(vertical=8.dp)) {
             val main = state.chats.firstOrNull { it.str("kind")=="main" }
             main?.let { item { ChatRow(it, state, onChat, repository) } }
-            item { Text(stringResource(Res.string.chat_groups),Modifier.padding(16.dp),style=MaterialTheme.typography.titleMedium) }
             val groups=state.chats.filter { it.str("kind")=="project" }.sortedWith(
                 compareBy<JsonObject> { chatAttentionRank(it, state) }
                     .thenByDescending { it.boolean("pinned") }
                     .thenByDescending { it.str("updated_at") },
             )
+            item { Text(stringResource(Res.string.sidebar_section_groups, groups.size),Modifier.padding(16.dp),style=MaterialTheme.typography.titleMedium) }
             val visible=groups.filter { chat -> val status=state.projects.firstOrNull { it.str("id")==chat.str("project_id") }?.str("status"); status !in listOf("done","archived") || completed }
             items(visible,key={it.str("id")}) { ChatRow(it,state,onChat,repository) }
-            if (groups.isEmpty()) item { Text(stringResource(Res.string.chat_empty),Modifier.padding(horizontal=16.dp,vertical=12.dp),color=MaterialTheme.colorScheme.onSurfaceVariant) }
-            item { TextButton(onClick={completed=!completed}) { Text(stringResource(Res.string.chat_completed)+" ▾") } }
-            item { Text(stringResource(Res.string.chat_bots),Modifier.padding(16.dp),style=MaterialTheme.typography.titleMedium) }
+            if (groups.isEmpty()) item { Text(stringResource(Res.string.sidebar_empty_groups),Modifier.padding(horizontal=16.dp,vertical=12.dp),color=MaterialTheme.colorScheme.onSurfaceVariant) }
+            item { TextButton(onClick={completed=!completed}) { Text(stringResource(Res.string.sidebar_completed)+" ▾") } }
+            item { Text(stringResource(Res.string.sidebar_section_bots, state.bots.count { !it.boolean("hidden") }),Modifier.padding(16.dp),style=MaterialTheme.typography.titleMedium) }
             items(state.chats.filter { it.str("kind") in listOf("direct","bot_dm") && state.bots.firstOrNull { b->b.str("id")==it.str("bot_id") }?.boolean("hidden")!=true }.sortedByDescending{it.boolean("pinned")},key={it.str("id")}) { ChatRow(it,state,onChat,repository) }
         }
     }
@@ -365,9 +367,9 @@ import org.jetbrains.compose.resources.stringResource
         Row(Modifier.align(Alignment.CenterEnd).width(216.dp).fillMaxHeight(), horizontalArrangement=Arrangement.spacedBy(0.dp)) {
             val projectId = chat.str("project_id")
             listOf(
-                Triple(if (chat.boolean("pinned")) "★" else "☆", if (chat.boolean("pinned")) Res.string.chat_unpin else Res.string.chat_pin, "pin"),
-                Triple(if (projectId.isNotBlank()) "✓" else "✓", Res.string.chat_confirm_done, "done"),
-                Triple(if (chat.boolean("muted")) "◉" else "◌", if (chat.boolean("muted")) Res.string.chat_unmute else Res.string.chat_mute, "mute"),
+                Triple(if (chat.boolean("pinned")) "★" else "☆", if (chat.boolean("pinned")) Res.string.chat_unpin else Res.string.sidebar_menu_pin, "pin"),
+                Triple(if (projectId.isNotBlank()) "✓" else "✓", Res.string.sidebar_menu_mark_done, "done"),
+                Triple(if (chat.boolean("muted")) "◉" else "◌", if (chat.boolean("muted")) Res.string.chat_unmute else Res.string.sidebar_menu_mute, "mute"),
             ).forEach { (icon, label, action) ->
                 Column(
                     Modifier.width(72.dp).fillMaxHeight().background(when (action) { "pin" -> LocalMobilePalette.current.accent; "done" -> LocalMobilePalette.current.success; else -> LocalMobilePalette.current.textSecondary })
@@ -422,7 +424,7 @@ import org.jetbrains.compose.resources.stringResource
         Column(Modifier.weight(1f)) {
             Text(chat.str("title"),style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.semantics { contentDescription = rowDescription })
             pendingApproval?.let { approval ->
-                Text("⚠ ${stringResource(Res.string.feature_approval)} · ${approval.str("summary").ifBlank { approval.str("tool") }}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
+                Text("⚠ ${stringResource(Res.string.status_need_approval)} · ${approval.str("summary").ifBlank { approval.str("tool") }}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
             } ?: pendingQuestion?.let { question ->
                 Text("⚠ ${stringResource(Res.string.status_waiting_user)} · ${question.str("text")}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
             }
@@ -465,10 +467,10 @@ private fun chatAttentionRank(chat: JsonObject, state: MobileState): Int = when 
 }
 @Composable private fun MineScreen(onOpen:(String)->Unit) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainer)) {
-        Text(stringResource(Res.string.tab_mine),Modifier.padding(24.dp),style=MaterialTheme.typography.headlineSmall)
+        FontScaleToolbar { Text(stringResource(Res.string.nav_tab_me),Modifier.padding(24.dp),style=MaterialTheme.typography.headlineSmall) }
         Text(stringResource(Res.string.mine_subtitle),Modifier.padding(horizontal=24.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(16.dp)) {
-            items(listOf("connect" to Res.string.nav_hosts,"bots" to Res.string.nav_bots,"approvals" to Res.string.nav_approval,"dashboard" to Res.string.nav_dashboard,"skills" to Res.string.nav_skills,"routines" to Res.string.nav_routines,"settings" to Res.string.nav_settings)) { (route,label)->
+            items(listOf("connect" to Res.string.nav_hosts,"bots" to Res.string.nav_bots_manage,"approvals" to Res.string.nav_approval,"dashboard" to Res.string.nav_dashboard,"skills" to Res.string.nav_skills,"routines" to Res.string.nav_routines,"settings" to Res.string.nav_settings)) { (route,label)->
                 ListItem(headlineContent={Text(stringResource(label))},trailingContent={Text("›")},modifier=Modifier.clickable{onOpen(route)})
                 HorizontalDivider()
             }

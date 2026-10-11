@@ -26,7 +26,7 @@ import org.jetbrains.compose.resources.stringResource
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         FontScaleToolbar { Row { TextButton(onClick = onBack) { Text(stringResource(Res.string.common_back)) } } }
-        Text(stringResource(Res.string.host_welcome), style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(Res.string.onboarding_connect_subtitle), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(Res.string.host_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { OutlinedTextField(name, { name = it }, label = { Text(stringResource(Res.string.host_field_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
@@ -64,8 +64,8 @@ import org.jetbrains.compose.resources.stringResource
                         }
                         Text(host.addresses.joinToString("\n"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row {
-                            TextButton(onClick = { scope.launch { runCatching { repository.selectHost(host.id) }.onFailure { error = it.message }; onBack() } }) { Text(stringResource(Res.string.host_switch)) }
-                            TextButton(onClick = { editing = host.id; name = host.name; addresses = host.addresses.joinToString("\n"); password = "" }) { Text(stringResource(Res.string.host_edit)) }
+                            TextButton(onClick = { scope.launch { runCatching { repository.selectHost(host.id) }.onFailure { error = it.message }; onBack() } }) { Text(stringResource(Res.string.host_switch_title)) }
+                            TextButton(onClick = { editing = host.id; name = host.name; addresses = host.addresses.joinToString("\n"); password = "" }) { Text(stringResource(Res.string.common_edit)) }
                             TextButton(onClick = { scope.launch { runCatching { repository.deleteHost(host.id) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.host_delete)) }
                         }
                     }

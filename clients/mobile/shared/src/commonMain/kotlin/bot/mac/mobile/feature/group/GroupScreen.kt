@@ -29,6 +29,8 @@ import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.core.network.NetworkError
 import bot.mac.mobile.feature.chat.ChatScreen
 import bot.mac.mobile.feature.chat.StatusLabel
@@ -100,8 +102,8 @@ fun GroupScreen(
                 Column(Modifier.fillMaxSize().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     FontScaleToolbar {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { showAnnouncementEditor = false; announcementConflict = null }) { Text(stringResource(Res.string.feature_back)) }
-                            Text(stringResource(Res.string.feature_announcement_edit), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                            Button(onClick = { showAnnouncementEditor = false; announcementConflict = null }) { Text(stringResource(Res.string.common_back)) }
+                            Text(stringResource(Res.string.group_announcement_edit_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                             Button(enabled = !announcementSaving && announcementText.length <= 8000, onClick = {
                             announcementSaving = true
                             scope.launch {
@@ -172,14 +174,14 @@ fun GroupScreen(
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth().padding(12.dp)) {
-                Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+                Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text(project?.str("name")?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.feature_group), style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+                    Text(project?.str("name")?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.search_filter_groups), style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
                     project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
                 }
-                Button(onClick = { showAnnouncement = !showAnnouncement }) { Text(stringResource(Res.string.feature_announcement)) }
-                Button(onClick = { onOpenGroupInfo(projectId) }) { Text(stringResource(Res.string.feature_group_info)) }
-                Button(onClick = { announcementText = announcement?.str("text").orEmpty(); announcementBaseVersion = announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L; showAnnouncementEditor = true }) { Text(stringResource(Res.string.feature_edit)) }
+                Button(onClick = { showAnnouncement = !showAnnouncement }) { Text(stringResource(Res.string.group_announcement)) }
+                Button(onClick = { onOpenGroupInfo(projectId) }) { Text(stringResource(Res.string.group_info)) }
+                Button(onClick = { announcementText = announcement?.str("text").orEmpty(); announcementBaseVersion = announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L; showAnnouncementEditor = true }) { Text(stringResource(Res.string.group_announcement_edit)) }
                 Button(onClick = { showEdit = !showEdit }) { Text(stringResource(Res.string.feature_edit_group)) }
             }
         }
@@ -220,7 +222,7 @@ fun GroupScreen(
                             val assignment = state.assignments.firstOrNull { it.str("id") == assignmentId }
                             if (assignmentId.isNotBlank()) {
                                 Button(onClick = { onOpenTrace(assignmentId) }) {
-                                    Text(assignment?.str("title").orEmpty().ifBlank { stringResource(Res.string.feature_detail) })
+                                    Text(assignment?.str("title").orEmpty().ifBlank { stringResource(Res.string.common_details) })
                                 }
                             }
                         }
@@ -273,7 +275,7 @@ fun GroupScreen(
         }
         Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (project?.str("status") == "review" || project?.str("status") == "active") {
-                Button(onClick = { scope.launch { runCatching { repository.call("project.confirm_done", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_confirm_done)) }
+                Button(onClick = { scope.launch { runCatching { repository.call("project.confirm_done", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.common_done)) }
             }
             if (project?.str("status") == "review" || project?.str("status") == "active") {
                 Button(onClick = {
@@ -291,10 +293,10 @@ fun GroupScreen(
                         changeProjectId = null
                         showChangeInput = false
                     }
-                }) { Text(if (showChangeInput) stringResource(Res.string.feature_submit_changes) else stringResource(Res.string.feature_request_changes)) }
+                }) { Text(if (showChangeInput) stringResource(Res.string.feature_submit_changes) else stringResource(Res.string.block_review_card_request_changes)) }
             }
             if (project?.str("status") == "done") {
-                Button(onClick = { scope.launch { runCatching { repository.call("project.archive", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_archive)) }
+                Button(onClick = { scope.launch { runCatching { repository.call("project.archive", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.sidebar_menu_archive)) }
             }
             if (project?.str("status") == "archived") {
                 Button(onClick = { scope.launch { runCatching { repository.call("project.reopen", buildJsonObject { put("project_id", projectId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_reopen)) }
@@ -317,10 +319,10 @@ fun GroupCreateScreen(
     val scope = rememberCoroutineScope()
     val createFailed = stringResource(Res.string.feature_create_failed)
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        FontScaleToolbar { Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(stringResource(Res.string.feature_create_group), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) } }
+        FontScaleToolbar { Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }; Text(stringResource(Res.string.new_create_group), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) } }
         OutlinedTextField(name, { name = it.take(32) }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_group_name)) }, supportingText = { Text(stringResource(Res.string.feature_name_max_length, 32)) })
         OutlinedTextField(goal, { goal = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text(stringResource(Res.string.feature_announcement_body)) })
-        Text(stringResource(Res.string.feature_group_members), style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(Res.string.group_members), style = MaterialTheme.typography.titleSmall)
         state.bots.filter { !it.boolean("is_main") && !it.boolean("hidden") }.forEach { bot ->
             val id = bot.str("id").takeIf { it.isNotBlank() } ?: return@forEach
             val isSelected = selected.contains(id)
@@ -345,7 +347,7 @@ fun GroupCreateScreen(
                     if (id == null) error = createFailed else onCreated(id)
                 }.onFailure { error = it.message ?: createFailed }
             }
-        }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.feature_create)) }
+        }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.new_create_group)) }
     }
 }
 
@@ -362,14 +364,14 @@ private fun AnnouncementPanel(
             Text(stringResource(Res.string.feature_announcement_title, project?.str("name") ?: ""), style = MaterialTheme.typography.titleMedium)
             project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
             if (announcement?.str("text").orEmpty().isNotBlank()) MarkdownText(announcement?.str("text").orEmpty(), Modifier.fillMaxWidth())
-            else Text(stringResource(Res.string.feature_announcement_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else Text(stringResource(Res.string.group_announcement_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
             announcement?.str("text_updated_at")?.takeIf { it.isNotBlank() }?.let { Text(stringResource(Res.string.feature_announcement_updated, it), style = MaterialTheme.typography.bodySmall) }
             val home = project?.str("home_path").orEmpty()
             Text(stringResource(Res.string.feature_home_value, home))
             if (home.isNotBlank()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(onClick = { onOpenHome(home) }) { Text(stringResource(Res.string.feature_home_open)) }
-                    Button(onClick = { onCopyHome(home) }) { Text(stringResource(Res.string.feature_home_copy)) }
+                    Button(onClick = { onOpenHome(home) }) { Text(stringResource(Res.string.group_open_home)) }
+                    Button(onClick = { onCopyHome(home) }) { Text(stringResource(Res.string.common_copy_path)) }
                 }
             }
             announcement?.arr("artifacts")?.forEach { item ->
@@ -378,9 +380,12 @@ private fun AnnouncementPanel(
                 val pathOrUrl = artifact.str("path_or_url")
                 if (artifactId.isNotBlank() && pathOrUrl.isNotBlank()) {
                     Column {
-                        Text(stringResource(Res.string.feature_artifact_author, artifact.str("bot_id").ifBlank { stringResource(Res.string.feature_bot) }), style = MaterialTheme.typography.labelSmall)
+                        Text(stringResource(Res.string.common_provided_by, artifact.str("bot_id").ifBlank { stringResource(Res.string.search_filter_bots) }), style = MaterialTheme.typography.labelSmall)
                         Button(onClick = { onOpenArtifact(artifactId, pathOrUrl, project?.str("id")) }) {
-                            Text("▤ ${artifact.str("title").ifBlank { pathOrUrl }}")
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                LucideIcon(LucideIconKind.FileText, Modifier.size(18.dp))
+                                Text(artifact.str("title").ifBlank { pathOrUrl })
+                            }
                         }
                     }
                 }
