@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-material="opaque">
+<head>
+<meta charset="utf-8">
+<title>Mac Bot · 提示音</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="base.css">
+<style>
+.doc { max-width: 760px; margin: 0 auto; }
+.snd { display: flex; align-items: center; gap: 14px; padding: 14px 16px; }
+.snd + .snd { border-top: 1px solid var(--border-subtle); }
+.play { width: 40px; height: 40px; border-radius: 20px; background: var(--accent); color: var(--accent-on); display: flex; align-items: center; justify-content: center; flex: none; }
+.play:active { transform: scale(.95); }
+</style>
+</head>
+<body>
+<div class="wallpaper"><div class="doc">
+  <div class="t-display" style="margin-top:12px">提示音</div>
+  <p class="t2" style="margin:8px 0 20px;font-size:14px;line-height:22px">全部是用 <span class="inline-code">design/tools/make_sounds.py</span> 合成的原创声音（两个音节、0.15–0.7 秒），没有版权限制。<b>已选定「啵啵 · 气泡」作为 macOS 和手机的唯一提示音</b>（规则见 01-foundations §11），其余保留为候选。点击试听；文件在 <span class="inline-code">design/sounds/</span>（wav + m4a）。</p>
+  <div class="card" id="list"></div>
+</div></div>
+<script src="shared.js"></script>
+<script>
+const S = [
+  ['01-glass-ding-dong', '叮咚 · 玻璃', '上行五度，清亮。建议：新消息（默认）'],
+  ['02-marimba-up', '嘀嗒 · 马林巴', '上行大三度，木质、很轻。备选：新消息'],
+  ['03-kalimba-pluck', '卡林巴', '拨弦，温暖、辨识度高。备选：新消息'],
+  ['04-bubble-pop', '啵啵 · 气泡 ✓ 已选定', '150ms，轻、短。三端所有通知都用它'],
+  ['05-wood-tock', '嗒嗒 · 木块', '短促干脆。建议：任务完成'],
+  ['06-attention', '需要你 · 三连上行', '略醒目，但不刺耳。建议：审批 / 提问 / 接管（需要你）'],
+  ['07-review-soft', '完成 · 柔和下行', '有「收尾」感。建议：待验收'],
+];
+document.getElementById('list').innerHTML = S.map(([f, t, d]) => `<div class="snd"><button class="play" onclick="new Audio('../sounds/${f}.m4a').play()"><svg class="ic s18"><use href="#i-play"/></svg></button>
+  <div class="grow"><b>${t}</b><div class="t-foot">${d}</div></div><span class="t-caption mono">${f}</span></div>`).join('');
+</script>
+</body>
+</html>

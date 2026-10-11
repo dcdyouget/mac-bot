@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-material="translucent">
+<head>
+<meta charset="utf-8">
+<title>Mac Bot · macOS 客户端原型</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="base.css">
+<style>
+/* ===== Window ===== spec: 03-macos.md */
+.screens { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: -24px 0 20px; }
+.screens button { height: 24px; padding: 0 9px; border-radius: 13px; font-size: 12px; color: var(--text-secondary); background: var(--bg-elevated); box-shadow: 0 0 0 1px var(--border-subtle); }
+.screens button.on { background: var(--accent); color: var(--accent-on); box-shadow: none; }
+.win { width: 1280px; height: 820px; margin: 0 auto; border-radius: 12px; overflow: hidden; position: relative; display: flex;
+  background: var(--bg-window); box-shadow: 0 30px 80px rgba(0,0,0,.25), 0 0 0 .5px rgba(0,0,0,.25), inset 0 0 0 .5px rgba(255,255,255,.15); }
+[data-theme='dark'] .win { box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 0 .5px rgba(255,255,255,.12); }
+.lights { position: absolute; top: 18px; left: 20px; display: flex; gap: 8px; z-index: 5; }
+.lights span { width: 12px; height: 12px; border-radius: 50%; background: #FF5F57; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.15); }
+.lights span:nth-child(2) { background: #FEBC2E; } .lights span:nth-child(3) { background: #28C840; }
+
+/* Sidebar 260 */
+.sb { width: 260px; flex: none; display: flex; flex-direction: column; background: var(--bg-sidebar); border-right: 1px solid var(--border-subtle); }
+.sb-top { height: 52px; display: flex; align-items: center; justify-content: flex-end; padding: 0 12px 0 84px; gap: 2px; }
+.host { display: flex; align-items: center; gap: 6px; white-space: nowrap; height: 28px; padding: 0 8px; border-radius: 6px; font-size: 13px; font-weight: 600; margin-right: auto; margin-left: -6px; }
+.host:hover { background: var(--bg-hover); }
+.host .on { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+.sb-search { margin: 0 12px 8px; height: 28px; border-radius: 8px; background: var(--bg-active); display: flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--text-tertiary); font-size: 13px; }
+.sb-scroll { flex: 1; overflow: auto; padding: 0 8px 8px; }
+.chatrow { display: flex; gap: 10px; align-items: center; height: 60px; padding: 0 8px; border-radius: 10px; position: relative; }
+.chatrow:hover { background: var(--bg-hover); }
+.chatrow.sel { background: var(--bg-selected); }
+.chatrow .l1 { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; line-height: 18px; }
+.chatrow .l1 .time { margin-left: auto; font-weight: 400; font-size: 11px; color: var(--text-tertiary); }
+.chatrow .l2 { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: var(--text-secondary); margin-top: 2px; }
+.chatrow .l2 .ellipsis { flex: 1; }
+.chatrow .tag { font-size: 11px; font-weight: 500; color: var(--text-tertiary); }
+.botrow { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border-radius: 6px; font-size: 13px; }
+.botrow:hover { background: var(--bg-hover); }
+.botrow .st { margin-left: auto; font-size: 11px; color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; }
+.navrow { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border-radius: 6px; font-size: 13px; color: var(--text-secondary); }
+.navrow:hover { background: var(--bg-hover); color: var(--text-primary); }
+.navrow.sel { background: var(--bg-active); color: var(--text-primary); }
+.navrow .r { margin-left: auto; font-size: 11px; }
+.sb-foot { padding: 8px; border-top: 1px solid var(--border-subtle); }
+
+/* Main */
+.main { flex: 1; min-width: 480px; display: flex; flex-direction: column; background: var(--bg-chat); position: relative; }
+.toolbar { height: 52px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-window); }
+.toolbar .tt { font-size: 14px; font-weight: 600; line-height: 18px; }
+.toolbar .ts { font-size: 11px; line-height: 14px; color: var(--text-secondary); display: flex; gap: 8px; align-items: center; }
+.statusbar { display: flex; gap: 4px; padding: 6px 16px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-window); align-items: center; }
+.pinned { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-window); font-size: 12px; }
+.pinned .bar { width: 2px; height: 24px; border-radius: 1px; background: var(--accent); }
+.scroll { flex: 1; overflow: auto; }
+.center { max-width: 760px; margin: 0 auto; }
+
+/* Right panel 280 */
+.panel { width: 280px; flex: none; display: flex; flex-direction: column; background: var(--bg-panel); border-left: 1px solid var(--border-subtle); }
+.panel-h { height: 52px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border-subtle); }
+.panel-h .t { font-size: 13px; font-weight: 600; margin-right: auto; }
+.listcol { width: 260px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--border-subtle); background: var(--bg-panel); }
+.panel-b { flex: 1; overflow: auto; padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 20px; }
+.psec .ph { display: flex; align-items: center; font-size: 11px; font-weight: 600; color: var(--text-tertiary); letter-spacing: .3px; height: 20px; margin-bottom: 6px; }
+.psec .ph .r { margin-left: auto; font-weight: 500; }
+.kv2 { display: grid; grid-template-columns: 56px 1fr; gap: 6px 10px; font-size: 13px; line-height: 18px; }
+.kv2 dt { color: var(--text-tertiary); }
+.mrow { display: flex; align-items: center; gap: 8px; height: 36px; font-size: 13px; }
+.mrow .role { color: var(--text-tertiary); font-size: 12px; }
+.prow { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border-subtle); font-size: 13px; }
+.prow:first-of-type { border-top: 0; }
+
+/* trace */
+.tl { font-size: 13px; }
+.tli { display: grid; grid-template-columns: 64px 20px 1fr auto; gap: 0 8px; align-items: start; padding: 6px 0; }
+.tli .tm { font-family: var(--font-family-mono); font-size: 11px; color: var(--text-tertiary); line-height: 20px; }
+.tli .ico { width: 20px; height: 20px; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: var(--bg-active); color: var(--text-secondary); }
+.tli .ico.model { background: var(--accent-soft); color: var(--accent); }
+.tli .ico.steer { background: var(--warning-soft); color: var(--warning); }
+.tli .ico.sub { background: var(--review-soft); color: var(--review); }
+.tli .bd { line-height: 20px; min-width: 0; }
+.tli .rs { font-size: 12px; color: var(--text-secondary); line-height: 20px; white-space: nowrap; }
+.tli .sub { margin-top: 4px; padding-left: 12px; border-left: 1.5px solid var(--border-default); font-size: 12px; color: var(--text-secondary); line-height: 18px; }
+.term { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: #1C1C1E; color: #D6D6D8; font-family: var(--font-family-mono); font-size: 12px; line-height: 18px; }
+[data-theme='dark'] .term { background: #0C0C0D; }
+
+/* stat cards / dashboard */
+.stat { padding: 14px 16px; }
+.stat .k { font-size: 12px; color: var(--text-secondary); }
+.stat .v { font-size: 24px; font-weight: 600; letter-spacing: -.4px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.stat .d { font-size: 11px; margin-top: 2px; }
+.up { color: var(--success); } .down { color: var(--danger); }
+.heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 11px); gap: 3px; }
+.heat i { width: 11px; height: 11px; border-radius: 2.5px; display: block; }
+.overlay { position: absolute; inset: 0; background: var(--bg-overlay); display: flex; align-items: flex-start; justify-content: center; padding-top: 96px; z-index: 20; }
+.dialog { width: 560px; background: var(--bg-elevated); border-radius: 14px; box-shadow: var(--elevation-4); overflow: hidden; }
+[data-material='translucent'] .dialog { backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8); }
+.hover-tools { position: absolute; top: -14px; right: 8px; display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--bg-elevated); box-shadow: var(--elevation-2); }
+.hover-tools .iconbtn { width: 24px; height: 24px; }
+.waitline { color: var(--warning) !important; font-weight: 500; }
+.chatrow.attn::before { content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 2px; background: var(--warning); }
+.arow { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--border-subtle); font-size: 13px; }
+.arow:first-of-type { border-top: 0; }
+.by { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-secondary); height: 18px; padding: 0 6px 0 2px; border-radius: 9px; background: var(--bg-active); }
+.md h1 { font-size: 22px; line-height: 28px; margin: 0 0 12px; } .md h2 { font-size: 16px; margin: 20px 0 8px; } .md p, .md li { font-size: 14px; line-height: 22px; } .md ul { padding-left: 20px; }
+</style>
+</head>
+<body>
+<div class="wallpaper">
+  <div class="screens" id="screens"></div>
+  <div class="win" id="win"></div>
+  <p class="t-foot" style="text-align:center;margin-top:16px">窗口 1280 × 820 · 侧栏 260 · 列表栏 260 · 会话区 ≥ 480 · 右面板 280 · 标题栏 52 · 红绿灯 (20, 18)。尺寸详见 03-macos.md</p>
+</div>
+<script src="shared.js"></script>
+<script src="blocks.js"></script>
+<script>
+const C = (i) => `var(--avatar-${i})`;
+const BOT = { Z: ['总管', 0], P: ['产品', 1], C: ['编码', 2], T: ['测试', 3], R: ['调研', 4], X: ['X 侦察', 5], B: ['比价', 6] };
+function av(k, s = 32, o = {}) {
+  const [, c] = BOT[k];
+  return `<div class="av s${s}" style="--c:${C(c)}">${k === 'Z' ? GLASSES : ''}${o.dot ? `<span class="dot ${o.dot}"></span>` : ''}${o.ring ? '<span class="ring-working"></span>' : ''}</div>`;
+}
+const gav = (ks, s = 40) => `<div class="gav s${s} n${Math.min(ks.length, 4)}">${ks.slice(0, 4).map((k) => `<div class="av" style="--c:${C(BOT[k][1])}"></div>`).join('')}</div>`;
+const I = (n, c = '') => `<svg class="ic ${c}"><use href="#i-${n}"/></svg>`;
+
+/* ---------- Sidebar ---------- */
+function sidebar(sel) {
+  const row = (id, avh, name, l2, time, right = '', cls = '') => `
+    <div class="chatrow ${cls} ${sel === id ? 'sel' : ''}">${avh}
+      <div class="grow"><div class="l1"><span class="ellipsis">${name}</span><span class="time">${time}</span></div>
+      <div class="l2"><span class="ellipsis">${l2}</span>${right}</div></div></div>`;
+  return `<aside class="sb glass-sidebar">
+    <div class="sb-top"><div class="host"><span class="on"></span>Mac mini（家）${I('chevD', 's14')}</div>
+      <button class="iconbtn" title="新建 ⌘N">${I('edit')}</button></div>
+    <div class="sb-search">${I('search', 's14')}<span class="grow">搜索</span><span class="kbd">⌘K</span></div>
+    <div class="sb-scroll">
+      ${row('main', av('Z', 40), '总管 <span class="tag">主 Bot</span>', '◎ 登录功能 待你验收', '11:42', '<span class="badge">1</span>')}
+      <div class="section-title" style="margin-top:8px">群 · 3</div>
+      ${row('group', gav(['Z', 'P', 'C', 'T']), '登录功能', '编码：收到，改为只做邮箱登录', '10:32', '<span class="chip working"><span class="spinner"></span>1</span>')}
+      ${row('g2', gav(['Z', 'R']), '竞品调研', '调研：正在整理对比表…', '10:12', '<span class="chip working"><span class="spinner"></span>1</span>')}
+      ${row('g3', gav(['Z', 'B']), '换新 MacBook', '<span class="waitline">⚠ 需要你审批 · 下单 ¥14,999</span>', '09:40', '<span class="badge" style="background:var(--warning)">1</span>', 'attn')}
+      <div class="navrow" style="height:28px">${I('chevR', 's14')}<span>已完成</span><span class="r">3</span></div>
+      <div class="section-title" style="margin-top:8px">Bot · 5</div>
+      ${[['P', '', '空闲'], ['C', 'wait', '需要你审批'], ['T', '', '待命'], ['R', 'working', '1 个活'], ['X', '', '待命']].map(([k, d, s]) =>
+        `<div class="botrow" style="position:relative;${sel === 'bot' + k ? 'background:var(--bg-selected)' : ''}">${av(k, 20)}<span>${BOT[k][0]}</span><span class="st">${d === 'working' ? '<span class="spinner" style="color:var(--accent)"></span>' + s : d === 'wait' ? `<span class="chip wait">${I('alert', 's14')}${s}</span>` : '<span class="sdot" style="opacity:.5"></span>' + s}</span></div>`).join('')}
+    </div>
+    <div class="sb-foot">
+      <div class="navrow ${sel === 'work' ? 'sel' : ''}">${I('layout')}<span>工作台</span><span class="r t3">4 进行中</span></div>
+      <div class="navrow ${sel === 'dash' ? 'sel' : ''}">${I('chart')}<span>仪表盘</span></div>
+      <div class="navrow ${sel === 'routines' ? 'sel' : ''}">${I('clock')}<span>定时任务</span><span class="r t3">3</span></div>
+      <div class="navrow ${sel === 'skills' ? 'sel' : ''}">${I('zap')}<span>技能</span><span class="r t3">12</span></div>
+      <div class="navrow ${sel === 'settings' ? 'sel' : ''}">${I('settings')}<span>设置</span><span class="r kbd">⌘,</span></div>
+    </div></aside>`;
+}
+
+const composer = (ph) => `<div class="composer"><div class="center row gap8" style="width:100%">
+  <div class="box"><button class="iconbtn">${I('plus', 's18')}</button><div class="txt">${ph}</div>
+  <button class="iconbtn">${I('at', 's18')}</button><div class="send off">${I('send', 's18')}</div></div></div></div>`;
+
+const panelHead = (t, back) => `<div class="panel-h glass-toolbar">${back ? `<button class="iconbtn">${I('chevL')}</button>` : ''}<span class="t">${t}</span>
+  <button class="iconbtn">${I('settings')}</button><button class="iconbtn">${I('panelR')}</button></div>`;
+
+/* ---------- Views ---------- */
+const V = {};
+V.main = () => sidebar('main') + `
+<section class="main">
+  <div class="toolbar glass-toolbar">${av('Z', 32)}<div class="grow"><div class="tt">总管</div><div class="ts">主 Bot · 只协调，不干活</div></div>
+    <button class="iconbtn">${I('search')}</button><button class="iconbtn on">${I('panelR')}</button></div>
+  <div class="scroll"><div class="msgs center">
+    ${MB.day('今天')}
+    ${MB.msg('me', ['给 App 加个邮箱登录，周六前上线'], { time: '09:58' })}
+    ${MB.msg('Z', ['好的，我拉了产品、编码、测试建群。', MB.group({ members: ['Z', 'P', 'C', 'T'], title: '登录功能', created: true, note: '给 App 加邮箱登录，周六前上线' })], { time: '09:58' })}
+    ${MB.msg('me', ['顺便看下今天 HN 前三是什么'], { time: '10:05' })}
+    ${MB.msg('Z', [MB.handoff('R')], { time: '10:05' })}
+    ${MB.msg('R', ['<p>1. <b>Zed 1.0 发布</b> — GPU UI 框架开源新版本</p><p>2. <b>SQLite 的 JSONB</b> 性能对比</p><p>3. <b>本地 LLM 推理</b> M4 基准测试</p>'], { time: '10:07', role: true })}
+    ${MB.day('11:42')}
+    ${MB.msg('Z', ['「登录功能」做完了，请你验收：', MB.review({ title: '登录功能', list: [['PRD', 'product/prd.md', 'P', 'file'], ['原型', 'product/prototype/', 'P', 'globe'], ['代码 · 已部署 localhost:3000', 'code/', 'C', 'folder'], ['测试报告 20/20', 'test/report.md', 'T', 'check']] })], { time: '11:42' })}
+  </div></div>
+  ${composer('给 总管 发消息…')}
+</section>
+<aside class="panel glass-panel">${panelHead('跟进')}
+  <div class="panel-b">
+    <div class="psec"><div class="ph">本对话中等你处理<span class="r badge" style="background:var(--review)">1</span></div>
+      <div class="banner review">${I('target')}<span class="grow">登录功能：验收</span>${I('chevR', 's14')}</div></div>
+    <div class="psec"><div class="ph">正在跟进的群<span class="r">3</span></div>
+      ${[[['Z', 'P', 'C', 'T'], '登录功能', '<span class="chip review">◎ 待你验收</span>'], [['Z', 'R'], '竞品调研', '<span class="t-caption">调研 · 工作中 41 分</span>'], [['Z', 'B'], '换新 MacBook', '<span class="chip wait">⚠ 等你审批</span>']].map(([ks, n, st]) =>
+        `<div class="mrow" style="height:52px">${gav(ks, 32)}<div class="grow"><div>${n}</div><div style="margin-top:2px">${st}</div></div><button class="iconbtn" title="进入群聊">${I('chevR', 's14')}</button></div>`).join('')}</div>
+  </div></aside>`;
+
+V.group = () => sidebar('group') + `
+<section class="main">
+  <div class="toolbar glass-toolbar">${gav(['Z', 'P', 'C', 'T'], 32)}<div class="grow"><div class="tt">登录功能</div>
+    <div class="ts"><span>4 位成员</span><span class="chip working" style="height:16px"><span class="spinner"></span>进行中</span></div></div>
+    <button class="iconbtn">${I('search')}</button><button class="iconbtn on">${I('panelR')}</button></div>
+  <div class="statusbar">
+    ${[['Z', '★ 负责人', ''], ['P', '完成', 'ok'], ['C', '工作中 25 分', 'working'], ['T', '待命', '']].map(([k, s, c]) =>
+      `<button class="chip ${c}" style="height:24px;padding:0 8px 0 3px;border-radius:12px">${av(k, 18)}${BOT[k][0]} · ${c === 'working' ? '<span class="spinner"></span>' : ''}${s}</button>`).join('')}
+  </div>
+  <div class="pinned glass-toolbar"><span class="bar"></span><div class="grow"><div style="font-weight:600;color:var(--accent)">公告</div>
+    <div class="t2 ellipsis">给 App 加邮箱登录，10/12 前上线 · 只做邮箱登录，不做手机号</div></div>${I('chevD', 's14')}</div>
+  <div class="scroll"><div class="msgs center">
+    ${MB.day('今天')}
+    ${MB.system('总管 创建了群，拉入 产品、编码、测试')}
+    ${MB.msg('Z', [`给 App 加邮箱登录，10/12 前上线。${MB.at('P')} 先出 PRD 和原型，放在 <code>Home/product/</code>。`], { time: '10:00', role: true })}
+    ${MB.msg('P', ['收到，开始写 PRD 和原型。'], { time: '10:00', role: true })}
+    ${MB.task({ title: 'PRD 与原型', state: 'done', time: '用时 18 分' })}
+    ${MB.msg('P', ['✓ 已完成 PRD 和原型：', MB.artifacts([['PRD', 'product/prd.md', 'P', 'file'], ['原型', 'product/prototype/', 'P', 'globe']]), `${MB.at('C')} 请按 PRD 实现，密码规则见 3.2 节。`], { time: '10:18', role: true })}
+    ${MB.msg('C', ['收到，开始实现。'], { time: '10:19', role: true })}
+    <div style="position:relative">${MB.msg('me', [`${MB.at('C')} 先只做邮箱登录，不要手机号`], { time: '10:31', delivery: '已送达 · <span style="color:var(--success)">编码 已读取 ✓</span>' })}
+      <div class="hover-tools" style="top:-4px;right:8px"><button class="iconbtn">${I('smile', 's14')}</button><button class="iconbtn">${I('reply', 's14')}</button><button class="iconbtn">${I('more', 's14')}</button></div></div>
+    ${MB.msg('C', [MB.quote('me', '先只做邮箱登录，不要手机号') + '收到，改为只做邮箱登录。', MB.choice({ question: `登录失败 5 次后要锁账号吗？${MB.at('me')}`, options: ['锁定 15 分钟', '不锁，只加验证码'] })], { time: '10:32', role: true })}
+    ${MB.task({ title: '实现登录', state: 'working', time: '已 25 分' })}
+    <div class="banner wait" style="max-width:520px;margin:6px 0 0 40px">${I('alert')}<span class="grow">编码 在私聊里等待你审批</span><button class="btn sm secondary">前往</button></div>
+  </div></div>
+  </div></div>
+  ${composer('在 登录功能 里发消息，@ 指定 Bot…')}
+</section>
+<aside class="panel glass-panel">${panelHead('公告')}
+  <div class="panel-b">
+    <div class="psec"><div class="ph">公告<span class="r row gap6">总管 · 10:32 更新<button class="btn sm ghost">${I('edit', 's14')}编辑</button></span></div>
+      <div class="card card-pad md-ann">
+        <h3>登录功能</h3>
+        <p>给 App 加<b>邮箱登录</b>，10/12 前上线。</p>
+        <p>Home：<code>~/MacBot/projects/login/</code></p>
+        <h3>当前事项</h3>
+        <ul><li>只做邮箱登录，不做手机号（你 · 10:31）</li><li>密码规则：8 位以上，含字母和数字（见 PRD 3.2）</li></ul>
+        <h3>已完成</h3>
+        <ul><li>✓ PRD 与原型（产品 · 10/09）</li></ul>
+      </div>
+      <div class="row gap6" style="margin-top:8px"><button class="btn sm secondary">${I('folder', 's14')}打开 Home</button><button class="btn sm ghost">${I('copy', 's14')}复制路径</button></div></div>
+    <div class="psec"><div class="ph">成员与状态</div>
+      ${[['Z', '负责人', '<span class="t3">★</span>'], ['P', 'PRD、原型', '<span class="chip ok">✓ 完成</span>'], ['C', '实现、部署', '<span class="chip working"><span class="spinner"></span>25 分</span>'], ['T', '测试、回归', '<span class="chip">○ 待命</span>']].map(([k, r, s]) =>
+        `<div class="mrow">${av(k, 28)}<div class="grow"><div>${BOT[k][0]}</div></div><span class="role">${r}</span>${s}</div>`).join('')}</div>
+    <div class="psec"><div class="ph">产物<span class="r">3</span></div>
+      ${[['PRD', 'product/prd.md', 'P', '10:18', 'file'], ['原型', 'product/prototype/', 'P', '10:18', 'globe'], ['代码', 'code/', 'C', '10:52', 'folder']].map(([n, p, k, t, ic]) =>
+        `<div class="arow"><span class="fi" style="width:28px;height:28px;border-radius:6px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:none">${I(ic, 's14')}</span><div class="grow" style="min-width:0"><div class="row gap6">${n}<span class="by">${av(k, 16)}${BOT[k][0]} 提供</span></div><div class="t-caption mono ellipsis">${p}</div><div class="t-caption">${t} 更新</div></div><button class="btn sm secondary">预览</button></div>`).join('')}</div>
+
+  </div></aside>`;
+
+V.mention = () => V.group().replace('</section>', `  <div class="pop glass-pop" style="position:absolute;left:24px;bottom:66px;width:300px">
+    <div class="t-caption" style="padding:4px 8px 6px">成员</div>
+    <div class="item on">${av('C', 20)}<span class="grow">编码</span><span class="t3">工作中 · 插话</span></div>
+    <div class="item">${av('P', 20)}<span class="grow">产品</span><span class="t3">完成</span></div>
+    <div class="item">${av('T', 20)}<span class="grow">测试</span><span class="t3">待命</span></div>
+    <div class="item">${I('users')}<span class="grow">everyone</span></div></div>
+</section>`);
+V.detail = () => V.group().replace(/<aside class="panel glass-panel">[\s\S]*$/, `
+<aside class="panel glass-panel">${panelHead('编码 · 实现登录', true)}
+  <div class="panel-b" style="gap:16px">
+    <div><div class="row gap8">${av('C', 28, { ring: 1 })}<div class="grow"><div class="t-title">实现登录</div><div class="t-caption">工作中 · 25 分 · 88k tok · Claude Sonnet</div></div></div>
+      <div class="row gap6" style="margin-top:12px"><button class="btn sm danger">${I('stop', 's14')}停止</button><button class="btn sm secondary">${I('at', 's14')}@ 它</button><button class="btn sm secondary">${I('monitor', 's14')}屏幕</button></div></div>
+    <div class="psec"><div class="ph">任务指令</div><div class="card card-pad" style="font-size:13px;line-height:19px">按 PRD 实现邮箱登录<div class="t-caption">来自 产品 · 10:19</div>
+      <div class="divider" style="margin:8px 0"></div><span style="color:var(--warning)">✎</span> 你 10:31：只做邮箱登录</div></div>
+    <div class="psec"><div class="ph">工作过程</div><div class="tl">
+      ${[['zap', 'skill · web-auth-patterns', ''], ['file', 'read <span class="mono">product/prd.md</span>', '212 行'], ['branch', '子代理 ×3 并行', '12k'], ['edit', 'write <span class="mono">code/auth/</span>', '6 文件'], ['terminal', 'bash <span class="mono">npm test</span>', '18/18']].map(([i, t, r]) =>
+        `<div class="row gap8" style="height:28px"><span style="color:var(--success)">${I('check', 's14')}</span>${I(i, 's14 t3')}<span class="grow ellipsis">${t}</span><span class="t-caption">${r}</span></div>`).join('')}
+      <div class="row gap8" style="height:28px;color:var(--accent)"><span class="spinner"></span>${I('terminal', 's14')}<span class="grow">bash <span class="mono">npm run deploy</span></span><span class="t-caption">运行中</span></div>
+      <div class="term">&gt; build … done in 8.2s<br>&gt; starting server on :3000 ▌</div></div></div>
+    <div class="row gap8"><button class="btn sm ghost">思考摘要 ${I('chevR', 's14')}</button><button class="btn sm ghost">完整记录 ${I('chevR', 's14')}</button></div>
+  </div></aside>`);
+
+V.botchat = () => sidebar('botC') + `
+<section class="main">
+  <div class="toolbar glass-toolbar">${av('C', 32)}<div class="grow"><div class="tt">编码</div><div class="ts">写代码、部署 · <span style="color:var(--accent)">工作中 2 个活</span></div></div>
+    <button class="iconbtn">${I('search')}</button><button class="iconbtn">${I('monitor')}</button><button class="iconbtn on">${I('panelR')}</button></div>
+  <div class="scroll"><div class="msgs center">
+    ${MB.day('今天')}
+    ${MB.msg('me', ['登录功能那边进展怎么样？'], { time: '10:40' })}
+    ${MB.msg('C', ['邮箱登录已经实现完，18 个测试全部通过，正在部署到 <code>localhost:3000</code>。按你的要求去掉了手机号登录。', MB.group({ members: ['Z', 'P', 'C', 'T'], title: '登录功能', status: 'working', note: '我在这个群里负责「实现登录」· 已 25 分' })], { time: '10:40', name: false })}
+    ${MB.msg('me', ['好，部署完把分支推上去'], { time: '10:41' })}
+    ${MB.msg('C', ['收到，推送需要你确认：', MB.approval({ tool: 'bash', command: 'git push origin feature/email-login', from: '来自 登录功能', rule: 'git push 先问我' })], { time: '11:43', name: false })}
+  </div></div>
+  ${composer('给 编码 发消息…')}
+</section>
+<aside class="panel glass-panel">${panelHead('跟进')}
+  <div class="panel-b">
+    <div class="psec"><div class="ph">本对话中待审批<span class="r badge" style="background:var(--warning)">1</span></div>
+      <div class="banner wait" style="align-items:flex-start">${I('shield')}<div class="grow"><div style="font-weight:500">bash · git push</div><div class="t-caption">登录功能 · 11:43</div></div><button class="btn sm warn">处理</button></div></div>
+    <div class="psec"><div class="ph">正在干的活<span class="r">2 / 3</span></div>
+      ${[['登录功能 · 实现登录', '25 分 · 88k tok', ['Z', 'P', 'C', 'T']], ['官网改版 · 首页重构', '9 分 · 31k tok', ['Z', 'C']]].map(([t, m, ks]) =>
+        `<div class="card" style="padding:10px 12px;margin-bottom:8px"><div class="row gap8"><span class="spinner" style="color:var(--accent)"></span><span class="grow ellipsis" style="font-size:13px">${t}</span></div>
+         <div class="t-caption" style="margin:2px 0 8px 18px">${m}</div>
+         <div class="row gap6" style="margin-left:18px"><button class="btn sm secondary">${I('message', 's14')}群聊</button><button class="btn sm ghost">详情</button></div></div>`).join('')}
+      <div class="t-foot" style="margin-top:4px">… 排队 1 · 官网改版 · 修复导航</div></div>
+  </div></aside>`;
+
+V.artifact = () => sidebar('group') + `
+<section class="main" style="background:var(--bg-window)">
+  <div class="toolbar glass-toolbar"><button class="iconbtn">${I('chevL')}</button>
+    <div class="grow"><div class="tt">登录功能 › 产物 › PRD</div><div class="ts"><span class="by" style="height:16px">${av('P', 14)}产品 提供</span><span class="mono">product/prd.md</span> · 10:18 更新 · 第 2 版</div></div>
+    <div class="seg"><button class="on">预览</button><button>源文件</button><button>历史</button></div>
+    <button class="btn sm secondary">${I('folder', 's14')}在 Finder 中显示</button><button class="btn sm secondary">${I('copy', 's14')}复制路径</button></div>
+  <div class="grow row" style="min-height:0;align-items:stretch">
+    <div class="listcol glass-panel" style="padding:12px 8px">
+      <div class="section-title">本群产物 · 3</div>
+      ${[['PRD', 'product/prd.md', 'P', 'file', 1], ['原型', 'product/prototype/', 'P', 'globe'], ['代码', 'code/', 'C', 'folder']].map(([n, p, k, ic, on]) =>
+        `<div class="chatrow ${on ? 'sel' : ''}" style="height:56px"><span class="fi" style="width:32px;height:32px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center">${I(ic)}</span><div class="grow"><div class="l1">${n}<span class="time">${BOT[k][0]}</span></div><div class="l2 mono" style="font-size:11px">${p}</div></div></div>`).join('')}
+    </div>
+    <div class="scroll" style="padding:32px 48px;background:var(--bg-chat)"><div class="card md" style="max-width:720px;margin:0 auto;padding:40px 48px">
+      <h1>登录功能 PRD</h1>
+      <p class="t2">版本 2 · 产品 · 2026-10-09</p>
+      <h2>1. 目标</h2><p>为 App 增加邮箱登录，10/12 前上线。本期<b>只做邮箱登录</b>，不做手机号。</p>
+      <h2>2. 交互</h2><ul><li>输入邮箱 → 发送 6 位验证码（10 分钟有效）</li><li>首次登录设置密码；之后可用密码或验证码登录</li></ul>
+      <h2>3. 规则</h2><p>3.2 密码：8 位以上，包含字母和数字；bcrypt cost 12。</p>
+      <h2>4. 原型</h2><div style="height:140px;border-radius:10px;background:var(--bg-chat);display:flex;align-items:center;justify-content:center" class="t3">原型截图 · product/prototype/index.html</div>
+    </div></div>
+  </div>
+</section>`;
+
+V.routines = () => sidebar('routines') + `
+<section class="main" style="flex-direction:row;background:var(--bg-window)">
+  <div class="listcol glass-panel">
+    <div class="toolbar" style="background:transparent"><div class="tt grow" style="font-size:15px">定时任务</div><button class="btn sm secondary">${I('plus', 's14')}新建</button></div>
+    <div style="padding:10px 12px"><div class="seg" style="width:100%"><button class="on" style="flex:1">全部</button><button style="flex:1">运行中</button><button style="flex:1">已暂停</button></div></div>
+    <div style="padding:0 8px" class="col gap4">
+      ${[['每日 X 科技侦察', 'X', '工作日 09:00', 'ok', 1], ['晨报', 'Z', '每天 09:00', 'ok'], ['周报汇总', 'R', '周五 18:00', 'paused']].map(([n, k, w, st, sel]) =>
+        `<div class="chatrow ${sel ? 'sel' : ''}" style="height:56px">${av(k, 32)}<div class="grow"><div class="l1"><span class="ellipsis">${n}</span><span class="time">${st === 'paused' ? '已暂停' : ''}</span></div><div class="l2">${I('clock', 's14')}<span class="ellipsis">${w} · ${BOT[k][0]}</span></div></div></div>`).join('')}
+    </div></div>
+  <div class="grow col">
+    <div class="toolbar glass-toolbar"><div class="grow"><div class="tt">每日 X 科技侦察</div><div class="ts">下次运行 明天 09:00 · 由 X 侦察 执行</div></div>
+      <button class="btn sm secondary">${I('play', 's14')}试运行</button><button class="btn sm danger">删除</button><span class="t-foot" style="margin-left:8px">启用</span><span class="toggle on"></span></div>
+    <div class="scroll" style="padding:24px 32px"><div style="max-width:640px" class="col gap16">
+      <div><div class="label">名称</div><div class="field lg">每日 X 科技侦察</div></div>
+      <div><div class="label">执行的 Bot</div><div class="field lg" style="justify-content:space-between"><span class="row gap8">${av('X', 20)}X 侦察</span>${I('chevD', 's14 t3')}</div></div>
+      <div><div class="label">指令</div><div class="field area" style="min-height:88px;font-size:14px;line-height:20px">浏览 X 时间线，挑出 3 条科技新闻，每条用两句话总结，并附上原链接。</div></div>
+      <div><div class="label">何时运行</div><div class="card" style="padding:0">
+        <div class="row gap8" style="height:44px;padding:0 14px">${I('clock', 't2')}<span class="grow">工作日 09:00</span><button class="iconbtn">${I('x', 's14')}</button></div>
+        <div class="row gap8" style="height:40px;padding:0 14px;border-top:1px solid var(--border-subtle);color:var(--accent)">${I('plus', 's14')}添加时间</div></div>
+        <div class="t-caption" style="margin-top:6px">时区 Asia/Shanghai</div></div>
+      <div><div class="label">结果发到</div><div class="seg"><button class="on">和 X 侦察 的私聊</button><button>某个群</button></div></div>
+      <div><div class="label">运行记录（最近 20 次）</div><div class="card"><table class="tbl">
+        <tr><td>今天 09:04</td><td style="color:var(--success)">✓ 成功</td><td class="num t2">2 分 12 秒</td><td class="num"><button class="btn sm ghost">轨迹</button></td></tr>
+        <tr><td>10/07 09:05</td><td style="color:var(--success)">✓ 成功</td><td class="num t2">1 分 48 秒</td><td class="num"><button class="btn sm ghost">轨迹</button></td></tr>
+        <tr><td>10/06 09:12</td><td style="color:var(--danger)">✗ 登录失效</td><td class="num t2">31 秒</td><td class="num"><button class="btn sm ghost">轨迹</button></td></tr></table></div></div>
+    </div></div></div>
+</section>`;
+
+V.trace = () => sidebar('group') + `
+<section class="main" style="background:var(--bg-window)">
+  <div class="toolbar glass-toolbar"><button class="iconbtn">${I('chevL')}</button>
+    <div class="grow"><div class="tt">登录功能 › 编码 › 实现登录</div><div class="ts"><span class="chip working" style="height:16px"><span class="spinner"></span>进行中</span>25 分 · 88k tok · ¥0.42 · Claude Sonnet · 第 2 段</div></div>
+    <button class="btn sm secondary"><span class="sdot" style="color:var(--success)"></span>跟随最新</button><button class="btn sm danger">停止</button><button class="btn sm secondary">@ 它</button><button class="btn sm secondary">屏幕</button></div>
+  <div class="row gap8" style="padding:8px 16px;border-bottom:1px solid var(--border-subtle)"><div class="seg"><button class="on">全部</button><button>模型</button><button>工具</button><button>子代理</button><button>插话</button></div>
+    <div class="field" style="margin-left:auto;width:220px">${I('search', 's14 t3')}<span class="t3">搜索轨迹</span></div></div>
+  <div class="scroll" style="padding:8px 24px"><div class="tl" style="max-width:none">
+    <div class="tli"><span class="tm">10:19:03</span><span class="ico">${I('play', 's14')}</span><div class="bd"><b>开始干活</b> <span class="t2">指令：按 PRD 实现邮箱登录（来自 产品）</span></div><span></span></div>
+    <div class="tli"><span class="tm">10:19:04</span><span class="ico model">${I('sparkle', 's14')}</span><div class="bd"><b>模型请求 #1</b> <span class="t2">上下文 31k</span>
+      <div class="row gap4" style="margin:6px 0;height:6px;border-radius:3px;overflow:hidden;width:320px">${[['L0', 3, 1], ['L1', 5, 2], ['L2', 4, 3], ['L3', 12, 4], ['L4', 7, 6]].map(([l, w, c]) => `<span title="${l}" style="flex:${w};height:6px;background:var(--chart-${c})"></span>`).join('')}</div>
+      <div class="sub">思考 ▸ 先读 PRD，确认密码规则和接口……<br>输出「我先读一下 PRD 和现有代码结构。」</div></div><span class="rs">4.1k in · 0.3k out · 2.1s · ¥0.01</span></div>
+    <div class="tli"><span class="tm">10:19:06</span><span class="ico">${I('file', 's14')}</span><div class="bd">read <span class="mono">product/prd.md</span></div><span class="rs" style="color:var(--success)">✓ 212 行</span></div>
+    <div class="tli"><span class="tm">10:19:06</span><span class="ico">${I('folder', 's14')}</span><div class="bd">ls <span class="mono">code/</span></div><span class="rs" style="color:var(--success)">✓ 18 项</span></div>
+    <div class="tli"><span class="tm">10:19:09</span><span class="ico sub">${I('branch', 's14')}</span><div class="bd"><b>子代理 ×3 并行</b>
+      <div class="sub">├ 查 bcrypt 库用法 — 「用 bcrypt crate，cost=12 …」 <span class="t3">4.1k</span><br>├ 对比 3 个邮件验证方案 — 「推荐 magic link + 6 位码 …」 <span class="t3">5.2k</span><br>└ 生成测试数据 — 「已写入 test/fixtures/users.json」 <span class="t3">2.7k</span></div></div><span class="rs" style="color:var(--success)">✓ 12k tok</span></div>
+    <div class="tli"><span class="tm">10:31:20</span><span class="ico steer">${I('edit', 's14')}</span><div class="bd"><b>插话（你）</b>「只做邮箱登录，不要手机号」 <span class="t2">→ 已在下一步生效</span></div><span></span></div>
+    <div class="tli"><span class="tm">10:31:22</span><span class="ico">${I('edit', 's14')}</span><div class="bd">edit <span class="mono">code/auth/login.ts</span> <span class="t2">2 处修改</span>
+      <div class="term" style="background:var(--bg-chat);color:var(--text-primary)"><span style="color:var(--danger)">- const methods = ['email', 'phone'];</span><br><span style="color:var(--success)">+ const methods = ['email'];</span></div></div><span class="rs" style="color:var(--success)">✓ diff</span></div>
+    <div class="tli"><span class="tm">10:33:40</span><span class="ico">${I('terminal', 's14')}</span><div class="bd">bash <span class="mono">npm test</span></div><span class="rs" style="color:var(--success)">✓ 18/18 · 12.4s</span></div>
+    <div class="tli"><span class="tm">10:33:58</span><span class="ico steer">${I('clock', 's14')}</span><div class="bd"><b>交付前查看新消息</b> <span class="t2">2 条（你 10:33、测试 10:33）</span><div class="sub">「登录页文案统一用『您』」→ 已调整 3 处文案<br>「测试那边 10 点前要」→ 无需改动</div></div><span class="rs" style="color:var(--success)">✓ 已查看</span></div>
+    <div class="tli"><span class="tm">10:34:02</span><span class="ico" style="color:var(--accent)"><span class="spinner"></span></span><div class="bd">bash <span class="mono">npm run deploy</span><div class="term">&gt; build … done in 8.2s<br>&gt; starting server on :3000 ▌</div></div><span class="rs" style="color:var(--accent)">运行中</span></div>
+  </div></div>
+  <div class="row gap16 t-foot" style="height:36px;padding:0 24px;border-top:1px solid var(--border-subtle)">模型请求 7 · 工具调用 23 · 子代理 3 · 插话 1 · 输入 61k / 输出 27k · ¥0.42</div>
+</section>`;
+
+V.work = () => sidebar('work') + `
+<section class="main" style="background:var(--bg-window)">
+  <div class="toolbar glass-toolbar"><div class="tt grow" style="font-size:15px">工作台</div><div class="seg"><button class="on">按 Bot</button><button>按群</button><button>按状态</button></div>
+    <span class="t-foot" style="margin-left:12px">运行中 5 / 上限 8</span></div>
+  <div class="scroll" style="padding:16px 24px">
+    <div class="col gap8" style="margin-bottom:20px">
+      <div class="banner review">${I('target')}<b>等你验收</b><span class="grow t2">登录功能（总管 11:42 提醒）</span><button class="btn sm primary">去验收</button></div>
+      <div class="banner wait">${I('alert')}<b>等你审批</b><span class="grow t2">换新 MacBook · 比价：下单 ¥14,999</span><button class="btn sm warn">去处理</button></div></div>
+    ${[['C', '2/3', [['官网改版 · 首页重构', '9 分', '31k', '子代理 2'], ['数据看板 · 导出 CSV', '4 分', '11k', '']], '官网改版 · 修复导航 — 同一个群里排在「首页重构」之后'],
+       ['R', '1/2', [['竞品调研 · 功能对比表', '41 分', '140k', '子代理 4']]], ['X', '1/2', [['定时任务 · 每日 X 侦察', '3 分', '12k', '']]]].map(([k, cc, tasks, q]) => `
+      <div class="card" style="margin-bottom:12px"><div class="row gap8" style="height:44px;padding:0 14px;border-bottom:1px solid var(--border-subtle)">${av(k, 24, { ring: 1 })}<b>${BOT[k][0]}</b><span class="chip working"><span class="spinner"></span>${cc} 并发</span></div>
+      ${tasks.map(([t, d, tok, s]) => `<div class="row gap12" style="height:44px;padding:0 14px"><span class="spinner" style="color:var(--accent)"></span><span class="grow">${t}${t.startsWith('官网改版') ? ` <span class="qbadge" title="待看消息">${I('clock', 's14')}待看 2</span>` : ''}</span>
+        <span class="t-foot" style="width:56px">${d}</span><span class="t-foot mono" style="width:48px">${tok}</span><span class="t-foot" style="width:48px">Sonnet</span><span class="t-foot" style="width:52px">${s}</span>
+        <button class="btn sm secondary">${I('message', 's14')}${t.startsWith('定时任务') ? '私聊' : '群聊'}</button><button class="btn sm ghost">详情</button><button class="btn sm ghost">@它</button><button class="btn sm ghost" style="color:var(--danger)">停止</button></div>`).join('')}
+      ${q ? `<div class="row gap12 t-foot" style="height:36px;padding:0 14px;border-top:1px solid var(--border-subtle)">… 排队 · ${q}</div>` : ''}</div>`).join('')}
+    <div class="row gap16 t-foot" style="margin:8px 4px 20px">${av('P', 20)}产品 空闲 ${av('T', 20)}测试 待命 <span class="t3">· 总管只协调，不占并发名额</span></div>
+    <div class="section-title" style="padding:0 4px">今天完成 4</div>
+    <div class="card"><table class="tbl"><tr><td style="color:var(--success)">✓</td><td>登录功能 · 测试</td><td class="t2">测试</td><td class="num t2">12 分</td></tr><tr><td style="color:var(--success)">✓</td><td>登录功能 · 实现登录</td><td class="t2">编码</td><td class="num t2">1 时 12 分</td></tr></table></div>
+  </div></section>`;
+
+function heat() { let h = ''; for (let i = 0; i < 53 * 7; i++) { const d = i % 7; const v = Math.max(0, Math.min(4, Math.round((Math.sin(i * 0.37) + 1) * 1.4 + (i / 371) * 1.6 - (d >= 5 ? 1.6 : 0) + (((i * 7919) % 13) / 13 - .5)))); h += `<i style="background:var(--heat-${v})"></i>`; } return h; }
+function line(seed, c, k) { let p = ''; for (let i = 0; i <= 30; i++) { const y = 150 - (Math.sin(i * .45 + seed) * .5 + .6 + i / 60) * k; p += (i ? 'L' : 'M') + (i * 22) + ' ' + y.toFixed(1); } return `<path d="${p}" fill="none" stroke="var(--chart-${c})" stroke-width="1.75" stroke-linejoin="round"/>`; }
+V.dash = () => sidebar('dash') + `
+<section class="main" style="background:var(--bg-window)">
+  <div class="toolbar glass-toolbar"><div class="tt grow" style="font-size:15px">仪表盘</div><div class="seg"><button>今天</button><button>7 天</button><button class="on">30 天</button><button>90 天</button></div><button class="btn sm secondary">导出 CSV</button></div>
+  <div class="scroll" style="padding:20px 24px">
+    <div class="row gap12">${[['总 token', '41.2M', '▲ 12%', 'up'], ['费用', '¥318.40', '▲ 8%', 'up'], ['模型请求', '18,204', '▼ 3%', 'down'], ['缓存命中', '61%', '▲ 4pt', 'up'], ['完成任务', '132', '▲ 20%', 'up']].map(([k, v, d, c]) =>
+      `<div class="card stat grow"><div class="k">${k}</div><div class="v">${v}</div><div class="d ${c}">${d} <span class="t3">较上期</span></div></div>`).join('')}</div>
+    <div class="card" style="margin-top:16px;padding:16px"><div class="row" style="margin-bottom:12px"><b class="grow">活动热力图</b><div class="seg"><button class="on">日历</button><button>星期 × 小时</button></div></div>
+      <div class="row gap8" style="align-items:flex-start"><div class="col t-caption" style="gap:3px;line-height:11px;padding-top:0">${'一二三四五六日'.split('').map((d) => `<span style="height:11px">${d}</span>`).join('')}</div><div class="heat">${heat()}</div></div>
+      <div class="row gap4 t-caption" style="justify-content:flex-end;margin-top:10px">少 ${[0, 1, 2, 3, 4].map((v) => `<i style="width:11px;height:11px;border-radius:2.5px;background:var(--heat-${v})"></i>`).join('')} 多</div></div>
+    <div class="card" style="margin-top:16px;padding:16px"><div class="row gap12" style="margin-bottom:12px"><b class="grow">每日 token 消耗</b><span class="t-foot">维度</span><div class="seg"><button class="on">模型</button><button>Bot</button><button>项目</button></div><span class="t-foot">指标</span><div class="seg"><button class="on">token</button><button>费用</button><button>请求数</button></div></div>
+      <div class="row gap16" style="align-items:flex-start"><svg viewBox="0 0 660 160" style="flex:1;height:200px">${[40, 80, 120].map((y) => `<line x1="0" x2="660" y1="${y}" y2="${y}" stroke="var(--border-subtle)"/>`).join('')}${line(0, 1, 90)}${line(2, 2, 50)}${line(4, 3, 30)}${line(1, 6, 15)}
+        <line x1="484" x2="484" y1="0" y2="160" stroke="var(--border-strong)" stroke-dasharray="3 3"/></svg>
+        <div class="col gap8" style="width:180px;font-size:12px">${[['Claude Sonnet', '1.9M', 1], ['DeepSeek Chat', '0.6M', 2], ['Claude Haiku', '0.3M', 3], ['其他', '0.1M', 6]].map(([n, v, c]) => `<div class="row gap8"><span style="width:12px;height:2px;border-radius:1px;background:var(--chart-${c})"></span><span class="grow">${n}</span><span class="t2 mono">${v}</span></div>`).join('')}</div></div></div>
+    <div class="card" style="margin-top:16px"><table class="tbl"><tr><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">缓存读</th><th class="num">请求</th><th class="num">费用</th></tr>
+      ${[['Claude Sonnet', '28.1M', '2.9M', '17.2M', '9,804', '¥251.20'], ['DeepSeek Chat', '6.4M', '0.8M', '2.1M', '5,120', '¥12.10'], ['Claude Haiku', '2.6M', '0.4M', '1.0M', '3,280', '¥55.10']].map((r) => `<tr>${r.map((c, i) => `<td class="${i ? 'num' : ''}">${c}</td>`).join('')}</tr>`).join('')}</table></div>
+  </div></section>`;
+
+V.skills = () => sidebar('skills') + `
+<section class="main" style="flex-direction:row;background:var(--bg-window)">
+  <div class="listcol glass-panel">
+    <div class="toolbar" style="background:transparent"><div class="tt grow" style="font-size:15px">技能</div><button class="btn sm secondary">${I('plus', 's14')}新建</button></div>
+    <div style="padding:10px 12px" class="col gap8"><div class="field">${I('search', 's14 t3')}<span class="t3">搜索技能</span></div><div class="seg"><button class="on">全部</button><button>内置</button><button>我的</button><button>导入</button></div></div>
+    <div style="padding:0 8px" class="col gap4">${[['agent-browser', '浏览器操作的完整说明', '内置', 1], ['web-auth-patterns', '登录/注册的实现规范', '我的', 1, 1], ['weekly-report', '周报格式与数据来源', '我的', 1], ['prd-template', 'PRD 模板', '草稿', 2], ['pdf-tools', '已停用', '导入', 0]].map(([n, d, t, on, sel]) =>
+      `<div class="chatrow ${sel ? 'sel' : ''}" style="height:52px"><span class="sdot" style="color:${on === 1 ? 'var(--success)' : on === 2 ? 'var(--warning)' : 'var(--text-tertiary)'}"></span><div class="grow"><div class="l1"><span class="mono" style="font-size:12.5px">${n}</span><span class="time">${t}</span></div><div class="l2">${d}</div></div></div>`).join('')}</div></div>
+  <div class="grow col">
+    <div class="toolbar glass-toolbar"><div class="grow"><div class="tt mono">web-auth-patterns</div><div class="ts">所有 Bot 可用 · 最近 7 天调用 14 次（编码 12、测试 2）</div></div><span class="t-foot">启用</span><span class="toggle on"></span></div>
+    <div class="scroll" style="padding:20px 24px"><div class="row" style="margin-bottom:8px"><b class="grow">SKILL.md</b><div class="seg"><button class="on">编辑</button><button>预览</button></div></div>
+      <div class="card" style="padding:14px 16px;font-family:var(--font-family-mono);font-size:12.5px;line-height:20px;white-space:pre">${`<span class="t3">---</span>
+<span style="color:var(--accent)">name</span>: web-auth-patterns
+<span style="color:var(--accent)">description</span>: 实现登录、注册、找回密码时使用。包含密码规则、
+  会话管理、邮件验证流程和测试清单。
+<span class="t3">---</span>
+<b># 登录实现规范</b>
+1. 密码用 bcrypt，cost 12
+2. 会话 token 存 HttpOnly cookie，7 天过期
+3. 邮件验证码 6 位，10 分钟有效`}</div>
+      <div class="psec" style="margin-top:20px"><div class="ph">附带文件</div><div class="row gap8"><span class="chip mono">scripts/gen-test-users.sh</span><span class="chip mono">references/owasp.md</span></div></div>
+      <div class="psec" style="margin-top:20px"><div class="ph">对个别 Bot 停用</div><div class="field" style="width:220px"><span class="grow">无</span>${I('chevD', 's14 t3')}</div></div>
+    </div></div></section>`;
+
+V.computer = () => sidebar('botC') + `
+<section class="main" style="background:var(--bg-window)">
+  <div class="toolbar glass-toolbar">${av('C', 28)}<div class="grow"><div class="tt">编码 的浏览器</div><div class="ts"><span class="chip working" style="height:16px">● Bot 操作中</span>画质 自动 · 15 fps · 120 ms</div></div>
+    <button class="btn sm primary">${I('hand', 's14')}接管</button><button class="iconbtn">${I('expand')}</button></div>
+  <div class="row gap4" style="padding:8px 16px 0;border-bottom:1px solid var(--border-subtle)">
+    <div class="row gap6" style="height:32px;padding:0 12px;border-radius:8px 8px 0 0;background:var(--bg-chat);font-size:12px;box-shadow:0 0 0 1px var(--border-subtle)"><span class="sdot" style="color:var(--accent)"></span>登录功能 · localhost:3000</div>
+    <div class="row gap6 t2" style="height:32px;padding:0 12px;font-size:12px">官网改版 · figma.com</div></div>
+  <div class="grow" style="padding:16px;background:var(--bg-chat)"><div style="height:100%;border-radius:10px;background:var(--bg-elevated);box-shadow:var(--elevation-2);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px">
+    <div class="t-large">登录</div><div class="field lg" style="width:280px">name@example.com</div><div class="field lg focus" style="width:280px">••••••••</div><button class="btn lg primary" style="width:280px">登录</button>
+    <div class="t-caption">（浏览器实时画面，16:10，等比缩放居中，四周 16 内边距）</div></div></div>
+  <div class="banner wait" style="margin:0 16px 16px">${I('hand')}<span class="grow"><b>编码</b> 请求你接管：需要两步验证。完成后点「交还给 Bot」。</span><button class="btn sm warn">接管并处理</button></div>
+</section>`;
+
+V.settings = () => sidebar('settings') + `
+<section class="main" style="flex-direction:row;background:var(--bg-window)">
+  <div class="listcol glass-panel" style="padding:60px 8px 8px;gap:2px">
+    ${['通用', '模型与服务商', '运行与并发', '工具与审批', '技能', '电脑与浏览器', 'Host 连接', '关于'].map((t, i) => `<div class="navrow ${i === 2 ? 'sel' : ''}">${t}</div>`).join('')}</div>
+  <div class="grow col"><div class="toolbar glass-toolbar"><div class="tt" style="font-size:15px">运行与并发</div></div>
+  <div class="scroll" style="padding:24px 32px;max-width:680px">
+    ${[['并发', [['全局最多同时运行的任务', '8'], ['每个 Bot 默认并发', '3'], ['每个任务最多同时跑子代理', '4'], ['全局最多同时跑子代理', '12'], ['Bot 之间连续往返上限', '8']]],
+       ['默认模型', [['Bot 默认', 'Claude Sonnet ⌄'], ['主 Bot', 'Claude Haiku ⌄'], ['子代理', '同所属 Bot ⌄'], ['记忆整理 / 压缩', 'DeepSeek Chat ⌄']]]].map(([h, rows]) =>
+      `<div class="section-title" style="padding:0 4px;margin-top:8px">${h}</div><div class="card" style="margin-bottom:16px">${rows.map(([k, v], i) =>
+        `<div class="row" style="height:44px;padding:0 14px;${i ? 'border-top:1px solid var(--border-subtle)' : ''}"><span class="grow">${k}</span><div class="field" style="width:${v.length > 3 ? 180 : 64}px;justify-content:${v.length > 3 ? 'space-between' : 'center'}">${v}</div></div>`).join('')}</div>`).join('')}
+    <div class="section-title" style="padding:0 4px">外观</div><div class="card"><div class="row" style="height:44px;padding:0 14px"><span class="grow">主题</span><div class="seg"><button>浅色</button><button>深色</button><button class="on">跟随系统</button></div></div>
+      <div class="row" style="height:44px;padding:0 14px;border-top:1px solid var(--border-subtle)"><span class="grow">半透明材质<div class="t-caption">侧栏和面板透出桌面；系统开启「降低透明度」时自动关闭</div></span><span class="toggle on"></span></div></div>
+  </div></div></section>`;
+
+V.newgroup = () => V.main() + `<div class="overlay"><div class="dialog">
+  <div class="row gap8" style="height:52px;padding:0 16px;border-bottom:1px solid var(--border-subtle)">${I('search', 's18 t3')}<span class="grow" style="font-size:16px">官网改版</span><span class="kbd">esc</span></div>
+  <div style="padding:6px"><div class="pop" style="box-shadow:none;padding:0;background:transparent"><div class="item on">${I('users')}<span class="grow">新建群「官网改版」</span><span class="t3">总管会自动加入并担任负责人</span></div><div class="item">${I('bot')}<span class="grow">新建 Bot「官网改版」</span></div></div></div>
+  <div class="divider"></div>
+  <div style="padding:12px 16px"><div class="label">选择成员（1–6 个，已选 2，另加总管）</div>
+    ${[['P', 'PRD、原型', 1], ['C', '写代码、部署', 1], ['T', '测试、回归', 0], ['R', '资料调研', 0]].map(([k, d, on]) => `<div class="row gap10" style="height:36px;gap:10px"><span class="check ${on ? 'on' : ''}">${on ? I('check', 's14') : ''}</span>${av(k, 24)}<span style="width:64px">${BOT[k][0]}</span><span class="t2">${d}</span></div>`).join('')}
+    <div class="label" style="margin-top:12px">目标</div><div class="field lg focus">首页改成新品牌风格，下周一上线</div></div>
+  <div class="row gap8" style="padding:12px 16px;border-top:1px solid var(--border-subtle)"><span class="t-caption grow">建群后，总管会在群里发开场并 @ 第一个 Bot</span><button class="btn secondary">取消</button><button class="btn primary">建群</button></div>
+</div></div>`;
+
+V.search = () => V.group() + `<div class="overlay"><div class="dialog">
+  <div class="row gap8" style="height:52px;padding:0 16px">${I('search', 's18 t3')}<span class="grow" style="font-size:16px">登录<span style="border-left:1.5px solid var(--accent);margin-left:1px"></span></span><span class="kbd">esc</span></div>
+  <div style="padding:0 16px 10px"><div class="seg"><button class="on">全部</button><button>消息</button><button>群</button><button>Bot</button><button>产物</button><button>定时任务</button></div></div>
+  <div class="divider"></div><div class="pop" style="box-shadow:none;background:transparent">
+    <div class="t-caption" style="padding:6px 8px">群</div><div class="item on">${gav(['Z', 'P', 'C', 'T'], 32)}<span class="grow">登录功能</span><span>进行中</span></div>
+    <div class="t-caption" style="padding:6px 8px">消息</div><div class="item" style="height:44px">${av('P', 24)}<div class="grow"><div>产品：✓ 已完成 PRD 和原型…</div><div class="t-caption">登录功能</div></div><span class="t3">10:18</span></div>
+    <div class="t-caption" style="padding:6px 8px">产物</div><div class="item">${I('file')}<span class="grow mono">product/prd.md</span><span class="t3">登录功能 · 产品</span></div></div>
+  <div class="row gap16 t-caption" style="height:32px;padding:0 16px;border-top:1px solid var(--border-subtle)"><span>↑↓ 选择</span><span>↵ 打开</span><span>⌘↵ 在右侧打开</span></div>
+</div></div>`;
+
+V.onboard = () => `<div class="grow row" style="background:var(--bg-window)">
+  <div class="col" style="flex:1;padding:96px 72px 48px;gap:24px;background:var(--bg-sidebar)" class="glass-sidebar">
+    <div><div class="av s64" style="--c:var(--avatar-0)">${GLASSES}</div></div>
+    <div><div class="t-display">欢迎使用 Mac Bot</div><div class="t2" style="margin-top:8px;font-size:15px">连接你的 Bot 主机</div></div>
+    <div style="width:360px" class="col gap16">
+      <div><div class="label">地址</div><div class="field lg focus">192.168.31.162:7788</div><div class="t-caption" style="margin-top:6px">支持 host:port、ws:// 与 wss://</div></div>
+      <div><div class="label">密码</div><div class="field lg">••••••••</div></div>
+      <div><div class="label">名称</div><div class="field lg">Mac mini（家）</div></div>
+      <button class="btn lg primary" style="width:100%">连接</button>
+      <div class="banner err" style="font-size:12px">${I('alert')}服务端还没设置密码：请先在 Bot 主机上打开 localhost:7788/admin</div></div></div>
+  <div class="col" style="flex:1;padding:96px 72px;gap:20px">
+    <div class="t-large">认识你的主 Bot：总管</div><div class="t2">日常和它聊；有事它会拉群。选一个团队模板：</div>
+    ${[[['P', 'C', 'T'], '产品 + 编码 + 测试', '做软件功能', 1], [['R', 'X'], '调研 + 写作', '资料与报告'], [[], '先只用主 Bot', '以后再加']].map(([ks, t, d, on]) =>
+      `<div class="card row gap12" style="padding:14px 16px;${on ? 'box-shadow:0 0 0 2px var(--accent)' : ''}"><div class="row" style="width:72px">${ks.length ? ks.map((k, i) => `<div style="margin-left:${i ? -8 : 0}px;border-radius:50%;box-shadow:0 0 0 2px var(--bg-elevated)">${av(k, 28)}</div>`).join('') : `<span class="iconbtn" style="background:var(--bg-active)">${I('plus')}</span>`}</div><div class="grow"><b>${t}</b><div class="t-foot">${d}</div></div>${on ? `<span style="color:var(--accent)">${I('check')}</span>` : ''}</div>`).join('')}
+    <div class="t-foot" style="margin-top:auto">对总管说「帮我做…」，它会拉群去做</div></div></div>`;
+
+V.offline = () => V.group().replace('<section class="main">', `<section class="main"><div class="row gap8" style="height:28px;justify-content:center;background:var(--warning-soft);font-size:12px;position:absolute;left:0;right:0;top:52px;z-index:3"><span class="spinner" style="color:var(--warning)"></span>正在重连 Mac mini（家）… 本地缓存可浏览，发送已暂停</div>`).replace('<span class="on"></span>', '<span class="on" style="background:var(--warning)"></span>');
+
+
+/* ================= v1.2: screens that were missing ================= */
+const setPanel = (html, panel) => html.replace(/<aside class="panel glass-panel">[\s\S]*$/, panel);
+const over = (html, inner, style = '') => html + `<div style="position:absolute;inset:0;z-index:30;${style}">${inner}</div>`;
+const card = (rows) => `<div class="card" style="margin-bottom:16px">${rows.map((r, i) => `<div class="row gap8" style="min-height:44px;padding:6px 14px;${i ? 'border-top:1px solid var(--border-subtle)' : ''}">${r}</div>`).join('')}</div>`;
+const fld = (v, w = 180, drop) => `<div class="field" style="width:${w}px;justify-content:space-between"><span class="ellipsis">${v}</span>${drop ? I('chevD', 's14 t3') : ''}</div>`;
+const tog = (on = true) => `<span class="toggle ${on ? 'on' : ''}"></span>`;
+const stitle = (t) => `<div class="section-title" style="padding:0 4px;margin-top:8px">${t}</div>`;
+
+// Announcement editing (panel)
+V.annedit = () => setPanel(V.group(), `<aside class="panel glass-panel">${panelHead('编辑公告', true)}
+  <div class="panel-b" style="gap:12px">
+    <div class="t-caption">一段自由文本，不规定格式，按 Markdown 显示。群里的 Bot 也会读写这段文字。</div>
+    <div class="field area focus mono" style="min-height:360px;font-size:12.5px;line-height:20px;white-space:pre-wrap">## 登录功能
+给 App 加**邮箱登录**，10/12 前上线。
+Home：\`~/MacBot/projects/login/\`
+
+## 当前事项
+- 只做邮箱登录，不做手机号（你 · 10:31）
+- 密码规则：8 位以上，含字母和数字
+
+## 已完成
+- ✓ PRD 与原型（产品 · 10/09）<span style="border-left:1.5px solid var(--accent)"></span></div>
+    <div class="row t-caption"><span class="grow">版本 7 · 312 / 8000 字</span><span>⌘↵ 保存</span></div>
+    <div class="banner wait" style="font-size:12px">${I('alert')}<span class="grow">编码 刚刚也改了公告（版本 8）。<b>查看差异</b> 后再保存</span></div>
+    <div class="row gap8" style="justify-content:flex-end"><button class="btn secondary">取消</button><button class="btn primary">保存</button></div>
+  </div></aside>`);
+
+
+// Bot detail (right panel) and bot settings
+V.botdetail = () => setPanel(V.botchat(), `<aside class="panel glass-panel">${panelHead('编码', false)}
+  <div class="panel-b">
+    <div class="col" style="align-items:center;gap:6px">${av('C', 64)}<div class="t-headline">编码</div><div class="t-foot">写代码、部署 · Claude Sonnet</div>
+      <div class="row gap6" style="margin-top:6px"><button class="btn sm secondary">${I('settings', 's14')}设置</button><button class="btn sm secondary">${I('monitor', 's14')}屏幕</button><button class="btn sm ghost">${I('more', 's14')}</button></div></div>
+    <div class="psec"><div class="ph">所在的群<span class="r">3</span></div>
+      ${[[['Z', 'P', 'C', 'T'], '登录功能', '工作中'], [['Z', 'C'], '官网改版', '工作中'], [['Z', 'C', 'R'], '数据看板', '待命']].map(([ks, n, st]) => `<div class="mrow">${gav(ks, 24)}<span class="grow">${n}</span><span class="t-caption">${st}</span>${I('chevR', 's14 t3')}</div>`).join('')}</div>
+    <div class="psec"><div class="ph">历史任务<span class="r"><button class="btn sm ghost">全部 ${I('chevR', 's14')}</button></span></div>
+      ${[['✓', '登录功能 · 实现登录', '1 时 12 分', 'success'], ['✓', '官网改版 · 首页重构', '2 时 03 分', 'success'], ['✗', '数据看板 · 导出 CSV', '失败', 'danger']].map(([i, t, d, c]) => `<div class="mrow"><span style="color:var(--${c});width:14px">${i}</span><span class="grow ellipsis">${t}</span><span class="t-caption">${d}</span></div>`).join('')}</div>
+    <div class="psec"><div class="ph">本周消耗</div><div class="row gap8"><div class="card stat grow"><div class="k">token</div><div class="v" style="font-size:18px">1.1M</div></div><div class="card stat grow"><div class="k">费用</div><div class="v" style="font-size:18px">¥8.0</div></div></div></div>
+  </div></aside>`);
+
+V.botsettings = () => setPanel(V.botchat(), `<aside class="panel glass-panel">${panelHead('编码 · 设置', true)}
+  <div class="panel-b" style="gap:14px">
+    <div class="col" style="align-items:center;gap:8px">${av('C', 64)}<div class="row gap4">${[0, 1, 2, 3, 4, 5].map((i) => `<span style="width:18px;height:18px;border-radius:50%;background:var(--avatar-${i});${i === 2 ? 'box-shadow:0 0 0 2px var(--bg-panel),0 0 0 3.5px var(--accent)' : ''}"></span>`).join('')}<span class="t-caption">· emoji · 图片</span></div></div>
+    <div><div class="label">名称</div><div class="field">编码</div></div>
+    <div><div class="label">头衔</div><div class="field">写代码、部署</div></div>
+    <div><div class="label">长期规则</div><div class="field area">用 TypeScript；改动前先跑测试；提交信息用中文。</div></div>
+    <div><div class="label">模型（私聊和干活共用）</div>${fld('Claude Sonnet', 248, 1)}</div>
+    <div class="row"><span class="grow">最多同时干几件活</span>${fld('3', 56)}</div>
+    <div><div class="label">工具</div><div class="card">${[['file', '文件'], ['terminal', 'bash'], ['globe', '浏览器'], ['branch', '子代理'], ['link', '网页'], ['cpu', 'MCP', 0]].map(([i, t, on = 1], k) => `<div class="row gap8" style="height:36px;padding:0 12px;${k ? 'border-top:1px solid var(--border-subtle)' : ''}">${I(i, 's14 t2')}<span class="grow">${t}</span>${tog(on)}</div>`).join('')}</div></div>
+    <div class="row"><span class="grow">技能</span><span class="t2">全部可用（12）</span>${I('chevR', 's14 t3')}</div>
+    <div class="row"><span class="grow">浏览器模式</span>${fld('无头 + 复用 Chrome', 150, 1)}</div>
+    <div class="row"><span class="grow">通知</span>${tog()}</div>
+    <div class="divider"></div>
+    <div class="row gap6"><button class="btn sm ghost">置顶</button><button class="btn sm ghost">隐藏</button><button class="btn sm ghost">复制</button><span class="grow"></span><button class="btn sm danger">删除</button></div>
+  </div></aside>`);
+
+V.mainsettings = () => setPanel(V.main(), `<aside class="panel glass-panel">${panelHead('总管 · 设置', true)}
+  <div class="panel-b" style="gap:14px">
+    <div class="col" style="align-items:center">${av('Z', 64)}</div>
+    <div><div class="label">名称</div><div class="field">总管</div></div>
+    <div><div class="label">模型</div>${fld('Claude Haiku', 248, 1)}<div class="t-caption" style="margin-top:6px">主 Bot 只协调、不干活，建议用便宜、快的模型</div></div>
+    <div><div class="label">建群规则</div><div class="seg" style="width:100%"><button class="on" style="flex:1">自动建群</button><button style="flex:1">建群前先问我</button></div></div>
+    <div><div class="label">长期规则</div><div class="field area">建群时公告里写清楚截止时间；做完提醒我验收。</div></div>
+    <div class="row"><span class="grow">通知</span>${tog()}</div>
+    <div class="t-caption">主 Bot 没有工具开关，不能删除。</div>
+  </div></aside>`);
+
+// Host switcher + add host
+V.hosts = () => over(V.main(), `<div class="pop glass-pop" style="position:absolute;left:84px;top:46px;width:280px">
+  <div class="t-caption" style="padding:4px 8px 6px">Host</div>
+  <div class="item on"><span class="sdot" style="color:#fff"></span><div class="grow"><div>Mac mini（家）</div></div>${I('check', 's14')}</div>
+  <div class="item" style="height:44px"><span class="sdot" style="color:var(--text-tertiary)"></span><div class="grow"><div>MacBook（公司）</div><div class="t-caption">离线 · 2 小时前</div></div></div>
+  <div class="divider" style="margin:4px 0"></div>
+  <div class="item">${I('plus', 's14')}添加 Host…</div><div class="item">${I('settings', 's14')}管理 Host</div></div>`);
+V.addhost = () => V.main() + `<div class="overlay"><div class="dialog" style="width:440px">
+  <div class="row" style="height:52px;padding:0 20px;border-bottom:1px solid var(--border-subtle)"><b class="grow">添加 Host</b><button class="iconbtn">${I('x')}</button></div>
+  <div class="col gap16" style="padding:20px">
+    <div><div class="label">地址</div><div class="field lg focus">wss://bot.example.com</div><div class="t-caption" style="margin-top:6px">host:port、ws:// 或 wss://</div></div>
+    <div><div class="label">密码</div><div class="field lg">••••••••</div></div>
+    <div><div class="label">名称</div><div class="field lg">MacBook（公司）</div></div>
+    <div class="banner err" style="font-size:12px">${I('alert')}密码错误（401）。忘了密码？在 Bot 主机上运行 <span class="inline-code">macbot passwd</span></div></div>
+  <div class="row gap8" style="padding:12px 20px;border-top:1px solid var(--border-subtle);justify-content:flex-end"><button class="btn secondary">取消</button><button class="btn primary">连接</button></div></div></div>`;
+
+// Context menu on group row
+V.ctxmenu = () => over(V.main(), `<div class="pop glass-pop" style="position:absolute;left:150px;top:350px;width:200px">
+  ${[['pin', '置顶'], ['edit', '重命名'], ['check', '标记完成'], ['bell', '关闭通知'], ['folder', '打开 Home']].map(([i, t], k) => `<div class="item ${k === 2 ? 'on' : ''}">${I(i, 's14')}${t}</div>`).join('')}
+  <div class="divider" style="margin:4px 0"></div><div class="item" style="color:var(--danger)">${I('x', 's14')}归档</div></div>`);
+
+// Composer popovers: "/" skills and "+" attachments
+const slashPop = (o) => `<div class="pop glass-pop sk-pop" style="position:absolute;left:284px;bottom:66px;width:400px">${MB.skillPicker(o)}</div>`;
+const typed = (html, t) => html.replace('在 登录功能 里发消息，@ 指定 Bot…', `<span style="color:var(--text-primary)">${t}<span style="border-left:1.5px solid var(--accent);margin-left:1px"></span></span>`);
+V.slash = () => typed(over(V.group(), slashPop({})), '/');
+V.slash_q = () => typed(over(V.group(), slashPop({ query: 'auth' })), '/auth');
+V.slash_none = () => typed(over(V.group(), slashPop({ query: 'figma' })), '/figma');
+V.slash_picked = () => V.group()
+  .replace('在 登录功能 里发消息，@ 指定 Bot…', `<span style="color:var(--text-primary)">${MB.skillChip('web-auth-patterns', 1)} <span class="mb-at">@编码</span> 按这个规范补上找回密码<span style="border-left:1.5px solid var(--accent);margin-left:1px"></span></span>`)
+  .replace('<div class="send off">', '<div class="send">')
+  .replace(/(<div class="banner wait" style="max-width:520px;margin:6px 0 0 40px">)/, `${MB.msg('me', [`${MB.skillChip('web-auth-patterns')} ${MB.at('C')} 登录接口也加上限流`], { time: '10:40', delivery: '已送达 · <span style="color:var(--success)">编码 已读取 ✓ · 已加载技能 web-auth-patterns</span>' })}$1`);
+V.attach = () => over(V.group(), `<div class="pop glass-pop" style="position:absolute;left:284px;bottom:66px;width:220px">
+  ${[['file', '文件…', '⌘O'], ['monitor', '图片…'], ['expand', '截图', '⌘⇧4'], ['folder', '从 Home 选择…']].map(([i, t, k]) => `<div class="item">${I(i, 's14')}<span class="grow">${t}</span>${k ? `<span class="kbd">${k}</span>` : ''}</div>`).join('')}</div>`);
+
+// Drag & drop overlay
+V.dragfile = () => V.group().replace('<div class="scroll"><div class="msgs center">', `<div style="position:absolute;inset:52px 0 0;z-index:20;margin:12px;border-radius:12px;border:2px dashed var(--accent);background:var(--accent-soft);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--accent)">${I('paperclip', 's24')}<b>松开发送到「登录功能」</b><span class="t-foot">文件会上传到 Bot 主机（单个最大 100 MB）</span></div><div class="scroll"><div class="msgs center">`);
+
+// Request changes on review card
+V.changes = () => V.main() + `<div class="overlay"><div class="dialog" style="width:480px">
+  <div class="row" style="height:52px;padding:0 20px;border-bottom:1px solid var(--border-subtle)"><b class="grow">提修改意见 · 登录功能</b><button class="iconbtn">${I('x')}</button></div>
+  <div style="padding:16px 20px"><div class="field area focus" style="min-height:120px;font-size:14px">登录页在 375px 宽度下按钮被截断，请修一下；另外错误提示改成中文。</div>
+  <div class="t-caption" style="margin-top:8px">意见会发到群里并 @总管，由总管派给对应的 Bot；群回到「进行中」。</div></div>
+  <div class="row gap8" style="padding:12px 20px;border-top:1px solid var(--border-subtle);justify-content:flex-end"><button class="btn secondary">取消</button><button class="btn primary">发送</button></div></div></div>`;
+
+// Completed groups (expanded) + empty states + loading skeleton
+V.completed = () => V.main().replace(/<div class="navrow" style="height:28px">[\s\S]*?<\/div>/, `<div class="navrow" style="height:28px">${I('chevD', 's14')}<span>已完成</span><span class="r">3</span></div>
+  ${[['首页改版', '10/08'], ['周报自动化', '10/05'], ['竞品 v1', '09/30']].map(([n, d]) => `<div class="chatrow" style="height:40px;opacity:.75">${gav(['Z', 'P'], 24)}<div class="grow"><div class="l1" style="font-weight:500">${n}<span class="time">${d}</span></div></div></div>`).join('')}
+  <div class="navrow t3" style="height:28px;padding-left:40px;font-size:12px">已归档 5 · 在搜索里查看</div>`);
+V.empty = () => sidebar('main').replace(/<div class="section-title" style="margin-top:8px">群 · 3<\/div>[\s\S]*?<div class="section-title" style="margin-top:8px">Bot/, `<div class="section-title" style="margin-top:8px">群</div><div class="t-foot" style="padding:8px 8px 12px;line-height:18px">还没有群。对总管说「帮我做…」，它会拉群去做。</div><div class="section-title" style="margin-top:8px">Bot`) + `
+<section class="main"><div class="toolbar glass-toolbar">${av('Z', 32)}<div class="grow"><div class="tt">总管</div><div class="ts">主 Bot · 只协调，不干活</div></div></div>
+  <div class="grow col" style="align-items:center;justify-content:center;gap:12px;padding:40px">${av('Z', 96)}<div class="t-large">你好，我是总管</div>
+    <div class="t2" style="text-align:center;max-width:380px;line-height:20px">把要做的事交给我：需要几个 Bot 配合的，我会拉群分工，做完提醒你验收；小事我直接转给合适的 Bot。</div>
+    <div class="row gap8" style="margin-top:8px">${['帮我给 App 加个登录', '调研 3 个竞品', '每天 9 点给我发晨报'].map((t) => `<button class="btn secondary">${t}</button>`).join('')}</div></div>
+  ${composer('给 总管 发消息…')}</section>`;
+V.loading = () => V.group().replace(/<div class="scroll"><div class="msgs center">[\s\S]*?<\/div><\/div>\n  \$\{composer|<div class="scroll"><div class="msgs center">[\s\S]*?(?=<div class="composer">)/, `<div class="scroll"><div class="msgs center">${[200, 320, 260, 180, 340].map((w, i) => `<div class="grp ${i === 3 ? 'out' : ''}"><div class="avatar-slot">${i === 3 ? '' : '<div class="av" style="--c:var(--bg-active);box-shadow:none"></div>'}</div><div class="stack"><div class="bubble skel" style="width:${w}px;height:${i % 2 ? 56 : 36}px"></div></div></div>`).join('')}<div class="t-caption" style="text-align:center;margin-top:12px">正在加载更早的消息…</div></div></div>`);
+
+// Agent Computer: user controlling
+V.computer2 = () => V.computer().replace('● Bot 操作中', '● 你正在操作（Bot 已暂停）').replace('chip working', 'chip wait').replace(`<button class="btn sm primary">${I('hand', 's14')}接管</button>`, `<button class="btn sm primary">交还给 Bot</button>`)
+  .replace(/<div class="banner wait" style="margin:0 16px 16px">[\s\S]*?<\/div>\n<\/section>/, `<div class="row gap8 t-foot" style="margin:0 16px 16px;height:28px">${I('hand', 's14')}鼠标、键盘、滚轮会实时发给浏览器 · 完成后点「交还给 Bot」，可以附一句说明</div>\n</section>`)
+  .replace('box-shadow:var(--elevation-2);display:flex', 'box-shadow:0 0 0 2px var(--warning),var(--elevation-2);display:flex');
+
+// Dashboard: week x hour + drill down
+V.dash2 = () => V.dash().replace('<button class="on">日历</button><button>星期 × 小时</button>', '<button>日历</button><button class="on">星期 × 小时</button>')
+  .replace(/<div class="heat">[\s\S]*?<\/div><\/div>\n      <div class="row gap4 t-caption"/, `<div style="display:grid;grid-template-columns:repeat(24,22px);grid-template-rows:repeat(7,18px);gap:3px">${Array.from({ length: 168 }, (_, i) => { const h = i % 24, d = Math.floor(i / 24); const v = Math.max(0, Math.min(4, Math.round((h >= 9 && h <= 18 ? 2.6 : 0.3) + (h === 9 ? 1.5 : 0) - (d >= 5 ? 1.8 : 0) + Math.sin(i) * .6))); return `<i style="background:var(--heat-${v});border-radius:3px"></i>`; }).join('')}</div></div><div class="row t-caption" style="margin-left:22px;gap:0">${[0, 6, 12, 18].map((h) => `<span style="width:150px">${h}:00</span>`).join('')}</div>
+      <div class="row gap4 t-caption"`)
+  .replace(/<div class="card" style="margin-top:16px"><table class="tbl">[\s\S]*?<\/table><\/div>/, `<div class="card" style="margin-top:16px"><div class="row gap8" style="height:44px;padding:0 14px;border-bottom:1px solid var(--border-subtle)"><button class="btn sm ghost">${I('chevL', 's14')}模型</button><b>Bot › 编码</b><span class="t-foot">按项目和阶段拆分</span></div>
+    <table class="tbl"><tr><th>项目</th><th class="num">干活</th><th class="num">子代理</th><th class="num">私聊</th><th class="num">压缩</th><th class="num">合计</th><th class="num">费用</th></tr>
+    ${[['登录功能', '61k', '12k', '—', '4k', '77k', '¥0.42'], ['官网改版', '98k', '31k', '—', '9k', '138k', '¥0.81'], ['私聊', '—', '—', '22k', '—', '22k', '¥0.09']].map((r) => `<tr>${r.map((c, i) => `<td class="${i ? 'num' : ''}">${c}</td>`).join('')}</tr>`).join('')}</table></div>`);
+
+// Skills: new / import / draft
+V.skillnew = () => V.skills() + `<div class="overlay"><div class="dialog" style="width:520px">
+  <div class="row" style="height:52px;padding:0 20px;border-bottom:1px solid var(--border-subtle)"><b class="grow">新建技能</b><button class="iconbtn">${I('x')}</button></div>
+  <div style="padding:16px 20px" class="col gap16"><div class="seg" style="width:100%"><button class="on" style="flex:1">手写</button><button style="flex:1">从文件夹</button><button style="flex:1">从 Git</button><button style="flex:1">从 zip</button></div>
+    <div><div class="label">名称（小写字母、数字、-）</div><div class="field lg focus mono">deploy-checklist</div></div>
+    <div><div class="label">描述（Bot 根据它决定什么时候用）</div><div class="field area">部署到生产前使用。包含检查清单、回滚步骤和通知模板。</div></div>
+    <div class="banner review" style="font-size:12px">${I('zap')}草稿：Bot 生成的技能先放在「草稿」里，你点「发布」后才对所有 Bot 生效</div></div>
+  <div class="row gap8" style="padding:12px 20px;border-top:1px solid var(--border-subtle);justify-content:flex-end"><button class="btn secondary">取消</button><button class="btn primary">创建并编辑 SKILL.md</button></div></div></div>`;
+V.skilldraft = () => V.skills().replace('<div class="tt mono">web-auth-patterns</div><div class="ts">所有 Bot 可用 · 最近 7 天调用 14 次（编码 12、测试 2）</div>', '<div class="row gap6"><div class="tt mono">prd-template</div><span class="chip wait">草稿</span></div><div class="ts">由 产品 在「登录功能」里生成 · 还没对任何 Bot 生效</div>')
+  .replace('<span class="t-foot">启用</span><span class="toggle on"></span>', '<button class="btn sm danger">丢弃</button><button class="btn sm primary">发布</button>');
+
+// Settings sub-pages
+const settingsShell = (idx, title, body) => sidebar('settings') + `
+<section class="main" style="flex-direction:row;background:var(--bg-window)">
+  <div class="listcol glass-panel" style="padding:60px 8px 8px;gap:2px">
+    ${['通用', '模型与服务商', '运行与并发', '工具与审批', '技能', '电脑与浏览器', 'Host 连接', '关于'].map((t, i) => `<div class="navrow ${i === idx ? 'sel' : ''}">${t}</div>`).join('')}</div>
+  <div class="grow col"><div class="toolbar glass-toolbar"><div class="tt grow" style="font-size:15px">${title}</div></div>
+  <div class="scroll" style="padding:24px 32px"><div style="max-width:640px">${body}</div></div></div></section>`;
+V.set_general = () => settingsShell(0, '通用', stitle('外观') + card([`<span class="grow">主题</span><div class="seg"><button>浅色</button><button>深色</button><button class="on">跟随系统</button></div>`, `<span class="grow">半透明材质<div class="t-caption">系统开启「降低透明度」时自动关闭</div></span>${tog()}`, `<span class="grow">消息字号</span><div class="seg"><button>小</button><button class="on">标准</button><button>大</button></div>`])
+  + stitle('语言与通知') + card([`<span class="grow">语言</span>${fld('简体中文', 160, 1)}`, `<span class="grow">需要你（审批、提问、接管）</span>${tog()}`, `<span class="grow">待验收</span>${tog()}`, `<span class="grow">私聊和 @ 你的消息</span>${tog()}`, `<span class="grow">群里所有消息</span>${tog(false)}`, `<span class="grow">提示音<div class="t-caption">啵啵 · 气泡，所有通知共用</div></span><button class="btn sm ghost" onclick="new Audio('../sounds/04-bubble-pop.m4a').play()">试听</button>${tog()}`])
+  + stitle('启动') + card([`<span class="grow">登录时打开 Mac Bot</span>${tog()}`, `<span class="grow">关闭窗口后留在菜单栏</span>${tog()}`]));
+V.set_models = () => settingsShell(1, '模型与服务商', `<div class="row" style="margin-bottom:12px"><span class="grow t2">API Key 保存在 Bot 主机的钥匙串里</span><button class="btn sm primary">${I('plus', 's14')}添加服务商</button></div>`
+  + `<div class="card" style="margin-bottom:16px"><div class="row gap8" style="height:52px;padding:0 14px;border-bottom:1px solid var(--border-subtle)"><b class="grow">Anthropic</b><span class="chip ok">● 已连接</span><span class="t-caption">anthropic-messages</span><button class="btn sm ghost">编辑</button></div>
+    <table class="tbl"><tr><th>模型</th><th>能力</th><th class="num">上下文</th><th class="num">输入 ¥/M</th><th class="num">输出 ¥/M</th></tr>${[['Claude Sonnet', '工具 · 视觉 · 思考', '200k', '21.6', '108'], ['Claude Haiku', '工具 · 视觉', '200k', '7.2', '36']].map((r) => `<tr>${r.map((c, i) => `<td class="${i > 1 ? 'num' : ''}">${c}</td>`).join('')}</tr>`).join('')}</table></div>`
+  + `<div class="card"><div class="row gap8" style="height:52px;padding:0 14px;border-bottom:1px solid var(--border-subtle)"><b class="grow">DeepSeek</b><span class="chip err">! Key 无效</span><span class="t-caption">openai-completions</span><button class="btn sm ghost">编辑</button></div>
+    <div class="col gap12" style="padding:14px"><div class="row gap8"><span style="width:80px" class="t2">Base URL</span>${fld('https://api.deepseek.com/v1', 300)}</div><div class="row gap8"><span style="width:80px" class="t2">API Key</span>${fld('sk-••••••••••3f9a', 300)}</div>
+    <div class="row gap8"><span style="width:80px"></span><button class="btn sm secondary">拉取模型</button><button class="btn sm secondary">测试连接</button><span class="t-caption" style="color:var(--danger)">401 Unauthorized</span></div></div></div>`);
+V.set_tools = () => settingsShell(3, '工具与审批', stitle('新 Bot 默认开启的工具') + card([['file', '文件（读、写、改、找）'], ['terminal', 'bash'], ['globe', '浏览器'], ['branch', '子代理'], ['link', '网页'], ['cpu', 'MCP', 0]].map(([i, t, on = 1]) => `${I(i, 't2')}<span class="grow">${t}</span>${tog(on)}`))
+  + stitle('Auto Review') + card([`<span class="grow">档位<div class="t-caption">低风险操作自动放行，高风险先问你</div></span><div class="seg"><button>严格</button><button class="on">标准</button><button>宽松</button></div>`])
+  + stitle('规则（冲突时「先问我」优先）') + `<div class="card" style="margin-bottom:16px"><table class="tbl"><tr><th>规则</th><th>范围</th><th>处理</th><th></th></tr>${[['sudo *', '所有 Bot', 'ask', '内置'], ['rm -rf（Home 以外）', '所有 Bot', 'ask', '内置'], ['git push', '所有 Bot', 'ask', '内置'], ['浏览器里付款', '所有 Bot', 'ask', '内置'], ['npm test', '编码', 'allow', '你 · 10/09']].map(([r, sc, a, src]) => `<tr><td class="mono" style="font-size:12px">${r}</td><td class="t2">${sc}</td><td>${a === 'ask' ? '<span class="chip wait">先问我</span>' : '<span class="chip ok">自动允许</span>'}</td><td class="num t3">${src}</td></tr>`).join('')}</table>
+    <div class="row" style="height:40px;padding:0 14px;color:var(--accent)">${I('plus', 's14')} 添加规则</div></div>`);
+V.set_computer = () => settingsShell(5, '电脑与浏览器', stitle('浏览器') + card([`<span class="grow">默认浏览器模式</span>${fld('无头 + 复用 Chrome', 200, 1)}`, `<span class="grow">Chrome profile</span>${fld('Default', 200, 1)}`, `<span class="grow">实时画面画质</span><div class="seg"><button class="on">自动</button><button>清晰</button><button>省流</button></div>`])
+  + stitle('Bot 主机的系统权限') + card([['屏幕录制', 'ok', '已授权'], ['辅助功能', 'ok', '已授权'], ['完全磁盘访问', 'wait', '未授权']].map(([t, c, s]) => `<span class="grow">${t}</span><span class="chip ${c}">${s}</span>${c === 'wait' ? '<button class="btn sm secondary">去系统设置</button>' : ''}`)));
+V.set_hosts = () => settingsShell(6, 'Host 连接', card([['Mac mini（家）', '192.168.31.162:7788', 'ok', '在线 · 当前'], ['MacBook（公司）', 'wss://bot.example.com', '', '离线']].map(([n, a, c, s]) => `<span class="sdot" style="color:var(--${c ? 'success' : 'text-tertiary'})"></span><div class="grow"><div>${n}</div><div class="t-caption mono">${a}</div></div><span class="t-caption">${s}</span><button class="btn sm ghost">编辑</button><button class="btn sm ghost" style="color:var(--danger)">删除</button>`))
+  + `<button class="btn secondary">${I('plus', 's14')}添加 Host…</button>`);
+V.set_about = () => settingsShell(7, '关于', `<div class="col" style="align-items:center;gap:8px;padding:24px 0">${av('Z', 64)}<div class="t-large">Mac Bot</div><div class="t2">客户端 0.1.0 · 协议 1 · Host macbotd 0.1.0</div><div class="row gap8" style="margin-top:8px"><button class="btn secondary">检查更新</button><button class="btn ghost">导出诊断信息</button></div></div>`);
+
+// Narrow window: right panel becomes an overlay
+V.narrow = () => `<div style="position:relative;width:1024px;height:100%;display:flex;overflow:hidden;border-right:1px dashed var(--border-strong)">` + V.group().replace('<aside class="panel glass-panel">', '<aside class="panel glass-panel" style="position:absolute;right:0;top:0;bottom:0;z-index:25;box-shadow:var(--elevation-4)">') + `</div><div class="grow col" style="align-items:center;justify-content:center;padding:24px;background:var(--bg-desktop)"><div class="t-foot" style="text-align:center;line-height:18px">窗口宽 1024（< 1100）：<br>右面板变成从右侧滑入的覆盖层，<br>点击会话区或按 Esc 收起</div></div>`;
+
+const QS = (stage) => {
+  const q1 = { question: '登录失败 5 次后要锁账号吗？', options: ['锁定 15 分钟', '不锁，只加验证码', '永久锁定，需要邮件解锁'] };
+  const q2 = { question: '验证邮件用哪个发件地址？', options: ['noreply@app.com', 'support@app.com'] };
+  const q3 = { question: '本期要做哪些登录方式？', options: ['邮箱 + 密码', '邮箱验证码', 'Apple 登录'], multi: true, other: false };
+  if (stage === 0) return { items: [q1, q2, q3], cur: 0 };
+  if (stage === 1) return { items: [{ ...q1, state: 'answered', picked: [1] }, { ...q2, typing: '用 hi@app.com，已经配好 SPF' }, q3], cur: 1 };
+  return { items: [{ ...q1, state: 'answered', picked: [1] }, { ...q2, state: 'answered', text: '用 hi@app.com，已经配好 SPF' }, { ...q3, state: 'answered', picked: [0, 1] }], cur: 1 };
+};
+const BANNER = '<div class="banner wait" style="max-width:520px;margin:6px 0 0 40px">';
+const decide = (stage) => V.group().replace(BANNER, `${MB.msg('C', ['实现前有 3 个问题需要你定一下：', MB.questionDeck({ from: '编码', ...QS(stage) })], { time: '10:45', role: true })}${stage === 2 ? MB.msg('C', [MB.quote('me', '已回答 3 个问题') + '收到，按你的选择继续：不锁账号、发件 hi@app.com、做邮箱 + 密码和验证码登录。'], { time: '10:47', name: false }) : ''}${BANNER}`);
+V.decide1 = () => decide(0);
+V.decide2 = () => decide(1);
+V.decide3 = () => decide(2);
+V.single = () => V.group().replace(BANNER, `${MB.msg('T', [MB.questionOne({ question: '回归测试覆盖哪些浏览器？', options: ['Chrome', 'Safari', 'Firefox'], multi: true, state: 'answered', picked: [0, 1], other: false }, '测试')], { time: '10:50', role: true })}${MB.msg('P', [MB.questionOne({ question: '登录页要不要放「记住我」？', options: ['要', '不要'], state: 'answered', text: '先不要，下期再说' }, '产品')], { time: '10:52', role: true })}${BANNER}`);
+V.reply = () => V.group()
+  .replace('<div class="composer"><div class="center row gap8" style="width:100%">', `<div class="composer" style="flex-direction:column;align-items:stretch;gap:0"><div class="center" style="width:100%">${MB.replyBar('C', '收到，改为只做邮箱登录。')}</div><div class="center row gap8" style="width:100%">`)
+  .replace('在 登录功能 里发消息，@ 指定 Bot…', '<span style="color:var(--text-primary)">顺便把错误提示改成中文<span style="border-left:1.5px solid var(--accent);margin-left:1px"></span></span>')
+  .replace('<div class="send off">', '<div class="send">')
+  .replace(BANNER, `<div style="position:relative">${MB.msg('C', ['收到，改为只做邮箱登录。'], { time: '10:32', role: true })}<div class="hover-tools" style="top:-6px;left:300px;right:auto"><button class="iconbtn">${I('smile', 's14')}</button><button class="iconbtn on">${I('reply', 's14')}</button><button class="iconbtn">${I('more', 's14')}</button></div></div>
+    ${MB.msg('me', [MB.quote('P', '密码规则：8 位以上，含字母和数字') + `${MB.at('P')} 规则里再加一条：不能和邮箱相同`], { time: '10:36', delivery: '已送达 · <span style="color:var(--success)">产品 已读取 ✓</span>' })}${BANNER}`);
+
+V.msgmenu = () => over(V.group(), `<div class="pop glass-pop" style="position:absolute;left:330px;top:420px;width:236px">
+  <div class="row" style="justify-content:space-between;padding:2px 4px 6px;font-size:18px">${['👍', '❤️', '😂', '🎉', '👀', '✅'].map((e) => `<span style="width:30px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center">${e}</span>`).join('')}</div>
+  <div class="divider" style="margin:0 0 4px"></div>
+  ${[['reply', '回复', 'R', 1], ['copy', '引用', 'Q'], ['copy', '复制文字', '⌘C'], ['pin', '引用到公告'], ['monitor', '查看工作详情'], ['link', '复制消息链接']].map(([i, t, k, on]) => `<div class="item ${on ? 'on' : ''}">${I(i, 's14')}<span class="grow">${t}</span>${k ? `<span class="kbd" style="${on ? 'color:inherit;box-shadow:0 0 0 1px rgba(255,255,255,.4)' : ''}">${k}</span>` : ''}</div>`).join('')}
+  </div>`).replace(BANNER, `<div style="outline:2px solid var(--accent-soft);border-radius:18px;outline-offset:2px;width:fit-content">${MB.msg('C', ['收到，改为只做邮箱登录。'], { time: '10:32', role: true })}</div>${BANNER}`);
+V.quote = () => V.reply().replace(MB.replyBar('C', '收到，改为只做邮箱登录。'), MB.replyBar('C', '收到，改为只做邮箱登录。', 'quote')).replace('顺便把错误提示改成中文', `${MB.at('T')} 按这个范围补测试用例`);
+
+// waiting-message queue: messages without @ don't interrupt working bots
+V.queue = () => V.group()
+  .replace("工作中 25 分</button>", `工作中 25 分 <span class="qbadge">${I('clock', 's14')}2</span></button>`)
+  .replace('<div class="composer"><div class="center row gap8" style="width:100%">', `<div class="composer" style="flex-direction:column;align-items:stretch;gap:0"><div class="center" style="width:100%">${MB.queueHint(['C'])}</div><div class="center row gap8" style="width:100%">`)
+  .replace('在 登录功能 里发消息，@ 指定 Bot…', '<span style="color:var(--text-primary)">测试那边 10 点前要<span style="border-left:1.5px solid var(--accent);margin-left:1px"></span></span>')
+  .replace('<div class="send off">', '<div class="send">')
+  .replace(BANNER, `${MB.msg('me', ['登录页文案统一用「您」'], { time: '10:33', delivery: `总管 已收到 · <span style="color:var(--accent)">${I('clock', 's14')} 编码 交付前会看到</span>` })}${MB.msg('Z', ['好的，已记下。编码 交付前会看到这条，不打断它手头的活。'], { time: '10:33', role: true })}${BANNER}`);
+V.queuepanel = () => V.detail().replace('<div class="psec"><div class="ph">工作过程</div>', `<div class="psec"><div class="ph">待看消息<span class="r badge muted" style="background:var(--text-secondary)">2</span></div>
+      ${MB.queueItem('me', '登录页文案统一用「您」', '10:33')}${MB.queueItem('T', '测试那边 10 点前要，来得及吗？', '10:33')}
+      <div class="t-caption" style="margin-top:8px;line-height:16px">没有 @ 编码的消息不会打断它，交付前会一起查看。点「改为插话」可以让某一条在下一步就生效。</div></div>
+    <div class="psec"><div class="ph">工作过程</div>`);
+V.queuedone = () => V.queue().replace(`<span style="color:var(--accent)">${I('clock', 's14')} 编码 交付前会看到</span>`, `<span style="color:var(--success)">编码 交付前已查看 ✓</span>`).replace(`工作中 25 分 <span class="qbadge">${I('clock', 's14')}2</span>`, '工作中 25 分');
+
+const LIST = [['main', '主 Bot 私聊'], ['botchat', 'Bot 私聊'], ['group', '群聊 + 公告'], ['mention', '@ 成员'], ['msgmenu', '右键消息'], ['queue', '待看消息 · 发送'], ['queuepanel', '待看消息 · 工作详情'], ['queuedone', '待看消息 · 已查看'], ['reply', '回复（右键 → 回复）'], ['quote', '引用（右键 → 引用）'], ['decide1', '决策 · 多题堆叠'], ['decide2', '决策 · 答了 1 题'], ['decide3', '决策 · 全部答完'], ['single', '决策 · 单题已答'], ['detail', '群聊 + 工作详情'], ['artifact', '产物预览'], ['trace', '全屏运行轨迹'], ['routines', '定时任务'], ['work', '工作台'], ['dash', '仪表盘'], ['skills', '技能'], ['computer', 'Agent Computer'], ['settings', '设置 · 运行与并发'], ['set_general', '设置 · 通用'], ['set_models', '设置 · 模型与服务商'], ['set_tools', '设置 · 工具与审批'], ['set_computer', '设置 · 电脑与浏览器'], ['set_hosts', '设置 · Host'], ['set_about', '设置 · 关于'],
+  ['newgroup', '新建（⌘N）'], ['search', '搜索（⌘K）'], ['onboard', '首次启动'], ['offline', '断线重连'],
+  ['annedit', '编辑公告'], ['botdetail', 'Bot 详情'], ['botsettings', 'Bot 设置'], ['mainsettings', '主 Bot 设置'], ['hosts', 'Host 切换'], ['addhost', '添加 Host'], ['ctxmenu', '右键菜单'],
+  ['slash', '/ 技能'], ['slash_q', '/ 技能 · 筛选'], ['slash_none', '/ 技能 · 无匹配'], ['slash_picked', '/ 技能 · 已选中'], ['attach', '+ 附件'], ['dragfile', '拖入文件'], ['changes', '提修改意见'], ['completed', '已完成的群'], ['empty', '空状态'], ['loading', '加载中'],
+  ['computer2', '你正在操作'], ['dash2', '仪表盘 · 星期×小时 + 下钻'], ['skillnew', '新建技能'], ['skilldraft', '技能草稿'], ['narrow', '窄窗口']];
+const screens = document.getElementById('screens'), win = document.getElementById('win');
+screens.innerHTML = LIST.map(([k, t]) => `<button data-v="${k}">${t}</button>`).join('');
+function show(k) {
+  win.innerHTML = `<div class="lights"><span></span><span></span><span></span></div>` + V[k]();
+  screens.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === k));
+  location.hash = k;
+  win.querySelectorAll('.main .scroll').forEach((e) => { e.scrollTop = e.scrollHeight; });
+}
+screens.onclick = (e) => e.target.dataset.v && show(e.target.dataset.v);
+show(location.hash.slice(1) || 'main');
+</script>
+</body>
+</html>

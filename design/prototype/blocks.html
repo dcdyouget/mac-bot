@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-material="opaque">
+<head>
+<meta charset="utf-8">
+<title>Mac Bot · 消息块</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="base.css">
+<style>
+.doc { max-width: 1240px; margin: 0 auto; }
+.blk { display: grid; grid-template-columns: 260px 600px 360px; gap: 20px; padding: 28px 0; border-top: 1px solid var(--border-default); align-items: start; }
+.blk h3 { font-size: 15px; font-weight: 600; } .blk .kind { font-family: var(--font-family-mono); font-size: 12px; color: var(--accent); margin: 2px 0 8px; }
+.blk p, .blk li { font-size: 12.5px; line-height: 19px; color: var(--text-secondary); } .blk ul { padding-left: 16px; margin-top: 6px; }
+.lane { background: var(--bg-chat); border-radius: 14px; box-shadow: 0 0 0 1px var(--border-subtle); padding: 6px 0 12px; }
+.lane .msgs { padding: 6px 14px; }
+.lane.ctx-m .msgs { padding: 6px 10px; } .lane.ctx-m .grp .stack { max-width: calc(100% - 40px); } .lane.ctx-m .grp { width: 100%; }
+.lane.ctx-m .bubble { padding: 7px 12px; } .lane.ctx-m .bubble.wide { max-width: none; }
+.lane.ctx-m .mb-task, .lane.ctx-m .mb-progress { margin-left: 40px; }
+.colh { display: grid; grid-template-columns: 260px 600px 360px; gap: 20px; position: sticky; top: 56px; z-index: 5; padding: 10px 0; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.colh span { background: var(--bg-elevated); border-radius: 8px; padding: 6px 10px; box-shadow: var(--elevation-2); }
+</style>
+</head>
+<body>
+<div class="wallpaper"><div class="doc">
+  <div class="t-display" style="margin-top:12px">消息块</div>
+  <p class="t2" style="margin:8px 0 16px;font-size:14px;max-width:900px">所有消息都由下面这些固定的块组合而成。<b>三端结构完全一样</b>：Android 和 iOS 外观一致，桌面只是字号和触控尺寸小一档（变量见 06-message-blocks.md §1）。所有原型都调用同一个 <span class="inline-code">blocks.js</span> 来渲染。</p>
+  <div class="colh"><span>块 · 状态说明</span><span>macOS（消息 14 · 按钮 28）</span><span>Android / iOS（消息 16 · 按钮 36，两端一致）</span></div>
+  <div id="list"></div>
+</div></div>
+<script src="shared.js"></script>
+<script src="blocks.js"></script>
+<script>
+const M = MB;
+const ARTS = [['PRD', 'product/prd.md', 'P', 'file'], ['原型', 'product/prototype/', 'P', 'globe'], ['代码 · 已部署 localhost:3000', 'code/', 'C', 'folder']];
+const B = [
+  ['文本', 'text', '正文按 Markdown 渲染：粗体、列表、行内代码、链接、代码块。同一个人的连续消息合并，组内第一条显示名字和头衔。', ['私聊里 Bot 的回复可以流式输出（message.delta）；群消息都是完整的一条'],
+    () => M.msg('R', ['<p>今天 HN 前三：</p><p>1. <b>Zed 1.0 发布</b></p><p>2. SQLite 的 <code>JSONB</code> 性能对比</p>'], { time: '10:07', role: true }) + M.msg('me', ['好的，谢谢'], { time: '10:08' })],
+  ['@ 提及', 'Message.mentions（行内）', '@Bot、@总管、@everyone 用链接色加粗；<b>@你</b>（kind=user）额外加一层浅底色高亮。', ['你在群里 @ 一个正在工作的 Bot = 插话，气泡下方显示送达状态（Message.delivery）'],
+    () => M.msg('P', [`✓ 已完成 PRD。${M.at('C')} 请按 PRD 实现；${M.at('me')} 有空看下 3.2 节。`], { time: '10:18' }) + M.msg('me', [`${M.at('C')} 先只做邮箱登录`], { time: '10:31', delivery: '已送达 · <span style="color:var(--success)">编码 已读取 ✓</span>' })],
+  ['引用回复', 'Message.quote', '气泡顶部是被引用消息的摘要：左侧 2px 强调色竖条 + 名字 + 单行摘要。点击跳回原消息。回复仍留在群里，不开线程。', [],
+    () => M.msg('C', [M.quote('P', '密码规则：8 位以上，含字母和数字') + '收到，按这个实现。'], { time: '10:20' })],
+  ['群聊卡片', 'project_card', '<b>整块可点击</b>，进入对应的群。context=created：建群时发出，上方加一行「新建了群聊」；context=mentioned：Bot 在消息里提到某个群。', ['卡片状态取自 Project.status：进行中 / 待验收 / 已完成', 'note 最多 2 行，可以为空'],
+    () => M.msg('Z', ['好的，我拉了产品、编码、测试建群。', M.project_card({ members: ['Z', 'P', 'C', 'T'], title: '登录功能', context: 'created', note: '给 App 加邮箱登录，周六前上线' })], { time: '09:58' }) + M.msg('C', [M.project_card({ members: ['Z', 'C'], title: '官网改版', status: 'review', context: 'mentioned', note: '我在这个群里负责「首页重构」' })], { time: '10:40' })],
+  ['提问 / 选项', 'question', 'Bot 需要你做决定时发出（send_msg decision）。单选：点一项就提交；多选（multi）：勾选后点「提交」。allow_free_text 时也可以直接回复文字。', ['answered：折叠成一行「你选择了 B · …」', 'expired：选项变灰，标题右侧显示「已过期」'],
+    () => M.msg('C', [M.question({ question: '登录失败 5 次后要锁账号吗？', options: ['锁定 15 分钟', '不锁，只加验证码', '永久锁定，需要邮件解锁'] })], { time: '10:45' }) + M.msg('T', [M.question({ question: '回归测试要覆盖哪些浏览器？', options: ['Chrome', 'Safari', 'Firefox'], multi: true, picked: [0, 1] })], { time: '10:50' }) + M.msg('C', [M.question({ question: '登录失败 5 次后要锁账号吗？', options: ['锁定 15 分钟', '不锁，只加验证码'], state: 'answered', picked: [1] })], { time: '10:46' }) + M.msg('C', [M.question({ question: '要不要顺便做手机号登录？', options: ['做', '不做'], state: 'expired' })], { time: '昨天' })],
+  ['决策（选项在消息里）', 'question · 已回答 / 自由回答', '选完<b>原地</b>变成已回答的样子：选中项高亮，其余变淡；「其他，我来说…」写的回答显示为「你的回复」。', [],
+    () => M.msg('T', [M.questionOne({ question: '回归测试覆盖哪些浏览器？', options: ['Chrome', 'Safari', 'Firefox'], multi: true, state: 'answered', picked: [0, 1], other: false }, '测试')], { time: '10:50' }) + M.msg('P', [M.questionOne({ question: '登录页要不要放「记住我」？', options: ['要', '不要'], state: 'answered', text: '先不要，下期再说' }, '产品')], { time: '10:52' })],
+  ['决策堆叠（多个问题）', '连续的多个 question', '同一条消息里的多个问题合成一叠，没答的在下面露出；答完一题自动翻到下一题；全部答完后用题号标签切换查看每题结果。', ['答题中 → 全部答完'],
+    () => M.msg('C', ['实现前有 3 个问题需要你定一下：', M.questionDeck({ from: '编码', items: [{ question: '登录失败 5 次后要锁账号吗？', options: ['锁定 15 分钟', '不锁，只加验证码'], state: 'answered', picked: [1] }, { question: '验证邮件用哪个发件地址？', options: ['noreply@app.com', 'support@app.com'] }, { question: '本期做哪些登录方式？', options: ['邮箱 + 密码', '邮箱验证码'], multi: true }], cur: 1 })], { time: '10:45' }) + M.msg('C', [M.questionDeck({ from: '编码', items: [{ question: '登录失败 5 次后要锁账号吗？', options: ['锁定 15 分钟', '不锁，只加验证码'], state: 'answered', picked: [1] }, { question: '验证邮件用哪个发件地址？', options: ['noreply@app.com', 'support@app.com'], state: 'answered', text: '用 hi@app.com' }], cur: 1 })], { time: '10:47', name: false })],
+  ['引用回复 · 输入框', 'chat.send quote', '回复某条消息时，输入框上方出现回复条，× 取消。', [], () => M.replyBar('C', '收到，改为只做邮箱登录。')],
+  ['完成报告', 'completion', 'send_msg(done) 生成：「✓ 已完成 …」+ 产物（ArtifactRef，带作者）+ 交接的 @。产物同时登记到群的产物清单。', ['next 里的每一项是一个交接：@ 谁，谁就收到新任务', 'notify_main：最后一个 Bot 完成时 @总管，由总管汇总验收'],
+    () => M.msg('P', [M.completion({ summary: 'PRD 和原型', artifacts: ARTS.slice(0, 2), next: [['C', '请按 PRD 实现，密码规则见 3.2 节']] })], { time: '10:18' }) + M.msg('T', [M.completion({ summary: '测试 20/20 通过', artifacts: [['测试报告', 'test/report.md', 'T', 'check']], notifyMain: true })], { time: '11:40' })],
+  ['任务卡片', 'task_card（系统生成，不在气泡里）', '根据 Assignment 的状态自动生成并原地更新，不是 Bot 说的话。', ['排队 / 工作中（底部有扫光）/ 等你 / 完成 / 失败（红色描边）/ 已恢复'],
+    () => M.task_card({ title: '实现登录', state: 'working', time: '已 25 分' }) + M.task_card({ title: '修复导航', state: 'queued', reason: '排在「首页重构」之后' }) + M.task_card({ title: 'PRD 与原型', state: 'done', time: '用时 18 分' }) + M.task_card({ title: '导出 CSV', state: 'failed', time: '9 分', reason: '模型报错：429 限流' }) + M.task_card({ title: '实现登录', state: 'recovered', time: '服务重启后继续' })],
+  ['阶段进展', 'progress', '不用气泡，灰色小字，每个任务最多 3 条。', [], () => M.progress('C', '测试已全部通过，正在部署')],
+  ['卡住', 'blocked', 'Bot 卡住、需要人帮忙时发出；Bot 的状态同时变为「! 卡住」。', [],
+    () => M.msg('C', [M.blocked({ reason: '缺少 SendGrid 的 API Key，没法发送验证邮件。', need: `${M.at('me')} 或 ${M.at('Z')}` })], { time: '10:52' })],
+  ['待验收', 'review_card', '主 Bot 在私聊里发出：产物清单 + 确认完成 / 提修改意见 / 进入群聊。', ['confirmed：结果行', 'changes_requested：结果行，意见作为消息发到群里并 @总管'],
+    () => M.msg('Z', ['「登录功能」做完了，请你验收：', M.review_card({ title: '登录功能', list: ARTS })], { time: '11:42' }) + M.msg('Z', [M.review_card({ title: '官网改版', list: ARTS.slice(0, 1), state: 'changes_requested' })], { time: '12:02', name: false })],
+  ['转交', 'delegation', '主 Bot 不干活，把小事转给某个 Bot 时发出，后面紧跟那个 Bot 的回复。', [], () => M.msg('Z', [M.delegation('R')], { time: '10:05' })],
+  ['审批', 'approval', '<b>只出现在发起审批的那个 Bot 的私聊里</b>。待处理时卡片有一圈 warning 描边；处理后按钮变成结果行。', ['allowed_once / always_allowed / denied / expired', '通知里也可以直接点「允许一次」「拒绝」'],
+    () => M.msg('C', ['推送需要你确认：', M.approval({ tool: 'bash', command: 'git push origin feature/email-login', from: '来自 登录功能', rule: 'git push 先问我' })], { time: '11:43' }) + M.msg('C', [M.approval({ tool: 'bash', command: 'rm -rf dist/', from: '来自 官网改版', rule: 'Home 外删除', state: 'allowed_once' })], { time: '11:44', name: false })],
+  ['审批提示（群里）', 'approval_ref', '群里看不到审批内容，只显示一行提示，点 [前往] 跳到那个 Bot 的私聊。', [], () => M.approval_ref('C')],
+  ['接管请求', 'takeover_request', '遇到验证码、两步验证、登录时发出，附带画面缩略图。', ['pending → active（你正在操作）→ done（已交还）'],
+    () => M.msg('X', [M.takeover_request({ reason: '登录 X 需要两步验证。', site: 'x.com/i/flow/login' })], { time: '09:03' }) + M.msg('X', [M.takeover_request({ reason: '登录 X 需要两步验证。', state: 'active' })], { time: '09:04', name: false })],
+  ['Bot 间私信', 'bot_dm_ref', '默认折叠成一行，展开后只读。', [], () => M.msg('Z', [M.bot_dm_ref('C', 'T', 3)], { time: '11:02', name: false })],
+  ['防循环暂停', 'loop_paused', '同一条用户消息引发的 Bot 间往返超过上限时出现，不在气泡里。', ['paused → continued / ended'],
+    () => M.loop_paused({ hops: 8 }) + M.loop_paused({ state: 'ended' })],
+  ['系统事件', 'system', '居中，最弱的灰色。', ['code：member_added / member_removed / project_status / renamed / task_stopped / task_no_report / announcement_updated / info'],
+    () => M.system('编码 加入了群', 'member_added') + M.system('产品 更新了公告', 'announcement_updated') + M.system('群进入待验收', 'project_status')],
+  ['图片 / 文件', 'image · file', '图片铺满气泡宽度，圆角 12；文件是 40 的图标 + 名称 + 大小。', [],
+    () => M.msg('me', [M.image('首页截图')], { time: '12:01' }) + M.msg('R', [M.file('竞品对比.xlsx', '48 KB · Excel')], { time: '12:03' })],
+  ['链接预览', 'link_preview', '左侧 2px 强调色竖条 + 站点名 + 标题 + 描述 + 56 缩略图。', [],
+    () => M.msg('R', ['参考这个：<a class="mb-at">zed.dev/blog/1.0</a>' + M.link_preview('zed.dev', 'Zed 1.0 is here', 'GPU 加速的编辑器发布正式版')], { time: '12:04' })],
+  ['正在输入', 'typing（临时事件）', '只在私聊里显示，三个点依次跳动。', [], () => M.typing('C')],
+  ['未知类型', 'fallback_text', '客户端不认识的块，显示 Message.fallback_text。', [], () => M.msg('C', [M.fallback('[图表] 本周 token 消耗趋势')], { time: '12:10' })],
+];
+document.getElementById('list').innerHTML = B.map(([t, k, d, notes, f]) => `<div class="blk">
+  <div><h3>${t}</h3><div class="kind">${k}</div><p>${d}</p>${notes.length ? `<ul>${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}</div>
+  <div class="lane"><div class="msgs">${f()}</div></div>
+  <div class="lane ctx-m"><div class="msgs">${f()}</div></div></div>`).join('');
+</script>
+</body>
+</html>

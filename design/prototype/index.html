@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-material="opaque">
+<head>
+<meta charset="utf-8">
+<title>Mac Bot · 设计系统总览</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="base.css">
+<style>
+.doc { max-width: 1160px; margin: 0 auto; }
+.doc h2 { font-size: 20px; font-weight: 700; margin: 40px 0 6px; letter-spacing: -.3px; }
+.doc .lead { color: var(--text-secondary); margin-bottom: 16px; font-size: 14px; }
+.sw { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.swatch { border-radius: 12px; overflow: hidden; background: var(--bg-elevated); box-shadow: 0 0 0 1px var(--border-subtle); }
+.swatch .c { height: 56px; box-shadow: inset 0 -1px 0 var(--border-subtle); }
+.swatch .n { padding: 8px 10px; font-size: 12px; } .swatch .n b { font-family: var(--font-family-mono); font-weight: 500; font-size: 11.5px; display: block; }
+.swatch .n span { color: var(--text-tertiary); font-family: var(--font-family-mono); font-size: 11px; }
+.panel3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.cardx { background: var(--bg-elevated); border-radius: 12px; box-shadow: 0 0 0 1px var(--border-subtle); padding: 16px; }
+.typerow { display: grid; grid-template-columns: 110px 1fr 220px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--border-subtle); }
+.sp { display: flex; align-items: flex-end; gap: 12px; } .sp div { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.links { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+.links a { text-decoration: none; color: inherit; }
+</style>
+</head>
+<body>
+<div class="wallpaper"><div class="doc">
+  <div class="t-display" style="margin-top:12px">Mac Bot 设计系统 v1</div>
+  <p class="lead" style="margin-top:8px;font-size:15px">素雅中性色 · 苹果原生质感 · Telegram 式聊天。三种外观：浅色 / 深色 / 半透明（叠加在任一主题之上）。所有数值来自 <span class="inline-code">design/tokens.json</span>，顶部切换器可以实时预览。</p>
+  <div class="links">
+    <a href="mac.html" class="cardx"><b>macOS 客户端 →</b><div class="t-foot">16 个屏幕：主 Bot 私聊、Bot 私聊、群、工作详情、产物预览、轨迹、定时任务、工作台、仪表盘、技能、Agent Computer、设置、⌘N、⌘K、首次启动、断线</div></a>
+    <a href="mobile.html" class="cardx"><b>Android · iOS →</b><div class="t-foot">24 组屏幕两端并排，功能与 macOS 对齐</div></a>
+    <a href="web.html" class="cardx"><b>Web 管理页 →</b><div class="t-foot">首次设置密码、状态与服务配置、日志</div></a>
+  </div>
+
+  <h2>颜色</h2><p class="lead">当前主题的语义色。半透明模式只改变 bg.* 表面的 alpha，并开启背景模糊。</p>
+  <div class="sw" id="sw"></div>
+
+  <h2>豆豆头像</h2><p class="lead">10 种低饱和预设色；主 Bot 戴黑框眼镜；状态点与工作中转圈。</p>
+  <div class="row gap16" id="avs"></div>
+
+  <h2>字体</h2><p class="lead">SF Pro / PingFang SC，代码 SF Mono。左：桌面，右：移动。</p>
+  <div class="cardx" id="type"></div>
+
+  <h2>间距与圆角</h2>
+  <div class="panel3"><div class="cardx"><div class="t-foot" style="margin-bottom:10px">间距（4 基数）</div><div class="sp" id="sp"></div></div>
+    <div class="cardx"><div class="t-foot" style="margin-bottom:10px">圆角</div><div class="row gap12" id="rd" style="flex-wrap:wrap"></div></div>
+    <div class="cardx"><div class="t-foot" style="margin-bottom:10px">阴影层级</div><div class="row gap16" id="el"></div></div></div>
+
+  <h2>基础组件</h2>
+  <div class="panel3">
+    <div class="cardx col gap12"><div class="row gap8"><button class="btn primary">主要</button><button class="btn secondary">次要</button><button class="btn ghost">幽灵</button><button class="btn danger">危险</button></div>
+      <div class="row gap8"><button class="btn sm primary">小 24</button><button class="btn primary">常规 28</button><button class="btn lg primary">大 36</button></div>
+      <div class="seg"><button class="on">按 Bot</button><button>按群</button><button>按状态</button></div>
+      <div class="row gap12"><span class="toggle on"></span><span class="toggle"></span><span class="check on"><i data-i="check" class="s14"></i></span><span class="check"></span></div></div>
+    <div class="cardx col gap8"><div class="row gap6" style="flex-wrap:wrap"><span class="chip">○ 待命</span><span class="chip working"><span class="spinner"></span>工作中</span><span class="chip ok">✓ 完成</span><span class="chip wait">⚠ 等你</span><span class="chip err">! 卡住</span><span class="chip review">◎ 待验收</span><span class="chip">… 排队</span></div>
+      <div class="field">名称</div><div class="field focus">聚焦状态</div><div class="row gap8"><span class="badge">3</span><span class="kbd">⌘K</span></div></div>
+    <div class="cardx" style="background:var(--bg-chat)"><div class="msgs" style="padding:0">
+      <div class="grp"><div class="avatar-slot"><div class="av" style="--c:var(--avatar-2)"></div></div><div class="stack"><div class="bubble"><div class="name">编码<span class="role">写代码</span></div>收到，开始实现。<span class="meta">10:19</span></div><div class="bubble">第二条连续消息<span class="meta">10:19</span></div></div></div>
+      <div class="grp out"><div class="stack"><div class="bubble">@编码 只做邮箱登录<span class="meta">10:31 ✓✓</span></div><div class="delivery">已送达 · 编码 已读取 ✓</div></div></div></div></div>
+  </div>
+</div></div>
+<script src="shared.js"></script>
+<script>
+const names = ['bg.window','bg.sidebar','bg.panel','bg.chat','bg.elevated','bg.input','text.primary','text.secondary','text.tertiary','accent','accent.soft','bubble.in','bubble.out','success','warning','danger','review','code.text','border.default','chart.1','chart.2','chart.3','chart.4','chart.5','heat.1','heat.2','heat.3','heat.4'];
+const cs = () => getComputedStyle(document.documentElement);
+function paint() {
+  document.getElementById('sw').innerHTML = names.map((n) => { const v = '--' + n.replace(/\./g, '-'); return `<div class="swatch"><div class="c" style="background:var(${v})"></div><div class="n"><b>${n}</b><span>${cs().getPropertyValue(v).trim()}</span></div></div>`; }).join('');
+}
+paint(); new MutationObserver(paint).observe(document.documentElement, { attributes: true });
+document.getElementById('avs').innerHTML = Array.from({ length: 10 }, (_, i) => `<div class="col gap6" style="align-items:center"><div class="av s48" style="--c:var(--avatar-${i})">${i === 0 ? GLASSES : ''}${i === 2 ? '<span class="ring-working"></span>' : ''}${i === 3 ? '<span class="dot wait" style="border-color:var(--bg-desktop)"></span>' : ''}</div><span class="t-caption mono">avatar.${i}</span></div>`).join('');
+const T = [['display', 28, 34, 34, 41, 700], ['large', 22, 28, 28, 34, 700], ['headline', 17, 22, 20, 25, 600], ['title', 15, 20, 17, 22, 600], ['message', 14, 20, 16, 22, 400], ['body', 13, 18, 15, 21, 400], ['footnote', 12, 16, 13, 18, 400], ['caption', 11, 14, 12, 16, 400]];
+document.getElementById('type').innerHTML = T.map(([n, ds, dl, ms, ml, w]) => `<div class="typerow"><span class="mono t3" style="font-size:12px">${n}</span><span style="font-size:${ds}px;line-height:${dl}px;font-weight:${w}">登录功能 Login 123</span><span class="t-foot mono">D ${ds}/${dl} · M ${ms}/${ml} · ${w}</span></div>`).join('');
+document.getElementById('sp').innerHTML = [2, 4, 6, 8, 12, 16, 20, 24, 32, 40].map((s) => `<div class="col" style="align-items:center;gap:4px;background:none;box-shadow:none"><div style="width:${s}px;height:${s}px"></div><span class="t-caption">${s}</span></div>`).join('');
+document.getElementById('rd').innerHTML = [['xs', 4], ['sm', 6], ['md', 8], ['lg', 12], ['xl', 16], ['sheet', 20], ['bubble', 16]].map(([n, r]) => `<div class="col" style="align-items:center;gap:4px"><div style="width:44px;height:44px;border-radius:${n === 'bubble' ? '16px 16px 16px 6px' : r + 'px'};background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)"></div><span class="t-caption">${n} ${r}</span></div>`).join('');
+document.getElementById('el').innerHTML = [1, 2, 3, 4].map((e) => `<div class="col" style="align-items:center;gap:6px"><div style="width:52px;height:52px;border-radius:10px;background:var(--bg-elevated);box-shadow:var(--elevation-${e})"></div><span class="t-caption">e${e}</span></div>`).join('');
+</script>
+</body>
+</html>

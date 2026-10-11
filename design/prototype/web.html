@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-material="opaque">
+<head>
+<meta charset="utf-8">
+<title>Mac Bot · Web 管理页原型</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="base.css">
+<style>
+/* spec: 05-web-admin.md — browser viewport 1280, content max 880 */
+.browser { width: 1280px; margin: 0 auto 48px; border-radius: 12px; overflow: hidden; box-shadow: var(--elevation-4); background: var(--bg-window); }
+.chrome { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--bg-sidebar); border-bottom: 1px solid var(--border-subtle); }
+.chrome .url { flex: 1; max-width: 520px; margin: 0 auto; height: 26px; border-radius: 8px; background: var(--bg-active); display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-secondary); gap: 6px; }
+.dots { display: flex; gap: 8px; } .dots span { width: 12px; height: 12px; border-radius: 50%; background: var(--border-strong); }
+.page { min-height: 720px; background: var(--bg-window); }
+.hdr { height: 56px; border-bottom: 1px solid var(--border-subtle); }
+.hdr .in, .wrap { max-width: 880px; margin: 0 auto; padding: 0 32px; }
+.hdr .in { height: 56px; display: flex; align-items: center; gap: 10px; }
+.logo { width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: var(--accent-on); display: flex; align-items: center; justify-content: center; }
+.wrap { padding-top: 32px; padding-bottom: 48px; }
+.wcard { background: var(--bg-elevated); border-radius: 12px; box-shadow: 0 0 0 1px var(--border-subtle), var(--elevation-1); margin-bottom: 24px; }
+.wcard .h { height: 52px; display: flex; align-items: center; padding: 0 24px; font-size: 15px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); gap: 8px; }
+.wcard .b { padding: 20px 24px; }
+.kvrow { display: grid; grid-template-columns: 120px 1fr; align-items: center; min-height: 44px; font-size: 14px; border-top: 1px solid var(--border-subtle); padding: 0 24px; }
+.kvrow:first-child { border-top: 0; } .kvrow dt { color: var(--text-secondary); }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+.mstat { padding: 16px 20px; } .mstat .v { font-size: 22px; font-weight: 600; margin-top: 4px; }
+.log { background: #141416; color: #C9C9CC; font-family: var(--font-family-mono); font-size: 12px; line-height: 20px; padding: 14px 18px; border-radius: 0 0 12px 12px; height: 260px; overflow: hidden; }
+.log .w { color: #DDAA5C; } .log .e { color: #E08470; } .log .t { color: #66666B; }
+.setup { min-height: 720px; display: flex; align-items: center; justify-content: center; background: var(--bg-sidebar); }
+.setup .box { width: 420px; padding: 32px; }
+</style>
+</head>
+<body>
+<div class="wallpaper">
+  <div class="screen-label">① 首次设置（仅本机可访问 · 未设置密码时）</div>
+  <div class="browser"><div class="chrome"><div class="dots"><span></span><span></span><span></span></div><div class="url"><i data-i="lock" class="s14"></i>localhost:7788/admin</div></div>
+    <div class="setup"><div class="wcard box">
+      <div class="logo" style="width:48px;height:48px;border-radius:12px;margin-bottom:20px"><i data-i="bot" class="s24"></i></div>
+      <div class="t-large">设置访问密码</div><div class="t2" style="margin:6px 0 24px;font-size:14px">这个页面只有本机能打开。设置后客户端用它连接。</div>
+      <div class="label">密码</div><div class="field lg focus" style="margin-bottom:16px">••••••••••</div>
+      <div class="label">确认密码</div><div class="field lg" style="margin-bottom:8px">••••••••••</div>
+      <div class="row gap6 t-foot" style="margin-bottom:24px"><span style="height:4px;flex:1;border-radius:2px;background:var(--success)"></span><span style="height:4px;flex:1;border-radius:2px;background:var(--success)"></span><span style="height:4px;flex:1;border-radius:2px;background:var(--border-default)"></span><span style="margin-left:6px">强度 中</span></div>
+      <button class="btn lg primary" style="width:100%">完成</button>
+      <div class="card" style="margin-top:20px;padding:12px 14px;font-size:13px;line-height:20px;background:var(--bg-chat);box-shadow:none">完成后，在客户端「添加 Host」里填写<br><span class="inline-code">192.168.31.162:7788</span> + 这个密码</div>
+    </div></div></div>
+
+  <div class="screen-label">② 管理首页（Basic Auth 登录后）</div>
+  <div class="browser"><div class="chrome"><div class="dots"><span></span><span></span><span></span></div><div class="url"><i data-i="lock" class="s14"></i>192.168.31.162:7788/admin</div></div>
+    <div class="page">
+      <div class="hdr"><div class="in"><span class="logo"><i data-i="bot" class="s18"></i></span><b style="font-size:15px">Mac Bot 管理</b><span class="t2">· Mac mini（家）</span><span class="chip" style="margin-left:4px">v0.1.0</span><span style="flex:1"></span><button class="btn ghost">退出</button></div></div>
+      <div class="wrap">
+        <div class="grid4">
+          <div class="wcard mstat"><div class="t-foot">状态</div><div class="v row gap8"><span class="sdot" style="color:var(--success);width:8px;height:8px"></span>运行中</div><div class="t-caption">已运行 3 天 4 小时</div></div>
+          <div class="wcard mstat"><div class="t-foot">在线客户端</div><div class="v">2</div><div class="t-caption">MacBook Pro · Android</div></div>
+          <div class="wcard mstat"><div class="t-foot">Bot</div><div class="v">5</div><div class="t-caption">运行中 1 · 等待你 1</div></div>
+          <div class="wcard mstat"><div class="t-foot">浏览器</div><div class="v">2 <span class="t2" style="font-size:13px;font-weight:400">会话</span></div><div class="t-caption">agent-browser 0.38</div></div>
+        </div>
+        <div class="wcard"><div class="h">服务</div>
+          <dl><div class="kvrow"><dt>Host 名称</dt><dd><div class="field" style="width:280px">Mac mini（家）</div></dd></div>
+          <div class="kvrow"><dt>端口</dt><dd class="row gap12"><div class="field" style="width:96px">7788</div><span class="t-foot">修改后需要重启</span></dd></div>
+          <div class="kvrow"><dt>node_id</dt><dd class="mono t2">3f9a…c21 <button class="btn sm ghost"><i data-i="copy" class="s14"></i></button></dd></div>
+          <div class="kvrow"><dt>访问密码</dt><dd><button class="btn secondary">修改密码</button></dd></div></dl>
+          <div class="row gap8" style="padding:16px 24px;border-top:1px solid var(--border-subtle);justify-content:flex-end"><button class="btn secondary"><i data-i="refresh" class="s14"></i>重启服务</button><button class="btn primary">保存并重启</button></div></div>
+        <div class="wcard"><div class="h"><i data-i="log"></i>日志<span style="flex:1"></span><div class="seg"><button class="on">全部</button><button>警告</button><button>错误</button></div><button class="btn sm secondary"><span class="sdot" style="color:var(--success)"></span>实时</button></div>
+          <div class="log"><span class="t">10:34:02</span> INFO  runtime  task=impl-login bash "npm run deploy" started<br><span class="t">10:34:01</span> INFO  gateway  client connected: Android (10.0.2.2)<br><span class="t">10:33:40</span> INFO  runtime  task=impl-login bash "npm test" exit=0 12.4s<br><span class="w"><span class="t">10:31:20</span> WARN  orchestr steer delivered to 编码 (waiting next step)</span><br><span class="t">10:24:51</span> INFO  provider claude-sonnet req#6 4.1k/0.3k 2.1s<br><span class="e"><span class="t">10:12:03</span> ERROR browser  session X侦察 login expired, asking takeover</span><br><span class="t">10:00:00</span> INFO  orchestr group created: 登录功能 members=[产品,编码,测试]</div></div>
+      </div></div></div>
+</div>
+<script src="shared.js"></script>
+</body>
+</html>
