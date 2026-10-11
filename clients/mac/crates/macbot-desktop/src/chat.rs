@@ -563,7 +563,18 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.send_failed" => "发送失败",
         "chat.retry" => "重试",
         "chat.everyone" => "所有成员",
-        "chat.skill_hint" => "技能建议",
+        "chat.slash.recent" => "最近使用（本机选择）",
+        "chat.slash.all" => "全部技能 · {count}",
+        "chat.slash.matched" => "匹配「{query}」· {count}",
+        "chat.slash.keys" => "↑↓ 选择 · ↵ / Tab 插入 · Esc 关闭",
+        "chat.slash.shared" => "ϟ 技能 · 所有 Bot 共用",
+        "chat.slash.used" => "{count} 次",
+        "chat.slash.empty_title" => "没有叫「{query}」的技能",
+        "chat.slash.empty_desc" => "继续输入会作为普通文字发送",
+        "chat.slash.create" => "新建技能「{query}」",
+        "chat.slash.disabled_for" => "对{bot}停用",
+        "chat.slash.bot_fallback" => "当前 Bot",
+        "chat.slash.loaded" => "已加载技能 {name}",
         "chat.project_status" => "当前状态",
         "chat.question_submit" => "提交",
         "chat.question_expired" => "已过期",
@@ -1928,17 +1939,50 @@ impl MacBot {
             }
             composer = composer.child(choices);
         }
-        if let Some(last) = text.split_whitespace().last()
+        let loaded_skill = window.use_keyed_state(
+            SharedString::from(format!("slash-loaded-{}", self.selected_chat)),
+            cx,
+            |_, _| String::new(),
+        );
+        let loaded_name = loaded_skill.read(cx).clone();
+        if !loaded_name.is_empty()
+            && text
+                .split_whitespace()
+                .any(|token| token == format!("/{loaded_name}"))
+        {
+            composer = composer.child(
+                div()
+                    .text_size(px(t.desktop_type[1][0]))
+                    .text_color(t.secondary)
+                    .child(chat_tr("chat.slash.loaded").replace("{name}", &loaded_name)),
+            );
+        }
+        let completed_skill_prefix = text.chars().last().is_some_and(char::is_whitespace)
+            && text.split_whitespace().last().is_some_and(|token| {
+                self.state.skills.values().any(|skill| {
+                    let name = s(skill, "name");
+                    !name.is_empty() && token == format!("/{name}")
+                })
+            });
+        if !completed_skill_prefix
+            && let Some(last) = text.split_whitespace().last()
             && let Some(query) = last.strip_prefix('/')
         {
+            let query_text = query.to_owned();
             let query = query.to_lowercase();
-            let mut choices = div().flex().flex_wrap().gap(px(t.space[2]));
             let bot_id = self
                 .state
                 .chats
                 .get(&self.selected_chat)
                 .map(|chat| s(chat, "bot_id").to_owned())
                 .unwrap_or_default();
+            let bot_name = self
+                .state
+                .bots
+                .get(&bot_id)
+                .map(|bot| s(bot, "name").to_owned())
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| chat_tr("chat.slash.bot_fallback").to_string());
             let mut matching_skills = self
                 .state
                 .skills
@@ -1957,40 +2001,67 @@ impl MacBot {
                 })
                 .collect::<Vec<_>>();
             let recent_skills = crate::local_settings::recent_skill_order().unwrap_or_default();
-            matching_skills.sort_by(|a, b| {
-                let a_recent = recent_skills.iter().position(|name| name == &a.0);
-                let b_recent = recent_skills.iter().position(|name| name == &b.0);
-                a_recent
-                    .cmp(&b_recent)
-                    .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
-            });
-            let has_recent_matches = matching_skills
+            matching_skills.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+            let recent_matches = recent_skills
                 .iter()
-                .any(|(name, _)| recent_skills.iter().any(|recent| recent == name));
+                .filter_map(|recent| {
+                    matching_skills
+                        .iter()
+                        .find(|(name, _)| name == recent)
+                        .cloned()
+                })
+                .take(3)
+                .collect::<Vec<_>>();
+            let mut picker_groups = Vec::<(String, Vec<(String, bool)>)>::new();
+            if query_text.is_empty() {
+                if !recent_matches.is_empty() {
+                    picker_groups.push((chat_tr("chat.slash.recent").to_string(), recent_matches));
+                }
+                let all_label = chat_tr("chat.slash.all")
+                    .replace("{count}", &matching_skills.len().to_string());
+                picker_groups.push((all_label, matching_skills.clone()));
+            } else if !matching_skills.is_empty() {
+                let matched_label = chat_tr("chat.slash.matched")
+                    .replace("{query}", &query_text)
+                    .replace("{count}", &matching_skills.len().to_string());
+                picker_groups.push((matched_label, matching_skills.clone()));
+            }
+            let picker_options = picker_groups
+                .iter()
+                .flat_map(|(_, options)| options.iter().cloned())
+                .collect::<Vec<_>>();
             let picker_state = window.use_keyed_state(
                 SharedString::from(format!("slash-picker-{}-{query}", self.selected_chat)),
                 cx,
                 |_, _| 0usize,
             );
+            let picker_open = window.use_keyed_state(
+                SharedString::from(format!("slash-picker-open-{}-{query}", self.selected_chat)),
+                cx,
+                |_, _| true,
+            );
             let selected_index = *picker_state.read(cx);
-            let picker_names = matching_skills
-                .iter()
-                .map(|(name, _)| name.clone())
-                .collect::<Vec<_>>();
-            let picker_options = matching_skills.clone();
             let prefix = last.to_owned();
-            if !matching_skills.is_empty() {
-                let names_for_keys = picker_names.clone();
+            let picker_is_open = *picker_open.read(cx);
+            if picker_is_open {
                 let options_for_keys = picker_options.clone();
                 let picker_state_for_keys = picker_state.clone();
+                let picker_open_for_keys = picker_open.clone();
+                let loaded_for_keys = loaded_skill.clone();
                 let key_prefix = prefix.clone();
                 composer = composer.capture_key_down(cx.listener(
                     move |this, event: &KeyDownEvent, window, cx| {
                         let key = event.keystroke.key.to_lowercase();
-                        if matches!(key.as_str(), "up" | "arrowup" | "down" | "arrowdown") {
+                        if matches!(key.as_str(), "escape" | "esc") {
+                            cx.stop_propagation();
+                            picker_open_for_keys.update(cx, |open, _| *open = false);
+                            cx.notify();
+                        } else if matches!(key.as_str(), "up" | "arrowup" | "down" | "arrowdown")
+                            && !options_for_keys.is_empty()
+                        {
                             cx.stop_propagation();
                             picker_state_for_keys.update(cx, |index, _| {
-                                let len = names_for_keys.len();
+                                let len = options_for_keys.len();
                                 if len > 0 {
                                     let current = (*index).min(len - 1);
                                     *index = if matches!(key.as_str(), "up" | "arrowup") {
@@ -2001,12 +2072,19 @@ impl MacBot {
                                 }
                             });
                             cx.notify();
-                        } else if key == "tab" {
+                        } else if key == "tab"
+                            || (matches!(key.as_str(), "enter" | "return")
+                                && !event.keystroke.modifiers.platform)
+                        {
+                            if options_for_keys.is_empty() {
+                                return;
+                            }
                             cx.stop_propagation();
-                            if let Some((name, false)) =
-                                options_for_keys.get(*picker_state_for_keys.read(cx))
+                            if let Some((name, false)) = options_for_keys
+                                .get(*picker_state_for_keys.read(cx) % options_for_keys.len())
                             {
                                 let _ = crate::local_settings::record_recent_skill(name);
+                                loaded_for_keys.update(cx, |loaded, _| *loaded = name.clone());
                                 let text = this.composer.read(cx).value().to_string();
                                 let start = text.rfind(&key_prefix).unwrap_or(text.len());
                                 let result = format!("{}/{} ", &text[..start], name);
@@ -2016,50 +2094,87 @@ impl MacBot {
                         }
                     },
                 ));
-            }
-            for (index, (name, disabled_for_bot)) in matching_skills.into_iter().enumerate() {
-                let skill_name = name.clone();
-                let skill_prefix = prefix.clone();
-                let label = if disabled_for_bot {
-                    format!("/{name} · {}", chat_tr("chat.skill.disabled"))
-                } else {
-                    format!("/{name}")
-                };
-                let mut button = Button::new(SharedString::from(format!("skill-suggest-{name}")))
-                    .ghost()
-                    .small()
-                    .label(label)
-                    .disabled(disabled_for_bot)
-                    .when(index == selected_index, |button| button.primary());
-                if !disabled_for_bot {
-                    button = button.on_click(cx.listener(move |this, _, window, cx| {
-                        let _ = crate::local_settings::record_recent_skill(&skill_name);
-                        let text = this.composer.read(cx).value().to_string();
-                        let start = text.rfind(&skill_prefix).unwrap_or(text.len());
-                        let result = format!("{}/{} ", &text[..start], skill_name);
-                        this.composer
-                            .update(cx, |input, cx| input.set_value(result, window, cx));
-                    }));
+                let mut option_index = 0usize;
+                for (heading, options) in picker_groups {
+                    let mut choices = div().flex().flex_wrap().gap(px(t.space[2]));
+                    for (name, disabled_for_bot) in options {
+                        let current_index = option_index;
+                        option_index += 1;
+                        let skill_name = name.clone();
+                        let skill_prefix = prefix.clone();
+                        let label = if disabled_for_bot {
+                            format!(
+                                "/{name} · {}",
+                                chat_tr("chat.slash.disabled_for").replace("{bot}", &bot_name)
+                            )
+                        } else {
+                            format!("/{name}")
+                        };
+                        let mut button = Button::new(SharedString::from(format!(
+                            "skill-suggest-{current_index}-{name}"
+                        )))
+                        .ghost()
+                        .small()
+                        .label(label)
+                        .disabled(disabled_for_bot)
+                        .when(current_index == selected_index, |button| button.primary());
+                        if !disabled_for_bot {
+                            let loaded_for_click = loaded_skill.clone();
+                            button = button.on_click(cx.listener(move |this, _, window, cx| {
+                                let _ = crate::local_settings::record_recent_skill(&skill_name);
+                                loaded_for_click
+                                    .update(cx, |loaded, _| *loaded = skill_name.clone());
+                                let text = this.composer.read(cx).value().to_string();
+                                let start = text.rfind(&skill_prefix).unwrap_or(text.len());
+                                let result = format!("{}/{} ", &text[..start], skill_name);
+                                this.composer
+                                    .update(cx, |input, cx| input.set_value(result, window, cx));
+                            }));
+                        }
+                        choices = choices.child(button);
+                    }
+                    composer = composer.child(
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(t.secondary)
+                            .child(heading),
+                    );
+                    composer = composer.child(choices);
                 }
-                choices = choices.child(button);
-            }
-            if !picker_names.is_empty() {
-                let heading = if has_recent_matches {
-                    format!(
-                        "{} · {}",
-                        chat_tr("chat.skill_hint"),
-                        chat_tr("chat.skill_recent")
-                    )
-                } else {
-                    chat_tr("chat.skill_hint").to_string()
-                };
                 composer = composer.child(
                     div()
+                        .flex()
+                        .justify_between()
                         .text_size(px(t.desktop_type[1][0]))
-                        .text_color(t.secondary)
-                        .child(heading),
+                        .text_color(t.tertiary)
+                        .child(chat_tr("chat.slash.keys"))
+                        .child(chat_tr("chat.slash.shared")),
                 );
-                composer = composer.child(choices);
+                if !query_text.is_empty() && matching_skills.is_empty() {
+                    composer = composer.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap(px(t.space[2]))
+                            .child(
+                                chat_tr("chat.slash.empty_title").replace("{query}", &query_text),
+                            )
+                            .child(chat_tr("chat.slash.empty_desc"))
+                            .child(
+                                Button::new("slash-create-skill")
+                                    .ghost()
+                                    .small()
+                                    .label(
+                                        chat_tr("chat.slash.create")
+                                            .replace("{query}", &query_text),
+                                    )
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.navigate("skills", cx)),
+                                    ),
+                            ),
+                    );
+                }
             }
         }
         let composer_line_count = self.composer.read(cx).value().lines().count().max(1) as f32;
