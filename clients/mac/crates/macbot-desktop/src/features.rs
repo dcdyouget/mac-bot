@@ -1255,7 +1255,8 @@ fn new_dialog(
         .gap_1()
         .children(available_bots.iter().map(|bot| {
             let bot_id = string(bot, "id", "").to_owned();
-            let bot_name = string(bot, "label", string(bot, "name", t("common.unknown")));
+            let fallback_name = string(bot, "name", t("common.unknown")).to_owned();
+            let bot_name = string(bot, "label", &fallback_name);
             let role = string(bot, "description", "");
             let checked = selected_member_bot_ids.iter().any(|id| id == &bot_id);
             let bot_id_for_event = bot_id.clone();
