@@ -373,7 +373,36 @@ impl TraceView {
         let data = item.get("data").cloned().unwrap_or(Value::Null);
         let expanded = self.expanded.contains(&aseq);
         let depth = self.row_depth(&item);
-        let title = trace_item_title(&kind, &data, aseq);
+        let subagent_count = (kind == "run.start"
+            && data.get("phase").and_then(Value::as_str) == Some("subagent")
+            && data.get("parent_run_id").and_then(Value::as_str).is_some())
+        .then(|| {
+            self.assignment
+                .as_ref()
+                .and_then(|assignment| assignment.get("subagents_active"))
+                .and_then(Value::as_u64)
+                .filter(|count| *count > 0)
+                .unwrap_or(1)
+        });
+        let steer_applied = kind == "steer"
+            && data
+                .get("message_id")
+                .and_then(Value::as_str)
+                .zip(
+                    self.assignment
+                        .as_ref()
+                        .and_then(|assignment| assignment.get("steers"))
+                        .and_then(Value::as_array)
+                        .and_then(|steers| {
+                            steers.iter().find(|steer| {
+                                steer.get("message_id").and_then(Value::as_str)
+                                    == data.get("message_id").and_then(Value::as_str)
+                            })
+                        })
+                        .and_then(|steer| steer.get("applied_at")),
+                )
+                .is_some_and(|(_, applied_at)| !applied_at.is_null());
+        let title = trace_item_title(&kind, &data, aseq, subagent_count, steer_applied);
         let preview = data
             .get("preview")
             .and_then(Value::as_str)
@@ -734,8 +763,17 @@ fn index_tool_result(outputs: &mut BTreeMap<String, String>, item: &Value) {
     outputs.insert(call_id.to_owned(), capped);
 }
 
-fn trace_item_title(kind: &str, data: &Value, aseq: u64) -> String {
+fn trace_item_title(
+    kind: &str,
+    data: &Value,
+    aseq: u64,
+    subagent_count: Option<u64>,
+    steer_applied: bool,
+) -> String {
     match kind {
+        "run.start" if subagent_count.is_some() => trace_tr("trace.item.subagents")
+            .to_string()
+            .replace("{count}", &subagent_count.unwrap_or_default().to_string()),
         "run.start" => trace_tr("trace.item.start").to_string(),
         "llm.request" => trace_tr("trace.item.model_request")
             .to_string()
@@ -752,9 +790,14 @@ fn trace_item_title(kind: &str, data: &Value, aseq: u64) -> String {
                 _ => None,
             };
             if let Some(who_key) = who_key {
-                trace_tr("trace.item.steer")
+                let title = trace_tr("trace.item.steer")
                     .to_string()
-                    .replace("{who}", &trace_tr(who_key).to_string())
+                    .replace("{who}", &trace_tr(who_key).to_string());
+                if steer_applied {
+                    format!("{title} · {}", trace_tr("trace.item.steer_applied"))
+                } else {
+                    title
+                }
             } else {
                 kind.to_owned()
             }
