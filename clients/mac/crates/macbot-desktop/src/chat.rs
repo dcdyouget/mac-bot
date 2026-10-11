@@ -1,5 +1,6 @@
 use super::*;
 use chrono::Datelike;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,6 +9,137 @@ use gpui_kit::gpui::{Animation, AnimationExt, list};
 use gpui_kit::prelude::FluentBuilder;
 
 const QUESTION_TEXT_SENTINEL: usize = usize::MAX;
+
+#[derive(Default)]
+struct ChatDropState {
+    paths: Vec<PathBuf>,
+}
+
+struct ChatDropRegion {
+    view: Entity<MacBot>,
+    state: Entity<ChatDropState>,
+}
+
+impl IntoElement for ChatDropRegion {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for ChatDropRegion {
+    type RequestLayoutState = ();
+    type PrepaintState = Hitbox;
+
+    fn id(&self) -> Option<ElementId> {
+        Some("chat-drop-region".into())
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let zero = Length::Definite(relative(0.));
+        let layout = window.request_layout(
+            Style {
+                position: Position::Absolute,
+                inset: Edges {
+                    top: zero,
+                    right: zero,
+                    bottom: zero,
+                    left: zero,
+                },
+                ..Default::default()
+            },
+            [],
+            cx,
+        );
+        (layout, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _state: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        _cx: &mut App,
+    ) -> Self::PrepaintState {
+        window.insert_hitbox(bounds, HitboxBehavior::Normal)
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        hitbox: &mut Self::PrepaintState,
+        window: &mut Window,
+        _cx: &mut App,
+    ) {
+        let hitbox = hitbox.clone();
+        let view = self.view.clone();
+        let state = self.state.clone();
+        window.on_mouse_event(move |event: &FileDropEvent, phase, window, cx| {
+            if phase != DispatchPhase::Bubble {
+                return;
+            }
+            match event {
+                FileDropEvent::Entered { position, paths } => {
+                    let paths = paths.paths().to_vec();
+                    let active = !paths.is_empty() && hitbox.is_hovered_at(*position, window);
+                    let _ = cx.update_entity(&state, |state, _| state.paths = paths.clone());
+                    let _ = cx.update_entity(&view, |view, cx| {
+                        view.set_file_drop_state(active, active.then_some(paths), cx)
+                    });
+                }
+                FileDropEvent::Pending { position } => {
+                    if hitbox.is_hovered_at(*position, window) {
+                        let paths = state.read(cx).paths.clone();
+                        if !paths.is_empty() {
+                            let _ = cx.update_entity(&view, |view, cx| {
+                                view.set_file_drop_state(true, Some(paths), cx)
+                            });
+                        }
+                    } else {
+                        let _ = cx.update_entity(&view, |view, cx| {
+                            view.set_file_drop_state(false, None, cx)
+                        });
+                    }
+                }
+                FileDropEvent::Submit { position } => {
+                    let paths = if hitbox.is_hovered_at(*position, window) {
+                        state.read(cx).paths.clone()
+                    } else {
+                        Vec::new()
+                    };
+                    let _ = cx.update_entity(&state, |state, _| state.paths.clear());
+                    let _ = cx.update_entity(&view, |view, cx| {
+                        view.set_file_drop_state(false, None, cx);
+                        if !paths.is_empty() {
+                            view.upload_dropped_attachments(paths, window, cx);
+                        }
+                    });
+                }
+                FileDropEvent::Exited | FileDropEvent::Ended => {
+                    let _ = cx.update_entity(&state, |state, _| state.paths.clear());
+                    let _ = cx
+                        .update_entity(&view, |view, cx| view.set_file_drop_state(false, None, cx));
+                }
+            }
+        });
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1595,6 +1727,10 @@ impl MacBot {
         cx.notify();
     }
     pub(super) fn chat_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let drop_state =
+            window.use_keyed_state(SharedString::from("chat-drop-state"), cx, |_, _| {
+                ChatDropState::default()
+            });
         let question_ids = self.state.questions.keys().cloned().collect::<Vec<_>>();
         for question_id in question_ids {
             self.question_inputs
@@ -1813,11 +1949,17 @@ impl MacBot {
             }));
         if let Some(seq) = first_seq {
             let id = self.selected_chat.clone();
+            let loading_older = self.is_loading_older_history(&id);
             contents = contents.child(
                 Button::new("history-more")
                     .ghost()
                     .small()
-                    .label(tr("chat.more"))
+                    .label(chat_tr(if loading_older {
+                        "chat.loading_older"
+                    } else {
+                        "chat.more"
+                    }))
+                    .disabled(loading_older)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.rpc("chat.history", json!({"chat_id":id,"before_seq":seq}), cx)
                     })),
@@ -2411,6 +2553,69 @@ impl MacBot {
                     )),
             );
         }
+        let drop_group = if s(&chat, "kind") == "project" {
+            self.state
+                .projects
+                .get(s(&chat, "project_id"))
+                .map(|project| s(project, "name"))
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| s(&chat, "name"))
+        } else if s(&chat, "kind") == "bot_dm" {
+            s(&bot, "name")
+        } else {
+            chat_tr("chat.main.subtitle").as_ref()
+        }
+        .to_owned();
+        let mut session = div()
+            .relative()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .child(contents)
+            .child(composer);
+        if self.file_drop_active {
+            session = session.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .m(px(t.space[3]))
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(t.space[4]))
+                    .border_2()
+                    .border_dashed()
+                    .border_color(t.accent)
+                    .bg(t.accent_soft)
+                    .child(
+                        div()
+                            .text_size(px(t.desktop_type[4][0]))
+                            .text_color(t.accent)
+                            .child("↥"),
+                    )
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.primary)
+                            .child(chat_tr("chat.drop.title").replace("{group}", &drop_group)),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(t.secondary)
+                            .child(chat_tr("chat.drop.desc")),
+                    ),
+            );
+        }
+        session = session.child(
+            ChatDropRegion {
+                view: cx.entity(),
+                state: drop_state,
+            }
+            .into_any_element(),
+        );
         div()
             .size_full()
             .flex()
@@ -2429,8 +2634,7 @@ impl MacBot {
                         .child(tr("status.disconnected")),
                 )
             })
-            .child(contents)
-            .child(composer)
+            .child(session)
             .into_any_element()
     }
     fn project_status(&self, chat: &Value, cx: &mut Context<Self>) -> AnyElement {
@@ -6030,6 +6234,68 @@ impl MacBot {
                     cx.notify();
                 });
             }
+        })
+        .detach();
+    }
+
+    fn upload_dropped_attachments(
+        &mut self,
+        paths: Vec<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if paths.is_empty() || !self.connected || self.fixture {
+            return;
+        }
+        let base = self.http_base(cx);
+        let password = self.password.read(cx).value().to_string();
+        let runtime = self.runtime.handle().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let task = runtime.spawn(async move {
+                let mut upload_ids = Vec::with_capacity(paths.len());
+                for path in paths {
+                    let name = path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("attachment")
+                        .to_string();
+                    let bytes = std::fs::read(&path)?;
+                    if bytes.len() > 100 * 1024 * 1024 {
+                        anyhow::bail!("Attachment exceeds 100 MB");
+                    }
+                    let form = reqwest::multipart::Form::new().part(
+                        "file",
+                        reqwest::multipart::Part::bytes(bytes).file_name(name),
+                    );
+                    let response = reqwest::Client::new()
+                        .post(format!("{base}/api/v1/uploads"))
+                        .bearer_auth(&password)
+                        .multipart(form)
+                        .send()
+                        .await?
+                        .error_for_status()?
+                        .json::<Value>()
+                        .await?;
+                    let upload_id = s(&response, "upload_id").to_string();
+                    if upload_id.is_empty() {
+                        anyhow::bail!("Upload response did not include an upload id");
+                    }
+                    upload_ids.push(upload_id);
+                }
+                Ok::<_, anyhow::Error>(upload_ids)
+            });
+            let result = task.await;
+            let _ = this.update_in(cx, |view, _, cx| {
+                match result {
+                    Ok(Ok(upload_ids)) => {
+                        view.attachments.extend(upload_ids);
+                        view.notice = tr("notice.attachment").to_string();
+                    }
+                    Ok(Err(error)) => view.notice = error.to_string(),
+                    Err(error) => view.notice = error.to_string(),
+                }
+                cx.notify();
+            });
         })
         .detach();
     }
