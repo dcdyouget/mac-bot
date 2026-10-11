@@ -1467,11 +1467,34 @@ fn ensure_question_approval_history_fixture(state: &mut MockState) {
 
 fn ensure_pending_review_fixture(state: &mut MockState) {
     const PROJECT_ID: &str = "prj_mock_review";
-    if state
+    let fixture_is_complete = state
         .projects
         .iter()
         .any(|project| project.get("id").and_then(Value::as_str) == Some(PROJECT_ID))
-    {
+        && state
+            .messages
+            .get("chat_mock_review")
+            .is_some_and(|messages| {
+                [
+                    "msg_mock_review_brief",
+                    "msg_mock_review_progress",
+                    "msg_mock_review_complete",
+                ]
+                .iter()
+                .all(|message_id| {
+                    messages
+                        .iter()
+                        .any(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+                })
+            })
+        && extra_get(state, "announcements").iter().any(|announcement| {
+            announcement.get("project_id").and_then(Value::as_str) == Some(PROJECT_ID)
+                && announcement
+                    .get("artifacts")
+                    .and_then(Value::as_array)
+                    .is_some_and(|artifacts| artifacts.len() == 3)
+        });
+    if fixture_is_complete {
         return;
     }
     let Some(mut project) = state
@@ -1510,6 +1533,12 @@ fn ensure_pending_review_fixture(state: &mut MockState) {
     chat["unread"] = json!(0);
     chat["attention"] = json!("none");
     chat["updated_at"] = json!(updated_at);
+    state
+        .projects
+        .retain(|existing| existing.get("id").and_then(Value::as_str) != Some(PROJECT_ID));
+    state
+        .chats
+        .retain(|existing| existing.get("id").and_then(Value::as_str) != Some(chat_id));
     state.projects.push(project);
     state.chats.push(chat);
 
@@ -1521,10 +1550,47 @@ fn ensure_pending_review_fixture(state: &mut MockState) {
     {
         announcement["project_id"] = json!(PROJECT_ID);
         announcement["text"] = json!("# Mock 待验收项目\n\n示例交付已完成，请检查成果。\n");
-        announcement["artifacts"] = json!([]);
+        announcement["artifacts"] = json!([
+            {
+                "id":"art_mock_brief",
+                "project_id":PROJECT_ID,
+                "assignment_id":"asg_mock_done",
+                "bot_id":"bot_product",
+                "kind":"file",
+                "title":"项目说明",
+                "path_or_url":"docs/brief.md",
+                "created_at":updated_at,
+                "updated_at":updated_at
+            },
+            {
+                "id":"art_mock_build",
+                "project_id":PROJECT_ID,
+                "assignment_id":"asg_mock_done",
+                "bot_id":"bot_code",
+                "kind":"dir",
+                "title":"实现代码",
+                "path_or_url":"src/",
+                "created_at":updated_at,
+                "updated_at":updated_at
+            },
+            {
+                "id":"art_mock_report",
+                "project_id":PROJECT_ID,
+                "assignment_id":"asg_mock_done",
+                "bot_id":"bot_test",
+                "kind":"file",
+                "title":"验收报告",
+                "path_or_url":"reports/acceptance.md",
+                "created_at":updated_at,
+                "updated_at":updated_at
+            }
+        ]);
         announcement["highlights"] = json!([{"at":updated_at,"text":"示例交付已完成，等待验收"}]);
         announcement["version"] = json!(1);
         announcement["updated_at"] = json!(updated_at);
+        announcements.retain(|item| {
+            item.get("project_id").and_then(Value::as_str) != Some(PROJECT_ID)
+        });
         announcements.push(announcement);
         extra_set(state, "announcements", announcements);
     }
@@ -1534,6 +1600,43 @@ fn ensure_pending_review_fixture(state: &mut MockState) {
         "pending",
         json!([]),
         "Mock 待验收项目已完成，请检查交付。",
+    );
+    upsert_mock_message(
+        state,
+        chat_id,
+        "msg_mock_review_brief",
+        json!({"kind":"user"}),
+        json!([{"type":"text","markdown":"请完成并验收这个示例项目。"}]),
+        "请完成并验收这个示例项目。".into(),
+        None,
+    );
+    upsert_mock_message(
+        state,
+        chat_id,
+        "msg_mock_review_progress",
+        json!({"kind":"bot","bot_id":"bot_main"}),
+        json!([{"type":"progress","text":"已汇总项目说明、实现代码和验收报告。"}]),
+        "已汇总项目说明、实现代码和验收报告。".into(),
+        None,
+    );
+    upsert_mock_message(
+        state,
+        chat_id,
+        "msg_mock_review_complete",
+        json!({"kind":"bot","bot_id":"bot_main"}),
+        json!([{
+            "type":"completion",
+            "summary":"Mock 示例项目已完成，等待验收。",
+            "artifacts":[
+                {"artifact_id":"art_mock_brief","title":"项目说明","path_or_url":"docs/brief.md"},
+                {"artifact_id":"art_mock_build","title":"实现代码","path_or_url":"src/"},
+                {"artifact_id":"art_mock_report","title":"验收报告","path_or_url":"reports/acceptance.md"}
+            ],
+            "next":[],
+            "notify_main":false
+        }]),
+        "Mock 示例项目已完成，等待验收。".into(),
+        None,
     );
 }
 fn pending(state: &MockState) -> Value {
@@ -4175,6 +4278,50 @@ mod contract_tests {
                     && message["blocks"][0]["code"] == "task_stopped"
                     && message["assignment_id"] == "asg_mock_waiting"
             }));
+    }
+
+    #[tokio::test]
+    async fn pending_review_mock_has_group_history_and_project_artifacts() {
+        let gateway = gateway().await;
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_mock_review","limit":100}),
+        )
+        .await;
+        let messages = history["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 3);
+        assert!(messages.iter().any(|message| {
+            message["blocks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|block| block["type"] == "progress")
+        }));
+        assert!(messages.iter().any(|message| {
+            message["blocks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|block| block["type"] == "completion")
+        }));
+
+        let project = call(
+            &gateway,
+            "project.get",
+            json!({"project_id":"prj_mock_review"}),
+        )
+        .await;
+        assert_eq!(project["project"]["chat_id"], "chat_mock_review");
+        let artifacts = project["announcement"]["artifacts"].as_array().unwrap();
+        assert_eq!(artifacts.len(), 3);
+        assert_eq!(
+            artifacts
+                .iter()
+                .filter_map(|artifact| artifact["id"].as_str())
+                .collect::<Vec<_>>(),
+            ["art_mock_brief", "art_mock_build", "art_mock_report"]
+        );
     }
 
     #[tokio::test]
