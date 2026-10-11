@@ -87,6 +87,8 @@ async fn dispatch(
         "chat.history" => chat_history(state, &params),
         "chat.thread" => chat_thread(state, &params),
         "chat.send" => send_chat(state, &params),
+        "message.delete" => message_delete(state, &params),
+        "message.edit" => message_edit(state, &params),
         "message.steer" => message_steer(state, &params),
         "chat.mark_read" => mark_read(state, &params),
         "chat.react" => react(state, &params),
@@ -1556,6 +1558,126 @@ fn send_chat(state: &mut MockState, params: &Value) -> RpcResult {
         state.emit("chat.updated", json!({"chat":chat}));
     }
     Ok(json!({"message":message}))
+}
+
+fn message_delete(state: &mut MockState, params: &Value) -> RpcResult {
+    let message_id = params
+        .get("message_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "message_id is required", None))?;
+    let position = state
+        .messages
+        .iter()
+        .find_map(|(chat_id, messages)| {
+            messages
+                .iter()
+                .position(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+                .map(|index| (chat_id.clone(), index))
+        })
+        .ok_or_else(|| rpc_error("not_found", "message not found", None))?;
+    let (chat_id, index) = position;
+    let message = &mut state
+        .messages
+        .get_mut(&chat_id)
+        .expect("message chat exists")[index];
+    if message.pointer("/sender/kind").and_then(Value::as_str) != Some("user") {
+        return Err(rpc_error(
+            "forbidden",
+            "only user messages can be deleted",
+            None,
+        ));
+    }
+    if message.get("deleted").and_then(Value::as_bool) == Some(true) {
+        return Ok(json!({}));
+    }
+    message["deleted"] = json!(true);
+    message["blocks"] = json!([]);
+    message["fallback_text"] = json!("");
+    message["mentions"] = json!([]);
+    message["quote"] = Value::Null;
+    message["reactions"] = json!([]);
+    message["edited_at"] = json!(now());
+    state.emit(
+        "message.deleted",
+        json!({"chat_id":chat_id,"message_id":message_id}),
+    );
+    Ok(json!({}))
+}
+
+fn message_edit(state: &mut MockState, params: &Value) -> RpcResult {
+    let message_id = params
+        .get("message_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "message_id is required", None))?;
+    let text = params
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .ok_or_else(|| {
+            rpc_error(
+                "invalid_params",
+                "text is required and must not be blank",
+                None,
+            )
+        })?;
+    let position = state
+        .messages
+        .iter()
+        .find_map(|(chat_id, messages)| {
+            messages
+                .iter()
+                .position(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+                .map(|index| (chat_id.clone(), index))
+        })
+        .ok_or_else(|| rpc_error("not_found", "message not found", None))?;
+    let (chat_id, index) = position;
+    let message = &mut state
+        .messages
+        .get_mut(&chat_id)
+        .expect("message chat exists")[index];
+    if message.pointer("/sender/kind").and_then(Value::as_str) != Some("user") {
+        return Err(rpc_error(
+            "forbidden",
+            "only user messages can be edited",
+            None,
+        ));
+    }
+    if message.get("deleted").and_then(Value::as_bool) == Some(true)
+        || message.get("streaming").and_then(Value::as_bool) == Some(true)
+    {
+        return Err(rpc_error(
+            "conflict",
+            "deleted or streaming messages cannot be edited",
+            None,
+        ));
+    }
+    let blocks = message
+        .get("blocks")
+        .and_then(Value::as_array)
+        .ok_or_else(|| rpc_error("conflict", "only plain text messages can be edited", None))?;
+    let no_mentions = message
+        .get("mentions")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty);
+    if blocks.len() != 1
+        || blocks[0].get("type").and_then(Value::as_str) != Some("text")
+        || !no_mentions
+    {
+        return Err(rpc_error(
+            "conflict",
+            "only plain text messages can be edited",
+            None,
+        ));
+    }
+    let edited_at = now();
+    message["blocks"][0]["markdown"] = json!(text);
+    message["fallback_text"] = json!(text);
+    message["edited_at"] = json!(edited_at);
+    let result = message.clone();
+    state.emit("message.updated", json!({"message":result.clone()}));
+    Ok(json!({"message":result}))
 }
 
 fn message_steer(state: &mut MockState, params: &Value) -> RpcResult {

@@ -2178,6 +2178,8 @@ impl ProductionBackend {
                 "assignment.updated"
             }
             "send_msg" | "chat.send" => "message.created",
+            "message.delete" => "message.deleted",
+            "message.edit" => "message.updated",
             "chat.react" | "execution.steer.delivery" => "message.updated",
             "chat.set_pinned" | "chat.set_muted" => "chat.updated",
             "approval.request" => "approval.requested",
@@ -3088,6 +3090,28 @@ impl RpcBackend for ProductionBackend {
                 return Ok(value);
             }
         }
+        if method == "message.delete" {
+            let message_id = required_text(&params, "message_id")?;
+            let (chat_id, message) = self.find_chat_message(&message_id)?;
+            ensure_user_message(&message)?;
+            if message.get("deleted").and_then(Value::as_bool) == Some(true) {
+                let data = json!({"chat_id":chat_id,"message_id":message_id});
+                if let Some(event) = self.append_repaired_event(
+                    &format!("rpc:message.delete:message-delete:{message_id}"),
+                    "message.deleted",
+                    data,
+                )? {
+                    state
+                        .publish_event(event.seq, &event.event, event.data)
+                        .await;
+                }
+                return Ok(json!({}));
+            }
+            params["chat_id"] = json!(chat_id);
+            if params.get("client_request_id").and_then(Value::as_str).is_none() {
+                params["client_request_id"] = json!(format!("message-delete:{message_id}"));
+            }
+        }
         if method == "settings.update" {
             validate_settings_secret_params(&params)?;
         }
@@ -3108,6 +3132,8 @@ impl RpcBackend for ProductionBackend {
             "chat.send" => self.chat_send(params.clone()).await?,
             "chat.history" => self.chat_history(&params).await?,
             "chat.thread" => self.chat_thread(&params).await?,
+            "message.delete" => self.message_delete(&params)?,
+            "message.edit" => self.message_edit(&params)?,
             "artifact.versions.list" => self.artifact_versions_list(&params)?,
             "artifact.version.get" => self.artifact_version_get(&params)?,
             "chat.mark_read" => self.chat_mark_read(&params).await?,
@@ -6443,6 +6469,81 @@ impl ProductionBackend {
         Ok(json!({"root":root,"replies":replies}))
     }
 
+    fn message_delete(&self, params: &Value) -> RpcResult {
+        let message_id = required_text(params, "message_id")?;
+        let (chat_id, mut message) = self.find_chat_message(&message_id)?;
+        normalize_message(&mut message);
+        ensure_user_message(&message)?;
+        if message.get("deleted").and_then(Value::as_bool) == Some(true) {
+            return Ok(json!({}));
+        }
+        message["deleted"] = json!(true);
+        message["blocks"] = json!([]);
+        message["fallback_text"] = json!("");
+        message["mentions"] = json!([]);
+        message["quote"] = Value::Null;
+        message["reactions"] = json!([]);
+        message["edited_at"] = json!(now());
+        message["chat_id"] = json!(chat_id);
+        self.persist_client_message(&message)?;
+        self.orchestrator
+            .redact_user_message(&message_id)
+            .map_err(Self::error)?;
+        Ok(json!({}))
+    }
+
+    fn message_edit(&self, params: &Value) -> RpcResult {
+        let message_id = required_text(params, "message_id")?;
+        let text = params
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+            .ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: "text is required and must not be blank".into(),
+                details: None,
+            })?;
+        let (chat_id, mut message) = self.find_chat_message(&message_id)?;
+        normalize_message(&mut message);
+        ensure_user_message(&message)?;
+        if message.get("deleted").and_then(Value::as_bool) == Some(true)
+            || message.get("streaming").and_then(Value::as_bool) == Some(true)
+        {
+            return Err(RpcError {
+                code: "conflict".into(),
+                message: "deleted or streaming messages cannot be edited".into(),
+                details: None,
+            });
+        }
+        let is_plain_text = message
+            .get("blocks")
+            .and_then(Value::as_array)
+            .is_some_and(|blocks| {
+                blocks.len() == 1
+                    && blocks[0].get("type").and_then(Value::as_str) == Some("text")
+            })
+            && message
+                .get("mentions")
+                .and_then(Value::as_array)
+                .is_none_or(Vec::is_empty);
+        if !is_plain_text {
+            return Err(RpcError {
+                code: "conflict".into(),
+                message: "only plain-text messages can be edited".into(),
+                details: None,
+            });
+        }
+        message["blocks"][0]["markdown"] = json!(text);
+        message["fallback_text"] = json!(text);
+        message["edited_at"] = json!(now());
+        message["chat_id"] = json!(chat_id);
+        let message = self.persist_client_message(&message)?;
+        self.orchestrator
+            .edit_user_message_text(&message_id, text)
+            .map_err(Self::error)?;
+        Ok(json!({"message":message}))
+    }
+
     async fn chat_mark_read(&self, params: &Value) -> RpcResult {
         let chat_id = required_text(params, "chat_id")?;
         let seq = params
@@ -7614,6 +7715,13 @@ fn event_data(method: &str, params: &Value, result: &Value) -> Value {
         "message.steer" => {
             json!({ "assignment": result.get("assignment").cloned().unwrap_or(Value::Null) })
         }
+        "message.delete" => json!({
+            "chat_id": params.get("chat_id").cloned().unwrap_or(Value::Null),
+            "message_id": params.get("message_id").cloned().unwrap_or(Value::Null)
+        }),
+        "message.edit" => json!({
+            "message": result.get("message").cloned().unwrap_or(Value::Null)
+        }),
         "project.request_changes" => {
             json!({ "message": result.get("message").cloned().unwrap_or(Value::Null) })
         }
@@ -7779,7 +7887,7 @@ fn normalize_result(method: &str, mut result: Value) -> Result<Value, String> {
                 }
             }
         }
-        "chat.react" => {
+        "chat.react" | "message.edit" => {
             if let Some(item) = result.get_mut("message") {
                 normalize_message(item);
             }
@@ -8440,6 +8548,17 @@ fn required_text(params: &Value, key: &str) -> Result<String, RpcError> {
             message: format!("{key} is required"),
             details: None,
         })
+}
+
+fn ensure_user_message(message: &Value) -> Result<(), RpcError> {
+    if message.pointer("/sender/kind").and_then(Value::as_str) == Some("user") {
+        return Ok(());
+    }
+    Err(RpcError {
+        code: "forbidden".into(),
+        message: "only your own messages can be changed".into(),
+        details: None,
+    })
 }
 
 fn announcement_path_component(value: &str) -> String {

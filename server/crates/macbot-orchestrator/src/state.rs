@@ -472,6 +472,19 @@ impl Orchestrator {
         i.send_msg(request)
     }
 
+    /// Keep the durable orchestrator snapshot in sync when a user edits a
+    /// message in the gateway's client-message store.
+    pub fn edit_user_message_text(&self, message_id: &str, text: &str) -> Result<Message> {
+        let mut i = self.lock()?;
+        i.edit_user_message_text(message_id, text)
+    }
+
+    /// Redact a user message from the durable orchestrator snapshot.
+    pub fn redact_user_message(&self, message_id: &str) -> Result<Message> {
+        let mut i = self.lock()?;
+        i.redact_user_message(message_id)
+    }
+
     /// Validate a message target before any durable send mutation.
     pub fn validate_send_msg_target(&self, chat_id: &str, bot_id: &str) -> Result<()> {
         let inner = self.lock()?;
@@ -2553,6 +2566,42 @@ impl Inner {
 
     fn send_msg(&mut self, req: SendMessageRequest) -> Result<Message> {
         self.send_msg_with_multi(req, false)
+    }
+
+    fn edit_user_message_text(&mut self, message_id: &str, text: &str) -> Result<Message> {
+        if text.trim().is_empty() {
+            return Err(OrchestratorError::Invalid(
+                "message text must not be blank".into(),
+            ));
+        }
+        let message = self
+            .messages
+            .get_mut(message_id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("message {message_id}")))?;
+        if message.sender != "user" {
+            return Err(OrchestratorError::Forbidden(
+                "only user messages can be edited".into(),
+            ));
+        }
+        message.text = text.to_owned();
+        message.fallback_text = text.to_owned();
+        Ok(message.clone())
+    }
+
+    fn redact_user_message(&mut self, message_id: &str) -> Result<Message> {
+        let message = self
+            .messages
+            .get_mut(message_id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("message {message_id}")))?;
+        if message.sender != "user" {
+            return Err(OrchestratorError::Forbidden(
+                "only user messages can be redacted".into(),
+            ));
+        }
+        message.text.clear();
+        message.fallback_text.clear();
+        message.mentions.clear();
+        Ok(message.clone())
     }
 
     fn send_msg_with_multi(&mut self, req: SendMessageRequest, multi: bool) -> Result<Message> {
