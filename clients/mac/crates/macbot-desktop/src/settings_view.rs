@@ -5,6 +5,7 @@
 
 use chrono::Utc;
 use gpui_kit::component::{
+    Sizable,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     form::{Field, Form},
