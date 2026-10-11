@@ -2227,25 +2227,26 @@ impl MacBot {
 
     fn sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
+        let layout = t.desktop_layout;
         let mut list = div()
             .id("chat-list")
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .px_3()
-            .py_2()
+            .px(px(t.space[5]))
+            .py(px(t.space[4]))
             .flex()
             .flex_col()
-            .gap_1();
+            .gap(px(t.space[2]));
         for chat in self.state.chats.values().filter(|v| s(v, "kind") == "main") {
             list = list.child(self.chat_row(chat, cx));
         }
         list = list.child(
             div()
-                .mt_4()
-                .mb_1()
-                .px_2()
-                .text_xs()
+                .mt(px(t.space[6]))
+                .mb(px(t.space[2]))
+                .px(px(t.space[4]))
+                .text_size(px(t.desktop_type[1][0]))
                 .text_color(t.secondary)
                 .child(
                     tr("sidebar.section.groups").to_string().replace(
@@ -2294,9 +2295,9 @@ impl MacBot {
         if !self.state.chats.values().any(|v| s(v, "kind") == "project") {
             list = list.child(
                 div()
-                    .px_2()
-                    .py_2()
-                    .text_xs()
+                    .px(px(t.space[4]))
+                    .py(px(t.space[4]))
+                    .text_size(px(t.desktop_type[1][0]))
                     .text_color(t.secondary)
                     .child(tr("sidebar.empty_groups")),
             );
@@ -2315,10 +2316,10 @@ impl MacBot {
         }
         list = list.child(
             div()
-                .mt_4()
-                .mb_1()
-                .px_2()
-                .text_xs()
+                .mt(px(t.space[6]))
+                .mb(px(t.space[2]))
+                .px(px(t.space[4]))
+                .text_size(px(t.desktop_type[1][0]))
                 .text_color(t.secondary)
                 .child(
                     tr("sidebar.section.bots").to_string().replace(
@@ -2375,8 +2376,8 @@ impl MacBot {
         let mut footer = div()
             .flex()
             .flex_col()
-            .gap_1()
-            .p_3()
+            .gap(px(t.space[2]))
+            .p(px(t.space[5]))
             .border_t_1()
             .border_color(t.border);
         for (key, title_key, icon) in [
@@ -2403,15 +2404,16 @@ impl MacBot {
             .track_focus(&self.focus_sidebar)
             .child(
                 div()
-                    .p_3()
+                    .p(px(t.space[5]))
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .child(div().size(px(7.)).rounded_full().bg(if self.connected {
-                        t.success
-                    } else {
-                        t.attention
-                    }))
+                    .gap(px(t.space[4]))
+                    .child(
+                        div()
+                            .size(px(t.space[4]))
+                            .rounded_full()
+                            .bg(if self.connected { t.success } else { t.warning }),
+                    )
                     .child(
                         Button::new("host-switch")
                             .ghost()
@@ -2440,6 +2442,7 @@ impl MacBot {
     }
     fn chat_row(&self, chat: &Value, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
+        let layout = t.desktop_layout;
         let id = s(chat, "id").to_owned();
         let selected = id == self.selected_chat && self.page == "chat";
         let bot = self.state.bots.get(s(chat, "bot_id"));
@@ -2451,9 +2454,9 @@ impl MacBot {
             String::new()
         };
         div()
-            .rounded(px(10.))
-            .bg(if selected { t.bot } else { t.sidebar })
-            .p_1()
+            .rounded(px(t.radius[8]))
+            .bg(if selected { t.selected } else { t.sidebar })
+            .p(px(t.space[2]))
             .child(
                 Button::new(SharedString::from(id.clone()))
                     .ghost()
@@ -2462,21 +2465,25 @@ impl MacBot {
                         div()
                             .flex()
                             .items_center()
-                            .gap_3()
+                            .gap(px(t.space[5]))
                             .w_full()
-                            .child(bean(bot.unwrap_or(&Value::Null), 32., cx))
+                            .child(bean(bot.unwrap_or(&Value::Null), layout.avatar_list, cx))
                             .child(
                                 div()
                                     .flex()
                                     .flex_col()
                                     .items_start()
-                                    .gap_1()
+                                    .gap(px(t.space[2]))
                                     .flex_1()
                                     .min_w_0()
-                                    .child(div().text_sm().child(title + &badge))
                                     .child(
                                         div()
-                                            .text_xs()
+                                            .text_size(px(t.desktop_type[3][0]))
+                                            .child(title + &badge),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(t.desktop_type[1][0]))
                                             .text_color(t.secondary)
                                             .truncate()
                                             .child(preview),
@@ -2489,14 +2496,15 @@ impl MacBot {
             )
             .into_any_element()
     }
-    fn connection_page(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn connection_page(&self, window_width: Pixels, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
+        let stacked = window_width < px(1120.);
         let field = |key: &str, input: &Entity<InputState>| {
             div()
                 .flex()
                 .flex_col()
-                .gap_2()
-                .child(div().text_sm().child(tr(key)))
+                .gap(px(t.space[4]))
+                .child(div().text_size(px(t.desktop_type[3][0])).child(tr(key)))
                 .child(Input::new(input))
         };
         div()
@@ -2508,18 +2516,21 @@ impl MacBot {
             .child(
                 div()
                     .flex()
-                    .gap_8()
+                    .when(stacked, |el| el.flex_col())
+                    .gap(px(t.space[9]))
                     .max_w(px(840.))
-                    .p_8()
+                    .w_full()
+                    .p(px(t.space[9]))
                     .child(
                         div()
-                            .w(px(380.))
+                            .when(stacked, |el| el.w_full())
+                            .when(!stacked, |el| el.w(px(380.)))
                             .flex()
                             .flex_col()
-                            .gap_5()
+                            .gap(px(t.space[7]))
                             .child(
                                 div()
-                                    .text_2xl()
+                                    .text_size(px(t.desktop_type[7][0]))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(tr("onboarding.welcome")),
                             )
@@ -2531,7 +2542,7 @@ impl MacBot {
                             .child(field("host.field.address", &self.address))
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(px(t.desktop_type[1][0]))
                                     .text_color(t.secondary)
                                     .child(tr("host.field.address_hint")),
                             )
@@ -2544,7 +2555,7 @@ impl MacBot {
                                         div()
                                             .flex()
                                             .flex_col()
-                                            .gap_1()
+                                            .gap(px(t.space[2]))
                                             .child(tr("host.switch.title"))
                                             .children(
                                                 self.hosts.as_ref().unwrap().hosts().iter().map(
@@ -2596,7 +2607,7 @@ impl MacBot {
                                         let remove_id = id.clone();
                                         div()
                                             .flex()
-                                            .gap_2()
+                                            .gap(px(t.space[4]))
                                             .child(
                                                 Button::new(SharedString::from(format!(
                                                     "host-{id}"
@@ -2646,22 +2657,23 @@ impl MacBot {
                     )
                     .child(
                         div()
-                            .w(px(300.))
+                            .when(stacked, |el| el.w_full())
+                            .when(!stacked, |el| el.w(px(300.)))
                             .flex()
                             .flex_col()
-                            .gap_5()
-                            .pt_8()
+                            .gap(px(t.space[7]))
+                            .pt(px(t.space[9]))
                             .child(bean(&json!({"avatar":{"color":0},"is_main":true}), 64., cx))
                             .child(
                                 div()
-                                    .text_lg()
+                                    .text_size(px(t.desktop_type[6][0]))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(tr("onboarding.meet_main")),
                             )
                             .child(tr("onboarding.meet_main_desc"))
                             .child(
                                 div()
-                                    .mt_6()
+                                    .mt(px(t.space[8]))
                                     .text_color(t.secondary)
                                     .child(tr("onboarding.footer")),
                             )
@@ -2694,6 +2706,7 @@ impl Render for MacBot {
             );
         }
         let t = Tokens::get(cx);
+        let layout = t.desktop_layout;
         let window_width = window.bounds().size.width;
         let context_page = self.page == "chat" || self.context.last().is_some_and(|v| v == "trace");
         let context_requested = self.context_visible && context_page;
@@ -2704,7 +2717,7 @@ impl Render for MacBot {
         let center = if self.page == "computer" {
             self.computer.clone().into_any_element()
         } else if self.page == "connect" {
-            self.connection_page(cx)
+            self.connection_page(window_width, cx)
         } else if self.page == "chat" {
             self.chat_page(window, cx)
         } else if self.page == "artifact" {
@@ -2719,7 +2732,7 @@ impl Render for MacBot {
             .flex_col()
             .bg(t.window)
             .text_color(t.primary)
-            .text_size(px(14.))
+            .text_size(px(t.desktop_type[3][0]))
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &New, _, cx| this.navigate("new", cx)))
             .on_action(cx.listener(|this, _: &Search, _, cx| this.navigate("search", cx)))
@@ -2867,6 +2880,20 @@ impl Render for MacBot {
                         .child(self.notice.clone()),
                 )
             })
+            .when(
+                !self.connected && self.client.is_some() && self.notice.is_empty(),
+                |el| {
+                    el.child(
+                        div()
+                            .px(px(t.space[6]))
+                            .py(px(t.space[2]))
+                            .bg(t.warning_soft)
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(t.warning)
+                            .child(tr("status.disconnected")),
+                    )
+                },
+            )
             .when_some(self.screen_notice.visible_key(&self.page), |el, key| {
                 el.child(
                     div()
@@ -2905,23 +2932,23 @@ impl Render for MacBot {
                 .when(sidebar_inline, |el| {
                     el.child(
                         resizable_panel()
-                            .size(px(260.))
+                            .size(px(layout.sidebar_width))
                             .flex_none()
-                            .size_range(px(220.)..px(320.))
+                            .size_range(px(layout.sidebar_min)..px(layout.sidebar_max))
                             .child(self.sidebar(cx)),
                     )
                 })
                 .child(
                     resizable_panel()
-                        .size_range(px(480.)..px(2000.))
+                        .size_range(px(layout.chat_min)..px(2000.))
                         .child(center),
                 )
                 .when(context_inline, |el| {
                     el.child(
                         resizable_panel()
-                            .size(px(280.))
+                            .size(px(layout.panel_width))
                             .flex_none()
-                            .size_range(px(260.)..px(360.))
+                            .size_range(px(layout.panel_min)..px(layout.panel_max))
                             .child(self.context_panel(window, cx)),
                     )
                 }),
@@ -2930,10 +2957,11 @@ impl Render for MacBot {
                 el.child(
                     div()
                         .absolute()
-                        .top(px(0.))
-                        .right(px(0.))
-                        .bottom(px(0.))
-                        .left(px(0.))
+                        .top(px(t.space[0]))
+                        .right(px(t.space[0]))
+                        .bottom(px(t.space[0]))
+                        .left(px(t.space[0]))
+                        .bg(t.overlay)
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(|this, _, _, cx| {
@@ -2948,11 +2976,15 @@ impl Render for MacBot {
                 el.child(
                     div()
                         .absolute()
-                        .top(px(0.))
-                        .right(px(0.))
-                        .bottom(px(0.))
-                        .w(px(280.))
-                        .shadow_lg()
+                        .top(px(t.space[0]))
+                        .right(px(t.space[0]))
+                        .bottom(px(t.space[0]))
+                        .w(px(layout.panel_width))
+                        .shadow(vec![
+                            BoxShadow::new(px(0.), px(t.elevation_offset_y[3]), t.shadow)
+                                .blur_radius(px(t.elevation_blur[3]))
+                                .spread_radius(px(t.elevation_outline[3])),
+                        ])
                         .bg(t.panel)
                         .border_l_1()
                         .border_color(t.border)
@@ -2963,11 +2995,15 @@ impl Render for MacBot {
                 el.child(
                     div()
                         .absolute()
-                        .top(px(0.))
-                        .left(px(0.))
-                        .bottom(px(0.))
-                        .w(px(260.))
-                        .shadow_lg()
+                        .top(px(t.space[0]))
+                        .left(px(t.space[0]))
+                        .bottom(px(t.space[0]))
+                        .w(px(layout.sidebar_width))
+                        .shadow(vec![
+                            BoxShadow::new(px(0.), px(t.elevation_offset_y[3]), t.shadow)
+                                .blur_radius(px(t.elevation_blur[3]))
+                                .spread_radius(px(t.elevation_outline[3])),
+                        ])
                         .bg(t.sidebar)
                         .border_r_1()
                         .border_color(t.border)
@@ -3060,19 +3096,48 @@ fn bean(bot: &Value, size: f32, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let avatar = &bot["avatar"];
     let color = avatar["color"].as_u64().unwrap_or(0);
+    let emoji = s(avatar, "kind") == "emoji";
+    let badge_size = size * 0.4;
     let body = div()
         .size(px(size))
         .rounded_full()
+        .relative()
+        .overflow_hidden()
         .flex()
         .items_center()
         .justify_center()
-        .bg(Tokens::bean(color))
-        .text_color(t.user_text)
-        .child(if s(avatar, "kind") == "emoji" {
-            s(avatar, "emoji").to_string()
-        } else {
-            "● ●".into()
-        });
+        .bg(t.bean(color))
+        .shadow(vec![
+            BoxShadow::new(px(0.), px(0.), rgba(0x00000014))
+                .blur_radius(px(2.))
+                .inset(),
+        ]);
+    let body = if emoji {
+        body.text_size(px(size * 0.55))
+            .text_color(t.primary)
+            .child(s(avatar, "emoji").to_string())
+    } else {
+        body.child(
+            div()
+                .absolute()
+                .top(px(size * 0.4))
+                .left(px(size * 0.32))
+                .size(px(size * 0.12))
+                .h(px(size * 0.18))
+                .rounded_full()
+                .bg(t.avatar_eye),
+        )
+        .child(
+            div()
+                .absolute()
+                .top(px(size * 0.4))
+                .left(px(size * 0.56))
+                .size(px(size * 0.12))
+                .h(px(size * 0.18))
+                .rounded_full()
+                .bg(t.avatar_eye),
+        )
+    };
     div()
         .relative()
         .flex_none()
@@ -3085,6 +3150,69 @@ fn bean(bot: &Value, size: f32, cx: &App) -> AnyElement {
                     .right(px(0.))
                     .text_size(px(14.))
                     .child("♛"),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .right(px(0.))
+                    .bottom(px(0.))
+                    .size(px(badge_size))
+                    .child(
+                        div()
+                            .relative()
+                            .size_full()
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left(px(badge_size * 0.24))
+                                    .top(px(badge_size * 0.37))
+                                    .w(px(badge_size * 0.25))
+                                    .h(px(badge_size * 0.22))
+                                    .rounded(px(badge_size * 0.07))
+                                    .border(px(badge_size * 0.05))
+                                    .border_color(t.avatar_glasses)
+                                    .bg(rgba(0xffffff38)),
+                            )
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left(px(badge_size * 0.51))
+                                    .top(px(badge_size * 0.37))
+                                    .w(px(badge_size * 0.25))
+                                    .h(px(badge_size * 0.22))
+                                    .rounded(px(badge_size * 0.07))
+                                    .border(px(badge_size * 0.05))
+                                    .border_color(t.avatar_glasses)
+                                    .bg(rgba(0xffffff38)),
+                            )
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left(px(badge_size * 0.49))
+                                    .top(px(badge_size * 0.44))
+                                    .w(px(badge_size * 0.03))
+                                    .h(px(badge_size * 0.05))
+                                    .bg(t.avatar_glasses),
+                            )
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left(px(badge_size * 0.12))
+                                    .top(px(badge_size * 0.41))
+                                    .w(px(badge_size * 0.12))
+                                    .h(px(badge_size * 0.05))
+                                    .bg(t.avatar_glasses),
+                            )
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left(px(badge_size * 0.76))
+                                    .top(px(badge_size * 0.41))
+                                    .w(px(badge_size * 0.12))
+                                    .h(px(badge_size * 0.05))
+                                    .bg(t.avatar_glasses),
+                            ),
+                    ),
             )
         })
         .into_any_element()
