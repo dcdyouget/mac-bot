@@ -28,10 +28,10 @@
 | 端 | 平台 | v1 | 以后 | 技术 |
 |----|------|:--:|:----:|------|
 | **Server** | macOS（Apple Silicon） | ✅ | | Rust，无界面守护进程（LaunchAgent），JSON 文件存储 |
-| **Client** | macOS | ✅ | | Rust + GPUI（gpui-kit） |
+| **Client** | macOS | ✅ | | Tauri 2：Rust（`macbot-client-core` 网络层与数据层）+ React / TypeScript 界面（直接复用 `design/` 的 CSS） |
 | | Android | ✅ | | Kotlin + Compose Multiplatform |
 | | iOS | | ✅ | Kotlin + Compose Multiplatform（与 Android 共用 `commonMain`，以后只需加 iOS target 和 iosApp 外壳） |
-| | Windows | | ✅ | Rust + GPUI（与 macOS 共用代码，只能在 Windows 上编译） |
+| | Windows | | ✅ | Tauri 2（与 macOS 共用代码） |
 
 服务端只支持 macOS，不做 Linux。
 
@@ -58,7 +58,7 @@
 
 ## 3. 参考
 
-见 [REFERENCES.md](REFERENCES.md)。最主要的：pi（运行时、模型接入、工具、技能）、hermes-agent 和 OpenClaw（记忆与上下文）、nightly-labs/openbot（群协作与上下文包，只借鉴设计）、vercel-labs/agent-browser（浏览器）、gpui-kit（桌面 UI）、Compose Multiplatform（移动端）。
+见 [REFERENCES.md](REFERENCES.md)。最主要的：pi（运行时、模型接入、工具、技能）、hermes-agent 和 OpenClaw（记忆与上下文）、nightly-labs/openbot（群协作与上下文包，只借鉴设计）、vercel-labs/agent-browser（浏览器）、Tauri 2（桌面 UI）、Compose Multiplatform（移动端）。
 
 ## 4. 产品行为
 
@@ -108,7 +108,7 @@
 └──────────────────────────────────▲───────────────────────────────────┘
         macbotd ⇄ agent-browser    │ ws(s)://任意 IP 或域名:端口
                      ┌─────────────┴──────────────┐
-            Desktop（GPUI，macOS）      Mobile（Compose MP：v1 只有 Android）
+            Desktop（Tauri，macOS）     Mobile（Compose MP：v1 只有 Android）
 ```
 
 ### 5.1 仓库结构
@@ -558,7 +558,7 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 | 用途 | 工具 |
 |------|------|
 | Rust | stable（rustfmt、clippy），crates.io 走清华 tuna 镜像，`cargo search` 需要加 `--registry crates-io` |
-| GPUI | 只依赖 `gpui-kit` 0.7；需要 Xcode 26 和 Metal 工具链（已经安装） |
+| 桌面客户端 | Tauri 2 + React + Vite + TypeScript；需要 Xcode 26（已经安装）和 Node.js |
 | Android | JDK 21、Gradle 9.8（项目内使用 wrapper）、Android SDK 36、build-tools 36.1、adb、Android 模拟器（AVD `macbot_api36`：Android 16 / API 36、arm64，已经在这台 Mac mini 上装好）。模拟器里访问 Mac 本机要用 `10.0.2.2`：mock 是 `10.0.2.2:7789`，正式服务是 `10.0.2.2:7788`。启动命令：`$ANDROID_HOME/emulator/emulator -avd macbot_api36`（需要无窗口运行时加 `-no-window -no-audio`） |
 | 浏览器 | Chrome（S4 使用） |
 | 机器 | 这台 Mac mini（M4，16 GB，192.168.31.162）就是开发机和目标 Host；数据目录开发时可以用 `MACBOT_HOME` 指到别处，部署时用 `~/MacBot` |

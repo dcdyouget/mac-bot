@@ -21,7 +21,7 @@
 **半透明规则**
 - 只改变 `bg.window / sidebar / panel / chat / elevated / input` 的 alpha，其余 token 不变。
 - 模糊：侧栏 40px、面板 40px、工具栏 24px、弹层 30px，饱和度 ×1.8。
-- macOS：窗口用 `NSVisualEffectView` 等价效果（GPUI `WindowBackgroundAppearance::Blurred`）；系统开启「降低透明度」时，**自动退回不透明**。
+- macOS（Tauri）：窗口用 window-vibrancy 设置原生毛玻璃（`NSVisualEffectView`），各表面再用 CSS `backdrop-filter`（同时写 `-webkit-` 前缀）；系统开启「降低透明度」时，**自动退回不透明**。
 - iOS：导航栏、标签栏、sheet 使用 `.ultraThinMaterial`；Android 12+ 用 `RenderEffect.createBlurEffect`，更低版本退回不透明。
 - Web 管理页不提供半透明模式（只有浅色和深色）。
 
@@ -159,7 +159,7 @@
 
 ## 9. 图标
 
-- Lucide（与 gpui-kit 一致）；线宽 **1.5**，端点圆头。
+- Lucide（桌面 `lucide-react`，Android 用同一套 SVG 转成的图标）；线宽 **1.5**，端点圆头。
 - 尺寸：14（chip、行内）、16（默认）、18（输入框、对话框）、20（移动端列表）、24（移动端导航）。
 - 颜色：默认 `text.secondary`，悬停 / 激活 `text.primary`，iOS 导航栏用 `accent`。
 - 原型中用到的图标名（在 shared.js 里）：search、plus、send(arrow-up)、at-sign、settings、panel-right、layout-dashboard、line-chart、zap、check、check-check、alert-triangle、target、shield、terminal、file、folder、git-branch(子代理)、sparkles(模型请求)、pencil(插话 / 编辑)、monitor、hand(接管)、clock、bell、copy、refresh-cw、lock。

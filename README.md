@@ -5,7 +5,7 @@
 | 端 | v1 | 以后 |
 |----|----|------|
 | **Server**（`macbotd`，Rust，无界面守护进程，JSON 文件存储） | macOS（Apple Silicon） | — |
-| **Client** 桌面（Rust + GPUI） | macOS | Windows |
+| **Client** 桌面（Tauri 2：Rust 网络层与数据层 + React 界面） | macOS | Windows |
 | **Client** 移动（Kotlin + Compose Multiplatform） | Android | iOS |
 
 ## 文档

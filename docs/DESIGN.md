@@ -25,7 +25,7 @@
                                                │ ws(s)://host:7788 + 密码
                   ┌────────────────────────────┼───────────────────────────┐
                   │                            │                           │
-      桌面客户端（macOS，GPUI）         Android 客户端                （iOS 以后）
+      桌面客户端（macOS，Tauri）        Android 客户端                （iOS 以后）
               完整功能                    └─ Compose Multiplatform，同一套代码 ─┘
 ```
 
@@ -34,7 +34,7 @@
 | 1 | **macbotd 服务端** | Bot 主机（Mac） | 无界面守护进程 | 无（通过客户端使用） |
 | 2 | **Web 管理页** | 服务端内置 | 浏览器打开 `/admin` | 首次设置密码、运行状态、端口、日志、重启 |
 | 3 | **CLI `macbot`** | Bot 主机终端 / SSH | 命令行 | `status` / `passwd` / `logs` / `restart` |
-| 4 | **桌面客户端** | 任意 Mac | GPUI App | **全部功能**（第 4 章） |
+| 4 | **桌面客户端** | 任意 Mac | Tauri App | **全部功能**（第 4 章） |
 | 5 | **移动客户端** | Android（v1）；iOS 以后 | Compose MP App | 消息、群、审批、验收、工作台、实时画面和接管、仪表盘（第 5 章） |
 | 6 | **agent-browser** | Bot 主机 | sidecar 进程 | 无（它推送的画面在客户端的 Agent Computer 里显示） |
 
@@ -120,7 +120,7 @@
 
 ---
 
-## 4. 桌面客户端（macOS，GPUI + gpui-kit）
+## 4. 桌面客户端（macOS，Tauri 2 + React）
 
 ### 4.1 主窗口：三栏布局
 
@@ -830,24 +830,24 @@
 
 | 组件 | 桌面实现 | 移动实现 |
 |------|---------|---------|
-| 三栏可拖动布局 | gpui-kit Resizable / Dock | — |
-| 会话列表、消息流（不等高、虚拟滚动） | gpui-kit VirtualList | LazyColumn |
-| Markdown 渲染 | gpui-kit Markdown | compose-markdown 类库 |
-| 表格（工作台、仪表盘明细、公告） | gpui-kit Table | LazyColumn + 行组件 |
-| 图表（仪表盘的折线图、热力图、迷你趋势图） | gpui-kit Chart（折线）+ 自研热力图 Element | Compose Canvas 或图表库 |
-| 输入框、`@` / `/` 弹出层 | gpui-kit Input + Popover + List | TextField + BottomSheet |
-| 表单、对话框 | gpui-kit Form / Dialog | Material 3 |
-| **自研**：豆豆头像（主 Bot 戴黑框眼镜）、叠放头像、状态色点 | 自定义 Element | Canvas |
-| **自研**：状态条、公告条、任务卡片（实时更新）、完成报告和产物卡片 | 基于 gpui-kit 组合 | Compose |
-| **自研**：运行轨迹时间线（流式追加、可折叠、虚拟滚动、跟随最新） | 基于 gpui-kit VirtualList 组合 | LazyColumn |
-| **自研**：Agent Computer 画面 | 自定义 Element：解码 JPEG 帧后绘制，并映射鼠标键盘事件 | Image + 手势层 |
+| 三栏可拖动布局 | CSS Grid + 拖动分隔条 | — |
+| 会话列表、消息流（不等高、虚拟滚动） | TanStack Virtual | LazyColumn |
+| Markdown 渲染 | react-markdown（范围见 design/06 §4） | compose-markdown 类库 |
+| 表格（工作台、仪表盘明细） | HTML table（base.css `.tbl`） | LazyColumn + 行组件 |
+| 图表（仪表盘的折线图、热力图、迷你趋势图） | SVG 自绘（与原型一致） | Compose Canvas 或图表库 |
+| 输入框、`@` / `/` 弹出层 | contenteditable 输入框 + 弹层组件 | TextField + BottomSheet |
+| 表单、对话框 | 按 base.css 组件实现 | Material 3 |
+| **自研**：豆豆头像（主 Bot 戴黑框眼镜）、叠放头像、状态色点 | SVG / CSS | Canvas |
+| **自研**：状态条、公告条、任务卡片（实时更新）、完成报告和产物卡片 | React 组件（结构同 design/prototype/blocks.js） | Compose |
+| **自研**：运行轨迹时间线（流式追加、可折叠、虚拟滚动、跟随最新） | TanStack Virtual | LazyColumn |
+| **自研**：Agent Computer 画面 | `<canvas>`：经 Tauri Channel 接收 JPEG 帧绘制，并映射鼠标键盘事件 | Image + 手势层 |
 
 ---
 
 ## 附录 A：Grok Bot 界面要点（参考来源）
 
 - 三栏布局：侧栏 / 会话 / 右侧上下文面板。侧栏有分组、置顶头像磁贴、「Hidden Bots N」。
-- 用户消息是黑色气泡，Bot 消息是浅灰气泡；提问卡片用 A/B/C 选项；任务卡片带「Running」状态和操作按钮。
+- 用户消息是黑色气泡，Bot 消息是浅灰气泡（Mac Bot 改为 Telegram 式淡色气泡，见 design/）；提问卡片用 A/B/C 选项；任务卡片带「Running」状态和操作按钮。
 - 右侧面板默认显示「X's screen」和 Routines；⚙ 进入 Settings；定时任务页有 Active 开关、Delete、Test run、Instruction、When to run、Run history。
 - 电脑视图覆盖整个窗口，右上角是「Teach a task」和收起按钮。
 - 群聊：2–6 个 Bot；不 @ 时由 Bot 自己决定谁回应；用回复形成线程（Mac Bot 不做线程，回复都留在群里，用引用表示回复的是哪条）；审批、密码请求和草稿不在群里出现；群有 Group name 和 Description。

@@ -25,7 +25,7 @@
 | 群协作与编排 | nightly-labs/openbot、LobeHub Agent Groups、AutoGen、CopilotKit/OpenBot | 借鉴设计 |
 | 审批与安全 | Grok Bot、CopilotKit/OpenBot | 产品参考 / 借鉴设计 |
 | 部署形态（Host + 客户端 + 节点） | OpenClaw | 借鉴设计 |
-| 桌面客户端 | GPUI（Zed）、gpui-kit | **依赖** |
+| 桌面客户端 | Tauri 2、React、TanStack Virtual、window-vibrancy、Lucide | **依赖** |
 | 移动客户端 | Compose Multiplatform、Ktor | **依赖** |
 | 仪表盘 | OpenAI 用量页、GitHub 贡献热力图 | 产品参考 |
 | 原生桌面控制（远期可选） | trycua/cua（cua-driver）、openclaw/Peekaboo | sidecar（MCP） |
@@ -128,8 +128,11 @@
 
 | 项目 | 许可证 | 借鉴什么 | 使用方式 |
 |------|--------|----------|----------|
-| **GPUI**（[zed-industries/zed](https://github.com/zed-industries/zed) `crates/gpui`） | gpui crate 为 Apache-2.0（Zed 应用本身是 GPL/AGPL） | GPU 加速的 Rust UI 框架 | **依赖**（通过 gpui-kit 间接引入） |
-| **[longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)**（原名 gpui-component） | 代码 Apache-2.0 | 75+ 组件：Markdown、不等高虚拟列表、Dock 和可拖动面板、表格、图表、表单、浮层；Lucide 图标；给 AI 编程助手用的 skills | **依赖** |
+| **[tauri-apps/tauri](https://github.com/tauri-apps/tauri)**（v2） | MIT / Apache-2.0 | 用系统 WebView 承载界面、Rust 后端；体积小；命令与事件桥接；Channel 传二进制（Agent Computer 画面帧） | **依赖** |
+| **[facebook/react](https://github.com/facebook/react)** + Vite + TypeScript | MIT | 界面组件，直接复用 `design/prototype/` 的 CSS 与消息块结构 | **依赖** |
+| **[TanStack/virtual](https://github.com/TanStack/virtual)** | MIT | 不等高虚拟列表：消息流、运行轨迹、会话列表 | **依赖** |
+| **[tauri-apps/window-vibrancy](https://github.com/tauri-apps/window-vibrancy)** | MIT / Apache-2.0 | macOS 原生毛玻璃（半透明模式） | **依赖** |
+| **[lucide-icons/lucide](https://github.com/lucide-icons/lucide)** | ISC | 三端统一图标（线宽 1.5） | **依赖** |
 
 ## 14. 移动客户端
 
@@ -166,7 +169,7 @@
 
 | 用途 | crate | 版本（crates.io） |
 |------|-------|-------------------|
-| 桌面 UI | `gpui-kit` | 0.7 |
+| 桌面应用框架 | `tauri` | 2.x |
 | 异步运行时 | `tokio` | 1.x |
 | HTTP / WebSocket 服务 | `axum`、`tokio-tungstenite` | 0.8 / 0.30 |
 | HTTP 客户端（调用模型 API） | `reqwest`、`eventsource-stream`（解析 SSE） | 0.13 / 0.2 |
