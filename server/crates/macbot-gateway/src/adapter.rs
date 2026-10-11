@@ -20,8 +20,8 @@ use macbot_orchestrator::{
 };
 use macbot_protocol::{
     Announcement, Approval, ArtifactVersion, ArtifactVersionGetParams, ArtifactVersionGetResult,
-    ArtifactVersionsParams, ArtifactVersionsResult, Assignment, Bot, BotDuplicateResult, Chat,
-    Device, FileRef, HeatmapResult, Hello, Message, PendingItems, Project, Question, Routine,
+    ArtifactVersionsParams, ArtifactVersionsResult, Assignment, Avatar, Bot, BotDuplicateResult,
+    Chat, Device, FileRef, HeatmapResult, Hello, Message, PendingItems, Project, Question, Routine,
     Settings, UsageBreakdownResult, UsageSummaryResult, UsageTimeseriesResult,
 };
 use macbot_providers::registry::{ProviderRegistry, RegistryError};
@@ -3014,6 +3014,24 @@ impl RpcBackend for ProductionBackend {
         }
         let _guard = self.write_lock.lock().await;
         let mut params = params;
+        if matches!(method, "bot.create" | "bot.update") {
+            let avatar = if method == "bot.create" {
+                params.get("avatar")
+            } else {
+                params.get("patch").and_then(|patch| patch.get("avatar"))
+            };
+            if let Some(avatar) = avatar.filter(|avatar| !avatar.is_null()) {
+                // Keep accepting the former emoji-string representation from
+                // older clients, while validating new structured avatars.
+                if !avatar.is_string() && serde_json::from_value::<Avatar>(avatar.clone()).is_err() {
+                    return Err(RpcError {
+                        code: "invalid_params".into(),
+                        message: "avatar must be a valid Avatar object".into(),
+                        details: None,
+                    });
+                }
+            }
+        }
         if method == "send_msg" {
             self.execution_validate_send_msg_target(&params)?;
         }

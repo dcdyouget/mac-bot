@@ -1566,7 +1566,7 @@ impl Inner {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .into(),
-            avatar: p.get("avatar").and_then(Value::as_str).map(str::to_owned),
+            avatar: p.get("avatar").filter(|value| !value.is_null()).cloned(),
             model: p.get("model").and_then(Value::as_str).map(str::to_owned),
             max_parallel: p
                 .get("max_parallel")
@@ -1680,8 +1680,8 @@ impl Inner {
         if let Some(x) = patch.get("description").and_then(Value::as_str) {
             bot.description = x.into();
         }
-        if let Some(x) = patch.get("avatar").and_then(Value::as_str) {
-            bot.avatar = Some(x.into());
+        if let Some(value) = patch.get("avatar") {
+            bot.avatar = (!value.is_null()).then(|| value.clone());
         }
         if let Some(value) = patch.get("model") {
             bot.model = match value {

@@ -31,7 +31,9 @@ pub struct Bot {
     pub name: String,
     pub label: String,
     pub description: String,
-    pub avatar: Option<String>,
+    /// Structured protocol avatar. Legacy string values remain readable and
+    /// are normalized to emoji at the gateway boundary.
+    pub avatar: Option<serde_json::Value>,
     pub model: Option<String>,
     pub max_parallel: usize,
     #[serde(default)]
@@ -278,7 +280,7 @@ pub struct TemplateBot {
     pub name: String,
     pub label: String,
     pub description: String,
-    pub avatar: Option<String>,
+    pub avatar: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
