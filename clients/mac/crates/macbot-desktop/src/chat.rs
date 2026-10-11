@@ -160,7 +160,6 @@ mod tests {
             "chat_id": "dm-pending",
             "client_request_id": "request-pending",
             "text": "请 **读取** 页面\n保留这条待发送消息",
-            "reply_to": "message-parent",
             "mentions": [],
             "upload_ids": ["upload-pending"]
         });
@@ -173,7 +172,7 @@ mod tests {
             params["text"].as_str().unwrap()
         );
         assert_eq!(message["retry_params"], params);
-        assert_eq!(message["reply_to"], "message-parent");
+        assert!(message["quote"].is_null());
 
         let root =
             std::env::temp_dir().join(format!("macbot-pending-render-{}", uuid::Uuid::new_v4()));

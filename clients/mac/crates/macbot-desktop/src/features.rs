@@ -6610,7 +6610,7 @@ mod tests {
     #[test]
     fn sparse_heatmap_keeps_nonzero_days_distinct_from_empty_days() {
         let zero: Hsla = gpui_kit::rgb(0xefeff1).into();
-        let activity = Tokens::activity_colors();
+        let activity = crate::tokens::activity_colors(crate::tokens::heatmap_colors(false));
         let tied = vec![json!(203858), json!(203858), json!(203858)];
         assert_eq!(heatmap_palette_color(0., &tied, zero, &activity), zero);
         let active = heatmap_palette_color(203858., &tied, zero, &activity);
@@ -6620,19 +6620,18 @@ mod tests {
     }
 
     #[test]
-    fn heatmap_quantiles_use_four_increasing_intensities_of_one_activity_color() {
+    fn heatmap_quantiles_use_four_levels_from_the_dashboard_theme_palette() {
         let zero: Hsla = gpui_kit::rgb(0x2c2c2e).into();
-        let activity = Tokens::activity_colors();
+        let activity = crate::tokens::activity_colors(crate::tokens::heatmap_colors(true));
         let thresholds = vec![json!(10), json!(20), json!(30)];
         for (value, expected) in [10., 20., 30., 31.].into_iter().zip(activity) {
             let color = heatmap_palette_color(value, &thresholds, zero, &activity);
             assert_eq!(color, expected);
             assert_ne!(color, zero);
-            assert_eq!(color.h, activity[0].h);
-            assert_eq!(color.s, activity[0].s);
         }
-        assert!(activity.windows(2).all(|pair| pair[0].a < pair[1].a));
-        assert_eq!(activity[3].a, 1.);
+        assert!(activity.windows(2).all(|pair| pair[0] != pair[1]));
+        let colors = crate::tokens::heatmap_colors(true);
+        assert_eq!(activity, [colors[1], colors[2], colors[3], colors[4]]);
         assert_eq!(
             heatmap_palette_color(0., &thresholds, zero, &activity),
             zero
@@ -6710,7 +6709,7 @@ mod tests {
 
         let project = project_create_params("上线", "完成发布", &["bot_1".into()]);
         assert_eq!(project["member_bot_ids"], json!(["bot_1"]));
-        assert_eq!(project["goal"], "完成发布");
+        assert_eq!(project["announcement"], "完成发布");
 
         let routine = routine_create_params(
             "bot_1",
