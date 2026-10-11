@@ -706,6 +706,32 @@ interface Workbench {
 | `host.permissions` | `{}` | `{ screen_recording: PermissionState, accessibility: PermissionState, full_disk_access: PermissionState, automation_chrome: PermissionState }`，`type PermissionState = "granted" \| "denied" \| "unknown"`（Bot 主机上 macbotd 进程的 macOS 系统权限，只读；客户端在「设置 → 电脑与浏览器」显示并引导去系统设置） |
 | `settings.update` | `{ patch: DeepPartial<Settings>, web_search_key?: string }` | `{ settings: Settings }`（`tools.defaults` 可部分更新；只影响之后新建的 Bot，不改已有 Bot；`push`、`web_search.has_key` 只读；`web_search_key` 写入密钥后端，空串删除，以 `web_search.provider` 为引用；不进入设置、响应、事件或日志） |
 
+### 5.10a 用户记忆
+
+只开放**用户记忆**（所有 Bot 共享的「用户的习惯和偏好」）；Bot 记忆和项目记忆仍只由服务端管理，客户端不可见。用户的修改与 Bot 的 `memory` 工具走同一套条目、版本和配额（PLAN 5.5.1），保存后通过记忆增量消息在各 Bot 的下一次模型调用前生效。
+
+```ts
+interface MemoryEntry {
+  id: Id;
+  content: string;             // 一条记忆的正文，最多 500 字
+  version: number;             // 每次修改 +1；修改和删除必须带上 expected_version
+  source: {                    // 最初是谁、在哪里记下的
+    by: Sender;                // bot = 某个 Bot 自动记下；user = 你手动添加
+    chat_id: Id | null; message_id: Id | null;   // 触发这条记忆的会话与消息（手动添加时为 null）
+  };
+  updated_by: Sender;
+  created_at: Time; updated_at: Time;
+}
+interface MemoryQuota { used_chars: number; limit_chars: number }   // 用户记忆上限 1,500 字
+```
+
+| 方法 | 参数 | 返回 |
+|------|------|------|
+| `memory.user.list` | `{}` | `{ entries: MemoryEntry[], quota: MemoryQuota }`（按 updated_at 倒序） |
+| `memory.user.create` | `{ content }` | `{ entry: MemoryEntry, quota: MemoryQuota }`（超出配额返回 `quota_full`） |
+| `memory.user.update` | `{ entry_id, content, expected_version }` | `{ entry: MemoryEntry, quota: MemoryQuota }`（版本不一致返回 `conflict`，`error.details.current` 带最新条目；超出配额返回 `quota_full`） |
+| `memory.user.delete` | `{ entry_id, expected_version }` | `{ quota: MemoryQuota }`（版本不一致返回 `conflict`） |
+
 ### 5.11 仪表盘
 
 | 方法 | 参数 | 返回 |
@@ -758,6 +784,8 @@ interface Workbench {
 | `provider.updated` | `{ provider: Provider, models: Model[] }` |
 | `provider.deleted` | `{ provider_id: Id }` |
 | `settings.updated` | `{ settings: Settings }` |
+| `memory.user.updated` | `{ entry: MemoryEntry, quota: MemoryQuota }`（新增或修改，来源可以是 Bot 或用户） |
+| `memory.user.deleted` | `{ entry_id: Id, quota: MemoryQuota }` |
 | `sync.cursor` | `{ seq: number }`（与帧顶层 `seq` 相同；内部轨迹条目的全局游标占位，无业务数据，不表示补发结束） |
 
 ### 6.2 临时事件（没有 `seq`）

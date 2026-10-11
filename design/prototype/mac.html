@@ -436,7 +436,7 @@ V.computer = () => sidebar('botC') + `
 V.settings = () => sidebar('settings') + `
 <section class="main" style="flex-direction:row;background:var(--bg-window)">
   <div class="listcol glass-panel" style="padding:60px 8px 8px;gap:2px">
-    ${['通用', '模型与服务商', '运行与并发', '工具与审批', '技能', '电脑与浏览器', 'Host 连接', '关于'].map((t, i) => `<div class="navrow ${i === 2 ? 'sel' : ''}">${t}</div>`).join('')}</div>
+    ${['通用', '记忆', '模型与服务商', '运行与并发', '工具与审批', '技能', '电脑与浏览器', 'Host 连接', '关于'].map((t, i) => `<div class="navrow ${i === 3 ? 'sel' : ''}">${t}</div>`).join('')}</div>
   <div class="grow col"><div class="toolbar glass-toolbar"><div class="tt" style="font-size:15px">运行与并发</div></div>
   <div class="scroll" style="padding:24px 32px;max-width:680px">
     ${[['并发', [['全局最多同时运行的任务', '8'], ['每个 Bot 默认并发', '3'], ['每个任务最多同时跑子代理', '4'], ['全局最多同时跑子代理', '12'], ['Bot 之间连续往返上限', '8']]],
@@ -637,27 +637,27 @@ V.skilldraft = () => V.skills().replace('<div class="tt mono">web-auth-patterns<
 const settingsShell = (idx, title, body) => sidebar('settings') + `
 <section class="main" style="flex-direction:row;background:var(--bg-window)">
   <div class="listcol glass-panel" style="padding:60px 8px 8px;gap:2px">
-    ${['通用', '模型与服务商', '运行与并发', '工具与审批', '技能', '电脑与浏览器', 'Host 连接', '关于'].map((t, i) => `<div class="navrow ${i === idx ? 'sel' : ''}">${t}</div>`).join('')}</div>
+    ${['通用', '记忆', '模型与服务商', '运行与并发', '工具与审批', '技能', '电脑与浏览器', 'Host 连接', '关于'].map((t, i) => `<div class="navrow ${i === idx ? 'sel' : ''}">${t}</div>`).join('')}</div>
   <div class="grow col"><div class="toolbar glass-toolbar"><div class="tt grow" style="font-size:15px">${title}</div></div>
   <div class="scroll" style="padding:24px 32px"><div style="max-width:640px">${body}</div></div></div></section>`;
 V.set_general = () => settingsShell(0, '通用', stitle('外观') + card([`<span class="grow">主题</span><div class="seg"><button>浅色</button><button>深色</button><button class="on">跟随系统</button></div>`, `<span class="grow">半透明材质<div class="t-caption">系统开启「降低透明度」时自动关闭</div></span>${tog()}`, `<span class="grow">消息字号</span><div class="seg"><button>小</button><button class="on">标准</button><button>大</button></div>`])
   + stitle('语言与通知') + card([`<span class="grow">语言</span>${fld('简体中文', 160, 1)}`, `<span class="grow">需要你（审批、提问、接管）</span>${tog()}`, `<span class="grow">待验收</span>${tog()}`, `<span class="grow">私聊和 @ 你的消息</span>${tog()}`, `<span class="grow">群里所有消息</span>${tog(false)}`, `<span class="grow">提示音<div class="t-caption">啵啵 · 气泡，所有通知共用</div></span><button class="btn sm ghost" onclick="new Audio('../sounds/04-bubble-pop.m4a').play()">试听</button>${tog()}`])
   + stitle('启动') + card([`<span class="grow">登录时打开 Mac Bot</span>${tog()}`, `<span class="grow">关闭窗口后留在菜单栏</span>${tog()}`]));
-V.set_models = () => settingsShell(1, '模型与服务商', `<div class="row" style="margin-bottom:12px"><span class="grow t2">API Key 保存在 Bot 主机的钥匙串里</span><button class="btn sm primary">${I('plus', 's14')}添加服务商</button></div>`
+V.set_models = () => settingsShell(2, '模型与服务商', `<div class="row" style="margin-bottom:12px"><span class="grow t2">API Key 保存在 Bot 主机的钥匙串里</span><button class="btn sm primary">${I('plus', 's14')}添加服务商</button></div>`
   + `<div class="card" style="margin-bottom:16px"><div class="row gap8" style="height:52px;padding:0 14px;border-bottom:1px solid var(--border-subtle)"><b class="grow">Anthropic</b><span class="chip ok">● 已连接</span><span class="t-caption">anthropic-messages</span><button class="btn sm ghost">编辑</button></div>
     <table class="tbl"><tr><th>模型</th><th>能力</th><th class="num">上下文</th><th class="num">输入 ¥/M</th><th class="num">输出 ¥/M</th></tr>${[['Claude Sonnet', '工具 · 视觉 · 思考', '200k', '21.6', '108'], ['Claude Haiku', '工具 · 视觉', '200k', '7.2', '36']].map((r) => `<tr>${r.map((c, i) => `<td class="${i > 1 ? 'num' : ''}">${c}</td>`).join('')}</tr>`).join('')}</table></div>`
   + `<div class="card"><div class="row gap8" style="height:52px;padding:0 14px;border-bottom:1px solid var(--border-subtle)"><b class="grow">DeepSeek</b><span class="chip err">! Key 无效</span><span class="t-caption">openai-completions</span><button class="btn sm ghost">编辑</button></div>
     <div class="col gap12" style="padding:14px"><div class="row gap8"><span style="width:80px" class="t2">Base URL</span>${fld('https://api.deepseek.com/v1', 300)}</div><div class="row gap8"><span style="width:80px" class="t2">API Key</span>${fld('sk-••••••••••3f9a', 300)}</div>
     <div class="row gap8"><span style="width:80px"></span><button class="btn sm secondary">拉取模型</button><button class="btn sm secondary">测试连接</button><span class="t-caption" style="color:var(--danger)">401 Unauthorized</span></div></div></div>`);
-V.set_tools = () => settingsShell(3, '工具与审批', stitle('新 Bot 默认开启的工具') + card([['file', '文件（读、写、改、找）'], ['terminal', 'bash'], ['globe', '浏览器'], ['branch', '子代理'], ['link', '网页'], ['cpu', 'MCP', 0]].map(([i, t, on = 1]) => `${I(i, 't2')}<span class="grow">${t}</span>${tog(on)}`))
+V.set_tools = () => settingsShell(4, '工具与审批', stitle('新 Bot 默认开启的工具') + card([['file', '文件（读、写、改、找）'], ['terminal', 'bash'], ['globe', '浏览器'], ['branch', '子代理'], ['link', '网页'], ['cpu', 'MCP', 0]].map(([i, t, on = 1]) => `${I(i, 't2')}<span class="grow">${t}</span>${tog(on)}`))
   + stitle('审批模式') + card([`<span class="grow">审批模式<div class="t-caption">自动允许：只有命中「先问我」规则的操作才需要你审批（默认）</div></span><div class="seg"><button class="on">自动允许</button><button>先问我</button></div>`])
   + stitle('规则（冲突时「先问我」优先）') + `<div class="card" style="margin-bottom:16px"><table class="tbl"><tr><th>规则</th><th>范围</th><th>处理</th><th></th></tr>${[['sudo *', '所有 Bot', 'ask', '内置'], ['rm -rf（Home 以外）', '所有 Bot', 'ask', '内置'], ['git push', '所有 Bot', 'ask', '内置'], ['浏览器里付款', '所有 Bot', 'ask', '内置'], ['npm test', '编码', 'allow', '你 · 10/09']].map(([r, sc, a, src]) => `<tr><td class="mono" style="font-size:12px">${r}</td><td class="t2">${sc}</td><td>${a === 'ask' ? '<span class="chip wait">先问我</span>' : '<span class="chip ok">自动允许</span>'}</td><td class="num t3">${src}</td></tr>`).join('')}</table>
     <div class="row" style="height:40px;padding:0 14px;color:var(--accent)">${I('plus', 's14')} 添加规则</div></div>`);
-V.set_computer = () => settingsShell(5, '电脑与浏览器', stitle('浏览器') + card([`<span class="grow">默认浏览器模式</span>${fld('无头 + 复用 Chrome', 200, 1)}`, `<span class="grow">Chrome profile</span>${fld('Default', 200, 1)}`, `<span class="grow">实时画面画质</span><div class="seg"><button class="on">自动</button><button>清晰</button><button>省流</button></div>`])
+V.set_computer = () => settingsShell(6, '电脑与浏览器', stitle('浏览器') + card([`<span class="grow">默认浏览器模式</span>${fld('无头 + 复用 Chrome', 200, 1)}`, `<span class="grow">Chrome profile</span>${fld('Default', 200, 1)}`, `<span class="grow">实时画面画质</span><div class="seg"><button class="on">自动</button><button>清晰</button><button>省流</button></div>`])
   + stitle('Bot 主机的系统权限') + card([['屏幕录制', 'ok', '已授权'], ['辅助功能', 'ok', '已授权'], ['完全磁盘访问', 'wait', '未授权']].map(([t, c, s]) => `<span class="grow">${t}</span><span class="chip ${c}">${s}</span>${c === 'wait' ? '<button class="btn sm secondary">去系统设置</button>' : ''}`)));
-V.set_hosts = () => settingsShell(6, 'Host 连接', card([['Mac mini（家）', '192.168.31.162:7788', 'ok', '在线 · 当前'], ['MacBook（公司）', 'wss://bot.example.com', '', '离线']].map(([n, a, c, s]) => `<span class="sdot" style="color:var(--${c ? 'success' : 'text-tertiary'})"></span><div class="grow"><div>${n}</div><div class="t-caption mono">${a}</div></div><span class="t-caption">${s}</span><button class="btn sm ghost">编辑</button><button class="btn sm ghost" style="color:var(--danger)">删除</button>`))
+V.set_hosts = () => settingsShell(7, 'Host 连接', card([['Mac mini（家）', '192.168.31.162:7788', 'ok', '在线 · 当前'], ['MacBook（公司）', 'wss://bot.example.com', '', '离线']].map(([n, a, c, s]) => `<span class="sdot" style="color:var(--${c ? 'success' : 'text-tertiary'})"></span><div class="grow"><div>${n}</div><div class="t-caption mono">${a}</div></div><span class="t-caption">${s}</span><button class="btn sm ghost">编辑</button><button class="btn sm ghost" style="color:var(--danger)">删除</button>`))
   + `<button class="btn secondary">${I('plus', 's14')}添加 Host…</button>`);
-V.set_about = () => settingsShell(7, '关于', `<div class="col" style="align-items:center;gap:8px;padding:24px 0">${av('Z', 64)}<div class="t-large">Mac Bot</div><div class="t2">客户端 0.1.0 · 协议 1 · Host macbotd 0.1.0</div><div class="row gap8" style="margin-top:8px"><button class="btn secondary">检查更新</button><button class="btn ghost">导出诊断信息</button></div></div>`);
+V.set_about = () => settingsShell(8, '关于', `<div class="col" style="align-items:center;gap:8px;padding:24px 0">${av('Z', 64)}<div class="t-large">Mac Bot</div><div class="t2">客户端 0.1.0 · 协议 1 · Host macbotd 0.1.0</div><div class="row gap8" style="margin-top:8px"><button class="btn secondary">检查更新</button><button class="btn ghost">导出诊断信息</button></div></div>`);
 
 // Narrow window: right panel becomes an overlay
 V.narrow = () => `<div style="position:relative;width:1024px;height:100%;display:flex;overflow:hidden;border-right:1px dashed var(--border-strong)">` + V.group().replace('<aside class="panel glass-panel">', '<aside class="panel glass-panel" style="position:absolute;right:0;top:0;bottom:0;z-index:25;box-shadow:var(--elevation-4)">') + `</div><div class="grow col" style="align-items:center;justify-content:center;padding:24px;background:var(--bg-desktop)"><div class="t-foot" style="text-align:center;line-height:18px">窗口宽 1024（< 1100）：<br>右面板变成从右侧滑入的覆盖层，<br>点击会话区或按 Esc 收起</div></div>`;
@@ -703,7 +703,30 @@ V.queuepanel = () => V.detail().replace('<div class="psec"><div class="ph">工�
     <div class="psec"><div class="ph">工作过程</div>`);
 V.queuedone = () => V.queue().replace(`<span style="color:var(--accent)">${I('clock', 's14')} 编码 交付前会看到</span>`, `<span style="color:var(--success)">编码 交付前已查看 ✓</span>`).replace(`工作中 25 分 <span class="qbadge">${I('clock', 's14')}2</span>`, '工作中 25 分');
 
-const LIST = [['main', '主 Bot 私聊'], ['botchat', 'Bot 私聊'], ['group', '群聊 + 公告'], ['mention', '@ 成员'], ['msgmenu', '右键消息'], ['queue', '待看消息 · 发送'], ['queuepanel', '待看消息 · 工作详情'], ['queuedone', '待看消息 · 已查看'], ['reply', '回复（右键 → 回复）'], ['quote', '引用（右键 → 引用）'], ['decide1', '决策 · 多题堆叠'], ['decide2', '决策 · 答了 1 题'], ['decide3', '决策 · 全部答完'], ['single', '决策 · 单题已答'], ['detail', '群聊 + 工作详情'], ['artifact', '产物预览'], ['trace', '全屏运行轨迹'], ['routines', '定时任务'], ['work', '工作台'], ['dash', '仪表盘'], ['skills', '技能'], ['computer', 'Agent Computer'], ['settings', '设置 · 运行与并发'], ['set_general', '设置 · 通用'], ['set_models', '设置 · 模型与服务商'], ['set_tools', '设置 · 工具与审批'], ['set_computer', '设置 · 电脑与浏览器'], ['set_hosts', '设置 · Host'], ['set_about', '设置 · 关于'],
+// Settings → 记忆 (user memory only; 03 §6.7)
+const MEMS = [
+  ['回复用中文，代码和注释用英文。', 'P', '登录功能', '10/09 10:21', 3],
+  ['不喜欢长篇报告：先给结论，细节放后面。', 'Z', '和总管的私聊', '10/08 21:40', 1],
+  ['常用的技术栈：TypeScript、Rust；数据库偏好 SQLite。', 'C', '官网改版', '10/07 15:02', 2],
+  ['周末不要推送非紧急通知。', 'me', null, '10/06 09:15', 1],
+  ['截图和原型优先给移动端尺寸。', 'P', '竞品调研', '10/05 18:33', 1],
+];
+const memRow = ([t, k, chat, at], i, edit) => `<div class="mem-row ${edit ? 'editing' : ''}">
+  ${edit ? `<div class="field area focus" style="min-height:64px;font-size:14px;line-height:20px">${t}<span style="border-left:1.5px solid var(--accent)"></span></div>
+    <div class="row gap8" style="margin-top:8px"><span class="t-caption grow">${t.length} / 500 字 · ⌘↵ 保存</span><button class="btn sm secondary">取消</button><button class="btn sm primary">保存</button></div>`
+  : `<div class="row gap12" style="align-items:flex-start"><div class="grow" style="font-size:14px;line-height:21px">${t}</div><div class="mem-acts"><button class="iconbtn">${I('edit', 's14')}</button><button class="iconbtn" style="color:var(--danger)">${I('x', 's14')}</button></div></div>
+    <div class="row gap6 t-caption" style="margin-top:6px">${k === 'me' ? `${I('user', 's14')}你手动添加` : `${av(k, 16)}${BOT[k][0]} 记下 · <a class="mb-at">${chat}</a>`}<span>· ${at}</span></div>`}</div>`;
+V.set_memory = () => settingsShell(1, '记忆', `
+  <div class="t2" style="font-size:13px;line-height:20px;margin-bottom:16px">这里是<b>用户记忆</b>：所有 Bot 共享的、关于你的习惯和偏好。Bot 会在对话中自动记下，你也可以直接修改、删除或添加。修改后，所有 Bot 在下一次思考前就会知道。Bot 自己的经验和项目记忆由 Bot 管理，不在这里显示。</div>
+  <div class="card" style="padding:14px 16px;margin-bottom:16px"><div class="row" style="margin-bottom:8px"><b class="grow">用量</b><span class="t-foot mono">1,186 / 1,500 字</span></div>
+    <div style="height:6px;border-radius:3px;background:var(--bg-active);overflow:hidden"><div style="width:79%;height:100%;background:var(--accent)"></div></div>
+    <div class="t-caption" style="margin-top:6px">接近上限时，Bot 会自己合并相近的条目；你也可以删掉不需要的。</div></div>
+  <div class="row gap8" style="margin-bottom:12px"><div class="field grow">${I('search', 's14 t3')}<span class="t3">搜索记忆</span></div><button class="btn primary">${I('plus', 's14')}添加</button></div>
+  <div class="card mem-list">${MEMS.map((m, i) => memRow(m, i, false)).join('')}</div>`);
+V.set_memory_edit = () => V.set_memory().replace(memRow(MEMS[0], 0, false), memRow(MEMS[0], 0, true));
+V.set_memory_conflict = () => V.set_memory_edit().replace('<div class="card mem-list">', `<div class="banner wait" style="margin-bottom:12px;font-size:12px">${I('alert')}<span class="grow">产品 刚刚也修改了这条记忆（版本 4）。<b>查看对方的版本</b> 后再决定保存哪一份</span></div><div class="card mem-list">`);
+
+const LIST = [['main', '主 Bot 私聊'], ['botchat', 'Bot 私聊'], ['group', '群聊 + 公告'], ['mention', '@ 成员'], ['msgmenu', '右键消息'], ['queue', '待看消息 · 发送'], ['queuepanel', '待看消息 · 工作详情'], ['queuedone', '待看消息 · 已查看'], ['reply', '回复（右键 → 回复）'], ['quote', '引用（右键 → 引用）'], ['decide1', '决策 · 多题堆叠'], ['decide2', '决策 · 答了 1 题'], ['decide3', '决策 · 全部答完'], ['single', '决策 · 单题已答'], ['detail', '群聊 + 工作详情'], ['artifact', '产物预览'], ['trace', '全屏运行轨迹'], ['routines', '定时任务'], ['work', '工作台'], ['dash', '仪表盘'], ['skills', '技能'], ['computer', 'Agent Computer'], ['settings', '设置 · 运行与并发'], ['set_general', '设置 · 通用'], ['set_memory', '设置 · 记忆'], ['set_memory_edit', '设置 · 记忆 · 编辑'], ['set_memory_conflict', '设置 · 记忆 · 冲突'], ['set_models', '设置 · 模型与服务商'], ['set_tools', '设置 · 工具与审批'], ['set_computer', '设置 · 电脑与浏览器'], ['set_hosts', '设置 · Host'], ['set_about', '设置 · 关于'],
   ['newgroup', '新建（⌘N）'], ['search', '搜索（⌘K）'], ['onboard', '首次启动'], ['offline', '断线重连'],
   ['annedit', '编辑公告'], ['botdetail', 'Bot 详情'], ['botsettings', 'Bot 设置'], ['mainsettings', '主 Bot 设置'], ['hosts', 'Host 切换'], ['addhost', '添加 Host'], ['ctxmenu', '右键菜单'],
   ['slash', '/ 技能'], ['slash_q', '/ 技能 · 筛选'], ['slash_none', '/ 技能 · 无匹配'], ['slash_picked', '/ 技能 · 已选中'], ['attach', '+ 附件'], ['dragfile', '拖入文件'], ['changes', '提修改意见'], ['completed', '已完成的群'], ['empty', '空状态'], ['loading', '加载中'],

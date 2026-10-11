@@ -446,3 +446,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .grp:not(.out) .bubble ~ .bubble { border-top-left-radius: 6px; }
 .grp.out .bubble:not(:has(~ .bubble)) { border-bottom-right-radius: 6px; }
 .grp.out .bubble ~ .bubble { border-top-right-radius: 6px; }
+/* user memory list (03 §6.7) */
+.mem-row { padding: 12px 14px; } .mem-row + .mem-row { border-top: 1px solid var(--border-subtle); }
+.mem-row .mem-acts { display: flex; gap: 2px; opacity: 0; transition: opacity var(--duration-instant); }
+.mem-row:hover .mem-acts { opacity: 1; }
+.mem-row.editing { background: var(--accent-soft); }

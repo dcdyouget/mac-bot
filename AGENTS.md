@@ -14,7 +14,7 @@
 
 **`clients/mobile` 的代码组织**（包名 `bot.mac.mobile`）：`shared/src/commonMain` 下分为 `core/`（网络、重连和补发、协议模型、状态、设计系统、导航、fixtures 加载）和 `feature/*`（connect、chat、trace、group、mainbot、approval、workbench、bots、settings、dashboard、skills、search、routines、computer）。**commonMain 里不要直接使用 Android API**，平台能力用 expect/actual，这样以后加 iOS 只需要增加 target 和 iosApp 外壳。
 
-> v1 不做 iOS。记忆完全由服务端管理，**任何客户端都没有记忆相关的页面**。
+> v1 不做 iOS。记忆由服务端管理；**客户端只有「用户记忆」一个页面**（设置 → 记忆），可以查看和编辑；Bot 记忆、项目记忆不展示。
 
 **主 agent 与 subagent 的分工**
 - 主 agent：拆任务、派 subagent、审查结果、做决定、改共享文件、提交与推送。**代码开发、编译、运行测试、启动应用、截图、调研等能交给 subagent 的工作，主 agent 一律不亲自做。**

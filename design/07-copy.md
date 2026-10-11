@@ -519,6 +519,24 @@
 | key | zh-CN |
 |-----|-------|
 | settings.section.general | 通用 |
+| settings.section.memory | 记忆 |
+| memory.desc | 这里是用户记忆：所有 Bot 共享的、关于你的习惯和偏好。Bot 会在对话中自动记下，你也可以直接修改、删除或添加。修改后，所有 Bot 在下一次思考前就会知道。 |
+| memory.usage | 用量 |
+| memory.usage_value | {used} / {limit} 字 |
+| memory.usage_hint | 接近上限时，Bot 会自己合并相近的条目；你也可以删掉不需要的。 |
+| memory.search | 搜索记忆 |
+| memory.add | 添加 |
+| memory.source.bot | {bot} 记下 |
+| memory.source.user | 你手动添加 |
+| memory.edit.count | {count} / 500 字 · ⌘↵ 保存 |
+| memory.deleted | 已删除一条记忆 |
+| memory.undo | 撤销 |
+| memory.conflict | {who} 刚刚也修改了这条记忆（版本 {n}）。查看对方的版本后再决定保存哪一份 |
+| memory.conflict.mine | 用我的 |
+| memory.conflict.theirs | 用对方的 |
+| memory.quota_full | 记忆已满，请先删除或合并几条 |
+| memory.delete_entry | 删除这条记忆 |
+| memory.mobile_hint | 左滑条目可以删除，点击条目编辑 |
 | settings.section.models | 模型与服务商 |
 | settings.section.runtime | 运行与并发 |
 | settings.section.tools | 工具与审批 |

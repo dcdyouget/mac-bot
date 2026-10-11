@@ -9,8 +9,8 @@
 
 ```bash
 open design/prototype/index.html      # 总览：色板、字体、间距、组件
-open design/prototype/mac.html        # macOS：55 个屏幕，顶部可切换
-open design/prototype/mobile.html     # Android 与 iOS 并排，40 组屏幕（?only=group,groupinfo 只看指定屏幕）
+open design/prototype/mac.html        # macOS：58 个屏幕，顶部可切换
+open design/prototype/mobile.html     # Android 与 iOS 并排，42 组屏幕（?only=group,groupinfo 只看指定屏幕）
 open design/prototype/web.html        # /admin 管理页
 open design/prototype/blocks.html     # 消息块目录（桌面 / 移动并排）
 ```
