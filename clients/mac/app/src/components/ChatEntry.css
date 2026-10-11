@@ -70,18 +70,23 @@
 .message-context-menu {
   position: fixed;
   z-index: 1100;
-  width: 224px;
+  width: 236px;
   padding: 5px;
   border: 1px solid var(--border-subtle);
   border-radius: 11px;
   box-shadow: var(--shadow-e3, 0 12px 32px rgb(0 0 0 / 24%));
 }
+.message-context-reactions { display: flex; justify-content: space-between; gap: 2px; padding: 2px 4px 4px; }
+.message-context-menu button.message-context-emoji { display: grid; width: 30px; height: 30px; flex: none; place-items: center; padding: 0; border-radius: 15px; font-size: 18px; }
 .message-context-menu button { display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 8px; color: var(--text-primary); background: transparent; border: 0; border-radius: 7px; text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
 .message-context-menu button:hover { background: var(--bg-hover); }
 .message-context-menu button span { flex: 1; }
 .message-context-menu button kbd { color: var(--text-tertiary); font: inherit; font-size: 10px; }
 .message-context-menu button.danger { color: var(--danger); }
 .message-context-divider { height: 1px; margin: 4px 2px; background: var(--border-subtle); }
+.message-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.message-reaction-pill { display: inline-flex; min-width: 30px; height: 22px; align-items: center; justify-content: center; gap: 3px; padding: 0 7px; border: 0; border-radius: 11px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
+.message-reaction-pill.active { box-shadow: inset 0 0 0 1px var(--accent); }
 .chat-message-quote { display: grid; gap: 2px; padding: 7px 9px; margin: 0 0 7px; color: var(--text-secondary); background: var(--bg-active); border-left: 2px solid var(--accent); border-radius: 6px; font-size: 11px; }
 .chat-message-quote strong { color: var(--text-primary); font-weight: 550; }
 .chat-message-quote span { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -92,6 +97,7 @@
 .chat-composer-quote button { display: grid; width: 24px; height: 24px; place-items: center; color: var(--text-secondary); background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
 .chat-composer-quote button:hover { background: var(--bg-hover); }
 .timeline-fragment.message-context-selected .bubble { outline: 2px solid var(--accent-soft); outline-offset: 2px; }
+.timeline-fragment:focus-visible .bubble { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 @media (max-width: 600px) {
   .chat-entry-overlay { padding: 16px; }

@@ -31,6 +31,7 @@ import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './component
 import { ChatSkillPicker } from './components/ChatSkillPicker'
 import { getChatSkillPickerItems, shouldRefreshSkillsOnPickerOpen } from './components/chatSkillPickerModel'
 import { makeSkillCreateIntent, type SkillCreateIntent } from './components/skillCreateIntent'
+import { appendMessageQuoteToAnnouncement, chatSendMentions, isMessageMenuActionCurrent, messageAssignmentId, messageDeepLink, messageShortcutAction, quoteSendFields, userHasReaction } from './components/messageActions.model'
 
 type ThemeMode = 'light' | 'dark' | 'system'
 type ContextPanelPage = 'context' | 'group-settings'
@@ -251,6 +252,7 @@ function App() {
   const contextPanelCloseTimerRef = useRef<number | null>(null)
   const contextPanelIdentityRef = useRef(`${hostScope}:${activePage}`)
   const hostScopeRef = useRef(hostScope)
+  const messageMenuRef = useRef(messageMenu)
   const stateRef = useRef(state)
   const traceRouteRef = useRef(traceRoute)
   const computerRouteRef = useRef(computerRoute)
@@ -270,6 +272,7 @@ function App() {
   const memoryDataScopeRef = useRef<string | null>(null)
   const announcementPanelRef = useRef<HTMLElement>(null)
   hostScopeRef.current = hostScope
+  messageMenuRef.current = messageMenu
   onboardingPendingRef.current = onboardingPending
   stateRef.current = state
   traceRouteRef.current = traceRoute
@@ -1328,6 +1331,69 @@ function App() {
     setQuoteTarget({ messageId: message.id, senderName, excerpt: text.slice(0, 120), mode, ...(mode === 'reply' && sender?.kind === 'bot' && sender.bot_id ? { botId: sender.bot_id } : {}) })
     setMessageMenu(null)
     document.querySelector<HTMLTextAreaElement>('.composer-box textarea')?.focus()
+  }
+
+  function updateMessageFromAction(scope: string, message: Message) {
+    if (hostScopeRef.current !== scope) return
+    setState((current) => ({ ...current, messages: { ...current.messages, [message.id]: message } }))
+    const chatId = message.chat_id
+    if (chatId) {
+      const cacheKey = historyCacheKey(scope, chatId)
+      setHistoryByChat((current) => ({ ...current, [cacheKey]: mergeMessages(current[cacheKey] ?? [], [message]) }))
+    }
+  }
+
+  async function reactToMessage(message: Message, emoji: string) {
+    const scope = hostScope
+    const activeReaction = message.reactions?.find((reaction) => reaction.emoji === emoji)
+    try {
+      const result = await invoke<{ message: Message }>('protocol_request', {
+        method: 'chat.react',
+        params: { message_id: message.id, emoji, on: !userHasReaction(activeReaction) },
+      })
+      if (hostScopeRef.current !== scope) return
+      updateMessageFromAction(scope, result.message)
+      setMessageMenu(null)
+    } catch (error) {
+      if (hostScopeRef.current === scope) setState((current) => ({ ...current, error: `${t('chat.menu.react_failed')}: ${String(error)}` }))
+    }
+  }
+
+  function quoteToAnnouncement(message: Message) {
+    if (!currentProjectId || announcement?.project_id !== currentProjectId) return
+    const sender = message.sender?.kind === 'user' ? t('common.user') : state.bots[message.sender?.bot_id ?? '']?.name ?? t('common.bot')
+    const baseText = announcementEditing ? announcementDraft : announcement.text
+    setAnnouncementDraft(appendMessageQuoteToAnnouncement(baseText, sender, messagePlainText(message)))
+    setAnnouncementEditing(true)
+    setAnnouncementError(null)
+    setMessageMenu(null)
+    openContextPanel()
+    setContextPanelStack(['context'])
+    requestAnimationFrame(() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
+  async function copyMessageLink(message: Message) {
+    const scope = hostScope
+    const originalMenu = messageMenu
+    const isOriginalActionCurrent = () => isMessageMenuActionCurrent(
+      hostScopeRef.current,
+      scope,
+      messageMenuRef.current,
+      originalMenu,
+    )
+    const chatId = message.chat_id ?? currentChat?.id
+    const hostId = state.active_host?.id
+    if (!chatId || !hostId) {
+      if (isOriginalActionCurrent()) setState((current) => isOriginalActionCurrent() ? { ...current, error: t('common.copy_failed') } : current)
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(messageDeepLink(message.id, chatId, hostId))
+      if (!isOriginalActionCurrent()) return
+      setMessageMenu((current) => isOriginalActionCurrent() && current === originalMenu ? null : current)
+    } catch (error) {
+      if (isOriginalActionCurrent()) setState((current) => isOriginalActionCurrent() ? { ...current, error: `${t('common.copy_failed')}: ${String(error)}` } : current)
+    }
   }
 
   async function copyMessage(message: Message) {
@@ -2435,6 +2501,7 @@ function App() {
     const readyAttachments = attachments.filter((item) => item.status === 'ready' && item.uploadId)
     const messageText = composerSkill ? `/${composerSkill.name}${draft.trim() ? ` ${draft.trim()}` : ''}` : draft.trim()
     if (!currentChat || (!draft.trim() && !readyAttachments.length) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || state.connection !== 'connected') return
+    const quoteFields = quoteSendFields(quoteTarget)
     const scope = hostScope
     setSending(true)
     setSendError(null)
@@ -2443,8 +2510,8 @@ function App() {
         await invoke('protocol_request', { method: 'chat.send', params: {
           chat_id: currentChat.id,
           text: messageText,
-          mentions: mentionBotId ? [{ kind: 'bot', bot_id: mentionBotId, instruction: null }] : quoteTarget?.mode === 'reply' && quoteTarget.botId ? [{ kind: 'bot', bot_id: quoteTarget.botId, instruction: null }] : [],
-          ...(quoteTarget ? { quote: quoteTarget.messageId, quote_mode: quoteTarget.mode } : {}),
+          mentions: chatSendMentions(mentionBotId, quoteTarget),
+          ...(quoteFields.quote ? { quote: quoteFields.quote, quote_mode: quoteFields.quote_mode } : {}),
           ...(readyAttachments.length ? { attachments: readyAttachments.map((item) => item.uploadId) } : {}),
           client_request_id: crypto.randomUUID(),
         } })
@@ -2590,10 +2657,16 @@ function App() {
           </div>}
         </div>
           : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages).map((entry) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} key={entry.message.id} onContextMenu={(event) => { event.preventDefault(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
+          {buildMessageTimeline(currentMessages).map((entry) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} key={entry.message.id} tabIndex={0} role="group" aria-label={t('chat.message.keyboard_actions')} onKeyDown={(event) => {
+            if (event.target !== event.currentTarget || messageMenu || (entry.message as Message & { deleted?: boolean }).deleted) return
+            const action = messageShortcutAction({ key: event.key, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey, isComposing: event.nativeEvent.isComposing })
+            if (action === 'reply') { event.preventDefault(); quoteMessage(entry.message, 'reply') }
+            else if (action === 'reference') { event.preventDefault(); quoteMessage(entry.message, 'reference') }
+            else if (action === 'copy') { event.preventDefault(); void copyMessage(entry.message) }
+          }} onContextMenu={(event) => { event.preventDefault(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
             {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-            <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
+            <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
             const decisionScope = hostScope
             const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
             if (result.approval && hostScopeRef.current === decisionScope) {
@@ -2976,7 +3049,23 @@ function App() {
     </aside>}
     {hostDialogOpen && <HostDialog endpoint={endpoint} setEndpoint={setEndpoint} password={password} setPassword={setPassword} hostName={hostName} setHostName={setHostName} error={state.error} connecting={connecting} onClose={() => setHostDialogOpen(false)} onSubmit={connect} />}
     {createGroupOpen && <CreateGroupDialog key={hostScope} bots={bots.map((bot) => ({ id: bot.id, name: bot.name, is_main: bot.is_main, description: typeof bot.description === 'string' ? bot.description : undefined }))} busy={groupCreating} error={groupCreateError} onClose={() => { if (!groupCreating) setCreateGroupOpen(false) }} onCreate={createGroup} />}
-    {messageMenu && <MessageContextMenu message={messageMenu.message as ChatEntryMessage} ownMessage={messageMenu.message.sender?.kind === 'user'} x={messageMenu.x} y={messageMenu.y} senderName={messageMenu.message.sender?.kind === 'user' ? t('common.user') : state.bots[messageMenu.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} onReply={() => quoteMessage(messageMenu.message, 'reply')} onQuote={() => quoteMessage(messageMenu.message, 'reference')} onCopy={() => void copyMessage(messageMenu.message)} onDelete={() => void deleteMessage(messageMenu.message)} onClose={() => setMessageMenu(null)} />}
+    {messageMenu && <MessageContextMenu
+      message={{ ...messageMenu.message, assignment_id: messageAssignmentId(messageMenu.message) } as ChatEntryMessage}
+      ownMessage={messageMenu.message.sender?.kind === 'user'}
+      x={messageMenu.x}
+      y={messageMenu.y}
+      senderName={messageMenu.message.sender?.kind === 'user' ? t('common.user') : state.bots[messageMenu.message.sender?.bot_id ?? '']?.name ?? t('common.bot')}
+      canQuoteToAnnouncement={Boolean(currentProjectId && announcement?.project_id === currentProjectId)}
+      onReply={() => quoteMessage(messageMenu.message, 'reply')}
+      onQuote={() => quoteMessage(messageMenu.message, 'reference')}
+      onCopy={() => void copyMessage(messageMenu.message)}
+      onReact={(emoji) => void reactToMessage(messageMenu.message, emoji)}
+      onQuoteToAnnouncement={() => quoteToAnnouncement(messageMenu.message)}
+      onViewTrace={() => { const assignmentId = messageAssignmentId(messageMenu.message); if (assignmentId) { setMessageMenu(null); openTrace(assignmentId) } }}
+      onCopyLink={() => void copyMessageLink(messageMenu.message)}
+      onDelete={() => void deleteMessage(messageMenu.message)}
+      onClose={() => setMessageMenu(null)}
+    />}
   </main>
 }
 
@@ -3217,7 +3306,32 @@ function dateLabel(date: Date) {
   return date.toLocaleDateString('zh-CN', { year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric', month: 'long', day: 'numeric' })
 }
 
-function MessageBubble({ message, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onOpenComputer, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: { message: Message; pending?: boolean; senderName: string; senderRole: string; groupStart: boolean; groupEnd: boolean; headerTime: string; exactTime: string; questions: BridgeState['questions']; approvals: BridgeState['approvals']; assignments: BridgeState['assignments']; projects: BridgeState['projects']; bots: BridgeState['bots']; chats: BridgeState['chats']; chatTitle: string; onOpenProject: (projectId: string, chatId?: string) => Promise<void>; onTaskDetail: (assignmentId: string) => void; onOpenComputer: (botId: string) => void; onPreviewArtifact: (artifact: ArtifactRef) => void; onConfirmProject: (projectId: string, messageId: string, blockIndex: number) => Promise<void>; onRequestChanges: (projectId: string, messageId: string, blockIndex: number, text: string) => Promise<void>; onApprovalDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void>; onQuestionAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
+function MessageBubble({ message, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onReact, onOpenComputer, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
+  message: Message
+  pending?: boolean
+  senderName: string
+  senderRole: string
+  groupStart: boolean
+  groupEnd: boolean
+  headerTime: string
+  exactTime: string
+  questions: BridgeState['questions']
+  approvals: BridgeState['approvals']
+  assignments: BridgeState['assignments']
+  projects: BridgeState['projects']
+  bots: BridgeState['bots']
+  chats: BridgeState['chats']
+  chatTitle: string
+  onOpenProject: (projectId: string, chatId?: string) => Promise<void>
+  onTaskDetail: (assignmentId: string) => void
+  onReact: (message: Message, emoji: string) => void
+  onOpenComputer: (botId: string) => void
+  onPreviewArtifact: (artifact: ArtifactRef) => void
+  onConfirmProject: (projectId: string, messageId: string, blockIndex: number) => Promise<void>
+  onRequestChanges: (projectId: string, messageId: string, blockIndex: number, text: string) => Promise<void>
+  onApprovalDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void>
+  onQuestionAnswer: (question: Question, answer: QuestionAnswer) => Promise<void>
+}) {
   const isUser = message.sender?.kind === 'user'
   const deleted = Boolean((message as Message & { deleted?: boolean }).deleted)
   const quote = (message as Message & { quote?: { sender?: { kind?: string; bot_id?: string }; excerpt?: string; message_id?: string } | null }).quote
@@ -3294,6 +3408,9 @@ function MessageBubble({ message, pending = false, senderName, senderRole, group
           if (value) return <p className="message-text-block" key={index}>{value}</p>
           return <div className="block-fallback" key={index}><Shield size={13} />{message.fallback_text || t('common.unsupported_block')}<small>{t('block.fallback.hint')}</small></div>
         })}</div> : <>{text || message.fallback_text || t('common.unsupported_block')}</>}
+        {!deleted && Boolean(message.reactions?.length) && <div className="message-reactions" aria-label={t('chat.menu.react')}>
+          {message.reactions?.filter((reaction) => reaction.by.length > 0).map((reaction) => <button type="button" className={`message-reaction-pill ${userHasReaction(reaction) ? 'active' : ''}`} key={reaction.emoji} aria-label={`${reaction.emoji} ${reaction.by.length}`} onClick={() => onReact(message, reaction.emoji)}>{reaction.emoji}<span>{reaction.by.length}</span></button>)}
+        </div>}
       </div>
       {pending && <div className="message-send-status"><Clock3 size={11} />{t('chat.delivery.queued')}</div>}
     </div>

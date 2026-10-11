@@ -194,6 +194,7 @@
 | block.task_card.done_line | {bot} · {title} · 用时 {duration} |
 | chat.menu.reply | 回复 |
 | chat.menu.react | 表情回应 |
+| chat.menu.react_failed | 表情回应失败 |
 | chat.menu.copy | 复制 |
 | chat.menu.quote_to_announcement | 引用到公告 |
 | chat.menu.view_trace | 查看工作详情 |
@@ -241,6 +242,7 @@
 | chat.menu.quote | 引用 |
 | chat.menu.copy_text | 复制文字 |
 | chat.menu.copy_link | 复制消息链接 |
+| chat.message.keyboard_actions | 消息快捷操作：R 回复，Q 引用，⌘C 复制文字 |
 | block.completion.done | 已完成 |
 | block.completion.notify_main | 全部完成，请汇总验收 |
 | block.task_card.title | 任务 · {title} |

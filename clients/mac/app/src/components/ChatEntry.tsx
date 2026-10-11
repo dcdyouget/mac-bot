@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Copy, CornerUpLeft, Forward, Trash2, X } from 'lucide-react'
+import { Activity, Check, Copy, CornerUpLeft, Forward, Link2, Megaphone, Trash2, X } from 'lucide-react'
 import { t } from '../i18n'
+import { messageShortcutAction } from './messageActions.model'
 
 export type ChatEntryBot = { id: string; name?: string; is_main?: boolean; description?: string }
-export type ChatEntryMessage = { id: string; sender?: { kind?: string; bot_id?: string }; fallback_text?: string; blocks?: { text?: string; markdown?: string }[] }
+export type ChatEntryMessage = { id: string; chat_id?: string; assignment_id?: string | null; sender?: { kind?: string; bot_id?: string }; fallback_text?: string; blocks?: { text?: string; markdown?: string }[] }
 export type QuoteTarget = { messageId: string; senderName: string; excerpt: string; mode: 'reply' | 'reference'; botId?: string }
 
 export function CreateGroupDialog({ bots, busy, error, onClose, onCreate }: {
@@ -50,15 +51,22 @@ export function CreateGroupDialog({ bots, busy, error, onClose, onCreate }: {
   </div>
 }
 
-export function MessageContextMenu({ message, ownMessage, x, y, senderName, onReply, onQuote, onCopy, onDelete, onClose }: {
+const quickReactions = ['👍', '❤️', '😂', '🎉', '👀', '✅']
+
+export function MessageContextMenu({ message, ownMessage, x, y, senderName, canQuoteToAnnouncement, onReply, onQuote, onCopy, onReact, onQuoteToAnnouncement, onViewTrace, onCopyLink, onDelete, onClose }: {
   message: ChatEntryMessage
   ownMessage: boolean
   x: number
   y: number
   senderName: string
+  canQuoteToAnnouncement: boolean
   onReply: () => void
   onQuote: () => void
   onCopy: () => void
+  onReact: (emoji: string) => void
+  onQuoteToAnnouncement: () => void
+  onViewTrace: () => void
+  onCopyLink: () => void
   onDelete: () => void
   onClose: () => void
 }) {
@@ -70,18 +78,22 @@ export function MessageContextMenu({ message, ownMessage, x, y, senderName, onRe
     setPosition({ left: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)), top: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)) })
     const close = (event: PointerEvent) => { if (!menu.current?.contains(event.target as Node)) onClose() }
     const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { onClose(); return }
-      if (event.isComposing) return
       const target = event.target instanceof HTMLElement ? event.target : null
-      if (target?.matches('input, textarea, select, [contenteditable="true"]') || target?.closest('[contenteditable="true"]')) return
-
-      const shortcut = event.key.toLowerCase()
-      const unmodified = !event.metaKey && !event.ctrlKey && !event.altKey
-      if (unmodified && shortcut === 'r') {
+      if (event.key === 'Escape') { onClose(); return }
+      const action = messageShortcutAction({
+        key: event.key,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+        isComposing: event.isComposing,
+        editable: Boolean(target?.matches('input, textarea, select, [contenteditable="true"]') || target?.closest('[contenteditable="true"]')),
+      })
+      if (action === 'reply') {
         event.preventDefault(); event.stopPropagation(); onReply()
-      } else if (unmodified && shortcut === 'q') {
+      } else if (action === 'reference') {
         event.preventDefault(); event.stopPropagation(); onQuote()
-      } else if ((event.metaKey || event.ctrlKey) && !event.altKey && shortcut === 'c') {
+      } else if (action === 'copy') {
         event.preventDefault(); event.stopPropagation(); onCopy()
       }
     }
@@ -91,10 +103,17 @@ export function MessageContextMenu({ message, ownMessage, x, y, senderName, onRe
   }, [x, y, onClose, onCopy, onQuote, onReply])
 
   return <div ref={menu} className="message-context-menu glass-pop" style={{ left: position.left, top: position.top }} role="menu" aria-label={t('chat.message.menu')}>
-    <button role="menuitem" onClick={onReply}><CornerUpLeft size={14} /><span>{t('chat.message.reply')}</span><kbd>R</kbd></button>
-    <button role="menuitem" onClick={onQuote}><Forward size={14} /><span>{t('chat.message.quote')}</span><kbd>Q</kbd></button>
-    <button role="menuitem" onClick={onCopy}><Copy size={14} /><span>{t('chat.message.copy')}</span><kbd>⌘C</kbd></button>
-    {ownMessage && <><div className="message-context-divider" /><button role="menuitem" className="danger" onClick={onDelete}><Trash2 size={14} /><span>{t('chat.message.delete')}</span></button></>}
+    <div className="message-context-reactions" role="group" aria-label={t('chat.menu.react')}>
+      {quickReactions.map((emoji) => <button type="button" className="message-context-emoji" key={emoji} aria-label={`${t('chat.menu.react')} ${emoji}`} onClick={() => onReact(emoji)}>{emoji}</button>)}
+    </div>
+    <div className="message-context-divider" />
+    <button role="menuitem" onClick={onReply}><CornerUpLeft size={14} /><span>{t('chat.menu.reply')}</span><kbd>R</kbd></button>
+    <button role="menuitem" onClick={onQuote}><Forward size={14} /><span>{t('chat.menu.quote')}</span><kbd>Q</kbd></button>
+    <button role="menuitem" onClick={onCopy}><Copy size={14} /><span>{t('chat.menu.copy_text')}</span><kbd>⌘C</kbd></button>
+    {canQuoteToAnnouncement && <button role="menuitem" onClick={onQuoteToAnnouncement}><Megaphone size={14} /><span>{t('chat.menu.quote_to_announcement')}</span></button>}
+    {message.assignment_id && <button role="menuitem" onClick={onViewTrace}><Activity size={14} /><span>{t('chat.menu.view_trace')}</span></button>}
+    <button role="menuitem" onClick={onCopyLink}><Link2 size={14} /><span>{t('chat.menu.copy_link')}</span></button>
+    {ownMessage && <><div className="message-context-divider" /><button role="menuitem" className="danger" onClick={onDelete}><Trash2 size={14} /><span>{t('chat.menu.delete')}</span></button></>}
     <span className="sr-only">{senderName} · {message.id}</span>
   </div>
 }

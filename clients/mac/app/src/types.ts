@@ -4,10 +4,12 @@ export type Message = {
   id: string
   chat_id?: string
   sender?: { kind?: string; bot_id?: string }
+  assignment_id?: string | null
   sender_id?: string
   fallback_text?: string
   blocks?: { type?: string; text?: string; [key: string]: Json | undefined }[]
   created_at?: string
+  reactions?: { emoji: string; by: { kind?: string; bot_id?: string }[] }[]
 }
 
 export type Question = {
