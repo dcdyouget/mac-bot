@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { AtSign, ChevronDown, ChevronRight, Command, MessageCircle, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3 } from 'lucide-react'
-import { t } from './i18n'
-import { emptyState, type BridgeState, type Chat, type Json, type Message, type Question } from './types'
+import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder } from 'lucide-react'
+import { t, type CopyKey } from './i18n'
+import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type PendingMessage, type Question } from './types'
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
 
 const NO_RULES: Record<string, Json>[] = []
@@ -15,6 +15,19 @@ const SELECTED_CHAT_STORAGE_KEY = 'macbot.chat.selected'
 
 function App() {
   const [state, setState] = useState<BridgeState>(emptyState)
+  const [savedHosts, setSavedHosts] = useState<HostRecord[]>([])
+  const [hostMenuOpen, setHostMenuOpen] = useState(false)
+  const [hostManageMode, setHostManageMode] = useState(false)
+  const [hostDialogOpen, setHostDialogOpen] = useState(false)
+  const [hostError, setHostError] = useState<string | null>(null)
+  const [localPreferences, setLocalPreferences] = useState<LocalPreferences>({})
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null)
+  const [announcementLoading, setAnnouncementLoading] = useState(false)
+  const [announcementEditing, setAnnouncementEditing] = useState(false)
+  const [announcementDraft, setAnnouncementDraft] = useState('')
+  const [announcementError, setAnnouncementError] = useState<string | null>(null)
+  const [announcementSaving, setAnnouncementSaving] = useState(false)
+  const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null)
   const [historyByChat, setHistoryByChat] = useState<Record<string, Message[]>>({})
   const [historyQuestions, setHistoryQuestions] = useState<Record<string, BridgeState['questions']>>({})
   const [historyApprovals, setHistoryApprovals] = useState<Record<string, BridgeState['approvals']>>({})
@@ -22,7 +35,7 @@ function App() {
   const [endpoint, setEndpoint] = useState('127.0.0.1:7789')
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
-  const [selectedChat, setSelectedChat] = useState(() => localStorage.getItem(SELECTED_CHAT_STORAGE_KEY) ?? '')
+  const [selectedChat, setSelectedChat] = useState('')
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [draft, setDraft] = useState('')
   const [connecting, setConnecting] = useState(false)
@@ -43,9 +56,10 @@ function App() {
   const [translucent, setTranslucent] = useState(() => localStorage.getItem(MATERIAL_STORAGE_KEY) !== 'false')
   const [systemDark, setSystemDark] = useState(false)
   const [reducedTransparency, setReducedTransparency] = useState(false)
-  const hostScope = state.node_id ?? endpoint.trim()
+  const hostScope = state.active_host?.id ?? state.node_id ?? endpoint.trim()
   const hostScopeRef = useRef(hostScope)
   const sidebarSearchRef = useRef<HTMLInputElement>(null)
+  const announcementPanelRef = useRef<HTMLElement>(null)
   hostScopeRef.current = hostScope
   const historyCacheKey = (scope: string, chatId: string) => `${scope}\u0000${chatId}`
 
@@ -63,6 +77,21 @@ function App() {
       colorScheme.removeEventListener('change', syncAppearance)
       reducedTransparency.removeEventListener('change', syncAppearance)
     }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    void invoke<HostRecord[]>('list_hosts').then((hosts) => { if (active) setSavedHosts(hosts) }).catch((error: unknown) => { if (active) setHostError(String(error)) })
+    void invoke<Record<string, PendingMessage>>('get_pending_messages').then((pendingMessages) => {
+      if (active) setState((current) => ({ ...current, pending_messages: pendingMessages }))
+    }).catch((error: unknown) => { if (active) setState((current) => ({ ...current, error: String(error) })) })
+    void invoke<LocalPreferences>('get_local_preferences').then((preferences) => {
+      if (!active) return
+      setLocalPreferences(preferences)
+      if (preferences.theme === 'light' || preferences.theme === 'dark' || preferences.theme === 'system') setThemeMode(preferences.theme)
+      if (typeof preferences.translucent === 'boolean') setTranslucent(preferences.translucent)
+    }).catch((error: unknown) => { if (active) setSettingsError(String(error)) })
+    return () => { active = false }
   }, [])
 
   useEffect(() => {
@@ -94,13 +123,27 @@ function App() {
   }, [themeMode, translucent, systemDark, reducedTransparency])
 
   useEffect(() => {
+    if (!hostScope) return
+    const savedChat = localStorage.getItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScope}`) ?? ''
+    if (state.connection === 'connected' && Object.keys(state.chats).length > 0 && savedChat && !Object.hasOwn(state.chats, savedChat)) {
+      setSelectedChat('')
+      return
+    }
+    setSelectedChat(savedChat)
+  }, [hostScope, state.chats, state.connection])
+
+  useEffect(() => {
     let unlisten: (() => void) | undefined
     void listen<BridgeState>('bridge-state', (event) => {
       setState(event.payload)
       const scope = event.payload.node_id ?? hostScopeRef.current
       setHistoryQuestions((current) => ({ ...current, [scope]: { ...current[scope], ...event.payload.questions } }))
       setHistoryApprovals((current) => ({ ...current, [scope]: { ...current[scope], ...event.payload.approvals } }))
-      if (event.payload.connection === 'connected') setShowConnect(false)
+      if (event.payload.connection === 'connected') {
+        setShowConnect(false)
+        if (event.payload.active_host?.name) setHostName(event.payload.active_host.name)
+        void invoke<HostRecord[]>('list_hosts').then(setSavedHosts).catch((error: unknown) => setHostError(String(error)))
+      }
       if (event.payload.connection === 'disconnected') setConnecting(false)
     }).then(async (dispose) => {
       unlisten = dispose
@@ -161,12 +204,18 @@ function App() {
     for (const message of Object.values(state.messages)) {
       if (message.chat_id === currentChat?.id) byId.set(message.id, message)
     }
+    for (const message of Object.values(state.pending_messages)) {
+      if (message.chat_id === currentChat?.id) byId.set(message.id, message)
+    }
     return [...byId.values()].sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')))
-  }, [historyByChat, state.messages, hostScope, currentChat?.id])
+  }, [historyByChat, state.messages, state.pending_messages, hostScope, currentChat?.id])
 
   useEffect(() => {
-    if (currentChat && !selectedChat) selectChat(currentChat.id)
-  }, [currentChat, selectedChat])
+    if (currentChat && !selectedChat) {
+      setSelectedChat(currentChat.id)
+      localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScope}`, currentChat.id)
+    }
+  }, [currentChat, selectedChat, hostScope])
 
   useEffect(() => {
     const chatId = currentChat?.id
@@ -204,15 +253,114 @@ function App() {
   }, [currentChat?.id, state.connection, hostScope])
 
   const currentAssignments = Object.values(state.assignments).filter((assignment) =>
-    assignment.origin_chat_id === currentChat?.id || assignment.project_id === currentChat?.project_id,
+    (currentChat?.kind === 'project' || currentChat?.project_id)
+      ? assignment.project_id === currentChat.project_id
+      : currentChat?.bot_id
+        ? assignment.bot_id === currentChat.bot_id
+        : assignment.origin_chat_id === currentChat?.id,
   )
   const currentApprovals = Object.values({ ...state.approvals, ...historyApprovals[hostScope] }).filter((approval) => approval.state === 'pending')
   const currentQuestions = { ...state.questions, ...historyQuestions[hostScope] }
   const currentApprovalRecords = { ...state.approvals, ...historyApprovals[hostScope] }
+  const currentProjectId = typeof currentChat?.project_id === 'string' ? currentChat.project_id : null
+  const currentProject = currentProjectId ? state.projects[currentProjectId] : undefined
+
+  useEffect(() => {
+    if (!currentProjectId) {
+      setAnnouncement(null)
+      setAnnouncementEditing(false)
+      return
+    }
+    if (state.connection !== 'connected') return
+    let active = true
+    const scope = hostScope
+    setAnnouncementLoading(true)
+    setAnnouncementError(null)
+    void invoke<{ project: BridgeState['projects'][string]; announcement: Announcement }>('protocol_request', {
+      method: 'project.get', params: { project_id: currentProjectId },
+    }).then((result) => {
+      if (!active || hostScopeRef.current !== scope) return
+      setState((current) => ({ ...current, projects: { ...current.projects, [currentProjectId]: result.project } }))
+      setAnnouncement(result.announcement)
+      setAnnouncementDraft(result.announcement.text ?? '')
+    }).catch((error: unknown) => {
+      if (active && hostScopeRef.current === scope) setAnnouncementError(String(error))
+    }).finally(() => { if (active) setAnnouncementLoading(false) })
+    return () => { active = false }
+  }, [currentProjectId, hostScope, state.connection])
+
+  useEffect(() => {
+    if (!currentProjectId) setSelectedAssignment(null)
+  }, [currentProjectId])
 
   function selectChat(chatId: string) {
     setSelectedChat(chatId)
     localStorage.setItem(SELECTED_CHAT_STORAGE_KEY, chatId)
+    localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScope}`, chatId)
+  }
+
+  async function savePreferences(patch: LocalPreferences) {
+    const next = { ...localPreferences, ...patch }
+    setLocalPreferences(next)
+    try {
+      const saved = await invoke<LocalPreferences>('save_local_preferences', { preferences: patch })
+      setLocalPreferences((current) => ({ ...current, ...saved }))
+    } catch (error) {
+      setSettingsError(String(error))
+    }
+  }
+
+  function updateTheme(mode: ThemeMode) {
+    setThemeMode(mode)
+    void savePreferences({ theme: mode })
+  }
+
+  function updateTranslucency(enabled: boolean) {
+    setTranslucent(enabled)
+    void savePreferences({ translucent: enabled })
+  }
+
+  async function connectSavedHost(hostId: string) {
+    setConnecting(true)
+    setHostMenuOpen(false)
+    setState((current) => ({ ...current, error: null, connection: 'connecting' }))
+    try {
+      await invoke('connect_saved_host', { hostId })
+    } catch (error) {
+      setConnecting(false)
+      setState((current) => ({ ...current, connection: 'disconnected', error: String(error) }))
+    }
+  }
+
+  async function removeSavedHost(host: HostRecord) {
+    try {
+      await invoke('remove_host', { hostId: host.id })
+      setSavedHosts((current) => current.filter((item) => item.id !== host.id))
+      if (state.active_host?.id === host.id) setState((current) => ({ ...emptyState, error: current.error }))
+    } catch (error) {
+      setHostError(String(error))
+    }
+  }
+
+  async function saveAnnouncement() {
+    if (!currentProjectId || !announcement) return
+    const scope = hostScope
+    setAnnouncementSaving(true)
+    setAnnouncementError(null)
+    try {
+      const result = await invoke<{ announcement: Announcement }>('protocol_request', {
+        method: 'announcement.update',
+        params: { project_id: currentProjectId, text: announcementDraft, base_version: announcement.version },
+      })
+      if (hostScopeRef.current !== scope) return
+      setAnnouncement(result.announcement)
+      setAnnouncementDraft(result.announcement.text)
+      setAnnouncementEditing(false)
+    } catch (error) {
+      if (hostScopeRef.current === scope) setAnnouncementError(String(error))
+    } finally {
+      setAnnouncementSaving(false)
+    }
   }
 
   async function openSettings() {
@@ -301,7 +449,7 @@ function App() {
     const result = await invoke<{ project?: BridgeState['projects'][string] }>('protocol_request', { method: 'project.confirm_done', params: { project_id: projectId } })
     if (hostScopeRef.current !== scope) return
     if (result.project) setState((current) => ({ ...current, projects: { ...current.projects, [projectId]: result.project! } }))
-    updateMessageBlock(scope, chatId, messageId, blockIndex, { state: 'confirmed' })
+    updateMessageBlock(scope, chatId, messageId, blockIndex, { state: 'confirmed', confirmed_at: typeof result.project?.done_at === 'string' ? result.project.done_at : null })
   }
 
   async function requestProjectChanges(projectId: string, messageId: string, blockIndex: number, text: string) {
@@ -334,6 +482,7 @@ function App() {
     setState((current) => ({ ...current, error: null, connection: 'connecting' }))
     try {
       await invoke('connect_host', { endpoint, password, name: hostName })
+      setHostDialogOpen(false)
     } catch (error) {
       setState((current) => ({ ...current, connection: 'disconnected', error: String(error) }))
       setConnecting(false)
@@ -354,7 +503,8 @@ function App() {
 
   if (showConnect) {
     return <ConnectScreen endpoint={endpoint} setEndpoint={setEndpoint} password={password} setPassword={setPassword}
-      hostName={hostName} setHostName={setHostName} onSubmit={connect} connecting={connecting} ready={listenerReady} error={state.error} />
+      hostName={hostName} setHostName={setHostName} onSubmit={connect} connecting={connecting} ready={listenerReady} error={state.error}
+      hosts={savedHosts} hostError={hostError} onConnectSaved={(host) => void connectSavedHost(host.id)} onRemoveHost={(host) => void removeSavedHost(host)} />
   }
 
   const groups = chats.filter((chat) => chat.kind === 'project' || chat.project_id)
@@ -375,8 +525,17 @@ function App() {
   return <main className="app-shell">
     <aside className="sidebar glass-sidebar">
       <div className="sidebar-head drag-region">
-        <button className="host-switch"><span className={`status-dot ${state.connection}`} />{hostName}<ChevronDown size={14} /></button>
+        <button className="host-switch" aria-expanded={hostMenuOpen} onClick={() => setHostMenuOpen((open) => !open)}><span className={`status-dot ${state.connection}`} />{state.active_host?.name ?? hostName}<ChevronDown size={14} /></button>
         <button className="icon-button" aria-label="新建"><Plus size={17} /></button>
+        {hostMenuOpen && <div className="host-popover">
+          <div className="host-popover-title">{t('host.switch.title')}</div>
+          {savedHosts.map((host) => <div className="host-popover-row" key={host.id}>
+            <button type="button" className="host-choice" onClick={() => void connectSavedHost(host.id)}><span className={`status-dot ${state.active_host?.id === host.id ? state.connection : 'disconnected'}`} /><span className="host-choice-copy"><strong>{host.name}</strong><small>{host.addresses[0] ?? ''}</small></span>{state.active_host?.id === host.id && <Check size={14} />}</button>
+            {hostManageMode && <button type="button" className="host-remove" aria-label={t('common.delete')} disabled={state.active_host?.id === host.id} onClick={() => void removeSavedHost(host)}><Trash2 size={13} /></button>}
+          </div>)}
+          {hostError && <div className="host-menu-error" role="alert">{hostError}</div>}
+          <div className="host-popover-actions"><button type="button" onClick={() => { setHostMenuOpen(false); setHostDialogOpen(true); setHostError(null) }}><Plus size={14} />{t('host.add')}</button><button type="button" onClick={() => setHostManageMode((value) => !value)}><Settings size={14} />{t('host.manage')}</button></div>
+        </div>}
       </div>
       <label className="search-entry"><Search size={14} /><input ref={sidebarSearchRef} value={sidebarSearch} onChange={(event) => setSidebarSearch(event.target.value)} placeholder={t('sidebar.search.placeholder')} aria-label={t('sidebar.search.placeholder')} /><kbd>⌘K</kbd></label>
       <div className="sidebar-scroll">
@@ -402,18 +561,24 @@ function App() {
     </aside>
     <section className="conversation">
       <header className="conversation-toolbar glass-toolbar drag-region">
-        <BeanAvatar main size="32" />
+        {currentChat?.kind === 'project' || currentChat?.project_id ? <div className="group-chat-avatar"><Users size={17} /></div> : <BeanAvatar main={currentChat?.kind === 'main' || !currentChat?.bot_id} size="32" seed={currentChat?.bot_id ? state.bots[currentChat.bot_id]?.name ?? '' : ''} />}
         <div className="conversation-heading"><strong>{currentChat ? chatTitle(currentChat) : (mainBot?.name ?? '总管')}</strong>
-          <span>{currentChat?.kind === 'project' ? t('chat.group.subtitle').replace('{count}', String(Array.isArray(currentChat.member_bot_ids) ? currentChat.member_bot_ids.length : 0)) : t('chat.main.subtitle')}</span></div>
+          <span>{currentChat?.kind === 'project' || currentChat?.project_id ? groupSubtitle(currentChat, currentProject, announcement) : currentChat?.bot_id ? botSubtitle(currentChat, currentAssignments, state.bots) : t('chat.main.subtitle')}</span></div>
         <button className="icon-button" aria-label={t('chat.search')}><Search size={17} /></button>
         <button className="icon-button" aria-label="切换右面板"><PanelRight size={17} /></button>
       </header>
-      {state.connection !== 'connected' && <div className="offline-bar">{t('status.reconnecting')}</div>}
+      {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={(id) => { setSelectedAssignment(id); void loadAssignmentTrace(id) }} />}
+      {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+        <span className="announcement-bar" /><span className="announcement-summary"><strong>{t('group.announcement')}</strong><small>{announcement ? summarizeMarkdown(announcement.text) : announcementLoading ? t('settings.permissions.loading') : t('group.announcement.empty')}</small></span><ChevronDown size={14} />
+      </button>}
+      {state.connection !== 'connected' && <div className="offline-bar">{t('host.reconnecting').replace('{host}', state.active_host?.name ?? hostName)} · {t('host.reconnecting_detail')}</div>}
       <div className="message-scroll">
         {!currentChat ? <div className="empty-conversation"><BeanAvatar main size="72" /><strong>{t('onboarding.empty.title')}</strong><span>{t('onboarding.empty.desc')}</span></div>
           : currentMessages.length ? <div className="message-list">
-          <div className="day-separator">{t('common.today')}</div>
-          {currentMessages.map((message) => <MessageBubble key={message.id} message={message} senderName={message.sender?.kind === 'user' ? t('common.user') : state.bots[message.sender?.bot_id ?? '']?.name ?? t('common.bot')} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={(id) => void loadAssignmentTrace(id)} onPreviewArtifact={(artifact) => void previewArtifact(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
+          {buildMessageTimeline(currentMessages).map((entry) => <div className="timeline-fragment" key={entry.message.id}>
+            {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
+            {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
+            <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={(id) => void loadAssignmentTrace(id)} onPreviewArtifact={(artifact) => void previewArtifact(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
             const decisionScope = hostScope
             const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
             if (result.approval && hostScopeRef.current === decisionScope) {
@@ -427,7 +592,8 @@ function App() {
               setHistoryQuestions((current) => ({ ...current, [answerScope]: { ...current[answerScope], [result.question!.id]: result.question! } }))
               setState((current) => ({ ...current, questions: { ...current.questions, [result.question!.id]: result.question! } }))
             }
-          }} />)}
+          }} />
+          </div>)}
         </div> : historyLoadingChat === currentChat.id ? <div className="message-list history-loading" aria-busy="true" /> : null}
       </div>
       <form className="composer-wrap" onSubmit={sendMessage}>
@@ -439,15 +605,51 @@ function App() {
       </form>
     </section>
     <aside className="context-panel glass-sidebar">
-      <div className="panel-heading drag-region"><strong>{t('follow.title')}</strong><button className="icon-button" aria-label={t('follow.collapse')}><PanelRight size={16} /></button></div>
-      {currentChat ? <div className="panel-content">
+      <div className="panel-heading drag-region"><strong>{currentProjectId ? t('group.info') : t('follow.title')}</strong><button className="icon-button" aria-label={t('follow.collapse')}><PanelRight size={16} /></button></div>
+      {currentChat && currentProjectId ? <div className="panel-content group-context-panel">
+        <section className="follow-section" ref={announcementPanelRef}>
+          <div className="section-label"><span>{t('group.announcement')}</span><span className="panel-section-meta">{announcement && t('group.announcement.meta').replace('{who}', botOrUserName(announcement.text_updated_by, state.bots)).replace('{time}', formatShortTime(announcement.text_updated_at))}</span>
+            <button className="panel-inline-action" type="button" onClick={() => { setAnnouncementDraft(announcement?.text ?? ''); setAnnouncementEditing((value) => !value); setAnnouncementError(null) }}><Edit3 size={13} />{t('group.announcement.edit')}</button>
+          </div>
+          {announcementLoading && !announcement && <div className="panel-empty">{t('settings.permissions.loading')}</div>}
+          {!announcementLoading && !announcement && <div className="panel-empty">{announcementError ?? t('group.announcement.empty')}</div>}
+          {announcement && (announcementEditing ? <div className="announcement-editor">
+            <div className="announcement-edit-hint">{t('group.announcement.edit_hint')}</div>
+            <textarea autoFocus value={announcementDraft} onChange={(event) => setAnnouncementDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void saveAnnouncement() } }} />
+            <div className="announcement-editor-meta">{t('group.announcement.version').replace('{n}', String(announcement.version)).replace('{len}', String(announcementDraft.length))}<span>{t('group.announcement.save_shortcut')}</span></div>
+            {announcementError && <div className="announcement-error" role="alert">{announcementError}</div>}
+            <div className="announcement-editor-actions"><button type="button" onClick={() => { setAnnouncementEditing(false); setAnnouncementDraft(announcement.text); setAnnouncementError(null) }}>{t('common.cancel')}</button><button type="button" disabled={announcementSaving} onClick={() => void saveAnnouncement()}>{announcementSaving ? t('host.connecting') : t('common.save')}</button></div>
+          </div> : <div className="announcement-detail">{announcement.text || t('group.announcement.empty')}</div>)}
+          {typeof currentProject?.home_path === 'string' && <div className="project-home-path"><Folder size={13} /><code>{currentProject.home_path}</code><button type="button" onClick={() => void navigator.clipboard?.writeText(String(currentProject.home_path))}>{t('common.copy_path')}</button></div>}
+        </section>
+        <section className="follow-section"><div className="section-label">{t('group.members')}<span className="panel-section-count">{announcement?.members.length ?? 0}</span></div>
+          {announcement?.members.length ? announcement.members.map((member) => {
+            const botName = state.bots[member.bot_id]?.name ?? t('common.bot')
+            const assignment = member.current_assignment_id ? state.assignments[member.current_assignment_id] : undefined
+            const status = memberStatusKey(member.state)
+            return <button type="button" className={`group-member-row ${selectedAssignment === member.current_assignment_id ? 'selected' : ''}`} key={member.bot_id} onClick={() => {
+              if (member.current_assignment_id) { setSelectedAssignment(member.current_assignment_id); void loadAssignmentTrace(member.current_assignment_id) }
+            }}>
+              <BeanAvatar main={state.bots[member.bot_id]?.is_main === true} size="32" seed={botName} />
+              <span className="group-member-copy"><strong>{botName}</strong><small>{member.role_note || (member.bot_id === currentProject?.lead_bot_id ? t('group.statusbar.lead') : '')}</small></span>
+              <span className={`group-member-status status-${member.state}`}>{statusText(status)}{assignment && member.state === 'working' ? ` · ${elapsedLabel(assignment.started_at)}` : ''}</span>
+            </button>
+          }) : <div className="panel-empty">{announcementLoading ? t('settings.permissions.loading') : t('group.members')}</div>}
+        </section>
+        <section className="follow-section"><div className="section-label">{t('group.artifacts')}<span className="panel-section-count">{announcement?.artifacts.length ?? 0}</span></div>
+          {announcement?.artifacts.length ? announcement.artifacts.map((artifact) => <div className="group-artifact-row" key={artifact.id}>
+            <span className="group-artifact-icon">{artifact.kind === 'dir' ? <Folder size={14} /> : <MessageCircle size={14} />}</span><span className="group-artifact-copy"><strong>{artifact.title}</strong><small>{t('common.provided_by').replace('{bot}', state.bots[artifact.bot_id]?.name ?? t('common.bot'))}</small><code>{artifact.path_or_url}</code><small>{t('common.updated_at').replace('{time}', formatShortTime(artifact.updated_at))}</small></span><button type="button" className="trace-button" onClick={() => void previewArtifact({ artifact_id: artifact.id, title: artifact.title, path_or_url: artifact.path_or_url, bot_id: artifact.bot_id, kind: artifact.kind })}>{t('common.preview')}</button>
+          </div>) : <div className="panel-empty">{announcementLoading ? t('settings.permissions.loading') : t('group.artifacts')}</div>}
+        </section>
+        {selectedAssignment && state.assignments[selectedAssignment] && <section className="follow-section"><div className="section-label">{t('trace.show')}</div><div className="assignment-card"><strong>{String(state.assignments[selectedAssignment].title ?? '')}</strong><div className="assignment-meta">{String(state.assignments[selectedAssignment].instruction ?? '')}</div><div className="trace-items">{assignmentTrace.map((item, index) => <div className="trace-item" key={index}>{String(item.type ?? '')}</div>)}</div></div></section>}
+      </div> : currentChat ? <div className="panel-content">
         {currentApprovals.length > 0 && <section className="follow-section"><div className="section-label"><Shield size={13} />{t('follow.pending_approval')} <span>{currentApprovals.length}</span></div>
           {currentApprovals.filter((item) => item.chat_id === currentChat.id).map((approval) => <div className="approval-summary" key={String(approval.id)}><strong>{String(approval.tool)} · {String(approval.summary)}</strong><span>{String(approval.risk)}</span></div>)}
         </section>}
         <section className="follow-section"><div className="section-label">{t('follow.section.active')}</div>
           {currentAssignments.length === 0 ? <div className="panel-empty">{t('follow.empty')}</div> : currentAssignments.map((assignment) => <div className="assignment-card" key={String(assignment.id)}>
             <div className="assignment-title"><strong>{String(assignment.title ?? assignment.bot_id)}</strong>{Number(assignment.pending_messages ?? 0) > 0 && <span className="pending-badge"><Clock3 size={12} />{t('queue.pending').replace('{count}', String(assignment.pending_messages))}</span>}</div>
-            <div className="assignment-meta">{String(assignment.status ?? '')} · {String(assignment.bot_id ?? '')}</div>
+            <div className="assignment-meta">{statusText(memberStatusKey(String(assignment.status ?? '')))} · {state.bots[String(assignment.bot_id ?? '')]?.name ?? t('common.bot')}</div>
             <button className="trace-button" onClick={() => void loadAssignmentTrace(String(assignment.id))}>{t('trace.show')}</button>
             {activeAssignment === assignment.id && <div className="trace-items">{assignmentTrace.map((item, index) => item.type === 'queue.review'
               ? <div className="trace-queue-review" key={index}><Clock3 size={13} />{t('trace.queue_review').replace('{count}', String((item.data as Record<string, unknown> | undefined)?.count ?? 0))}</div>
@@ -463,11 +665,89 @@ function App() {
         {artifactPreview.error ? <p className="artifact-preview-error">{artifactPreview.error}</p> : artifactPreview.path.startsWith('http') ? <a className="artifact-preview-url" href={artifactPreview.path} target="_blank" rel="noreferrer">{artifactPreview.path}</a> : <pre>{artifactPreview.content || artifactPreview.path}</pre>}
       </section>
     </div>}
-    {showSettings && <SettingsPanel settings={state.settings} bots={state.bots} permissions={hostPermissions} busy={settingsBusy} error={settingsError} themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} onTheme={setThemeMode} onTranslucency={setTranslucent} onMode={updateApprovalMode} onRules={updateApprovalRules} onClose={() => setShowSettings(false)} />}
+    {showSettings && <SettingsPanel settings={state.settings} bots={state.bots} permissions={hostPermissions} busy={settingsBusy} error={settingsError} themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} onTheme={updateTheme} onTranslucency={updateTranslucency} onMode={updateApprovalMode} onRules={updateApprovalRules} onClose={() => setShowSettings(false)} />}
+    {hostDialogOpen && <HostDialog endpoint={endpoint} setEndpoint={setEndpoint} password={password} setPassword={setPassword} hostName={hostName} setHostName={setHostName} error={state.error} connecting={connecting} onClose={() => setHostDialogOpen(false)} onSubmit={connect} />}
   </main>
 }
 
-type ConnectProps = { endpoint: string; setEndpoint: (value: string) => void; password: string; setPassword: (value: string) => void; hostName: string; setHostName: (value: string) => void; onSubmit: (event: React.FormEvent) => void; connecting: boolean; ready: boolean; error: string | null }
+function HostDialog({ endpoint, setEndpoint, password, setPassword, hostName, setHostName, error, connecting, onClose, onSubmit }: { endpoint: string; setEndpoint: (value: string) => void; password: string; setPassword: (value: string) => void; hostName: string; setHostName: (value: string) => void; error: string | null; connecting: boolean; onClose: () => void; onSubmit: (event: React.FormEvent) => void }) {
+  return <div className="host-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><form className="host-dialog" onSubmit={onSubmit}>
+    <header><strong>{t('host.add')}</strong><button type="button" className="icon-button" onClick={onClose} aria-label={t('common.close')}>×</button></header>
+    <label><span>{t('host.field.address')}</span><input autoFocus value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="host:port" /><small>{t('host.field.address_hint')}</small></label>
+    <label><span>{t('host.field.password')}</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+    <label><span>{t('host.field.name')}</span><input value={hostName} onChange={(event) => setHostName(event.target.value)} /></label>
+    {error && <div className="connect-error" role="alert">{error}</div>}
+    <footer><button type="button" onClick={onClose}>{t('common.cancel')}</button><button type="submit" disabled={connecting}>{connecting ? t('host.connecting') : t('host.connect')}</button></footer>
+  </form></div>
+}
+
+function GroupStatusBar({ chat, announcement, project, bots, assignments, onSelectAssignment }: { chat: Chat; announcement: Announcement | null; project: BridgeState['projects'][string] | undefined; bots: BridgeState['bots']; assignments: BridgeState['assignments']; onSelectAssignment: (id: string) => void }) {
+  const members = announcement?.members ?? []
+  const leadBotId = typeof project?.lead_bot_id === 'string' ? project.lead_bot_id : ''
+  if (!members.length) return <div className="group-statusbar"><span className="group-status-loading">{chat.member_bot_ids?.length ? t('chat.group.subtitle').replace('{count}', String(chat.member_bot_ids.length)) : t('settings.permissions.loading')}</span></div>
+  return <div className="group-statusbar" aria-label={t('group.members')}>
+    {members.map((member) => {
+      const bot = bots[member.bot_id]
+      const assignment = member.current_assignment_id ? assignments[member.current_assignment_id] : undefined
+      const label = member.bot_id === leadBotId ? t('group.statusbar.lead') : statusText(memberStatusKey(member.state))
+      return <button type="button" className={`group-status-chip status-${member.state}`} key={member.bot_id} onClick={() => member.current_assignment_id && onSelectAssignment(member.current_assignment_id)} disabled={!member.current_assignment_id}>
+        <BeanAvatar main={bot?.is_main === true} size="32" seed={bot?.name ?? member.bot_id} /><span>{bot?.name ?? t('common.bot')} · {label}{assignment && member.state === 'working' ? ` ${elapsedLabel(assignment.started_at)}` : ''}</span>
+      </button>
+    })}
+  </div>
+}
+
+function memberStatusKey(status: string): CopyKey {
+  if (status === 'idle') return 'status.idle'
+  if (status === 'standby') return 'status.standby'
+  if (status === 'queued') return 'status.queued'
+  if (status === 'waiting_user' || status === 'waiting_bot') return 'status.waiting_user'
+  if (status === 'blocked') return 'status.blocked'
+  if (status === 'done') return 'status.done'
+  if (status === 'failed') return 'status.failed'
+  if (status === 'cancelled') return 'status.cancelled'
+  return 'status.working'
+}
+
+function statusText(key: CopyKey) { return t(key) }
+
+function elapsedLabel(value: Json | undefined) {
+  if (typeof value !== 'string') return ''
+  const start = Date.parse(value)
+  if (!Number.isFinite(start)) return ''
+  const minutes = Math.floor(Math.max(0, Date.now() - start) / 60_000)
+  return t('common.minutes').replace('{count}', String(minutes))
+}
+
+function formatShortTime(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function botOrUserName(sender: Announcement['text_updated_by'], bots: BridgeState['bots']) {
+  if (sender?.kind === 'user') return t('common.you')
+  return sender?.bot_id ? bots[sender.bot_id]?.name ?? t('common.bot') : t('common.bot')
+}
+
+function summarizeMarkdown(value: string) {
+  return value.replace(/```[\s\S]*?```/g, ' ').replace(/`([^`]+)`/g, '$1').replace(/!?(\[([^\]]*)\]\([^)]+\))/g, '$2').replace(/[#>*_~]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80)
+}
+
+function groupSubtitle(chat: Chat, project: BridgeState['projects'][string] | undefined, announcement: Announcement | null) {
+  const members = announcement?.members.length ?? (Array.isArray(chat.member_bot_ids) ? chat.member_bot_ids.length : Array.isArray(project?.members) ? project.members.length : 0)
+  const state = project?.status === 'review' ? t('project.status.review') : project?.status === 'done' ? t('project.status.done') : t('project.status.active')
+  return `${t('chat.group.subtitle').replace('{count}', String(members))} · ${state}`
+}
+
+function botSubtitle(chat: Chat, assignments: Record<string, Json>[], bots: BridgeState['bots']) {
+  const bot = chat.bot_id ? bots[chat.bot_id] : undefined
+  const label = String(bot?.label ?? bot?.title ?? '')
+  const active = assignments.filter((assignment) => assignment.bot_id === chat.bot_id && (assignment.status === 'working' || assignment.status === 'queued')).length
+  return t('chat.bot.subtitle').replace('{label}', label).replace('{count}', String(active))
+}
+
+type ConnectProps = { endpoint: string; setEndpoint: (value: string) => void; password: string; setPassword: (value: string) => void; hostName: string; setHostName: (value: string) => void; onSubmit: (event: React.FormEvent) => void; connecting: boolean; ready: boolean; error: string | null; hosts: HostRecord[]; hostError: string | null; onConnectSaved: (host: HostRecord) => void; onRemoveHost: (host: HostRecord) => void }
 
 function ConnectScreen(props: ConnectProps) {
   return <main className="connect-screen">
@@ -480,6 +760,8 @@ function ConnectScreen(props: ConnectProps) {
         <button className="connect-button" type="submit" disabled={props.connecting || !props.ready}>{props.connecting ? t('host.connecting') : props.ready ? t('host.connect') : t('host.initializing')}<ChevronRight size={16} /></button>
         {props.error && <div className="connect-error">{props.error || t('host.error.generic')}</div>}
       </form>
+      {props.hosts.length > 0 && <div className="saved-host-list"><div className="section-label">{t('host.switch.title')}</div>{props.hosts.map((host) => <div className="saved-host-row" key={host.id}><button type="button" onClick={() => props.onConnectSaved(host)}><span className="status-dot disconnected" /><span><strong>{host.name}</strong><small>{host.addresses[0] ?? ''}</small></span></button><button type="button" aria-label={t('common.delete')} onClick={() => props.onRemoveHost(host)}><Trash2 size={13} /></button></div>)}</div>}
+      {props.hostError && <div className="connect-error" role="alert">{props.hostError}</div>}
       <div className="connect-local-note">连接信息保存在本机；密码不会写入界面状态。</div>
     </section>
     <section className="template-side">
@@ -543,23 +825,65 @@ function isArtifactRef(value: unknown): value is ArtifactRef { return Boolean(va
 
 type ApprovalDecision = 'allow_once' | 'always_allow' | 'deny'
 
-function MessageBubble({ message, senderName, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: { message: Message; senderName: string; questions: BridgeState['questions']; approvals: BridgeState['approvals']; assignments: BridgeState['assignments']; projects: BridgeState['projects']; bots: BridgeState['bots']; chats: BridgeState['chats']; chatTitle: string; onOpenProject: (projectId: string, chatId?: string) => Promise<void>; onTaskDetail: (assignmentId: string) => void; onPreviewArtifact: (artifact: ArtifactRef) => void; onConfirmProject: (projectId: string, messageId: string, blockIndex: number) => Promise<void>; onRequestChanges: (projectId: string, messageId: string, blockIndex: number, text: string) => Promise<void>; onApprovalDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void>; onQuestionAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
+type TimelineEntry = { message: Message; dayLabel?: string; timeSeparator?: string; exactTime: string; headerTime: string; groupStart: boolean; groupEnd: boolean }
+
+function buildMessageTimeline(messages: Message[]): TimelineEntry[] {
+  const result: TimelineEntry[] = []
+  let previous: Message | undefined
+  let previousTime: Date | undefined
+  let previousSender = ''
+  let previousWasStandalone = true
+  for (const message of messages) {
+    const date = message.created_at ? new Date(message.created_at) : undefined
+    const validDate = date && Number.isFinite(date.getTime()) ? date : undefined
+    const sender = message.sender?.kind === 'user' ? 'user' : `bot:${message.sender?.bot_id ?? 'unknown'}`
+    const blockType = message.blocks?.length === 1 ? message.blocks[0].type : undefined
+    const standalone = blockType === 'task_card' || blockType === 'progress' || blockType === 'system'
+    const dayChanged = Boolean(validDate && previousTime && validDate.toDateString() !== previousTime.toDateString())
+    const gap = validDate && previousTime ? validDate.getTime() - previousTime.getTime() : undefined
+    const separated = Boolean(previous && dayChanged) || Boolean(previous && gap !== undefined && gap >= 5 * 60_000)
+    const groupable = Boolean(previous && !separated && !standalone && !previousWasStandalone && sender === previousSender && gap !== undefined && gap >= 0 && gap < 5 * 60_000)
+    const dayLabel = validDate && (!previousTime || dayChanged) ? dateLabel(validDate) : undefined
+    const timeSeparator = validDate && previousTime && !dayChanged && gap !== undefined && gap >= 5 * 60_000 ? validDate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : undefined
+    const exactTime = validDate?.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) ?? ''
+    const last = result[result.length - 1]
+    if (groupable && last) last.groupEnd = false
+    const suppressHeaderTime = groupable || Boolean(timeSeparator)
+    result.push({ message, dayLabel, timeSeparator, exactTime, headerTime: suppressHeaderTime ? '' : exactTime, groupStart: !groupable, groupEnd: true })
+    previous = message
+    previousTime = validDate
+    previousSender = sender
+    previousWasStandalone = standalone
+  }
+  return result
+}
+
+function dateLabel(date: Date) {
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  if (date.toDateString() === today.toDateString()) return t('common.today')
+  if (date.toDateString() === yesterday.toDateString()) return t('common.yesterday')
+  return date.toLocaleDateString('zh-CN', { year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric', month: 'long', day: 'numeric' })
+}
+
+function MessageBubble({ message, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: { message: Message; pending?: boolean; senderName: string; senderRole: string; groupStart: boolean; groupEnd: boolean; headerTime: string; exactTime: string; questions: BridgeState['questions']; approvals: BridgeState['approvals']; assignments: BridgeState['assignments']; projects: BridgeState['projects']; bots: BridgeState['bots']; chats: BridgeState['chats']; chatTitle: string; onOpenProject: (projectId: string, chatId?: string) => Promise<void>; onTaskDetail: (assignmentId: string) => void; onPreviewArtifact: (artifact: ArtifactRef) => void; onConfirmProject: (projectId: string, messageId: string, blockIndex: number) => Promise<void>; onRequestChanges: (projectId: string, messageId: string, blockIndex: number, text: string) => Promise<void>; onApprovalDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void>; onQuestionAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
   const isUser = message.sender?.kind === 'user'
   const blocks = message.blocks ?? []
   const hasRenderable = blocks.some((block) => block.type && block.type !== 'text')
   const text = blocks.map((block) => typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : '').filter(Boolean).join('\n')
-  const time = message.created_at ? new Date(message.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''
   if (blocks.length === 1 && blocks[0].type === 'task_card') {
     const assignmentId = typeof blocks[0].assignment_id === 'string' ? blocks[0].assignment_id : ''
-    return assignments[assignmentId] ? <TaskCard assignment={assignments[assignmentId]} groupName={chatTitle} onDetail={onTaskDetail} /> : <div className="block-fallback">{message.fallback_text || t('common.unsupported_block')}</div>
+    return assignments[assignmentId] ? <TaskCard assignment={assignments[assignmentId]} groupName={chatTitle} botName={bots[String(assignments[assignmentId].bot_id ?? '')]?.name ?? senderName} onDetail={onTaskDetail} /> : <div className="block-fallback">{message.fallback_text || t('common.unsupported_block')}</div>
   }
   if (blocks.length === 1 && blocks[0].type === 'progress') return <ProgressRow text={String(blocks[0].text ?? '')} botName={senderName} />
   if (blocks.length === 1 && blocks[0].type === 'system') return <SystemNotice code={String(blocks[0].code ?? '')} text={String(blocks[0].text ?? '')} botName={senderName} />
-  return <article className={`message-group ${isUser ? 'outgoing' : ''}`}>
-    {!isUser && <div className="avatar-slot"><BeanAvatar main={senderName === '总管'} size="32" seed={senderName} /></div>}
+  return <article className={`message-group ${isUser ? 'outgoing' : ''} ${groupStart ? 'group-start' : 'group-middle'} ${groupEnd ? 'group-end' : ''}`}>
+    {!isUser && <div className="avatar-slot">{groupEnd && <BeanAvatar main={senderName === '总管'} size="32" seed={senderName} />}</div>}
     <div className="message-stack">
-      {!isUser && <div className="message-author">{senderName}</div>}
+      {!isUser && groupStart && <div className="message-author">{senderName}{senderRole && <span className="message-author-role"> · {senderRole}</span>}{headerTime && <span className="message-author-time"> · {headerTime}</span>}</div>}
       <div className="bubble">
+        {exactTime && <span className="hover-time">{exactTime}</span>}
         {hasRenderable ? <div className="message-blocks">{blocks.map((block, index) => {
           if (block.type === 'text') return <p className="message-text-block" key={index}>{String(block.markdown ?? block.text ?? '')}</p>
           if (block.type === 'question') {
@@ -593,7 +917,7 @@ function MessageBubble({ message, senderName, questions, approvals, assignments,
           }
           if (block.type === 'task_card') {
             const assignmentId = String(block.assignment_id ?? '')
-            return assignments[assignmentId] ? <TaskCard key={index} assignment={assignments[assignmentId]} groupName={chatTitle} onDetail={onTaskDetail} /> : <div className="block-fallback" key={index}>{message.fallback_text || t('common.unsupported_block')}</div>
+            return assignments[assignmentId] ? <TaskCard key={index} assignment={assignments[assignmentId]} groupName={chatTitle} botName={bots[String(assignments[assignmentId].bot_id ?? '')]?.name ?? senderName} onDetail={onTaskDetail} /> : <div className="block-fallback" key={index}>{message.fallback_text || t('common.unsupported_block')}</div>
           }
           if (block.type === 'progress') return <ProgressRow key={index} text={String(block.text ?? '')} botName={senderName} />
           if (block.type === 'delegation') {
@@ -608,15 +932,17 @@ function MessageBubble({ message, senderName, questions, approvals, assignments,
             const project = projects[projectId] as (Record<string, Json> & { chat_id?: string; name?: string }) | undefined
             const artifacts = Array.isArray(block.artifacts) ? block.artifacts.filter(isArtifactRef) : []
             const targetChatId = project?.chat_id ?? Object.values(chats).find((chat) => chat.project_id === projectId)?.id ?? ''
-            return <ReviewCard key={index} projectName={project?.name ?? chatTitle} state={String(block.state ?? 'pending')} artifacts={artifacts} bots={bots} onPreview={onPreviewArtifact} onOpenProject={() => onOpenProject(projectId, targetChatId)} onConfirm={() => onConfirmProject(projectId, message.id, index)} onRequestChanges={(value) => onRequestChanges(projectId, message.id, index, value)} />
+            const reviewState = block.state === 'confirmed' || project?.status === 'done' ? 'confirmed' : String(block.state ?? 'pending')
+            const confirmedAt = typeof block.confirmed_at === 'string' ? block.confirmed_at : typeof project?.done_at === 'string' ? project.done_at : null
+            return <ReviewCard key={index} projectName={project?.name ?? chatTitle} state={reviewState} confirmedAt={confirmedAt} artifacts={artifacts} bots={bots} onPreview={onPreviewArtifact} onOpenProject={() => onOpenProject(projectId, targetChatId)} onConfirm={() => onConfirmProject(projectId, message.id, index)} onRequestChanges={(value) => onRequestChanges(projectId, message.id, index, value)} />
           }
           if (block.type === 'system') return <SystemNotice key={index} code={String(block.code ?? '')} text={String(block.text ?? '')} botName={senderName} />
           const value = typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : ''
           if (value) return <p className="message-text-block" key={index}>{value}</p>
           return <div className="block-fallback" key={index}><Shield size={13} />{message.fallback_text || t('common.unsupported_block')}<small>{t('block.fallback.hint')}</small></div>
         })}</div> : <>{text || message.fallback_text || t('common.unsupported_block')}</>}
-        {time && <span className="message-time">{time}</span>}
       </div>
+      {pending && <div className="message-send-status"><Clock3 size={11} />{t('chat.delivery.queued')}</div>}
     </div>
   </article>
 }
