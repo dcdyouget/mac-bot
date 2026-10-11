@@ -816,6 +816,12 @@ impl Render for Computer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let driver = self.driver().to_string();
         let tabs = self.tabs();
+        let bot_name = self
+            .state
+            .get("bot_name")
+            .and_then(Value::as_str)
+            .unwrap_or("Bot");
+        let default_title = tr("computer.title").replace("{bot}", bot_name);
         let title = self
             .state
             .get("title")
@@ -827,7 +833,7 @@ impl Render for Computer {
                         .or_else(|| (!tab.url.is_empty()).then_some(tab.url.as_str()))
                 })
             })
-            .unwrap_or(tr("computer.title"))
+            .unwrap_or(&default_title)
             .to_string();
         let quality = self.quality.clone();
         let quality_display = quality_label(&quality);
@@ -1082,7 +1088,7 @@ fn modifier_names(modifiers: Modifiers) -> Vec<&'static str> {
 
 fn tr(key: &str) -> &'static str {
     match key {
-        "computer.title" => "Agent Computer",
+        "computer.title" => "{bot} 的浏览器",
         "computer.state.bot" => "● Bot 操作中",
         "computer.state.you" => "● 你正在操作（Bot 已暂停）",
         "computer.state.idle" => "○ 空闲",

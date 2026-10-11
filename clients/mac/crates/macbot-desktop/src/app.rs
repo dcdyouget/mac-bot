@@ -1707,11 +1707,19 @@ impl MacBot {
         let previous_screen = self.detach_screen();
         self.close_trace(cx);
         self.context.clear();
+        let bot_name = self
+            .state
+            .bots
+            .get(&bot)
+            .map(|bot| s(bot, "name").to_owned())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| bot.clone());
         self.computer.update(cx, |screen, cx| {
             if preserve_stream {
                 screen.prepare_reconnect(cx);
             } else {
                 screen.reset_connection(cx);
+                screen.set_state_in(json!({"bot_name":bot_name}), cx);
             }
         });
         self.screen_bot = bot.clone();
@@ -1812,11 +1820,10 @@ impl MacBot {
                             match event {
                                 ScreenEvent::State(mut state) => {
                                     if let Some(bot) = view.state.bots.get(&view.screen_bot) {
-                                        state["title"] = json!(format!(
-                                            "{}{}",
-                                            s(bot, "name"),
-                                            tr("computer.browser")
-                                        ));
+                                        let bot_name = s(bot, "name");
+                                        state["bot_name"] = json!(bot_name);
+                                        state["title"] = json!(tr("computer.title")
+                                            .replace("{bot}", bot_name));
                                     }
                                     view.computer
                                         .update(cx, |screen, cx| screen.set_state_in(state, cx));
