@@ -2428,7 +2428,63 @@ fn send_chat(state: &mut MockState, params: &Value) -> RpcResult {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let mentions = params.get("mentions").cloned().unwrap_or(json!([]));
+    let mut mentions = params
+        .get("mentions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let quote_id = params
+        .get("quote")
+        .or_else(|| params.get("reply_to"))
+        .and_then(Value::as_str);
+    let quote = if let Some(quote_id) = quote_id {
+        let quote_mode = params
+            .get("quote_mode")
+            .and_then(Value::as_str)
+            .unwrap_or("reply");
+        if !matches!(quote_mode, "reply" | "reference") {
+            return Err(rpc_error(
+                "invalid_argument",
+                "quote_mode must be reply or reference",
+                None,
+            ));
+        }
+        let source = state
+            .messages
+            .get(&chat_id)
+            .and_then(|messages| {
+                messages
+                    .iter()
+                    .find(|message| message.get("id").and_then(Value::as_str) == Some(quote_id))
+            })
+            .ok_or_else(|| rpc_error("not_found", "quoted message not found in this chat", None))?;
+        let sender = source
+            .get("sender")
+            .cloned()
+            .unwrap_or_else(|| json!({"kind":"system"}));
+        if quote_mode == "reply" && sender.get("kind").and_then(Value::as_str) == Some("bot") {
+            if let Some(bot_id) = sender.get("bot_id").and_then(Value::as_str) {
+                if !bot_id.is_empty()
+                    && !mentions.iter().any(|mention| {
+                        mention.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                    })
+                {
+                    mentions.push(json!({"kind":"bot","bot_id":bot_id,"instruction":null}));
+                }
+            }
+        }
+        let excerpt = source
+            .get("fallback_text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .chars()
+            .take(120)
+            .collect::<String>();
+        json!({"message_id":quote_id,"sender":sender,"excerpt":excerpt})
+    } else {
+        Value::Null
+    };
+    let mentions = Value::Array(mentions);
     let created_at = now();
     // In a project chat, an unaddressed user message waits for each Bot task
     // already working in that same conversation. A later message.steer RPC
@@ -2458,7 +2514,7 @@ fn send_chat(state: &mut MockState, params: &Value) -> RpcResult {
     } else {
         Vec::new()
     };
-    let message = json!({"id":id("msg"),"chat_id":chat_id,"seq":seq,"sender":{"kind":"user"},"created_at":created_at,"edited_at":null,"deleted":false,"reply_to":params.get("reply_to").cloned().unwrap_or(Value::Null),"thread_count":0,"mentions":mentions,"blocks":[{"type":"text","markdown":text}],"fallback_text":text,"intent":null,"assignment_id":null,"streaming":false,"delivery":delivery,"reactions":[]});
+    let message = json!({"id":id("msg"),"chat_id":chat_id,"seq":seq,"sender":{"kind":"user"},"created_at":created_at,"edited_at":null,"deleted":false,"reply_to":null,"quote":quote,"thread_count":0,"mentions":mentions,"blocks":[{"type":"text","markdown":text}],"fallback_text":text,"intent":null,"assignment_id":null,"streaming":false,"delivery":delivery,"reactions":[]});
     if let Some(locale) = params.get("client_locale").and_then(Value::as_str) {
         state.client_locales.insert(
             message["id"].as_str().unwrap().to_owned(),
@@ -4755,6 +4811,71 @@ mod contract_tests {
             .await
             .client_locales
             .contains_key(separate["message"]["id"].as_str().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn mock_chat_send_resolves_quotes_and_reply_mentions() {
+        let gateway = gateway().await;
+        call(&gateway, "bootstrap", json!({})).await;
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        let bot_message = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["sender"]["kind"] == "bot")
+            .expect("bootstrap seeds the main bot onboarding greeting");
+        let bot_message_id = bot_message["id"].as_str().unwrap();
+        let bot_excerpt = bot_message["fallback_text"].as_str().unwrap();
+
+        let reply = call(
+            &gateway,
+            "chat.send",
+            json!({"chat_id":"chat_main","text":"好的","quote":bot_message_id}),
+        )
+        .await;
+        assert_eq!(reply["message"]["reply_to"], Value::Null);
+        assert_eq!(reply["message"]["quote"]["message_id"], bot_message_id);
+        assert_eq!(reply["message"]["quote"]["excerpt"], bot_excerpt);
+        assert!(reply["message"]["mentions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|mention| mention["bot_id"] == "bot_main"));
+
+        let reference = call(
+            &gateway,
+            "chat.send",
+            json!({"chat_id":"chat_main","text":"另作备注","quote":bot_message_id,"quote_mode":"reference"}),
+        )
+        .await;
+        assert_eq!(reference["message"]["quote"]["message_id"], bot_message_id);
+        assert!(!reference["message"]["mentions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|mention| mention["bot_id"] == "bot_main"));
+
+        let cross_chat = gateway
+            .rpc(
+                "chat.send",
+                json!({"chat_id":"chat_login","text":"跨群引用","quote":bot_message_id}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(cross_chat.code, "not_found");
+        let invalid_mode = gateway
+            .rpc(
+                "chat.send",
+                json!({"chat_id":"chat_main","text":"错误模式","quote":bot_message_id,"quote_mode":"thread"}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(invalid_mode.code, "invalid_argument");
     }
 
     #[tokio::test]
