@@ -3023,7 +3023,8 @@ impl RpcBackend for ProductionBackend {
             if let Some(avatar) = avatar.filter(|avatar| !avatar.is_null()) {
                 // Keep accepting the former emoji-string representation from
                 // older clients, while validating new structured avatars.
-                if !avatar.is_string() && serde_json::from_value::<Avatar>(avatar.clone()).is_err() {
+                if !avatar.is_string() && serde_json::from_value::<Avatar>(avatar.clone()).is_err()
+                {
                     return Err(RpcError {
                         code: "invalid_params".into(),
                         message: "avatar must be a valid Avatar object".into(),
