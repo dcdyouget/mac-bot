@@ -87,6 +87,7 @@ async fn dispatch(
         "chat.history" => chat_history(state, &params),
         "chat.thread" => chat_thread(state, &params),
         "chat.send" => send_chat(state, &params),
+        "message.steer" => message_steer(state, &params),
         "chat.mark_read" => mark_read(state, &params),
         "chat.react" => react(state, &params),
         "chat.set_pinned" => set_chat_flag(state, &params, "pinned"),
@@ -116,6 +117,7 @@ async fn dispatch(
             "assignment",
         ),
         "assignment.stop" => assignment_stop(state, &params),
+        "assignment.retry" => assignment_retry(state, &params),
         "trace.history" => trace_history(state, &params),
         "trace.subscribe" => Ok(json!({"stream":id("stream"),"in_flight":[]})),
         "trace.unsubscribe" => Ok(json!({})),
@@ -1328,7 +1330,37 @@ fn send_chat(state: &mut MockState, params: &Value) -> RpcResult {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let message = json!({"id":id("msg"),"chat_id":chat_id,"seq":seq,"sender":{"kind":"user"},"created_at":now(),"edited_at":null,"deleted":false,"reply_to":params.get("reply_to").cloned().unwrap_or(Value::Null),"thread_count":0,"mentions":params.get("mentions").cloned().unwrap_or(json!([])),"blocks":[{"type":"text","markdown":text}],"fallback_text":text,"intent":null,"assignment_id":null,"streaming":false,"delivery":[],"reactions":[]});
+    let mentions = params.get("mentions").cloned().unwrap_or(json!([]));
+    let created_at = now();
+    // In a project chat, an unaddressed user message waits for each Bot task
+    // already working in that same conversation. A later message.steer RPC
+    // can promote one of these individual deliveries.
+    let is_unaddressed_project_message = mentions.as_array().is_some_and(Vec::is_empty)
+        && state.chats.iter().any(|chat| {
+            chat.get("id").and_then(Value::as_str) == Some(&chat_id)
+                && chat.get("kind").and_then(Value::as_str) == Some("project")
+        });
+    let delivery = if is_unaddressed_project_message {
+        state
+            .assignments
+            .iter()
+            .filter(|assignment| {
+                assignment.get("origin_chat_id").and_then(Value::as_str) == Some(&chat_id)
+                    && assignment.get("status").and_then(Value::as_str) == Some("working")
+            })
+            .filter_map(|assignment| {
+                Some(json!({
+                    "bot_id":assignment.get("bot_id")?,
+                    "assignment_id":assignment.get("id")?,
+                    "state":"queued",
+                    "at":created_at
+                }))
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let message = json!({"id":id("msg"),"chat_id":chat_id,"seq":seq,"sender":{"kind":"user"},"created_at":created_at,"edited_at":null,"deleted":false,"reply_to":params.get("reply_to").cloned().unwrap_or(Value::Null),"thread_count":0,"mentions":mentions,"blocks":[{"type":"text","markdown":text}],"fallback_text":text,"intent":null,"assignment_id":null,"streaming":false,"delivery":delivery,"reactions":[]});
     state
         .messages
         .entry(chat_id.clone())
@@ -1351,6 +1383,118 @@ fn send_chat(state: &mut MockState, params: &Value) -> RpcResult {
         state.emit("chat.updated", json!({"chat":chat}));
     }
     Ok(json!({"message":message}))
+}
+
+fn message_steer(state: &mut MockState, params: &Value) -> RpcResult {
+    let message_id = params
+        .get("message_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let bot_id = params.get("bot_id").and_then(Value::as_str).unwrap_or("");
+    let assignment_id = params
+        .get("assignment_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+
+    let message_position = state
+        .messages
+        .iter()
+        .find_map(|(chat_id, messages)| {
+            messages
+                .iter()
+                .position(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+                .map(|position| (chat_id.clone(), position))
+        })
+        .ok_or_else(|| rpc_error("not_found", "message not found", None))?;
+    let (chat_id, message_index) = message_position;
+    let message = state.messages[&chat_id][message_index].clone();
+
+    if message.pointer("/sender/kind").and_then(Value::as_str) != Some("user") {
+        return Err(rpc_error(
+            "forbidden",
+            "only a user message can be changed into a steer",
+            None,
+        ));
+    }
+    if message
+        .get("mentions")
+        .and_then(Value::as_array)
+        .is_some_and(|mentions| !mentions.is_empty())
+    {
+        return Err(rpc_error(
+            "conflict",
+            "addressed messages cannot be promoted from the waiting queue",
+            None,
+        ));
+    }
+    let seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
+    let last_read_seq = state
+        .chats
+        .iter()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(&chat_id))
+        .and_then(|chat| chat.get("last_read_seq"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if seq <= last_read_seq {
+        return Err(rpc_error("conflict", "message is no longer unread", None));
+    }
+
+    let delivery_is_queued = message
+        .get("delivery")
+        .and_then(Value::as_array)
+        .is_some_and(|deliveries| {
+            deliveries.iter().any(|delivery| {
+                delivery.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                    && delivery.get("assignment_id").and_then(Value::as_str) == Some(assignment_id)
+                    && delivery.get("state").and_then(Value::as_str) == Some("queued")
+            })
+        });
+    if !delivery_is_queued {
+        return Err(rpc_error(
+            "conflict",
+            "message is not waiting for this Bot",
+            None,
+        ));
+    }
+
+    let assignment_index = state
+        .assignments
+        .iter()
+        .position(|assignment| assignment.get("id").and_then(Value::as_str) == Some(assignment_id))
+        .ok_or_else(|| rpc_error("not_found", "assignment not found", None))?;
+    let assignment = &mut state.assignments[assignment_index];
+    if assignment.get("bot_id").and_then(Value::as_str) != Some(bot_id)
+        || assignment.get("origin_chat_id").and_then(Value::as_str) != Some(&chat_id)
+    {
+        return Err(rpc_error(
+            "forbidden",
+            "message is not queued for this Bot task",
+            None,
+        ));
+    }
+    if assignment.get("status").and_then(Value::as_str) != Some("working") {
+        return Err(rpc_error("conflict", "Bot task is no longer working", None));
+    }
+
+    let steers = assignment
+        .get_mut("steers")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| rpc_error("internal", "assignment has no steer list", None))?;
+    if !steers
+        .iter()
+        .any(|steer| steer.get("message_id").and_then(Value::as_str) == Some(message_id))
+    {
+        steers.push(json!({
+            "message_id":message_id,
+            "text":message.get("fallback_text").cloned().unwrap_or(json!("")),
+            "at":now(),
+            "applied_at":null
+        }));
+    }
+    let assignment = assignment.clone();
+    state.emit("assignment.updated", json!({"assignment":assignment}));
+    let message = state.messages[&chat_id][message_index].clone();
+    Ok(json!({"message":message,"assignment":assignment}))
 }
 
 fn mark_read(state: &mut MockState, params: &Value) -> RpcResult {
@@ -1760,6 +1904,117 @@ fn assignment_stop(state: &mut MockState, params: &Value) -> RpcResult {
     let result = item.clone();
     state.emit("assignment.updated", json!({"assignment":result.clone()}));
     Ok(json!({"assignment":result}))
+}
+
+fn assignment_retry(state: &mut MockState, params: &Value) -> RpcResult {
+    let assignment_id = params
+        .get("assignment_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "assignment_id is required", None))?;
+    let client_request_id = params
+        .get("client_request_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or_else(|| {
+            rpc_error(
+                "invalid_params",
+                "client_request_id must contain 1 to 128 bytes",
+                None,
+            )
+        })?;
+    // mock_call caches mutations by client_request_id before dispatch, matching
+    // the protocol's retry idempotency behavior.
+    let source = state
+        .assignments
+        .iter()
+        .find(|assignment| assignment.get("id").and_then(Value::as_str) == Some(assignment_id))
+        .cloned()
+        .ok_or_else(|| rpc_error("not_found", "assignment not found", None))?;
+    if source.get("status").and_then(Value::as_str) != Some("failed") {
+        return Err(rpc_error(
+            "conflict",
+            "only failed assignments can be retried",
+            None,
+        ));
+    }
+
+    let bot_id = source
+        .get("bot_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let bot = state
+        .bots
+        .iter()
+        .find(|bot| bot.get("id").and_then(Value::as_str) == Some(bot_id))
+        .ok_or_else(|| rpc_error("not_found", "assignment Bot not found", None))?;
+    let bot_running = state
+        .assignments
+        .iter()
+        .filter(|assignment| {
+            assignment.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                && assignment.get("status").and_then(Value::as_str) == Some("working")
+        })
+        .count();
+    let global_running = state
+        .assignments
+        .iter()
+        .filter(|assignment| {
+            assignment.get("bot_id").and_then(Value::as_str) != Some("bot_main")
+                && assignment.get("status").and_then(Value::as_str) == Some("working")
+        })
+        .count();
+    let same_project_running = state.assignments.iter().any(|assignment| {
+        assignment.get("project_id") == source.get("project_id")
+            && assignment.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+            && matches!(
+                assignment.get("status").and_then(Value::as_str),
+                Some("working" | "queued")
+            )
+    });
+    let bot_limit = bot.get("max_parallel").and_then(Value::as_u64).unwrap_or(2) as usize;
+    let global_limit = state
+        .settings
+        .pointer("/concurrency/global")
+        .and_then(Value::as_u64)
+        .unwrap_or(4) as usize;
+    let (status, queue_reason) = if bot_id != "bot_main" && bot_running >= bot_limit {
+        ("queued", Some("bot_parallel_limit"))
+    } else if bot_id != "bot_main" && global_running >= global_limit {
+        ("queued", Some("global_limit"))
+    } else if same_project_running {
+        ("queued", Some("serial_in_project"))
+    } else {
+        ("working", None)
+    };
+    let created_at = now();
+    let mut retry = source.clone();
+    retry["id"] = json!(id("asg"));
+    retry["parent_assignment_id"] = json!(assignment_id);
+    retry["status"] = json!(status);
+    retry["queue_reason"] = queue_reason.map_or(Value::Null, |reason| json!(reason));
+    retry["wait"] = Value::Null;
+    retry["created_at"] = json!(created_at);
+    retry["started_at"] = (status == "working")
+        .then(|| json!(created_at))
+        .unwrap_or(Value::Null);
+    retry["finished_at"] = Value::Null;
+    retry["usage"] = json!({
+        "input_tokens":0,
+        "output_tokens":0,
+        "cache_read_tokens":0,
+        "cache_write_tokens":0,
+        "cost":null,
+        "requests":0
+    });
+    retry["subagents_active"] = json!(0);
+    retry["steers"] = json!([]);
+    retry["result_message_id"] = Value::Null;
+    state.assignments.push(retry.clone());
+    state.emit("assignment.created", json!({"assignment":retry.clone()}));
+    let _ = client_request_id;
+    Ok(json!({"assignment":retry}))
 }
 fn trace_history(state: &MockState, params: &Value) -> RpcResult {
     let key = params

@@ -7,16 +7,20 @@
 //! operation JSONL is synced, then the global event log is synced, then the
 //! event is published to connected clients.
 
-use crate::{features::FeatureService, now, GatewayState, RpcBackend, RpcError, RpcResult};
+use crate::{
+    features::FeatureService, now, rpc_error, GatewayState, RpcBackend, RpcError, RpcResult,
+};
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::{DateTime, Local, Utc};
 use macbot_browser::BrowserError;
 use macbot_durable::DurableRuntime;
 use macbot_orchestrator::{BotDmRoute, Orchestrator, OrchestratorSettings, UsageTotals};
 use macbot_protocol::{
-    Announcement, Approval, Assignment, Bot, BotDuplicateResult, Chat, Device, FileRef,
-    HeatmapResult, Hello, Message, PendingItems, Project, Question, Routine, Settings,
-    UsageBreakdownResult, UsageSummaryResult, UsageTimeseriesResult,
+    Announcement, Approval, ArtifactVersion, ArtifactVersionGetParams, ArtifactVersionGetResult,
+    ArtifactVersionsParams, ArtifactVersionsResult, Assignment, Bot, BotDuplicateResult, Chat,
+    Device, FileRef, HeatmapResult, Hello, Message, PendingItems, Project, Question, Routine,
+    Settings, UsageBreakdownResult, UsageSummaryResult, UsageTimeseriesResult,
 };
 use macbot_providers::registry::{ProviderRegistry, RegistryError};
 use macbot_skills::BotSkillSettingsSnapshot;
@@ -30,7 +34,7 @@ use serde_json::{json, Map, Value};
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     path::Path,
     sync::{Arc, Mutex as StdMutex},
 };
@@ -50,6 +54,14 @@ pub enum AdapterError {
     Registry(#[from] RegistryError),
     #[error("orchestrator snapshot: {0}")]
     OrchestratorSnapshot(String),
+}
+
+const MAX_ARTIFACT_VERSION_BYTES: u64 = 5 * 1024 * 1024;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct StoredArtifactVersion {
+    version: ArtifactVersion,
+    content_base64: String,
 }
 
 struct OperationLogRow {
@@ -626,6 +638,8 @@ impl ProductionBackend {
                 | "chat.get"
                 | "chat.history"
                 | "chat.thread"
+                | "artifact.versions.list"
+                | "artifact.version.get"
                 | "settings.get"
                 | "bot.list"
                 | "bot.get"
@@ -879,7 +893,7 @@ impl ProductionBackend {
                     code: "internal".into(),
                     message: format!("read durable takeover records: {error}"),
                     details: None,
-                })
+                });
             }
         };
         for entry in entries {
@@ -1114,7 +1128,7 @@ impl ProductionBackend {
                     code: "internal".into(),
                     message: error.to_string(),
                     details: None,
-                })
+                });
             }
         };
         // Reuse the startup event cache when the constructor has already
@@ -1404,7 +1418,10 @@ impl ProductionBackend {
                 }
             }
         }
-        if matches!(method, "assignment.create" | "assign" | "delegate") {
+        if matches!(
+            method,
+            "assignment.create" | "assign" | "delegate" | "assignment.retry"
+        ) {
             let assignment = if canonical.get("assignment").is_some_and(Value::is_object) {
                 canonical.get("assignment")
             } else if canonical.is_object() {
@@ -1723,8 +1740,13 @@ impl ProductionBackend {
                     }
                 }
             }
-            "assignment.create" | "assign" | "delegate" | "assignment.stop"
-            | "assignment.steer" | "steer" => {
+            "assignment.create"
+            | "assign"
+            | "delegate"
+            | "assignment.stop"
+            | "assignment.retry"
+            | "assignment.steer"
+            | "steer" => {
                 let id = result
                     .get("assignment")
                     .and_then(|value| value.get("id"))
@@ -2146,7 +2168,9 @@ impl ProductionBackend {
             | "project.request_review"
             | "project.archive"
             | "project.reopen" => "project.updated",
-            "assignment.create" | "assign" | "delegate" => "assignment.created",
+            "assignment.create" | "assign" | "delegate" | "assignment.retry" => {
+                "assignment.created"
+            }
             "assignment.stop" | "assignment.steer" | "steer" | "message.steer" => {
                 "assignment.updated"
             }
@@ -3047,7 +3071,7 @@ impl RpcBackend for ProductionBackend {
                         self.ensure_announcement_updated_message(state, &value)
                             .await?;
                     }
-                    "assignment.create" | "assign" | "delegate" => {
+                    "assignment.create" | "assign" | "delegate" | "assignment.retry" => {
                         self.ensure_assignment_cards(state, &value, method).await?
                     }
                     "send_msg" => {
@@ -3081,6 +3105,8 @@ impl RpcBackend for ProductionBackend {
             "chat.send" => self.chat_send(params.clone()).await?,
             "chat.history" => self.chat_history(&params).await?,
             "chat.thread" => self.chat_thread(&params).await?,
+            "artifact.versions.list" => self.artifact_versions_list(&params)?,
+            "artifact.version.get" => self.artifact_version_get(&params)?,
             "chat.mark_read" => self.chat_mark_read(&params).await?,
             "message.steer" => {
                 let message_id = required_text(&params, "message_id")?;
@@ -3138,6 +3164,7 @@ impl RpcBackend for ProductionBackend {
                 json!({})
             }
             "assignment.stop" => self.assignment_stop(state, &params).await?,
+            "assignment.retry" => self.assignment_retry(state, &params).await?,
             "loop.resolve" => self.loop_resolve(state, &params).await?,
             "project.request_review" => project_request_review(self, &params, state).await?,
             "project.request_changes" => project_request_changes(self, &params, state).await?,
@@ -3351,13 +3378,21 @@ impl RpcBackend for ProductionBackend {
         })?;
         if Self::is_mutation(method) {
             let persisted = self.persist(state, method, &params, &result).await?;
+            if method == "send_msg" {
+                if let Err(error) = self.record_artifact_versions(&params) {
+                    tracing::warn!(%error, "could not record artifact version snapshot");
+                }
+            }
             if method == "project.create" {
                 self.ensure_project_card(state, &result).await?;
             } else if method == "announcement.update" {
                 self.ensure_announcement_updated_message(state, &result)
                     .await?;
             }
-            if matches!(method, "assignment.create" | "assign" | "delegate") {
+            if matches!(
+                method,
+                "assignment.create" | "assign" | "delegate" | "assignment.retry"
+            ) {
                 self.ensure_assignment_cards(state, &result, method).await?;
             } else if matches!(method, "send_msg" | "chat.send") {
                 self.ensure_trigger_assignment_cards(
@@ -4505,6 +4540,16 @@ impl ProductionBackend {
         Ok(json!({"assignment":assignment}))
     }
 
+    async fn assignment_retry(&self, _state: &GatewayState, params: &Value) -> RpcResult {
+        let assignment_id = required_text(params, "assignment_id")?;
+        let client_request_id = required_text(params, "client_request_id")?;
+        let assignment = self
+            .orchestrator
+            .retry_assignment(&assignment_id, Some(&client_request_id))
+            .map_err(Self::error)?;
+        Ok(json!({"assignment":assignment}))
+    }
+
     async fn publish_task_stopped_message(
         &self,
         state: &GatewayState,
@@ -4751,7 +4796,7 @@ impl ProductionBackend {
                         "invalid_params",
                         "send_msg.chat_id must be a nonempty Chat.id",
                         None,
-                    ))
+                    ));
                 }
             };
             let source_bot = params.get("bot_id").and_then(Value::as_str).unwrap_or("");
@@ -6104,6 +6149,252 @@ impl ProductionBackend {
         Ok(json!({"messages":messages,"has_more":has_more}))
     }
 
+    fn artifact_versions_list(&self, params: &Value) -> RpcResult {
+        let params: ArtifactVersionsParams =
+            serde_json::from_value(params.clone()).map_err(|error| RpcError {
+                code: "invalid_params".into(),
+                message: error.to_string(),
+                details: None,
+            })?;
+        self.require_artifact(&params.artifact_id)?;
+        let path = artifact_version_log_path(&params.artifact_id)?;
+        let mut versions = self
+            .store
+            .read_jsonl::<ArtifactVersion>(path)
+            .map_err(store_error)?;
+        if let Some(before_version) = params.before_version {
+            versions.retain(|version| version.version < before_version);
+        }
+        versions.sort_by_key(|version| std::cmp::Reverse(version.version));
+        let limit = params.limit.unwrap_or(20).clamp(1, 100) as usize;
+        let has_more = versions.len() > limit;
+        versions.truncate(limit);
+        serde_json::to_value(ArtifactVersionsResult { versions, has_more }).map_err(|error| {
+            RpcError {
+                code: "internal".into(),
+                message: error.to_string(),
+                details: None,
+            }
+        })
+    }
+
+    fn artifact_version_get(&self, params: &Value) -> RpcResult {
+        let params: ArtifactVersionGetParams =
+            serde_json::from_value(params.clone()).map_err(|error| RpcError {
+                code: "invalid_params".into(),
+                message: error.to_string(),
+                details: None,
+            })?;
+        self.require_artifact(&params.artifact_id)?;
+        let component = artifact_history_component(&params.artifact_id)?;
+        let stored: StoredArtifactVersion = self
+            .store
+            .read_snapshot(format!(
+                "data/artifact-history/{component}/versions/{}.json",
+                params.version
+            ))
+            .map_err(store_error)?
+            .ok_or_else(|| RpcError {
+                code: "not_found".into(),
+                message: format!(
+                    "artifact version {}:{} not found",
+                    params.artifact_id, params.version
+                ),
+                details: None,
+            })?;
+        if stored.version.artifact_id != params.artifact_id
+            || stored.version.version != params.version
+        {
+            return Err(RpcError {
+                code: "not_found".into(),
+                message: "artifact version not found".into(),
+                details: None,
+            });
+        }
+        let bytes = BASE64
+            .decode(stored.content_base64)
+            .map_err(|error| RpcError {
+                code: "internal".into(),
+                message: format!("artifact version content is corrupt: {error}"),
+                details: None,
+            })?;
+        let (content, content_encoding) = match String::from_utf8(bytes) {
+            Ok(content) => (content, macbot_protocol::ArtifactContentEncoding::Utf8),
+            Err(error) => (
+                BASE64.encode(error.into_bytes()),
+                macbot_protocol::ArtifactContentEncoding::Base64,
+            ),
+        };
+        serde_json::to_value(ArtifactVersionGetResult {
+            version: stored.version,
+            content,
+            content_encoding,
+        })
+        .map_err(|error| RpcError {
+            code: "internal".into(),
+            message: error.to_string(),
+            details: None,
+        })
+    }
+
+    fn require_artifact(&self, artifact_id: &str) -> Result<(), RpcError> {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        if snapshot
+            .get("artifacts")
+            .and_then(Value::as_object)
+            .is_some_and(|artifacts| artifacts.contains_key(artifact_id))
+        {
+            Ok(())
+        } else {
+            Err(RpcError {
+                code: "not_found".into(),
+                message: format!("artifact {artifact_id} not found"),
+                details: None,
+            })
+        }
+    }
+
+    fn record_artifact_versions(&self, params: &Value) -> Result<(), RpcError> {
+        let Some(inputs) = params.get("artifacts").and_then(Value::as_array) else {
+            return Ok(());
+        };
+        if inputs.is_empty() {
+            return Ok(());
+        }
+        let chat_id = params.get("chat_id").and_then(Value::as_str).unwrap_or("");
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let projects = snapshot
+            .get("projects")
+            .and_then(Value::as_object)
+            .ok_or_else(|| rpc_error("internal", "project snapshot is missing", None))?;
+        let Some((project_id, project)) = projects
+            .iter()
+            .find(|(_, project)| project.get("chat_id").and_then(Value::as_str) == Some(chat_id))
+        else {
+            return Ok(());
+        };
+        let slug = project.get("slug").and_then(Value::as_str).unwrap_or("");
+        if !is_normal_component(slug) {
+            return Ok(());
+        }
+        let project_root = self.store.root().join("projects").join(slug);
+        let artifact_rows = snapshot
+            .get("artifacts")
+            .and_then(Value::as_object)
+            .ok_or_else(|| rpc_error("internal", "artifact snapshot is missing", None))?;
+        for input in inputs {
+            let path_or_url = input
+                .get("path_or_url")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if path_or_url.is_empty() || is_http_url(path_or_url) {
+                continue;
+            }
+            if is_sensitive_artifact_path(path_or_url) {
+                continue;
+            }
+            let Some((artifact_id, artifact)) = artifact_rows.iter().find(|(_, artifact)| {
+                artifact.get("project_id").and_then(Value::as_str) == Some(project_id.as_str())
+                    && artifact.get("path_or_url").and_then(Value::as_str) == Some(path_or_url)
+            }) else {
+                continue;
+            };
+            let Some(file_path) = resolve_project_artifact_file(&project_root, path_or_url) else {
+                continue;
+            };
+            let file = match fs::File::open(&file_path) {
+                Ok(file) => file,
+                Err(_) => continue,
+            };
+            if file
+                .metadata()
+                .map(|metadata| metadata.len() > MAX_ARTIFACT_VERSION_BYTES)
+                .unwrap_or(true)
+            {
+                continue;
+            }
+            let mut bytes = Vec::new();
+            if file
+                .take(MAX_ARTIFACT_VERSION_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .is_err()
+                || bytes.len() as u64 > MAX_ARTIFACT_VERSION_BYTES
+            {
+                continue;
+            }
+            let component = artifact_history_component(artifact_id)?;
+            let log_path = artifact_version_log_path(artifact_id)?;
+            let mut history = self
+                .store
+                .read_jsonl::<ArtifactVersion>(&log_path)
+                .map_err(store_error)?;
+            if let Some(latest) = history.iter().max_by_key(|version| version.version) {
+                let stored_path = format!(
+                    "data/artifact-history/{component}/versions/{}.json",
+                    latest.version
+                );
+                if let Some(stored) = self
+                    .store
+                    .read_snapshot::<StoredArtifactVersion>(stored_path)
+                    .map_err(store_error)?
+                {
+                    if BASE64.decode(stored.content_base64).ok().as_deref()
+                        == Some(bytes.as_slice())
+                    {
+                        continue;
+                    }
+                }
+            }
+            let version_number = history
+                .iter()
+                .map(|version| version.version)
+                .max()
+                .unwrap_or(0)
+                + 1;
+            let version = ArtifactVersion {
+                artifact_id: artifact_id.clone(),
+                version: version_number,
+                title: artifact
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .into(),
+                path_or_url: path_or_url.into(),
+                bot_id: artifact
+                    .get("bot_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .into(),
+                assignment_id: artifact
+                    .get("assignment_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .into(),
+                kind: macbot_protocol::ArtifactKind::File,
+                created_at: now(),
+                byte_size: bytes.len() as u64,
+                mime: mime_guess::from_path(&file_path)
+                    .first_or_octet_stream()
+                    .to_string(),
+            };
+            let stored = StoredArtifactVersion {
+                version: version.clone(),
+                content_base64: BASE64.encode(&bytes),
+            };
+            self.store
+                .write_snapshot(
+                    format!("data/artifact-history/{component}/versions/{version_number}.json"),
+                    &stored,
+                )
+                .map_err(store_error)?;
+            self.store
+                .append_jsonl(&log_path, &version)
+                .map_err(store_error)?;
+            history.push(version);
+        }
+        Ok(())
+    }
+
     async fn chat_thread(&self, params: &Value) -> RpcResult {
         let chat_id = required_text(params, "chat_id")?;
         let root_id = required_text(params, "root_message_id")?;
@@ -6829,7 +7120,7 @@ impl ProductionBackend {
         let entries = match fs::read_dir(&jobs_dir) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(durable.jobs().next().is_none())
+                return Ok(durable.jobs().next().is_none());
             }
             Err(error) => return Err(error.to_string()),
         };
@@ -7265,7 +7556,12 @@ fn operation_event_entity_present(method: &str, result: &Value) -> bool {
         | "project.archive"
         | "project.reopen"
         | "project.request_changes" => result["project"].is_object(),
-        "assignment.create" | "assign" | "delegate" | "assignment.stop" | "assignment.steer"
+        "assignment.create"
+        | "assign"
+        | "delegate"
+        | "assignment.stop"
+        | "assignment.retry"
+        | "assignment.steer"
         | "steer" => result["assignment"].is_object() || result["id"].is_string(),
         "message.steer" => result["assignment"].is_object() && result["message"].is_object(),
         "send_msg" | "chat.send" | "chat.react" => {
@@ -7303,7 +7599,12 @@ fn event_data(method: &str, params: &Value, result: &Value) -> Value {
         "question.ask" | "propose_bot" => {
             json!({ "question": result.get("question").cloned().unwrap_or(Value::Null) })
         }
-        "assignment.create" | "assign" | "delegate" | "assignment.stop" | "assignment.steer"
+        "assignment.create"
+        | "assign"
+        | "delegate"
+        | "assignment.stop"
+        | "assignment.retry"
+        | "assignment.steer"
         | "steer" => {
             json!({ "assignment": result.get("assignment").cloned().unwrap_or_else(|| result.clone()) })
         }
@@ -7408,7 +7709,7 @@ fn normalize_result(method: &str, mut result: Value) -> Result<Value, String> {
             }
         }
         "assignment.create" | "assign" | "delegate" => normalize_assignment(&mut result),
-        "assignment.get" | "assignment.stop" => {
+        "assignment.get" | "assignment.stop" | "assignment.retry" => {
             if let Some(item) = result.get_mut("assignment") {
                 normalize_assignment(item);
             }
@@ -8062,6 +8363,72 @@ fn takeover_component(value: &str) -> String {
     output
 }
 
+fn artifact_history_component(value: &str) -> Result<String, RpcError> {
+    if is_normal_component(value) {
+        Ok(value.to_owned())
+    } else {
+        Err(rpc_error("invalid_params", "artifact_id is invalid", None))
+    }
+}
+
+fn artifact_version_log_path(artifact_id: &str) -> Result<String, RpcError> {
+    let component = artifact_history_component(artifact_id)?;
+    Ok(format!("data/artifact-history/{component}/versions.jsonl"))
+}
+
+fn is_normal_component(value: &str) -> bool {
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+}
+
+fn is_http_url(value: &str) -> bool {
+    value.starts_with("http://") || value.starts_with("https://") || value.contains("://")
+}
+
+fn is_sensitive_artifact_path(value: &str) -> bool {
+    let Some(name) = Path::new(value).file_name().and_then(|name| name.to_str()) else {
+        return true;
+    };
+    let name = name.to_ascii_lowercase();
+    let stem = name.split('.').next().unwrap_or_default();
+    name == ".env"
+        || name.starts_with(".env.")
+        || matches!(stem, "id_rsa" | "id_ed25519" | "credentials" | "secrets")
+        || matches!(
+            Path::new(&name)
+                .extension()
+                .and_then(|extension| extension.to_str()),
+            Some("pem" | "key" | "p12" | "pfx" | "keystore" | "kdbx")
+        )
+}
+
+fn resolve_project_artifact_file(project_root: &Path, path: &str) -> Option<std::path::PathBuf> {
+    let root = fs::canonicalize(project_root).ok()?;
+    let path = Path::new(path);
+    if path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir | std::path::Component::Prefix(_)
+        )
+    }) {
+        return None;
+    }
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let candidate = fs::canonicalize(candidate).ok()?;
+    if !candidate.starts_with(&root) || !candidate.is_file() {
+        return None;
+    }
+    Some(candidate)
+}
+
 fn main_chat() -> Value {
     json!({"id":"chat_main","kind":"main","title":"主会话","bot_id":null,"project_id":null,"member_bot_ids":["main"],"last_message":null,"last_seq":0,"last_read_seq":0,"unread":0,"attention":"none","pinned":true,"muted":false,"updated_at":now()})
 }
@@ -8113,7 +8480,9 @@ fn validate_json_shape(method: &str, value: &Value) -> Result<(), String> {
             parse!(Vec<Chat>, value["dm_chats"]);
         }
         "assignment.create" | "assign" | "delegate" => parse!(Assignment, value),
-        "assignment.get" | "assignment.stop" => parse!(Assignment, value["assignment"]),
+        "assignment.get" | "assignment.stop" | "assignment.retry" => {
+            parse!(Assignment, value["assignment"])
+        }
         "assignment.list" => parse!(Vec<Assignment>, value["items"]),
         "send_msg" => parse!(Message, value),
         "project.request_review" => {

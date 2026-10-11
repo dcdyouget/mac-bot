@@ -69,6 +69,7 @@ struct Inner {
     projects: HashMap<Id, Project>,
     announcement_text: HashMap<Id, AnnouncementText>,
     assignments: HashMap<Id, Assignment>,
+    assignment_retry_requests: HashMap<String, Id>,
     messages: HashMap<Id, Message>,
     artifacts: HashMap<Id, Artifact>,
     approvals: HashMap<Id, Approval>,
@@ -254,6 +255,7 @@ impl Orchestrator {
                 projects: HashMap::new(),
                 announcement_text: HashMap::new(),
                 assignments: HashMap::new(),
+                assignment_retry_requests: HashMap::new(),
                 messages: HashMap::new(),
                 artifacts: HashMap::new(),
                 approvals: HashMap::new(),
@@ -303,6 +305,7 @@ impl Orchestrator {
             "projects": i.projects.clone(),
             "announcement_text": i.announcement_text.clone(),
             "assignments": i.assignments.clone(),
+            "assignment_retry_requests": i.assignment_retry_requests.clone(),
             "messages": i.messages.clone(),
             "artifacts": i.artifacts.clone(),
             "approvals": i.approvals.clone(),
@@ -337,6 +340,10 @@ impl Orchestrator {
             ensure_main_project_member(project);
         }
         restore_map(&mut i.assignments, value.get("assignments"))?;
+        restore_map(
+            &mut i.assignment_retry_requests,
+            value.get("assignment_retry_requests"),
+        )?;
         restore_map(&mut i.messages, value.get("messages"))?;
         restore_map(&mut i.artifacts, value.get("artifacts"))?;
         restore_map(&mut i.approvals, value.get("approvals"))?;
@@ -437,6 +444,15 @@ impl Orchestrator {
     pub fn create_assignment(&self, request: AssignmentRequest) -> Result<Assignment> {
         let mut i = self.lock()?;
         i.create_assignment(request)
+    }
+
+    pub fn retry_assignment(
+        &self,
+        assignment_id: &str,
+        client_request_id: Option<&str>,
+    ) -> Result<Assignment> {
+        let mut i = self.lock()?;
+        i.retry_assignment(assignment_id, client_request_id)
     }
 
     pub fn send_msg(&self, request: SendMessageRequest) -> Result<Message> {
@@ -1233,6 +1249,19 @@ impl Inner {
                 let id = str_param(&p, "assignment_id")?;
                 Ok(json!({ "assignment": self.assignment(&id)? }))
             }
+            "assignment.retry" => {
+                let assignment_id = str_param(&p, "assignment_id")?;
+                let client_request_id = match p.get("client_request_id") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(value)) => Some(value.as_str()),
+                    Some(_) => {
+                        return Err(OrchestratorError::Invalid(
+                            "client_request_id must be a string or null".into(),
+                        ));
+                    }
+                };
+                Self::json(self.retry_assignment(&assignment_id, client_request_id)?)
+            }
             "assignment.stop" => {
                 let id = str_param(&p, "assignment_id")?;
                 Ok(json!({ "assignment": self.finish_assignment(&id, "cancelled")? }))
@@ -1252,7 +1281,7 @@ impl Inner {
                     None | Some(Value::Null) => false,
                     Some(Value::Bool(value)) => *value,
                     Some(_) => {
-                        return Err(OrchestratorError::Invalid("multi must be a boolean".into()))
+                        return Err(OrchestratorError::Invalid("multi must be a boolean".into()));
                     }
                 };
                 let root = assignment_id.and_then(|id| {
@@ -2398,6 +2427,62 @@ impl Inner {
         Ok(assignment)
     }
 
+    fn retry_assignment(
+        &mut self,
+        assignment_id: &str,
+        client_request_id: Option<&str>,
+    ) -> Result<Assignment> {
+        let source = self
+            .assignments
+            .get(assignment_id)
+            .cloned()
+            .ok_or_else(|| OrchestratorError::NotFound(assignment_id.to_owned()))?;
+        if source.status != "failed" {
+            return Err(OrchestratorError::Conflict(
+                "only failed assignments can be retried".into(),
+            ));
+        }
+
+        let idempotency_key = if let Some(client_request_id) = client_request_id {
+            let client_request_id = client_request_id.trim();
+            if client_request_id.is_empty() || client_request_id.len() > 128 {
+                return Err(OrchestratorError::Invalid(
+                    "client_request_id must contain 1 to 128 bytes".into(),
+                ));
+            }
+            Some(format!("{assignment_id}:{client_request_id}"))
+        } else {
+            None
+        };
+        if let Some(key) = idempotency_key.as_deref() {
+            if let Some(retry_id) = self.assignment_retry_requests.get(key) {
+                return self.assignments.get(retry_id).cloned().ok_or_else(|| {
+                    OrchestratorError::Conflict(
+                        "assignment retry idempotency record is inconsistent".into(),
+                    )
+                });
+            }
+        }
+
+        let retry = self.create_assignment(AssignmentRequest {
+            project_id: source.project_id,
+            origin_chat_id: source.origin_chat_id,
+            bot_id: source.bot_id,
+            title: source.title,
+            instruction: source.instruction,
+            from: source.from,
+            trigger_message_id: source.trigger_message_id,
+            parent_assignment_id: Some(source.id),
+            priority: source.priority,
+            root_message_id: source.root_message_id,
+            loop_hops: source.loop_hops,
+        })?;
+        if let Some(key) = idempotency_key {
+            self.assignment_retry_requests.insert(key, retry.id.clone());
+        }
+        Ok(retry)
+    }
+
     fn pump_queue(&mut self) {
         loop {
             let global = self
@@ -3257,7 +3342,7 @@ impl Inner {
             _ => {
                 return Err(OrchestratorError::Invalid(
                     "invalid approval decision".into(),
-                ))
+                ));
             }
         };
         let out = {
