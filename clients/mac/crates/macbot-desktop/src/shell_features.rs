@@ -112,6 +112,17 @@ impl MacBot {
         data["routines"] = json!(self.routines);
         data["models"] = json!(self.state.models.values().collect::<Vec<_>>());
         if matches!(self.page.as_str(), "bot" | "bot_settings")
+            && let Some(bot_id) = self
+                .feature_data
+                .get("bot_settings_bot_id")
+                .and_then(Value::as_str)
+            && let Some(bot) = self.state.bots.get(bot_id)
+        {
+            for (k, v) in bot.as_object().into_iter().flatten() {
+                data[k] = v.clone();
+            }
+            data["selected"] = bot.clone();
+        } else if matches!(self.page.as_str(), "bot" | "bot_settings")
             && let Some(bot) = self
                 .state
                 .chats
@@ -193,9 +204,65 @@ impl MacBot {
     }
     pub(super) fn fetch_page(&mut self, cx: &mut Context<Self>) {
         if self.fixture {
+            if self.page == "bot/detail" {
+                self.feature_data["bot_detail"]["loading"] = json!({
+                    "bot": false,
+                    "assignments": false,
+                    "projects": false,
+                    "weekly_usage": false
+                });
+            }
             return;
         }
         match self.page.split('/').next().unwrap_or("") {
+            "bot" if self.page == "bot/detail" => {
+                let bot_id = self.feature_data["bot_detail"]["bot_id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned();
+                if !bot_id.is_empty() {
+                    if self.client.is_none() {
+                        self.feature_data["bot_detail"]["loading"] = json!({
+                            "bot": false,
+                            "assignments": false,
+                            "projects": false,
+                            "weekly_usage": false
+                        });
+                        self.feature_data["bot_detail"]["errors"] = json!({
+                            "bot": tr("error.offline"),
+                            "assignments": tr("error.offline"),
+                            "projects": tr("error.offline"),
+                            "weekly_usage": tr("error.offline")
+                        });
+                    } else {
+                        self.feature_data["bot_detail"] = json!({
+                        "bot_id": bot_id,
+                        "bot": null,
+                        "assignments": [],
+                        "projects": [],
+                        "weekly_usage": [],
+                        "loading": {
+                            "bot": true,
+                            "assignments": true,
+                            "projects": true,
+                            "weekly_usage": true
+                        },
+                        "errors": {}
+                        });
+                        let now = Utc::now();
+                        let from = (now - Duration::days(7)).to_rfc3339();
+                        let to = now.to_rfc3339();
+                        self.rpc("bot.get", json!({"bot_id":bot_id}), cx);
+                        self.rpc("assignment.list", json!({"bot_id":bot_id,"limit":50}), cx);
+                        self.rpc("project.list", json!({}), cx);
+                        self.rpc(
+                            "usage.breakdown",
+                            json!({"from":from,"to":to,"dimension":"bot"}),
+                            cx,
+                        );
+                    }
+                }
+            }
             "settings" => {
                 self.rpc("provider.list", json!({}), cx);
                 self.rpc("settings.get", json!({}), cx);
@@ -230,6 +297,47 @@ impl MacBot {
         cx: &mut Context<Self>,
     ) {
         match method {
+            "bot.get" if self.page == "bot/detail" => {
+                let detail = &mut self.feature_data["bot_detail"];
+                if s(params, "bot_id") == s(detail, "bot_id") {
+                    detail["bot"] = value.get("bot").cloned().unwrap_or(Value::Null);
+                    detail["loading"]["bot"] = json!(false);
+                    if let Some(errors) = detail.get_mut("errors").and_then(Value::as_object_mut) {
+                        errors.remove("bot");
+                    }
+                }
+            }
+            "assignment.list" if self.page == "bot/detail" => {
+                let detail = &mut self.feature_data["bot_detail"];
+                if s(params, "bot_id") == s(detail, "bot_id") {
+                    detail["assignments"] =
+                        value.get("items").cloned().unwrap_or_else(|| json!([]));
+                    detail["loading"]["assignments"] = json!(false);
+                    if let Some(errors) = detail.get_mut("errors").and_then(Value::as_object_mut) {
+                        errors.remove("assignments");
+                    }
+                }
+            }
+            "project.list" if self.page == "bot/detail" => {
+                let detail = &mut self.feature_data["bot_detail"];
+                let bot_id = s(detail, "bot_id").to_owned();
+                detail["projects"] = json!(
+                    arr(value, "projects")
+                        .iter()
+                        .filter(|project| {
+                            s(project, "lead_bot_id") == bot_id
+                                || arr(project, "members")
+                                    .iter()
+                                    .any(|member| s(member, "bot_id") == bot_id)
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                );
+                detail["loading"]["projects"] = json!(false);
+                if let Some(errors) = detail.get_mut("errors").and_then(Value::as_object_mut) {
+                    errors.remove("projects");
+                }
+            }
             "workbench.get" => {
                 let workbench = value.get("workbench").unwrap_or(value);
                 for (k, v) in workbench.as_object().into_iter().flatten() {
@@ -242,6 +350,21 @@ impl MacBot {
             }
             "usage.heatmap" => self.feature_data["heatmap"] = value.clone(),
             "usage.timeseries" => self.feature_data["timeseries"] = value.clone(),
+            "usage.breakdown" if self.page == "bot/detail" => {
+                let detail = &mut self.feature_data["bot_detail"];
+                let bot_id = s(detail, "bot_id").to_owned();
+                detail["weekly_usage"] = json!(
+                    arr(value, "rows")
+                        .iter()
+                        .filter(|row| s(row, "key") == bot_id)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                );
+                detail["loading"]["weekly_usage"] = json!(false);
+                if let Some(errors) = detail.get_mut("errors").and_then(Value::as_object_mut) {
+                    errors.remove("weekly_usage");
+                }
+            }
             "usage.breakdown" => self.feature_data["breakdown"] = value.clone(),
             "search" => self.feature_data["results"] = value["results"].clone(),
             "provider.list" => {
@@ -513,10 +636,38 @@ impl MacBot {
                     return;
                 }
                 if let Some(id) = page.strip_prefix("bot/") {
-                    if let Some(bot) = self.state.bots.get(id) {
-                        self.selected_chat = s(bot, "dm_chat_id").into();
-                        self.navigate("bot_settings", cx);
+                    let loading = !self.fixture;
+                    self.feature_data = json!({
+                        "bot_detail": {
+                            "bot_id": id,
+                            "bot": null,
+                            "assignments": [],
+                            "projects": [],
+                            "weekly_usage": [],
+                            "loading": {
+                                "bot": loading,
+                                "assignments": loading,
+                                "projects": loading,
+                                "weekly_usage": loading
+                            },
+                            "errors": {}
+                        }
+                    });
+                    self.navigate("bot/detail", cx);
+                    return;
+                }
+                if page == "bot_settings" {
+                    let bot_id = reqwest::Url::parse(&format!("http://localhost/?{query}"))
+                        .ok()
+                        .and_then(|url| {
+                            url.query_pairs()
+                                .find(|(key, _)| key == "bot_id")
+                                .map(|(_, value)| value.into_owned())
+                        });
+                    if let Some(bot_id) = bot_id {
+                        self.feature_data["bot_settings_bot_id"] = json!(bot_id);
                     }
+                    self.navigate("bot_settings", cx);
                     return;
                 }
                 if let Some(id) = page.strip_prefix("routine/") {
@@ -969,6 +1120,22 @@ impl MacBot {
         cx: &mut Context<Self>,
     ) {
         self.notice = error.clone();
+        let detail_key = match method {
+            "bot.get" if self.page == "bot/detail" => Some("bot"),
+            "assignment.list" if self.page == "bot/detail" => Some("assignments"),
+            "project.list" if self.page == "bot/detail" => Some("projects"),
+            "usage.breakdown" if self.page == "bot/detail" => Some("weekly_usage"),
+            _ => None,
+        };
+        if let Some(key) = detail_key {
+            let matches_bot = method == "project.list"
+                || s(params, "bot_id") == s(&self.feature_data["bot_detail"], "bot_id");
+            if matches_bot {
+                let detail = &mut self.feature_data["bot_detail"];
+                detail["loading"][key] = json!(false);
+                detail["errors"][key] = json!(error);
+            }
+        }
         if method == "announcement.update"
             && let Some(announcement) = details
                 .as_ref()
@@ -1017,6 +1184,7 @@ impl MacBot {
                 s(params, "bot_id")
             ));
         }
+        self.sync_views(cx);
         cx.notify();
     }
 }
