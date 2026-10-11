@@ -4824,6 +4824,7 @@ impl MacBot {
                         .key_context("ChatComposer")
                         .child(Textarea::new(&self.announcement_draft).disabled(!self.connected)),
                 );
+                let save_project_id = announcement_project_id.clone();
                 body = body.child(
                     Button::new("announcement-save")
                         .primary()
@@ -4831,7 +4832,7 @@ impl MacBot {
                         .label(tr("common.save"))
                         .disabled(!self.connected || base_version == 0 || announcement_len > 8000)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.announcement_draft_project = Some(announcement_project_id.clone());
+                            this.announcement_draft_project = Some(save_project_id.clone());
                             this.announcement_base_version = base_version;
                             this.save_announcement(cx);
                         })),
