@@ -2328,7 +2328,7 @@ async fn enqueue_steer_runtime(runtime: RuntimeExecution, result: &Value, params
     let text = params
         .get("text")
         .and_then(Value::as_str)
-        .or_else(|| result.pointer("/steer/text").and_then(Value::as_str))
+        .or_else(|| result.pointer("/message/text").and_then(Value::as_str))
         .unwrap_or_default()
         .to_owned();
     for _ in 0..40 {

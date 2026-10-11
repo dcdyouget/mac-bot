@@ -3079,8 +3079,7 @@ impl Inner {
         let message = self.messages.get(message_id).cloned().unwrap_or(message);
         Ok(json!({
             "assignment":assignment,
-            "message":message,
-            "steer":{"message_id":message_id,"assignment_id":assignment_id,"text":message.text}
+            "message":message
         }))
     }
     fn mark_steer(&mut self, message_id: &str, state: &str) -> Result<SteerDelivery> {
