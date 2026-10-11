@@ -27,7 +27,7 @@ use std::{
     net::SocketAddr,
     path::{Component, Path as FsPath, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     fs,
@@ -111,6 +111,7 @@ pub struct Gateway {
     backend: Option<Arc<dyn RpcBackend>>,
     bind_addr: SocketAddr,
     mock: bool,
+    started_at: Instant,
 }
 
 #[derive(Clone)]
@@ -702,6 +703,7 @@ impl Gateway {
             backend: None,
             bind_addr: config.bind_addr,
             mock: config.mock,
+            started_at: Instant::now(),
         }
     }
 
@@ -3194,14 +3196,45 @@ async fn admin_status_handler(
             "admin authentication required",
         );
     }
-    let state = gw.state.inner.read().await;
-    Json(json!({"running":true,"setup_required":gw.setup_required().await,"port":gw.bind_addr.port(),"host_name":gw.state.host_name.read().await.clone(),"seq":state.seq,"mock":gw.mock})).into_response()
+    let seq = gw.state.inner.read().await.seq;
+    let bot_count = gw.rpc("bot.list", json!({})).await.ok()
+        .and_then(|value| value.get("bots").and_then(Value::as_array).map(|items| items.len()));
+    let workbench = gw.rpc("workbench.get", json!({})).await.ok()
+        .and_then(|value| value.get("workbench").cloned());
+    let bots_running = workbench.as_ref().and_then(|value| value.get("bots").and_then(Value::as_array))
+        .map(|bots| bots.iter().filter(|bot| bot.get("active").and_then(Value::as_u64).unwrap_or(0) > 0).count());
+    let bots_waiting = workbench.as_ref().and_then(|value| value.get("waiting").and_then(Value::as_array)).map(Vec::len);
+    let browser_sessions = Some(gw.state.browser.lock().await.session_count());
+    Json(json!({
+        "running": true,
+        "setup_required": gw.setup_required().await,
+        "port": gw.bind_addr.port(),
+        "host_name": gw.state.host_name.read().await.clone(),
+        "seq": seq,
+        "mock": gw.mock,
+        "node_id": gw.state.node_id.read().await.clone(),
+        "server_version": env!("CARGO_PKG_VERSION"),
+        "uptime_seconds": gw.started_at.elapsed().as_secs(),
+        "clients_online": gw.state.events.receiver_count(),
+        "bot_count": bot_count,
+        "bots_running": bots_running,
+        "bots_waiting": bots_waiting,
+        "browser_sessions": browser_sessions,
+        "browser_version": Value::Null
+    })).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+struct AdminLogQuery {
+    after: Option<u64>,
+    limit: Option<usize>,
 }
 
 async fn admin_logs_handler(
     State(gw): State<Gateway>,
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
+    Query(query): Query<AdminLogQuery>,
 ) -> Response {
     if !is_local_or_basic(remote, &headers, &gw).await {
         return error_response(
@@ -3211,13 +3244,46 @@ async fn admin_logs_handler(
         );
     }
     let path = gw.state.home.join("data/macbot.log");
-    match fs::read(path).await {
-        Ok(bytes) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], bytes).into_response(),
-        Err(_) => (
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            Vec::<u8>::new(),
-        )
-            .into_response(),
+    let bytes = match fs::read(path).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, "logs", &error.to_string()),
+    };
+    let offset = query.after.unwrap_or(0).min(bytes.len() as u64) as usize;
+    let body = if query.after.is_some() {
+        bytes[offset..].to_vec()
+    } else {
+        let limit = query.limit.unwrap_or(200).clamp(1, 5_000);
+        let lines = bytes.split_inclusive(|byte| *byte == b'\n').collect::<Vec<_>>();
+        lines.into_iter().rev().take(limit).collect::<Vec<_>>().into_iter().rev().flatten().copied().collect()
+    };
+    let mut response = ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response();
+    if let Ok(value) = HeaderValue::from_str(&(bytes.len() as u64).to_string()) {
+        response.headers_mut().insert("x-log-offset", value);
+    }
+    response
+}
+
+#[derive(Debug, Deserialize)]
+struct AdminPasswordChange {
+    current_password: String,
+    new_password: String,
+}
+
+async fn admin_password_handler(
+    State(gw): State<Gateway>,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(payload): Json<AdminPasswordChange>,
+) -> Response {
+    if !is_local_or_basic(remote, &headers, &gw).await
+        || gw.auth.verify(&payload.current_password).await != AuthState::Authorized
+    {
+        return error_response(StatusCode::UNAUTHORIZED, "unauthorized", "current password is incorrect");
+    }
+    match gw.auth.set_password(&payload.new_password).await {
+        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Err(error) => error_response(StatusCode::BAD_REQUEST, "invalid_password", &error),
     }
 }
 
