@@ -139,6 +139,13 @@
 | onboarding.meet_main | 认识你的主 Bot：总管 |
 | onboarding.meet_main_desc | 日常和它聊；有事它会拉群。选一个团队模板： |
 | onboarding.template.only_main | 先只用主 Bot |
+| onboarding.template.loading | 正在连接主机并获取团队模板… |
+| onboarding.empty_templates | 暂时没有团队模板，你也可以先只用主 Bot。 |
+| onboarding.template.fetch_failed | 获取团队模板失败，请重试。 |
+| onboarding.create_failed | 创建团队失败：{error} |
+| onboarding.host_changed | 当前主机已切换。请返回后重新选择主机，再继续首次设置。 |
+| onboarding.retry | 重试 |
+| onboarding.edit_connection | 返回连接设置 |
 | onboarding.footer | 对总管说「帮我做…」，它会拉群去做 |
 | onboarding.empty.title | 你好，我是总管 |
 | onboarding.empty.desc | 把要做的事交给我：需要几个 Bot 配合的，我会拉群分工，做完提醒你验收；小事我直接转给合适的 Bot。 |

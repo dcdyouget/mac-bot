@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.network.ConnectionStatus
 import bot.mac.mobile.core.state.ClientRepository
@@ -14,7 +15,7 @@ import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
-@Composable fun ConnectScreen(repository: ClientRepository, onBack: () -> Unit) {
+@Composable fun ConnectScreen(repository: ClientRepository, onBack: () -> Unit, onFirstHostSaved: (String) -> Unit = {}) {
     val hosts by repository.hosts.collectAsState()
     val statuses by repository.hostStatuses.collectAsState()
     var name by remember { mutableStateOf("") }
@@ -26,18 +27,29 @@ import org.jetbrains.compose.resources.stringResource
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         FontScaleToolbar { Row { TextButton(onClick = onBack) { Text(stringResource(Res.string.common_back)) } } }
+        if (hosts.isEmpty()) {
+            BotAvatar(repository, bot = null, main = true, size = 64.dp)
+            Text(stringResource(Res.string.onboarding_welcome), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 16.dp))
+        }
         Text(stringResource(Res.string.onboarding_connect_subtitle), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(Res.string.host_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { OutlinedTextField(name, { name = it }, label = { Text(stringResource(Res.string.host_field_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(addresses, { addresses = it }, label = { Text(stringResource(Res.string.host_field_address)) }, supportingText = { Text(stringResource(Res.string.host_field_address_hint)) }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(password, { password = it }, label = { Text(stringResource(Res.string.host_field_password)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(name, { name = it }, label = { Text(stringResource(Res.string.host_field_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
             item {
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(enabled = !saving && name.isNotBlank() && addresses.isNotBlank() && password.isNotEmpty(), modifier = Modifier.fillMaxWidth(), onClick = {
                     saving = true
+                    val isFirstHost = hosts.isEmpty() && editing == null
                     repository.scope.launch {
-                        runCatching { repository.saveHost(name, addresses.lines().map { it.trim() }.filter { it.isNotEmpty() }, password, editing) }.onSuccess { password = ""; onBack() }.onFailure { error = it.message }
+                        runCatching { repository.saveHost(name, addresses.lines().map { it.trim() }.filter { it.isNotEmpty() }, password, editing) }
+                            .onSuccess {
+                                password = ""
+                                val savedHostId = repository.activeHost.value?.id
+                                if (isFirstHost && savedHostId != null) onFirstHostSaved(savedHostId) else onBack()
+                            }
+                            .onFailure { error = it.message }
                         saving = false
                     }
                 }) { Text(stringResource(Res.string.host_connect)) }

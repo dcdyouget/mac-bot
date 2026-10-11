@@ -37,6 +37,7 @@ import bot.mac.mobile.core.platform.resolveHost
 import bot.mac.mobile.core.platform.containsDeepLinkResource
 import bot.mac.mobile.core.platform.platformLocaleTag
 import bot.mac.mobile.feature.connect.ConnectScreen
+import bot.mac.mobile.feature.connect.OnboardingTemplatesScreen
 import bot.mac.mobile.feature.mainbot.MainBotScreen
 import bot.mac.mobile.feature.mainbot.FollowupScreen
 import bot.mac.mobile.feature.trace.TraceScreen
@@ -225,7 +226,36 @@ import org.jetbrains.compose.resources.stringResource
                         Text(stringResource(message), Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }.background(LocalMobilePalette.current.warningSoft).clickable { open("connect") }.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = LocalMobilePalette.current.warning)
                     }
                     when {
-                        page == "connect" || hosts.isEmpty() -> ConnectScreen(repository, back)
+                        page == "connect" || hosts.isEmpty() -> ConnectScreen(
+                            repository = repository,
+                            onBack = back,
+                            onFirstHostSaved = { hostId ->
+                                routeHistory = emptyList()
+                                page = "onboarding_templates"
+                                target = hostId
+                                secondTarget = ""
+                            },
+                        )
+                        page == "onboarding_templates" -> OnboardingTemplatesScreen(
+                            repository = repository,
+                            onboardingHostId = target,
+                            onFinished = { hostId ->
+                                if (repository.activeHost.value?.id == hostId) {
+                                    val mainChatId = repository.state.value.chats.firstOrNull { it.str("kind") == "main" }?.str("id").orEmpty()
+                                    routeHistory = emptyList()
+                                    page = if (mainChatId.isBlank()) "home" else "chat"
+                                    target = mainChatId
+                                    secondTarget = ""
+                                    tab = 0
+                                }
+                            },
+                            onBack = {
+                                routeHistory = emptyList()
+                                page = "connect"
+                                target = ""
+                                secondTarget = ""
+                            },
+                        )
                         page == "chat" -> MainBotScreen(repository = repository, chatId = target, initialMessageId = secondTarget, onOpenTrace = { assignment, chat -> open("trace", assignment.orEmpty(), chat.orEmpty()) }, onOpenProject = { open("group", it) }, onBack = back, onProjectAction = { projectId, action -> if (action == "confirm_done") scope.launch { runCatching { repository.call("project.confirm_done",jsonParams("project_id" to projectId)) }.onFailure { actionError=it.message } } else { changesProject=projectId;changesText="" } }, onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenFollowup={open("followup",it)})
                         page == "group" -> GroupScreen(repository = repository, projectId = target, initialMessageId = secondTarget.takeIf { it != "edit_announcement" }, onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenHome={open("file",target,"")},onCopyHome={clipboard.setText(AnnotatedString(it))},onOpenGroupInfo={open("groupinfo",it)},editAnnouncementOnOpen=secondTarget=="edit_announcement")
                         page == "groupinfo" -> GroupInfoScreen(repository, target, back, onEditAnnouncement = { open("group", it, "edit_announcement") }, onOpenHome = { open("file", target, it) }, onCopyHome = { clipboard.setText(AnnotatedString(it)) }, onOpenArtifact = openArtifact)

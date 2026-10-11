@@ -567,6 +567,13 @@
     <string name="onboarding_suggest_login">帮我给 App 加个登录</string>
     <string name="onboarding_suggest_research">调研 3 个竞品</string>
     <string name="onboarding_suggest_daily">每天 9 点给我发晨报</string>
+    <string name="onboarding_template_loading">正在连接主机并获取团队模板…</string>
+    <string name="onboarding_empty_templates">暂时没有团队模板，你也可以先只用主 Bot。</string>
+    <string name="onboarding_template_fetch_failed">获取团队模板失败，请重试。</string>
+    <string name="onboarding_retry">重试</string>
+    <string name="onboarding_edit_connection">返回连接设置</string>
+    <string name="onboarding_create_failed">创建团队失败：%1$s</string>
+    <string name="onboarding_host_changed">当前主机已切换。请返回后重新选择主机，再继续首次设置。</string>
     <string name="chat_main_subtitle">主 Bot · 只协调，不干活</string>
     <string name="chat_bot_subtitle">%1$s · 工作中 %2$d 个活</string>
     <string name="chat_group_subtitle">%1$d 位成员</string>
