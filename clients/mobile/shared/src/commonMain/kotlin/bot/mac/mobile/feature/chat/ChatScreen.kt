@@ -1150,13 +1150,17 @@ private fun StandaloneTaskCard(block: JsonObject, state: MobileState, onOpenTrac
             Text(if (status == "done") "✓" else if (status in setOf("failed", "blocked")) "!" else "⟳", color = if (status in setOf("failed", "blocked")) palette.danger else palette.success)
             Column(Modifier.weight(1f)) {
                 if (status == "done") {
-                    Text(
-                        if (duration.isNullOrBlank()) "$botName · $title" else stringResource(Res.string.block_task_card_done_line, botName, title, duration),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = palette.textTertiary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            if (duration.isNullOrBlank()) "$botName · $title" else stringResource(Res.string.block_task_card_done_line, botName, title, duration),
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.textTertiary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        assignment?.let { AssignmentRecoveryBadge(it) }
+                    }
                 } else {
                     Text(
                         stringResource(Res.string.block_task_card_title, title),
@@ -1166,6 +1170,7 @@ private fun StandaloneTaskCard(block: JsonObject, state: MobileState, onOpenTrac
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (status.isNotBlank()) StatusLabel(status)
+                        assignment?.let { AssignmentRecoveryBadge(it) }
                         duration?.let { Text(stringResource(Res.string.block_task_card_elapsed, it), style = MaterialTheme.typography.labelSmall, color = palette.textTertiary) }
                     }
                 }
@@ -1288,6 +1293,7 @@ private fun BlockView(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    assignment?.let { AssignmentRecoveryBadge(it) }
                     if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
                         Text(stringResource(Res.string.feature_detail), style = MaterialTheme.typography.labelSmall)
                     }
@@ -1296,6 +1302,7 @@ private fun BlockView(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(Res.string.block_task_card_title, assignmentLabel), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                     assignment?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+                    assignment?.let { AssignmentRecoveryBadge(it) }
                 }
                 if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
             }

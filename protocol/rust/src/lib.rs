@@ -499,6 +499,8 @@ pub struct Assignment {
     pub created_at: Time,
     pub started_at: Option<Time>,
     pub finished_at: Option<Time>,
+    #[serde(default)]
+    pub recovered_at: Option<Time>,
     pub usage: UsageTotals,
     pub subagents_active: u32,
     #[serde(default)]

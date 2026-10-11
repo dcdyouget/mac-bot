@@ -371,6 +371,7 @@ interface Assignment {
   created_at: Time;
   started_at: Time | null;
   finished_at: Time | null;
+  recovered_at: Time | null;    // 服务端重启后实际恢复执行该任务时更新；正常任务为 null
   usage: UsageTotals;
   subagents_active: number;
   pending_messages: number;    // 待看消息数：本任务所在群里、没有 @ 它、仍为 queued 的用户消息；交付前查看后归零

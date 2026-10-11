@@ -248,6 +248,24 @@ impl ComposedBackend {
                         ));
                         match request {
                             Ok(Some(request)) => {
+                                if let Some(assignment_id) = request.assignment_id.as_deref() {
+                                    if let Err(error) = recovery_backend
+                                        .inner
+                                        .record_assignment_recovered(
+                                            &recovery_backend.state,
+                                            assignment_id,
+                                            crate::now(),
+                                        )
+                                        .await
+                                    {
+                                        tracing::error!(
+                                            %error,
+                                            %assignment_id,
+                                            "cannot persist recovered assignment marker"
+                                        );
+                                        continue;
+                                    }
+                                }
                                 if request.private {
                                     recovery_backend
                                         .scheduled
@@ -8693,6 +8711,109 @@ mod persistence_tests {
             .await
             .expect("startup recovery did not finish");
         assert!(composed.recovery_done.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn durable_assignment_recovery_persists_timestamp_and_updated_event() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let first_gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let first = Arc::new(ProductionBackend::open(&path).unwrap());
+        let bot = first
+            .call(
+                "bot.create",
+                json!({"name":"recover-marker"}),
+                &first_gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+        let project = first
+            .call(
+                "project.create",
+                json!({"name":"recover-marker-project","goal":"test recovery marker","member_bot_ids":[bot_id]}),
+                &first_gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let chat_id = project["chat"]["id"].as_str().unwrap().to_owned();
+        let created = first
+            .call(
+                "assignment.create",
+                json!({"project_id":project_id,"origin_chat_id":chat_id,"bot_id":bot_id,"title":"resume","instruction":"resume after restart","from":"main"}),
+                &first_gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment_id = created["id"].as_str().unwrap().to_owned();
+        assert_eq!(created["status"], "working");
+
+        let run_id = "run_recovered_assignment";
+        let request: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":run_id,
+            "assignment_id":assignment_id,
+            "chat_id":chat_id,
+            "bot_id":bot_id,
+            "model":"missing-provider/model",
+            "instruction":"resume after restart",
+            "private":false
+        }))
+        .unwrap();
+        first
+            .store
+            .write_snapshot(format!("data/run_requests/{run_id}.json"), &request)
+            .unwrap();
+        let checkpoint = json!({"run_id":run_id});
+        {
+            let mut durable = first.durable.lock().await;
+            let job = durable
+                .create_job(&bot_id, "model_run", checkpoint.clone())
+                .unwrap();
+            durable
+                .commit(
+                    &job.id,
+                    macbot_durable::JobStatus::Running,
+                    checkpoint,
+                    false,
+                )
+                .unwrap();
+        }
+        drop(first);
+        drop(first_gateway);
+
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(&path).unwrap());
+        let composed = ComposedBackend::open(backend.clone(), gateway.state.clone(), path).unwrap();
+        wait_for_startup_recovery(&composed).await;
+
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        let recovered_at = snapshot["assignments"][&assignment_id]["recovered_at"]
+            .as_str()
+            .expect("recovered timestamp should be persisted");
+        assert!(!recovered_at.is_empty());
+        let events = backend.store.events_since(0).unwrap();
+        assert!(events.iter().any(|event| {
+            event.event == "assignment.updated"
+                && event.data["assignment"]["id"] == assignment_id
+                && event.data["assignment"]["recovered_at"] == recovered_at
+        }));
+
+        let normal = backend
+            .call(
+                "assignment.create",
+                json!({"project_id":project_id,"origin_chat_id":chat_id,"bot_id":bot_id,"title":"new normal run","instruction":"no recovery marker","from":"main"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(normal["recovered_at"].is_null());
     }
 
     #[tokio::test]

@@ -43,6 +43,7 @@ import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.core.ui.LucideIcon
 import bot.mac.mobile.core.ui.LucideIconKind
+import bot.mac.mobile.feature.chat.AssignmentRecoveryBadge
 import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.CancellationException
@@ -191,14 +192,18 @@ fun TraceScreen(
                 }
                 Column(Modifier.weight(1f).padding(start = 8.dp)) {
                     Text(currentTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        if (assignmentId != null) stringResource(Res.string.feature_trace_assignment_context, currentTitle, currentBotLabel)
-                        else stringResource(Res.string.feature_trace),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            if (assignmentId != null) stringResource(Res.string.feature_trace_assignment_context, currentTitle, currentBotLabel)
+                            else stringResource(Res.string.feature_trace),
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        currentAssignment?.let { AssignmentRecoveryBadge(it) }
+                    }
                 }
                 if (live) Text(stringResource(Res.string.feature_realtime), modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
                 if (currentBotId.isNotBlank() && (currentBot?.obj("tools")?.boolean("browser") == true || currentBot?.str("browser_mode").orEmpty().isNotBlank())) {

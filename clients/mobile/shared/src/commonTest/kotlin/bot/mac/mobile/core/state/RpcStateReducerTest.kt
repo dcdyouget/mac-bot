@@ -3,6 +3,7 @@ package bot.mac.mobile.core.state
 import bot.mac.mobile.core.protocol.protocolJson
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.protocol.long
+import bot.mac.mobile.core.protocol.generated.Assignment
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -49,6 +50,26 @@ class RpcStateReducerTest {
         val next = RpcStateReducer.apply(current, "bot.list", buildJsonObject {}, result)
 
         assertEquals(listOf("new-1", "new-2"), next.bots.map { it.str("id") })
+    }
+
+    @Test
+    fun assignmentUpdatedKeepsRecoveryTimestampAndOlderPayloadsDefaultToNull() {
+        val olderAssignment = objectOf("""{"id":"assignment-1","status":"working"}""")
+        assertEquals(null, Assignment(olderAssignment).recoveredAt)
+
+        val current = MobileState(assignments = listOf(olderAssignment))
+        val recoveredAssignment = objectOf(
+            """{"id":"assignment-1","status":"working","recovered_at":"2026-10-12T02:00:00Z"}""",
+        )
+        val next = StateReducer.event(
+            current,
+            "assignment.updated",
+            buildJsonObject { put("assignment", recoveredAssignment) },
+        )
+
+        val merged = Assignment(next.assignments.single())
+        assertEquals("2026-10-12T02:00:00Z", merged.recoveredAt)
+        assertEquals("working", merged.status)
     }
 
     @Test

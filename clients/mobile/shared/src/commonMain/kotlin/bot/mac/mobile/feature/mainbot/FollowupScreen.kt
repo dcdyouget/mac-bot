@@ -41,6 +41,7 @@ import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.feature.group.GroupAvatar
+import bot.mac.mobile.feature.chat.AssignmentRecoveryBadge
 import bot.mac.mobile.core.ui.MotionAwareCircularProgressIndicator
 import bot.mac.mobile.core.ui.LucideIcon
 import bot.mac.mobile.core.ui.LucideIconKind
@@ -353,6 +354,7 @@ private fun FollowupTaskCard(
                 Text("●", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
                 Text(assignment.str("title").ifBlank { assignment.str("instruction") }.ifBlank { stringResource(Res.string.followup_tasks) }, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                 StatusPill(assignment.str("status"))
+                AssignmentRecoveryBadge(assignment)
             }
             val meta = listOfNotNull(
                 project?.str("name")?.takeIf(String::isNotBlank),

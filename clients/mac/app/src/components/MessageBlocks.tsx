@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AlertTriangle, Check, ChevronRight, Circle, Clock3, File, Folder, Globe, MessageCircle, Reply, Target, X } from 'lucide-react'
 import { t } from '../i18n'
 import type { Json } from '../types'
+import { getTaskCardStatus } from './messageBlocksTaskCard'
 
 export type ArtifactRef = { artifact_id: string; title: string; path_or_url: string; bot_id?: string; kind?: string }
 
@@ -39,14 +40,14 @@ export function TaskCard({ assignment, groupName, botName, onDetail }: { assignm
   const id = String(assignment.id ?? '')
   const title = String(assignment.title ?? assignment.bot_id ?? '')
   const status = String(assignment.status ?? 'working')
-  const statusKey = status === 'queued' ? 'status.queued' : status === 'waiting_user' || status === 'waiting_bot' ? 'status.waiting_user' : status === 'blocked' ? 'status.blocked' : status === 'done' ? 'status.done' : status === 'cancelled' ? 'status.cancelled' : status === 'failed' ? 'status.failed' : status === 'recovered' ? 'status.recovered' : 'status.working'
+  const { statusKey, recovered } = getTaskCardStatus(status, assignment.recovered_at)
   const elapsed = formatDuration(assignment.started_at ?? assignment.created_at, assignment.finished_at)
   const elapsedValue = durationValue(assignment.started_at ?? assignment.created_at, assignment.finished_at)
-  const reason = status === 'queued' && assignment.queue_reason ? t('block.task_card.queued_reason').replace('{task}', String(assignment.queue_reason)) : status === 'recovered' ? t('block.task_card.recovered') : typeof assignment.failure_reason === 'string' ? assignment.failure_reason : ''
-  if (status === 'done') return <div className="task-card-done-line"><Check size={14} /><span>{t('block.task_card.done_line').replace('{bot}', botName ?? t('common.bot')).replace('{title}', title).replace('{duration}', elapsedValue || '—')}</span><button type="button" className="task-detail-button" onClick={() => id && onDetail(id)}>{t('common.details')}</button></div>
+  const reason = status === 'queued' && assignment.queue_reason ? t('block.task_card.queued_reason').replace('{task}', String(assignment.queue_reason)) : typeof assignment.failure_reason === 'string' ? assignment.failure_reason : ''
+  if (status === 'done') return <div className="task-card-done-line"><Check size={14} /><span>{t('block.task_card.done_line').replace('{bot}', botName ?? t('common.bot')).replace('{title}', title).replace('{duration}', elapsedValue || '—')}{recovered && ` · ${t('status.recovered')}`}</span><button type="button" className="task-detail-button" onClick={() => id && onDetail(id)}>{t('common.details')}</button></div>
   return <div className={`task-card task-${status}`}>
     <span className={`task-card-icon task-icon-${status}`}>{status === 'done' ? <Check size={15} /> : status === 'failed' || status === 'blocked' || status === 'cancelled' ? <X size={15} /> : status === 'queued' ? <Clock3 size={15} /> : <Circle size={13} />}</span>
-    <span className="task-card-copy"><strong>{t('block.task_card.title').replace('{title}', title)}</strong>{groupName && <small>{groupName}</small>}<small>{statusText(statusKey)}{elapsed && ` · ${elapsed}`}{reason && ` · ${reason}`}</small></span>
+    <span className="task-card-copy"><strong>{t('block.task_card.title').replace('{title}', title)}</strong>{groupName && <small>{groupName}</small>}<small>{statusText(statusKey)}{elapsed && ` · ${elapsed}`}{reason && ` · ${reason}`}{recovered && ` · ${t('status.recovered')}`}</small></span>
     <button type="button" className="task-detail-button" onClick={() => id && onDetail(id)}>{t('trace.show')}</button>
     {status === 'working' && <i className="task-progress-bar" />}
   </div>

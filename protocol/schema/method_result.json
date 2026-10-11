@@ -802,6 +802,13 @@
             }
           ]
         },
+        "recovered_at": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "result_message_id": {
           "type": [
             "string",

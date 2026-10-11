@@ -482,6 +482,24 @@ impl Orchestrator {
         i.create_assignment(request)
     }
 
+    /// Record that a durable execution resumed this active assignment after a
+    /// server restart. Terminal assignments are intentionally left untouched.
+    pub fn mark_assignment_recovered(
+        &self,
+        assignment_id: &str,
+        recovered_at: String,
+    ) -> Result<Option<Assignment>> {
+        let mut i = self.lock()?;
+        let Some(assignment) = i.assignments.get_mut(assignment_id) else {
+            return Ok(None);
+        };
+        if !matches!(assignment.status.as_str(), "working" | "queued") {
+            return Ok(None);
+        }
+        assignment.recovered_at = Some(recovered_at);
+        Ok(Some(assignment.clone()))
+    }
+
     pub fn retry_assignment(
         &self,
         assignment_id: &str,
@@ -2516,6 +2534,7 @@ impl Inner {
             created_at: ts.clone(),
             started_at: (status == "working").then_some(ts),
             finished_at: None,
+            recovered_at: None,
             usage: UsageTotals::default(),
             subagents_active: 0,
             pending_messages: 0,

@@ -201,6 +201,37 @@ struct AssignmentCardEventIndex {
 }
 
 impl ProductionBackend {
+    pub(crate) async fn record_assignment_recovered(
+        &self,
+        state: &GatewayState,
+        assignment_id: &str,
+        recovered_at: String,
+    ) -> Result<(), RpcError> {
+        let _guard = self.persist_lock.lock().await;
+        let Some(assignment) = self
+            .orchestrator
+            .mark_assignment_recovered(assignment_id, recovered_at.clone())
+            .map_err(Self::error)?
+        else {
+            return Ok(());
+        };
+        let operation = json!({
+            "method":"assignment.recovered",
+            "params":{"assignment_id":assignment_id},
+            "result":{"assignment":assignment},
+            "event_key":format!("assignment-recovered:{assignment_id}:{recovered_at}"),
+            "status":"done",
+            "at":recovered_at
+        });
+        self.persist_orchestrator_locked(operation.clone())?;
+        for event in self.repair_operation_events(&operation)? {
+            state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
+        Ok(())
+    }
+
     pub(crate) async fn update_assignment_usage(
         &self,
         assignment_id: &str,
@@ -1751,8 +1782,14 @@ impl ProductionBackend {
                     }
                 }
             }
-            "assignment.create" | "assign" | "delegate" | "assignment.stop"
-            | "assignment.retry" | "assignment.steer" | "steer" => {
+            "assignment.create"
+            | "assign"
+            | "delegate"
+            | "assignment.stop"
+            | "assignment.recovered"
+            | "assignment.retry"
+            | "assignment.steer"
+            | "steer" => {
                 let id = result
                     .get("assignment")
                     .and_then(|value| value.get("id"))
@@ -2199,6 +2236,7 @@ impl ProductionBackend {
             "assignment.stop" | "assignment.steer" | "steer" | "message.steer" => {
                 "assignment.updated"
             }
+            "assignment.recovered" => "assignment.updated",
             "send_msg" | "chat.send" => "message.created",
             "message.delete" => "message.deleted",
             "message.edit" => "message.updated",
@@ -7851,10 +7889,14 @@ fn operation_event_entity_present(method: &str, result: &Value) -> bool {
         | "project.archive"
         | "project.reopen"
         | "project.request_changes" => result["project"].is_object(),
-        "assignment.create" | "assign" | "delegate" | "assignment.stop" | "assignment.retry"
-        | "assignment.steer" | "steer" => {
-            result["assignment"].is_object() || result["id"].is_string()
-        }
+        "assignment.create"
+        | "assign"
+        | "delegate"
+        | "assignment.stop"
+        | "assignment.recovered"
+        | "assignment.retry"
+        | "assignment.steer"
+        | "steer" => result["assignment"].is_object() || result["id"].is_string(),
         "message.steer" => result["assignment"].is_object() && result["message"].is_object(),
         "send_msg" | "chat.send" | "chat.react" => {
             result["message"].is_object() || result["id"].is_string()
@@ -7898,8 +7940,14 @@ fn event_data(method: &str, params: &Value, result: &Value) -> Value {
         "question.ask" | "propose_bot" => {
             json!({ "question": result.get("question").cloned().unwrap_or(Value::Null) })
         }
-        "assignment.create" | "assign" | "delegate" | "assignment.stop" | "assignment.retry"
-        | "assignment.steer" | "steer" => {
+        "assignment.create"
+        | "assign"
+        | "delegate"
+        | "assignment.stop"
+        | "assignment.recovered"
+        | "assignment.retry"
+        | "assignment.steer"
+        | "steer" => {
             json!({ "assignment": result.get("assignment").cloned().unwrap_or_else(|| result.clone()) })
         }
         "send_msg" | "chat.send" | "chat.react" => {

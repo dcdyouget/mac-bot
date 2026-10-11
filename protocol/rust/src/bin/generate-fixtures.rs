@@ -34,7 +34,13 @@ fn project() -> Value {
     json!({"id":"prj_login","chat_id":"chat_login","name":"登录功能","slug":"login","goal":"给 App 加邮箱登录","flow":["产品","编码","测试"],"deadline":"2026-10-12","home_path":"~/MacBot/projects/login/","status":"active","lead_bot_id":"bot_main","members":[],"created_by":{"kind":"user"},"created_at":now(),"updated_at":now(),"done_at":null})
 }
 fn assignment() -> Value {
-    json!({"id":"asg_1","project_id":"prj_login","origin_chat_id":"chat_login","bot_id":"bot_main","title":"任务","instruction":"做事","from":{"kind":"user"},"trigger_message_id":null,"parent_assignment_id":null,"status":"working","queue_reason":null,"wait":null,"created_at":now(),"started_at":now(),"finished_at":null,"usage":usage(),"subagents_active":0,"pending_messages":0,"steers":[],"result_message_id":null,"model":"prv_mock/mock-model"})
+    json!({"id":"asg_1","project_id":"prj_login","origin_chat_id":"chat_login","bot_id":"bot_main","title":"任务","instruction":"做事","from":{"kind":"user"},"trigger_message_id":null,"parent_assignment_id":null,"status":"working","queue_reason":null,"wait":null,"created_at":now(),"started_at":now(),"finished_at":null,"recovered_at":null,"usage":usage(),"subagents_active":0,"pending_messages":0,"steers":[],"result_message_id":null,"model":"prv_mock/mock-model"})
+}
+
+fn recovered_assignment() -> Value {
+    let mut value = assignment();
+    value["recovered_at"] = json!(now());
+    value
 }
 fn workbench() -> Value {
     json!({
@@ -436,7 +442,7 @@ fn events(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
         (
             "assignment_updated",
             "assignment.updated",
-            json!({"assignment":assignment()}),
+            json!({"assignment":recovered_assignment()}),
         ),
         (
             "artifact_registered",

@@ -32,6 +32,7 @@ import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.feature.chat.StatusLabel
+import bot.mac.mobile.feature.chat.AssignmentRecoveryBadge
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
@@ -136,7 +137,10 @@ fun HistoryAssignmentScreen(
                 val assignmentStatus = assignment.str("status")
                 Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp)) {
                     Text(title, style = MaterialTheme.typography.titleMedium)
-                    StatusLabel(assignmentStatus)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        StatusLabel(assignmentStatus)
+                        AssignmentRecoveryBadge(assignment)
+                    }
                     assignment.str("instruction").takeIf { it.isNotBlank() && it != title }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     if (assignmentId.isNotBlank()) {
                         OutlinedButton(onClick = { onOpenTrace(assignmentId) }) {

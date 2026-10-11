@@ -3275,7 +3275,7 @@ fn assignment_create(state: &mut MockState, params: &Value, delegation: bool) ->
         "trigger_message_id":params.get("trigger_message_id").cloned().unwrap_or(Value::Null),
         "parent_assignment_id":params.get("parent_assignment_id").cloned().unwrap_or(Value::Null),
         "status":"working","queue_reason":null,"wait":null,"created_at":created_at,
-        "started_at":created_at,"finished_at":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"requests":0,"cost":null},
+        "started_at":created_at,"finished_at":null,"recovered_at":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"requests":0,"cost":null},
         "subagents_active":0,"pending_messages":0,"steers":[],"result_message_id":null,"model":model,
         "priority":params.get("priority").cloned().unwrap_or(json!(1)),"root_message_id":params.get("root_message_id").cloned().unwrap_or(Value::Null),
         "loop_hops":params.get("loop_hops").cloned().unwrap_or(json!(0))
@@ -3747,6 +3747,7 @@ fn assignment_retry(state: &mut MockState, params: &Value) -> RpcResult {
         Value::Null
     };
     retry["finished_at"] = Value::Null;
+    retry["recovered_at"] = Value::Null;
     retry["usage"] = json!({
         "input_tokens":0,
         "output_tokens":0,
@@ -5325,6 +5326,70 @@ mod contract_tests {
                 message["blocks"][0]["type"] == "delegation"
                     && message["blocks"][0]["assignment_id"] == delegation["id"]
             }));
+    }
+
+    #[tokio::test]
+    async fn mock_assignment_create_and_retry_include_null_recovered_at_in_events() {
+        let gateway = gateway().await;
+        let mut events = gateway.state.events.subscribe();
+        let created = call(
+            &gateway,
+            "assignment.create",
+            json!({
+                "bot_id":"bot_code",
+                "title":"recovery timestamp contract",
+                "instruction":"check null default"
+            }),
+        )
+        .await;
+        let assignment_id = created["id"].as_str().unwrap().to_owned();
+        assert!(created["recovered_at"].is_null());
+        let created_event = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event["event"] == "assignment.created"
+                    && event["data"]["assignment"]["id"] == assignment_id
+                {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("assignment.created should be broadcast");
+        assert!(created_event["data"]["assignment"]["recovered_at"].is_null());
+
+        {
+            let mut state = gateway.state.inner.write().await;
+            let assignment = state
+                .assignments
+                .iter_mut()
+                .find(|assignment| assignment["id"] == assignment_id)
+                .unwrap();
+            assignment["status"] = json!("failed");
+        }
+        let mut events = gateway.state.events.subscribe();
+        let retried = call(
+            &gateway,
+            "assignment.retry",
+            json!({"assignment_id":assignment_id,"client_request_id":"retry-recovered-at"}),
+        )
+        .await;
+        let retry = retried["assignment"].clone();
+        let retry_id = retry["id"].as_str().unwrap().to_owned();
+        assert!(retry["recovered_at"].is_null());
+        let retry_event = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event["event"] == "assignment.created"
+                    && event["data"]["assignment"]["id"] == retry_id
+                {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("retried assignment.created should be broadcast");
+        assert!(retry_event["data"]["assignment"]["recovered_at"].is_null());
     }
 
     #[tokio::test]

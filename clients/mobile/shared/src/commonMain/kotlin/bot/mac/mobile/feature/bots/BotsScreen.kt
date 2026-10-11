@@ -53,6 +53,7 @@ import bot.mac.mobile.core.design.DesignTokens
 import bot.mac.mobile.core.platform.platformFilePicker
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.feature.chat.StatusLabel
+import bot.mac.mobile.feature.chat.AssignmentRecoveryBadge
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
@@ -333,6 +334,7 @@ fun BotDetailScreen(
                 ) {
                     Text(assignment.str("title").ifBlank { assignment.str("instruction") }.ifBlank { assignment.str("status") }, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     StatusLabel(assignment.str("status"))
+                    AssignmentRecoveryBadge(assignment)
                     LucideIcon(LucideIconKind.ChevronRight, Modifier.padding(start = 8.dp).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

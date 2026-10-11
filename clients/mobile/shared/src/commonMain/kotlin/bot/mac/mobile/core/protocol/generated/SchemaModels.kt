@@ -128,6 +128,7 @@ data class Assignment(override val raw: JsonObject) : RawProtocolModel {
     val pendingMessages: Long? get() = raw.longOrNull("pending_messages")
     val projectId: String? get() = raw.stringOrNull("project_id")
     val queueReason: String? get() = raw.stringOrNull("queue_reason")
+    val recoveredAt: String? get() = raw.stringOrNull("recovered_at")
     val resultMessageId: String? get() = raw.stringOrNull("result_message_id")
     val startedAt: String? get() = raw.stringOrNull("started_at")
     val status: String get() = raw.str("status")

@@ -18,6 +18,7 @@
           "pending_messages": 0,
           "project_id": "prj_login",
           "queue_reason": null,
+          "recovered_at": null,
           "result_message_id": null,
           "started_at": "2026-10-09T10:19:02.312Z",
           "status": "working",

@@ -118,6 +118,8 @@ pub struct Assignment {
     pub created_at: String,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
+    #[serde(default)]
+    pub recovered_at: Option<String>,
     pub usage: UsageTotals,
     pub subagents_active: usize,
     #[serde(default)]

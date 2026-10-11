@@ -27,6 +27,7 @@ import bot.mac.mobile.core.network.NetworkError
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.feature.chat.StatusLabel
+import bot.mac.mobile.feature.chat.AssignmentRecoveryBadge
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -280,6 +281,7 @@ private fun AssignmentCard(assignment: JsonObject, state: MobileState, onOpen: (
                 )
             }
             StatusLabel(assignment.str("status"))
+            AssignmentRecoveryBadge(assignment)
         }
         Text(assignment.str("instruction"), maxLines = 2, style = MaterialTheme.typography.bodySmall)
         val usage = assignment.obj("usage")
