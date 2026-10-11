@@ -5,6 +5,8 @@ import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Panel
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type PendingMessage, type Question } from './types'
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
+import { WorkbenchPage } from './components/WorkbenchPage'
+import { DashboardPage } from './components/DashboardPage'
 
 const NO_RULES: Record<string, Json>[] = []
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -36,6 +38,8 @@ function App() {
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
   const [selectedChat, setSelectedChat] = useState('')
+  const [activePage, setActivePage] = useState<'chat' | 'workbench' | 'dashboard'>('chat')
+  const [mentionBotId, setMentionBotId] = useState<string | null>(null)
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [draft, setDraft] = useState('')
   const [connecting, setConnecting] = useState(false)
@@ -295,8 +299,19 @@ function App() {
 
   function selectChat(chatId: string) {
     setSelectedChat(chatId)
+    setActivePage('chat')
     localStorage.setItem(SELECTED_CHAT_STORAGE_KEY, chatId)
     localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScope}`, chatId)
+  }
+
+  function openWorkbenchChat(chatId: string) {
+    selectChat(chatId)
+    setActivePage('chat')
+  }
+
+  function mentionAssignmentBot(botId: string, chatId: string) {
+    selectChat(chatId)
+    setMentionBotId(botId)
   }
 
   async function savePreferences(patch: LocalPreferences) {
@@ -494,8 +509,18 @@ function App() {
     if (!currentChat || !draft.trim() || sending || state.connection !== 'connected') return
     setSending(true)
     try {
-      await invoke('send_message', { chatId: currentChat.id, text: draft.trim() })
+      if (mentionBotId) {
+        await invoke('protocol_request', { method: 'chat.send', params: {
+          chat_id: currentChat.id,
+          text: draft.trim(),
+          mentions: [{ kind: 'bot', bot_id: mentionBotId, instruction: null }],
+          client_request_id: crypto.randomUUID(),
+        } })
+      } else {
+        await invoke('send_message', { chatId: currentChat.id, text: draft.trim() })
+      }
       setDraft('')
+      setMentionBotId(null)
     } finally {
       setSending(false)
     }
@@ -552,13 +577,14 @@ function App() {
         </div>
       </div>
       <nav className="sidebar-footer">
-        <button><Workflow size={15} />{t('nav.workbench')}</button>
-        <button><Sparkles size={15} />{t('nav.dashboard')}</button>
+        <button className={activePage === 'workbench' ? 'selected' : ''} onClick={() => setActivePage('workbench')}><Workflow size={15} />{t('nav.workbench')}</button>
+        <button className={activePage === 'dashboard' ? 'selected' : ''} onClick={() => setActivePage('dashboard')}><Sparkles size={15} />{t('nav.dashboard')}</button>
         <button><MessageCircle size={15} />{t('nav.routines')}</button>
         <button><Sparkles size={15} />{t('nav.skills')}</button>
         <button onClick={() => void openSettings()}><Settings size={15} />{t('nav.settings')}<kbd>⌘,</kbd></button>
       </nav>
     </aside>
+    {activePage === 'chat' && <>
     <section className="conversation">
       <header className="conversation-toolbar glass-toolbar drag-region">
         {currentChat?.kind === 'project' || currentChat?.project_id ? <div className="group-chat-avatar"><Users size={17} /></div> : <BeanAvatar main={currentChat?.kind === 'main' || !currentChat?.bot_id} size="32" seed={currentChat?.bot_id ? state.bots[currentChat.bot_id]?.name ?? '' : ''} />}
@@ -598,6 +624,7 @@ function App() {
       </div>
       <form className="composer-wrap" onSubmit={sendMessage}>
         <div className="composer-box">
+          {mentionBotId && <div className="composer-mention-chip"><AtSign size={13} />{t('chat.queue.at_now').replace('{bot}', state.bots[mentionBotId]?.name ?? t('common.bot'))}<button type="button" aria-label={t('common.close')} onClick={() => setMentionBotId(null)}>×</button></div>}
           <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={currentChat ? t('chat.composer.placeholder.dm').replace('{name}', currentChat.title ?? '总管') : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
           <div className="composer-actions"><div><button type="button" className="composer-tool" aria-label="提及"><AtSign size={17} /></button><span className="composer-hint"><Command size={11} /> ↵ 发送</span></div>
             <button type="submit" className="send-button" disabled={!draft.trim() || sending || !currentChat || state.connection !== 'connected'} aria-label={t('common.send')}><Send size={16} /></button></div>
@@ -658,6 +685,13 @@ function App() {
         </section>
       </div> : null}
     </aside>
+    </>}
+    {activePage === 'workbench' && <WorkbenchPage state={state} onOpenChat={openWorkbenchChat} onTrace={(assignmentId, chatId) => {
+      setActivePage('chat')
+      if (chatId) selectChat(chatId)
+      void loadAssignmentTrace(assignmentId)
+    }} onMention={mentionAssignmentBot} onRefresh={() => { void invoke<BridgeState>('get_bridge_state').then(setState).catch((error: unknown) => setState((current) => ({ ...current, error: String(error) }))) }} />}
+    {activePage === 'dashboard' && <DashboardPage />}
     {artifactPreview && <div className="artifact-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setArtifactPreview(null) }}>
       <section className="artifact-preview-panel" role="dialog" aria-modal="true" aria-label={artifactPreview.title}>
         <header><div><strong>{artifactPreview.title}</strong><small>{artifactPreview.path}</small></div><button type="button" className="icon-button" onClick={() => setArtifactPreview(null)} aria-label={t('common.close')}>×</button></header>

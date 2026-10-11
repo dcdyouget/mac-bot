@@ -12,8 +12,14 @@ use macbot_desktop_services::{
 };
 use serde::Serialize;
 use serde_json::{json, Map, Value};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{
+    ipc::{InvokeBody, Request},
+    AppHandle, Emitter, Manager, State,
+};
+use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
+
+const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024;
 
 struct BridgeData {
     connection: &'static str,
@@ -617,9 +623,120 @@ async fn protocol_request(
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+async fn save_usage_csv(app: AppHandle, file_name: String, csv: String) -> Result<bool, String> {
+    let Some(file_path) = app
+        .dialog()
+        .file()
+        .set_file_name(&file_name)
+        .add_filter("CSV", &["csv"])
+        .blocking_save_file()
+    else {
+        return Ok(false);
+    };
+    let path = file_path
+        .into_path()
+        .map_err(|error| format!("无法读取所选文件路径：{error}"))?;
+    std::fs::write(path, csv.as_bytes()).map_err(|error| format!("无法保存 CSV：{error}"))?;
+    Ok(true)
+}
+
+fn skill_upload_payload(
+    body: &InvokeBody,
+    encoded_file_name: Option<&str>,
+) -> Result<(String, Vec<u8>), String> {
+    let file_name = encoded_file_name
+        .map(percent_encoding::percent_decode_str)
+        .ok_or_else(|| "技能压缩包文件名缺失".to_string())?
+        .decode_utf8()
+        .map_err(|error| format!("技能压缩包文件名无效：{error}"))?
+        .to_string();
+    let file_name = file_name
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| "技能压缩包文件名不能为空".to_string())?
+        .to_owned();
+    if !file_name.to_ascii_lowercase().ends_with(".zip") {
+        return Err("请选择 ZIP 格式的技能包".into());
+    }
+    let bytes = match body {
+        InvokeBody::Raw(bytes) => bytes.clone(),
+        InvokeBody::Json(_) => return Err("技能压缩包内容格式无效".into()),
+    };
+    if bytes.len() > MAX_UPLOAD_BYTES {
+        return Err("技能压缩包不能超过 100 MB".into());
+    }
+    Ok((file_name, bytes))
+}
+
+fn uploaded_skill_id(body: &Value) -> Result<String, String> {
+    body.get("upload_id")
+        .and_then(Value::as_str)
+        .filter(|upload_id| !upload_id.trim().is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| "技能包上传响应缺少 upload_id".to_string())
+}
+
+#[tauri::command]
+async fn upload_skill_zip(
+    bridge: State<'_, SharedBridge>,
+    request: Request<'_>,
+) -> Result<String, String> {
+    let encoded_file_name = request
+        .headers()
+        .get("x-file-name")
+        .and_then(|value| value.to_str().ok());
+    let (file_name, bytes) = skill_upload_payload(request.body(), encoded_file_name)?;
+
+    let (host, endpoint) = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection != "connected" {
+            return Err("请先连接 Bot 主机".into());
+        }
+        let host = data
+            .active_host
+            .clone()
+            .ok_or_else(|| "当前连接没有已保存的主机凭证".to_string())?;
+        let endpoint = host
+            .addresses
+            .first()
+            .cloned()
+            .ok_or_else(|| "当前主机没有可用地址".to_string())?;
+        (host, endpoint)
+    };
+    let password = HostStore::load()
+        .and_then(|store| store.password(&host))
+        .map_err(|error| format!("无法读取主机凭证：{error}"))?;
+    let url = macbot_client_core::http_url(&endpoint, "/api/v1/uploads")
+        .map_err(|error| error.to_string())?;
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(file_name)
+        .mime_str("application/zip")
+        .map_err(|error| error.to_string())?;
+    let response = reqwest::Client::new()
+        .post(url)
+        .bearer_auth(password)
+        .multipart(reqwest::multipart::Form::new().part("file", part))
+        .send()
+        .await
+        .map_err(|error| format!("技能包上传失败：{error}"))?
+        .error_for_status()
+        .map_err(|error| format!("技能包上传失败：{error}"))?;
+    let body = response
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("无法读取技能包上传响应：{error}"))?;
+    uploaded_skill_id(&body)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(SharedBridge::default())
         .invoke_handler(tauri::generate_handler![
             connect_host,
@@ -628,6 +745,8 @@ pub fn run() {
             remove_host,
             send_message,
             protocol_request,
+            save_usage_csv,
+            upload_skill_zip,
             get_bridge_state,
             get_local_preferences,
             save_local_preferences,
@@ -636,4 +755,38 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Mac Bot desktop application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{skill_upload_payload, uploaded_skill_id, InvokeBody};
+    use serde_json::json;
+
+    #[test]
+    fn raw_upload_bytes_keep_the_decoded_file_name() {
+        let (file_name, bytes) = skill_upload_payload(
+            &InvokeBody::Raw(vec![80, 75, 3, 4]),
+            Some("skill%20bundle.zip"),
+        )
+        .unwrap();
+        assert_eq!(file_name, "skill bundle.zip");
+        assert_eq!(bytes, [80, 75, 3, 4]);
+    }
+
+    #[test]
+    fn upload_payload_rejects_json_or_missing_names() {
+        assert!(skill_upload_payload(&InvokeBody::Json(json!([1, 2])), Some("x.zip")).is_err());
+        assert!(skill_upload_payload(&InvokeBody::Raw(vec![]), None).is_err());
+        assert!(skill_upload_payload(&InvokeBody::Raw(vec![]), Some("x.txt")).is_err());
+    }
+
+    #[test]
+    fn upload_response_requires_a_non_empty_id() {
+        assert_eq!(
+            uploaded_skill_id(&json!({"upload_id":"upl_1"})).unwrap(),
+            "upl_1"
+        );
+        assert!(uploaded_skill_id(&json!({"upload_id":"  "})).is_err());
+        assert!(uploaded_skill_id(&json!({})).is_err());
+    }
 }
