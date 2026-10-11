@@ -29,6 +29,16 @@ struct MessageDeepLink {
     host_id: String,
 }
 
+#[derive(Default)]
+struct SidebarTodoSummary {
+    approvals: Vec<String>,
+    questions: Vec<String>,
+    review: bool,
+    blocked: usize,
+    working: usize,
+    queued: usize,
+}
+
 struct DeepLinkHistorySearch {
     request_id: u64,
     chat_id: String,
@@ -2473,6 +2483,7 @@ impl MacBot {
 
     fn sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
+        let layout = t.desktop_layout;
         let mut list = div()
             .id("chat-list")
             .flex_1()
@@ -2512,10 +2523,11 @@ impl MacBot {
             .values()
             .filter(|v| s(v, "kind") == "project")
             .collect();
-        groups.sort_by_key(|v| {
+        groups.sort_by_key(|chat| {
             (
-                !v["pinned"].as_bool().unwrap_or(false),
-                s(v, "updated_at").to_string(),
+                !chat["pinned"].as_bool().unwrap_or(false),
+                self.sidebar_attention_rank(chat),
+                std::cmp::Reverse(s(chat, "updated_at").to_owned()),
             )
         });
         let mut done = 0;
@@ -2634,11 +2646,13 @@ impl MacBot {
         ] {
             let page = key.to_string();
             footer = footer.child(
-                Button::new(SharedString::from(format!("nav-{key}")))
-                    .ghost()
-                    .icon(icon)
-                    .label(tr(title_key))
-                    .on_click(cx.listener(move |this, _, _, cx| this.navigate(&page, cx))),
+                div().h(px(layout.row_nav)).flex().items_center().child(
+                    Button::new(SharedString::from(format!("nav-{key}")))
+                        .ghost()
+                        .icon(icon)
+                        .label(tr(title_key))
+                        .on_click(cx.listener(move |this, _, _, cx| this.navigate(&page, cx))),
+                ),
             );
         }
         div()
@@ -2688,16 +2702,66 @@ impl MacBot {
     fn chat_row(&self, chat: &Value, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
         let layout = t.desktop_layout;
+        let todo = self.sidebar_todo_summary(chat);
         let id = s(chat, "id").to_owned();
         let selected = id == self.selected_chat && self.page == "chat";
         let bot = self.state.bots.get(s(chat, "bot_id"));
         let title = s(chat, "title").to_owned();
-        let preview = s(&chat["last_message"], "text").to_owned();
-        let badge = if chat["unread"].as_u64().unwrap_or(0) > 0 {
-            format!(" · {}", chat["unread"])
-        } else {
-            String::new()
-        };
+        let preview = self.sidebar_summary_text(chat, &todo);
+        let (attention_symbol, attention_count, attention_color, attention_surface) =
+            self.sidebar_attention(chat, &todo, t);
+        let needs_attention = !todo.approvals.is_empty() || !todo.questions.is_empty();
+        let mut row = div()
+            .flex()
+            .items_center()
+            .gap(px(t.space[5]))
+            .w_full()
+            .child(bean(bot.unwrap_or(&Value::Null), layout.avatar_list, cx))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_start()
+                    .gap(px(t.space[2]))
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().text_size(px(t.desktop_type[3][0])).child(title))
+                    .child(
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(if needs_attention {
+                                t.warning
+                            } else if todo.blocked > 0 {
+                                t.danger
+                            } else {
+                                t.secondary
+                            })
+                            .font_weight(if needs_attention {
+                                FontWeight::MEDIUM
+                            } else {
+                                FontWeight::NORMAL
+                            })
+                            .truncate()
+                            .child(preview),
+                    ),
+            );
+        if let Some(symbol) = attention_symbol {
+            let count = attention_count
+                .map(|count| format!(" {count}"))
+                .unwrap_or_default();
+            row = row.child(
+                div()
+                    .flex_none()
+                    .rounded(px(t.radius[6]))
+                    .px(px(t.space[2]))
+                    .py(px(t.space[1]))
+                    .bg(attention_surface)
+                    .text_size(px(t.desktop_type[1][0]))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(attention_color)
+                    .child(format!("{symbol}{count}")),
+            );
+        }
         div()
             .min_h(px(layout.row_chat))
             .rounded(px(t.radius[8]))
@@ -2707,41 +2771,173 @@ impl MacBot {
                 Button::new(SharedString::from(id.clone()))
                     .ghost()
                     .w_full()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(t.space[5]))
-                            .w_full()
-                            .child(bean(bot.unwrap_or(&Value::Null), layout.avatar_list, cx))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .items_start()
-                                    .gap(px(t.space[2]))
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(
-                                        div()
-                                            .text_size(px(t.desktop_type[3][0]))
-                                            .child(title + &badge),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(t.desktop_type[1][0]))
-                                            .text_color(t.secondary)
-                                            .truncate()
-                                            .child(preview),
-                                    ),
-                            ),
-                    )
+                    .child(row)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.select_chat(id.clone(), window, cx)
                     })),
             )
             .into_any_element()
     }
+    fn sidebar_todo_summary(&self, chat: &Value) -> SidebarTodoSummary {
+        let chat_id = s(chat, "id");
+        let project_id = s(chat, "project_id");
+        let in_scope = |item: &Value| {
+            s(item, "chat_id") == chat_id
+                || s(item, "origin_chat_id") == chat_id
+                || (!project_id.is_empty()
+                    && self
+                        .state
+                        .assignments
+                        .get(s(item, "assignment_id"))
+                        .is_some_and(|assignment| s(assignment, "project_id") == project_id))
+        };
+        let mut summary = SidebarTodoSummary {
+            review: s(chat, "attention") == "review"
+                || self
+                    .state
+                    .projects
+                    .get(project_id)
+                    .is_some_and(|project| s(project, "status") == "review"),
+            ..Default::default()
+        };
+        summary.approvals = self
+            .state
+            .approvals
+            .values()
+            .filter(|approval| s(approval, "state") == "pending" && in_scope(approval))
+            .map(|approval| {
+                let text = s(approval, "summary");
+                if text.is_empty() {
+                    tr("sidebar.todo.approval").to_string()
+                } else {
+                    text.to_owned()
+                }
+            })
+            .collect();
+        summary.questions = self
+            .state
+            .questions
+            .values()
+            .filter(|question| s(question, "state") == "pending" && in_scope(question))
+            .map(|question| {
+                let text = s(question, "text");
+                if text.is_empty() {
+                    tr("sidebar.todo.question").to_string()
+                } else {
+                    text.to_owned()
+                }
+            })
+            .collect();
+        for assignment in self.state.assignments.values().filter(|assignment| {
+            s(assignment, "origin_chat_id") == chat_id
+                || (!project_id.is_empty() && s(assignment, "project_id") == project_id)
+        }) {
+            match s(assignment, "status") {
+                "blocked" => summary.blocked += 1,
+                "working" | "waiting_bot" => summary.working += 1,
+                "queued" => summary.queued += 1,
+                _ => {}
+            }
+        }
+        summary
+    }
+
+    fn sidebar_attention_rank(&self, chat: &Value) -> u8 {
+        let todo = self.sidebar_todo_summary(chat);
+        let attention = s(chat, "attention");
+        if !todo.approvals.is_empty() || !todo.questions.is_empty() || attention == "waiting_user" {
+            0
+        } else if todo.review {
+            1
+        } else if todo.blocked > 0 || attention == "blocked" {
+            2
+        } else if todo.working > 0 || todo.queued > 0 || attention == "working" {
+            3
+        } else if chat["unread"].as_u64().unwrap_or(0) > 0 || attention == "unread" {
+            4
+        } else {
+            5
+        }
+    }
+
+    fn sidebar_summary_text(&self, chat: &Value, todo: &SidebarTodoSummary) -> String {
+        if let Some(summary) = todo.approvals.first() {
+            return tr("sidebar.todo.approval_summary")
+                .to_string()
+                .replace("{summary}", summary);
+        }
+        if let Some(question) = todo.questions.first() {
+            return tr("sidebar.todo.question_summary")
+                .to_string()
+                .replace("{summary}", question);
+        }
+        if todo.review {
+            return tr("sidebar.todo.review_summary").to_string();
+        }
+        if todo.blocked > 0 {
+            return tr("sidebar.todo.blocked_summary")
+                .to_string()
+                .replace("{count}", &todo.blocked.to_string());
+        }
+        if todo.working > 0 || todo.queued > 0 {
+            return tr("sidebar.todo.working_summary")
+                .to_string()
+                .replace("{working}", &todo.working.to_string())
+                .replace("{queued}", &todo.queued.to_string());
+        }
+        if s(chat, "attention") == "waiting_user" {
+            return tr("sidebar.todo.waiting_summary").to_string();
+        }
+        s(&chat["last_message"], "text").to_owned()
+    }
+
+    fn sidebar_attention(
+        &self,
+        chat: &Value,
+        todo: &SidebarTodoSummary,
+        t: Tokens,
+    ) -> (
+        Option<&'static str>,
+        Option<usize>,
+        gpui_kit::Hsla,
+        gpui_kit::Hsla,
+    ) {
+        let attention = s(chat, "attention");
+        if !todo.approvals.is_empty() || !todo.questions.is_empty() || attention == "waiting_user" {
+            let count = todo.approvals.len() + todo.questions.len();
+            return (
+                Some("⚠"),
+                (count > 0).then_some(count),
+                t.warning,
+                t.warning_soft,
+            );
+        }
+        if todo.review {
+            return (Some("◎"), None, t.review, t.review_soft);
+        }
+        if todo.blocked > 0 || attention == "blocked" {
+            return (
+                Some("!"),
+                (todo.blocked > 0).then_some(todo.blocked),
+                t.danger,
+                t.danger_soft,
+            );
+        }
+        if todo.working > 0 || todo.queued > 0 || attention == "working" {
+            return (
+                Some("⟳"),
+                (todo.working + todo.queued > 0).then_some(todo.working + todo.queued),
+                t.accent,
+                t.accent_soft,
+            );
+        }
+        let unread = chat["unread"].as_u64().unwrap_or(0);
+        if unread > 0 || attention == "unread" {
+            return (Some(""), Some(unread as usize), t.secondary, t.active);
+        }
+        (None, None, t.secondary, t.active)
+    }
+
     fn connection_page(&self, window_width: Pixels, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
         let stacked = window_width < px(1120.);

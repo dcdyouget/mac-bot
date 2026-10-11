@@ -954,6 +954,21 @@ data class MainBotSettingsPatch(override val raw: JsonObject) : RawProtocolModel
 }
 object MainBotSettingsPatchSerializer : RawModelSerializer<MainBotSettingsPatch>(::MainBotSettingsPatch)
 
+@Serializable(with = MessageDeleteParamsSerializer::class)
+data class MessageDeleteParams(override val raw: JsonObject) : RawProtocolModel {
+    val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
+    val messageId: String get() = raw.str("message_id")
+}
+object MessageDeleteParamsSerializer : RawModelSerializer<MessageDeleteParams>(::MessageDeleteParams)
+
+@Serializable(with = MessageEditParamsSerializer::class)
+data class MessageEditParams(override val raw: JsonObject) : RawProtocolModel {
+    val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
+    val messageId: String get() = raw.str("message_id")
+    val text: String get() = raw.str("text")
+}
+object MessageEditParamsSerializer : RawModelSerializer<MessageEditParams>(::MessageEditParams)
+
 @Serializable(with = MessageSteerParamsSerializer::class)
 data class MessageSteerParams(override val raw: JsonObject) : RawProtocolModel {
     val assignmentId: String get() = raw.str("assignment_id")
@@ -1613,6 +1628,12 @@ data class InFlight(override val raw: JsonObject) : RawProtocolModel {
     val thinking: String get() = raw.str("thinking")
 }
 object InFlightSerializer : RawModelSerializer<InFlight>(::InFlight)
+
+@Serializable(with = MessageEditResultSerializer::class)
+data class MessageEditResult(override val raw: JsonObject) : RawProtocolModel {
+    val message: Message get() = Message(raw.obj("message"))
+}
+object MessageEditResultSerializer : RawModelSerializer<MessageEditResult>(::MessageEditResult)
 
 @Serializable(with = MessageSteerResultSerializer::class)
 data class MessageSteerResult(override val raw: JsonObject) : RawProtocolModel {
