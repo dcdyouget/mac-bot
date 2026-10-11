@@ -15,6 +15,74 @@ fn avatar_image_mime(path: &std::path::Path) -> Option<&'static str> {
     }
 }
 
+fn collect_skill_files(
+    root: &std::path::Path,
+    directory: &std::path::Path,
+    files: &mut Vec<std::path::PathBuf>,
+) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            anyhow::bail!("skill folders cannot contain symbolic links");
+        }
+        if file_type.is_dir() {
+            if entry.file_name() != ".git" {
+                collect_skill_files(root, &path, files)?;
+            }
+        } else if file_type.is_file() {
+            let relative = path.strip_prefix(root)?;
+            if relative
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+            {
+                anyhow::bail!("skill folder contains an unsafe path");
+            }
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn zip_skill_folder(directory: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+    const MAX_UPLOAD_BYTES: u64 = 100 * 1024 * 1024;
+    let root = std::fs::canonicalize(directory)?;
+    if !root.is_dir() {
+        anyhow::bail!("selected path is not a folder");
+    }
+    let mut files = Vec::new();
+    collect_skill_files(&root, &root, &mut files)?;
+    if files.is_empty() {
+        anyhow::bail!("folder contains no skill files");
+    }
+
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut source_bytes = 0_u64;
+    for path in files {
+        let metadata = std::fs::metadata(&path)?;
+        source_bytes = source_bytes.saturating_add(metadata.len());
+        if source_bytes > MAX_UPLOAD_BYTES {
+            anyhow::bail!("skill folder exceeds the 100 MB upload limit");
+        }
+        let relative = path.strip_prefix(&root)?;
+        let name = relative
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("skill folder contains a non-UTF-8 filename"))?
+            .replace(std::path::MAIN_SEPARATOR, "/");
+        archive.start_file(name, options)?;
+        let mut file = std::fs::File::open(path)?;
+        std::io::copy(&mut file, &mut archive)?;
+    }
+    let bytes = archive.finish()?.into_inner();
+    if bytes.len() as u64 > MAX_UPLOAD_BYTES {
+        anyhow::bail!("compressed skill folder exceeds the 100 MB upload limit");
+    }
+    Ok(bytes)
+}
+
 enum AvatarUploadError {
     InvalidImage,
     Failed(anyhow::Error),
@@ -136,6 +204,7 @@ impl MacBot {
         let runtime = self.runtime.handle().clone();
         cx.spawn_in(window, async move |this, cx| {
             let result = match prompt.await {
+                Ok(Ok(None)) => return,
                 Ok(Ok(Some(paths))) => match paths.first() {
                     Some(path) => {
                         let _ = this.update_in(cx, |view, _, cx| {
@@ -224,6 +293,110 @@ impl MacBot {
                     let copy = crate::feature_i18n::text("bot.avatar.upload_failed")
                         .replace("{error}", &error.to_string());
                     view.notice = copy;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn upload_skill_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.connected || self.client.is_none() {
+            self.notice = tr("error.offline").to_string();
+            cx.notify();
+            return;
+        }
+        let prompt = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(crate::feature_i18n::text("skills.folder.choose").into()),
+        });
+        let endpoint = self.address.read(cx).value().to_string();
+        let first = endpoint.split(',').next().unwrap_or("").trim();
+        let base = if first.starts_with("wss://") {
+            first.replacen("wss://", "https://", 1)
+        } else if first.starts_with("ws://") {
+            first.replacen("ws://", "http://", 1)
+        } else if first.starts_with("http") {
+            first.to_owned()
+        } else {
+            format!("http://{first}")
+        }
+        .trim_end_matches('/')
+        .trim_end_matches("/ws")
+        .to_owned();
+        let password = self.password.read(cx).value().to_string();
+        let runtime = self.runtime.handle().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let path = match prompt.await {
+                Ok(Ok(Some(paths))) => match paths.first() {
+                    Some(path) => path.clone(),
+                    None => return,
+                },
+                Ok(Ok(None)) => return,
+                Ok(Err(error)) => {
+                    let _ = this.update_in(cx, |view, _, cx| {
+                        view.notice = crate::feature_i18n::text("skills.folder.invalid")
+                            .replace("{error}", &error.to_string());
+                        cx.notify();
+                    });
+                    return;
+                }
+                Err(error) => {
+                    let _ = this.update_in(cx, |view, _, cx| {
+                        view.notice = crate::feature_i18n::text("skills.folder.invalid")
+                            .replace("{error}", &error.to_string());
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+            let _ = this.update_in(cx, |view, _, cx| {
+                view.notice = crate::feature_i18n::text("skills.folder.uploading").to_owned();
+                cx.notify();
+            });
+            let task = runtime.spawn(async move {
+                let bytes = zip_skill_folder(&path)?;
+                let form = reqwest::multipart::Form::new().part(
+                    "file",
+                    reqwest::multipart::Part::bytes(bytes)
+                        .file_name("skill-folder.zip")
+                        .mime_str("application/zip")?,
+                );
+                let response = reqwest::Client::new()
+                    .post(format!("{base}/api/v1/uploads"))
+                    .bearer_auth(password)
+                    .multipart(form)
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .json::<Value>()
+                    .await?;
+                let upload_id = response
+                    .get("upload_id")
+                    .and_then(Value::as_str)
+                    .filter(|upload_id| !upload_id.trim().is_empty())
+                    .ok_or_else(|| anyhow::anyhow!("upload response has no upload id"))?;
+                Ok::<_, anyhow::Error>(upload_id.to_owned())
+            });
+            let result = match task.await {
+                Ok(result) => result,
+                Err(error) => Err(anyhow::anyhow!(error.to_string())),
+            };
+            let _ = this.update_in(cx, |view, _, cx| match result {
+                Ok(upload_id) => {
+                    view.rpc(
+                        "skill.import",
+                        json!({"source":{"kind":"upload","upload_id":upload_id}}),
+                        cx,
+                    );
+                    view.notice = crate::feature_i18n::text("skills.folder.uploaded").to_owned();
+                    cx.notify();
+                }
+                Err(error) => {
+                    view.notice = crate::feature_i18n::text("skills.folder.invalid")
+                        .replace("{error}", &error.to_string());
                     cx.notify();
                 }
             });
@@ -591,6 +764,7 @@ impl MacBot {
                     insert(&mut self.state.skills, skill, "name");
                 }
                 self.page = "skills".into();
+                self.notice = crate::feature_i18n::text("skills.imported").to_owned();
             }
             "skill.get" => {
                 self.editor_reload = true;
@@ -803,6 +977,10 @@ impl MacBot {
                     if !bot_id.is_empty() {
                         self.upload_bot_avatar(bot_id.to_owned(), window, cx);
                     }
+                    return;
+                }
+                if page == "skill/import/folder" {
+                    self.upload_skill_folder(window, cx);
                     return;
                 }
                 if let Some(upload_id) = page.strip_prefix("skill/import/upload/") {
@@ -1403,6 +1581,10 @@ impl MacBot {
         cx: &mut Context<Self>,
     ) {
         self.notice = error.clone();
+        if method == "skill.import" {
+            self.notice =
+                crate::feature_i18n::text("skills.import_failed").replace("{error}", &error);
+        }
         if method == "bot.update"
             && params.pointer("/patch/avatar/kind").and_then(Value::as_str) == Some("image")
         {

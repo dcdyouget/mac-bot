@@ -141,6 +141,12 @@ pub fn text(key: &str) -> &'static str {
         "skills.usage.partial" => "最近 7 天调用 {count} 次",
         "skills.draft_from" => "由 {bot} 在「{project}」里生成 · 还没对任何 Bot 生效",
         "skills.draft_from.dm" => "由 {bot} 生成 · 还没对任何 Bot 生效",
+        "skills.folder.choose" => "选择包含技能的文件夹",
+        "skills.folder.uploading" => "正在打包并上传技能文件夹…",
+        "skills.folder.uploaded" => "文件夹已上传，正在导入…",
+        "skills.folder.invalid" => "无法导入所选文件夹：{error}",
+        "skills.imported" => "技能导入完成",
+        "skills.import_failed" => "技能导入失败：{error}",
         "skills.new.mode.write" => "手写",
         "skills.new.mode.folder" => "从文件夹",
         "skills.new.draft_hint" => {

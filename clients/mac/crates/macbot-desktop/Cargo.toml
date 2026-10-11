@@ -15,6 +15,7 @@ reqwest.workspace = true
 uuid.workspace = true
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 chrono = { version = "0.4", features = ["serde"] }
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 security-framework = "3.7"
 security-framework-sys = "2.17"

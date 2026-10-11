@@ -14,9 +14,9 @@ use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::gpui::{
-    AnyElement, App, AppContext, Bounds, Context, Entity, EventEmitter, Hsla, InteractiveElement,
-    IntoElement, KeyDownEvent, ParentElement, PathBuilder, Render, Styled, Window, canvas, div,
-    point, px,
+    AnyElement, App, AppContext, Bounds, Context, Entity, EventEmitter, Focusable, Hsla,
+    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PathBuilder, Render, Styled,
+    Window, canvas, div, point, px,
 };
 use gpui_kit::prelude::FluentBuilder;
 use serde_json::{Value, json};
@@ -804,6 +804,19 @@ fn skill_import_button(
                 },
                 cx,
             );
+        }))
+}
+
+fn skill_import_folder_button(
+    label: &str,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
+    let label = label.to_owned();
+    Button::new("skill-import-folder")
+        .label(label)
+        .primary()
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.emit_action(FeatureAction::Navigate("skill/import/folder".into()), cx);
         }))
 }
 
@@ -4209,7 +4222,8 @@ fn skills(
                     Input::new(input_state(inputs, "path")).id("skill-import-path-input"),
                     tokens,
                 ))
-                .child(skill_import_button(t("skills.new.mode.folder"), inputs, cx))
+                .child(skill_import_folder_button(t("skills.new.mode.folder"), cx))
+                .child(skill_import_button(t("skills.import"), inputs, cx))
                 .child(labeled_field(
                     t("skills.field_git_url"),
                     Input::new(input_state(inputs, "git_url")).id("skill-import-git-url-input"),
@@ -6191,7 +6205,7 @@ fn search_result_preview(
         .child(div().text_color(tokens.secondary).child(snippet));
     if let Some(target) = target {
         preview = preview.child(action_button_with_id(
-            "search-preview-open",
+            "search-preview-open".to_owned(),
             t("search.open"),
             FeatureAction::Navigate(target),
             cx,
