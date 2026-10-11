@@ -19,14 +19,18 @@
 | 7 | 整个上下文是一个 system 字符串，没有缓存断点 | L0–L2 与 L3–L4 拆成两个 system block，Anthropic 在 L2 末尾加 `cache_control` | PLAN 5.5.4 |
 | 8 | 工作记录原样存整轮回复 | 存提炼后的「做了什么、结果如何」 | PLAN 5.5.5 |
 
+| 9 | 任何 Bot 都能写用户记忆 | 用户偏好只由独立的整理线程 curator（只看用户本人消息，批量处理）和用户本人写；Bot 不写 | PLAN 5.5.9 |
+| 10 | 没有用户档案 | 新增用户档案（称呼、语言、身份可选；时区取 Host），首次连接时主 Bot 对话式初始化 | PLAN 5.5.8 |
+| 11 | 「核心记忆」没有明确定义 | 核心记忆 = 用户档案 + 用户偏好 + 本 Bot 经验，约 4,000 字以内，全文进 L2 | PLAN 5.5.1 |
+
 ### 为什么
 - 原来的暂存提交会静默覆盖别人的修改，提交失败时整批丢失且无人知道。
 - 全部按需调取会让模型忘记偏好，且新旧查询结果并存；全部放 system 又无法实时更新。分层 + 增量消息兼顾两者，并保持 prompt cache 稳定。
 
 ### 影响的模块
 - **server**：`macbot-memory`（版本号、修改日志、立即提交）、`macbot-gateway`（增量消息、记忆提取接入、上下文拆块）、`macbot-providers`（缓存断点）。
-- **protocol**：无改动。`memory` 工具是服务端内部的模型工具，`memory.updated` 也是服务端内部事件，PROTOCOL.md 里都没有，客户端不受影响。
-- **客户端**：无改动（客户端没有记忆页面）。
+- **protocol**：`memory` 工具和增量消息是服务端内部的，不涉及协议。用户记忆页面的协议见 PROTOCOL 5.10a（另一次提交）。待定：curator 写入的条目在 `source.by` / `updated_by` 里如何表示（现在只有 bot / user）；用户档案是否在设置里展示。
+- **客户端**：本次改动不涉及；设置里的用户记忆页面单独设计。
 
 ### 已定细节
 - `memory` 工具返回值：成功返回 `entry_id`、`version`、`revision`、`remaining_chars`；失败返回 `quota_full` / `conflict` / `not_found` 及当前内容（PLAN 5.5.1）。
