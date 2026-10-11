@@ -1581,7 +1581,7 @@ impl MacBot {
                     Button::new("send")
                         .primary()
                         .icon(IconName::ArrowUp)
-                        .tooltip(i18n::tr("common.send"))
+                        .tooltip(crate::i18n::tr("common.send"))
                         .disabled(!self.connected || readonly)
                         .on_click(cx.listener(|this, _, window, cx| this.send_message(window, cx))),
                 ),
