@@ -341,12 +341,20 @@
 | key | zh-CN |
 |-----|-------|
 | search.placeholder | 搜索消息、Bot、群、产物、定时任务 |
+| search.filter.all | 全部 |
 | search.filter.messages | 消息 |
 | search.filter.groups | 群 |
 | search.filter.bots | Bot |
 | search.filter.artifacts | 产物 |
 | search.filter.routines | 定时任务 |
 | search.keys | ↑↓ 选择 · ↵ 打开 · ⌘↵ 在右侧打开 |
+| search.state.empty | 没有找到结果 |
+| search.state.loading | 正在搜索… |
+| search.state.error | 搜索失败 |
+| search.action.retry | 重试 |
+| search.action.load_more | 加载更多 |
+| search.action.close | 关闭搜索 |
+| search.result.open | 打开结果 |
 
 ## trace · 工作详情 / 运行轨迹
 
