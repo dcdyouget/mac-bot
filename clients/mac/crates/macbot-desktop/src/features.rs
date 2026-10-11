@@ -1922,6 +1922,9 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
         .get("global_limit")
         .and_then(Value::as_u64)
         .unwrap_or(0);
+    let main_bot_exists = array(data, "all_bots")
+        .iter()
+        .any(|bot| bot.get("is_main").and_then(Value::as_bool).unwrap_or(false));
     let waiting = array(data, "waiting");
     let reviews = waiting
         .iter()
@@ -2004,25 +2007,41 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
                     cx,
                 )),
         )
-        .child(div().flex().flex_wrap().gap(px(tokens.space[5])).children([
-            stat(
-                t("workbench.running_label"),
-                &format!("{running} / {limit}"),
-                tokens,
-            ),
-            stat(t("workbench.waiting_review"), &reviews.to_string(), tokens),
-            stat(
-                t("workbench.waiting_approval"),
-                &approvals.to_string(),
-                tokens,
-            ),
-            stat(
-                t("workbench.waiting_questions"),
-                &questions.to_string(),
-                tokens,
-            ),
-            stat(t("block.takeover.title"), &takeovers.to_string(), tokens),
-        ]))
+        .child(
+            div().flex().flex_wrap().gap(px(tokens.space[5])).children([
+                div()
+                    .px(px(tokens.space[4]))
+                    .py(px(tokens.space[3]))
+                    .text_size(px(tokens.desktop_type[2][0]))
+                    .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                    .child(
+                        t("workbench.concurrency")
+                            .replace("{running}", &running.to_string())
+                            .replace("{max}", &limit.to_string()),
+                    ),
+                stat(t("workbench.waiting_review"), &reviews.to_string(), tokens),
+                stat(
+                    t("workbench.waiting_approval"),
+                    &approvals.to_string(),
+                    tokens,
+                ),
+                stat(
+                    t("workbench.waiting_questions"),
+                    &questions.to_string(),
+                    tokens,
+                ),
+                stat(t("block.takeover.title"), &takeovers.to_string(), tokens),
+            ]),
+        )
+        .child(if main_bot_exists {
+            div()
+                .text_size(px(tokens.desktop_type[1][0]))
+                .text_color(tokens.secondary)
+                .child(t("workbench.main_not_counted"))
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        })
         .child(workbench_waiting(&waiting, data, tokens, cx))
         .child(card(t("workbench.title"), active_groups, tokens))
         .child(card(
@@ -2871,7 +2890,16 @@ fn dashboard(
                 tokens,
             ),
         ]))
-        .child(card(t("dashboard.heatmap"), heat, tokens))
+        .child(card(
+            t("dashboard.heatmap"),
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(tokens.space[3]))
+                .child(heat)
+                .child(dashboard_heatmap_legend(tokens)),
+            tokens,
+        ))
         .child(card(dashboard_trend_title(data), trend, tokens))
         .child(card(
             t("dashboard.metric"),
@@ -3312,6 +3340,29 @@ fn heatmap(
                 }),
             )
         }))
+}
+
+fn dashboard_heatmap_legend(tokens: &Tokens) -> impl IntoElement {
+    let levels = [
+        tokens.heat[0],
+        tokens.heat[1],
+        tokens.heat[2],
+        tokens.heat[3],
+        tokens.heat[4],
+    ];
+    div()
+        .flex()
+        .items_center()
+        .gap(px(tokens.space[2]))
+        .text_size(px(tokens.desktop_type[0][0]))
+        .text_color(tokens.secondary)
+        .child(t("dashboard.heatmap.less"))
+        .children(
+            levels
+                .into_iter()
+                .map(|color| div().size(px(10.)).rounded(px(tokens.radius[1])).bg(color)),
+        )
+        .child(t("dashboard.heatmap.more"))
 }
 
 fn heatmap_color(value: f64, thresholds: &[Value], tokens: &Tokens) -> gpui_kit::Hsla {
@@ -5086,45 +5137,33 @@ fn routine_editor(
         .unwrap_or_default()
         .to_owned();
     let routine_list = routines_list(data, tokens, cx);
-    let history = array(data, "runs")
-        .iter()
-        .map(|h| {
-            format!(
-                "{} · {} · {}",
-                string(h, "started_at", t("common.unknown")),
-                routine_trigger(h),
-                workbench_status_label(h.get("status").and_then(Value::as_str))
-            )
-        })
-        .collect::<Vec<_>>();
+    let history = array(data, "runs");
     let summary = if routine_id.is_empty() {
         div().into_any_element()
     } else {
-        card(
-            t("routines.title"),
-            rows(
-                [
-                    format!(
-                        "{}   {}",
-                        t("routines.field.instruction"),
-                        string(data, "instructions", t("routine.default_instruction"))
-                    ),
-                    format!("{}   {}", t("routines.field.when"), routine_schedule(data)),
-                    format!(
-                        "{}   {}",
-                        t("routine.state"),
-                        if data.get("enabled").and_then(Value::as_bool).unwrap_or(true) {
-                            t("routines.state.enabled")
-                        } else {
-                            t("routines.state.disabled")
-                        }
-                    ),
-                ],
-                tokens,
+        let enabled = data.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+        let mut summary_rows = vec![
+            format!(
+                "{}   {}",
+                t("routines.field.instruction"),
+                string(data, "instructions", t("routine.default_instruction"))
             ),
-            tokens,
-        )
-        .into_any_element()
+            format!("{}   {}", t("routines.field.when"), routine_schedule(data)),
+        ];
+        let next_run = routine_next_run_label(data);
+        if !next_run.is_empty() {
+            summary_rows.push(next_run);
+        }
+        summary_rows.push(format!(
+            "{}   {}",
+            t("routines.status"),
+            if enabled {
+                t("routines.filter.running")
+            } else {
+                t("routines.paused")
+            }
+        ));
+        card(t("routines.title"), rows(summary_rows, tokens), tokens).into_any_element()
     };
     let routine_actions = if routine_id.is_empty() {
         div()
@@ -5141,7 +5180,11 @@ fn routine_editor(
                 cx,
             ))
             .child(action_button(
-                t("routines.toggle"),
+                if data.get("enabled").and_then(Value::as_bool).unwrap_or(true) {
+                    t("routines.paused")
+                } else {
+                    t("common.enable")
+                },
                 FeatureAction::Rpc {
                     method: "routine.set_enabled".into(),
                     params: routine_enabled_params(
@@ -5177,16 +5220,6 @@ fn routine_editor(
             Input::new(input_state(inputs, "name")).id("routine-name-input"),
             tokens,
         ))
-        .child(labeled_field(
-            t("routines.field.bot"),
-            Input::new(input_state(inputs, "bot_id")).id("routine-bot-input"),
-            tokens,
-        ))
-        .child(labeled_field(
-            t("routines.field.project"),
-            Input::new(input_state(inputs, "project_id")).id("routine-project-input"),
-            tokens,
-        ))
         .child(routine_selectors(data, inputs, tokens, cx))
         .child(labeled_field(
             t("routines.field.instruction"),
@@ -5203,7 +5236,7 @@ fn routine_editor(
         .child(summary)
         .child(card(
             t("routines.history"),
-            rows(history.iter().cloned(), tokens),
+            routine_history_rows(&history, tokens, cx),
             tokens,
         ))
         .child(
@@ -5219,6 +5252,82 @@ fn routine_editor(
                 ))
                 .child(routine_actions),
         )
+}
+
+fn routine_next_run_label(data: &Value) -> String {
+    let Some(next_run) = data.get("next_run_at").and_then(Value::as_str) else {
+        return String::new();
+    };
+    let Ok(next_run) = chrono::DateTime::parse_from_rfc3339(next_run) else {
+        return String::new();
+    };
+    let bot_id = string(data, "bot_id", "");
+    let bot = array(data, "bots")
+        .iter()
+        .find(|item| string(item, "id", "") == bot_id)
+        .map(|item| string(item, "name", &bot_id))
+        .unwrap_or_else(|| bot_id.to_owned());
+    t("routines.next_run")
+        .replace(
+            "{time}",
+            &next_run
+                .with_timezone(&Local)
+                .format("%m/%d %H:%M")
+                .to_string(),
+        )
+        .replace("{bot}", &bot)
+}
+
+fn routine_history_rows(
+    runs: &[Value],
+    tokens: &Tokens,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement {
+    if runs.is_empty() {
+        return div()
+            .text_color(tokens.secondary)
+            .child(t("routines.history.empty"));
+    }
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(tokens.space[2]))
+        .children(runs.iter().enumerate().map(|(index, run)| {
+            let status = match run.get("status").and_then(Value::as_str) {
+                Some("done") => t("routines.run.ok"),
+                Some("running") => t("status.working"),
+                Some("failed") => t("status.failed"),
+                Some("cancelled") => t("status.cancelled"),
+                _ => t("common.unknown"),
+            };
+            let assignment_id = run
+                .get("assignment_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let mut row = div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(tokens.space[3]))
+                .child(format!(
+                    "{} · {} · {status}",
+                    routine_time_label(
+                        run.get("started_at")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                    ),
+                    routine_trigger(run)
+                ));
+            if !assignment_id.is_empty() {
+                row = row.child(action_button_with_id(
+                    format!("routine-run-trace-{index}"),
+                    t("routines.run.trace"),
+                    FeatureAction::Trace(assignment_id.to_owned()),
+                    cx,
+                ));
+            }
+            row
+        }))
 }
 
 fn routine_schedule_inputs(
@@ -5275,13 +5384,35 @@ fn routine_selectors(
     let project_input = input_state(inputs, "project_id").clone();
     let bots = array(data, "bots");
     let projects = array(data, "projects");
+    let selected_bot_id = bot_input.read(cx).value().to_string();
+    let selected_project_id = project_input.read(cx).value().to_string();
+    let selected_bot = bots
+        .iter()
+        .find(|bot| string(bot, "id", "") == selected_bot_id)
+        .map(|bot| string(bot, "name", &selected_bot_id))
+        .unwrap_or_else(|| selected_bot_id.clone());
+    let selected_project = projects
+        .iter()
+        .find(|project| string(project, "id", "") == selected_project_id)
+        .map(|project| string(project, "name", &selected_project_id));
+    let dm_label = t("routines.deliver.dm").replace("{bot}", &selected_bot);
+    let destination = selected_project
+        .as_ref()
+        .map(|name| format!("{} · {name}", t("routines.deliver.group")))
+        .unwrap_or_else(|| dm_label.clone());
     div()
         .flex()
         .flex_col()
-        .gap(px(tokens.space[2]))
+        .gap(px(tokens.space[3]))
+        .child(
+            div()
+                .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                .child(t("routines.field.bot")),
+        )
         .child(
             div()
                 .flex()
+                .flex_wrap()
                 .gap(px(tokens.space[2]))
                 .children(bots.iter().filter_map(|bot| {
                     let id = bot.get("id").and_then(Value::as_str)?.to_owned();
@@ -5291,9 +5422,12 @@ fn routine_selectors(
                         .unwrap_or(&id)
                         .to_owned();
                     let input = bot_input.clone();
+                    let selected = id == selected_bot_id;
                     Some(
                         Button::new(format!("routine-bot-{id}"))
                             .label(label)
+                            .when(selected, |button| button.primary())
+                            .when(!selected, |button| button.ghost())
                             .on_click(cx.listener(move |_this, _, window, cx| {
                                 input.update(cx, |state, cx| {
                                     state.set_value(id.clone(), window, cx)
@@ -5304,8 +5438,32 @@ fn routine_selectors(
         )
         .child(
             div()
+                .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                .child(t("routines.field.deliver_to")),
+        )
+        .child(
+            div()
+                .text_size(px(tokens.desktop_type[1][0]))
+                .text_color(tokens.secondary)
+                .child(destination),
+        )
+        .child(
+            div()
                 .flex()
+                .flex_wrap()
                 .gap(px(tokens.space[2]))
+                .child({
+                    let input = project_input.clone();
+                    let selected = selected_project_id.is_empty();
+                    Button::new("routine-deliver-dm")
+                        .label(dm_label)
+                        .when(selected, |button| button.primary())
+                        .when(!selected, |button| button.ghost())
+                        .on_click(cx.listener(move |_this, _, window, cx| {
+                            input
+                                .update(cx, |state, cx| state.set_value(String::new(), window, cx));
+                        }))
+                })
                 .children(projects.iter().filter_map(|project| {
                     let id = project.get("id").and_then(Value::as_str)?.to_owned();
                     let label = project
@@ -5314,9 +5472,12 @@ fn routine_selectors(
                         .unwrap_or(&id)
                         .to_owned();
                     let input = project_input.clone();
+                    let selected = id == selected_project_id;
                     Some(
-                        Button::new(format!("routine-project-{id}"))
+                        Button::new(format!("routine-deliver-group-{id}"))
                             .label(label)
+                            .when(selected, |button| button.primary())
+                            .when(!selected, |button| button.ghost())
                             .on_click(cx.listener(move |_this, _, window, cx| {
                                 input.update(cx, |state, cx| {
                                     state.set_value(id.clone(), window, cx)
@@ -5361,9 +5522,9 @@ fn routines_list(
         let label = format!(
             "{} · {name}",
             if enabled {
-                t("routines.state.enabled")
+                t("routines.filter.running")
             } else {
-                t("routines.state.disabled")
+                t("routines.paused")
             }
         );
         let selected_routine = routine.clone();
@@ -5654,9 +5815,15 @@ fn routine_schedule(data: &Value) -> String {
     }
 }
 
+fn routine_time_label(value: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|time| time.with_timezone(&Local).format("%m/%d %H:%M").to_string())
+        .unwrap_or_else(|_| t("common.unknown").to_owned())
+}
+
 fn routine_trigger(run: &Value) -> &'static str {
     match run.get("trigger").and_then(Value::as_str) {
-        Some("schedule") => t("routine.trigger.schedule"),
+        Some("schedule") => t("routines.run.scheduled"),
         Some("test") => t("routines.test_run"),
         _ => t("common.unknown"),
     }
@@ -5814,7 +5981,8 @@ fn dashboard_cache_with_delta(data: &Value) -> String {
         return format!("{current:.0}%");
     };
     format!(
-        "{current:.0}%  {}{:.0}pt",
+        "{current:.0}% · {} {}{:.0}pt",
+        t("dashboard.kpi.vs_prev"),
         if current >= previous { "▲" } else { "▼" },
         (current - previous).abs()
     )
@@ -5841,7 +6009,8 @@ fn dashboard_metric_with_delta(data: &Value, key: &str, fallback: &str) -> Strin
     }
     let delta = (current - previous) / previous * 100.;
     format!(
-        "{value}  {}{:.0}%",
+        "{value} · {} {}{:.0}%",
+        t("dashboard.kpi.vs_prev"),
         if delta >= 0. { "▲" } else { "▼" },
         delta.abs()
     )
