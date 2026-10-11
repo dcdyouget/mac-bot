@@ -416,6 +416,12 @@
 | dashboard.dimension.project | 项目 |
 | dashboard.metric | 指标 |
 | dashboard.drill.phases | 按项目和阶段拆分 |
+| dashboard.phase.chat | 私聊 |
+| dashboard.phase.work | 干活 |
+| dashboard.phase.subagent | 子代理 |
+| dashboard.phase.coordinate | 协调 |
+| dashboard.phase.memory | 记忆整理 |
+| dashboard.phase.compact | 压缩 |
 
 ## routines · 定时任务
 
