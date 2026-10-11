@@ -491,6 +491,7 @@ fn render_page(
         "workbench" => workbench(data, &tokens, cx).into_any_element(),
         "dashboard" => dashboard(data, inputs, &tokens, cx).into_any_element(),
         "skills" | "skill" => skills(data, inputs, textareas, &tokens, cx).into_any_element(),
+        "bot/detail" | "bot_detail" => bot_detail(data, &tokens, cx).into_any_element(),
         "bot" | "bot_settings" => {
             bot_editor(data, inputs, textareas, &tokens, cx).into_any_element()
         }
@@ -536,15 +537,20 @@ fn page_header(
     div()
         .flex()
         .flex_col()
-        .gap_1()
-        .pb_4()
+        .gap(px(tokens.space[2]))
+        .pb(px(tokens.space[6]))
         .child(
             div()
-                .text_xl()
+                .text_size(px(tokens.desktop_type[7][0]))
                 .font_weight(gpui_kit::gpui::FontWeight::BOLD)
                 .child(title),
         )
-        .child(div().text_sm().text_color(tokens.secondary).child(subtitle))
+        .child(
+            div()
+                .text_size(px(tokens.desktop_type[1][0]))
+                .text_color(tokens.secondary)
+                .child(subtitle),
+        )
 }
 
 fn card(title: impl Into<String>, body: impl IntoElement, tokens: &Tokens) -> impl IntoElement {
@@ -552,9 +558,9 @@ fn card(title: impl Into<String>, body: impl IntoElement, tokens: &Tokens) -> im
     div()
         .flex()
         .flex_col()
-        .gap_2()
-        .p_4()
-        .rounded_lg()
+        .gap(px(tokens.space[4]))
+        .p(px(tokens.space[5]))
+        .rounded(px(tokens.radius[8]))
         .bg(tokens.window)
         .border_1()
         .border_color(tokens.border)
@@ -572,18 +578,23 @@ fn stat(label: impl Into<String>, value: impl Into<String>, tokens: &Tokens) -> 
     div()
         .flex()
         .flex_col()
-        .gap_1()
+        .gap(px(tokens.space[2]))
         .flex_1()
-        .p_3()
+        .p(px(tokens.space[5]))
         .min_w(px(130.))
-        .rounded_md()
+        .rounded(px(tokens.radius[2]))
         .bg(tokens.window)
         .border_1()
         .border_color(tokens.border)
-        .child(div().text_sm().text_color(tokens.secondary).child(label))
         .child(
             div()
-                .text_lg()
+                .text_size(px(tokens.desktop_type[1][0]))
+                .text_color(tokens.secondary)
+                .child(label),
+        )
+        .child(
+            div()
+                .text_size(px(tokens.desktop_type[6][0]))
                 .font_weight(gpui_kit::gpui::FontWeight::BOLD)
                 .child(value),
         )
@@ -593,7 +604,7 @@ fn rows(items: impl IntoIterator<Item = String>, tokens: &Tokens) -> impl IntoEl
     div()
         .flex()
         .flex_col()
-        .gap_1()
+        .gap(px(tokens.space[2]))
         .children(items.into_iter().map(|item| {
             div()
                 .flex()
@@ -1690,7 +1701,7 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
         )
         .child(div().flex().flex_wrap().gap_3().children([
             stat(
-                t("workbench.running"),
+                t("workbench.running_label"),
                 &format!("{running} / {limit}"),
                 tokens,
             ),
@@ -1710,7 +1721,7 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
         .child(workbench_waiting(&waiting, tokens, cx))
         .child(card(t("workbench.title"), active_groups, tokens))
         .child(card(
-            t("workbench.done_today_label"),
+            &t("workbench.done_today").replace("{count}", &done.len().to_string()),
             if done.is_empty() {
                 div()
                     .p_3()
@@ -1729,15 +1740,14 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
     div()
         .flex()
         .flex_col()
-        .gap_4()
-        .p_6()
+        .gap(px(tokens.space[6]))
+        .px(px(tokens.space[8]))
+        .py(px(tokens.space[6]))
         .child(page_header(
             t("workbench.title"),
-            &format!(
-                "{} {running} / {} {limit}",
-                t("workbench.running"),
-                t("workbench.global_limit")
-            ),
+            &t("workbench.running")
+                .replace("{running}", &running.to_string())
+                .replace("{limit}", &limit.to_string()),
             tokens,
         ))
         .child(body)
@@ -2151,11 +2161,11 @@ fn waiting_title(item: &Value, kind: &str) -> String {
             .map(|question| {
                 format!(
                     "{} · {}",
-                    t("block.question.title_deck"),
+                    t("workbench.waiting_question"),
                     string(question, "text", t("common.unknown"))
                 )
             })
-            .unwrap_or_else(|| t("block.question.title_deck").to_string()),
+            .unwrap_or_else(|| t("workbench.waiting_question").to_string()),
         "takeover" => format!(
             "{} · {}",
             t("block.takeover.title"),
@@ -2185,8 +2195,9 @@ fn dashboard(
     div()
         .flex()
         .flex_col()
-        .gap_4()
-        .p_6()
+        .gap(px(tokens.space[6]))
+        .px(px(tokens.space[8]))
+        .py(px(tokens.space[6]))
         .child(page_header(t("dashboard.title"), period_label, tokens))
         .child(
             div()
@@ -3174,7 +3185,9 @@ fn skills(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
-    let selected_builtin = !selected_name.is_empty() && skill_source_kind(selected) == "builtin";
+    let selected_source = skill_source_kind(selected);
+    let selected_builtin = !selected_name.is_empty() && selected_source == "builtin";
+    let selected_draft = !selected_name.is_empty() && selected_source == "draft";
     let list_rows = div()
         .flex()
         .flex_col()
@@ -3192,8 +3205,8 @@ fn skills(
                 .items_center()
                 .gap_2()
                 .w_full()
-                .p_2()
-                .rounded_md()
+                .p(px(tokens.space[4]))
+                .rounded(px(tokens.radius[2]))
                 .bg(
                     if selected.get("name").and_then(Value::as_str) == Some(id.as_str()) {
                         tokens.bot
@@ -3208,26 +3221,28 @@ fn skills(
                 )))
                 .child({
                     let mut actions = div().flex().flex_wrap().gap_2().flex_shrink_0();
-                    actions = actions.child(action_button_with_id(
-                        format!("skill-{index}-toggle"),
-                        if enabled {
-                            t("skills.disable_for")
-                        } else {
-                            t("common.enable")
-                        },
-                        FeatureAction::Rpc {
-                            method: "skill.set_enabled".into(),
-                            params: skill_enabled_params(&id, !enabled, None),
-                        },
-                        cx,
-                    ));
+                    if skill_source_kind(skill) != "draft" {
+                        actions = actions.child(action_button_with_id(
+                            format!("skill-{index}-toggle"),
+                            if enabled {
+                                t("skills.disable_for")
+                            } else {
+                                t("common.enable")
+                            },
+                            FeatureAction::Rpc {
+                                method: "skill.set_enabled".into(),
+                                params: skill_enabled_params(&id, !enabled, None),
+                            },
+                            cx,
+                        ));
+                    }
                     actions = actions.child(action_button_with_id(
                         format!("skill-{index}-edit"),
                         t("common.edit"),
                         FeatureAction::Navigate(format!("skill/{id}")),
                         cx,
                     ));
-                    if skill_source(skill) == t("skills.draft") {
+                    if skill_source_kind(skill) == "draft" {
                         actions = actions.child(action_button_with_id(
                             format!("skill-{index}-publish"),
                             t("skills.publish"),
@@ -3249,10 +3264,38 @@ fn skills(
     } else {
         list_rows
     };
+    let selected_header = if selected_name.is_empty() {
+        div().into_any_element()
+    } else {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(tokens.space[2]))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(tokens.desktop_type[5][0]))
+                    .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                    .child(selected_name.clone()),
+            )
+            .child(
+                div()
+                    .text_size(px(tokens.desktop_type[0][0]))
+                    .text_color(if selected_draft {
+                        tokens.warning
+                    } else {
+                        tokens.secondary
+                    })
+                    .child(skill_source(selected)),
+            )
+            .into_any_element()
+    };
     let editor = div()
         .flex()
         .flex_col()
-        .gap_2()
+        .gap(px(tokens.space[4]))
+        .child(selected_header)
         .child(labeled_field(
             t("skills.new.name"),
             Input::new(input_state(inputs, "name"))
@@ -3361,7 +3404,34 @@ fn skills(
                         cx.notify();
                     })),
             );
-            if !selected_name.is_empty() && !selected_builtin {
+            if selected_draft {
+                actions = actions
+                    .child(textarea_rpc_button(
+                        t("common.save"),
+                        "skill.update",
+                        skill_update_params(&selected_name, ""),
+                        "content",
+                        textareas,
+                        None,
+                        cx,
+                    ))
+                    .child(action_button(
+                        t("skills.discard"),
+                        FeatureAction::Rpc {
+                            method: "skill.delete".into(),
+                            params: skill_delete_params(&selected_name),
+                        },
+                        cx,
+                    ))
+                    .child(action_button(
+                        t("skills.publish"),
+                        FeatureAction::Rpc {
+                            method: "skill.publish".into(),
+                            params: skill_publish_params(&selected_name),
+                        },
+                        cx,
+                    ));
+            } else if !selected_name.is_empty() && !selected_builtin {
                 actions = actions
                     .child(textarea_rpc_button(
                         t("common.save"),
@@ -3386,8 +3456,9 @@ fn skills(
     div()
         .flex()
         .flex_col()
-        .gap_4()
-        .p_6()
+        .gap(px(tokens.space[6]))
+        .px(px(tokens.space[8]))
+        .py(px(tokens.space[6]))
         .child(page_header(t("skills.title"), t("skills.subtitle"), tokens))
         .child(
             div()
@@ -3433,12 +3504,13 @@ fn skills(
         .child(
             div()
                 .flex()
-                .gap_4()
-                .child(div().w(px(280.)).flex_shrink_0().child(card(
-                    t("skills.title"),
-                    list,
-                    tokens,
-                )))
+                .gap(px(tokens.space[6]))
+                .child(
+                    div()
+                        .w(px(tokens.desktop_layout.listcol_width))
+                        .flex_shrink_0()
+                        .child(card(t("skills.title"), list, tokens)),
+                )
                 .child(editor.flex_1().min_w_0()),
         )
 }
@@ -3605,10 +3677,17 @@ fn bot_editor(
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
     let title = if data.get("id").is_some() {
-        t("bot.settings")
+        t("bot.settings").to_owned()
     } else {
-        t("new.bot")
+        let name = input_state(inputs, "name").read(cx).value().to_string();
+        let name = if name.trim().is_empty() {
+            t("bot.default_name")
+        } else {
+            name.as_str()
+        };
+        t("new.bot").replace("{name}", name)
     };
+    let bot_id = data.get("id").and_then(Value::as_str).unwrap_or_default();
     let body = rows(
         [
             format!(
@@ -3659,9 +3738,20 @@ fn bot_editor(
     div()
         .flex()
         .flex_col()
-        .gap_4()
-        .p_6()
-        .child(page_header(title, t("bot.subtitle"), tokens))
+        .gap(px(tokens.space[6]))
+        .px(px(tokens.space[8]))
+        .py(px(tokens.space[6]))
+        .child(page_header(title.clone(), t("bot.subtitle"), tokens))
+        .child(if data.get("id").is_some() {
+            action_button(
+                t("common.details"),
+                FeatureAction::Navigate(format!("bot/{bot_id}")),
+                cx,
+            )
+            .into_any_element()
+        } else {
+            div().into_any_element()
+        })
         .child(labeled_field(
             t("bot.field.name"),
             Input::new(input_state(inputs, "name")).id("bot-name-input"),
@@ -3707,6 +3797,287 @@ fn bot_editor(
             cx,
         ))
         .child(bot_actions)
+}
+
+fn bot_detail(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> impl IntoElement {
+    let detail = data.get("bot_detail").unwrap_or(data);
+    let bot = detail
+        .get("bot")
+        .or_else(|| data.get("selected"))
+        .unwrap_or(&Value::Null);
+    let loading = detail.get("loading").unwrap_or(&Value::Null);
+    let errors = detail.get("errors").unwrap_or(&Value::Null);
+    let bot_id = string(bot, "id", &string(detail, "bot_id", ""));
+    let bot_name = string(bot, "name", t("common.unknown"));
+    let label = string(bot, "label", "");
+    let model = string(bot, "model", t("bot.default_model"));
+    let avatar = bot.get("avatar").unwrap_or(&Value::Null);
+    let avatar_color = avatar.get("color").and_then(Value::as_u64).unwrap_or(0);
+    let avatar_text = avatar
+        .get("emoji")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| bot_name.chars().next().unwrap_or('B').to_string());
+    let project_rows = array(detail, "projects")
+        .into_iter()
+        .filter(|project| project_has_bot(project, &bot_id))
+        .map(|project| {
+            let project_id = string(&project, "id", "");
+            let project_name = string(&project, "name", t("common.unknown"));
+            let target = format!("project/{project_id}");
+            action_button(&project_name, FeatureAction::Navigate(target), cx).into_any_element()
+        })
+        .collect::<Vec<_>>();
+    let assignments = array(detail, "assignments")
+        .into_iter()
+        .map(|assignment| {
+            let assignment_id = string(&assignment, "id", "");
+            let title = string(&assignment, "title", t("common.unnamed_task"));
+            let status = bot_assignment_status(&assignment);
+            action_button(
+                &format!("{status} · {title}"),
+                FeatureAction::Navigate(format!("assignment/{assignment_id}")),
+                cx,
+            )
+            .into_any_element()
+        })
+        .collect::<Vec<_>>();
+    let usage = bot_usage(detail, &bot_id);
+    let input_tokens = usage
+        .get("input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let output_tokens = usage
+        .get("output_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let cost = usage
+        .get("cost")
+        .and_then(json_value_text)
+        .unwrap_or_else(|| t("common.unknown").to_owned());
+    let name_and_label = if label.is_empty() {
+        model
+    } else {
+        format!("{label} · {model}")
+    };
+    let bot_id_for_settings = bot_id.clone();
+    let dm_chat_id = string(bot, "dm_chat_id", "");
+    let show_detail_error = |key: &str| errors.get(key).is_some();
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(tokens.space[6]))
+        .px(px(tokens.space[8]))
+        .py(px(tokens.space[6]))
+        .child(
+            if loading.get("bot").and_then(Value::as_bool) == Some(true) {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("common.loading"))
+                    .into_any_element()
+            } else if show_detail_error("bot") || bot_id.is_empty() {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("bot.detail.load_failed"))
+                    .into_any_element()
+            } else {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(tokens.space[5]))
+                    .child(
+                        div()
+                            .size(px(64.))
+                            .rounded(px(tokens.radius[11]))
+                            .bg(tokens.bean(avatar_color))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(tokens.desktop_type[7][0]))
+                            .text_color(tokens.primary)
+                            .child(avatar_text),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(tokens.space[2]))
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(tokens.desktop_type[5][0]))
+                                    .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                                    .child(bot_name),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(tokens.desktop_type[1][0]))
+                                    .text_color(tokens.secondary)
+                                    .child(name_and_label),
+                            ),
+                    )
+                    .into_any_element()
+            },
+        )
+        .child(
+            div()
+                .flex()
+                .gap(px(tokens.space[2]))
+                .when(!dm_chat_id.is_empty(), |row| {
+                    row.child(action_button(
+                        t("bot.detail.open_chat"),
+                        FeatureAction::Navigate(format!("chat/{dm_chat_id}")),
+                        cx,
+                    ))
+                })
+                .child(action_button(
+                    t("bot.settings"),
+                    FeatureAction::Navigate(format!("bot_settings?bot_id={bot_id_for_settings}")),
+                    cx,
+                )),
+        )
+        .child(card(
+            t("bot.groups"),
+            if loading.get("projects").and_then(Value::as_bool) == Some(true) {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("common.loading"))
+                    .into_any_element()
+            } else if show_detail_error("projects") {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("bot.detail.load_failed"))
+                    .into_any_element()
+            } else if project_rows.is_empty() {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("bot.detail.empty_groups"))
+                    .into_any_element()
+            } else {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(tokens.space[2]))
+                    .children(project_rows)
+                    .into_any_element()
+            },
+            tokens,
+        ))
+        .child(card(
+            t("bot.history"),
+            if loading.get("assignments").and_then(Value::as_bool) == Some(true) {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("common.loading"))
+                    .into_any_element()
+            } else if show_detail_error("assignments") {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("bot.detail.load_failed"))
+                    .into_any_element()
+            } else if assignments.is_empty() {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("bot.detail.empty_history"))
+                    .into_any_element()
+            } else {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(tokens.space[2]))
+                    .children(assignments)
+                    .into_any_element()
+            },
+            tokens,
+        ))
+        .child(card(
+            t("bot.week_usage"),
+            if loading.get("weekly_usage").and_then(Value::as_bool) == Some(true) {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("common.loading"))
+                    .into_any_element()
+            } else if show_detail_error("weekly_usage") {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("bot.detail.load_failed"))
+                    .into_any_element()
+            } else if array(detail, "weekly_usage").is_empty() {
+                div()
+                    .text_color(tokens.secondary)
+                    .child(t("bot.detail.empty_usage"))
+                    .into_any_element()
+            } else {
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(tokens.space[4]))
+                    .children([
+                        stat(
+                            t("dashboard.kpi.tokens"),
+                            &(input_tokens + output_tokens).to_string(),
+                            tokens,
+                        ),
+                        stat(t("dashboard.kpi.cost"), &cost, tokens),
+                    ])
+                    .into_any_element()
+            },
+            tokens,
+        ))
+}
+
+fn project_has_bot(project: &Value, bot_id: &str) -> bool {
+    if project.get("lead_bot_id").and_then(Value::as_str) == Some(bot_id) {
+        return true;
+    }
+    let members = project
+        .get("member_bot_ids")
+        .or_else(|| project.get("members"))
+        .and_then(Value::as_array);
+    members.is_some_and(|members| {
+        members.iter().any(|member| {
+            member.as_str() == Some(bot_id)
+                || member.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+        })
+    })
+}
+
+fn bot_assignment_status(assignment: &Value) -> &'static str {
+    match assignment.get("status").and_then(Value::as_str) {
+        Some("queued") => t("status.queued"),
+        Some("working") => t("status.working"),
+        Some("waiting_user") => t("status.waiting_user"),
+        Some("waiting_bot" | "blocked") => t("status.blocked"),
+        Some("done") => t("status.done"),
+        Some("failed") => t("status.failed"),
+        Some("cancelled") => t("status.cancelled"),
+        _ => t("common.unknown"),
+    }
+}
+
+fn bot_usage(detail: &Value, bot_id: &str) -> Value {
+    let weekly_usage = detail.get("weekly_usage").unwrap_or(&Value::Null);
+    if let Some(rows) = weekly_usage.as_array() {
+        return rows
+            .iter()
+            .find(|row| row.get("key").and_then(Value::as_str) == Some(bot_id))
+            .or_else(|| (rows.len() == 1).then(|| &rows[0]))
+            .and_then(|row| row.get("usage").cloned().or_else(|| Some(row.clone())))
+            .unwrap_or(Value::Null);
+    }
+    if let Some(row) = array(weekly_usage, "rows")
+        .iter()
+        .find(|row| row.get("key").and_then(Value::as_str) == Some(bot_id))
+    {
+        return row.get("usage").cloned().unwrap_or_else(|| row.clone());
+    }
+    weekly_usage
+        .get("usage")
+        .cloned()
+        .unwrap_or_else(|| weekly_usage.clone())
 }
 
 fn bot_notification_toggle(
@@ -3815,12 +4186,12 @@ fn bot_tools_picker(data: &Value, cx: &mut Context<FeaturePage>) -> impl IntoEle
                 let key = key.to_owned();
                 Checkbox::new(format!("bot-tool-{key}"))
                     .label(t(match key.as_str() {
-                        "files" => "settings.tool.files",
-                        "bash" => "settings.tool.shell",
-                        "browser" => "settings.tool.browser",
-                        "subagent" => "settings.tool.subagent",
-                        "web" => "settings.tool.web",
-                        _ => "settings.tool.mcp",
+                        "files" => "bot.tool.file",
+                        "bash" => "bot.tool.bash",
+                        "browser" => "bot.tool.browser",
+                        "subagent" => "bot.tool.subagent",
+                        "web" => "bot.tool.web",
+                        _ => "bot.tool.mcp",
                     }))
                     .checked(checked)
                     .on_change(cx.listener(move |this, next, _, cx| {
@@ -4046,8 +4417,9 @@ fn group_editor(
     div()
         .flex()
         .flex_col()
-        .gap_4()
-        .p_6()
+        .gap(px(tokens.space[6]))
+        .px(px(tokens.space[8]))
+        .py(px(tokens.space[6]))
         .child(page_header(
             t("group.new.title"),
             t("group.subtitle"),
@@ -4163,8 +4535,9 @@ fn routine_editor(
     div()
         .flex()
         .flex_col()
-        .gap_4()
-        .p_6()
+        .gap(px(tokens.space[6]))
+        .px(px(tokens.space[8]))
+        .py(px(tokens.space[6]))
         .child(page_header(
             t("routines.title"),
             string(data, "name", t("routine.default_name")),
@@ -4172,7 +4545,7 @@ fn routine_editor(
         ))
         .child(routine_list)
         .child(labeled_field(
-            t("routines.title"),
+            t("routines.field.name"),
             Input::new(input_state(inputs, "name")).id("routine-name-input"),
         ))
         .child(labeled_field(
@@ -4191,7 +4564,7 @@ fn routine_editor(
         .child(routine_schedule_inputs(data, inputs, cx))
         .child(routine_add_schedule_button(cx))
         .child(labeled_field(
-            t("routines.field.timezone"),
+            t("routines.field.timezone_label"),
             Input::new(input_state(inputs, "timezone")).id("routine-timezone-input"),
         ))
         .child(summary)
@@ -4361,8 +4734,8 @@ fn routines_list(
                 .flex()
                 .items_center()
                 .justify_between()
-                .p_2()
-                .rounded_md()
+                .p(px(tokens.space[4]))
+                .rounded(px(tokens.radius[2]))
                 .bg(if id == selected_id {
                     tokens.bot
                 } else {
@@ -4381,7 +4754,7 @@ fn routines_list(
     list.child(div().flex().flex_wrap().gap_1().children(
         ["all", "running", "paused"].into_iter().map(|value| {
             let label = match value {
-                "running" => t("status.working"),
+                "running" => t("routines.filter.running"),
                 "paused" => t("routines.filter.paused"),
                 _ => t("common.all"),
             };
@@ -4435,16 +4808,17 @@ fn search(
     div()
         .flex()
         .flex_col()
-        .gap_4()
-        .p_6()
+        .gap(px(tokens.space[6]))
+        .px(px(tokens.space[8]))
+        .py(px(tokens.space[6]))
         .child(page_header(
-            t("search.title"),
+            t("common.search"),
             t("search.placeholder"),
             tokens,
         ))
         .child(Input::new(input_state(inputs, "query")).id("search-input"))
         .child(input_rpc_button(
-            t("search.title"),
+            t("common.search"),
             "search",
             json!({"limit": 20}),
             "query",
@@ -4488,7 +4862,7 @@ fn search(
                 )),
         )
         .child(card(
-            t("search.title"),
+            t("common.search"),
             search_result_rows(&result, tokens, cx),
             tokens,
         ))
@@ -4601,8 +4975,9 @@ fn empty_page(page: &str, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> imp
     div()
         .flex()
         .flex_col()
-        .gap_2()
-        .p_6()
+        .gap(px(tokens.space[4]))
+        .px(px(tokens.space[8]))
+        .py(px(tokens.space[6]))
         .child(page_header(page, t("common.unavailable_hint"), tokens))
         .child(action_button(
             t("workbench.title"),
@@ -4643,7 +5018,7 @@ fn routine_schedule(data: &Value) -> String {
 fn routine_trigger(run: &Value) -> &'static str {
     match run.get("trigger").and_then(Value::as_str) {
         Some("schedule") => t("routine.trigger.schedule"),
-        Some("test") => t("routine.trigger.test"),
+        Some("test") => t("routines.test_run"),
         _ => t("common.unknown"),
     }
 }
