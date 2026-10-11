@@ -2151,19 +2151,15 @@ impl MacBot {
             );
         }
         if message["streaming"] == true {
-            let delta = self
+            let text = self
                 .state
                 .message_deltas
                 .get(&id)
-                .map(String::as_str)
-                .unwrap_or("");
-            let text = if delta.is_empty() {
-                message_display_text(message)
-            } else {
-                delta
-            };
+                .filter(|delta| !delta.is_empty())
+                .cloned()
+                .unwrap_or_else(|| message_display_text(message).to_owned());
             bubble =
-                bubble.child(self.markdown_with_folds(&format!("stream-{id}"), text, window, cx));
+                bubble.child(self.markdown_with_folds(&format!("stream-{id}"), &text, window, cx));
         } else {
             let blocks = arr(message, "blocks");
             if blocks.is_empty() {
@@ -3893,7 +3889,9 @@ impl MacBot {
                     .object_fit(ObjectFit::Contain),
             )
             .on_click(cx.listener(move |_, _, window, cx| {
+                let image_for_dialog = fullscreen_image.clone();
                 window.open_dialog(cx, move |dialog, _, _| {
+                    let image_for_content = image_for_dialog.clone();
                     dialog
                         .w(px(1040.))
                         .title(chat_tr("chat.image.fullscreen"))
@@ -3907,7 +3905,7 @@ impl MacBot {
                                     .justify_center()
                                     .bg(Tokens::get(app).chat)
                                     .child(
-                                        img(fullscreen_image.clone())
+                                        img(image_for_content.clone())
                                             .size_full()
                                             .object_fit(ObjectFit::Contain),
                                     ),
