@@ -543,12 +543,10 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 
 @media (max-width: 1200px) {
   .sidebar { width: 220px; }
-  .context-panel { display: none; }
   .dashboard-kpi-card > strong { font-size: 17px; }
   .desktop-page-scroll { padding-right: 14px; padding-left: 14px; }
 }
 @media (max-width: 1000px) {
-  html, body, #root { min-width: 800px; min-height: 560px; }
   .sidebar { width: 200px; }
   .workbench-task-row { grid-template-columns: 18px minmax(110px, 1fr) auto auto; }
   .workbench-task-data, .workbench-task-model { display: none; }

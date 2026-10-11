@@ -76,12 +76,28 @@
 .follow-project-avatar { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
 .context-assignment-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 5px; }
 .context-assignment-actions .trace-button { min-height: 25px; padding: 0 6px; }
-@media (max-width: 1100px) {
+.context-panel.context-panel-closing { animation: context-panel-exit 200ms var(--ease-standard) both; pointer-events: none; }
+.context-panel-scrim.context-panel-scrim-closing { pointer-events: none; }
+@media (max-width: 1099px) {
   .app-shell { position: relative; }
-  .context-panel-scrim { position: absolute; z-index: 7; inset: 0; display: block; border: 0; background: rgb(0 0 0 / 12%); }
-  .context-panel.context-panel-open { position: absolute; z-index: 8; inset: 0 0 0 auto; display: flex; width: 280px; box-shadow: var(--elevation-4); }
+  .context-panel-scrim { position: absolute; z-index: 7; inset: 0; display: block; border: 0; background: transparent; }
+  .context-panel.context-panel-open { position: absolute; z-index: 8; inset: 0 0 0 auto; display: flex; width: 280px; box-shadow: var(--elevation-4); animation: context-panel-enter 200ms var(--ease-standard) both; }
+  .context-panel.context-panel-open.context-panel-closing { animation: context-panel-exit 200ms var(--ease-standard) both; }
   .context-panel-collapsed { display: none; }
 }
 @media (max-width: 520px) {
   .context-panel.context-panel-open { width: min(320px, calc(100vw - 48px)); }
+}
+@keyframes context-panel-enter {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes context-panel-exit {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(24px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .context-panel.context-panel-open,
+  .context-panel.context-panel-closing,
+  .context-panel.context-panel-open.context-panel-closing { animation: none; transition: none; }
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
@@ -23,6 +23,7 @@ import { EmptyGroupSuggestions, WelcomeTemplates, type WelcomeTemplateRecord } f
 import { welcomeTemplateRetryAction, type WelcomeTemplateChoice } from './components/welcomeTemplates.model'
 import { buildMainEmptySuggestionAction, splitSidebarGroups } from './components/sidebarGroups.model'
 import { classifyDeepLink, type PendingDeepLink } from './components/deepLinkRouting.model'
+import { CONTEXT_PANEL_TRANSITION_MS, transitionContextPanel, type ContextPanelPhase } from './components/contextPanelMotion.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
 import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './components/ChatAttachments'
@@ -133,7 +134,6 @@ function App() {
   const [announcementDraft, setAnnouncementDraft] = useState('')
   const [announcementError, setAnnouncementError] = useState<string | null>(null)
   const [announcementSaving, setAnnouncementSaving] = useState(false)
-  const [contextPanelOpen, setContextPanelOpen] = useState(true)
   const [contextPanelStack, setContextPanelStack] = useState<ContextPanelPage[]>(['context'])
   const [groupSettingsBusy, setGroupSettingsBusy] = useState(false)
   const [groupSettingsError, setGroupSettingsError] = useState<string | null>(null)
@@ -242,6 +242,11 @@ function App() {
   const [systemDark, setSystemDark] = useState(false)
   const [reducedTransparency, setReducedTransparency] = useState(false)
   const hostScope = state.active_host?.id ?? state.node_id ?? endpoint.trim()
+  const [contextPanelPhase, setContextPanelPhase] = useState<ContextPanelPhase>('open')
+  const contextPanelOpen = contextPanelPhase === 'open'
+  const contextPanelRetained = contextPanelPhase !== 'closed'
+  const contextPanelCloseTimerRef = useRef<number | null>(null)
+  const contextPanelIdentityRef = useRef(`${hostScope}:${activePage}`)
   const hostScopeRef = useRef(hostScope)
   const stateRef = useRef(state)
   const traceRouteRef = useRef(traceRoute)
@@ -268,6 +273,58 @@ function App() {
   computerRouteRef.current = computerRoute
   computerFrameScopeRef.current = computerFrameScope
   computerFrameRef.current = computerFrame
+
+  const openContextPanel = useCallback(() => {
+    if (contextPanelCloseTimerRef.current !== null) window.clearTimeout(contextPanelCloseTimerRef.current)
+    contextPanelCloseTimerRef.current = null
+    setContextPanelPhase('open')
+  }, [])
+
+  const closeContextPanel = useCallback(() => {
+    if (contextPanelPhase !== 'open') return
+    if (contextPanelCloseTimerRef.current !== null) window.clearTimeout(contextPanelCloseTimerRef.current)
+    contextPanelCloseTimerRef.current = null
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const next = transitionContextPanel(contextPanelPhase, 'close', reducedMotion)
+    setContextPanelPhase(next)
+    if (next === 'closing') {
+      const identity = contextPanelIdentityRef.current
+      contextPanelCloseTimerRef.current = window.setTimeout(() => {
+        contextPanelCloseTimerRef.current = null
+        if (contextPanelIdentityRef.current === identity) setContextPanelPhase((phase) => transitionContextPanel(phase, 'finish_close'))
+      }, CONTEXT_PANEL_TRANSITION_MS)
+    }
+  }, [contextPanelPhase])
+
+  const invalidateContextPanel = useCallback(() => {
+    if (contextPanelCloseTimerRef.current !== null) window.clearTimeout(contextPanelCloseTimerRef.current)
+    contextPanelCloseTimerRef.current = null
+    setContextPanelPhase((phase) => transitionContextPanel(phase, 'invalidate'))
+  }, [])
+
+  useLayoutEffect(() => {
+    const identity = `${hostScope}:${activePage}`
+    if (contextPanelIdentityRef.current !== identity) {
+      contextPanelIdentityRef.current = identity
+      invalidateContextPanel()
+    }
+  }, [hostScope, activePage, invalidateContextPanel])
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const finishForReducedMotion = () => {
+      if (!media.matches || contextPanelPhase !== 'closing') return
+      if (contextPanelCloseTimerRef.current !== null) window.clearTimeout(contextPanelCloseTimerRef.current)
+      contextPanelCloseTimerRef.current = null
+      setContextPanelPhase('closed')
+    }
+    media.addEventListener('change', finishForReducedMotion)
+    return () => media.removeEventListener('change', finishForReducedMotion)
+  }, [contextPanelPhase])
+
+  useEffect(() => () => {
+    if (contextPanelCloseTimerRef.current !== null) window.clearTimeout(contextPanelCloseTimerRef.current)
+  }, [])
   const historyCacheKey = (scope: string, chatId: string) => `${scope}\u0000${chatId}`
 
   useEffect(() => {
@@ -330,11 +387,11 @@ function App() {
     const handlePanelEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !contextPanelOpen || showSearch || showSettings) return
       if (contextPanelStack.length > 1) { popContextPanelPage(); return }
-      if (window.innerWidth <= 1100) setContextPanelOpen(false)
+      if (window.innerWidth < 1100) closeContextPanel()
     }
     window.addEventListener('keydown', handlePanelEscape)
     return () => window.removeEventListener('keydown', handlePanelEscape)
-  }, [contextPanelOpen, contextPanelStack.length, showSearch, showSettings])
+  }, [contextPanelOpen, contextPanelStack.length, showSearch, showSettings, closeContextPanel])
 
   useEffect(() => {
     const root = document.documentElement
@@ -1693,7 +1750,7 @@ function App() {
 
   function pushGroupSettings() {
     setGroupSettingsError(null)
-    setContextPanelOpen(true)
+    openContextPanel()
     setContextPanelStack((stack) => [...stack, 'group-settings'])
   }
 
@@ -2490,13 +2547,14 @@ function App() {
         {currentChat?.bot_id && <button className="icon-button" type="button" aria-label={t('computer.title').replace('{bot}', chatTitle(currentChat))} title={t('computer.title').replace('{bot}', chatTitle(currentChat))} onClick={() => openComputer(currentChat.bot_id!)}><Monitor size={16} /></button>}
         <button className="icon-button" aria-label={t('chat.search')} onClick={() => setShowSearch(true)}><Search size={17} /></button>
         <button className="icon-button" aria-label={contextPanelOpen ? t('follow.collapse') : t('group.info')} title={contextPanelOpen ? t('follow.collapse') : t('group.info')} aria-expanded={contextPanelOpen} onClick={() => {
-          if (botPanelId) { setBotPanelId(null); setContextPanelOpen(true); return }
-          setContextPanelOpen((open) => !open)
+          if (botPanelId) { setBotPanelId(null); openContextPanel(); return }
+          if (contextPanelOpen) closeContextPanel()
+          else openContextPanel()
           setContextPanelStack(['context'])
         }}><PanelRight size={17} /></button>
       </header>
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={openTrace} />}
-      {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => { setContextPanelOpen(true); setContextPanelStack(['context']); requestAnimationFrame(() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
+      {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => { openContextPanel(); setContextPanelStack(['context']); requestAnimationFrame(() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
         <span className="announcement-bar" /><span className="announcement-summary"><strong>{t('group.announcement')}</strong><small>{announcement ? summarizeMarkdown(announcement.text) : announcementLoading ? t('settings.permissions.loading') : t('group.announcement.empty')}</small></span><ChevronDown size={14} />
       </button>}
       {state.connection !== 'connected' && <div className="offline-bar">{t('host.reconnecting').replace('{host}', state.active_host?.name ?? hostName)} · {t('host.reconnecting_detail')}</div>}
@@ -2605,14 +2663,14 @@ function App() {
         })
       }}
       t={(key) => t(key as CopyKey)}
-    /> : contextPanelOpen ? <>
-      <button type="button" className="context-panel-scrim" aria-label={t('follow.collapse')} onClick={() => setContextPanelOpen(false)} />
-      <aside className={`context-panel glass-sidebar context-panel-open ${currentProjectId ? 'group-context-panel-open' : ''}`}>
+    /> : contextPanelRetained ? <>
+      <button type="button" className={`context-panel-scrim ${contextPanelPhase === 'closing' ? 'context-panel-scrim-closing' : ''}`} aria-label={t('follow.collapse')} aria-hidden={contextPanelPhase === 'closing'} onClick={closeContextPanel} />
+      <aside className={`context-panel glass-sidebar context-panel-open ${contextPanelPhase === 'closing' ? 'context-panel-closing' : ''} ${currentProjectId ? 'group-context-panel-open' : ''}`} aria-hidden={contextPanelPhase === 'closing'} inert={contextPanelPhase === 'closing'}>
       <div className={`panel-heading drag-region ${contextPanelPage === 'group-settings' ? 'context-panel-page-heading' : ''}`}>
         {contextPanelPage === 'group-settings' && <button type="button" className="icon-button" aria-label={t('common.back')} onClick={popContextPanelPage}><ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} /></button>}
         <strong>{contextPanelPage === 'group-settings' ? t('group.settings.title') : currentProjectId ? t('group.info') : t('follow.title')}</strong>
         {currentProjectId && contextPanelPage === 'context' && <button type="button" className="icon-button" aria-label={t('group.settings.title')} title={t('group.settings.title')} onClick={pushGroupSettings}><Settings size={15} /></button>}
-        <button type="button" className="icon-button" aria-label={t('follow.collapse')} title={t('follow.collapse')} onClick={() => setContextPanelOpen(false)}><PanelRight size={16} /></button>
+        <button type="button" className="icon-button" aria-label={t('follow.collapse')} title={t('follow.collapse')} onClick={closeContextPanel}><PanelRight size={16} /></button>
       </div>
       {contextPanelPage === 'group-settings' && currentProjectId ? currentProject ? <div className="context-panel-page-stack">
         <GroupSettingsPage
@@ -2631,7 +2689,7 @@ function App() {
           onArchive={async () => {
             await runGroupProjectAction('project.archive', {})
             setContextPanelStack(['context'])
-            setContextPanelOpen(false)
+            closeContextPanel()
             const main = chats.find((chat) => chat.kind === 'main')
             if (main) selectChat(main.id)
           }}
@@ -2714,7 +2772,7 @@ function App() {
         </section></>}
       </div> : null}
       </aside>
-    </> : <aside className="context-panel-collapsed"><button type="button" aria-label={t('group.info')} title={t('group.info')} onClick={() => setContextPanelOpen(true)}><PanelRight size={16} /></button></aside>}
+    </> : <aside className="context-panel-collapsed"><button type="button" aria-label={t('group.info')} title={t('group.info')} onClick={openContextPanel}><PanelRight size={16} /></button></aside>}
     </>}
     {activePage === 'artifact' && artifactRoute && <ArtifactPage
       key={`${artifactRoute.hostScope}:${artifactRoute.projectId}:${artifactRoute.artifactId}`}
