@@ -23,15 +23,16 @@
 
 ## 本轮交付与检查
 
-- macOS：沿用既有 GPUI 客户端，改造三栏与窄窗、连接/断线、群聊/跟进、消息块及问答/审批/接管状态、工作台、Bot 详情与设置、技能草稿、定时任务、仪表盘、搜索、Computer、远程 Home 浏览和产物版本预览；接入浅色/深色/半透明 token、设计文案、菜单栏常驻、唯一提示音与消息深链。补齐侧栏待办排序、快捷键、本人消息原地编辑/删除、长内容折叠、图片预览、表情、公告冲突对比和消息字号；聊天文件拖放走真实上传、历史加载态跟随 RPC；多选题一次提交多个选项，通知动作校验在线及待处理状态，工作台 @Bot 跳转并预填输入框。编译命令：`cargo check --manifest-path clients/mac/Cargo.toml -p macbot-desktop --locked`，结果通过。
+- macOS：沿用既有 GPUI 客户端，改造三栏与窄窗、连接/断线、群聊/跟进、消息块及问答/审批/接管状态、工作台、Bot 详情与设置、技能草稿、定时任务、仪表盘、搜索、Computer、远程 Home 浏览和产物版本预览；接入浅色/深色/半透明 token、设计文案、菜单栏常驻、唯一提示音与消息深链。补齐侧栏待办排序和真实菜单、快捷键、本人消息编辑/删除、长内容折叠、图片预览、表情、公告冲突对比和消息字号；聊天文件拖放走真实上传、历史加载态跟随 RPC；多选题一次提交多个选项，通知动作校验在线及待处理状态，工作台 @Bot 跳转并预填输入框。搜索键盘导航与右侧预览、技能草稿来源/本地文件夹 ZIP 导入、Bot 头像上传及远端图片渲染均接真实数据链路。编译命令：`cargo check --manifest-path clients/mac/Cargo.toml -p macbot-desktop --locked --offline`，结果通过。
 - Android：沿用 Compose 客户端，改造消息/群信息/跟进、Bot、定时任务、产物版本、问答/审批/接管、主题、通知、字号上限、读屏与焦点；设计 07 的 485 个 key 已入资源，适用页面用规范 key，唯一提示音使用设计原始 m4a。编译命令：在 `clients/mobile/` 运行 `./gradlew :androidApp:assembleDebug`，结果通过。
-- 服务端/协议：公告版本更新、引用模式、多选/过期问题、链接预览真实生产入口、定时任务更换 Bot、待看消息插话、项目产物快照与历史、失败任务幂等重试、新 Bot 默认工具、审批能力标记、本人消息原地编辑与删除；`docs/PROTOCOL.md`、Rust、Schema、fixtures、Kotlin 模型同步。管理页对接真实状态/日志/密码接口。`cargo check --manifest-path server/Cargo.toml -p macbot-gateway` 及 `-p macbot-orchestrator` 通过；管理页内联 JS 语法与 token CSS 源文件一致性检查通过。
+- 服务端/协议：公告版本更新、引用模式、多选/过期问题、链接预览真实生产入口、定时任务更换 Bot、待看消息插话、项目产物快照与历史、失败任务幂等重试、新 Bot 默认工具、审批能力标记、本人消息原地编辑与删除；结构化 Bot 头像生产持久化，以及由可信运行上下文写入的可选技能草稿来源。`docs/PROTOCOL.md`、Rust、Schema、fixtures、Kotlin 模型同步。管理页对接真实状态/日志/密码接口。`cargo check --manifest-path server/Cargo.toml -p macbot-gateway` 及 `-p macbot-orchestrator` 通过；管理页内联 JS 语法与 token CSS 源文件一致性检查通过。
 - 本轮**未执行任何单元测试、集成测试、E2E、UI 验收、安装、部署或服务重启**。编译与静态检查仅排除基础编码错误，不代表产品验收通过。
 
 ### 明确限制与待决定项
 
 - Auto Review “严格/标准/宽松”的风险阈值在新版设计中未定义，现有 `approvals.mode` 也不等同三档。已向用户请求产品决定；在明确前不启用猜测的自动放行。
 - Android 同一 Activity 内未实现可等价采样背景的 backdrop blur，半透明主题按 token 规则退回对应不透明主题；CSS 多层阴影以 Compose 单层 elevation 近似。macOS GPUI 仅提供整窗系统材质，无法逐个表面精确控制 blur/saturate，也不能独立设置标题栏高度。
+- Mac Bot 图片头像可显示 PNG/JPEG/GIF/WebP；当前 GPUI 解码能力不支持 AVIF，遇到 AVIF 会回退默认头像。
 - 产物历史只从新登记文件开始记录：仅项目 Home 内不超过 5 MiB 的普通文件，敏感/越界路径、URL 与目录不建快照；旧产物不回填。远程 Home 通过 Host 文件 API 浏览与复制路径，无法在客户端本机 Finder 打开远程目录。
 - 消息深链最多向前查找 20 页（2,000 条），超出上限会提示；跨 Host 链接必须匹配 `node_id`。管理页 HTTP Basic Auth 凭据由浏览器管理，网页无法可靠登出。
 - Mac blocked 任务的“换模型”进入 Bot 默认模型设置，仅影响后续任务；当前 blocked assignment 没有安全的切换模型 RPC，不会伪装为原任务重试。历史审批中无法确定 cwd 的 `rm -rf` 不再提供“总是允许”，仍可单次审批。
