@@ -18,6 +18,7 @@ const STORE_FILE: &str = "local-settings.json";
 const TRANSLUCENCY_FILE: &str = "local-translucency.json";
 const SOUND_FILE: &str = "local-sound.json";
 const NOTIFICATION_PREFERENCES_FILE: &str = "local-notification-preferences.json";
+const MENUBAR_FILE: &str = "local-menubar.json";
 const LAUNCH_AGENT_DIR: &str = "Library/LaunchAgents";
 const LAUNCH_AGENT_FILE: &str = "bot.mac.desktop.plist";
 const BUNDLE_LABEL: &str = "bot.mac.desktop";
@@ -175,6 +176,22 @@ pub fn set_sound_enabled(enabled: bool) -> Result<()> {
     atomic_private_write(&path, if enabled { b"true" } else { b"false" })
 }
 
+pub fn keep_in_menubar() -> bool {
+    load_keep_in_menubar().unwrap_or(false)
+}
+
+pub fn set_keep_in_menubar(enabled: bool) -> Result<()> {
+    let path = crate::storage_paths::data_file(MENUBAR_FILE)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("menu bar preference has no parent directory"))?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create local settings directory {}", parent.display()))?;
+    set_mode(parent, 0o700)?;
+    let bytes = serde_json::to_vec(&enabled).context("encode menu bar preference")?;
+    atomic_private_write(&path, &bytes)
+}
+
 fn load_translucent() -> Result<bool> {
     let path = crate::storage_paths::data_file(TRANSLUCENCY_FILE)?;
     match fs::read_to_string(&path) {
@@ -194,6 +211,18 @@ fn load_sound() -> Result<bool> {
             .with_context(|| format!("decode sound setting {}", path.display())),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
         Err(error) => Err(error).with_context(|| format!("read sound setting {}", path.display())),
+    }
+}
+
+fn load_keep_in_menubar() -> Result<bool> {
+    let path = crate::storage_paths::data_file(MENUBAR_FILE)?;
+    match fs::read_to_string(&path) {
+        Ok(value) => serde_json::from_str(&value)
+            .with_context(|| format!("decode menu bar preference {}", path.display())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => {
+            Err(error).with_context(|| format!("read menu bar preference {}", path.display()))
+        }
     }
 }
 

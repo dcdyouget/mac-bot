@@ -17,16 +17,23 @@ mod storage_paths;
 mod tokens;
 mod trace_i18n;
 mod trace_view;
+#[cfg(target_os = "macos")]
+mod tray;
 mod update;
 
 use gpui_kit::component::Theme;
 use gpui_kit::*;
+use std::{cell::Cell, rc::Rc};
 
 fn main() {
-    let application = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
-    application.on_reopen(|cx| {
+    let menu_bar_available = Rc::new(Cell::new(false));
+    let reopen_menu_bar_available = menu_bar_available.clone();
+    let application = gpui_kit::application()
+        .with_assets(gpui_kit::assets::Assets)
+        .with_quit_mode(QuitMode::Explicit);
+    application.on_reopen(move |cx| {
         if cx.windows().is_empty() {
-            open_main_window(cx);
+            open_main_window(cx, reopen_menu_bar_available.get());
         } else {
             for handle in cx.windows() {
                 let _ = handle.update(cx, |_, window, _| window.activate_window());
@@ -34,8 +41,20 @@ fn main() {
             cx.activate(true);
         }
     });
-    application.run(|cx| {
+    application.run(move |cx| {
         gpui_kit::init(cx);
+        #[cfg(target_os = "macos")]
+        {
+            match tray::Tray::install() {
+                Ok(tray) => {
+                    cx.set_global(tray);
+                    menu_bar_available.set(true);
+                }
+                Err(error) => {
+                    eprintln!("Unable to install Mac Bot menu bar item: {error:#}");
+                }
+            }
+        }
         cx.bind_keys([
             KeyBinding::new("cmd-q", app::Quit, None),
             KeyBinding::new("cmd-n", app::New, None),
@@ -99,11 +118,11 @@ fn main() {
         theme.font_family = "PingFang SC".into();
         theme.font_size = px(14.);
         tokens::sync_theme(cx);
-        open_main_window(cx);
+        open_main_window(cx, menu_bar_available.get());
     });
 }
 
-fn open_main_window(cx: &mut App) {
+fn open_main_window(cx: &mut App, menu_bar_available: bool) {
     let layout = tokens::Tokens::get(cx).desktop_layout;
     let bounds = Bounds::centered(
         None,
@@ -121,7 +140,18 @@ fn open_main_window(cx: &mut App) {
             ..Default::default()
         },
         cx,
-        |window, cx| cx.new(|cx| app::MacBot::new(window, cx)),
+        move |window, cx| {
+            window.on_window_should_close(cx, move |_, cx| {
+                let keep_in_menubar = crate::local_settings::keep_in_menubar();
+                if keep_in_menubar && menu_bar_available {
+                    cx.hide();
+                    false
+                } else {
+                    true
+                }
+            });
+            cx.new(|cx| app::MacBot::new(window, cx))
+        },
     )
     .expect("Unable to open Mac Bot window");
     cx.defer(move |cx| {

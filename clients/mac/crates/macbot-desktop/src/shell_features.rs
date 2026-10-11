@@ -637,6 +637,17 @@ impl MacBot {
                     cx.notify();
                     return;
                 }
+                if key == "keep_in_menubar" {
+                    self.notice = match crate::local_settings::set_keep_in_menubar(
+                        value.as_bool().unwrap_or(false),
+                    ) {
+                        Ok(()) => tr("settings.saved").to_string(),
+                        Err(error) => error.to_string(),
+                    };
+                    self.sync_views(cx);
+                    cx.notify();
+                    return;
+                }
                 let mut local = self.local_settings.clone();
                 match key.as_str() {
                     "theme" => {

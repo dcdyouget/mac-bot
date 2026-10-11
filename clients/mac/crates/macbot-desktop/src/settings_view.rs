@@ -98,6 +98,7 @@ pub struct SettingsView {
     notify_dm_mention: bool,
     notify_all_group: bool,
     launch_at_login: bool,
+    keep_in_menubar: bool,
     provider_test_states: BTreeMap<String, ProviderTestState>,
 }
 
@@ -162,6 +163,7 @@ impl SettingsView {
             notify_dm_mention: notification_preferences.dm_mention,
             notify_all_group: notification_preferences.all_group,
             launch_at_login: local.launch_at_login,
+            keep_in_menubar: crate::local_settings::keep_in_menubar(),
             provider_test_states: BTreeMap::new(),
         }
     }
@@ -178,6 +180,7 @@ impl SettingsView {
             self.translucent = crate::local_settings::translucent();
             self.sound_enabled = crate::local_settings::sound_enabled();
             self.launch_at_login = local.launch_at_login;
+            self.keep_in_menubar = crate::local_settings::keep_in_menubar();
             if let Ok(preferences) = crate::local_settings::notification_preferences() {
                 self.notify_need_you = preferences.need_you;
                 self.notify_review = preferences.review;
@@ -682,8 +685,8 @@ impl Render for SettingsView {
                     ..
                 } => (
                     latency_ms.map_or_else(
-                        || t("settings.models.test_connected").to_owned(),
-                        |latency| format!("{} · {latency} ms", t("settings.models.test_connected")),
+                        || t("settings.models.connected").to_owned(),
+                        |latency| format!("{} · {latency} ms", t("settings.models.connected")),
                     ),
                     tokens.success,
                 ),
@@ -944,27 +947,27 @@ impl Render for SettingsView {
             .child(Field::new().child(model_actions));
         let runtime_form = Form::vertical()
             .child(number_field(
-                t("global_limit"),
+                t("settings.runtime.global"),
                 &self.global_limit,
                 "settings-global-limit",
             ))
             .child(number_field(
-                t("bot_limit"),
+                t("settings.runtime.per_bot"),
                 &self.bot_limit,
                 "settings-bot-limit",
             ))
             .child(number_field(
-                t("subagent_limit"),
+                t("settings.runtime.sub_per_task"),
                 &self.subagent_limit,
                 "settings-subagent-limit",
             ))
             .child(number_field(
-                t("subagent_global"),
+                t("settings.runtime.sub_global"),
                 &self.subagent_global,
                 "settings-subagent-global",
             ))
             .child(number_field(
-                t("loop_hops"),
+                t("settings.runtime.loop_limit"),
                 &self.loop_hops,
                 "settings-loop-hops",
             ));
@@ -998,7 +1001,7 @@ impl Render for SettingsView {
                 .gap_2()
                 .child(
                     Button::new(format!("approval-rule-{index}-ask"))
-                        .label(t("approval_rule_ask"))
+                        .label(t("settings.tools.rule.ask"))
                         .when(ask_first, |button| button.primary())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(rule) = this.approval_rules.get_mut(index) {
@@ -1009,7 +1012,7 @@ impl Render for SettingsView {
                 )
                 .child(
                     Button::new(format!("approval-rule-{index}-allow"))
-                        .label(t("approval_rule_allow"))
+                        .label(t("settings.tools.rule.allow"))
                         .when(auto_allow, |button| button.primary())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(rule) = this.approval_rules.get_mut(index) {
@@ -1038,7 +1041,7 @@ impl Render for SettingsView {
             .children(approval_rule_rows)
             .child(
                 Button::new("approval-rule-add")
-                    .label(t("approval_rule_add"))
+                    .label(t("settings.tools.add_rule"))
                     .outline()
                     .on_click(cx.listener(|this, _, window, cx| {
                         let text = input_state(window, cx, t("approval_rule_text_placeholder"));
@@ -1055,7 +1058,7 @@ impl Render for SettingsView {
             .child(Field::new().label(t("approval_mode")).child(approval_mode))
             .child(
                 Field::new()
-                    .label(t("approval_rules"))
+                    .label(t("settings.tools.rules"))
                     .child(approval_rules),
             );
         let save_settings = Button::new("settings-save")
@@ -1088,7 +1091,7 @@ impl Render for SettingsView {
             .overflow_y_scroll()
             .bg(tokens.window)
             .text_color(tokens.primary)
-            .child(header(t("title"), t("subtitle"), &tokens))
+            .child(header(t("nav.settings"), t("subtitle"), &tokens))
             .child(section(
                 t("settings.section.models"),
                 div()
@@ -1198,12 +1201,14 @@ impl Render for SettingsView {
                         "settings-stream-max-fps",
                     ))
                     .child(
-                        Field::new().label(t("screen_permission")).child(
-                            div()
-                                .text_sm()
-                                .text_color(tokens.secondary)
-                                .child(t("screen_permission_native")),
-                        ),
+                        Field::new()
+                            .label(t("settings.computer.permissions"))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(tokens.secondary)
+                                    .child(t("screen_permission_native")),
+                            ),
                     ),
                 &tokens,
             ))
@@ -1410,6 +1415,21 @@ impl Render for SettingsView {
                                     this.launch_at_login = *checked;
                                     cx.emit(SettingsAction::Local {
                                         key: "launch_at_login".into(),
+                                        value: Value::Bool(*checked),
+                                    });
+                                    cx.notify();
+                                })),
+                        ),
+                    )
+                    .child(
+                        Field::new().child(
+                            Checkbox::new("settings-keep-in-menubar")
+                                .checked(self.keep_in_menubar)
+                                .label(t("settings.keep_in_menubar"))
+                                .on_click(cx.listener(|this, checked, _, cx| {
+                                    this.keep_in_menubar = *checked;
+                                    cx.emit(SettingsAction::Local {
+                                        key: "keep_in_menubar".into(),
                                         value: Value::Bool(*checked),
                                     });
                                     cx.notify();
