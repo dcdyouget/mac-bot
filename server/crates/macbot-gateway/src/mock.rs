@@ -65,7 +65,7 @@ async fn dispatch(
     state: &mut MockState,
     gateway: &GatewayState,
 ) -> RpcResult {
-    ensure_mock_defaults(state);
+    ensure_mock_defaults(state, &gateway.home);
     match method {
         "ping" => Ok(json!({"server_time":now()})),
         "session.resume" => Ok(json!({"mode":"replay"})),
@@ -683,7 +683,7 @@ fn repair_login_members(state: &mut MockState) {
     }
 }
 
-fn repair_waiting_references(state: &mut MockState) {
+fn repair_waiting_references(state: &mut MockState, home: &std::path::Path) {
     let context = working_assignment_context(state);
     let mut approvals = extra_get(state, "approvals");
     let mut questions = extra_get(state, "questions");
@@ -736,11 +736,184 @@ fn repair_waiting_references(state: &mut MockState) {
         approvals.retain(|item| item.get("id").and_then(Value::as_str) != Some("apr_mock_pending"));
         questions.retain(|item| item.get("id").and_then(Value::as_str) != Some("q_mock_pending"));
     }
+    for approval in &mut approvals {
+        let supported = mock_always_allow_supported(approval, state, home);
+        approval["always_allow_supported"] = json!(supported);
+    }
     extra_set(state, "approvals", approvals);
     extra_set(state, "questions", questions);
 }
 
-fn ensure_mock_defaults(state: &mut MockState) {
+fn mock_always_allow_supported(
+    approval: &Value,
+    state: &MockState,
+    home: &std::path::Path,
+) -> bool {
+    let tool = approval.get("tool").and_then(Value::as_str).unwrap_or("");
+    let detail = approval
+        .get("detail")
+        .map(|detail| match detail {
+            Value::String(serialized) => {
+                serde_json::from_str::<Value>(serialized).unwrap_or_else(|_| detail.clone())
+            }
+            _ => detail.clone(),
+        })
+        .unwrap_or(Value::Null);
+    let assignment = approval
+        .get("assignment_id")
+        .and_then(Value::as_str)
+        .and_then(|id| {
+            state
+                .assignments
+                .iter()
+                .find(|assignment| assignment.get("id").and_then(Value::as_str) == Some(id))
+        });
+    let bot_id = approval
+        .get("bot_id")
+        .and_then(Value::as_str)
+        .or_else(|| assignment.and_then(|item| item.get("bot_id").and_then(Value::as_str)))
+        .unwrap_or("bot_main");
+    let cwd = assignment
+        .and_then(|item| item.get("project_id"))
+        .and_then(Value::as_str)
+        .and_then(|project_id| {
+            state
+                .projects
+                .iter()
+                .find(|project| project.get("id").and_then(Value::as_str) == Some(project_id))
+                .and_then(|project| project.get("slug").and_then(Value::as_str))
+        })
+        .map(|slug| home.join("projects").join(mock_safe_component(slug)))
+        .unwrap_or_else(|| home.join("bots").join(mock_safe_component(bot_id)));
+    !mock_builtin_requires_approval(tool, &detail, &cwd, home)
+}
+
+fn mock_safe_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn mock_builtin_requires_approval(
+    tool_name: &str,
+    args: &Value,
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+) -> bool {
+    if tool_name == "browser_eval"
+        || tool_name == "pay"
+        || tool_name == "payment"
+        || tool_name.contains("payment")
+    {
+        return true;
+    }
+    let Some(command) = args.get("command").and_then(Value::as_str) else {
+        return false;
+    };
+    let tokens = command.split_whitespace().collect::<Vec<_>>();
+    if tokens
+        .iter()
+        .any(|token| *token == "sudo" || token.ends_with("/sudo"))
+        || tokens.windows(2).any(|pair| pair == ["git", "push"])
+    {
+        return true;
+    }
+    let Some(rm_index) = tokens
+        .iter()
+        .position(|token| *token == "rm" || token.ends_with("/rm"))
+    else {
+        return false;
+    };
+    let mut recursive = false;
+    let mut force = false;
+    let mut options_done = false;
+    for token in tokens.iter().skip(rm_index + 1) {
+        if !options_done && *token == "--" {
+            options_done = true;
+            continue;
+        }
+        if !options_done && token.starts_with('-') {
+            recursive |= *token == "--recursive" || token[1..].contains('r');
+            force |= *token == "--force" || token[1..].contains('f');
+            continue;
+        }
+        if recursive && force {
+            let target = std::path::Path::new(token);
+            let resolved = if *token == "~" || token.starts_with("~/") {
+                let Some(user_home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+                    return true;
+                };
+                if *token == "~" {
+                    user_home
+                } else {
+                    user_home.join(&token[2..])
+                }
+            } else if target.is_absolute() {
+                target.to_path_buf()
+            } else {
+                cwd.join(target)
+            };
+            if !mock_lexically_normalize(&resolved).starts_with(mock_lexically_normalize(home)) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn mock_lexically_normalize(path: &std::path::Path) -> std::path::PathBuf {
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            component => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
+    if !state.settings.get("tools").is_some_and(Value::is_object) {
+        state.settings["tools"] = json!({});
+    }
+    if !state
+        .settings
+        .pointer("/tools/defaults")
+        .is_some_and(Value::is_object)
+    {
+        state.settings["tools"]["defaults"] = json!({
+            "files":true,
+            "bash":true,
+            "browser":true,
+            "subagent":true,
+            "web":true,
+            "mcp":false
+        });
+    } else {
+        let defaults = state.settings["tools"]["defaults"]
+            .as_object_mut()
+            .expect("defaults was checked as an object");
+        for (key, value) in [
+            ("files", true),
+            ("bash", true),
+            ("browser", true),
+            ("subagent", true),
+            ("web", true),
+            ("mcp", false),
+        ] {
+            defaults.entry(key).or_insert(json!(value));
+        }
+    }
     if extra_get(state, "skills").is_empty() {
         let skills = vec![
             skill_default(
@@ -798,7 +971,7 @@ fn ensure_mock_defaults(state: &mut MockState) {
         );
     }
     repair_login_members(state);
-    repair_waiting_references(state);
+    repair_waiting_references(state, home);
 }
 fn pending(state: &MockState) -> Value {
     json!({"approvals":extra_get(state,"approvals").iter().filter(|x| x.get("state").and_then(Value::as_str)==Some("pending")).cloned().collect::<Vec<_>>(),"questions":extra_get(state,"questions").iter().filter(|x| x.get("state").and_then(Value::as_str)==Some("pending")).cloned().collect::<Vec<_>>(),"reviews":[]})
@@ -1582,7 +1755,12 @@ fn create_bot(state: &mut MockState, params: &Value) -> RpcResult {
     let bot_id = id("bot");
     let chat_id = id("chat");
     let name = params.get("name").and_then(Value::as_str).unwrap_or("Bot");
-    let bot = json!({"id":bot_id,"name":name,"label":params.get("label").and_then(Value::as_str).unwrap_or(""),"description":params.get("description").and_then(Value::as_str).unwrap_or(""),"avatar":params.get("avatar").cloned().unwrap_or(json!({"kind":"bean","color":0})),"is_main":false,"model":params.get("model").cloned().unwrap_or(Value::Null),"max_parallel":params.get("max_parallel").and_then(Value::as_u64).unwrap_or(2),"tools":params.get("tools").cloned().unwrap_or(json!({"files":true,"bash":true,"browser":false,"subagent":false,"web":false,"mcp":false})),"browser_mode":params.get("browser_mode").cloned().unwrap_or(json!("headless")),"pinned":false,"hidden":false,"notifications":true,"dm_chat_id":chat_id,"created_at":now,"updated_at":now,"status":{"summary":"idle","active":0,"queued":0,"waiting":0}});
+    let tools = params
+        .get("tools")
+        .filter(|value| !value.is_null())
+        .cloned()
+        .unwrap_or_else(|| state.settings["tools"]["defaults"].clone());
+    let bot = json!({"id":bot_id,"name":name,"label":params.get("label").and_then(Value::as_str).unwrap_or(""),"description":params.get("description").and_then(Value::as_str).unwrap_or(""),"avatar":params.get("avatar").cloned().unwrap_or(json!({"kind":"bean","color":0})),"is_main":false,"model":params.get("model").cloned().unwrap_or(Value::Null),"max_parallel":params.get("max_parallel").and_then(Value::as_u64).unwrap_or(2),"tools":tools,"browser_mode":params.get("browser_mode").cloned().unwrap_or(json!("headless")),"pinned":false,"hidden":false,"notifications":true,"dm_chat_id":chat_id,"created_at":now,"updated_at":now,"status":{"summary":"idle","active":0,"queued":0,"waiting":0}});
     let chat = json!({"id":chat_id,"kind":"direct","title":name,"bot_id":bot_id,"project_id":null,"member_bot_ids":[],"last_message":null,"last_seq":0,"last_read_seq":0,"unread":0,"attention":"none","pinned":false,"muted":false,"updated_at":now});
     state.bots.push(bot.clone());
     state.chats.push(chat.clone());
@@ -2072,6 +2250,15 @@ fn approval_decide(state: &mut MockState, params: &Value) -> RpcResult {
         .find(|x| x.get("id").and_then(Value::as_str) == Some(idv))
         .ok_or_else(|| rpc_error("not_found", "approval not found", None))?;
     let mut item = item;
+    if params.get("decision").and_then(Value::as_str) == Some("always_allow")
+        && item.get("always_allow_supported").and_then(Value::as_bool) == Some(false)
+    {
+        return Err(rpc_error(
+            "conflict",
+            "always allow is not supported for this built-in dangerous operation",
+            None,
+        ));
+    }
     item["state"] = json!(match params
         .get("decision")
         .and_then(Value::as_str)

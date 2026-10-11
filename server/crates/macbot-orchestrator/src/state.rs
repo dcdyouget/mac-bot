@@ -65,6 +65,7 @@ pub struct Orchestrator {
 
 struct Inner {
     settings: OrchestratorSettings,
+    default_bot_tools: ToolToggles,
     bots: HashMap<Id, Bot>,
     projects: HashMap<Id, Project>,
     announcement_text: HashMap<Id, AnnouncementText>,
@@ -251,6 +252,7 @@ impl Orchestrator {
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 settings,
+                default_bot_tools: ToolToggles::default(),
                 bots: HashMap::from([(main.id.clone(), main)]),
                 projects: HashMap::new(),
                 announcement_text: HashMap::new(),
@@ -297,10 +299,16 @@ impl Orchestrator {
         Ok(())
     }
 
+    pub fn configure_default_bot_tools(&self, tools: ToolToggles) -> Result<()> {
+        self.lock()?.default_bot_tools = tools;
+        Ok(())
+    }
+
     pub fn snapshot(&self) -> Result<Value> {
         let i = self.lock()?;
         Ok(json!({
             "settings": i.settings.clone(),
+            "default_bot_tools": i.default_bot_tools.clone(),
             "bots": i.bots.clone(),
             "projects": i.projects.clone(),
             "announcement_text": i.announcement_text.clone(),
@@ -328,6 +336,10 @@ impl Orchestrator {
         let mut i = self.lock()?;
         if let Some(v) = value.get("settings") {
             i.settings = serde_json::from_value(v.clone())
+                .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
+        }
+        if let Some(v) = value.get("default_bot_tools") {
+            i.default_bot_tools = serde_json::from_value(v.clone())
                 .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
         }
         restore_map(&mut i.bots, value.get("bots"))?;
@@ -1464,9 +1476,19 @@ impl Inner {
                     )?
                 }))
             }
-            "approval.request" => Self::json(self.create_approval(
-                serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
-            )?),
+            "approval.request" => {
+                let always_allow_supported = p
+                    .get("always_allow_supported")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                Self::json(
+                    self.create_approval_with_support(
+                        serde_json::from_value(p)
+                            .map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
+                        always_allow_supported,
+                    )?,
+                )
+            }
             "question.ask" => Self::json(self.create_question(
                 serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
             )?),
@@ -1540,13 +1562,14 @@ impl Inner {
                 .clamp(1, 8) as usize,
             tools: p
                 .get("tools")
+                .filter(|value| !value.is_null())
                 .cloned()
                 .map(|value| {
                     serde_json::from_value(value)
                         .map_err(|error| OrchestratorError::Invalid(error.to_string()))
                 })
                 .transpose()?
-                .unwrap_or_default(),
+                .unwrap_or_else(|| self.default_bot_tools.clone()),
             browser_mode: p
                 .get("browser_mode")
                 .and_then(Value::as_str)
@@ -3271,7 +3294,11 @@ impl Inner {
             at: effective_at,
         })
     }
-    fn create_approval(&mut self, r: ApprovalRequest) -> Result<Approval> {
+    fn create_approval_with_support(
+        &mut self,
+        r: ApprovalRequest,
+        always_allow_supported: bool,
+    ) -> Result<Approval> {
         if let Some(assignment_id) = &r.assignment_id {
             let assignment = self.assignment(assignment_id)?;
             if matches!(assignment.status.as_str(), "done" | "failed" | "cancelled") {
@@ -3290,6 +3317,7 @@ impl Inner {
             risk: r.risk,
             summary: r.summary,
             detail: r.detail,
+            always_allow_supported,
             state: "pending".into(),
             created_at: now(),
             decided_at: None,
@@ -3307,6 +3335,10 @@ impl Inner {
         Ok(a)
     }
 
+    fn create_approval(&mut self, request: ApprovalRequest) -> Result<Approval> {
+        self.create_approval_with_support(request, false)
+    }
+
     fn expire_invalid_approval(&mut self, id: &str) -> Result<Option<Approval>> {
         let approval = self
             .approvals
@@ -3321,6 +3353,17 @@ impl Inner {
     }
 
     fn decide_approval(&mut self, id: String, decision: String) -> Result<Approval> {
+        if decision == "always_allow"
+            && !self
+                .approvals
+                .get(&id)
+                .ok_or_else(|| OrchestratorError::NotFound(format!("approval {id}")))?
+                .always_allow_supported
+        {
+            return Err(OrchestratorError::Conflict(
+                "persistent allow is not supported for this approval".into(),
+            ));
+        }
         let assignment_id = self
             .approvals
             .get(&id)

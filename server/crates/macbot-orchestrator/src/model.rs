@@ -20,7 +20,7 @@ impl Default for ToolToggles {
             browser: true,
             subagent: true,
             web: true,
-            mcp: true,
+            mcp: false,
         }
     }
 }
@@ -198,6 +198,10 @@ pub struct Approval {
     pub risk: String,
     pub summary: String,
     pub detail: String,
+    /// Whether this approval may be converted into a persistent allow rule.
+    /// Older snapshots omit it, so they remain conservatively unsupported.
+    #[serde(default)]
+    pub always_allow_supported: bool,
     pub state: String,
     pub created_at: String,
     pub decided_at: Option<String>,

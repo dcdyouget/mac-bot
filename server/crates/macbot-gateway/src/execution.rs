@@ -588,21 +588,43 @@ impl ExecutionEngine {
     /// updates are live and must not require rebuilding the execution engine.
     /// `allow_unsafe` is the one-shot decision carried by an approval
     /// continuation; otherwise an explicit global mode or matching
-    /// `auto_allow` rule can skip the approval card. A matching `ask_first`
-    /// rule always wins over an `auto_allow` rule (and over the global mode).
+    /// `auto_allow` rule can skip the approval card. Built-in dangerous
+    /// operations and a matching `ask_first` rule always require approval,
+    /// regardless of the global mode or an `auto_allow` rule.
     fn risky_call_allowed(
         &self,
         request: &ExecutionRequest,
         tool_name: &str,
         args: &Value,
     ) -> bool {
+        if request.allow_unsafe {
+            return true;
+        }
+        let cwd = request.cwd.as_deref().unwrap_or(self.home.as_path());
+        if builtin_requires_approval(tool_name, args, cwd, &self.home) {
+            return false;
+        }
         let settings = self
             .store
             .read_snapshot::<Value>("data/settings.json")
             .ok()
             .flatten()
             .unwrap_or_default();
-        risky_call_allowed_from_settings(&settings, request.allow_unsafe, tool_name, args)
+        risky_call_allowed_from_settings(&settings, false, tool_name, args)
+    }
+
+    fn always_allow_supported(&self, tool_name: &str, args: &Value, builtin_risky: bool) -> bool {
+        if builtin_risky {
+            return false;
+        }
+        let settings = self
+            .store
+            .read_snapshot::<Value>("data/settings.json")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        !approval_requires_ask_first(&settings, tool_name, args)
+            && !auto_create_project_requires_confirmation(&settings, tool_name)
     }
 
     fn coordination_tool_requires_approval(&self, tool_name: &str, args: &Value) -> bool {
@@ -1775,6 +1797,8 @@ impl ExecutionEngine {
                         Risk::External => "external",
                         Risk::Read => "write",
                     };
+                    let always_allow_supported =
+                        self.always_allow_supported(&call.name, &call.args, builtin_risky);
                     self.sink
                         .approval_required(json!({"approval":{
                             "id":format!("apr_{}",safe_id(&call.call_id)),
@@ -1785,6 +1809,7 @@ impl ExecutionEngine {
                             "risk":risk,
                             "summary":format!("Approval required for {}",call.name),
                             "detail":approval_detail_with_home(&call.name,&call.args,cwd,actual_user_home().as_deref(),&self.home).to_string(),
+                            "always_allow_supported":always_allow_supported,
                             "state":"pending",
                             "created_at":now_rfc3339(),
                             "decided_at":null
@@ -2474,6 +2499,8 @@ impl ExecutionEngine {
                     Risk::External => "external",
                     Risk::Read => "write",
                 };
+                let always_allow_supported =
+                    self.always_allow_supported(&call.name, &call.args, builtin_risky);
                 self.sink
                     .approval_required(json!({"approval":{
                         "id":format!("apr_{}",safe_id(&call.call_id)),
@@ -2484,6 +2511,7 @@ impl ExecutionEngine {
                         "risk":risk_name,
                         "summary":format!("Approval required for {}",call.name),
                         "detail":approval_detail_with_home(&call.name,&call.args,cwd,actual_user_home().as_deref(),&self.home).to_string(),
+                        "always_allow_supported":always_allow_supported,
                         "state":"pending",
                         "created_at":now_rfc3339(),
                         "decided_at":null
@@ -3429,6 +3457,31 @@ fn approval_settings_allow(settings: &Value, tool_name: &str, args: &Value) -> b
     }
     rules.iter().any(|rule| {
         rule.get("kind").and_then(Value::as_str) == Some("auto_allow") && matches_rule(rule)
+    })
+}
+
+fn approval_requires_ask_first(settings: &Value, tool_name: &str, args: &Value) -> bool {
+    let Some(rules) = settings
+        .get("approvals")
+        .and_then(|approvals| approvals.get("rules"))
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    let generated_summary = format!("Approval required for {tool_name}");
+    rules.iter().any(|rule| {
+        if rule.get("kind").and_then(Value::as_str) != Some("ask_first")
+            || rule.get("enabled").and_then(Value::as_bool) == Some(false)
+        {
+            return false;
+        }
+        if rule.get("tool").and_then(Value::as_str) == Some(tool_name) {
+            return true;
+        }
+        let Some(text) = rule.get("text").and_then(Value::as_str) else {
+            return false;
+        };
+        text == tool_name || text == generated_summary || contains_argument_literal(args, text)
     })
 }
 

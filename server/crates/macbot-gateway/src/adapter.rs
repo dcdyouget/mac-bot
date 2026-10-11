@@ -15,7 +15,9 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::{DateTime, Local, Utc};
 use macbot_browser::BrowserError;
 use macbot_durable::DurableRuntime;
-use macbot_orchestrator::{BotDmRoute, Orchestrator, OrchestratorSettings, UsageTotals};
+use macbot_orchestrator::{
+    BotDmRoute, Orchestrator, OrchestratorSettings, ToolToggles, UsageTotals,
+};
 use macbot_protocol::{
     Announcement, Approval, ArtifactVersion, ArtifactVersionGetParams, ArtifactVersionGetResult,
     ArtifactVersionsParams, ArtifactVersionsResult, Assignment, Bot, BotDuplicateResult, Chat,
@@ -240,8 +242,9 @@ impl ProductionBackend {
             },
         };
         let mut terminal_approvals_migrated = false;
-        if let Some(snapshot) = snapshot {
+        if let Some(mut snapshot) = snapshot {
             let old_approvals = snapshot.get("approvals").cloned();
+            migrate_legacy_approval_support(&mut snapshot);
             orchestrator
                 .restore(snapshot)
                 .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
@@ -252,11 +255,16 @@ impl ProductionBackend {
                     .get("approvals")
                     .cloned();
         }
-        if let Some(settings) = store.read_snapshot::<Value>("data/settings.json")? {
+        if let Some(mut settings) = store.read_snapshot::<Value>("data/settings.json")? {
+            let tool_defaults = ensure_settings_tool_defaults(&mut settings)
+                .map_err(AdapterError::OrchestratorSnapshot)?;
             let limits = scheduler_limits(&settings)
                 .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
             orchestrator
                 .configure(limits)
+                .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+            orchestrator
+                .configure_default_bot_tools(tool_defaults)
                 .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
         }
         Self::migrate_legacy_chat_sequences(&store, &orchestrator)?;
@@ -1740,13 +1748,8 @@ impl ProductionBackend {
                     }
                 }
             }
-            "assignment.create"
-            | "assign"
-            | "delegate"
-            | "assignment.stop"
-            | "assignment.retry"
-            | "assignment.steer"
-            | "steer" => {
+            "assignment.create" | "assign" | "delegate" | "assignment.stop"
+            | "assignment.retry" | "assignment.steer" | "steer" => {
                 let id = result
                     .get("assignment")
                     .and_then(|value| value.get("id"))
@@ -3567,11 +3570,16 @@ impl ProductionBackend {
     async fn settings(&self, state: &GatewayState) -> Result<Value, RpcError> {
         let path = "data/settings.json";
         let host_name = state.host_name.read().await.clone();
-        let value = self
+        let mut value = self
             .store
             .read_snapshot::<Value>(path)
             .map_err(store_error)?
             .unwrap_or_else(|| default_settings(&host_name));
+        ensure_settings_tool_defaults(&mut value).map_err(|message| RpcError {
+            code: "internal".into(),
+            message,
+            details: None,
+        })?;
         serde_json::from_value::<Settings>(value.clone()).map_err(|error| RpcError {
             code: "internal".into(),
             message: error.to_string(),
@@ -3614,6 +3622,12 @@ impl ProductionBackend {
             })?,
             patch,
         );
+        let tool_defaults =
+            ensure_settings_tool_defaults(&mut value).map_err(|message| RpcError {
+                code: "invalid_params".into(),
+                message,
+                details: None,
+            })?;
         serde_json::from_value::<Settings>(value.clone()).map_err(|error| RpcError {
             code: "invalid_params".into(),
             message: error.to_string(),
@@ -3660,6 +3674,9 @@ impl ProductionBackend {
                 details: None,
             })?)
             .map_err(Self::error)?;
+        self.orchestrator
+            .configure_default_bot_tools(tool_defaults)
+            .map_err(Self::error)?;
         *state.host_name.write().await = value
             .get("host_name")
             .and_then(Value::as_str)
@@ -3677,6 +3694,13 @@ impl ProductionBackend {
             return Ok(());
         };
         if approval.get("state").and_then(Value::as_str) != Some("always_allowed") {
+            return Ok(());
+        }
+        if approval
+            .get("always_allow_supported")
+            .and_then(Value::as_bool)
+            != Some(true)
+        {
             return Ok(());
         }
         let mut settings = self.settings(state).await?;
@@ -7556,13 +7580,10 @@ fn operation_event_entity_present(method: &str, result: &Value) -> bool {
         | "project.archive"
         | "project.reopen"
         | "project.request_changes" => result["project"].is_object(),
-        "assignment.create"
-        | "assign"
-        | "delegate"
-        | "assignment.stop"
-        | "assignment.retry"
-        | "assignment.steer"
-        | "steer" => result["assignment"].is_object() || result["id"].is_string(),
+        "assignment.create" | "assign" | "delegate" | "assignment.stop" | "assignment.retry"
+        | "assignment.steer" | "steer" => {
+            result["assignment"].is_object() || result["id"].is_string()
+        }
         "message.steer" => result["assignment"].is_object() && result["message"].is_object(),
         "send_msg" | "chat.send" | "chat.react" => {
             result["message"].is_object() || result["id"].is_string()
@@ -7599,13 +7620,8 @@ fn event_data(method: &str, params: &Value, result: &Value) -> Value {
         "question.ask" | "propose_bot" => {
             json!({ "question": result.get("question").cloned().unwrap_or(Value::Null) })
         }
-        "assignment.create"
-        | "assign"
-        | "delegate"
-        | "assignment.stop"
-        | "assignment.retry"
-        | "assignment.steer"
-        | "steer" => {
+        "assignment.create" | "assign" | "delegate" | "assignment.stop" | "assignment.retry"
+        | "assignment.steer" | "steer" => {
             json!({ "assignment": result.get("assignment").cloned().unwrap_or_else(|| result.clone()) })
         }
         "send_msg" | "chat.send" | "chat.react" => {
@@ -8314,11 +8330,98 @@ fn scheduler_limits(settings: &Value) -> Result<OrchestratorSettings, serde_json
     })
 }
 
+fn ensure_settings_tool_defaults(settings: &mut Value) -> Result<ToolToggles, String> {
+    let default_fields = serde_json::to_value(ToolToggles::default())
+        .map_err(|error| error.to_string())?
+        .as_object()
+        .cloned()
+        .ok_or_else(|| "default tool settings must be an object".to_owned())?;
+    let settings = settings
+        .as_object_mut()
+        .ok_or_else(|| "settings must be an object".to_owned())?;
+    let tools = settings.entry("tools").or_insert_with(|| json!({}));
+    let tools = tools
+        .as_object_mut()
+        .ok_or_else(|| "settings.tools must be an object".to_owned())?;
+    let defaults = tools
+        .entry("defaults")
+        .or_insert_with(|| Value::Object(default_fields.clone()));
+    let defaults = defaults
+        .as_object_mut()
+        .ok_or_else(|| "settings.tools.defaults must be an object".to_owned())?;
+    for (key, value) in default_fields {
+        defaults.entry(key).or_insert(value);
+    }
+    serde_json::from_value(Value::Object(defaults.clone())).map_err(|error| error.to_string())
+}
+
+/// Older snapshots did not record whether an approval could become a
+/// persistent allow rule. Preserve that behavior for ordinary calls, while
+/// applying the current built-in ask-first guard where the old detail retains
+/// enough information to classify the call. An old rm -rf approval is
+/// conservatively ask-first because its original working directory was not
+/// persisted and cannot be checked against MACBOT_HOME.
+fn migrate_legacy_approval_support(snapshot: &mut Value) {
+    let Some(approvals) = snapshot.get_mut("approvals").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for approval in approvals.values_mut().filter_map(Value::as_object_mut) {
+        if approval.contains_key("always_allow_supported") {
+            continue;
+        }
+        let tool = approval
+            .get("tool")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let detail = approval.get("detail").and_then(Value::as_str);
+        let args = detail.and_then(|detail| serde_json::from_str::<Value>(detail).ok());
+        let mut builtin_ask_first =
+            matches!(tool, "browser_eval" | "pay" | "payment") || tool.contains("payment");
+        if let Some(command) = args
+            .as_ref()
+            .and_then(|args| args.get("command"))
+            .and_then(Value::as_str)
+        {
+            let tokens = command.split_whitespace().collect::<Vec<_>>();
+            builtin_ask_first |= tokens
+                .iter()
+                .any(|token| *token == "sudo" || token.ends_with("/sudo"))
+                || tokens.windows(2).any(|pair| pair == ["git", "push"]);
+
+            if let Some(rm_index) = tokens
+                .iter()
+                .position(|token| *token == "rm" || token.ends_with("/rm"))
+            {
+                let mut recursive = false;
+                let mut force = false;
+                let mut options_done = false;
+                for token in tokens.iter().skip(rm_index + 1) {
+                    if !options_done && *token == "--" {
+                        options_done = true;
+                        continue;
+                    }
+                    if !options_done && token.starts_with('-') {
+                        recursive |= *token == "--recursive" || token[1..].contains('r');
+                        force |= *token == "--force" || token[1..].contains('f');
+                        continue;
+                    }
+                    if recursive && force {
+                        builtin_ask_first = true;
+                        break;
+                    }
+                }
+            }
+        }
+        approval.insert("always_allow_supported".into(), json!(!builtin_ask_first));
+    }
+}
+
 fn default_settings(host_name: &str) -> Value {
     json!({
         "host_name":host_name,"timezone":"Asia/Shanghai","currency":"CNY",
         "concurrency":{"global":8,"bot_default":3,"subagent_per_run":4,"subagent_global":12,"loop_hops":8},
         "models":{"bot_default":null,"main":null,"subagent":"inherit","maintenance":null},
+        "tools":{"defaults":{"files":true,"bash":true,"browser":true,"subagent":true,"web":true,"mcp":false}},
         "main_bot":{"auto_create_project":true},"approvals":{"mode":"require","rules":[]},
         "browser":{"default_mode":"headless","chrome_profile":"Default","stream":{"desktop":{"max_width":1280,"quality":70,"max_fps":15},"mobile":{"max_width":720,"quality":50,"max_fps":10}}},
         "skills":{"extra_dirs":[]},"trace":{"save_full_requests":false},
