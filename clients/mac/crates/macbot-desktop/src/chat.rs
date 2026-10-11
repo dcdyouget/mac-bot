@@ -1318,19 +1318,6 @@ impl MacBot {
         cx.notify();
     }
 
-    pub(super) fn select_question_stack_number(&mut self, number: usize, cx: &mut Context<Self>) {
-        let Some(current) = self.active_question_id.as_deref() else {
-            return;
-        };
-        let Some(stack) = self.question_stack_for(current) else {
-            return;
-        };
-        if let Some(id) = stack.get(number).cloned() {
-            self.active_question_id = Some(id);
-            cx.notify();
-        }
-    }
-
     pub(super) fn open_active_question_other(
         &mut self,
         window: &mut Window,
