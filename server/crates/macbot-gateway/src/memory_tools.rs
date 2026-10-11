@@ -626,32 +626,35 @@ impl Tool for SkillTool {
         let result = (|| -> Result<Value, FeatureError> {
             let object = object(&args)?;
             let bot_id = self.runtime.run.bot_id.as_deref();
-            let detail = {
-                let registry = self
-                    .runtime
-                    .service
-                    .skill_registry
-                    .read()
-                    .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?;
+            let (detail, instruction) = {
                 if let Some(text) = object.get("text").and_then(Value::as_str) {
-                    registry.load_for_text(text, bot_id)?.ok_or_else(|| {
-                        FeatureError::Invalid("no enabled /skill invocation".into())
-                    })?
+                    self.runtime
+                        .service
+                        .load_skill_for_text(text, bot_id)?
+                        .ok_or_else(|| {
+                            FeatureError::Invalid("no enabled /skill invocation".into())
+                        })?
                 } else {
                     let name = required(&object, "name")?;
-                    if !registry.model_invocation_allowed(name)? {
+                    if !self
+                        .runtime
+                        .service
+                        .skill_registry
+                        .read()
+                        .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?
+                        .model_invocation_allowed(name)?
+                    {
                         return Err(FeatureError::Invalid(
                             "skill requires explicit /skill-name invocation".into(),
                         ));
                     }
-                    (registry.load_for_bot(name, bot_id)?, String::new())
+                    (
+                        self.runtime.service.load_skill_for_bot(name, bot_id)?,
+                        String::new(),
+                    )
                 }
             };
-            let name = detail.0.skill.name.clone();
-            self.runtime
-                .service
-                .record_skill_invocation(&name, bot_id)?;
-            Ok(json!({"skill":detail.0.skill,"content":detail.0.content,"instruction":detail.1}))
+            Ok(json!({"skill":detail.skill,"content":detail.content,"instruction":instruction}))
         })();
         into_result(result)
     }
@@ -1674,7 +1677,17 @@ mod tests {
             .await;
         assert!(!result.is_error);
         assert_eq!(result.details["skill"]["name"], "project-home");
+        assert!(result.details["skill"]["last_invoked_at"].is_string());
         assert_eq!(result.details["instruction"], "use the project home");
+        let model_loaded = skill
+            .call(
+                &ToolContext::new("/tmp", "run-1", "/tmp/runs"),
+                json!({"name":"project-home"}),
+            )
+            .await;
+        assert!(!model_loaded.is_error);
+        assert!(model_loaded.details["skill"]["last_invoked_at"].is_string());
+        assert_eq!(model_loaded.details["skill"]["invocations_7d"]["total"], 2);
         let denied = skill
             .call(
                 &ToolContext::new("/tmp", "run-1", "/tmp/runs"),

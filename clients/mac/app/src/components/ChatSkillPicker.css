@@ -1,0 +1,47 @@
+.composer-input-wrap { position: relative; }
+.chat-composer-skill-chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; margin: 0 0 3px; padding: 0 5px; border-radius: 6px; color: var(--accent); background: var(--accent-soft); font: 500 12px var(--font-family-mono); }
+.chat-composer-skill-chip button { display: grid; width: 16px; height: 16px; place-items: center; padding: 0; border: 0; border-radius: 4px; color: inherit; background: transparent; cursor: pointer; }
+.chat-composer-skill-chip button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.chat-skill-picker {
+  position: absolute;
+  z-index: 13;
+  left: 0;
+  bottom: calc(100% + 8px);
+  display: flex;
+  flex-direction: column;
+  width: min(400px, calc(100vw - 36px));
+  max-height: min(360px, calc(100vh - 160px));
+  overflow: hidden;
+  padding: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--shadow-e3, 0 12px 32px rgb(0 0 0 / 24%));
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+}
+
+.chat-skill-picker-list { min-height: 0; overflow-y: auto; }
+.chat-skill-picker-group + .chat-skill-picker-group { margin-top: 5px; }
+.chat-skill-picker-heading { padding: 6px 8px 4px; color: var(--text-tertiary); font-size: 10px; font-weight: 600; }
+.chat-skill-picker-item { display: flex; align-items: center; gap: 8px; min-height: 48px; box-sizing: border-box; padding: 6px 8px; border-radius: 8px; color: var(--text-primary); cursor: pointer; }
+.chat-skill-picker-item:hover,
+.chat-skill-picker-item.selected { background: var(--accent-soft); }
+.chat-skill-picker-item.selected { color: var(--accent); }
+.chat-skill-picker-item.disabled { color: var(--text-tertiary); cursor: not-allowed; opacity: .68; }
+.chat-skill-picker-icon { display: grid; width: 28px; height: 28px; flex: 0 0 auto; place-items: center; border-radius: 8px; color: var(--accent); background: var(--accent-soft); }
+.chat-skill-picker-item.selected .chat-skill-picker-icon { color: var(--accent-on); background: var(--accent); }
+.chat-skill-picker-copy { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.chat-skill-picker-copy strong { overflow: hidden; font: 500 12.5px var(--font-family-mono); text-overflow: ellipsis; white-space: nowrap; }
+.chat-skill-picker-copy small { overflow: hidden; color: var(--text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-skill-picker-copy mark { color: var(--accent); background: transparent; font-weight: 700; }
+.chat-skill-picker-item.selected .chat-skill-picker-copy small,
+.chat-skill-picker-item.selected .chat-skill-picker-meta { color: var(--accent-on); opacity: .78; }
+.chat-skill-picker-meta { flex: 0 0 auto; max-width: 120px; overflow: hidden; color: var(--text-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-skill-picker-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; padding: 0 8px; border-top: 1px solid var(--border-subtle); color: var(--text-tertiary); font-size: 10px; }
+.chat-skill-picker-state,
+.chat-skill-picker-empty { display: grid; justify-items: center; gap: 6px; padding: 20px 12px; color: var(--text-tertiary); text-align: center; font-size: 11px; }
+.chat-skill-picker-empty strong { color: var(--text-primary); font-size: 12px; font-weight: 550; }
+.chat-skill-picker-error { color: var(--danger); }
+.chat-skill-picker-error button { padding: 4px 8px; border: 0; border-radius: 6px; color: var(--accent); background: var(--accent-soft); font: inherit; cursor: pointer; }
+.chat-skill-picker-create { display: inline-flex; align-items: center; gap: 5px; padding: 7px 10px; border: 0; border-radius: 7px; color: var(--accent); background: var(--accent-soft); font: 500 11px var(--font-family-sans); cursor: pointer; }
+.chat-skill-picker-create:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }

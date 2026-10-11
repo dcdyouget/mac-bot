@@ -679,6 +679,8 @@ pub struct Skill {
     pub enabled: bool,
     pub disabled_bot_ids: Vec<Id>,
     pub invocations_7d: Invocations7d,
+    #[serde(default)]
+    pub last_invoked_at: Option<Time>,
     pub updated_at: Time,
 }
 

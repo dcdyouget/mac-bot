@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Check, ChevronDown, FileText, Folder, Globe, Package, Plus, Search, Sparkles, ToggleLeft, ToggleRight, X } from 'lucide-react'
 import { t, type CopyKey } from '../i18n'
+import { resolveSkillCreateIntent, type SkillCreateIntent } from './skillCreateIntent'
 import './SkillsPage.css'
 
 export type SkillSource = 'builtin' | 'user' | 'imported' | 'draft'
@@ -14,6 +15,7 @@ export type SkillRecord = {
   enabled: boolean
   disabled_bot_ids: string[]
   invocations_7d: { total: number; by_bot: { bot_id: string; count: number }[] }
+  last_invoked_at?: string | null
   updated_at: string
 }
 export type SkillDetail = SkillRecord & { content: string }
@@ -37,6 +39,9 @@ export type SkillsPageProps = {
   onDiscard: (name: string) => Promise<void>
   onImport: (source: SkillImportSource) => Promise<SkillRecord[]>
   onUploadZip: (file: File) => Promise<string>
+  hostScope?: string
+  createIntent?: SkillCreateIntent | null
+  onCreateIntentHandled?: (id: string) => void
 }
 
 type Filter = 'all' | 'builtin' | 'mine' | 'imported'
@@ -61,7 +66,7 @@ const sourceFilter = (source: SkillSource, filter: Filter) => filter === 'all'
   || (filter === 'imported' && source === 'imported')
 
 export function SkillsPage(props: SkillsPageProps) {
-  const { skills, bots, loading = false, loadError, onReload, onGet, onCreate, onUpdate, onSetEnabled, onPublish, onDiscard, onImport, onUploadZip } = props
+  const { skills, bots, loading = false, loadError, onReload, onGet, onCreate, onUpdate, onSetEnabled, onPublish, onDiscard, onImport, onUploadZip, hostScope = '', createIntent, onCreateIntentHandled } = props
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [selectedName, setSelectedName] = useState<string | null>(null)
@@ -80,6 +85,21 @@ export function SkillsPage(props: SkillsPageProps) {
   const [zipFile, setZipFile] = useState<File | null>(null)
   const [subdir, setSubdir] = useState('')
   const [disableBotId, setDisableBotId] = useState('')
+
+  useEffect(() => {
+    const query = resolveSkillCreateIntent(createIntent, hostScope)
+    const intentId = createIntent?.id
+    if (query === null || !intentId) return
+    setMode('write')
+    setNewName(query)
+    setNewDescription('')
+    setSourceValue('')
+    setZipFile(null)
+    setSubdir('')
+    setError(null)
+    setNewOpen(true)
+    onCreateIntentHandled?.(intentId)
+  }, [createIntent, hostScope, onCreateIntentHandled])
 
   const visibleSkills = useMemo(() => {
     const byName: Record<string, SkillRecord> = Object.fromEntries(skills.map((skill) => [skill.name, skill]))

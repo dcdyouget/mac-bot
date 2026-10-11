@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Channel, invoke } from '@tauri-apps/api/core'
+import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
-import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip } from 'lucide-react'
+import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type PendingMessage, type Question } from './types'
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
@@ -16,12 +17,16 @@ import { SearchPage, type SearchRequest, type SearchResponse, type SearchResult 
 import { ComputerPage, type ComputerConnection, type ComputerDriver, type ComputerFrame, type ComputerInput, type ComputerQuality, type ComputerTab } from './components/ComputerPage'
 import { BotPanel, type BotProject, type BotRecord } from './components/BotPanel'
 import { ArtifactPage, type ProjectArtifact } from './components/ArtifactPage'
+import { SettingsDetail, type SettingsSection } from './components/SettingsDetail'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
 import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './components/ChatAttachments'
+import { ChatSkillPicker } from './components/ChatSkillPicker'
+import { getChatSkillPickerItems, shouldRefreshSkillsOnPickerOpen } from './components/chatSkillPickerModel'
+import { makeSkillCreateIntent, type SkillCreateIntent } from './components/skillCreateIntent'
 
-const NO_RULES: Record<string, Json>[] = []
 type ThemeMode = 'light' | 'dark' | 'system'
+type SettingsNavigationSection = 'general' | 'memory' | 'models' | 'runtime' | 'tools' | 'skills' | 'computer' | 'hosts' | 'about'
 type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory' | 'trace' | 'computer' | 'artifact'
 type TraceReturnPage = Exclude<AppPage, 'trace' | 'computer' | 'artifact'>
 type TraceRoute = { assignmentId: string; hostScope: string; returnPage: TraceReturnPage; returnChatId: string; returnSelectedAssignment: string | null }
@@ -37,6 +42,7 @@ type TraceToolOutput = { stream?: string; call_id?: string; chunk?: string }
 type MessageWithDelivery = Message & { seq?: number; delivery?: { bot_id?: string; assignment_id?: string | null; state?: 'queued' | 'delivered' | 'read'; at?: string }[] }
 type AttachmentUploadProgress = { upload_id: string; loaded: number; total: number; state: 'uploading' | 'complete' | 'error'; error?: string }
 type AttachmentUploadResult = { upload_id: string; file: Record<string, Json> }
+type SlashPickerState = { query: string; start: number; end: number }
 
 const THEME_STORAGE_KEY = 'macbot.appearance.theme'
 const MATERIAL_STORAGE_KEY = 'macbot.appearance.translucent'
@@ -80,6 +86,10 @@ function traceQueueMessage(message: Message, bots: BridgeState['bots']): TraceQu
 
 function assertHostScope(current: string, expected: string) {
   if (current !== expected) throw new Error('Host changed during request')
+}
+
+function isSettingsDetailSection(section: SettingsNavigationSection): section is SettingsSection {
+  return section === 'models' || section === 'runtime' || section === 'tools' || section === 'computer' || section === 'about'
 }
 
 type ScreenFrameHeader = { seq: number; tab_id: string; w: number; h: number; ts: number; url: string }
@@ -168,16 +178,22 @@ function App() {
   const [artifactRoute, setArtifactRoute] = useState<ArtifactRoute | null>(null)
   const [mentionBotId, setMentionBotId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [slashPicker, setSlashPicker] = useState<SlashPickerState | null>(null)
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
+  const [composerSkill, setComposerSkill] = useState<SkillRecord | null>(null)
+  const [skillCreateIntent, setSkillCreateIntent] = useState<SkillCreateIntent | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [listenerReady, setListenerReady] = useState(false)
   const [historyLoadingChat, setHistoryLoadingChat] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsNavigationSection>('runtime')
+  const [clientVersion, setClientVersion] = useState('0.1.0')
   const [hostPermissions, setHostPermissions] = useState<Record<string, string> | null>(null)
   const [artifactPreview, setArtifactPreview] = useState<{ title: string; path: string; content: string; error?: string } | null>(null)
-  const [settingsBusy, setSettingsBusy] = useState(false)
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [routines, setRoutines] = useState<RoutineRecord[]>([])
   const [routineRuns, setRoutineRuns] = useState<Record<string, RoutineRun[]>>({})
@@ -241,6 +257,20 @@ function App() {
     }
   }, [])
 
+  useEffect(() => { void getVersion().then(setClientVersion).catch(() => undefined) }, [])
+
+  useEffect(() => {
+    let active = true
+    const scope = hostScope
+    setHostPermissions(null)
+    setSettingsError(null)
+    if (!showSettings || state.connection !== 'connected') return () => { active = false }
+    void invoke<Record<string, string>>('protocol_request', { method: 'host.permissions', params: {} })
+      .then((permissions) => { if (active && hostScopeRef.current === scope) setHostPermissions(permissions) })
+      .catch((error: unknown) => { if (active && hostScopeRef.current === scope) setSettingsError(String(error)) })
+    return () => { active = false }
+  }, [showSettings, hostScope, state.connection])
+
   useEffect(() => {
     let active = true
     void invoke<HostRecord[]>('list_hosts').then((hosts) => { if (active) setSavedHosts(hosts) }).catch((error: unknown) => { if (active) setHostError(String(error)) })
@@ -301,6 +331,12 @@ function App() {
     setAttachmentMenuOpen(false)
     setAttachments([])
     setDraggingFiles(false)
+    setSlashPicker(null)
+    setSlashSelectedIndex(0)
+    setComposerSkill(null)
+    setSkillCreateIntent(null)
+    setSkillsLoading(false)
+    setSkillsError(null)
   }, [hostScope])
 
   useEffect(() => {
@@ -690,6 +726,8 @@ function App() {
   const mainBot = bots.find((bot) => bot.is_main) ?? bots[0]
   const currentChat = chats.find((chat) => chat.id === selectedChat) ?? chats.find((chat) => chat.kind === 'main') ?? chats[0]
   const currentChatBotId = currentChat?.bot_id ?? (currentChat?.kind === 'main' ? mainBot?.id : null)
+  const skillTargetBotId = mentionBotId ?? currentChatBotId ?? mainBot?.id ?? null
+  const skillTargetBotName = skillTargetBotId ? state.bots[skillTargetBotId]?.name ?? t('common.bot') : t('common.bot')
   const currentMessages = useMemo(() => {
     const byId = new Map<string, Message>()
     for (const message of historyByChat[historyCacheKey(hostScope, currentChat?.id ?? '')] ?? []) byId.set(message.id, message)
@@ -768,6 +806,26 @@ function App() {
   const currentApprovalRecords = { ...state.approvals, ...historyApprovals[hostScope] }
   const currentProjectId = typeof currentChat?.project_id === 'string' ? currentChat.project_id : null
   const currentProject = currentProjectId ? state.projects[currentProjectId] : undefined
+  const skillPickerSkills = useMemo(() => skillsDataScope === hostScope && !skillsLoading && !skillsError ? skills : [], [hostScope, skills, skillsDataScope, skillsError, skillsLoading])
+  const slashSkillItems = useMemo(() => getChatSkillPickerItems(skillPickerSkills, slashPicker?.query ?? ''), [skillPickerSkills, slashPicker?.query])
+  const acknowledgeSkillCreateIntent = useCallback((id: string) => {
+    setSkillCreateIntent((current) => current?.id === id ? null : current)
+  }, [])
+
+  function createSkillFromSlash(query: string) {
+    setSlashPicker(null)
+    setSlashSelectedIndex(0)
+    setSkillCreateIntent(makeSkillCreateIntent(hostScope, query, crypto.randomUUID()))
+    setActivePage('skills')
+  }
+
+  useEffect(() => {
+    if (!slashPicker || !slashSkillItems.length) return
+    const selected = slashSkillItems[slashSelectedIndex]
+    if (selected && !selected.disabled_bot_ids.includes(skillTargetBotId ?? '')) return
+    const firstEnabled = slashSkillItems.findIndex((skill) => !skillTargetBotId || !skill.disabled_bot_ids.includes(skillTargetBotId))
+    if (firstEnabled >= 0 && firstEnabled !== slashSelectedIndex) setSlashSelectedIndex(firstEnabled)
+  }, [slashPicker, slashSelectedIndex, slashSkillItems, skillTargetBotId])
 
   useEffect(() => {
     if (!currentProjectId) {
@@ -803,8 +861,88 @@ function App() {
     setQuoteTarget(null)
     setMessageMenu(null)
     setSendError(null)
+    setSlashPicker(null)
+    setSlashSelectedIndex(0)
+    setComposerSkill(null)
+    setMentionBotId(null)
     localStorage.setItem(SELECTED_CHAT_STORAGE_KEY, chatId)
     localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScope}`, chatId)
+  }
+
+  function updateSlashPickerFromCaret(value: string, caret: number) {
+    setDraft(value)
+    if (composerSkill) {
+      setSlashPicker(null)
+      return
+    }
+    const beforeCaret = value.slice(0, caret)
+    const match = /(?:^|\s)\/([^\s/]*)$/.exec(beforeCaret)
+    if (!match) {
+      setSlashPicker(null)
+      setSlashSelectedIndex(0)
+      return
+    }
+    const query = match[1]
+    const start = caret - query.length - 1
+    setSlashPicker({ query, start, end: caret })
+    setSlashSelectedIndex(0)
+    if (shouldRefreshSkillsOnPickerOpen(Boolean(slashPicker), skillsLoading, state.connection === 'connected')) void loadSkills()
+  }
+
+  function selectComposerSkill(skill: SkillRecord) {
+    if (!slashPicker) return
+    const before = draft.slice(0, slashPicker.start)
+    const after = draft.slice(slashPicker.end)
+    const spacer = after && !/^\s/.test(after) ? ' ' : ''
+    const nextDraft = `${before}${spacer}${after}`
+    const caret = before.length + spacer.length
+    setDraft(nextDraft)
+    setComposerSkill(skill)
+    setSlashPicker(null)
+    setSlashSelectedIndex(0)
+    requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus()
+      composerTextareaRef.current?.setSelectionRange(caret, caret)
+    })
+  }
+
+  function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (slashPicker) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setSlashPicker(null)
+        setSlashSelectedIndex(0)
+        return
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const direction = event.key === 'ArrowDown' ? 1 : -1
+        if (slashSkillItems.length) {
+          for (let step = 1; step <= slashSkillItems.length; step += 1) {
+            const candidate = (slashSelectedIndex + direction * step + slashSkillItems.length * 2) % slashSkillItems.length
+            const skill = slashSkillItems[candidate]
+            if (!skillTargetBotId || !skill.disabled_bot_ids.includes(skillTargetBotId)) {
+              setSlashSelectedIndex(candidate)
+              break
+            }
+          }
+        }
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        const skill = slashSkillItems[slashSelectedIndex]
+        if (skill && (!skillTargetBotId || !skill.disabled_bot_ids.includes(skillTargetBotId))) {
+          event.preventDefault()
+          selectComposerSkill(skill)
+          return
+        }
+        if (event.key === 'Tab') event.preventDefault()
+      }
+    }
+    if (event.key === 'Backspace' && composerSkill && event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0) {
+      event.preventDefault()
+      setComposerSkill(null)
+    }
   }
 
   function openBotPanel(botId: string) {
@@ -1188,6 +1326,9 @@ function App() {
     setSendError(null)
     setAttachmentMenuOpen(false)
     setAttachments([])
+    setSlashPicker(null)
+    setSlashSelectedIndex(0)
+    setComposerSkill(null)
     setState((current) => ({ ...current, error: null, connection: 'connecting' }))
     try {
       await invoke('connect_saved_host', { hostId })
@@ -1228,16 +1369,10 @@ function App() {
     }
   }
 
-  async function openSettings() {
+  function openSettings(section: SettingsNavigationSection = 'runtime') {
+    setSettingsSection(section)
     setShowSettings(true)
     setSettingsError(null)
-    if (state.connection !== 'connected') return
-    try {
-      const result = await invoke<Record<string, string>>('protocol_request', { method: 'host.permissions', params: {} })
-      setHostPermissions(result)
-    } catch (error) {
-      setSettingsError(String(error))
-    }
   }
 
   const loadRoutines = useCallback(async () => {
@@ -1598,36 +1733,6 @@ function App() {
     }
   }
 
-  async function updateApprovalMode(mode: 'always_allow' | 'require') {
-    setSettingsBusy(true)
-    setSettingsError(null)
-    try {
-      const result = await invoke<{ settings: Record<string, Json> }>('protocol_request', {
-        method: 'settings.update', params: { patch: { approvals: { mode } } },
-      })
-      setState((current) => ({ ...current, settings: result.settings }))
-    } catch (error) {
-      setSettingsError(String(error))
-    } finally {
-      setSettingsBusy(false)
-    }
-  }
-
-  async function updateApprovalRules(rules: Record<string, Json>[]) {
-    setSettingsBusy(true)
-    setSettingsError(null)
-    try {
-      const result = await invoke<{ settings: Record<string, Json> }>('protocol_request', {
-        method: 'settings.update', params: { patch: { approvals: { rules } } },
-      })
-      setState((current) => ({ ...current, settings: result.settings }))
-    } catch (error) {
-      setSettingsError(String(error))
-    } finally {
-      setSettingsBusy(false)
-    }
-  }
-
   async function loadMoreTrace() {
     const route = traceRouteRef.current
     const beforeAseq = traceFirstAseq
@@ -1889,6 +1994,9 @@ function App() {
     setSendError(null)
     setAttachmentMenuOpen(false)
     setAttachments([])
+    setSlashPicker(null)
+    setSlashSelectedIndex(0)
+    setComposerSkill(null)
     setState((current) => ({ ...current, error: null, connection: 'connecting' }))
     try {
       await invoke('connect_host', { endpoint, password, name: hostName })
@@ -1902,26 +2010,30 @@ function App() {
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault()
     const readyAttachments = attachments.filter((item) => item.status === 'ready' && item.uploadId)
+    const messageText = composerSkill ? `/${composerSkill.name}${draft.trim() ? ` ${draft.trim()}` : ''}` : draft.trim()
     if (!currentChat || (!draft.trim() && !readyAttachments.length) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || state.connection !== 'connected') return
     const scope = hostScope
     setSending(true)
     setSendError(null)
     try {
-      if (mentionBotId || quoteTarget || readyAttachments.length) {
+      if (mentionBotId || quoteTarget || readyAttachments.length || composerSkill) {
         await invoke('protocol_request', { method: 'chat.send', params: {
           chat_id: currentChat.id,
-          text: draft.trim(),
+          text: messageText,
           mentions: mentionBotId ? [{ kind: 'bot', bot_id: mentionBotId, instruction: null }] : quoteTarget?.mode === 'reply' && quoteTarget.botId ? [{ kind: 'bot', bot_id: quoteTarget.botId, instruction: null }] : [],
           ...(quoteTarget ? { quote: quoteTarget.messageId, quote_mode: quoteTarget.mode } : {}),
           ...(readyAttachments.length ? { attachments: readyAttachments.map((item) => item.uploadId) } : {}),
           client_request_id: crypto.randomUUID(),
         } })
       } else {
-        await invoke('send_message', { chatId: currentChat.id, text: draft.trim() })
+        await invoke('send_message', { chatId: currentChat.id, text: messageText })
       }
       assertHostScope(hostScopeRef.current, scope)
       setDraft('')
       setMentionBotId(null)
+      setComposerSkill(null)
+      setSlashPicker(null)
+      setSlashSelectedIndex(0)
       setQuoteTarget(null)
       const sentIds = new Set(readyAttachments.map((item) => item.uploadId))
       setAttachments((current) => current.filter((item) => !sentIds.has(item.uploadId)))
@@ -2043,7 +2155,11 @@ function App() {
           {sendError && <div className="chat-entry-error" role="alert">{t('chat.send.failed').replace('{error}', sendError)}</div>}
           {quoteTarget && <div className="chat-composer-quote"><div><strong>{t(quoteTarget.mode === 'reply' ? 'chat.message.replying_to' : 'chat.message.quoting').replace('{sender}', quoteTarget.senderName)}</strong><span>{quoteTarget.excerpt}</span></div><button type="button" aria-label={t('chat.message.cancel_quote')} onClick={() => setQuoteTarget(null)}><X size={14} /></button></div>}
           {mentionBotId && <div className="composer-mention-chip"><AtSign size={13} />{t('chat.queue.at_now').replace('{bot}', state.bots[mentionBotId]?.name ?? t('common.bot'))}<button type="button" aria-label={t('common.close')} onClick={() => setMentionBotId(null)}>×</button></div>}
-          <textarea value={draft} onChange={(event) => { setDraft(event.target.value); setSendError(null) }} placeholder={currentChat ? t('chat.composer.placeholder.dm').replace('{name}', currentChat.title ?? '总管') : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
+          <div className="composer-input-wrap">
+            {slashPicker && <ChatSkillPicker skills={skillPickerSkills} query={slashPicker.query} selectedIndex={slashSelectedIndex} targetBotId={skillTargetBotId} targetBotName={skillTargetBotName} loading={skillsLoading || skillsDataScope !== hostScope} error={skillsDataScope === hostScope ? skillsError : null} onSelect={selectComposerSkill} onCreateSkill={createSkillFromSlash} onRetry={() => void loadSkills()} />}
+            {composerSkill && <div className="chat-composer-skill-chip"><Zap size={13} /><span>/{composerSkill.name}</span><button type="button" aria-label={t('common.close')} onMouseDown={(event) => event.preventDefault()} onClick={() => setComposerSkill(null)}><X size={12} /></button></div>}
+            <textarea ref={composerTextareaRef} value={draft} onChange={(event) => { setSendError(null); updateSlashPickerFromCaret(event.target.value, event.target.selectionStart) }} onClick={(event) => updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyUp={(event) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart) }} onKeyDown={handleComposerKeyDown} placeholder={currentChat ? t('chat.composer.placeholder.dm').replace('{name}', currentChat.title ?? '总管') : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
+          </div>
           <div className="composer-actions"><div className="composer-attachment-anchor"><button type="button" className="composer-tool" aria-label={t('chat.composer.attach.file')} title={t('chat.composer.attach.file')} disabled={!currentChat || state.connection !== 'connected'} onClick={() => setAttachmentMenuOpen((open) => !open)}><Plus size={17} /></button>{attachmentMenuOpen && <AttachmentMenu onFiles={() => { setAttachmentMenuOpen(false); attachmentInputRef.current?.click() }} onImages={() => { setAttachmentMenuOpen(false); imageInputRef.current?.click() }} onScreenshot={() => addNativeAttachment('screenshot')} onHome={() => addNativeAttachment('home')} homeAvailable={typeof currentProject?.home_path === 'string' && currentProject.home_path.length > 0} onClose={() => setAttachmentMenuOpen(false)} />}</div><span className="composer-hint"><Command size={11} /> ↵ 发送</span>
             <button type="submit" className="send-button" disabled={(!draft.trim() && !attachments.some((item) => item.status === 'ready' && item.uploadId)) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || !currentChat || state.connection !== 'connected'} aria-label={t('common.send')}><Send size={16} /></button></div>
           <input ref={attachmentInputRef} type="file" multiple hidden onChange={(event) => { if (event.currentTarget.files) addChatAttachments(event.currentTarget.files); event.currentTarget.value = '' }} />
@@ -2234,6 +2350,9 @@ function App() {
       t={(key) => t(key)}
     />}
     {activePage === 'skills' && <SkillsPage key={hostScope}
+      hostScope={hostScope}
+      createIntent={skillCreateIntent}
+      onCreateIntentHandled={acknowledgeSkillCreateIntent}
       skills={skillsDataScope === hostScope ? skills : []}
       bots={Object.values(state.bots).map((bot) => ({ id: bot.id, name: bot.name ?? bot.id }))}
       loading={skillsLoading || skillsDataScope !== hostScope}
@@ -2268,7 +2387,7 @@ function App() {
       onUpdate={updateMemoryEntry}
       onDelete={deleteMemoryEntry}
       onOpenSource={openMemorySource}
-      onBack={() => { setActivePage('chat'); void openSettings() }}
+      onBack={() => { setActivePage('chat'); openSettings('general') }}
     />}
     {artifactPreview && <div className="artifact-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setArtifactPreview(null) }}>
       <section className="artifact-preview-panel" role="dialog" aria-modal="true" aria-label={artifactPreview.title}>
@@ -2277,7 +2396,43 @@ function App() {
         {artifactPreview.error ? <p className="artifact-preview-error">{artifactPreview.error}</p> : artifactPreview.path.startsWith('http') ? <a className="artifact-preview-url" href={artifactPreview.path} target="_blank" rel="noreferrer">{artifactPreview.path}</a> : <pre>{artifactPreview.content || artifactPreview.path}</pre>}
       </section>
     </div>}
-    {showSettings && <SettingsPanel settings={state.settings} bots={state.bots} permissions={hostPermissions} busy={settingsBusy} error={settingsError} themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} onTheme={updateTheme} onTranslucency={updateTranslucency} onMode={updateApprovalMode} onRules={updateApprovalRules} onMemory={() => { setShowSettings(false); setActivePage('memory') }} onClose={() => setShowSettings(false)} />}
+    {showSettings && <SettingsPanel
+      selected={settingsSection}
+      error={settingsError}
+      hosts={savedHosts}
+      activeHostId={state.active_host?.id ?? null}
+      connection={state.connection}
+      onSelect={(section) => {
+        if (section === 'memory') { setShowSettings(false); setActivePage('memory'); return }
+        if (section === 'skills') { setShowSettings(false); setActivePage('skills'); return }
+        setSettingsSection(section)
+      }}
+      onClose={() => setShowSettings(false)}
+      onConnectHost={(hostId) => void connectSavedHost(hostId)}
+      onRemoveHost={(host) => void removeSavedHost(host)}
+      onAddHost={() => { setHostError(null); setHostDialogOpen(true) }}
+    >
+      {isSettingsDetailSection(settingsSection) ? <SettingsDetail
+        key={`${hostScope}:${settingsSection}`}
+        section={settingsSection}
+        hostKey={hostScope}
+        hostName={state.active_host?.name ?? hostName}
+        connected={state.connection === 'connected'}
+        settings={state.settings}
+        bots={Object.fromEntries(Object.values(state.bots).map((bot) => [bot.id, { id: bot.id, name: bot.name ?? bot.id }]))}
+        permissions={hostPermissions}
+        appVersion={clientVersion}
+        protocolVersion={(state as BridgeState & { protocol_version?: number | null }).protocol_version ?? null}
+        serverVersion={(state as BridgeState & { server_version?: string | null }).server_version ?? ''}
+        onSettingsUpdated={(settings) => {
+          const scope = hostScope
+          if (hostScopeRef.current !== scope) return
+          setState((current) => ({ ...current, settings: settings as Record<string, Json> }))
+        }}
+        onOpenSystemSettings={(permissionKey) => invoke('open_system_settings', { permissionKey })}
+        t={(key) => t(key as CopyKey)}
+      /> : <GeneralSettings themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} error={settingsError} onTheme={updateTheme} onTranslucency={updateTranslucency} />}
+    </SettingsPanel>}
     {showSearch && <SearchPage key={hostScope} onSearch={searchRequest} onOpenResult={openSearchResult} sourceLabel={searchSourceLabel} onClose={() => setShowSearch(false)} t={(key) => t(key)} />}
     {activeSearchSideTarget && <aside className="search-side-detail" aria-label={t('search.result.open')}>
       <header><strong>{activeSearchSideTarget.title}</strong><button type="button" onClick={() => setSearchSideTarget(null)} aria-label={t('search.action.close')}>×</button></header>
@@ -2398,35 +2553,51 @@ function ConnectScreen(props: ConnectProps) {
   </main>
 }
 
-function SettingsPanel(props: { settings: Record<string, Json> | null; bots: BridgeState['bots']; permissions: Record<string, string> | null; busy: boolean; error: string | null; themeMode: ThemeMode; translucent: boolean; reducedTransparency: boolean; onTheme: (mode: ThemeMode) => void; onTranslucency: (enabled: boolean) => void; onMode: (mode: 'always_allow' | 'require') => void; onRules: (rules: Record<string, Json>[]) => void; onMemory: () => void; onClose: () => void }) {
-  const approvals = props.settings?.approvals as Record<string, Json> | undefined
-  const rules = Array.isArray(approvals?.rules) ? approvals.rules as Record<string, Json>[] : NO_RULES
-  const [draftRules, setDraftRules] = useState(rules)
-  useEffect(() => setDraftRules(rules), [rules])
-  const changeRule = (index: number, patch: Record<string, Json>) => setDraftRules((current) => current.map((rule, ruleIndex) => ruleIndex === index ? { ...rule, ...patch } : rule))
-  const labels: Record<string, string> = { screen_recording: t('settings.permission.screen_recording'), accessibility: t('settings.permission.accessibility'), full_disk_access: t('settings.permission.full_disk_access'), automation_chrome: t('settings.permission.automation_chrome') }
-  const permissionStates: Record<string, string> = { granted: t('settings.permission.granted'), denied: t('settings.permission.denied'), unknown: t('settings.permission.unknown') }
-  return <div className="settings-scrim" onMouseDown={props.onClose}><section className="settings-panel" onMouseDown={(event) => event.stopPropagation()}>
-    <header><div><div className="eyebrow">{t('nav.settings')}</div><h2>{t('settings.approvals.title')}</h2></div><div className="settings-header-actions"><button type="button" className="text-button" onClick={props.onMemory}>{t('nav.memory')}</button><button className="icon-button" onClick={props.onClose} aria-label={t('common.close')}>×</button></div></header>
-    <section className="settings-section"><h3>{t('settings.appearance')}</h3>
-      <label className="appearance-row"><span>{t('settings.theme')}</span><select aria-label={t('settings.theme')} value={props.themeMode} onChange={(event) => props.onTheme(event.target.value as ThemeMode)}>
-        <option value="light">{t('settings.theme.light')}</option><option value="dark">{t('settings.theme.dark')}</option><option value="system">{t('settings.theme.system')}</option>
-      </select></label>
-      <label className="appearance-row"><span>{t('settings.translucent')}<small>{t('settings.translucent_hint')}</small></span><input type="checkbox" checked={props.translucent} disabled={props.reducedTransparency} onChange={(event) => props.onTranslucency(event.target.checked)} /></label>
-    </section>
-    <section className="settings-section"><h3>{t('settings.approvals.mode')}</h3>
-      <div className="mode-options"><button disabled={props.busy} className={approvals?.mode === 'always_allow' || !approvals?.mode ? 'selected' : ''} onClick={() => props.onMode('always_allow')}>{t('settings.approvals.always_allow')}<small>{t('settings.approvals.always_allow_desc')}</small></button><button disabled={props.busy} className={approvals?.mode === 'require' ? 'selected' : ''} onClick={() => props.onMode('require')}>{t('settings.approvals.require')}<small>{t('settings.approvals.require_desc')}</small></button></div>
-    </section>
-    <section className="settings-section"><h3>{t('settings.approvals.rules')}</h3>{draftRules.map((rule, index) => <div className="rule-row" key={String(rule.id)}>
-      {rule.builtin ? <><div><strong>{String(rule.text)}</strong><small>{rule.bot_id ? `${t('settings.rule.scope_bot')} · ${props.bots[String(rule.bot_id)]?.name ?? String(rule.bot_id)}` : t('settings.rule.scope_all')}</small></div><span className="readonly-tag">{t('settings.rule.builtin_readonly')}</span></> : <>
-        <div className="rule-edit"><input aria-label={t('settings.rule.text')} value={String(rule.text)} onChange={(event) => changeRule(index, { text: event.target.value })} />
-          <div><select aria-label={t('settings.rule.scope')} value={String(rule.bot_id ?? '')} onChange={(event) => changeRule(index, { bot_id: event.target.value || null })}><option value="">{t('settings.rule.scope_all')}</option>{Object.values(props.bots).map((bot) => <option key={bot.id} value={bot.id}>{bot.name ?? bot.id}</option>)}</select>
-          <select aria-label={t('settings.rule.action')} value={String(rule.kind)} onChange={(event) => changeRule(index, { kind: event.target.value })}><option value="ask_first">{t('settings.rule.ask_first')}</option><option value="auto_allow">{t('settings.rule.auto_allow')}</option></select></div>
-        </div><button className="rule-delete" disabled={props.busy} aria-label={t('settings.rule.delete')} onClick={() => setDraftRules((current) => current.filter((_, ruleIndex) => ruleIndex !== index))}>×</button></>}
-    </div>)}<div className="rule-actions"><button className="rule-add" disabled={props.busy} onClick={() => setDraftRules((current) => [...current, { id: crypto.randomUUID(), kind: 'ask_first', text: '', created_at: new Date().toISOString(), bot_id: null, builtin: false }])}>{t('settings.rule.add')}</button><button className="rule-save" disabled={props.busy} onClick={() => props.onRules(draftRules)}>{t('common.save')}</button></div></section>
-    <section className="settings-section"><h3>{t('settings.permissions.title')}</h3>{props.permissions ? Object.entries(labels).map(([key, label]) => <div className="permission-row" key={key}><span>{label}</span><span className={`permission-state ${props.permissions?.[key]}`}>{permissionStates[props.permissions?.[key] ?? 'unknown']}</span></div>) : <div className="panel-empty">{t('settings.permissions.loading')}</div>}</section>
-    {props.error && <div className="connect-error">{props.error}</div>}
+function SettingsPanel(props: { selected: SettingsNavigationSection; error: string | null; hosts: HostRecord[]; activeHostId: string | null; connection: BridgeState['connection']; onSelect: (section: SettingsNavigationSection) => void; onClose: () => void; onConnectHost: (hostId: string) => void; onRemoveHost: (host: HostRecord) => void; onAddHost: () => void; children: React.ReactNode }) {
+  const sections: { id: SettingsNavigationSection; label: string }[] = [
+    { id: 'general', label: t('settings.section.general') },
+    { id: 'memory', label: t('settings.section.memory') },
+    { id: 'models', label: t('settings.section.models') },
+    { id: 'runtime', label: t('settings.section.runtime') },
+    { id: 'tools', label: t('settings.section.tools') },
+    { id: 'skills', label: t('settings.section.skills') },
+    { id: 'computer', label: t('settings.section.computer') },
+    { id: 'hosts', label: t('settings.section.hosts') },
+    { id: 'about', label: t('settings.section.about') },
+  ]
+  const title = sections.find((item) => item.id === props.selected)?.label ?? t('nav.settings')
+  return <div className="settings-scrim" onMouseDown={props.onClose}><section className="settings-panel settings-panel-expanded" onMouseDown={(event) => event.stopPropagation()}>
+    <header className="settings-page-header"><div><div className="eyebrow">{t('nav.settings')}</div><h2>{title}</h2></div><button className="icon-button" onClick={props.onClose} aria-label={t('common.close')}>×</button></header>
+    <div className="settings-page-layout">
+      <nav className="settings-page-nav" aria-label={t('nav.settings')}>
+        {sections.map((section) => <button type="button" key={section.id} className={props.selected === section.id ? 'selected' : ''} onClick={() => props.onSelect(section.id)}>{section.label}</button>)}
+      </nav>
+      <div className="settings-page-content">
+        {props.selected === 'hosts' ? <section className="settings-detail">
+          <header className="settings-detail-heading"><div><h2>{t('settings.section.hosts')}</h2></div><button type="button" className="settings-detail-button primary" onClick={props.onAddHost}><Plus size={14} />{t('host.add')}</button></header>
+          {!props.hosts.length ? <div className="settings-detail-empty">{t('settings.hosts.empty')}</div> : <div className="settings-detail-card settings-host-list">{props.hosts.map((host) => <div className="settings-host-row" key={host.id}>
+            <span className={`status-dot ${host.id === props.activeHostId ? props.connection : 'disconnected'}`} />
+            <span className="settings-host-copy"><strong>{host.name}</strong><small>{host.addresses[0] ?? ''}</small></span>
+            <span className="settings-host-status">{host.id === props.activeHostId && props.connection === 'connected' ? t('settings.hosts.current') : t('settings.hosts.disconnected')}</span>
+            {host.id !== props.activeHostId && <button type="button" className="settings-detail-button" onClick={() => props.onConnectHost(host.id)}>{t('host.connect')}</button>}
+            <button type="button" className="settings-detail-icon danger" disabled={host.id === props.activeHostId} aria-label={t('common.delete')} onClick={() => props.onRemoveHost(host)}><Trash2 size={14} /></button>
+          </div>)}</div>}
+        </section> : props.children}
+        {props.error && props.selected !== 'hosts' && <div className="connect-error settings-page-error" role="alert">{props.error}</div>}
+      </div>
+    </div>
   </section></div>
+}
+
+function GeneralSettings({ themeMode, translucent, reducedTransparency, error, onTheme, onTranslucency }: { themeMode: ThemeMode; translucent: boolean; reducedTransparency: boolean; error: string | null; onTheme: (mode: ThemeMode) => void; onTranslucency: (enabled: boolean) => void }) {
+  return <section className="settings-detail">
+    <header className="settings-detail-heading"><h2>{t('settings.section.general')}</h2></header>
+    <section className="settings-detail-section"><h3>{t('settings.appearance')}</h3><div className="settings-detail-card settings-general-card">
+      <label className="appearance-row"><span>{t('settings.theme')}</span><select aria-label={t('settings.theme')} value={themeMode} onChange={(event) => onTheme(event.target.value as ThemeMode)}><option value="light">{t('settings.theme.light')}</option><option value="dark">{t('settings.theme.dark')}</option><option value="system">{t('settings.theme.system')}</option></select></label>
+      <label className="appearance-row"><span>{t('settings.translucent')}<small>{t('settings.translucent_hint')}</small></span><input type="checkbox" checked={translucent} disabled={reducedTransparency} onChange={(event) => onTranslucency(event.target.checked)} /></label>
+    </div></section>
+    {error && <div className="connect-error settings-page-error" role="alert">{error}</div>}
+  </section>
 }
 
 function ChatRow(props: { title: string; subtitle: string; selected: boolean; main?: boolean; onClick: () => void; onDetails?: () => void; detailsLabel?: string }) {

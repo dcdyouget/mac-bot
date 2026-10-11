@@ -612,6 +612,7 @@ data class Skill(override val raw: JsonObject) : RawProtocolModel {
     val enabled: Boolean get() = raw.boolean("enabled")
     val files: List<String> get() = raw.arr("files").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val invocations7d: Invocations7d get() = Invocations7d(raw.obj("invocations_7d"))
+    val lastInvokedAt: String? get() = raw.stringOrNull("last_invoked_at")
     val name: String get() = raw.str("name")
     val path: String get() = raw.str("path")
     val source: String get() = raw.str("source")
@@ -1933,6 +1934,7 @@ data class SkillDetail(override val raw: JsonObject) : RawProtocolModel {
     val enabled: Boolean get() = raw.boolean("enabled")
     val files: List<String> get() = raw.arr("files").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val invocations7d: Invocations7d get() = Invocations7d(raw.obj("invocations_7d"))
+    val lastInvokedAt: String? get() = raw.stringOrNull("last_invoked_at")
     val name: String get() = raw.str("name")
     val path: String get() = raw.str("path")
     val source: String get() = raw.str("source")

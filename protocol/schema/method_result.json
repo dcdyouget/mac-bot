@@ -3916,6 +3916,13 @@
         "invocations_7d": {
           "$ref": "#/definitions/Invocations7d"
         },
+        "last_invoked_at": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "name": {
           "type": "string"
         },
@@ -3978,6 +3985,13 @@
         },
         "invocations_7d": {
           "$ref": "#/definitions/Invocations7d"
+        },
+        "last_invoked_at": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "name": {
           "type": "string"

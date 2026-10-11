@@ -15,7 +15,9 @@ use macbot_memory::{
 use macbot_providers::{
     Completion, HttpProvider, ModelProvider, ModelRequest, ProviderConfig, SecretStore, TokenUsage,
 };
-use macbot_skills::{BotSkillSettingsSnapshot, Skill, SkillDraftFrom, SkillError, SkillRegistry};
+use macbot_skills::{
+    BotSkillSettingsSnapshot, Skill, SkillDetail, SkillDraftFrom, SkillError, SkillRegistry,
+};
 use macbot_store::{Event, Store, StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1494,12 +1496,55 @@ impl FeatureService {
 
     /// Record a model-side skill load and persist the rolling invocation
     /// counter. Full text is still loaded only by `SkillRegistry` on demand.
-    pub fn record_skill_invocation(&self, name: &str, bot_id: Option<&str>) -> FeatureResult<()> {
-        self.skill_registry
-            .write()
+    pub fn record_skill_invocation(
+        &self,
+        name: &str,
+        bot_id: Option<&str>,
+    ) -> FeatureResult<Skill> {
+        let skill = {
+            let mut registry = self
+                .skill_registry
+                .write()
+                .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?;
+            registry.record_invocation(name, bot_id)?;
+            registry.get(name)?.skill
+        };
+        self.persist_skills().map(|()| skill)
+    }
+
+    /// Load a skill through the user's explicit `/name` shorthand and record
+    /// the successful load. Unknown slash-prefixed text remains ordinary input.
+    pub fn load_skill_for_text(
+        &self,
+        text: &str,
+        bot_id: Option<&str>,
+    ) -> FeatureResult<Option<(SkillDetail, String)>> {
+        let loaded = self
+            .skill_registry
+            .read()
             .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?
-            .record_invocation(name, bot_id)?;
-        self.persist_skills()
+            .load_for_text(text, bot_id)?;
+        let Some((mut detail, instruction)) = loaded else {
+            return Ok(None);
+        };
+        detail.skill = self.record_skill_invocation(&detail.skill.name, bot_id)?;
+        Ok(Some((detail, instruction)))
+    }
+
+    /// Load a model-requested skill after the caller checks its invocation
+    /// policy, then persist the actual use timestamp and rolling count.
+    pub fn load_skill_for_bot(
+        &self,
+        name: &str,
+        bot_id: Option<&str>,
+    ) -> FeatureResult<SkillDetail> {
+        let mut detail = self
+            .skill_registry
+            .read()
+            .map_err(|_| FeatureError::Invalid("skill lock poisoned".into()))?
+            .load_for_bot(name, bot_id)?;
+        detail.skill = self.record_skill_invocation(name, bot_id)?;
+        Ok(detail)
     }
 
     /// Copy source Bot skill disablement settings for `bot.duplicate`.
@@ -4976,13 +5021,41 @@ mod tests {
             .unwrap()
             .set_enabled("persistent", false, Some("bot-a"))
             .unwrap();
-        service
-            .record_skill_invocation("persistent", Some("bot-a"))
+        let (loaded, instruction) = service
+            .load_skill_for_text("/persistent do it", Some("bot-b"))
+            .unwrap()
             .unwrap();
+        assert_eq!(instruction, "do it");
+        let first_invocation = loaded.skill.last_invoked_at.unwrap();
+        assert_eq!(first_invocation.timezone(), Utc);
         service.persist_skills().unwrap();
+        std::fs::write(
+            home.join("skills/persistent/SKILL.md"),
+            "---\nname: persistent\ndescription: rescanned\n---\n# rescanned\n",
+        )
+        .unwrap();
+        assert!(service.refresh_skills().unwrap().is_some());
+        assert_eq!(
+            service
+                .skill_registry
+                .read()
+                .unwrap()
+                .get("persistent")
+                .unwrap()
+                .skill
+                .last_invoked_at,
+            Some(first_invocation)
+        );
         drop(service);
 
         let restored = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let (loaded, _) = restored
+            .load_skill_for_text("/persistent again", Some("bot-b"))
+            .unwrap()
+            .unwrap();
+        let second_invocation = loaded.skill.last_invoked_at.unwrap();
+        assert!(second_invocation > first_invocation);
         let skill = restored
             .skill_registry
             .read()
@@ -4996,7 +5069,8 @@ mod tests {
             .unwrap()
             .is_enabled_for("persistent", Some("bot-a"))
             .unwrap());
-        assert_eq!(skill.invocations_7d.total, 1);
+        assert_eq!(skill.invocations_7d.total, 2);
+        assert_eq!(skill.last_invoked_at, Some(second_invocation));
     }
 
     #[test]

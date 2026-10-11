@@ -1,6 +1,8 @@
 package bot.mac.mobile.core.protocol
 
 import bot.mac.mobile.core.protocol.generated.*
+import bot.mac.mobile.core.protocol.generated.SkillSerializer as GeneratedSkillSerializer
+import bot.mac.mobile.core.protocol.generated.SkillDetailSerializer as GeneratedSkillDetailSerializer
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.*
 import kotlin.test.Test
@@ -70,6 +72,16 @@ class FixtureContractTest {
         assertEquals(1186L, userMemory.quota.usedChars)
         val userProfile = decode(MemoryProfileResultSerializer, fixture("results/memory_profile_get.json"))
         assertEquals("Asia/Shanghai", userProfile.profile.timezone)
+    }
+
+    @Test
+    fun skillLastInvokedAtAcceptsMissingAndExplicitNullValues() {
+        val legacySkill = JsonObject(fixture("objects/skill.json").filterKeys { it != "last_invoked_at" })
+        assertEquals(null, decode(GeneratedSkillSerializer, legacySkill).lastInvokedAt)
+        assertEquals(null, decode(GeneratedSkillSerializer, fixture("objects/skill_draft.json")).lastInvokedAt)
+
+        val legacyDetail = JsonObject(fixture("objects/skill_detail.json").filterKeys { it != "last_invoked_at" })
+        assertEquals(null, decode(GeneratedSkillDetailSerializer, legacyDetail).lastInvokedAt)
     }
 
     @Test
@@ -166,9 +178,9 @@ class FixtureContractTest {
         "routine" to RoutineSerializer,
         "routine_run" to RoutineRunSerializer,
         "settings" to SettingsSerializer,
-        "skill" to SkillSerializer,
-        "skill_draft" to SkillSerializer,
-        "skill_detail" to SkillDetailSerializer,
+        "skill" to GeneratedSkillSerializer,
+        "skill_draft" to GeneratedSkillSerializer,
+        "skill_detail" to GeneratedSkillDetailSerializer,
         "user_profile" to UserProfileSerializer,
     )
 

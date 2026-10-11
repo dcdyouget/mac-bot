@@ -431,11 +431,13 @@ interface Skill {
   enabled: boolean;
   disabled_bot_ids: Id[];
   invocations_7d: { total: number; by_bot: { bot_id: Id; count: number }[] };
+  last_invoked_at?: Time | null; // 最近一次实际加载技能的 UTC 时间；从未调用为 null，旧服务端可缺省
   updated_at: Time;
 }
 interface SkillDetail extends Skill { content: string }   // SKILL.md 全文
 
 `draft_from` 只由服务端根据真实执行上下文写入，不接受模型工具参数。项目任务草稿记录生成时 Bot 与项目的 ID、名称；私聊/无项目任务只记录 Bot，`project_id` 与 `project_name` 为 `null`。来源随技能快照持久化并在草稿发布后保留；旧草稿和手动创建的技能不伪造来源。
+`last_invoked_at` 只在技能实际被加载时更新，不用技能编辑时间或调用次数推算；客户端按它筛选、排序「最近使用」技能。
 
 interface Routine {
   id: Id; bot_id: Id; project_id: Id | null;

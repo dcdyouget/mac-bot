@@ -1766,6 +1766,7 @@ dependencies = [
  "mime_guess",
  "percent-encoding",
  "reqwest 0.12.28",
+ "semver",
  "serde",
  "serde_json",
  "sys-locale",

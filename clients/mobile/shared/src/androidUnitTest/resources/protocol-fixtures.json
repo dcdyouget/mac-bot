@@ -1316,6 +1316,7 @@
             "by_bot": [],
             "total": 1
           },
+          "last_invoked_at": "2026-10-09T10:19:02.312Z",
           "name": "prd-template",
           "path": "skills/prd-template",
           "source": "builtin",
@@ -2102,6 +2103,7 @@
         "by_bot": [],
         "total": 1
       },
+      "last_invoked_at": "2026-10-09T10:19:02.312Z",
       "name": "prd-template",
       "path": "skills/prd-template",
       "source": "builtin",
@@ -2121,6 +2123,7 @@
         "by_bot": [],
         "total": 0
       },
+      "last_invoked_at": null,
       "name": "prd-template",
       "path": "skills/prd-template",
       "source": "builtin",
@@ -2145,6 +2148,7 @@
         "by_bot": [],
         "total": 0
       },
+      "last_invoked_at": null,
       "name": "prd-template-draft",
       "path": "skills/.drafts/prd-template-draft",
       "source": "draft",
@@ -4123,6 +4127,7 @@
             "by_bot": [],
             "total": 1
           },
+          "last_invoked_at": "2026-10-09T10:19:02.312Z",
           "name": "prd-template",
           "path": "skills/prd-template",
           "source": "builtin",

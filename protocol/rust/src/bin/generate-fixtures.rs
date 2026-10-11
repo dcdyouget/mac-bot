@@ -84,11 +84,11 @@ fn question_history() -> Vec<Value> {
     ]
 }
 fn skill() -> Value {
-    json!({"name":"prd-template","description":"PRD 模板","source":"builtin","path":"skills/prd-template","files":["template.md"],"enabled":true,"disabled_bot_ids":[],"invocations_7d":{"total":1,"by_bot":[]},"updated_at":now()})
+    json!({"name":"prd-template","description":"PRD 模板","source":"builtin","path":"skills/prd-template","files":["template.md"],"enabled":true,"disabled_bot_ids":[],"invocations_7d":{"total":1,"by_bot":[]},"last_invoked_at":now(),"updated_at":now()})
 }
 
 fn draft_skill() -> Value {
-    json!({"name":"prd-template-draft","description":"PRD 模板草稿","source":"draft","draft_from":{"bot_id":"bot_product","bot_name":"产品","project_id":"project_login","project_name":"登录功能"},"path":"skills/.drafts/prd-template-draft","files":[],"enabled":true,"disabled_bot_ids":[],"invocations_7d":{"total":0,"by_bot":[]},"updated_at":now()})
+    json!({"name":"prd-template-draft","description":"PRD 模板草稿","source":"draft","draft_from":{"bot_id":"bot_product","bot_name":"产品","project_id":"project_login","project_name":"登录功能"},"path":"skills/.drafts/prd-template-draft","files":[],"enabled":true,"disabled_bot_ids":[],"invocations_7d":{"total":0,"by_bot":[]},"last_invoked_at":null,"updated_at":now()})
 }
 fn routine_run() -> Value {
     json!({"id":"rrn_1","routine_id":"rtn_1","assignment_id":null,"trigger":"test","status":"done","started_at":now(),"finished_at":now(),"error":null})
@@ -198,7 +198,7 @@ fn objects(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
         ("skill_draft", draft_skill()),
         (
             "skill_detail",
-            json!({"name":"prd-template","description":"PRD 模板","source":"builtin","path":"skills/prd-template","files":[],"enabled":true,"disabled_bot_ids":[],"invocations_7d":{"total":0,"by_bot":[]},"updated_at":now(),"content":"# PRD"}),
+            json!({"name":"prd-template","description":"PRD 模板","source":"builtin","path":"skills/prd-template","files":[],"enabled":true,"disabled_bot_ids":[],"invocations_7d":{"total":0,"by_bot":[]},"last_invoked_at":null,"updated_at":now(),"content":"# PRD"}),
         ),
         ("routine", routine()),
         ("routine_run", routine_run()),

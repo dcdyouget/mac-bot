@@ -176,6 +176,8 @@ fn reveal_in_finder(
 struct BridgeData {
     connection: &'static str,
     error: Option<String>,
+    server_version: Option<String>,
+    protocol_version: Option<u32>,
     state: AppState,
     client: Option<Client>,
     active_host: Option<HostRecord>,
@@ -196,6 +198,8 @@ impl Default for BridgeData {
         Self {
             connection: "disconnected",
             error: None,
+            server_version: None,
+            protocol_version: None,
             state: AppState::default(),
             client: None,
             active_host: None,
@@ -345,6 +349,8 @@ const MAX_BUFFERED_TRACE_BYTES: usize = 1024 * 1024;
 struct BridgeSnapshot {
     connection: &'static str,
     error: Option<String>,
+    server_version: Option<String>,
+    protocol_version: Option<u32>,
     node_id: Option<String>,
     bots: Map<String, Value>,
     chats: Map<String, Value>,
@@ -369,6 +375,8 @@ fn snapshot(data: &BridgeData) -> BridgeSnapshot {
     BridgeSnapshot {
         connection: data.connection,
         error: data.error.clone(),
+        server_version: data.server_version.clone(),
+        protocol_version: data.protocol_version,
         node_id: data
             .state
             .hello
@@ -387,6 +395,24 @@ fn snapshot(data: &BridgeData) -> BridgeSnapshot {
         active_host: data.active_host.clone(),
         pending_messages: data.pending_messages.clone(),
     }
+}
+
+fn negotiated_versions(hello: &Value) -> (Option<String>, Option<u32>) {
+    let server_version = hello
+        .get("server_version")
+        .and_then(Value::as_str)
+        .filter(|version| !version.trim().is_empty())
+        .map(str::to_owned);
+    let protocol_version = hello
+        .get("protocol")
+        .and_then(Value::as_u64)
+        .and_then(|version| u32::try_from(version).ok());
+    (server_version, protocol_version)
+}
+
+fn clear_negotiated_versions(data: &mut BridgeData) {
+    data.server_version = None;
+    data.protocol_version = None;
 }
 
 fn emit_snapshot(app: &AppHandle, bridge: &SharedBridge) {
@@ -898,6 +924,7 @@ async fn connect_to_host(
         data.connection_generation = data.connection_generation.wrapping_add(1);
         data.connection = "connecting";
         data.error = None;
+        clear_negotiated_versions(&mut data);
         (data.connection_generation, previous_generation)
     };
     clear_screen_for_host_switch(&app, bridge.inner(), previous_generation).await;
@@ -976,8 +1003,11 @@ async fn connect_to_host(
                         endpoint: connected_endpoint,
                         ..
                     } => {
+                        let (server_version, protocol_version) = negotiated_versions(&hello);
                         data.connection = "connected";
                         data.error = None;
+                        data.server_version = server_version;
+                        data.protocol_version = protocol_version;
                         let node_id = hello
                             .get("node_id")
                             .and_then(Value::as_str)
@@ -2108,6 +2138,293 @@ async fn save_usage_csv(app: AppHandle, file_name: String, csv: String) -> Resul
     Ok(true)
 }
 
+const GITHUB_LATEST_RELEASE_API: &str =
+    "https://api.github.com/repos/dcdyouget/mac-bot/releases/latest";
+const TRUSTED_RELEASES_URL: &str = "https://github.com/dcdyouget/mac-bot/releases";
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum UpdateStatus {
+    Available,
+    UpToDate,
+    Unsupported,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct UpdateCheckResult {
+    status: UpdateStatus,
+    current_version: String,
+    latest_version: Option<String>,
+    releases_url: &'static str,
+}
+
+fn update_check_result(current_version: &str, latest_tag: Option<&str>) -> UpdateCheckResult {
+    let current = semver::Version::parse(current_version).ok();
+    let latest = latest_tag
+        .map(|tag| tag.strip_prefix('v').unwrap_or(tag))
+        .and_then(|version| semver::Version::parse(version).ok());
+    let status = match (&current, &latest) {
+        (Some(current), Some(latest)) if latest > current => UpdateStatus::Available,
+        (Some(_), Some(_)) => UpdateStatus::UpToDate,
+        _ => UpdateStatus::Unsupported,
+    };
+    UpdateCheckResult {
+        status,
+        current_version: current_version.to_owned(),
+        latest_version: latest.map(|version| version.to_string()),
+        releases_url: TRUSTED_RELEASES_URL,
+    }
+}
+
+#[tauri::command]
+async fn check_for_updates() -> Result<UpdateCheckResult, String> {
+    let current_version = env!("CARGO_PKG_VERSION");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|error| format!("无法初始化更新检查：{error}"))?;
+    let response = client
+        .get(GITHUB_LATEST_RELEASE_API)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", format!("MacBot/{current_version}"))
+        .send()
+        .await
+        .map_err(|error| format!("检查更新失败：{error}"))?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(update_check_result(current_version, None));
+    }
+    let response = response
+        .error_for_status()
+        .map_err(|error| format!("检查更新失败：{error}"))?;
+    let release = response
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("无法读取 GitHub release 信息：{error}"))?;
+    let latest_tag = release.get("tag_name").and_then(Value::as_str);
+    Ok(update_check_result(current_version, latest_tag))
+}
+
+fn redact_endpoint(endpoint: &str) -> String {
+    let (scheme, authority) = endpoint
+        .split_once("://")
+        .map_or((None, endpoint), |(scheme, rest)| (Some(scheme), rest));
+    let scheme = scheme.filter(|scheme| {
+        !scheme.is_empty()
+            && scheme
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || "+-.".contains(ch))
+    });
+    let authority = authority
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .rsplit('@')
+        .next()
+        .unwrap_or_default();
+    let port = if let Some(bracket_end) = authority.find(']') {
+        authority[bracket_end + 1..]
+            .strip_prefix(':')
+            .filter(|port| !port.is_empty() && port.chars().all(|ch| ch.is_ascii_digit()))
+            .map(|port| format!(":{port}"))
+            .unwrap_or_default()
+    } else {
+        authority
+            .rsplit_once(':')
+            .filter(|(_, port)| !port.is_empty() && port.chars().all(|ch| ch.is_ascii_digit()))
+            .map(|(_, port)| format!(":{port}"))
+            .unwrap_or_default()
+    };
+    match scheme {
+        Some(scheme) => format!("{scheme}://<redacted-host>{port}"),
+        None => format!("<redacted-host>{port}"),
+    }
+}
+
+fn one_line(value: &str) -> String {
+    value
+        .chars()
+        .take(200)
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect()
+}
+
+fn diagnostic_error_category(error: Option<&str>) -> &'static str {
+    let Some(error) = error else {
+        return "无";
+    };
+    let error = error.to_ascii_lowercase();
+    if error.contains("timeout") || error.contains("timed out") || error.contains("超时") {
+        "网络请求超时（详情已隐藏）"
+    } else if error.contains("tls") || error.contains("certificate") {
+        "TLS 安全连接失败（详情已隐藏）"
+    } else if error.contains("websocket") {
+        "WebSocket 通信错误（详情已隐藏）"
+    } else if error.contains("http") || error.contains("status code") {
+        "HTTP 请求错误（详情已隐藏）"
+    } else {
+        "客户端连接或传输错误（详情已隐藏）"
+    }
+}
+
+fn diagnostics_text(
+    version: &str,
+    connection: &str,
+    host_name: Option<&str>,
+    endpoints: &[String],
+    last_error: Option<&str>,
+) -> String {
+    let mut lines = vec![
+        "Mac Bot 诊断信息".to_owned(),
+        format!("应用版本：{version}"),
+        format!(
+            "系统：{} / {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ),
+        format!("连接状态：{connection}"),
+        format!(
+            "当前 Host：{}",
+            host_name.map(one_line).as_deref().unwrap_or("无")
+        ),
+        "Host 地址（主机已脱敏）：".to_owned(),
+    ];
+    if endpoints.is_empty() {
+        lines.push("  无".into());
+    } else {
+        lines.extend(
+            endpoints
+                .iter()
+                .map(|endpoint| format!("  {}", redact_endpoint(endpoint))),
+        );
+    }
+    lines.extend([
+        format!(
+            "最近客户端错误类别：{}",
+            diagnostic_error_category(last_error)
+        ),
+        "错误范围：仅包含当前客户端最近一次连接/传输错误；详细文本已隐藏。".into(),
+        "本文件不包含访问令牌、密码或消息正文。".into(),
+    ]);
+    lines.join("\n") + "\n"
+}
+
+fn write_diagnostics(path: &Path, diagnostics: &str) -> Result<(), String> {
+    std::fs::write(path, diagnostics.as_bytes())
+        .map_err(|error| format!("无法导出诊断信息：{error}"))
+}
+
+#[tauri::command]
+fn export_diagnostics(app: AppHandle, bridge: State<'_, SharedBridge>) -> Result<bool, String> {
+    let (connection, host_name, endpoints, last_error) = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        (
+            data.connection,
+            data.active_host.as_ref().map(|host| host.name.clone()),
+            data.active_host
+                .as_ref()
+                .map(|host| host.addresses.clone())
+                .unwrap_or_default(),
+            data.error.clone(),
+        )
+    };
+    let diagnostics = diagnostics_text(
+        env!("CARGO_PKG_VERSION"),
+        connection,
+        host_name.as_deref(),
+        &endpoints,
+        last_error.as_deref(),
+    );
+    let Some(file_path) = app
+        .dialog()
+        .file()
+        .set_file_name("MacBot-Diagnostics.txt")
+        .add_filter("Text", &["txt"])
+        .blocking_save_file()
+    else {
+        return Ok(false);
+    };
+    let path = file_path
+        .into_path()
+        .map_err(|error| format!("无法读取所选文件路径：{error}"))?;
+    write_diagnostics(&path, &diagnostics)?;
+    Ok(true)
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum SystemPermission {
+    ScreenRecording,
+    Accessibility,
+    FullDiskAccess,
+    AutomationChrome,
+}
+
+fn system_settings_url(permission: SystemPermission) -> &'static str {
+    match permission {
+        SystemPermission::ScreenRecording => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        }
+        SystemPermission::Accessibility => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        }
+        SystemPermission::FullDiskAccess => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+        }
+        SystemPermission::AutomationChrome => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+        }
+    }
+}
+
+#[tauri::command]
+fn open_system_settings(permission_key: SystemPermission) -> Result<(), String> {
+    let url = system_settings_url(permission_key);
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("/usr/bin/open")
+            .arg(url)
+            .status()
+            .map_err(|error| format!("无法打开系统设置：{error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("无法打开系统设置（退出码 {:?}）", status.code()))
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = url;
+        Err("该入口仅支持 macOS".into())
+    }
+}
+
+#[tauri::command]
+fn open_releases_page() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("/usr/bin/open")
+            .arg(TRUSTED_RELEASES_URL)
+            .status()
+            .map_err(|error| format!("无法打开发行版本页面：{error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "无法打开发行版本页面（退出码 {:?}）",
+                status.code()
+            ))
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("发行版本页面仅支持 macOS".into())
+    }
+}
+
 fn skill_upload_payload(
     body: &InvokeBody,
     encoded_file_name: Option<&str>,
@@ -2589,6 +2906,10 @@ pub fn run() {
             send_message,
             protocol_request,
             save_usage_csv,
+            check_for_updates,
+            export_diagnostics,
+            open_system_settings,
+            open_releases_page,
             upload_skill_zip,
             upload_chat_attachment,
             pick_and_upload_home_attachment,
@@ -2614,14 +2935,16 @@ pub fn run() {
 mod tests {
     use super::{
         activate_trace_subscription, apply_retry_result, authorized_project_home,
-        chat_attachment_payload, connection_is_current, encode_screen_frame, expand_home_path,
-        finish_trace_unsubscribe, inject_client_locale, normalize_bcp47_locale, pending_message,
-        resolve_home_attachment_path, resolve_project_artifact_path, retain_trace_cleanup,
-        route_trace_event, screen_connection_payload, screen_generation_matches,
-        skill_upload_payload, trace_subscription_state, trace_tauri_event,
-        uploaded_chat_attachment, uploaded_skill_id, validate_screen_input, BridgeData, InvokeBody,
-        PendingTraceCleanup, ScreenFrame, ScreenPoint, TraceScope, TraceSubscription,
-        MAX_BUFFERED_TRACE_BYTES, MAX_SCREEN_JPEG_BYTES,
+        chat_attachment_payload, clear_negotiated_versions, connection_is_current,
+        diagnostics_text, encode_screen_frame, expand_home_path, finish_trace_unsubscribe,
+        inject_client_locale, negotiated_versions, normalize_bcp47_locale, pending_message,
+        redact_endpoint, resolve_home_attachment_path, resolve_project_artifact_path,
+        retain_trace_cleanup, route_trace_event, screen_connection_payload,
+        screen_generation_matches, skill_upload_payload, snapshot, system_settings_url,
+        trace_subscription_state, trace_tauri_event, update_check_result, uploaded_chat_attachment,
+        uploaded_skill_id, validate_screen_input, write_diagnostics, BridgeData, InvokeBody,
+        PendingTraceCleanup, ScreenFrame, ScreenPoint, SystemPermission, TraceScope,
+        TraceSubscription, UpdateStatus, MAX_BUFFERED_TRACE_BYTES, MAX_SCREEN_JPEG_BYTES,
     };
     use macbot_client_core::ScreenFrameHeader;
     use serde_json::json;
@@ -2692,6 +3015,123 @@ mod tests {
         assert_eq!(expand_home_path("~", Some(&home)).unwrap(), home);
         assert!(expand_home_path("relative/path", Some(&home)).is_err());
         assert!(expand_home_path("~someone/path", Some(&home)).is_err());
+    }
+
+    #[test]
+    fn bridge_snapshot_exposes_negotiated_versions_and_clears_them_for_host_switch() {
+        let mut bridge = BridgeData::default();
+        let hello = json!({
+            "protocol": 1,
+            "server_version": "0.8.2",
+            "node_id": "node-1"
+        });
+        let (server_version, protocol_version) = negotiated_versions(&hello);
+        bridge.server_version = server_version;
+        bridge.protocol_version = protocol_version;
+        let first_snapshot = snapshot(&bridge);
+        assert_eq!(first_snapshot.server_version.as_deref(), Some("0.8.2"));
+        assert_eq!(first_snapshot.protocol_version, Some(1));
+
+        clear_negotiated_versions(&mut bridge);
+        let cleared_snapshot = snapshot(&bridge);
+        assert_eq!(cleared_snapshot.server_version, None);
+        assert_eq!(cleared_snapshot.protocol_version, None);
+
+        assert_eq!(
+            negotiated_versions(&json!({"protocol": 1})),
+            (None, Some(1))
+        );
+        assert_eq!(
+            negotiated_versions(&json!({"protocol": u64::MAX, "server_version": "  "})),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn update_check_only_returns_validated_versions_and_trusted_release_url() {
+        let available = update_check_result("0.1.0", Some("v0.2.0"));
+        assert_eq!(available.status, UpdateStatus::Available);
+        assert_eq!(available.current_version, "0.1.0");
+        assert_eq!(available.latest_version.as_deref(), Some("0.2.0"));
+        assert_eq!(
+            available.releases_url,
+            "https://github.com/dcdyouget/mac-bot/releases"
+        );
+
+        assert_eq!(
+            update_check_result("0.1.0", Some("0.1.0")).status,
+            UpdateStatus::UpToDate
+        );
+        assert_eq!(
+            update_check_result("0.1.0", None).status,
+            UpdateStatus::Unsupported
+        );
+        assert_eq!(
+            update_check_result("0.1.0", Some("release-latest")).status,
+            UpdateStatus::Unsupported
+        );
+    }
+
+    #[test]
+    fn diagnostics_redact_endpoint_and_never_export_error_details() {
+        let endpoint = "wss://alice:pass@private.example:7788/api?token=secret#fragment";
+        assert_eq!(redact_endpoint(endpoint), "wss://<redacted-host>:7788");
+        assert_eq!(
+            redact_endpoint("10.0.0.8:7788/path"),
+            "<redacted-host>:7788"
+        );
+        assert_eq!(
+            redact_endpoint("wss://[2001:db8::1]:7788/api"),
+            "wss://<redacted-host>:7788"
+        );
+
+        let diagnostics = diagnostics_text(
+            "0.1.0",
+            "connected",
+            Some("Studio"),
+            &[endpoint.to_owned()],
+            Some("HTTP error Authorization: Bearer token-secret; content: private message"),
+        );
+        assert!(diagnostics.contains("应用版本：0.1.0"));
+        assert!(diagnostics.contains("当前 Host：Studio"));
+        assert!(diagnostics.contains("HTTP 请求错误（详情已隐藏）"));
+        for secret in [
+            "alice",
+            "pass",
+            "private.example",
+            "token=secret",
+            "token-secret",
+            "private message",
+        ] {
+            assert!(!diagnostics.contains(secret));
+        }
+    }
+
+    #[test]
+    fn diagnostics_save_exact_text_to_user_selected_path() {
+        let root = TempDir::new();
+        let file = root.0.join("diagnostics.txt");
+        let text = "Mac Bot 诊断信息\n应用版本：0.1.0\n";
+        write_diagnostics(&file, text).unwrap();
+        assert_eq!(fs::read_to_string(file).unwrap(), text);
+    }
+
+    #[test]
+    fn system_settings_only_maps_known_permissions_to_fixed_panes() {
+        assert!(system_settings_url(SystemPermission::ScreenRecording)
+            .ends_with("?Privacy_ScreenCapture"));
+        assert!(system_settings_url(SystemPermission::Accessibility)
+            .ends_with("?Privacy_Accessibility"));
+        assert!(
+            system_settings_url(SystemPermission::FullDiskAccess).ends_with("?Privacy_AllFiles")
+        );
+        assert!(system_settings_url(SystemPermission::AutomationChrome)
+            .ends_with("?Privacy_Automation"));
+        assert_eq!(
+            serde_json::from_str::<SystemPermission>("\"screen_recording\"").unwrap(),
+            SystemPermission::ScreenRecording
+        );
+        assert!(serde_json::from_str::<SystemPermission>("\"https://example.com\"").is_err());
     }
 
     #[test]

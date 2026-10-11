@@ -13,6 +13,7 @@
     "by_bot": [],
     "total": 0
   },
+  "last_invoked_at": null,
   "name": "prd-template-draft",
   "path": "skills/.drafts/prd-template-draft",
   "source": "draft",

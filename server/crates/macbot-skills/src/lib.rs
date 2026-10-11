@@ -103,6 +103,8 @@ pub struct Skill {
     pub enabled: bool,
     pub disabled_bot_ids: Vec<String>,
     pub invocations_7d: InvocationStats,
+    #[serde(default)]
+    pub last_invoked_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -183,6 +185,7 @@ impl SkillRegistry {
                         enabled: true,
                         disabled_bot_ids: Vec::new(),
                         invocations_7d: InvocationStats::default(),
+                        last_invoked_at: None,
                         updated_at: now,
                     },
                     disable_model_invocation: false,
@@ -197,6 +200,22 @@ impl SkillRegistry {
         let old = std::mem::take(&mut self.entries);
         self.entries = BTreeMap::new();
         self.add_builtins();
+        for (name, fresh) in &mut self.entries {
+            let Some(previous) = old.get(name) else {
+                continue;
+            };
+            if fresh.skill.source != previous.skill.source
+                || fresh.skill.path != previous.skill.path
+            {
+                continue;
+            }
+            fresh.skill.enabled = previous.skill.enabled;
+            fresh.skill.disabled_bot_ids = previous.skill.disabled_bot_ids.clone();
+            fresh.skill.invocations_7d = previous.skill.invocations_7d.clone();
+            fresh.skill.last_invoked_at = previous.skill.last_invoked_at;
+            fresh.skill.draft_from = previous.skill.draft_from.clone();
+            fresh.skill.updated_at = previous.skill.updated_at;
+        }
         for root in self.roots.clone() {
             if !root.exists() {
                 continue;
@@ -213,6 +232,7 @@ impl SkillRegistry {
                     fresh.skill.enabled = previous.skill.enabled;
                     fresh.skill.disabled_bot_ids = previous.skill.disabled_bot_ids.clone();
                     fresh.skill.invocations_7d = previous.skill.invocations_7d.clone();
+                    fresh.skill.last_invoked_at = previous.skill.last_invoked_at;
                     fresh.skill.draft_from = previous.skill.draft_from.clone();
                     fresh
                 } else {
@@ -239,6 +259,7 @@ impl SkillRegistry {
             entry.skill.enabled = saved_skill.enabled;
             entry.skill.disabled_bot_ids = saved_skill.disabled_bot_ids.clone();
             entry.skill.invocations_7d = saved_skill.invocations_7d.clone();
+            entry.skill.last_invoked_at = saved_skill.last_invoked_at;
             entry.skill.draft_from = saved_skill.draft_from.clone();
             entry.skill.updated_at = saved_skill.updated_at;
         }
@@ -399,7 +420,7 @@ impl SkillRegistry {
     }
 
     pub fn update(&mut self, name: &str, content: &str) -> Result<Skill, SkillError> {
-        let (path, source, enabled, disabled_bot_ids, invocations_7d, draft_from) = {
+        let (path, source, enabled, disabled_bot_ids, invocations_7d, last_invoked_at, draft_from) = {
             let entry = self
                 .entries
                 .get(name)
@@ -410,6 +431,7 @@ impl SkillRegistry {
                 entry.skill.enabled,
                 entry.skill.disabled_bot_ids.clone(),
                 entry.skill.invocations_7d.clone(),
+                entry.skill.last_invoked_at,
                 entry.skill.draft_from.clone(),
             )
         };
@@ -429,6 +451,7 @@ impl SkillRegistry {
         indexed.skill.enabled = enabled;
         indexed.skill.disabled_bot_ids = disabled_bot_ids;
         indexed.skill.invocations_7d = invocations_7d;
+        indexed.skill.last_invoked_at = last_invoked_at;
         indexed.skill.draft_from = draft_from;
         let skill = indexed.skill.clone();
         self.entries.insert(name.to_string(), indexed);
@@ -713,6 +736,7 @@ impl SkillRegistry {
             .get_mut(name)
             .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
         entry.skill.invocations_7d.total += 1;
+        entry.skill.last_invoked_at = Some(Utc::now());
         if let Some(bot_id) = bot_id {
             if let Some(row) = entry
                 .skill
@@ -898,6 +922,7 @@ fn make_indexed(dir: PathBuf, source: SkillSource) -> Result<IndexedSkill, Skill
             enabled: true,
             disabled_bot_ids: Vec::new(),
             invocations_7d: InvocationStats::default(),
+            last_invoked_at: None,
             updated_at: Utc::now(),
         },
         disable_model_invocation: parsed.disable_model_invocation,
@@ -1094,6 +1119,61 @@ mod tests {
             .load_for_text("/missing ordinary text", None)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn invocation_time_tracks_actual_loads_and_survives_rescan_and_legacy_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("skills/demo");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("SKILL.md"), skill_text("demo")).unwrap();
+        let mut registry = SkillRegistry::with_roots(
+            temp.path().join("install"),
+            vec![temp.path().join("skills")],
+        );
+        registry.rescan().unwrap();
+        assert_eq!(registry.get("demo").unwrap().skill.last_invoked_at, None);
+
+        registry.record_invocation("demo", Some("bot-a")).unwrap();
+        let first = registry.get("demo").unwrap().skill.last_invoked_at.unwrap();
+        assert_eq!(first.timezone(), Utc);
+        registry
+            .record_invocation("project-home", Some("bot-a"))
+            .unwrap();
+        let builtin_invoked = registry
+            .get("project-home")
+            .unwrap()
+            .skill
+            .last_invoked_at
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        registry.record_invocation("demo", Some("bot-b")).unwrap();
+        let recent = registry.get("demo").unwrap().skill.last_invoked_at.unwrap();
+        assert!(recent > first);
+        assert_eq!(registry.get("demo").unwrap().skill.invocations_7d.total, 2);
+
+        fs::write(
+            root.join("SKILL.md"),
+            "---\nname: demo\ndescription: updated\n---\n",
+        )
+        .unwrap();
+        registry.rescan().unwrap();
+        let rescanned = registry.get("demo").unwrap().skill;
+        assert_eq!(rescanned.last_invoked_at, Some(recent));
+        assert_eq!(rescanned.invocations_7d.total, 2);
+        assert_eq!(
+            registry.get("project-home").unwrap().skill.last_invoked_at,
+            Some(builtin_invoked)
+        );
+        let updated = registry
+            .update("demo", "---\nname: demo\ndescription: edited\n---\n")
+            .unwrap();
+        assert_eq!(updated.last_invoked_at, Some(recent));
+
+        let mut legacy = serde_json::to_value(&updated).unwrap();
+        legacy.as_object_mut().unwrap().remove("last_invoked_at");
+        let legacy: Skill = serde_json::from_value(legacy).unwrap();
+        assert_eq!(legacy.last_invoked_at, None);
     }
 
     #[test]

@@ -8,6 +8,7 @@
     "by_bot": [],
     "total": 0
   },
+  "last_invoked_at": null,
   "name": "prd-template",
   "path": "skills/prd-template",
   "source": "builtin",

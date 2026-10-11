@@ -151,6 +151,7 @@ async fn dispatch(
                 .map(|mut skill| {
                     if let Some(object) = skill.as_object_mut() {
                         object.remove("content");
+                        object.entry("last_invoked_at").or_insert(Value::Null);
                     }
                     skill
                 })
@@ -3984,14 +3985,18 @@ fn workbench(state: &MockState) -> RpcResult {
 }
 
 fn skill_default(name: &str, description: &str, source: &str, content: Option<&str>) -> Value {
-    json!({"name":name,"description":description,"source":source,"path":format!("builtin://{name}"),"files":[],"enabled":true,"disabled_bot_ids":[],"invocations_7d":{"total":0,"by_bot":[]},"updated_at":now(),"content":content})
+    json!({"name":name,"description":description,"source":source,"path":format!("builtin://{name}"),"files":[],"enabled":true,"disabled_bot_ids":[],"invocations_7d":{"total":0,"by_bot":[]},"last_invoked_at":null,"updated_at":now(),"content":content})
 }
 fn skill_get(state: &MockState, params: &Value) -> RpcResult {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-    let item = extra_get(state, "skills")
+    let mut item = extra_get(state, "skills")
         .into_iter()
         .find(|x| x.get("name").and_then(Value::as_str) == Some(name))
         .ok_or_else(|| rpc_error("not_found", "skill not found", None))?;
+    item.as_object_mut()
+        .expect("skill records are objects")
+        .entry("last_invoked_at")
+        .or_insert(Value::Null);
     Ok(json!({"skill":item}))
 }
 fn skill_create(state: &mut MockState, params: &Value, source: &str) -> RpcResult {
@@ -5332,6 +5337,7 @@ mod contract_tests {
         }
         let skills = call(&gateway, "skill.list", json!({})).await;
         for skill in skills["skills"].as_array().unwrap() {
+            assert!(skill.get("last_invoked_at").is_some());
             let _: Skill = serde_json::from_value(skill.clone()).unwrap();
         }
 

@@ -6176,19 +6176,18 @@ impl RuntimeExecution {
             .collect();
         self.sync_feature_projects();
         self.sync_feature_messages(request);
-        let mut explicit_skill = None;
+        let explicit_skill = match self
+            .feature_service
+            .load_skill_for_text(&request.instruction, Some(&request.bot_id))
+        {
+            Ok(Some((detail, instruction))) => Some((detail.content, instruction)),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(bot_id = %request.bot_id, %error, "explicit skill invocation could not be loaded");
+                None
+            }
+        };
         if let Ok(skills) = self.feature_service.skill_registry.read() {
-            explicit_skill = match skills.load_for_text(&request.instruction, Some(&request.bot_id))
-            {
-                Ok(Some((detail, instruction))) => {
-                    Some((detail.content, instruction, detail.skill.name))
-                }
-                Ok(None) => None,
-                Err(error) => {
-                    tracing::warn!(bot_id = %request.bot_id, %error, "explicit skill invocation could not be loaded");
-                    None
-                }
-            };
             let skill_catalog = skills
                 .list()
                 .into_iter()
@@ -6218,13 +6217,7 @@ impl RuntimeExecution {
                 });
             }
         }
-        if let Some((content, instruction, name)) = explicit_skill {
-            if let Err(error) = self
-                .feature_service
-                .record_skill_invocation(&name, Some(&request.bot_id))
-            {
-                tracing::warn!(bot_id = %request.bot_id, skill = %name, %error, "failed to record explicit skill invocation");
-            }
+        if let Some((content, instruction)) = explicit_skill {
             if let Some(identity) = context.bot_identity.as_mut() {
                 identity.push_str("\n用户显式调用的技能正文（已按需加载）：\n");
                 identity.push_str(&content);
