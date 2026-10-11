@@ -40,6 +40,16 @@ struct SidebarTodoSummary {
     queued: usize,
 }
 
+#[derive(Default)]
+struct AvatarImageCache {
+    host_id: String,
+    images: BTreeMap<String, Arc<Image>>,
+    loading: BTreeSet<String>,
+    failed: BTreeSet<String>,
+}
+
+impl gpui_kit::gpui::Global for AvatarImageCache {}
+
 struct DeepLinkHistorySearch {
     request_id: u64,
     chat_id: String,
@@ -296,6 +306,7 @@ pub struct MacBot {
 }
 impl MacBot {
     pub fn new(window: &mut Window, cx: &mut Context<Self>, open_url_queue: OpenUrlQueue) -> Self {
+        cx.set_global(AvatarImageCache::default());
         let address = cx.new(|cx| InputState::new(window, cx).placeholder("127.0.0.1:7788"));
         let password = cx.new(|cx| InputState::new(window, cx).masked(true));
         let host_name = cx.new(|cx| InputState::new(window, cx).placeholder("Mac mini"));
@@ -3234,6 +3245,132 @@ impl MacBot {
             .child(footer)
             .into_any_element()
     }
+    fn ensure_avatar_images(&self, cx: &mut Context<Self>) {
+        let host_id = self
+            .active_node_id
+            .as_deref()
+            .or(self.active_endpoint.as_deref())
+            .unwrap_or_default()
+            .to_owned();
+        cx.update_global::<AvatarImageCache, _>(|cache, _| {
+            if cache.host_id != host_id {
+                cache.host_id = host_id.clone();
+                cache.images.clear();
+                cache.loading.clear();
+                cache.failed.clear();
+            }
+        });
+        if !self.connected || self.fixture {
+            return;
+        }
+
+        let files: Vec<Value> = self
+            .state
+            .bots
+            .values()
+            .filter(|bot| s(&bot["avatar"], "kind") == "image")
+            .filter_map(|bot| bot["avatar"].get("file").cloned())
+            .collect();
+        if files.is_empty() {
+            return;
+        }
+
+        let endpoint = self
+            .active_endpoint
+            .clone()
+            .unwrap_or_else(|| self.address.read(cx).value().to_string());
+        let base = avatar_http_base(&endpoint);
+        let password = self.password.read(cx).value().to_string();
+        for file in files {
+            let root = s(&file, "root").to_owned();
+            let root_id = s(&file, "root_id").to_owned();
+            let path = s(&file, "path").to_owned();
+            let mime = s(&file, "mime");
+            let key = format!("{root}:{root_id}:{path}:{mime}");
+            if root.is_empty() || root_id.is_empty() || path.is_empty() {
+                cx.update_global::<AvatarImageCache, _>(|cache, _| {
+                    cache.failed.insert(key.clone());
+                });
+                continue;
+            }
+            let Some(format) = avatar_image_format(mime) else {
+                cx.update_global::<AvatarImageCache, _>(|cache, _| {
+                    cache.failed.insert(key.clone());
+                });
+                continue;
+            };
+            let should_load = cx.update_global::<AvatarImageCache, _>(|cache, _| {
+                if cache.host_id != host_id
+                    || cache.images.contains_key(&key)
+                    || cache.loading.contains(&key)
+                    || cache.failed.contains(&key)
+                {
+                    false
+                } else {
+                    cache.loading.insert(key.clone());
+                    true
+                }
+            });
+            if !should_load {
+                continue;
+            }
+
+            let file_key = key.clone();
+            let request_host_id = host_id.clone();
+            let request_generation = self.connection_generation;
+            let request_base = base.clone();
+            let request_password = password.clone();
+            let request_root = root.clone();
+            let request_root_id = root_id.clone();
+            let request_path = path.clone();
+            let task = self.runtime.spawn(async move {
+                let response = reqwest::Client::new()
+                    .get(format!("{request_base}/api/v1/files"))
+                    .bearer_auth(request_password)
+                    .query(&[
+                        ("root", request_root.as_str()),
+                        ("root_id", request_root_id.as_str()),
+                        ("path", request_path.as_str()),
+                    ])
+                    .send()
+                    .await?
+                    .error_for_status()?;
+                let bytes = response.bytes().await?;
+                if bytes.len() > 100 * 1024 * 1024 {
+                    anyhow::bail!("avatar image exceeds 100 MB");
+                }
+                Ok::<_, anyhow::Error>(bytes.to_vec())
+            });
+            cx.spawn(async move |this, cx| {
+                let result = task.await;
+                let _ = this.update(cx, |view, cx| {
+                    if view.connection_generation != request_generation {
+                        return;
+                    }
+                    cx.update_global::<AvatarImageCache, _>(|cache, _| {
+                        cache.loading.remove(&file_key);
+                        if cache.host_id != request_host_id {
+                            return;
+                        }
+                        match result {
+                            Ok(Ok(bytes)) => {
+                                cache.images.insert(
+                                    file_key.clone(),
+                                    Arc::new(Image::from_bytes(format, bytes)),
+                                );
+                                cache.failed.remove(&file_key);
+                            }
+                            Ok(Err(_)) | Err(_) => {
+                                cache.failed.insert(file_key.clone());
+                            }
+                        }
+                    });
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    }
     fn chat_row(&self, chat: &Value, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
         let layout = t.desktop_layout;
@@ -3873,6 +4010,7 @@ impl MacBot {
 }
 impl Render for MacBot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.ensure_avatar_images(cx);
         if std::env::var_os("MACBOT_DIAGNOSTICS").is_some() {
             eprintln!(
                 "client: render page={} connected={} chats={}",
@@ -4439,11 +4577,51 @@ fn insert(map: &mut BTreeMap<String, Value>, value: &Value, key: &str) {
     }
 }
 
+fn avatar_http_base(endpoint: &str) -> String {
+    let first = endpoint.split(',').next().unwrap_or("").trim();
+    let url = if first.starts_with("wss://") {
+        first.replacen("wss://", "https://", 1)
+    } else if first.starts_with("ws://") {
+        first.replacen("ws://", "http://", 1)
+    } else if first.starts_with("http") {
+        first.to_owned()
+    } else {
+        format!("http://{first}")
+    };
+    url.trim_end_matches('/').trim_end_matches("/ws").to_owned()
+}
+
+fn avatar_image_format(mime: &str) -> Option<ImageFormat> {
+    match mime.to_ascii_lowercase().as_str() {
+        "image/png" => Some(ImageFormat::Png),
+        "image/jpeg" | "image/jpg" => Some(ImageFormat::Jpeg),
+        "image/webp" => Some(ImageFormat::Webp),
+        "image/gif" => Some(ImageFormat::Gif),
+        _ => None,
+    }
+}
+
 fn bean(bot: &Value, size: f32, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let avatar = &bot["avatar"];
     let color = avatar["color"].as_u64().unwrap_or(0);
     let emoji = s(avatar, "kind") == "emoji";
+    let image = avatar
+        .get("file")
+        .map(|file| {
+            format!(
+                "{}:{}:{}:{}",
+                s(file, "root"),
+                s(file, "root_id"),
+                s(file, "path"),
+                s(file, "mime")
+            )
+        })
+        .and_then(|key| {
+            cx.try_global::<AvatarImageCache>()
+                .and_then(|cache| cache.images.get(&key))
+                .cloned()
+        });
     let badge_size = size * 0.4;
     let body = div()
         .size(px(size))
@@ -4459,7 +4637,9 @@ fn bean(bot: &Value, size: f32, cx: &App) -> AnyElement {
                 .blur_radius(px(2.))
                 .inset(),
         ]);
-    let body = if emoji {
+    let body = if let Some(image) = image {
+        body.child(img(image).size_full().object_fit(ObjectFit::Cover))
+    } else if emoji {
         body.text_size(px(size * 0.55))
             .text_color(t.primary)
             .child(s(avatar, "emoji").to_string())
