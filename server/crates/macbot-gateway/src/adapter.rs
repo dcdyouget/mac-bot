@@ -1393,7 +1393,7 @@ impl ProductionBackend {
                     "sender":{"kind":"bot","bot_id":"main"},
                     "created_at":project.get("created_at").cloned().unwrap_or_else(|| json!(now())),
                     "edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,
-                    "mentions":[],"blocks":[{"type":"project_card","project_id":project_id}],
+                    "mentions":[],"blocks":[{"type":"project_card","project_id":project_id,"context":"created","note":null}],
                     "fallback_text":format!("项目「{}」已创建", project.get("name").and_then(Value::as_str).unwrap_or(project_id)),
                     "intent":null,"assignment_id":null,"streaming":false,"delivery":[],"reactions":[]
                 });
@@ -1516,7 +1516,9 @@ impl ProductionBackend {
                         Some(json!({
                             "artifact_id":artifact.get("id")?.clone(),
                             "title":artifact.get("title")?.clone(),
-                            "path_or_url":artifact.get("path_or_url")?.clone()
+                            "path_or_url":artifact.get("path_or_url")?.clone(),
+                            "bot_id":artifact.get("bot_id")?.clone(),
+                            "kind":artifact.get("kind")?.clone()
                         }))
                     })
                     .collect::<Vec<_>>();
@@ -2118,6 +2120,7 @@ impl ProductionBackend {
             "bot.update" => "bot.updated",
             "bot.delete" => "bot.deleted",
             "project.create" => "project.created",
+            "announcement.update" => "announcement.updated",
             "project.update"
             | "project.add_member"
             | "project.remove_member"
@@ -2219,6 +2222,9 @@ impl ProductionBackend {
             "at":now()
         });
         self.persist_orchestrator(operation.clone()).await?;
+        if method == "announcement.update" {
+            self.persist_announcement_text(result)?;
+        }
         for event in self.repair_operation_events(&operation)? {
             state
                 .publish_event(event.seq, &event.event, event.data)
@@ -2251,6 +2257,92 @@ impl ProductionBackend {
             self.refresh_project_events(state, &project_id).await?;
         }
         Ok(result.clone())
+    }
+
+    fn persist_announcement_text(&self, result: &Value) -> Result<(), RpcError> {
+        let announcement = result.get("announcement").ok_or_else(|| RpcError {
+            code: "internal".into(),
+            message: "announcement update result has no announcement".into(),
+            details: None,
+        })?;
+        let project_id = announcement.get("project_id").and_then(Value::as_str).ok_or_else(|| RpcError {
+            code: "internal".into(), message: "announcement has no project_id".into(), details: None,
+        })?;
+        let version = announcement.get("version").and_then(Value::as_u64).unwrap_or(1);
+        let project_component = announcement_path_component(project_id);
+        let path = format!("data/projects/{project_component}/announcement.json");
+        let previous = self.store.read_snapshot::<Value>(path.clone()).map_err(store_error)?;
+        if previous.as_ref().and_then(|value| value.get("version")).and_then(Value::as_u64).is_some_and(|old| old >= version) {
+            return Ok(());
+        }
+        let updated_by = announcement.get("text_updated_by").cloned().unwrap_or_else(|| json!({"kind":"user"}));
+        let updated_at = announcement.get("text_updated_at").cloned().unwrap_or_else(|| json!(now()));
+        let entry = json!({
+            "text":announcement.get("text").and_then(Value::as_str).unwrap_or(""),
+            "version":version,
+            "updated_by":updated_by,
+            "updated_at":updated_at
+        });
+        self.store.append_jsonl(
+            format!("data/projects/{project_component}/announcement.log.jsonl"),
+            &entry,
+        ).map_err(store_error)?;
+        self.store.write_snapshot(path, &entry).map_err(store_error)
+    }
+
+    async fn ensure_announcement_updated_message(
+        &self,
+        state: &GatewayState,
+        result: &Value,
+    ) -> Result<(), RpcError> {
+        let announcement = result.get("announcement").ok_or_else(|| RpcError {
+            code: "internal".into(), message: "announcement update result has no announcement".into(), details: None,
+        })?;
+        let project_id = announcement.get("project_id").and_then(Value::as_str).ok_or_else(|| RpcError {
+            code: "internal".into(), message: "announcement has no project_id".into(), details: None,
+        })?;
+        let version = announcement.get("version").and_then(Value::as_u64).unwrap_or(1);
+        let project = self.orchestrator.rpc("project.get", json!({"project_id":project_id})).await.map_err(Self::error)?;
+        let chat_id = project.pointer("/project/chat_id").and_then(Value::as_str).ok_or_else(|| RpcError {
+            code: "internal".into(), message: "project has no chat_id".into(), details: None,
+        })?;
+        let updated_by = announcement.get("text_updated_by").cloned().unwrap_or_else(|| json!({"kind":"user"}));
+        let label = if updated_by.get("kind").and_then(Value::as_str) == Some("user") {
+            "你".to_owned()
+        } else {
+            updated_by.get("bot_id").and_then(Value::as_str).unwrap_or("Bot").to_owned()
+        };
+        let text = format!("{label} 更新了公告");
+        let message_id = format!("msg_announcement_{project_id}_{version}");
+        let raw = json!({
+            "id":message_id,
+            "chat_id":chat_id,
+            "seq":0,
+            "sender":{"kind":"system"},
+            "created_at":announcement.get("text_updated_at").cloned().unwrap_or_else(|| json!(now())),
+            "edited_at":null,
+            "deleted":false,
+            "reply_to":null,
+            "quote":null,
+            "thread_count":0,
+            "mentions":[],
+            "blocks":[{"type":"system","code":"announcement_updated","text":text}],
+            "fallback_text":text,
+            "intent":null,
+            "assignment_id":null,
+            "streaming":false,
+            "delivery":[],
+            "reactions":[]
+        });
+        let message = self.persist_client_message(&raw)?;
+        if let Some(event) = self.append_repaired_event(
+            &format!("announcement-system:{project_id}:{version}"),
+            "message.created",
+            json!({"message":message}),
+        )? {
+            state.publish_event(event.seq, &event.event, event.data).await;
+        }
+        Ok(())
     }
 
     /// Reconcile the public project announcement after an operation changes
@@ -2868,6 +2960,10 @@ impl RpcBackend for ProductionBackend {
                 }
                 match method {
                     "project.create" => self.ensure_project_card(state, &value).await?,
+                    "announcement.update" => {
+                        self.persist_announcement_text(&value)?;
+                        self.ensure_announcement_updated_message(state, &value).await?;
+                    }
                     "assignment.create" | "assign" | "delegate" => {
                         self.ensure_assignment_cards(state, &value, method).await?
                     }
@@ -2934,6 +3030,20 @@ impl RpcBackend for ProductionBackend {
             "loop.resolve" => self.loop_resolve(state, &params).await?,
             "project.request_review" => project_request_review(self, &params, state).await?,
             "project.request_changes" => project_request_changes(self, &params, state).await?,
+            "announcement.update" => match self.orchestrator.rpc(method, params.clone()).await {
+                Ok(result) => result,
+                Err(error @ macbot_orchestrator::OrchestratorError::Conflict(_)) => {
+                    let project_id = params.get("project_id").and_then(Value::as_str).unwrap_or("");
+                    let current = self.orchestrator.rpc("project.get", json!({"project_id":project_id})).await.ok();
+                    let announcement = current.and_then(|value| value.get("announcement").cloned());
+                    return Err(RpcError {
+                        code: "conflict".into(),
+                        message: error.to_string(),
+                        details: announcement.map(|announcement| json!({"announcement":announcement})),
+                    });
+                }
+                Err(error) => return Err(Self::error(error)),
+            },
             "propose_bot" => {
                 let proposal = self
                     .orchestrator
@@ -3123,6 +3233,8 @@ impl RpcBackend for ProductionBackend {
             let persisted = self.persist(state, method, &params, &result).await?;
             if method == "project.create" {
                 self.ensure_project_card(state, &result).await?;
+            } else if method == "announcement.update" {
+                self.ensure_announcement_updated_message(state, &result).await?;
             }
             if matches!(method, "assignment.create" | "assign" | "delegate") {
                 self.ensure_assignment_cards(state, &result, method).await?;
@@ -3197,7 +3309,9 @@ async fn project_request_review(
                     json!({
                         "artifact_id":artifact.get("id").cloned().unwrap_or(Value::Null),
                         "title":artifact.get("title").cloned().unwrap_or_else(|| json!("")),
-                        "path_or_url":artifact.get("path_or_url").cloned().unwrap_or_else(|| json!(""))
+                        "path_or_url":artifact.get("path_or_url").cloned().unwrap_or_else(|| json!("")),
+                        "bot_id":artifact.get("bot_id").cloned().unwrap_or_else(|| json!("main")),
+                        "kind":artifact.get("kind").cloned().unwrap_or_else(|| json!("file"))
                     })
                 })
                 .collect::<Vec<_>>()
@@ -4754,7 +4868,25 @@ impl ProductionBackend {
                 details: None,
             })?;
         let attachment_blocks = self.attachment_blocks(&params)?;
-        let mentions = self.expand_chat_mentions(chat_id, &params).await?;
+        let mut mentions = self.expand_chat_mentions(chat_id, &params).await?;
+        let quote_id = params.get("quote").or_else(|| params.get("reply_to")).and_then(Value::as_str);
+        let quote = if let Some(quote_id) = quote_id {
+            let messages = self.load_chat_messages(chat_id)?;
+            let source = messages.iter().find(|message| message.get("id").and_then(Value::as_str) == Some(quote_id))
+                .ok_or_else(|| RpcError { code:"not_found".into(), message:"quoted message not found in this chat".into(), details:None })?;
+            let sender = source.get("sender").cloned().unwrap_or_else(|| json!({"kind":"system"}));
+            let quote_mode = params.get("quote_mode").and_then(Value::as_str).unwrap_or("reply");
+            if quote_mode == "reply"
+                && sender.get("kind").and_then(Value::as_str) == Some("bot")
+            {
+                let bot_id = sender.get("bot_id").and_then(Value::as_str).unwrap_or("");
+                if !bot_id.is_empty() && !mentions.iter().any(|mention| mention.get("bot_id").and_then(Value::as_str) == Some(bot_id)) {
+                    mentions.push(json!({"kind":"bot","bot_id":bot_id,"instruction":null}));
+                }
+            }
+            let excerpt = source.get("fallback_text").and_then(Value::as_str).unwrap_or("").chars().take(120).collect::<String>();
+            Some(json!({"message_id":quote_id,"sender":sender,"excerpt":excerpt}))
+        } else { None };
         let mut send = json!({"bot_id":"user","chat_id":chat_id,"text":text,"intent":"ack","mentions":mentions});
         if let Some(id) = params.get("client_request_id") {
             send["client_request_id"] = id.clone();
@@ -4765,9 +4897,8 @@ impl ProductionBackend {
             .await
             .map_err(ProductionBackend::error)?;
         let mut result = json!({"message": message});
-        if let Some(reply_to) = params.get("reply_to") {
-            result["message"]["reply_to"] = reply_to.clone();
-        }
+        result["message"]["reply_to"] = Value::Null;
+        result["message"]["quote"] = quote.unwrap_or(Value::Null);
         if !attachment_blocks.is_empty() {
             let mut blocks = vec![json!({"type":"text","markdown":text})];
             blocks.extend(attachment_blocks);
@@ -5162,6 +5293,11 @@ impl ProductionBackend {
                 message: "project.create result has no project id".into(),
                 details: None,
             })?;
+        let announcement = self.orchestrator.rpc("project.get", json!({"project_id":project_id})).await
+            .map_err(Self::error)?;
+        if let Some(announcement) = announcement.get("announcement") {
+            self.persist_announcement_text(&json!({"announcement":announcement}))?;
+        }
         let message_id = format!("msg_project_card_{project_id}");
         // The chat row and the global event are separate durable writes. A
         // crash between them leaves the row present but makes resume blind to
@@ -5185,7 +5321,7 @@ impl ProductionBackend {
             "reply_to": null,
             "thread_count": 0,
             "mentions": [],
-            "blocks": [{"type":"project_card", "project_id":project_id}],
+            "blocks": [{"type":"project_card", "project_id":project_id, "context":"created", "note":null}],
             "fallback_text": format!("项目「{}」已创建", project.get("name").and_then(Value::as_str).unwrap_or(project_id)),
             "intent": null,
             "assignment_id": null,
@@ -5648,7 +5784,9 @@ impl ProductionBackend {
                 Ok(json!({
                     "artifact_id":artifact_id,
                     "title":title,
-                    "path_or_url":path_or_url
+                    "path_or_url":path_or_url,
+                    "bot_id":artifact.get("bot_id").cloned().unwrap_or_else(|| json!("main")),
+                    "kind":artifact.get("kind").cloned().unwrap_or_else(|| json!("file"))
                 }))
             })
             .collect::<Result<Vec<_>, RpcError>>()?;
@@ -6992,6 +7130,9 @@ fn event_data(method: &str, params: &Value, result: &Value) -> Value {
         | "project.reopen" => {
             json!({ "project": result.get("project").cloned().unwrap_or(Value::Null) })
         }
+        "announcement.update" => {
+            json!({ "announcement": result.get("announcement").cloned().unwrap_or(Value::Null) })
+        }
         "project.request_changes" => {
             json!({ "message": result.get("message").cloned().unwrap_or(Value::Null) })
         }
@@ -7064,6 +7205,11 @@ fn normalize_result(method: &str, mut result: Value) -> Result<Value, String> {
             if let Some(item) = result.get_mut("project") {
                 normalize_project(item);
             }
+            if let Some(item) = result.get_mut("announcement") {
+                normalize_announcement(item);
+            }
+        }
+        "announcement.update" => {
             if let Some(item) = result.get_mut("announcement") {
                 normalize_announcement(item);
             }
@@ -7357,7 +7503,15 @@ fn normalize_project(value: &mut Value) {
     }
 }
 fn normalize_announcement(value: &mut Value) {
-    let _ = obj(value);
+    let o = obj(value);
+    if let Some(sender) = o.get_mut("text_updated_by") {
+        normalize_sender(sender);
+    }
+    o.entry("text").or_insert_with(|| json!(""));
+    o.entry("version").or_insert(json!(1));
+    o.entry("text_updated_by").or_insert(json!({"kind":"user"}));
+    let updated_at = o.get("updated_at").cloned().unwrap_or_else(|| json!(now()));
+    o.entry("text_updated_at").or_insert(updated_at);
 }
 fn normalize_assignment(value: &mut Value) {
     let o = obj(value);
@@ -7418,9 +7572,15 @@ fn normalize_message(value: &mut Value) {
     if let Some(sender) = o.get_mut("sender") {
         normalize_sender(sender);
     }
+    if let Some(quote) = o.get_mut("quote").and_then(Value::as_object_mut) {
+        if let Some(sender) = quote.get_mut("sender") {
+            normalize_sender(sender);
+        }
+    }
     o.entry("edited_at").or_insert(Value::Null);
     o.entry("deleted").or_insert(json!(false));
     o.entry("reply_to").or_insert(Value::Null);
+    o.entry("quote").or_insert(Value::Null);
     o.entry("thread_count").or_insert(json!(0));
     o.entry("streaming").or_insert(json!(false));
     o.entry("reactions").or_insert(json!([]));
@@ -7485,7 +7645,11 @@ fn normalize_approval(value: &mut Value) {
     let _ = obj(value);
 }
 fn normalize_question(value: &mut Value) {
-    let _ = obj(value);
+    let o = obj(value);
+    o.entry("multi").or_insert(json!(false));
+    if let Some(answer) = o.get_mut("answer").and_then(Value::as_object_mut) {
+        answer.entry("option_indexes").or_insert(json!([]));
+    }
 }
 fn normalize_routine(value: &mut Value) {
     let _ = obj(value);
@@ -7550,6 +7714,13 @@ fn required_text(params: &Value, key: &str) -> Result<String, RpcError> {
             message: format!("{key} is required"),
             details: None,
         })
+}
+
+fn announcement_path_component(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+        .collect()
 }
 
 fn takeover_component(value: &str) -> String {

@@ -211,6 +211,8 @@ pub struct Question {
     pub chat_id: Id,
     pub text: String,
     pub options: Vec<String>,
+    #[serde(default)]
+    pub multi: bool,
     pub allow_free_text: bool,
     pub state: String,
     pub answer: Option<QuestionAnswer>,
@@ -219,6 +221,8 @@ pub struct Question {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QuestionAnswer {
     pub option_index: Option<usize>,
+    #[serde(default)]
+    pub option_indexes: Vec<usize>,
     pub text: Option<String>,
     pub at: String,
 }
@@ -276,9 +280,25 @@ pub struct TemplateBot {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Announcement {
     pub project_id: Id,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub version: u64,
+    #[serde(default)]
+    pub text_updated_by: String,
+    #[serde(default)]
+    pub text_updated_at: String,
     pub members: Vec<AnnouncementMember>,
     pub artifacts: Vec<Artifact>,
     pub highlights: Vec<Highlight>,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnnouncementText {
+    pub text: String,
+    pub version: u64,
+    pub updated_by: String,
     pub updated_at: String,
 }
 

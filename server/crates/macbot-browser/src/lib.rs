@@ -229,6 +229,12 @@ impl<R: CliRunner> BrowserManager<R> {
         }
     }
 
+    /// Return the number of currently materialized Bot browser sessions.
+    /// This is an in-memory count and does not start or inspect a browser.
+    pub fn session_count(&self) -> usize {
+        self.sessions.len()
+    }
+
     /// Set the mode/profile for one Bot. Existing active sessions retain their
     /// process; a new session (or the next idle restart) uses this config.
     pub fn set_bot_config(

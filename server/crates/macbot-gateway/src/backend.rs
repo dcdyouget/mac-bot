@@ -3581,17 +3581,23 @@ impl crate::RpcBackend for ComposedBackend {
                     });
                 }
             }
-            let reply_to = params
-                .get("reply_to")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| {
-                    result
-                        .get("message")
-                        .and_then(|message| message.get("reply_to"))
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                });
+            let quote_mode = params.get("quote_mode").and_then(Value::as_str).unwrap_or("reply");
+            let reply_to = if quote_mode == "reference" {
+                None
+            } else {
+                params
+                    .get("quote")
+                    .or_else(|| params.get("reply_to"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        result
+                            .get("message")
+                            .and_then(|message| message.get("reply_to"))
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    })
+            };
             let assignment_id = params
                 .get("assignment_id")
                 .and_then(Value::as_str)

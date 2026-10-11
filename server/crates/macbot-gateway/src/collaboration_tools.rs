@@ -707,7 +707,7 @@ impl CollaborationTools {
     /// omitted: ExecutionEngine injects its built-in durable run_id+call_id
     /// implementation and forwards the admitted message to the group bridge.
     pub fn tools(&self) -> Vec<Arc<dyn Tool>> {
-        let mut names = vec!["web_fetch", "web_search", "routine", "question"];
+        let mut names = vec!["web_fetch", "web_search", "routine", "question", "update_announcement"];
         if self.identity.is_main {
             names.extend([
                 "list_bots",
@@ -791,10 +791,40 @@ impl CollaborationTools {
                 if let Err(error) = require_nonempty_string_array(&args, "member_bot_ids") {
                     return ToolResult::error(error);
                 }
-                if let Err(error) = require_nonempty_string_array(&args, "flow") {
-                    return ToolResult::error(error);
-                }
                 self.rpc.call("project.create", Value::Object(args)).await
+            }
+            "update_announcement" => {
+                let mut args = args;
+                let Some(project_id) = args.get("project_id").and_then(Value::as_str)
+                    .map(str::to_owned).or_else(|| self.identity.project_id.clone()) else {
+                    return ToolResult::error("project_id is required outside a project chat");
+                };
+                let text = match args.get("text").and_then(Value::as_str) {
+                    Some(text) => text.to_owned(),
+                    None => return ToolResult::error("text is required"),
+                };
+                let current = match self.rpc.call("project.get", json!({"project_id":project_id})).await {
+                    Ok(value) => value,
+                    Err(error) => return ToolResult::error(error),
+                };
+                let current_text = current.pointer("/announcement/text").and_then(Value::as_str).unwrap_or("");
+                let mode = args.get("mode").and_then(Value::as_str).unwrap_or("replace");
+                let text = match mode {
+                    "replace" => text,
+                    "append" if current_text.is_empty() => text,
+                    "append" => format!("{current_text}\n\n{text}"),
+                    _ => return ToolResult::error("mode must be replace or append"),
+                };
+                let mut update = json!({
+                    "project_id":project_id,
+                    "text":text,
+                    "base_version":current.pointer("/announcement/version").and_then(Value::as_u64).unwrap_or(1),
+                    "updated_by":self.identity.bot_id
+                });
+                if let Some(request_id) = args.remove("client_request_id") {
+                    update["client_request_id"] = request_id;
+                }
+                self.rpc.call("announcement.update", update).await
             }
             "assign" => {
                 self.rpc
@@ -1039,7 +1069,8 @@ fn tool_value(value: Value) -> ToolResult {
 fn description(name: &str) -> &'static str {
     match name {
         "list_bots" => "List available worker Bots.",
-        "create_project" | "project_create" => "Create a project group. Use member_bot_ids with Bot IDs from list_bots and a non-empty ordered flow of plan steps. After success, send a real opening message in the new project chat with send_msg and mention the first role; the task card alone is not an opening.",
+        "create_project" | "project_create" => "Create a project group. Use member_bot_ids with Bot IDs from list_bots and write an announcement draft with the goal, deadline, and responsibilities. After success, send a real opening message in the new project chat with send_msg and mention the first role; the task card alone is not an opening.",
+        "update_announcement" => "Update the project announcement with a shared conclusion, requirement change, or deadline change. Use replace to rewrite it or append to add a paragraph; do not put work process in the announcement.",
         "assign" => "Assign a project task to a worker Bot.",
         "delegate" => "Delegate a small task to a worker Bot without creating a project.",
         "project_status" | "get_status" => "Read project status and announcement.",
@@ -1067,8 +1098,12 @@ fn schema(name: &str) -> Value {
     match name {
         "list_bots" => object(json!({"include_hidden":{"type":"boolean"}}), &[]),
         "create_project" | "project_create" => object(
-            json!({"name":{"type":"string"},"goal":{"type":"string"},"member_bot_ids":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}},"members":{"type":"array","items":{"type":"string"}},"flow":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}},"deadline":{"type":"string"}}),
-            &["name", "goal", "member_bot_ids", "flow"],
+            json!({"name":{"type":"string"},"announcement":{"type":"string","maxLength":8000},"member_bot_ids":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}}}),
+            &["name", "member_bot_ids"],
+        ),
+        "update_announcement" => object(
+            json!({"project_id":{"type":"string"},"text":{"type":"string","maxLength":8000},"mode":{"type":"string","enum":["replace","append"]},"client_request_id":{"type":"string"}}),
+            &["text"],
         ),
         "assign" => object(
             json!({"bot_id":{"type":"string"},"instruction":{"type":"string"},"title":{"type":"string"},"project_id":{"type":"string"}}),

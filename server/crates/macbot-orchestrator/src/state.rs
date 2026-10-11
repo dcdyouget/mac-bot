@@ -67,6 +67,7 @@ struct Inner {
     settings: OrchestratorSettings,
     bots: HashMap<Id, Bot>,
     projects: HashMap<Id, Project>,
+    announcement_text: HashMap<Id, AnnouncementText>,
     assignments: HashMap<Id, Assignment>,
     messages: HashMap<Id, Message>,
     artifacts: HashMap<Id, Artifact>,
@@ -198,7 +199,7 @@ impl Orchestrator {
             notifications: true,
             is_main: true,
             created_at: ts.clone(),
-            updated_at: ts,
+            updated_at: ts.clone(),
         };
         let templates = vec![
             Template {
@@ -251,6 +252,7 @@ impl Orchestrator {
                 settings,
                 bots: HashMap::from([(main.id.clone(), main)]),
                 projects: HashMap::new(),
+                announcement_text: HashMap::new(),
                 assignments: HashMap::new(),
                 messages: HashMap::new(),
                 artifacts: HashMap::new(),
@@ -299,6 +301,7 @@ impl Orchestrator {
             "settings": i.settings.clone(),
             "bots": i.bots.clone(),
             "projects": i.projects.clone(),
+            "announcement_text": i.announcement_text.clone(),
             "assignments": i.assignments.clone(),
             "messages": i.messages.clone(),
             "artifacts": i.artifacts.clone(),
@@ -329,6 +332,7 @@ impl Orchestrator {
             normalize_bot_dm_chat_id(bot);
         }
         restore_map(&mut i.projects, value.get("projects"))?;
+        restore_map(&mut i.announcement_text, value.get("announcement_text"))?;
         for project in i.projects.values_mut() {
             ensure_main_project_member(project);
         }
@@ -958,6 +962,8 @@ pub struct QuestionRequest {
     #[serde(default)]
     pub options: Vec<String>,
     #[serde(default)]
+    pub multi: bool,
+    #[serde(default)]
     pub allow_free_text: bool,
 }
 
@@ -1091,6 +1097,7 @@ impl Inner {
                 Ok(json!({ "project": project, "announcement": self.announcement(&id)? }))
             }
             "project.create" => Self::json(self.create_project(&p)?),
+            "announcement.update" => Self::json(self.update_announcement(&p)?),
             "project.update" => Ok(json!({ "project": self.update_project(
                 str_param(&p, "project_id")?,
                 p.get("patch").cloned().unwrap_or(Value::Null),
@@ -1292,6 +1299,7 @@ impl Inner {
                     p.get("option_index")
                         .and_then(Value::as_u64)
                         .map(|n| n as usize),
+                    p.get("option_indexes").and_then(Value::as_array).map(|items| items.iter().filter_map(Value::as_u64).map(|n| n as usize).collect()).unwrap_or_default(),
                     p.get("text").and_then(Value::as_str).map(str::to_owned),
                 )? })),
             "loop.resolve" => {
@@ -1509,7 +1517,7 @@ impl Inner {
             notifications: true,
             is_main: false,
             created_at: ts.clone(),
-            updated_at: ts,
+            updated_at: ts.clone(),
         };
         self.bots.insert(id.clone(), bot.clone());
         Ok(json!({ "bot": bot, "dm_chat": dm_chat_for_bot(&bot) }))
@@ -1714,22 +1722,23 @@ impl Inner {
         let id = new_id();
         let ts = now();
         let slug = self.unique_project_slug(&slugify(&name), None);
+        let announcement = p
+            .get("announcement")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if announcement.chars().count() > 8_000 {
+            return Err(OrchestratorError::Invalid(
+                "announcement must be at most 8000 characters".into(),
+            ));
+        }
         let project = Project {
             id: id.clone(),
             chat_id: new_id(),
             name: name.clone(),
             slug: slug.clone(),
-            goal: str_param(p, "goal")?,
-            flow: p
-                .get("flow")
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            deadline: p.get("deadline").and_then(Value::as_str).map(str::to_owned),
+            goal: String::new(),
+            flow: Vec::new(),
+            deadline: None,
             home_path: format!("~/MacBot/projects/{slug}/"),
             status: "active".into(),
             lead_bot_id: "main".into(),
@@ -1740,14 +1749,47 @@ impl Inner {
                 .unwrap_or("user")
                 .into(),
             created_at: ts.clone(),
-            updated_at: ts,
+            updated_at: ts.clone(),
             done_at: None,
         };
+        self.announcement_text.insert(id.clone(), AnnouncementText {
+            text: announcement.to_owned(),
+            version: 1,
+            updated_by: "main".into(),
+            updated_at: ts.clone(),
+        });
         self.highlights.insert(id.clone(), Vec::new());
         self.projects.insert(id.clone(), project.clone());
         Ok(
             json!({"project":project,"chat":{"id":project.chat_id,"kind":"project","title":name,"project_id":id}}),
         )
+    }
+
+    fn update_announcement(&mut self, p: &Value) -> Result<Value> {
+        let project_id = str_param(p, "project_id")?;
+        let _ = self.project(&project_id)?;
+        let text = p.get("text").and_then(Value::as_str)
+            .ok_or_else(|| OrchestratorError::Invalid("text is required".into()))?;
+        if text.chars().count() > 8_000 {
+            return Err(OrchestratorError::Invalid(
+                "announcement must be at most 8000 characters".into(),
+            ));
+        }
+        let base_version = p.get("base_version").and_then(Value::as_u64)
+            .ok_or_else(|| OrchestratorError::Invalid("base_version is required".into()))?;
+        let current = self.announcement_text.entry(project_id.clone()).or_insert_with(|| AnnouncementText {
+            text: String::new(), version: 1, updated_by: "main".into(), updated_at: now(),
+        });
+        if current.version != base_version {
+            return Err(OrchestratorError::Conflict(format!(
+                "announcement version changed from {base_version} to {}", current.version
+            )));
+        }
+        current.text = text.to_owned();
+        current.version += 1;
+        current.updated_by = p.get("updated_by").and_then(Value::as_str).unwrap_or("user").to_owned();
+        current.updated_at = now();
+        Ok(json!({"announcement": self.announcement(&project_id)?}))
     }
 
     fn add_member(&mut self, project_id: &str, bot_id: Id, role_note: String) -> Result<()> {
@@ -1861,16 +1903,9 @@ impl Inner {
             project.slug = self.unique_project_slug(&slugify(name), Some(&id));
             project.home_path = format!("~/MacBot/projects/{}/", project.slug);
         }
-        if let Some(goal) = patch.get("goal").and_then(Value::as_str) {
-            project.goal = goal.into();
-        }
-        if let Some(flow) = patch.get("flow") {
-            project.flow = serde_json::from_value(flow.clone())
-                .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
-        }
-        if let Some(deadline) = patch.get("deadline") {
-            project.deadline = deadline.as_str().map(str::to_owned);
-        }
+        project.goal.clear();
+        project.flow.clear();
+        project.deadline = None;
         project.updated_at = now();
         self.projects.insert(id, project.clone());
         Ok(project)
@@ -2234,6 +2269,10 @@ impl Inner {
             .collect();
         Ok(Announcement {
             project_id: project_id.into(),
+            text: self.announcement_text.get(project_id).map(|text| text.text.clone()).unwrap_or_default(),
+            version: self.announcement_text.get(project_id).map(|text| text.version).unwrap_or(1),
+            text_updated_by: self.announcement_text.get(project_id).map(|text| text.updated_by.clone()).unwrap_or_else(|| "main".into()),
+            text_updated_at: self.announcement_text.get(project_id).map(|text| text.updated_at.clone()).unwrap_or_else(now),
             members,
             artifacts,
             highlights: self
@@ -2531,6 +2570,7 @@ impl Inner {
                 text: req.text.clone(),
                 options: req.options.clone(),
                 allow_free_text: true,
+                multi: false,
             })?;
             question_id = Some(question.id);
         }
@@ -2745,6 +2785,11 @@ impl Inner {
             }) {
                 approval.state = "expired".into();
                 approval.decided_at = Some(finished_at.clone());
+            }
+            for question in self.questions.values_mut().filter(|question| {
+                question.assignment_id == id && question.state == "pending"
+            }) {
+                question.state = "expired".into();
             }
             self.create_task_stopped_message(id)?;
         }
@@ -3122,6 +3167,7 @@ impl Inner {
             chat_id: r.chat_id,
             text: r.text,
             options: r.options,
+            multi: r.multi,
             allow_free_text: r.allow_free_text,
             state: "pending".into(),
             answer: None,
@@ -3338,6 +3384,7 @@ impl Inner {
                     chat_id: chat_id.into(),
                     text: message.text.clone(),
                     options,
+                    multi: false,
                     allow_free_text: true,
                     state: "pending".into(),
                     answer: None,
@@ -3398,6 +3445,7 @@ impl Inner {
                         question.state = "answered".into();
                         question.answer = Some(QuestionAnswer {
                             option_index: None,
+                            option_indexes: Vec::new(),
                             text: Some(text),
                             at: now(),
                         });
@@ -3416,6 +3464,7 @@ impl Inner {
         &mut self,
         id: String,
         option: Option<usize>,
+        mut options: Vec<usize>,
         text: Option<String>,
     ) -> Result<Question> {
         let q = self
@@ -3424,10 +3473,15 @@ impl Inner {
             .ok_or_else(|| OrchestratorError::NotFound(format!("question {id}")))?;
         if q.state != "pending" {
             return Err(OrchestratorError::Conflict(
-                "question already answered".into(),
+                if q.state == "expired" { "question expired" } else { "question already answered" }.into(),
             ));
         }
-        if option.is_none() && text.is_none() {
+        if let Some(option) = option {
+            if !options.contains(&option) {
+                options.push(option);
+            }
+        }
+        if options.is_empty() && text.is_none() {
             return Err(OrchestratorError::Invalid(
                 "an option or text is required".into(),
             ));
@@ -3437,15 +3491,19 @@ impl Inner {
                 "free-text answers are not allowed".into(),
             ));
         }
-        if let Some(n) = option {
-            if n >= q.options.len() {
+        if let Some(n) = options.iter().find(|index| **index >= q.options.len()) {
+            if *n >= q.options.len() {
                 return Err(OrchestratorError::Invalid(
                     "option index out of range".into(),
                 ));
             }
         }
+        if !q.multi && options.len() > 1 {
+            return Err(OrchestratorError::Invalid("single-choice question accepts one option".into()));
+        }
         q.answer = Some(QuestionAnswer {
-            option_index: option,
+            option_index: options.first().copied(),
+            option_indexes: options,
             text,
             at: now(),
         });
@@ -3598,6 +3656,10 @@ impl Inner {
             .get(&id)
             .cloned()
             .ok_or_else(|| OrchestratorError::NotFound(format!("routine {id}")))?;
+        if let Some(bot_id) = patch.get("bot_id").and_then(Value::as_str) {
+            let _ = self.bot(bot_id)?;
+            updated.bot_id = bot_id.to_owned();
+        }
         if let Some(x) = patch.get("name").and_then(Value::as_str) {
             updated.name = x.into();
         }
