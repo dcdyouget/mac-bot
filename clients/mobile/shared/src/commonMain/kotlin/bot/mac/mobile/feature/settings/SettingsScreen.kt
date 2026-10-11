@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.obj
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.state.MobileRepository
@@ -116,9 +117,11 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
         modelError = null
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
-            Text(stringResource(Res.string.feature_settings), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
+        FontScaleToolbar {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+                Text(stringResource(Res.string.feature_settings), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
+            }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

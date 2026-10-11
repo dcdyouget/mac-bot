@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.obj
@@ -99,9 +100,11 @@ fun WorkbenchScreen(
         }
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(14.dp)) {
-        Row(Modifier.fillMaxWidth()) {
-            Text(stringResource(Res.string.feature_workbench), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-            Text(stringResource(Res.string.feature_running_count, state.workbench.str("running").ifBlank { "0" }, state.workbench.str("global_limit").ifBlank { "—" }), style = MaterialTheme.typography.labelLarge)
+        FontScaleToolbar {
+            Row(Modifier.fillMaxWidth()) {
+                Text(stringResource(Res.string.feature_workbench), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                Text(stringResource(Res.string.feature_running_count, state.workbench.str("running").ifBlank { "0" }, state.workbench.str("global_limit").ifBlank { "—" }), style = MaterialTheme.typography.labelLarge)
+            }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (!state.connected) Text(stringResource(Res.string.followup_offline), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

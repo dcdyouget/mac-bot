@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.network.ConnectionStatus
 import bot.mac.mobile.core.state.ClientRepository
 import bot.mac.mobile.resources.*
@@ -24,13 +25,13 @@ import org.jetbrains.compose.resources.stringResource
     var saving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row { TextButton(onClick = onBack) { Text(stringResource(Res.string.common_back)) } }
+        FontScaleToolbar { Row { TextButton(onClick = onBack) { Text(stringResource(Res.string.common_back)) } } }
         Text(stringResource(Res.string.host_welcome), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(Res.string.host_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { OutlinedTextField(name, { name = it }, label = { Text(stringResource(Res.string.host_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(addresses, { addresses = it }, label = { Text(stringResource(Res.string.host_addresses)) }, supportingText = { Text(stringResource(Res.string.host_address_hint)) }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(password, { password = it }, label = { Text(stringResource(Res.string.host_password)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(name, { name = it }, label = { Text(stringResource(Res.string.host_field_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(addresses, { addresses = it }, label = { Text(stringResource(Res.string.host_field_address)) }, supportingText = { Text(stringResource(Res.string.host_field_address_hint)) }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(password, { password = it }, label = { Text(stringResource(Res.string.host_field_password)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth()) }
             item {
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(enabled = !saving && name.isNotBlank() && addresses.isNotBlank() && password.isNotEmpty(), modifier = Modifier.fillMaxWidth(), onClick = {
@@ -49,7 +50,7 @@ import org.jetbrains.compose.resources.stringResource
                         Text(stringResource(when(statuses[host.id]?.status) {
                             ConnectionStatus.CONNECTED -> Res.string.host_online
                             ConnectionStatus.CONNECTING -> Res.string.host_connecting
-                            ConnectionStatus.RECONNECTING -> Res.string.host_reconnecting
+                            ConnectionStatus.RECONNECTING -> Res.string.host_reconnecting_generic
                             else -> Res.string.host_offline
                         }),color=MaterialTheme.colorScheme.onSurfaceVariant)
                         statuses[host.id]?.error?.message?.let { reason ->

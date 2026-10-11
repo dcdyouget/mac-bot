@@ -163,22 +163,24 @@ import org.jetbrains.compose.resources.stringResource
                 containerColor = LocalMobilePalette.current.window,
                 snackbarHost = { SnackbarHost(snackbarHostState) },
                 bottomBar = {
-                    if (page == "home" && hosts.isNotEmpty()) NavigationBar(
-                        modifier = Modifier.height(80.dp),
-                        containerColor = LocalMobilePalette.current.sidebar,
-                        contentColor = LocalMobilePalette.current.textSecondary,
-                    ) {
-                        listOf(Res.string.tab_messages, Res.string.tab_workbench, Res.string.tab_mine).forEachIndexed { index, label ->
-                            NavigationBarItem(
-                                selected = tab == index, onClick = { tab = index },
-                                icon = { Text(listOf("◉", "⟳", "○")[index], style = MaterialTheme.typography.titleMedium) },
-                                label = { Text(stringResource(label)) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = LocalMobilePalette.current.accent,
-                                    selectedTextColor = LocalMobilePalette.current.textPrimary,
-                                    indicatorColor = LocalMobilePalette.current.accentSoft,
-                                ),
-                            )
+                    if (page == "home" && hosts.isNotEmpty()) FontScaleLimit(STANDARD_FONT_SCALE_LIMIT) {
+                        NavigationBar(
+                            modifier = Modifier.height(80.dp),
+                            containerColor = LocalMobilePalette.current.sidebar,
+                            contentColor = LocalMobilePalette.current.textSecondary,
+                        ) {
+                            listOf(Res.string.tab_messages, Res.string.tab_workbench, Res.string.tab_mine).forEachIndexed { index, label ->
+                                NavigationBarItem(
+                                    selected = tab == index, onClick = { tab = index },
+                                    icon = { Text(listOf("◉", "⟳", "○")[index], style = MaterialTheme.typography.titleMedium) },
+                                    label = { Text(stringResource(label)) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = LocalMobilePalette.current.accent,
+                                        selectedTextColor = LocalMobilePalette.current.textPrimary,
+                                        indicatorColor = LocalMobilePalette.current.accentSoft,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
@@ -191,7 +193,7 @@ import org.jetbrains.compose.resources.stringResource
                             connection.error?.message?.contains("403") == true -> Res.string.host_setup
                             connection.error?.message?.contains("protocol", ignoreCase = true) == true -> Res.string.host_version
                             connection.status == ConnectionStatus.CONNECTING -> Res.string.host_connecting
-                            else -> Res.string.host_reconnecting
+                            else -> Res.string.host_reconnecting_generic
                         }
                         Text(stringResource(message), Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }.background(LocalMobilePalette.current.warningSoft).clickable { open("connect") }.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = LocalMobilePalette.current.warning)
                     }
@@ -304,8 +306,8 @@ import org.jetbrains.compose.resources.stringResource
     if (newSheet) androidx.compose.material3.ModalBottomSheet(onDismissRequest = { newSheet = false }) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(Res.string.common_new), style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = { newSheet = false; onGroup() }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.new_group), Modifier.fillMaxWidth()) }
-            TextButton(onClick = { newSheet = false; onBot() }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.new_bot), Modifier.fillMaxWidth()) }
+            TextButton(onClick = { newSheet = false; onGroup() }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.new_group_action), Modifier.fillMaxWidth()) }
+            TextButton(onClick = { newSheet = false; onBot() }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.new_bot_action), Modifier.fillMaxWidth()) }
         }
     }
     if (hostSheet) androidx.compose.material3.ModalBottomSheet(onDismissRequest = { hostSheet = false }) {
@@ -321,7 +323,7 @@ import org.jetbrains.compose.resources.stringResource
                         Text(
                             when (hostStatuses[host.id]?.status) {
                                 ConnectionStatus.CONNECTED -> stringResource(Res.string.host_online)
-                                ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> stringResource(Res.string.host_reconnecting)
+                                ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> stringResource(Res.string.host_reconnecting_generic)
                                 else -> stringResource(Res.string.host_offline)
                             },
                             style = MaterialTheme.typography.labelSmall,
@@ -349,7 +351,7 @@ import org.jetbrains.compose.resources.stringResource
         else -> stringResource(Res.string.chat_attention_other)
     }
     val rowDescription = stringResource(Res.string.chat_row_accessibility, chat.str("title"), attentionLabel)
-    val moreLabel = stringResource(Res.string.feature_more_accessibility)
+    val moreLabel = stringResource(Res.string.common_more)
     var menu by remember { mutableStateOf(false) }
     var rowError by remember { mutableStateOf<String?>(null) }
     var swipeOffset by remember(chat.str("id")) { mutableStateOf(0f) }
@@ -422,7 +424,7 @@ import org.jetbrains.compose.resources.stringResource
             pendingApproval?.let { approval ->
                 Text("⚠ ${stringResource(Res.string.feature_approval)} · ${approval.str("summary").ifBlank { approval.str("tool") }}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
             } ?: pendingQuestion?.let { question ->
-                Text("⚠ ${stringResource(Res.string.feature_status_waiting_user)} · ${question.str("text")}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
+                Text("⚠ ${stringResource(Res.string.status_waiting_user)} · ${question.str("text")}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
             }
             Text(chat.obj("last_message").str("text"),maxLines=1,color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
         }

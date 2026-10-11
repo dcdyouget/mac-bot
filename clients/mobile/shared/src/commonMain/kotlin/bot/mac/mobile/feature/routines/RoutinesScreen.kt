@@ -44,6 +44,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.design.BotAvatar
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
@@ -286,10 +287,12 @@ private fun RoutineListScreen(
         else -> routines
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
-            Text(stringResource(Res.string.routines_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-            IconButton(onClick = onCreate, modifier = Modifier.semantics { contentDescription = createLabel }) { Text("＋", style = MaterialTheme.typography.titleLarge) }
+        FontScaleToolbar {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+                Text(stringResource(Res.string.routines_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                IconButton(onClick = onCreate, modifier = Modifier.semantics { contentDescription = createLabel }) { Text("＋", style = MaterialTheme.typography.titleLarge) }
+            }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("all" to Res.string.routines_filter_all, "running" to Res.string.routines_filter_running, "paused" to Res.string.routines_filter_paused).forEach { (value, label) ->
@@ -394,10 +397,12 @@ private fun RoutineDetailScreen(
     val nextRun = routine?.str("next_run_at").orEmpty().takeIf { it.isNotBlank() }
 
     Column(Modifier.fillMaxSize().imePadding().background(MaterialTheme.colorScheme.background)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
-            Text(if (creating) stringResource(Res.string.routines_new) else routine?.str("name").orEmpty(), Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.titleLarge)
-            if (!creating && !editing) IconButton(onClick = onEdit) { Text(stringResource(Res.string.routines_edit), style = MaterialTheme.typography.labelLarge) }
+        FontScaleToolbar {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+                Text(if (creating) stringResource(Res.string.routines_new) else routine?.str("name").orEmpty(), Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.titleLarge)
+                if (!creating && !editing) IconButton(onClick = onEdit) { Text(stringResource(Res.string.routines_edit), style = MaterialTheme.typography.labelLarge) }
+            }
         }
         HorizontalDivider()
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {

@@ -156,7 +156,7 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
                             scope.launch { snackbar.showSnackbar(copiedMessage) }
                         },
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                    ) { Text(stringResource(Res.string.file_preview_copy_path)) }
+                    ) { Text(stringResource(Res.string.common_copy_path)) }
                     Button(
                         onClick = {
                             scope.launch {
@@ -178,7 +178,7 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
                         },
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         enabled = !loading && (bytes != null || path.startsWith("http://") || path.startsWith("https://")),
-                    ) { Text(stringResource(Res.string.file_preview_share_open)) }
+                    ) { Text(stringResource(Res.string.common_share_open_with)) }
                 }
             }
         },
@@ -225,9 +225,9 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
                 PreviewTab.entries.forEach { tab ->
                     val selected = selectedTab == tab
                     val label = when (tab) {
-                        PreviewTab.Preview -> stringResource(Res.string.file_preview_tab_preview)
-                        PreviewTab.Source -> stringResource(Res.string.file_preview_tab_source)
-                        PreviewTab.History -> stringResource(Res.string.file_preview_tab_history)
+                        PreviewTab.Preview -> stringResource(Res.string.artifact_preview_tabs_preview)
+                        PreviewTab.Source -> stringResource(Res.string.artifact_preview_tabs_source)
+                        PreviewTab.History -> stringResource(Res.string.artifact_preview_tabs_history)
                     }
                     Text(
                         text = label,

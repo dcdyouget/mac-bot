@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
@@ -42,15 +43,15 @@ import bot.mac.mobile.resources.feature_announcement_empty
 import bot.mac.mobile.resources.feature_announcement_edit
 import bot.mac.mobile.resources.feature_announcement_updated
 import bot.mac.mobile.resources.feature_artifact_author
-import bot.mac.mobile.resources.feature_back
 import bot.mac.mobile.resources.feature_bot
 import bot.mac.mobile.resources.feature_home_copy
 import bot.mac.mobile.resources.feature_home_open
 import bot.mac.mobile.resources.feature_home_value
-import bot.mac.mobile.resources.group_info_title
-import bot.mac.mobile.resources.group_info_announcement
-import bot.mac.mobile.resources.group_info_members
-import bot.mac.mobile.resources.group_info_artifacts
+import bot.mac.mobile.resources.common_back
+import bot.mac.mobile.resources.group_info
+import bot.mac.mobile.resources.group_announcement
+import bot.mac.mobile.resources.group_members
+import bot.mac.mobile.resources.group_artifacts
 import bot.mac.mobile.resources.group_info_preview
 import org.jetbrains.compose.resources.stringResource
 
@@ -80,20 +81,22 @@ fun GroupInfoScreen(
         .mapNotNull { it as? kotlinx.serialization.json.JsonObject }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                Text(stringResource(Res.string.feature_back), maxLines = 1, overflow = TextOverflow.Clip)
+        FontScaleToolbar {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                    Text(stringResource(Res.string.common_back), maxLines = 1, overflow = TextOverflow.Clip)
+                }
+                Text(
+                    text = stringResource(Res.string.group_info),
+                    modifier = Modifier.weight(1f).padding(start = 8.dp),
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            Text(
-                text = stringResource(Res.string.group_info_title),
-                modifier = Modifier.weight(1f).padding(start = 8.dp),
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
 
         Column(
@@ -117,7 +120,7 @@ fun GroupInfoScreen(
             }
 
             InfoSection(
-                title = stringResource(Res.string.group_info_announcement),
+                title = stringResource(Res.string.group_announcement),
                 detail = announcement?.obj("text_updated_by")?.str("bot_id")?.let { botId ->
                     botsById[botId]?.str("name")?.takeIf(String::isNotBlank)
                 },
@@ -162,7 +165,7 @@ fun GroupInfoScreen(
             }
 
             InfoSection(
-                title = stringResource(Res.string.group_info_members),
+                title = stringResource(Res.string.group_members),
                 detail = members.size.toString(),
             ) {
                 Surface(
@@ -191,7 +194,7 @@ fun GroupInfoScreen(
                 }
             }
 
-            InfoSection(title = stringResource(Res.string.group_info_artifacts), detail = artifacts.size.toString()) {
+            InfoSection(title = stringResource(Res.string.group_artifacts), detail = artifacts.size.toString()) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),

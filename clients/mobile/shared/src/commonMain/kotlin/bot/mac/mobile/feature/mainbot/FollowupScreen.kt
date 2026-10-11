@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.long
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
@@ -146,12 +147,14 @@ fun FollowupScreen(
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Row(
-            Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButtonBack(onBack)
-            Text(stringResource(Res.string.followup_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        FontScaleToolbar {
+            Row(
+                Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButtonBack(onBack)
+                Text(stringResource(Res.string.followup_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            }
         }
         if (!state.connected) {
             Text(stringResource(Res.string.followup_offline), Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error)

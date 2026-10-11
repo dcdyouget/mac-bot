@@ -18,6 +18,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
@@ -48,7 +49,7 @@ fun ApprovalScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
         }
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
-        Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(stringResource(Res.string.feature_approval), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) }
+        FontScaleToolbar { Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }; Text(stringResource(Res.string.feature_approval), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) } }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
             items(pendingApprovals, key = { it.str("id").ifBlank { "approval:${it.hashCode()}" } }) { approval ->
@@ -82,15 +83,15 @@ fun ApprovalCard(approval: JsonObject, onDecide: (approvalId: String, decision: 
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val tool = approval.str("tool")
         val toolLabel = if (tool.isBlank()) stringResource(Res.string.feature_tool) else tool
-        Text("${stringResource(Res.string.feature_approval_needed)} · $toolLabel", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(Res.string.block_approval_title, toolLabel), style = MaterialTheme.typography.titleMedium)
         Text(approval.str("summary"))
         MarkdownText(approval.str("detail"), Modifier.fillMaxWidth())
         val id = approval.str("id")
         if (approval.str("state") == "pending") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onDecide(id, "allow_once") }) { Text(stringResource(Res.string.feature_allow_once)) }
-                Button(onClick = { onDecide(id, "always_allow") }) { Text(stringResource(Res.string.feature_always_allow)) }
-                Button(onClick = { onDecide(id, "deny") }) { Text(stringResource(Res.string.feature_deny)) }
+                Button(onClick = { onDecide(id, "allow_once") }) { Text(stringResource(Res.string.block_approval_allow_once)) }
+                Button(onClick = { onDecide(id, "always_allow") }) { Text(stringResource(Res.string.block_approval_always_allow)) }
+                Button(onClick = { onDecide(id, "deny") }) { Text(stringResource(Res.string.block_approval_deny)) }
             }
         }
     }
@@ -108,7 +109,7 @@ fun QuestionCard(question: JsonObject, onAnswer: (questionId: String, optionInde
         }
         if (question["allow_free_text"]?.toString() == "true") {
             OutlinedTextField(freeText, { freeText = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_answer)) })
-            Button(onClick = { onAnswer(question.str("id"), null, freeText) }) { Text(stringResource(Res.string.feature_submit)) }
+            Button(onClick = { onAnswer(question.str("id"), null, freeText) }) { Text(stringResource(Res.string.common_submit)) }
         }
     }
 }

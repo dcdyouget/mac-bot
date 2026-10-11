@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
@@ -103,9 +104,11 @@ fun HistoryAssignmentScreen(
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-            Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
-            Text(stringResource(Res.string.feature_history_title), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
+        FontScaleToolbar {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+                Text(stringResource(Res.string.feature_history_title), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
+            }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             statusOptions.forEach { (value, label) ->

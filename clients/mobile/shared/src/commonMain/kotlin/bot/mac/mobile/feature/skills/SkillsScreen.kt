@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -38,6 +39,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
+import bot.mac.mobile.core.design.FontScaleToolbar
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.obj
@@ -143,18 +147,25 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        FontScaleToolbar {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = {
                 if (viewingDetail) {
                     selectedName = null
                     detail = null
                 } else onBack()
-            }, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+            }, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
             Text(stringResource(Res.string.skills_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
             if (!viewingDetail) {
-                TextButton(onClick = { selectedName = null; detail = null; showEditor = true }) { Text("＋ ${stringResource(Res.string.skills_new)}") }
+                TextButton(onClick = { selectedName = null; detail = null; showEditor = true }) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LucideIcon(LucideIconKind.Plus, Modifier.size(16.dp))
+                        Text(stringResource(Res.string.skills_new))
+                    }
+                }
                 TextButton(onClick = { showImport = true }) { Text(stringResource(Res.string.skills_import)) }
             }
+        }
         }
         actionError?.let { Text(stringResource(Res.string.skills_error, it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 12.dp)) }
         if (!viewingDetail) {

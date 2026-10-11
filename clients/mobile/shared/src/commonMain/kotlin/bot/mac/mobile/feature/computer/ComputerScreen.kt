@@ -58,7 +58,11 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import bot.mac.mobile.core.design.DesignTokens
+import bot.mac.mobile.core.design.FontScaleLimit
 import bot.mac.mobile.core.design.LocalMobilePalette
+import bot.mac.mobile.core.design.STANDARD_FONT_SCALE_LIMIT
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.core.network.ScreenConnection
 import bot.mac.mobile.core.network.ScreenFrame
 import bot.mac.mobile.core.network.ScreenState
@@ -214,29 +218,31 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
 
     val tabs = screenState?.tabs.orEmpty()
     Column(Modifier.fillMaxSize().background(Color(0xFF0F0F11))) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).height(36.dp)
-                .clip(RoundedCornerShape(18.dp)).background(Color(0xCC28282C))
-                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(18.dp)).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Box(Modifier.size(32.dp).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
-                Text("‹", color = Color.White, style = MaterialTheme.typography.headlineSmall)
-            }
-            Text(botName, Modifier.weight(1f), color = Color.White, maxLines = 1, style = MaterialTheme.typography.labelLarge)
-            Text(
-                statusLabel(screenState?.driver), color = if (takeoverActive) palette.warning else Color(0xFF9DB5DE),
-                maxLines = 1, style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (takeoverActive) palette.warningSoft else Color(0x338AA6D6)).padding(horizontal = 8.dp, vertical = 4.dp),
-            )
-            if (!takeoverActive) {
-                Button(onClick = {
-                    scope.launch {
-                        takeoverError = captureError(requestError) { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
-                        if (takeoverError == null) takeoverHostId = activeHost?.id
-                    }
-                }, modifier = Modifier.height(32.dp)) { Text(stringResource(Res.string.computer_takeover), style = MaterialTheme.typography.labelSmall, maxLines = 1) }
+        FontScaleLimit(STANDARD_FONT_SCALE_LIMIT) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).height(36.dp)
+                    .clip(RoundedCornerShape(18.dp)).background(Color(0xCC28282C))
+                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(18.dp)).padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(Modifier.size(32.dp).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
+                    LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp), tint = Color.White)
+                }
+                Text(botName, Modifier.weight(1f), color = Color.White, maxLines = 1, style = MaterialTheme.typography.labelLarge)
+                Text(
+                    statusLabel(screenState?.driver), color = if (takeoverActive) palette.warning else Color(0xFF9DB5DE),
+                    maxLines = 1, style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (takeoverActive) palette.warningSoft else Color(0x338AA6D6)).padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+                if (!takeoverActive) {
+                    Button(onClick = {
+                        scope.launch {
+                            takeoverError = captureError(requestError) { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
+                            if (takeoverError == null) takeoverHostId = activeHost?.id
+                        }
+                    }, modifier = Modifier.height(32.dp)) { Text(stringResource(Res.string.computer_takeover), style = MaterialTheme.typography.labelSmall, maxLines = 1) }
+                }
             }
         }
         if (tabs.isNotEmpty()) {

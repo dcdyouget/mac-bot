@@ -33,39 +33,45 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun StatusLabel(status: String, modifier: Modifier = Modifier) {
     val resource = when (status.lowercase()) {
-        "none", "idle" -> Res.string.feature_status_idle
-        "working", "active", "running", "continued" -> Res.string.feature_status_working
-        "waiting_user" -> Res.string.feature_status_waiting_user
-        "waiting_bot" -> Res.string.feature_status_waiting_bot
-        "queued" -> Res.string.feature_status_queued
-        "done", "completed", "confirmed", "approved" -> Res.string.feature_status_done
-        "stopped", "cancelled", "canceled", "paused", "ended", "skipped" -> Res.string.feature_status_stopped
-        "blocked", "failed", "denied" -> Res.string.feature_status_blocked
-        "review", "pending" -> Res.string.feature_status_review
+        "none", "idle" -> Res.string.status_idle
+        "working", "active", "running", "continued" -> Res.string.status_working
+        "waiting_user" -> Res.string.status_waiting_user
+        "waiting_bot" -> Res.string.status_standby
+        "queued" -> Res.string.status_queued
+        "done", "completed", "confirmed", "approved" -> Res.string.status_done
+        "stopped", "cancelled", "canceled", "paused", "ended", "skipped" -> Res.string.status_cancelled
+        "blocked" -> Res.string.status_blocked
+        "failed", "denied" -> Res.string.status_failed
+        "review", "pending" -> Res.string.status_review
         "changes_requested" -> Res.string.feature_status_changes_requested
-        "archived" -> Res.string.feature_status_archived
+        "expired" -> Res.string.feature_decision_expired
+        "archived" -> Res.string.project_status_archived
         "unread" -> Res.string.feature_status_unread
         else -> Res.string.feature_status_unknown
     }
     val label = stringResource(resource)
-    val announcesChanges = status.lowercase() in setOf("working", "active", "running", "waiting_user", "waiting_bot", "queued", "done", "completed", "confirmed", "approved", "blocked", "failed", "denied", "review", "pending", "stopped", "cancelled", "canceled", "changes_requested", "expired")
+    val announcesChanges = status.lowercase() in setOf(
+        "working", "active", "running", "continued", "waiting_user", "waiting_bot", "queued",
+        "done", "completed", "confirmed", "approved", "blocked", "failed", "denied", "review", "pending",
+        "stopped", "cancelled", "canceled", "paused", "ended", "skipped", "changes_requested", "expired", "archived",
+    )
     val palette = LocalMobilePalette.current
     val (glyph, foreground, background) = when (status.lowercase()) {
         "none", "idle" -> Triple("○", palette.textTertiary, palette.tokenColors["bg.active"] ?: palette.borderSubtle)
         "working", "active", "running", "continued" -> Triple("⟳", palette.accent, palette.accentSoft)
         "waiting_user", "waiting_bot" -> Triple("⚠", palette.warning, palette.warningSoft)
         "done", "completed", "confirmed", "approved" -> Triple("✓", palette.success, palette.successSoft)
-        "stopped", "cancelled", "canceled", "paused", "ended", "skipped" -> Triple("○", palette.textSecondary, palette.tokenColors["bg.active"] ?: palette.borderSubtle)
+        "stopped", "cancelled", "canceled", "paused", "ended", "skipped", "expired" -> Triple("○", palette.textSecondary, palette.tokenColors["bg.active"] ?: palette.borderSubtle)
         "blocked", "failed", "denied" -> Triple("!", palette.danger, palette.dangerSoft)
         "review", "pending" -> Triple("◎", palette.review, palette.reviewSoft)
         "queued" -> Triple("…", palette.textSecondary, palette.tokenColors["bg.active"] ?: palette.borderSubtle)
         else -> Triple("•", palette.textSecondary, palette.tokenColors["bg.active"] ?: palette.borderSubtle)
     }
     Row(
-        modifier.clip(RoundedCornerShape(999.dp)).background(background).padding(horizontal = 6.dp, vertical = 2.dp).semantics {
-        stateDescription = label
-        if (announcesChanges) liveRegion = LiveRegionMode.Polite
-    },
+        modifier.clip(RoundedCornerShape(999.dp)).background(background).padding(horizontal = 6.dp, vertical = 2.dp).semantics(mergeDescendants = true) {
+            stateDescription = label
+            if (announcesChanges) liveRegion = LiveRegionMode.Polite
+        },
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (status.lowercase() in setOf("working", "active", "running", "continued")) WorkingGlyph(glyph, foreground)

@@ -49,10 +49,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.ui.MotionAwareLinearProgressIndicator
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.core.platform.PickedFile
 import bot.mac.mobile.core.platform.exportFile
 import bot.mac.mobile.core.state.MobileRepository
@@ -161,11 +164,13 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
     LaunchedEffect(timeseries, splitIo) { visibleSeries = null }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
-            Text(stringResource(Res.string.dashboard_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-            TextButton(onClick = onSelectHost) { Text(stringResource(Res.string.dashboard_host_select)) }
-            IconButton(onClick = { reload() }, modifier = Modifier.semantics { contentDescription = refreshLabel }) { Text("↻", color = MaterialTheme.colorScheme.primary) }
+        FontScaleToolbar {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
+                Text(stringResource(Res.string.dashboard_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                TextButton(onClick = onSelectHost) { Text(stringResource(Res.string.dashboard_host_select)) }
+                IconButton(onClick = { reload() }, modifier = Modifier.semantics { contentDescription = refreshLabel }) { LucideIcon(LucideIconKind.RefreshCw, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) }
+            }
         }
         HorizontalDivider()
         if (loading) MotionAwareLinearProgressIndicator(Modifier.fillMaxWidth())

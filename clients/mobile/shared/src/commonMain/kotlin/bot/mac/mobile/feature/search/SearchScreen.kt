@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
@@ -28,6 +30,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import bot.mac.mobile.core.design.DesignElevation
+import bot.mac.mobile.core.design.FontScaleToolbar
+import bot.mac.mobile.core.ui.LucideIcon
+import bot.mac.mobile.core.ui.LucideIconKind
+import bot.mac.mobile.core.ui.MotionAwareCircularProgressIndicator
+import bot.mac.mobile.core.ui.designElevation
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.state.MobileRepository
@@ -94,9 +103,11 @@ fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Uni
     LaunchedEffect(query, kind) { search() }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
-            Text(stringResource(Res.string.search_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+        FontScaleToolbar {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
+                Text(stringResource(Res.string.search_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            }
         }
         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), singleLine = true, placeholder = { Text(stringResource(Res.string.search_hint)) })
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -105,7 +116,7 @@ fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Uni
         HorizontalDivider()
         when {
             query.isBlank() -> Text(stringResource(Res.string.search_empty), Modifier.padding(24.dp))
-            searching -> Text("…", Modifier.padding(24.dp))
+            searching -> MotionAwareCircularProgressIndicator(Modifier.padding(24.dp).size(24.dp))
             searchError != null -> Text(stringResource(Res.string.search_error, searchError!!), Modifier.padding(24.dp), color = MaterialTheme.colorScheme.error)
             results.isEmpty() -> Text(stringResource(Res.string.search_no_results), Modifier.padding(24.dp))
             else -> LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -117,7 +128,12 @@ fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Uni
 
 @Composable
 private fun SearchResult(result: JsonObject, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().designElevation(DesignElevation.level2, RoundedCornerShape(12.dp)),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Column(Modifier.padding(12.dp)) {
             Text(kindLabel(result.str("kind") ?: ""), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             Text(result.str("title") ?: result.str("id") ?: "", style = MaterialTheme.typography.titleSmall)

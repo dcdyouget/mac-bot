@@ -28,6 +28,7 @@ import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.network.NetworkError
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
@@ -164,11 +165,12 @@ fun TraceScreen(
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-            Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(stringResource(Res.string.feature_trace), style = MaterialTheme.typography.titleLarge)
-                if (assignmentId != null) {
+        FontScaleToolbar {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(stringResource(Res.string.feature_trace), style = MaterialTheme.typography.titleLarge)
+                    if (assignmentId != null) {
                     Text(
                         stringResource(Res.string.feature_trace_assignment_context, currentTitle, currentBotLabel),
                         maxLines = 1,
@@ -182,8 +184,9 @@ fun TraceScreen(
                     if (currentBotId.isNotBlank() && (currentBot?.obj("tools")?.boolean("browser") == true || currentBot?.str("browser_mode").orEmpty().isNotBlank())) {
                         Button(onClick = { onOpenScreen(currentBotId, null) }) { Text(stringResource(Res.string.feature_open_screen)) }
                     }
-                } else if (live) {
-                    Text(stringResource(Res.string.feature_realtime), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                    } else if (live) {
+                        Text(stringResource(Res.string.feature_realtime), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }

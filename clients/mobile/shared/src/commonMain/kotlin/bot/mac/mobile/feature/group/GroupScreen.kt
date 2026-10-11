@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
@@ -97,10 +98,11 @@ fun GroupScreen(
         ) {
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 Column(Modifier.fillMaxSize().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { showAnnouncementEditor = false; announcementConflict = null }) { Text(stringResource(Res.string.feature_back)) }
-                        Text(stringResource(Res.string.feature_announcement_edit), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                        Button(enabled = !announcementSaving && announcementText.length <= 8000, onClick = {
+                    FontScaleToolbar {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { showAnnouncementEditor = false; announcementConflict = null }) { Text(stringResource(Res.string.feature_back)) }
+                            Text(stringResource(Res.string.feature_announcement_edit), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                            Button(enabled = !announcementSaving && announcementText.length <= 8000, onClick = {
                             announcementSaving = true
                             scope.launch {
                                 runCatching {
@@ -121,7 +123,8 @@ fun GroupScreen(
                                 }
                                 announcementSaving = false
                             }
-                        }) { Text(stringResource(Res.string.common_save)) }
+                            }) { Text(stringResource(Res.string.common_save)) }
+                        }
                     }
                     Text(stringResource(Res.string.feature_announcement_edit_hint), style = MaterialTheme.typography.bodySmall)
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -167,16 +170,18 @@ fun GroupScreen(
         if (editAnnouncementOnOpen) showAnnouncementEditor = true
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Row(Modifier.fillMaxWidth().padding(12.dp)) {
-            Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(project?.str("name")?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.feature_group), style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
-                project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+        FontScaleToolbar {
+            Row(Modifier.fillMaxWidth().padding(12.dp)) {
+                Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(project?.str("name")?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.feature_group), style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+                    project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+                }
+                Button(onClick = { showAnnouncement = !showAnnouncement }) { Text(stringResource(Res.string.feature_announcement)) }
+                Button(onClick = { onOpenGroupInfo(projectId) }) { Text(stringResource(Res.string.feature_group_info)) }
+                Button(onClick = { announcementText = announcement?.str("text").orEmpty(); announcementBaseVersion = announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L; showAnnouncementEditor = true }) { Text(stringResource(Res.string.feature_edit)) }
+                Button(onClick = { showEdit = !showEdit }) { Text(stringResource(Res.string.feature_edit_group)) }
             }
-            Button(onClick = { showAnnouncement = !showAnnouncement }) { Text(stringResource(Res.string.feature_announcement)) }
-            Button(onClick = { onOpenGroupInfo(projectId) }) { Text(stringResource(Res.string.feature_group_info)) }
-            Button(onClick = { announcementText = announcement?.str("text").orEmpty(); announcementBaseVersion = announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L; showAnnouncementEditor = true }) { Text(stringResource(Res.string.feature_edit)) }
-            Button(onClick = { showEdit = !showEdit }) { Text(stringResource(Res.string.feature_edit_group)) }
         }
         if (showEdit) {
             Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -312,7 +317,7 @@ fun GroupCreateScreen(
     val scope = rememberCoroutineScope()
     val createFailed = stringResource(Res.string.feature_create_failed)
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(stringResource(Res.string.feature_create_group), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) }
+        FontScaleToolbar { Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(stringResource(Res.string.feature_create_group), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) } }
         OutlinedTextField(name, { name = it.take(32) }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_group_name)) }, supportingText = { Text(stringResource(Res.string.feature_name_max_length, 32)) })
         OutlinedTextField(goal, { goal = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text(stringResource(Res.string.feature_announcement_body)) })
         Text(stringResource(Res.string.feature_group_members), style = MaterialTheme.typography.titleSmall)
