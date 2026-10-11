@@ -1,0 +1,12 @@
+{
+  "allow_free_text": true,
+  "answer": null,
+  "assignment_id": "asg_1",
+  "bot_id": "bot_main",
+  "chat_id": "chat_main",
+  "id": "que_multi_1",
+  "multi": true,
+  "options": ["方案 A", "方案 B", "方案 C"],
+  "state": "pending",
+  "text": "可以选择多个方案。"
+}
