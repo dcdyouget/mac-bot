@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.runtime.collectAsState
+import kotlin.io.encoding.Base64
 
 private enum class PreviewTab { Preview, Source, History }
 
@@ -42,6 +43,12 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableStateOf(PreviewTab.Preview) }
+    var historyVersions by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
+    var historyLoading by remember { mutableStateOf(false) }
+    var historyError by remember { mutableStateOf<String?>(null) }
+    var historyHasMore by remember { mutableStateOf(false) }
+    var selectedVersion by remember { mutableStateOf<Long?>(null) }
+    var selectedVersionContent by remember { mutableStateOf<ByteArray?>(null) }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val snackbar = remember { SnackbarHostState() }
@@ -107,6 +114,25 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
         artifact?.botId?.let { botId ->
             mobileState.bots.firstOrNull { it.str("id") == botId }?.let { bot -> bot.str("label").ifBlank { bot.str("name") } }
         }.orEmpty()
+    }
+    LaunchedEffect(artifact?.id, selectedTab) {
+        val artifactId = artifact?.id.orEmpty()
+        if (selectedTab != PreviewTab.History || artifactId.isBlank()) return@LaunchedEffect
+        historyLoading = true
+        historyError = null
+        historyVersions = emptyList()
+        selectedVersion = null
+        selectedVersionContent = null
+        runCatching {
+            repository.call("artifact.versions.list", buildJsonObject {
+                put("artifact_id", artifactId)
+                put("limit", 20)
+            })
+        }.onSuccess { result ->
+            historyVersions = result.objects("versions")
+            historyHasMore = result.boolean("has_more")
+        }.onFailure { historyError = it.message ?: "" }
+        historyLoading = false
     }
     val title = artifact?.title?.takeIf { it.isNotBlank() } ?: path.trimEnd('/').substringAfterLast('/').ifBlank { path }
     val timestamp = artifact?.updatedAt?.takeIf { it.isNotBlank() } ?: modifiedAt
@@ -223,7 +249,65 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
                 Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
             }
             when (selectedTab) {
-                PreviewTab.History -> HistorySnapshot(bytes, path)
+                PreviewTab.History -> {
+                    val artifactId = artifact?.id.orEmpty()
+                    if (artifactId.isBlank()) {
+                        Text(stringResource(Res.string.file_preview_history_unavailable), Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        ArtifactHistory(
+                            artifactId = artifactId,
+                            versions = historyVersions,
+                            hasMore = historyHasMore,
+                            loading = historyLoading,
+                            error = historyError,
+                            selectedVersion = selectedVersion,
+                            selectedContent = selectedVersionContent,
+                            onLoadMore = {
+                                historyVersions.lastOrNull()?.long("version")?.let { before ->
+                                    historyLoading = true
+                                    historyError = null
+                                    scope.launch {
+                                        runCatching {
+                                            repository.call("artifact.versions.list", buildJsonObject {
+                                                put("artifact_id", artifactId)
+                                                put("limit", 20)
+                                                put("before_version", before)
+                                            })
+                                        }.onSuccess { result ->
+                                            historyVersions = historyVersions + result.objects("versions")
+                                            historyHasMore = result.boolean("has_more")
+                                        }.onFailure { historyError = it.message ?: "" }
+                                        historyLoading = false
+                                    }
+                                }
+                            },
+                            onSelect = { version ->
+                                selectedVersion = version.long("version")
+                                selectedVersionContent = null
+                                historyLoading = true
+                                historyError = null
+                                scope.launch {
+                                    runCatching {
+                                        repository.call("artifact.version.get", buildJsonObject {
+                                            put("artifact_id", artifactId)
+                                            put("version", version.long("version"))
+                                        })
+                                    }.onSuccess { result ->
+                                        val encoded = result.str("content")
+                                        runCatching {
+                                            when (result.str("content_encoding")) {
+                                                "base64" -> Base64.Default.decode(encoded)
+                                                else -> encoded.encodeToByteArray()
+                                            }
+                                        }.onSuccess { selectedVersionContent = it }
+                                            .onFailure { historyError = it.message ?: "" }
+                                    }.onFailure { historyError = it.message ?: "" }
+                                    historyLoading = false
+                                }
+                            },
+                        )
+                    }
+                }
                 PreviewTab.Source -> SourceContent(bytes)
                 PreviewTab.Preview -> PreviewContent(bytes, image, isText, entries) { selectedPath ->
                     path = selectedPath
@@ -235,24 +319,55 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
 }
 
 @Composable
-private fun HistorySnapshot(bytes: ByteArray?, path: String) {
+private fun ArtifactHistory(
+    artifactId: String,
+    versions: List<JsonObject>,
+    hasMore: Boolean,
+    loading: Boolean,
+    error: String?,
+    selectedVersion: Long?,
+    selectedContent: ByteArray?,
+    onLoadMore: () -> Unit,
+    onSelect: (JsonObject) -> Unit,
+) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(stringResource(Res.string.file_preview_history_unavailable), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (bytes != null) {
-            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-                Column(Modifier.fillMaxWidth().padding(14.dp)) {
-                    Text(stringResource(Res.string.file_preview_snapshot), style = MaterialTheme.typography.titleMedium)
-                    Text(path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (artifactId.isBlank()) Text(stringResource(Res.string.file_preview_history_unavailable), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        error?.takeIf(String::isNotBlank)?.let { Text(stringResource(Res.string.file_preview_history_error, it), color = MaterialTheme.colorScheme.error) }
+        if (loading && versions.isEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (!loading && error == null && versions.isEmpty()) Text(stringResource(Res.string.file_preview_versions_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(versions, key = { "${it.str("artifact_id")}:${it.long("version")}" }) { version ->
+                val number = version.long("version")
+                ListItem(
+                    headlineContent = { Text(stringResource(Res.string.file_preview_version_row, number.toInt(), version.str("created_at"))) },
+                    supportingContent = {
+                        Text(
+                            listOf(version.str("title"), version.str("path_or_url"), version.str("bot_id")).filter(String::isNotBlank).joinToString(" · "),
+                            maxLines = 1,
+                        )
+                    },
+                    modifier = Modifier.clickable { onSelect(version) },
+                    trailingContent = { if (selectedVersion == number) Text("✓", color = MaterialTheme.colorScheme.primary) },
+                )
+            }
+            if (hasMore) item {
+                TextButton(onClick = onLoadMore, enabled = !loading, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text(stringResource(Res.string.file_preview_more_versions))
                 }
             }
-            SelectionContainer {
-                Text(
-                    bytes.decodeToString().take(200_000),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                )
+        }
+        if (loading && selectedVersion != null) LinearProgressIndicator(Modifier.fillMaxWidth())
+        selectedContent?.let { bytes ->
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                Column(Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState()).padding(14.dp)) {
+                    Text(stringResource(Res.string.file_preview_version_content, selectedVersion?.toInt() ?: 0), style = MaterialTheme.typography.titleMedium)
+                    SelectionContainer {
+                        Text(bytes.decodeToString().take(200_000), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                    }
+                }
             }
         }
     }

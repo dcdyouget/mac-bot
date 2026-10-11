@@ -70,6 +70,7 @@ fun GroupScreen(
     var showEdit by remember { mutableStateOf(false) }
     var showAnnouncementEditor by remember { mutableStateOf(false) }
     var announcementText by remember(projectId) { mutableStateOf(announcement?.str("text").orEmpty()) }
+    var announcementQuoteToAppend by remember(projectId) { mutableStateOf<String?>(null) }
     var announcementBaseVersion by remember(projectId) { mutableStateOf(announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L) }
     var announcementConflict by remember { mutableStateOf<JsonObject?>(null) }
     var announcementSaving by remember { mutableStateOf(false) }
@@ -78,7 +79,15 @@ fun GroupScreen(
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(announcement?.str("version"), showAnnouncementEditor) {
-        if (!showAnnouncementEditor || announcementConflict == null) announcementText = announcement?.str("text").orEmpty()
+        if (!showAnnouncementEditor) {
+            announcementText = announcement?.str("text").orEmpty()
+        } else {
+            announcementQuoteToAppend?.let { quote ->
+                val current = announcement?.str("text").orEmpty()
+                announcementText = listOf(current, quote).filter(String::isNotBlank).joinToString("\n\n")
+                announcementQuoteToAppend = null
+            }
+        }
     }
 
     if (showAnnouncementEditor) {
@@ -240,6 +249,14 @@ fun GroupScreen(
                     },
                     onOpenScreen = onOpenScreen,
                     onOpenChat = onOpenChat,
+                    onQuoteAnnouncement = { quote ->
+                        if (showAnnouncementEditor) {
+                            announcementText = listOf(announcementText, quote).filter(String::isNotBlank).joinToString("\n\n")
+                        } else {
+                            announcementQuoteToAppend = quote
+                            showAnnouncementEditor = true
+                        }
+                    },
                     onLoopAction = onLoopAction,
                     onTakeover = onTakeover,
                     showHeader = false,

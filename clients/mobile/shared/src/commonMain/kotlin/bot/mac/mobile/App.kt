@@ -15,6 +15,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
@@ -331,6 +333,7 @@ import org.jetbrains.compose.resources.stringResource
 @Composable private fun ChatRow(chat:JsonObject,state:MobileState,onChat:(String)->Unit,repository:ClientRepository) {
     val bot=state.bots.firstOrNull { it.str("id")==chat.str("bot_id") }
     val attention=chat.str("attention")
+    val attentionLabel = stringResource(Res.string.feature_attention_banner)
     val pendingApproval = state.approvals.firstOrNull { it.str("chat_id") == chat.str("id") && it.str("state") == "pending" }
     val pendingQuestion = state.questions.firstOrNull { it.str("chat_id") == chat.str("id") && it.str("state") == "pending" }
     var menu by remember { mutableStateOf(false) }
@@ -413,7 +416,7 @@ import org.jetbrains.compose.resources.stringResource
             when {
                 pendingApproval != null || pendingQuestion != null || attention == "waiting_user" -> Text(
                     "⚠", color=LocalMobilePalette.current.warning,
-                    modifier=Modifier.semantics { contentDescription = "${stringResource(Res.string.feature_attention_banner)}" },
+                    modifier=Modifier.semantics { contentDescription = attentionLabel },
                 )
                 attention == "review" -> Text("◎", color=LocalMobilePalette.current.review)
                 attention == "blocked" -> Text("!", color=LocalMobilePalette.current.danger)

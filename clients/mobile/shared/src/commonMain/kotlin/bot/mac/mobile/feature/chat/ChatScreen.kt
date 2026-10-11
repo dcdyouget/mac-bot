@@ -45,6 +45,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.boolean
@@ -90,6 +92,7 @@ fun ChatScreen(
     onOpenHistory: (chatId: String) -> Unit = {},
     onOpenGroupInfo: (projectId: String) -> Unit = {},
     onOpenFollowup: (chatId: String) -> Unit = {},
+    onQuoteAnnouncement: (String) -> Unit = {},
     artifactProjectId: String? = null,
     showHeader: Boolean = true,
 ) {
@@ -265,6 +268,8 @@ fun ChatScreen(
             items(messages, key = { it.str("id").ifBlank { "message:${it.hashCode()}" } }) { message ->
                 ChatMessageRow(
                     message = message,
+                    repository = repository,
+                    onQuoteAnnouncement = onQuoteAnnouncement,
                     onJumpToMessage = { quotedId ->
                         val index = messages.indexOfFirst { it.str("id") == quotedId }
                         if (index >= 0) {
@@ -459,6 +464,8 @@ private data class ScrollAnchor(val id: String, val offset: Int)
 @Composable
 internal fun ChatMessageRow(
     message: JsonObject,
+    repository: MobileRepository,
+    onQuoteAnnouncement: (String) -> Unit,
     state: MobileState,
     onJumpToMessage: (String) -> Unit,
     highlighted: Boolean,
@@ -577,26 +584,60 @@ internal fun ChatMessageRow(
                 }
                 if (questionBlocks.size > 1) {
                     val answered = questionBlocks.count { block -> state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "answered" }
-                    Column(Modifier.fillMaxWidth().background(palette.panel, RoundedCornerShape(12.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val swipeThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 48.dp.toPx() }
+                    Box(
+                        Modifier.fillMaxWidth().pointerInput(questionBlocks.size, swipeThreshold) {
+                            var drag = 0f
+                            detectHorizontalDragGestures(
+                                onHorizontalDrag = { change, amount -> drag += amount; change.consume() },
+                                onDragEnd = {
+                                    when {
+                                        drag <= -swipeThreshold -> selectedQuestion = (selectedQuestion + 1).coerceAtMost(questionBlocks.lastIndex)
+                                        drag >= swipeThreshold -> selectedQuestion = (selectedQuestion - 1).coerceAtLeast(0)
+                                    }
+                                    drag = 0f
+                                },
+                                onDragCancel = { drag = 0f },
+                            )
+                        },
+                    ) {
+                        val pendingAfter = (selectedQuestion + 1 until questionBlocks.size).count { index ->
+                            state.questions.firstOrNull { it.str("id") == questionIds[index] }?.str("state") == "pending"
+                        }.coerceAtMost(2)
+                        repeat(pendingAfter) { layer ->
+                            Surface(
+                                Modifier.fillMaxWidth().padding(horizontal = ((layer + 1) * 8).dp).offset(y = ((layer + 1) * 8).dp).height(148.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (layer == 0) palette.panel else palette.panel.copy(alpha = .78f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault),
+                            ) { }
+                        }
+                        Column(Modifier.fillMaxWidth().background(palette.panel, RoundedCornerShape(12.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
                             if (answered == questionBlocks.size) stringResource(Res.string.feature_question_stack_answered, questionBlocks.size)
                             else stringResource(Res.string.feature_question_stack_title, questionBlocks.size, selectedQuestion + 1, answered),
                             style = MaterialTheme.typography.labelMedium,
                         )
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(enabled = selectedQuestion > 0, onClick = { selectedQuestion-- }) { Text("‹") }
-                            questionBlocks.forEachIndexed { index, block ->
-                                val status = state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state")
-                                TextButton(onClick = { selectedQuestion = index }) {
-                                    Text(if (status == "answered") "✓ ${index + 1}" else (index + 1).toString())
+                            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                                questionBlocks.forEachIndexed { index, block ->
+                                    val status = state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state")
+                                    val tabLabel = stringResource(Res.string.feature_question_tab, index + 1)
+                                    TextButton(onClick = { selectedQuestion = index }, modifier = Modifier.semantics {
+                                        contentDescription = tabLabel
+                                    }) {
+                                        Text(if (answered == questionBlocks.size) "✓ $tabLabel" else if (status == "answered") "✓ ${index + 1}" else (index + 1).toString())
+                                    }
                                 }
                             }
                             TextButton(enabled = selectedQuestion < questionBlocks.lastIndex, onClick = { selectedQuestion++ }) { Text("›") }
                         }
                         questionBlocks.getOrNull(selectedQuestion)?.let { block ->
                             BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
-                                onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId)
+                            onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
                         }
+                    }
                     }
                 }
                 var questionStackRendered = false
@@ -606,7 +647,7 @@ internal fun ChatMessageRow(
                             if (!questionStackRendered) questionStackRendered = true
                         } else {
                             BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
-                                onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId)
+                                onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
                         }
                     }
                 }
@@ -632,6 +673,17 @@ internal fun ChatMessageRow(
                 }
                 TextButton(onClick = { if (id.isNotBlank()) onQuote(id, "reply"); showMessageActions = false }) { Text(stringResource(Res.string.feature_reply)) }
                 TextButton(onClick = { if (id.isNotBlank()) onQuote(id, "reference"); showMessageActions = false }) { Text(stringResource(Res.string.feature_quote_reference)) }
+                if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null); showMessageActions = false }) {
+                    Text(stringResource(Res.string.feature_message_view_work))
+                }
+                val projectId = artifactProjectId.orEmpty()
+                val quoteBody = blocks.mapNotNull { entry -> (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank) }
+                    .joinToString("\n\n").ifBlank { message.str("fallback_text") }
+                if (projectId.isNotBlank() && quoteBody.isNotBlank()) TextButton(onClick = {
+                    val quoted = quoteBody.lines().joinToString("\n") { "> $it" }
+                    onQuoteAnnouncement("**$senderLabel**\n$quoted")
+                    showMessageActions = false
+                }) { Text(stringResource(Res.string.feature_message_quote_announcement)) }
                 TextButton(onClick = { clipboard.setText(AnnotatedString(message.str("fallback_text"))); showMessageActions = false }) { Text(stringResource(Res.string.feature_copy_message)) }
             }
         }
@@ -663,6 +715,7 @@ private fun BlockView(
     onReleaseTakeover: (String) -> Unit,
     onOpenArtifact: (String, String, String?) -> Unit,
     artifactProjectId: String?,
+    repository: MobileRepository,
 ) {
     val kind = block.str("type")
     val blockScope = rememberCoroutineScope()
@@ -749,7 +802,10 @@ private fun BlockView(
             val questionBot = state.bots.firstOrNull { it.str("id") == question?.str("bot_id") }
                 ?.str("name")?.takeIf(String::isNotBlank) ?: stringResource(Res.string.feature_bot)
             var freeText by remember(questionId) { mutableStateOf("") }
+            var showFreeText by remember(questionId) { mutableStateOf(false) }
             var selectedOptions by remember(questionId) { mutableStateOf(emptySet<Int>()) }
+            val freeTextFocus = remember(questionId) { FocusRequester() }
+            LaunchedEffect(showFreeText) { if (showFreeText) runCatching { freeTextFocus.requestFocus() } }
             Text(
                 stringResource(if (question?.boolean("multi") == true) Res.string.feature_question_kind_multi else Res.string.feature_question_kind_single, questionBot),
                 style = MaterialTheme.typography.labelSmall,
@@ -768,8 +824,9 @@ private fun BlockView(
                     val indexes = answer.arr("option_indexes").mapNotNull { it.toString().trim('"').toIntOrNull() }
                     val single = answer["option_index"]?.toString()?.trim('"')?.toIntOrNull()?.let(::listOf).orEmpty()
                     val selected = if (indexes.isNotEmpty()) indexes else single
+                    val selectedLabels = selected.mapNotNull { question.arr("options").getOrNull(it)?.toString()?.trim('"') }.joinToString("、")
                     Text(
-                        if (selected.isNotEmpty()) stringResource(Res.string.feature_question_answered_option, question.arr("options").getOrNull(selected.first())?.toString()?.trim('"').orEmpty())
+                        if (selected.isNotEmpty()) stringResource(Res.string.feature_question_answered_option, selectedLabels)
                         else stringResource(Res.string.feature_question_answered_text),
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelMedium,
@@ -777,7 +834,17 @@ private fun BlockView(
                     question.arr("options").forEachIndexed { index, option ->
                         Text("${if (index in selected) "✓ " else ""}${option.toString().trim('"')}", color = if (index in selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    answer.str("text").takeIf { it.isNotBlank() }?.let { Text(it) }
+                    answer.str("text").takeIf { it.isNotBlank() }?.let { text ->
+                        Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(8.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Spacer(Modifier.width(2.dp).heightIn(min = 24.dp).background(MaterialTheme.colorScheme.primary))
+                                Column(Modifier.padding(start = 8.dp)) {
+                                    Text(stringResource(Res.string.feature_question_your_reply), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    Text(text, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
                 }
                 question?.str("state") == "pending" -> {
                     question.arr("options").forEachIndexed { index, option ->
@@ -796,8 +863,19 @@ private fun BlockView(
                         enabled = selectedOptions.isNotEmpty(),
                     ) { Text(stringResource(Res.string.feature_submit)) }
                     if (question.boolean("allow_free_text")) {
-                        OutlinedTextField(freeText, { freeText = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_answer)) })
-                        Button(onClick = { onQuestion(questionId, null, null, freeText) }, enabled = freeText.isNotBlank()) { Text(stringResource(Res.string.feature_submit)) }
+                        if (!showFreeText) {
+                            TextButton(onClick = { showFreeText = true }, modifier = Modifier.heightIn(min = 44.dp)) {
+                                Text(stringResource(Res.string.feature_question_other))
+                            }
+                        } else {
+                            OutlinedTextField(
+                                freeText,
+                                { freeText = it },
+                                Modifier.fillMaxWidth().focusRequester(freeTextFocus),
+                                label = { Text(stringResource(Res.string.feature_answer)) },
+                            )
+                            Button(onClick = { onQuestion(questionId, null, null, freeText) }, enabled = freeText.isNotBlank()) { Text(stringResource(Res.string.feature_submit)) }
+                        }
                     }
                 }
             }
@@ -824,6 +902,7 @@ private fun BlockView(
         }
         "review_card" -> {
             val projectId = block.str("project_id")
+            val reviewState = block.str("state")
             Text(
                 stringResource(Res.string.feature_review_project, reviewProjectLabel(block, state.projects)),
                 style = MaterialTheme.typography.titleSmall,
@@ -832,19 +911,42 @@ private fun BlockView(
                 Text(stringResource(Res.string.feature_review_state, ""), style = MaterialTheme.typography.bodyMedium)
                 StatusLabel(block.str("state"))
             }
-            if (projectId.isNotBlank() && block.str("state") == "pending") Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(onClick = { onProjectAction(projectId, "confirm_done") }) { Text(stringResource(Res.string.feature_confirm_done)) }
-                Button(onClick = { onProjectAction(projectId, "request_changes") }) { Text(stringResource(Res.string.feature_request_changes)) }
+            when (reviewState) {
+                "confirmed" -> Text(stringResource(Res.string.feature_review_confirmed), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium)
+                "changes_requested" -> Text(stringResource(Res.string.feature_review_changes_requested), color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelMedium)
+                "pending" -> if (projectId.isNotBlank()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = { onProjectAction(projectId, "confirm_done") }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
+                        Text(stringResource(Res.string.feature_confirm_done))
+                    }
+                    Button(onClick = { onProjectAction(projectId, "request_changes") }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
+                        Text(stringResource(Res.string.feature_request_changes))
+                    }
+                }
             }
             block.arr("artifacts").forEach { element ->
                 val artifact = element as? JsonObject ?: return@forEach
                 val artifactId = artifact.str("artifact_id")
                 val pathOrUrl = artifact.str("path_or_url")
                 if (artifactId.isNotBlank() && pathOrUrl.isNotBlank()) {
-                    Button(onClick = { onOpenArtifact(artifactId, pathOrUrl, projectId.takeIf { it.isNotBlank() }) }) {
-                        Text("▤ ${artifact.str("title").ifBlank { pathOrUrl }}")
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = RoundedCornerShape(10.dp),
+                        onClick = { onOpenArtifact(artifactId, pathOrUrl, projectId.takeIf { it.isNotBlank() }) },
+                    ) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text(artifact.str("title").ifBlank { pathOrUrl }, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val authorId = artifact.str("bot_id")
+                            val author = state.bots.firstOrNull { it.str("id") == authorId }?.str("name").orEmpty().ifBlank { authorId }
+                            if (author.isNotBlank()) Text(stringResource(Res.string.feature_artifact_author, author), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(pathOrUrl, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(stringResource(Res.string.feature_preview_file), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
+            }
+            if (projectId.isNotBlank()) TextButton(onClick = { onOpenProject(projectId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
+                Text(stringResource(Res.string.feature_review_enter_group))
             }
         }
         "delegation" -> {
@@ -871,23 +973,105 @@ private fun BlockView(
             if (chatId.isNotBlank()) Button(onClick = { onOpenChat(chatId) }) { Text(stringResource(Res.string.feature_open_chat)) }
         }
         "takeover_request" -> {
-            Text("✋ ${block.str("reason")}", style = MaterialTheme.typography.bodyMedium)
             val botId = block.str("bot_id")
+            if (block.str("reason").isNotBlank()) Text(block.str("reason"), style = MaterialTheme.typography.bodyMedium)
             when (block.str("state")) {
-                "pending" -> if (botId.isNotBlank()) Button(onClick = { onTakeover(botId) }) { Text(stringResource(Res.string.feature_takeover)) }
-                "active" -> {
-                    Text(stringResource(Res.string.feature_takeover_active), style = MaterialTheme.typography.labelMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (botId.isNotBlank()) Button(onClick = { onOpenScreen(botId, null) }) { Text(stringResource(Res.string.feature_open_screen)) }
-                        if (botId.isNotBlank()) Button(onClick = { onReleaseTakeover(botId) }) { Text(stringResource(Res.string.feature_return_control)) }
+                "pending" -> {
+                    Text(stringResource(Res.string.feature_takeover_pending), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.tertiary)
+                    if (botId.isNotBlank()) Button(onClick = { onTakeover(botId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
+                        Text(stringResource(Res.string.feature_takeover))
                     }
                 }
-                else -> StatusLabel("done")
+                "active" -> {
+                    Text(stringResource(Res.string.feature_takeover_active), style = MaterialTheme.typography.labelMedium)
+                    if (botId.isNotBlank()) {
+                        Button(onClick = { onOpenScreen(botId, null) }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
+                            Text(stringResource(Res.string.feature_open_screen))
+                        }
+                        TextButton(onClick = { onReleaseTakeover(botId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
+                            Text(stringResource(Res.string.feature_return_control))
+                        }
+                    }
+                }
+                "done" -> Text(stringResource(Res.string.feature_takeover_done), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> StatusLabel(block.str("state"))
             }
         }
         "bot_dm_ref" -> {
-            Text(stringResource(Res.string.feature_bot_dm, block.str("count")), style = MaterialTheme.typography.bodyMedium)
-            block.str("chat_id").takeIf { it.isNotBlank() }?.let { Button(onClick = { onOpenChat(it) }) { Text(stringResource(Res.string.feature_open_chat)) } }
+            val chatId = block.str("chat_id")
+            val count = block.longValue("count")?.toInt() ?: 0
+            var expanded by remember(chatId) { mutableStateOf(false) }
+            var loading by remember(chatId) { mutableStateOf(false) }
+            var loadError by remember(chatId) { mutableStateOf(false) }
+            var excerptMessages by remember(chatId) { mutableStateOf(emptyList<JsonObject>()) }
+            val participantIds = state.chats.firstOrNull { it.str("id") == chatId }?.arr("member_bot_ids").orEmpty().map { it.toString().trim('"') }
+            val participants = participantIds.mapNotNull { id -> state.bots.firstOrNull { it.str("id") == id } }.take(2)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("✉", color = MaterialTheme.colorScheme.primary)
+                if (participants.size == 2) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        participants.forEach { bot ->
+                            Surface(Modifier.size(24.dp), shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer) {
+                                Box(contentAlignment = Alignment.Center) { Text(bot.str("name").take(1), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer) }
+                            }
+                        }
+                    }
+                    Text(stringResource(Res.string.feature_bot_dm_participants, participants[0].str("name"), participants[1].str("name"), count), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                } else Text(stringResource(Res.string.feature_bot_dm, count.toString()), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                TextButton(
+                    enabled = chatId.isNotBlank() && !loading,
+                    onClick = {
+                        expanded = !expanded
+                        if (expanded && excerptMessages.isEmpty() && !loadError) {
+                            loading = true
+                            blockScope.launch {
+                                runCatching { repository.call("chat.history", buildJsonObject { put("chat_id", chatId); put("limit", count.coerceIn(1, 20)) }) }
+                                    .onSuccess { result -> excerptMessages = result.objects("messages").takeLast(count.coerceIn(1, 20)) }
+                                    .onFailure { loadError = true }
+                                loading = false
+                            }
+                        }
+                    },
+                ) { Text(stringResource(if (expanded) Res.string.feature_dm_collapse else Res.string.feature_dm_expand)) }
+            }
+            if (expanded) {
+                when {
+                    loading -> Text(stringResource(Res.string.feature_dm_loading), style = MaterialTheme.typography.bodySmall)
+                    loadError -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(Res.string.feature_dm_load_error), Modifier.weight(1f), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = {
+                            loadError = false
+                            loading = true
+                            blockScope.launch {
+                                runCatching { repository.call("chat.history", buildJsonObject { put("chat_id", chatId); put("limit", count.coerceIn(1, 20)) }) }
+                                    .onSuccess { result -> excerptMessages = result.objects("messages").takeLast(count.coerceIn(1, 20)) }
+                                    .onFailure { loadError = true }
+                                loading = false
+                            }
+                        }) { Text(stringResource(Res.string.feature_dm_retry)) }
+                    }
+                    excerptMessages.isEmpty() -> Text(stringResource(Res.string.feature_dm_empty), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else -> Column(Modifier.fillMaxWidth().padding(start = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        excerptMessages.forEach { dmMessage ->
+                            Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(8.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(8.dp)) {
+                                    val senderId = dmMessage.obj("sender").str("bot_id")
+                                    val senderName = state.bots.firstOrNull { it.str("id") == senderId }?.str("name").orEmpty().ifBlank { senderId.ifBlank { stringResource(Res.string.feature_bot) } }
+                                    Text(senderName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    dmMessage.arr("blocks").forEach { entry ->
+                                        val dmBlock = entry as? JsonObject ?: return@forEach
+                                        when (dmBlock.str("type")) {
+                                            "text" -> MarkdownText(dmBlock.str("markdown"), Modifier.fillMaxWidth())
+                                            "system" -> Text(dmBlock.str("text"), style = MaterialTheme.typography.bodySmall)
+                                            else -> dmMessage.str("fallback_text").takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         "system" -> if (block.str("code") == "announcement_updated" && !artifactProjectId.isNullOrBlank()) {
             TextButton(onClick = { onOpenProject(artifactProjectId) }) { Text(block.str("text"), style = MaterialTheme.typography.bodyMedium) }
