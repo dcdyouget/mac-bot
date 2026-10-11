@@ -18,6 +18,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import bot.mac.mobile.core.platform.initializePlatform
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -28,6 +29,7 @@ class NotificationAndroidBackendTest {
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
+        initializePlatform(context)
         manager = context.getSystemService(NotificationManager::class.java)
         manager.cancelAll()
         context.getSharedPreferences(LEDGER_PREFS, Context.MODE_PRIVATE).edit().clear().commit()
@@ -71,6 +73,19 @@ class NotificationAndroidBackendTest {
     }
 
     @Test
+    fun firstInstallRegistersTheForegroundServiceNotificationChannel() {
+        manager.deleteNotificationChannel(MacBotNotifications.foregroundChannelId())
+        MacBotNotifications.ensureChannels(context)
+
+        val channelId = MacBotNotifications.foregroundChannelId()
+        val channel = requireNotNull(manager.getNotificationChannel(channelId))
+        val notification = MacBotNotifications.foregroundServiceNotification(context)
+        assertEquals("messages-silent", channelId)
+        assertEquals(channelId, notification.channelId)
+        assertEquals(channelId, channel.id)
+    }
+
+    @Test
     fun pendingJsonInSharedPreferencesSurvivesStoreAndCoordinatorRestart() = runBlocking {
         val request = completedRequest("assignment-recovery", seq = 92)
         val store = AndroidNotificationDeliveryStore(context)
@@ -98,7 +113,8 @@ class NotificationAndroidBackendTest {
 
     @Test
     fun disabledMessageChannelKeepsPendingWhileCompletedChannelDeliversAndRecovers() = runBlocking {
-        val messageChannel = requireNotNull(manager.getNotificationChannel(MacBotNotifications.CHANNEL_MESSAGES))
+        val messageChannelId = MacBotNotifications.channelId(context, NotificationKind.MESSAGE)
+        val messageChannel = requireNotNull(manager.getNotificationChannel(messageChannelId))
         messageChannel.setImportance(NotificationManager.IMPORTANCE_NONE)
         assertEquals(NotificationManager.IMPORTANCE_NONE, messageChannel.importance)
 
@@ -129,20 +145,17 @@ class NotificationAndroidBackendTest {
             manager.notify(
                 "seed-$index",
                 index,
-                NotificationCompat.Builder(context, MacBotNotifications.CHANNEL_MESSAGES)
+                NotificationCompat.Builder(context, MacBotNotifications.foregroundChannelId())
                     .setSmallIcon(android.R.drawable.sym_action_chat)
                     .setContentTitle("seed")
                     .setContentText(index.toString())
                     .build(),
             )
         }
-        val foreground = NotificationCompat.Builder(context, MacBotNotifications.CHANNEL_MESSAGES)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setOngoing(true)
-            .build()
+        val foreground = MacBotNotifications.foregroundServiceNotification(context)
             .apply { flags = flags or Notification.FLAG_FOREGROUND_SERVICE }
         manager.notify("foreground", FOREGROUND_ID, foreground)
-        val summary = NotificationCompat.Builder(context, MacBotNotifications.CHANNEL_MESSAGES)
+        val summary = NotificationCompat.Builder(context, MacBotNotifications.foregroundChannelId())
             .setSmallIcon(android.R.drawable.sym_action_chat)
             .setGroup("seed-group")
             .setGroupSummary(true)

@@ -5,7 +5,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
-import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import bot.mac.mobile.core.platform.initializePlatform
 import bot.mac.mobile.core.network.MainEvent
@@ -106,13 +105,7 @@ class MainConnectionService : Service() {
         }
 
         private fun foregroundNotification(context: Context): Notification =
-            NotificationCompat.Builder(context, MacBotNotifications.CHANNEL_MESSAGES)
-                .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle(context.getString(R.string.app_name))
-                .setContentText(context.getString(R.string.connection_running))
-                .setOngoing(true)
-                .setCategory(NotificationCompat.CATEGORY_SERVICE)
-                .build()
+            MacBotNotifications.foregroundServiceNotification(context)
     }
 }
 

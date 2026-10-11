@@ -96,20 +96,17 @@ class NotificationManagerCapacityInstrumentedTest {
             manager.notify(
                 "seed-$index",
                 index,
-                NotificationCompat.Builder(context, MacBotNotifications.CHANNEL_MESSAGES)
+                NotificationCompat.Builder(context, MacBotNotifications.foregroundChannelId())
                     .setSmallIcon(android.R.drawable.sym_action_chat)
                     .setContentTitle("seed")
                     .setContentText(index.toString())
                     .build(),
             )
         }
-        val foreground = NotificationCompat.Builder(context, MacBotNotifications.CHANNEL_MESSAGES)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setOngoing(true)
-            .build()
+        val foreground = MacBotNotifications.foregroundServiceNotification(context)
             .apply { flags = flags or Notification.FLAG_FOREGROUND_SERVICE }
         manager.notify("foreground", FOREGROUND_ID, foreground)
-        val summary = NotificationCompat.Builder(context, MacBotNotifications.CHANNEL_MESSAGES)
+        val summary = NotificationCompat.Builder(context, MacBotNotifications.foregroundChannelId())
             .setSmallIcon(android.R.drawable.sym_action_chat)
             .setGroup("seed-group")
             .setGroupSummary(true)

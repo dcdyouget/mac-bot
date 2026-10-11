@@ -171,7 +171,7 @@ fun RoutinesScreen(repository: MobileRepository, onOpenAssignment: (String) -> U
                 selectedRoutineId?.let { id -> scope.launch {
                     actionError = null
                     routineRequest({ actionError = it }) {
-                        repository.call("routine.set_enabled", buildJsonObject { put("routine_id", id); put("enabled", enabled) })
+                        repository.call("routine.set_enabled", routineSetEnabledParams(id, enabled))
                         repository.call("routine.list")
                     }
                 } }
@@ -238,7 +238,7 @@ fun RoutinesScreen(repository: MobileRepository, onOpenAssignment: (String) -> U
                 scope.launch {
                     actionError = null
                     routineRequest({ actionError = it }) {
-                        repository.call("routine.set_enabled", buildJsonObject { put("routine_id", routine.str("id")); put("enabled", enabled) })
+                        repository.call("routine.set_enabled", routineSetEnabledParams(routine.str("id"), enabled))
                         repository.call("routine.list")
                     }
                 }
@@ -270,6 +270,11 @@ fun RoutinesScreen(repository: MobileRepository, onOpenAssignment: (String) -> U
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(Res.string.common_cancel)) } },
         )
     }
+}
+
+internal fun routineSetEnabledParams(routineId: String, enabled: Boolean) = buildJsonObject {
+    put("routine_id", routineId)
+    put("enabled", enabled)
 }
 
 @Composable

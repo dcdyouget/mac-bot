@@ -50,6 +50,18 @@ object MacBotNotifications {
     private var coordinator: NotificationDeliveryCoordinator? = null
     private var worker: kotlinx.coroutines.Job? = null
 
+    /** The foreground service should stay quiet and use a channel created below. */
+    internal fun foregroundChannelId(): String = CHANNEL_MESSAGES + SILENT_SUFFIX
+
+    internal fun foregroundServiceNotification(context: Context): android.app.Notification =
+        NotificationCompat.Builder(context, foregroundChannelId())
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentTitle(context.getString(R.string.app_name))
+            .setContentText(context.getString(R.string.connection_running))
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .build()
+
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         val sound = android.net.Uri.parse("android.resource://${context.packageName}/${R.raw.bubble_pop}")

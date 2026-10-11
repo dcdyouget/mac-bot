@@ -34,7 +34,7 @@ class FixtureContractTest {
 
         val event = decode(EventFrameSerializer, fixture("events/message_created.json"))
         assertEquals("message.created", event.event)
-        assertEquals("msg_1", event.data.raw.obj("message").str("id"))
+        assertEquals("msg_waiting_1", event.data.raw.obj("message").str("id"))
 
         val workbench = decode(WorkbenchSerializer, fixture("results/workbench.json"))
         assertEquals("bot_main", workbench.bots.single().botId)
@@ -85,12 +85,25 @@ class FixtureContractTest {
         return when {
         path.startsWith("objects/") -> objectSerializers[path.substringAfter("objects/").substringBeforeLast('.')]
         path.startsWith("events/") || path.startsWith("scenarios/") -> EventFrameSerializer
+        path == "requests/announcement_update.json" -> AnnouncementUpdateParamsSerializer
+        path == "requests/artifact_version_get.json" -> ArtifactVersionGetParamsSerializer
+        path == "requests/artifact_versions_list.json" -> ArtifactVersionsParamsSerializer
+        path == "requests/assignment_retry.json" -> AssignmentRetryParamsSerializer
+        path == "requests/chat_send_reference.json" -> ChatSendParamsSerializer
+        path == "requests/message_delete.json" -> MessageDeleteParamsSerializer
+        path == "requests/message_edit.json" -> MessageEditParamsSerializer
+        path == "requests/message_steer.json" -> MessageSteerParamsSerializer
         path == "requests/settings_update_partial.json" || path == "requests/settings_update_web_search.json" -> SettingsUpdateParamsSerializer
         path.startsWith("trace/") -> TraceItemSerializer
         path == "frames/screen-header.json" -> ScreenFrameHeaderSerializer
         path == "frames/screen-state.json" -> ScreenStateSerializer
         path == "frames/screen-input.json" || path == "frames/screen-ack.json" -> ScreenClientFrameSerializer
         path == "results/workbench.json" -> WorkbenchSerializer
+        path == "results/artifact_version_get.json" -> ArtifactVersionGetResultSerializer
+        path == "results/artifact_versions_list.json" -> ArtifactVersionsResultSerializer
+        path == "results/assignment_retry.json" -> AssignmentGetResultSerializer
+        path == "results/message_delete.json" -> JsonObject.serializer()
+        path == "results/message_edit.json" -> MessageEditResultSerializer
         path == "results/usage_heatmap_calendar.json" || path == "results/usage_heatmap_weekhour.json" -> HeatmapResultSerializer
         path.startsWith("blocks/") -> BlockSerializer
         else -> null
@@ -101,20 +114,24 @@ class FixtureContractTest {
         "announcement" to AnnouncementSerializer,
         "approval" to ApprovalSerializer,
         "artifact" to ArtifactSerializer,
+        "artifact_version" to ArtifactVersionSerializer,
         "assignment" to AssignmentSerializer,
         "bot" to BotSerializer,
         "chat" to ChatSerializer,
         "device" to DeviceSerializer,
         "hello" to HelloSerializer,
         "message" to MessageSerializer,
+        "message_waiting" to MessageSerializer,
         "model" to ModelSerializer,
         "project" to ProjectSerializer,
         "provider" to ProviderSerializer,
         "question" to QuestionSerializer,
+        "question_multi" to QuestionSerializer,
         "routine" to RoutineSerializer,
         "routine_run" to RoutineRunSerializer,
         "settings" to SettingsSerializer,
         "skill" to SkillSerializer,
+        "skill_draft" to SkillSerializer,
         "skill_detail" to SkillDetailSerializer,
     )
 
