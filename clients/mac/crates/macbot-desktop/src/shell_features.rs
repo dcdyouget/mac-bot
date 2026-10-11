@@ -111,6 +111,13 @@ impl MacBot {
         data["projects"] = json!(self.state.projects.values().collect::<Vec<_>>());
         data["skills"] = json!(self.state.skills.values().collect::<Vec<_>>());
         data["routines"] = json!(self.routines);
+        if self.page == "new" {
+            data["cancel_target"] = if self.state.chats.contains_key(&self.selected_chat) {
+                json!(format!("chat/{}", self.selected_chat))
+            } else {
+                json!("dashboard")
+            };
+        }
         data["models"] = json!(self.state.models.values().collect::<Vec<_>>());
         if matches!(self.page.as_str(), "bot" | "bot_settings")
             && let Some(bot_id) = self
@@ -153,29 +160,6 @@ impl MacBot {
             self.settings_view
                 .update(cx, |view, cx| view.sync_inputs(window, cx));
             return self.settings_view.clone().into_any_element();
-        }
-        if self.page == "new" {
-            let mut menu = div()
-                .size_full()
-                .p_6()
-                .flex()
-                .flex_col()
-                .gap_4()
-                .child(tr("nav.new"));
-            for (id, key) in [
-                ("new_bot", "nav.new_bot"),
-                ("new_group", "nav.new_group"),
-                ("routines", "nav.new_routine"),
-            ] {
-                let id = id.to_string();
-                menu = menu.child(
-                    Button::new(SharedString::from(id.clone()))
-                        .outline()
-                        .label(tr(key))
-                        .on_click(cx.listener(move |this, _, _, cx| this.navigate(&id, cx))),
-                );
-            }
-            return menu.into_any_element();
         }
         let page = if self.page == "new_bot" {
             "bot"
@@ -534,6 +518,25 @@ impl MacBot {
     ) {
         match event {
             FeatureAction::Rpc { method, params } => {
+                if self.page == "new" && matches!(method.as_str(), "bot.create" | "project.create")
+                {
+                    if !self.connected {
+                        self.feature_view.update(cx, |view, cx| {
+                            view.update_data(
+                                json!({
+                                    "new_pending": false,
+                                    "new_error": tr("error.offline")
+                                }),
+                                cx,
+                            )
+                        });
+                        cx.notify();
+                        return;
+                    }
+                    self.feature_view.update(cx, |view, cx| {
+                        view.update_data(json!({"new_pending": true, "new_error": Value::Null}), cx)
+                    });
+                }
                 // FeaturePage owns the editable date inputs, while the shell
                 // owns the data snapshot that is pushed back after each RPC.
                 // Remember an explicit dashboard range before the async
@@ -1137,6 +1140,14 @@ impl MacBot {
         cx: &mut Context<Self>,
     ) {
         self.notice = error.clone();
+        if self.page == "new" && matches!(method, "bot.create" | "project.create") {
+            self.feature_view.update(cx, |view, cx| {
+                view.update_data(
+                    json!({"new_pending": false, "new_error": error.clone()}),
+                    cx,
+                )
+            });
+        }
         let detail_key = match method {
             "bot.get" if self.page == "bot/detail" => Some("bot"),
             "assignment.list" if self.page == "bot/detail" => Some("assignments"),

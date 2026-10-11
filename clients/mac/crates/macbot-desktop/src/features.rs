@@ -299,7 +299,7 @@ fn input_fields(page: &str) -> &'static [&'static str] {
             "browser_mode",
             "avatar",
         ],
-        "group" | "new_group" => &["name"],
+        "group" | "new_group" | "new" => &["name"],
         "routine" | "routines" => &[
             "name",
             "bot_id",
@@ -323,6 +323,7 @@ fn textarea_fields(page: &str) -> &'static [&'static str] {
         "skills" | "skill" => &["content"],
         "bot" | "bot_settings" => &["description"],
         "group" | "new_group" => &["goal"],
+        "new" => &["announcement"],
         "routine" | "routines" => &["instructions"],
         _ => &[],
     }
@@ -341,6 +342,7 @@ fn input_placeholder(page: &str, field: &str) -> Option<&'static str> {
         ("bot" | "bot_settings", "max_parallel") => Some("bot.placeholder_parallel"),
         ("bot" | "bot_settings", "browser_mode") => Some("bot.placeholder_browser"),
         ("group" | "new_group", "name") => Some("group.placeholder_name"),
+        ("new", "name") => Some("new.input.placeholder"),
         ("routine" | "routines", "name") => Some("routine.placeholder_name"),
         ("routine" | "routines", "bot_id") => Some("routine.placeholder_bot"),
         ("routine" | "routines", "project_id") => Some("routine.placeholder_project"),
@@ -354,6 +356,7 @@ fn textarea_placeholder(page: &str, field: &str) -> Option<&'static str> {
         ("skills" | "skill", "content") => Some("skills.placeholder_content"),
         ("bot" | "bot_settings", "description") => Some("bot.placeholder_description"),
         ("group" | "new_group", "goal") => Some("group.placeholder_goal"),
+        ("new", "announcement") => Some("new.note.placeholder"),
         ("routine" | "routines", "instructions") => Some("routine.placeholder_instructions"),
         _ => None,
     }
@@ -500,6 +503,15 @@ fn render_page(
             bot_editor(data, inputs, textareas, &tokens, cx).into_any_element()
         }
         "group" | "new_group" => group_editor(
+            data,
+            inputs,
+            textareas,
+            selected_member_bot_ids,
+            &tokens,
+            cx,
+        )
+        .into_any_element(),
+        "new" => new_dialog(
             data,
             inputs,
             textareas,
@@ -782,10 +794,10 @@ pub fn assignment_stop_params(assignment_id: &str) -> Value {
     json!({"assignment_id": assignment_id})
 }
 
-pub fn project_create_params(name: &str, goal: &str, member_bot_ids: &[String]) -> Value {
+pub fn project_create_params(name: &str, announcement: &str, member_bot_ids: &[String]) -> Value {
     json!({
         "name": name,
-        "announcement": goal,
+        "announcement": announcement,
         "member_bot_ids": member_bot_ids,
     })
 }
@@ -1142,6 +1154,293 @@ fn group_create_button(
                 cx,
             );
         }))
+}
+
+fn new_create_button(
+    data: &Value,
+    inputs: &BTreeMap<String, Entity<InputState>>,
+    textareas: &BTreeMap<String, Entity<TextareaState>>,
+    selected_member_bot_ids: &[String],
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement + use<> {
+    let mode = data
+        .get("new_mode")
+        .and_then(Value::as_str)
+        .unwrap_or("group")
+        .to_owned();
+    let name = input_state(inputs, "name").clone();
+    let announcement = textarea_state(textareas, "announcement").clone();
+    let selected_member_bot_ids = selected_member_bot_ids.to_vec();
+    let pending = data
+        .get("new_pending")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let label = if pending {
+        t("new.submitting")
+    } else if mode == "bot" {
+        t("new.create_bot")
+    } else {
+        t("new.create_group")
+    };
+    Button::new("new-create")
+        .label(label)
+        .primary()
+        .disabled(pending)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            let name_value = name.read(cx).value().trim().to_owned();
+            if name_value.is_empty() {
+                this.emit_action(FeatureAction::Toast(t("new.name_required").to_owned()), cx);
+                return;
+            }
+            if mode == "group" {
+                if selected_member_bot_ids.is_empty() || selected_member_bot_ids.len() > 6 {
+                    this.emit_action(
+                        FeatureAction::Toast(t("new.members_required").to_owned()),
+                        cx,
+                    );
+                    return;
+                }
+                this.emit_action(
+                    FeatureAction::Rpc {
+                        method: "project.create".into(),
+                        params: project_create_params(
+                            &name_value,
+                            &announcement.read(cx).value(),
+                            &selected_member_bot_ids,
+                        ),
+                    },
+                    cx,
+                );
+            } else {
+                this.emit_action(
+                    FeatureAction::Rpc {
+                        method: "bot.create".into(),
+                        params: bot_create_params(&name_value, &name_value, "", "", "", ""),
+                    },
+                    cx,
+                );
+            }
+        }))
+}
+
+fn new_dialog(
+    data: &Value,
+    inputs: &BTreeMap<String, Entity<InputState>>,
+    textareas: &BTreeMap<String, Entity<TextareaState>>,
+    selected_member_bot_ids: &[String],
+    tokens: &Tokens,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement {
+    let name = input_state(inputs, "name").clone();
+    let mode = data
+        .get("new_mode")
+        .and_then(Value::as_str)
+        .unwrap_or("group");
+    let name_value = name.read(cx).value().trim().to_owned();
+    let group_label = t("new.group").replace("{name}", &name_value);
+    let bot_label = t("new.bot").replace("{name}", &name_value);
+    let available_bots = array(data, "bots")
+        .iter()
+        .filter(|bot| {
+            !bot.get("hidden").and_then(Value::as_bool).unwrap_or(false)
+                && !bot.get("is_main").and_then(Value::as_bool).unwrap_or(false)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let selected_count = selected_member_bot_ids.len();
+    let member_copy = t("new.members").replace("{count}", &selected_count.to_string());
+    let member_rows = div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .children(available_bots.iter().map(|bot| {
+            let bot_id = string(bot, "id", "").to_owned();
+            let bot_name = string(bot, "label", string(bot, "name", t("common.unknown")));
+            let role = string(bot, "description", "");
+            let checked = selected_member_bot_ids.iter().any(|id| id == &bot_id);
+            let bot_id_for_event = bot_id.clone();
+            let label = if role.trim().is_empty() {
+                bot_name.to_owned()
+            } else {
+                format!("{bot_name} · {role}")
+            };
+            Checkbox::new(format!("new-member-{bot_id}"))
+                .label(label)
+                .checked(checked)
+                .disabled(!checked && selected_count >= 6)
+                .on_change(cx.listener(move |this, next, _, cx| {
+                    if *next {
+                        if !this.selected_member_bot_ids.contains(&bot_id_for_event) {
+                            this.selected_member_bot_ids.push(bot_id_for_event.clone());
+                        }
+                    } else {
+                        this.selected_member_bot_ids
+                            .retain(|id| id != &bot_id_for_event);
+                    }
+                    cx.notify();
+                }))
+        }));
+    let error = data
+        .get("new_error")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let error_row = if error.is_empty() {
+        div().into_any_element()
+    } else {
+        div()
+            .text_color(tokens.danger)
+            .text_sm()
+            .child(error.to_owned())
+            .into_any_element()
+    };
+    let pending = data
+        .get("new_pending")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let footer_copy = if mode == "group" { t("new.footer") } else { "" };
+    let group_option = if mode == "group" {
+        Button::new("new-mode-group")
+            .label(format!("{}  ·  {}", group_label, t("new.group.hint")))
+            .primary()
+            .disabled(pending)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.data["new_mode"] = json!("group");
+                this.data["new_error"] = Value::Null;
+                cx.notify();
+            }))
+    } else {
+        Button::new("new-mode-group")
+            .label(format!("{}  ·  {}", group_label, t("new.group.hint")))
+            .outline()
+            .disabled(pending)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.data["new_mode"] = json!("group");
+                this.data["new_error"] = Value::Null;
+                cx.notify();
+            }))
+    };
+    let bot_option = if mode == "bot" {
+        Button::new("new-mode-bot")
+            .label(bot_label)
+            .primary()
+            .disabled(pending)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.data["new_mode"] = json!("bot");
+                this.data["new_error"] = Value::Null;
+                cx.notify();
+            }))
+    } else {
+        Button::new("new-mode-bot")
+            .label(bot_label)
+            .outline()
+            .disabled(pending)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.data["new_mode"] = json!("bot");
+                this.data["new_error"] = Value::Null;
+                cx.notify();
+            }))
+    };
+    let group_fields = if mode == "group" {
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(div().text_sm().child(member_copy))
+            .child(member_rows)
+            .child(labeled_field(
+                t("new.note"),
+                Textarea::new(textarea_state(textareas, "announcement")).h(px(52.)),
+                tokens,
+            ))
+    } else {
+        div()
+    };
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(tokens.window)
+        .child(
+            div()
+                .w(px(560.))
+                .flex()
+                .flex_col()
+                .gap_3()
+                .rounded_lg()
+                .border_1()
+                .border_color(tokens.border)
+                .bg(tokens.sidebar)
+                .p_4()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
+                                .child(t("new.title")),
+                        )
+                        .child(
+                            Button::new("new-routine")
+                                .label(t("new.routine"))
+                                .outline()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.emit_action(
+                                        FeatureAction::Navigate("routines".into()),
+                                        cx,
+                                    );
+                                })),
+                        ),
+                )
+                .child(
+                    div()
+                        .h(px(52.))
+                        .flex()
+                        .items_center()
+                        .child(Input::new(&name).id("new-name-input")),
+                )
+                .child(group_option)
+                .child(bot_option)
+                .child(group_fields)
+                .child(error_row)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_sm()
+                                .text_color(tokens.secondary)
+                                .child(footer_copy),
+                        )
+                        .child(
+                            Button::new("new-cancel")
+                                .label(t("new.cancel"))
+                                .outline()
+                                .disabled(pending)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let target = this
+                                        .data
+                                        .get("cancel_target")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("dashboard")
+                                        .to_owned();
+                                    this.emit_action(FeatureAction::Navigate(target), cx);
+                                })),
+                        )
+                        .child(new_create_button(
+                            data,
+                            inputs,
+                            textareas,
+                            selected_member_bot_ids,
+                            cx,
+                        )),
+                ),
+        )
 }
 
 fn routine_save_button(
