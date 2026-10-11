@@ -6,8 +6,10 @@
 pub fn text(key: &str) -> &'static str {
     match key {
         // Copy keys shared with design/07-copy.md.
+        "nav.settings" => "设置",
         "settings.section.general" => "通用",
         "settings.section.models" => "模型与服务商",
+        "settings.section.skills" => "技能",
         "settings.section.runtime" => "运行与并发",
         "settings.section.tools" => "工具与审批",
         "settings.section.computer" => "电脑与浏览器",
@@ -36,6 +38,8 @@ pub fn text(key: &str) -> &'static str {
         "settings.models.connected" => "● 已连接",
         "settings.models.key_invalid" => "! Key 无效",
         "settings.models.count" => "已配置模型",
+        "settings.models.empty_providers" => "还没有配置服务商",
+        "settings.models.empty_models" => "还没有配置模型",
         "settings.models.test_running" => "正在测试连接…",
         "settings.models.test_connected" => "已连接",
         "settings.models.test_failed" => "连接失败",

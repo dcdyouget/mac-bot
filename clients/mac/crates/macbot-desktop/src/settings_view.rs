@@ -1103,7 +1103,7 @@ impl Render for SettingsView {
                             div()
                                 .text_sm()
                                 .text_color(tokens.secondary)
-                                .child(t("provider_empty")),
+                                .child(t("settings.models.empty_providers")),
                         )
                     })
                     .children(provider_buttons)
@@ -1136,7 +1136,7 @@ impl Render for SettingsView {
                             div()
                                 .text_sm()
                                 .text_color(tokens.secondary)
-                                .child(t("model_empty")),
+                                .child(t("settings.models.empty_models")),
                         )
                     })
                     .children(model_buttons)
@@ -1213,7 +1213,7 @@ impl Render for SettingsView {
                 &tokens,
             ))
             .child(section(
-                t("extra_dirs"),
+                t("settings.section.skills"),
                 Form::vertical()
                     .child(
                         Field::new()
@@ -1407,10 +1407,10 @@ impl Render for SettingsView {
                         ),
                     )
                     .child(
-                        Field::new().label(t("settings.launch_at_login")).child(
+                        Field::new().child(
                             Checkbox::new("settings-launch-at-login")
                                 .checked(self.launch_at_login)
-                                .label(t("launch_at_login_enabled"))
+                                .label(t("settings.launch_at_login"))
                                 .on_click(cx.listener(|this, checked, _, cx| {
                                     this.launch_at_login = *checked;
                                     cx.emit(SettingsAction::Local {
