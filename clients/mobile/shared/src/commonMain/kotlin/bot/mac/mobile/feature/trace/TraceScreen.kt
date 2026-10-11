@@ -51,6 +51,7 @@ fun TraceScreen(
     chatId: String? = null,
     onOpenScreen: (botId: String, tabId: String?) -> Unit = { _, _ -> },
     onSteer: (assignmentId: String, text: String) -> Unit = { _, _ -> },
+    onOpenAssignmentTrace: (String) -> Unit = {},
     onBack: () -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
@@ -68,6 +69,7 @@ fun TraceScreen(
     var fullOutputs by remember { mutableStateOf(emptyMap<String, String>()) }
     var collapsedRuns by remember { mutableStateOf(emptySet<String>()) }
     var steerText by remember { mutableStateOf("") }
+    var retryingAssignment by remember(assignmentId) { mutableStateOf(false) }
     var queuedLoading by remember { mutableStateOf(false) }
     var queuedError by remember { mutableStateOf<String?>(null) }
     var steering by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -301,6 +303,18 @@ fun TraceScreen(
                     onClick = { onSteer(assignmentId, steerText.trim()); steerText = "" },
                 ) { Text(stringResource(Res.string.feature_trace_steer_action)) }
                 Button(enabled = canStop, onClick = { scope.launch { runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", assignmentId) }) }.onFailure { error = it.message } } }) { Text(stringResource(Res.string.feature_stop)) }
+                if (assignmentStatus == "failed") Button(
+                    enabled = state.connected && !retryingAssignment,
+                    onClick = {
+                        retryingAssignment = true
+                        scope.launch {
+                            runCatching { repository.call("assignment.retry", buildJsonObject { put("assignment_id", assignmentId) }) }
+                                .onSuccess { result -> result.obj("assignment").str("id").takeIf(String::isNotBlank)?.let(onOpenAssignmentTrace) }
+                                .onFailure { error = it.message }
+                            retryingAssignment = false
+                        }
+                    },
+                ) { Text(stringResource(if (retryingAssignment) Res.string.feature_assignment_retrying else Res.string.feature_assignment_retry)) }
             }
         }
     }

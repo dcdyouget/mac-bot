@@ -203,7 +203,7 @@ import org.jetbrains.compose.resources.stringResource
                         })
                         page == "create_group" -> GroupCreateScreen(repository, onCreated = { open("group", it) }, onBack = back)
                         page == "history" -> HistoryAssignmentScreen(repository,chatId=target.ifBlank{null},onOpenTrace={open("trace",it)},onBack=back)
-                        page == "trace" -> TraceScreen(repository, target.ifBlank { null }, secondTarget.ifBlank { null }, { bot, tabId -> open("computer", bot, tabId.orEmpty()) }, onBack=back, onSteer={assignmentId,text ->
+                        page == "trace" -> TraceScreen(repository, target.ifBlank { null }, secondTarget.ifBlank { null }, { bot, tabId -> open("computer", bot, tabId.orEmpty()) }, onBack=back, onOpenAssignmentTrace = { open("trace", it, secondTarget) }, onSteer={assignmentId,text ->
                             val assignment=repository.state.value.assignments.firstOrNull{it.str("id")==assignmentId}
                             val hostId=repository.activeHost.value?.id
                             if(assignment!=null && hostId!=null) scope.launch { runCatching { repository.callOnHost(hostId,"chat.send",buildSteerChatParams(assignment, text)) }.onFailure{actionError=it.message} }

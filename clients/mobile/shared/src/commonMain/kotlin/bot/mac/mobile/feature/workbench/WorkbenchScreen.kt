@@ -50,6 +50,7 @@ fun WorkbenchScreen(
     var historyError by remember { mutableStateOf<String?>(null) }
     var steering by remember { mutableStateOf<Set<String>>(emptySet()) }
     var staleSteers by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var retryingAssignments by remember { mutableStateOf<Set<String>>(emptySet()) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { runCatching { repository.call("workbench.get", buildJsonObject {}) }.onFailure { error = it.message } }
     LaunchedEffect(state.assignments, state.chats, state.connected) {
@@ -179,7 +180,17 @@ fun WorkbenchScreen(
                     }
                 }
                 items(grouped, key = { it.str("id").ifBlank { "assignment:${it.hashCode()}" } }) { assignment ->
-                    AssignmentCard(assignment, state, onOpenAssignment) { id ->
+                    AssignmentCard(assignment, state, onOpenAssignment, retryEnabled = state.connected && assignment.str("id") !in retryingAssignments, retrying = assignment.str("id") in retryingAssignments, onRetry = { id ->
+                        if (id !in retryingAssignments) {
+                            retryingAssignments = retryingAssignments + id
+                            scope.launch {
+                                runCatching { repository.call("assignment.retry", buildJsonObject { put("assignment_id", id) }) }
+                                    .onSuccess { result -> result.obj("assignment").str("id").takeIf(String::isNotBlank)?.let(onOpenAssignment) }
+                                    .onFailure { error = it.message }
+                                retryingAssignments = retryingAssignments - id
+                            }
+                        }
+                    }) { id ->
                         scope.launch {
                             runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", id) }) }
                                 .onFailure { error = it.message }
@@ -251,7 +262,7 @@ private enum class WorkbenchFilter {
 }
 
 @Composable
-private fun AssignmentCard(assignment: JsonObject, state: MobileState, onOpen: (String) -> Unit, onStop: (String) -> Unit) {
+private fun AssignmentCard(assignment: JsonObject, state: MobileState, onOpen: (String) -> Unit, retryEnabled: Boolean, retrying: Boolean, onRetry: (String) -> Unit, onStop: (String) -> Unit) {
     val id = assignment.str("id")
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp)) {
         Row(Modifier.fillMaxWidth()) {
@@ -272,6 +283,9 @@ private fun AssignmentCard(assignment: JsonObject, state: MobileState, onOpen: (
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { onOpen(id) }) { Text(stringResource(Res.string.feature_detail)) }
+            if (assignment.str("status") == "failed") Button(enabled = retryEnabled, onClick = { onRetry(id) }) {
+                Text(stringResource(if (retrying) Res.string.feature_assignment_retrying else Res.string.feature_assignment_retry))
+            }
             if (assignment.str("status") in listOf("working", "queued", "waiting_user", "waiting_bot")) Button(onClick = { onStop(id) }) { Text(stringResource(Res.string.feature_stop)) }
             assignment.str("project_id").takeIf { it.isNotBlank() }?.let { projectId ->
                 val projectName = state.projects.firstOrNull { it.str("id") == projectId }?.str("name").orEmpty().ifBlank { projectId }
