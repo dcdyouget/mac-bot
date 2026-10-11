@@ -418,6 +418,7 @@ interface Skill {
   name: string;                // 小写字母、数字和连字符，最多 64 个字符
   description: string;         // 最多 1024 个字符
   source: "builtin" | "user" | "imported" | "draft";   // draft：Bot 生成的草稿，用户确认后才生效
+  draft_from?: { bot_id: Id; bot_name: string; project_id: Id | null; project_name: string | null }; // 生成时的来源快照，旧草稿或非 Bot 草稿可缺省
   path: string;                // 技能目录
   files: string[];             // 目录下除 SKILL.md 以外的文件（相对路径）
   enabled: boolean;
@@ -426,6 +427,8 @@ interface Skill {
   updated_at: Time;
 }
 interface SkillDetail extends Skill { content: string }   // SKILL.md 全文
+
+`draft_from` 只由服务端根据真实执行上下文写入，不接受模型工具参数。项目任务草稿记录生成时 Bot 与项目的 ID、名称；私聊/无项目任务只记录 Bot，`project_id` 与 `project_name` 为 `null`。来源随技能快照持久化并在草稿发布后保留；旧草稿和手动创建的技能不伪造来源。
 
 interface Routine {
   id: Id; bot_id: Id; project_id: Id | null;
