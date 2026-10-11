@@ -3862,14 +3862,31 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "core-foundation 0.10.1",
  "futures-util",
  "gpui-kit",
  "image",
  "macbot-client-core",
+ "macbot-desktop-services",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "uuid",
+ "zip",
+]
+
+[[package]]
+name = "macbot-desktop-services"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "core-foundation 0.10.1",
+ "futures-util",
+ "macbot-client-core",
  "reqwest",
  "security-framework",
  "security-framework-sys",
@@ -3879,7 +3896,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "uuid",
- "zip",
 ]
 
 [[package]]

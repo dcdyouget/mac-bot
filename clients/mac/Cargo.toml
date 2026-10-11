@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/macbot-client-core", "crates/macbot-desktop"]
+members = ["crates/macbot-client-core", "crates/macbot-desktop", "crates/macbot-desktop-services"]
 resolver = "2"
 
 [workspace.package]
