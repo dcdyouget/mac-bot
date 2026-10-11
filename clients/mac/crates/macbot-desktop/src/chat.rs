@@ -464,6 +464,21 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.menu.view_trace" => "查看工作详情",
         "chat.menu.delete" => "删除",
         "chat.main.subtitle" => "主 Bot · 只协调，不干活",
+        "chat.bot.subtitle" => "{label} · 工作中 {count} 个活",
+        "chat.group.subtitle" => "{count} 位成员",
+        "chat.composer.placeholder.dm" => "给 {name} 发消息…",
+        "chat.composer.placeholder.group" => "在 {group} 里发消息，@ 指定 Bot…",
+        "chat.composer.placeholder.offline" => "已断开，正在重连…",
+        "chat.mention.title" => "提及成员",
+        "chat.mention.everyone" => "everyone",
+        "chat.mention.steer_hint" => "工作中 · 插话",
+        "chat.mention.steer_desc" => "@ 正在工作的 Bot = 插话，在它的下一步生效",
+        "chat.drop.title" => "松开发送到「{group}」",
+        "chat.drop.desc" => "文件会上传到 Bot 主机（单个最大 100 MB）",
+        "chat.jump_latest" => "↓ {count}",
+        "chat.loading_older" => "正在加载更早的消息…",
+        "chat.pin.waiting_you" => "等你处理 {count}",
+        "chat.pin.pending_approval" => "待审批 {count}",
         "chat.queue.at_now" => "@{bot} 立即生效",
         "chat.delivery.main_received" => "总管 已收到",
         "chat.delivery.queue_seen" => "{bot} 交付前已查看 ✓",
@@ -514,6 +529,19 @@ fn chat_tr(key: &str) -> SharedString {
         "block.system.created" => "总管 创建了群，拉入 {members}",
         "block.fallback.hint" => "这类消息需要更新客户端才能完整显示",
         "group.announcement.conflict" => "{who} 刚刚也改了公告（版本 {n}）。查看差异后再保存",
+        "group.statusbar.lead" => "★ 负责人",
+        "group.announcement.meta" => "{who} · {time} 更新",
+        "group.announcement.edit" => "编辑",
+        "group.announcement.edit_title" => "编辑公告",
+        "group.announcement.edit_hint" => {
+            "一段自由文本，不规定格式，按 Markdown 显示。群里的 Bot 也会读写这段文字。"
+        }
+        "group.announcement.save_shortcut" => "⌘↵ 保存",
+        "group.announcement.empty" => "还没有公告。点「编辑」写下这件事要做什么。",
+        "group.members" => "成员与状态",
+        "group.artifacts" => "产物",
+        "group.info" => "群信息",
+        "artifact.preview.list_title" => "本群产物 · {count}",
         "group.announcement.local_draft" => "你的草稿",
         "group.announcement.server_latest" => "服务器最新版本",
         "group.announcement.keep_draft_retry" => "保留草稿并重试",
@@ -531,6 +559,16 @@ fn chat_tr(key: &str) -> SharedString {
         "context.pending_approvals" => "本对话待审批",
         "context.no_pending_approvals" => "暂无待审批操作",
         "context.approval_waiting" => "待审批 · {tool}",
+        "follow.title" => "跟进",
+        "follow.waiting_in_chat" => "本对话中等你处理",
+        "follow.pending_approval_in_chat" => "本对话中待审批",
+        "follow.groups" => "正在跟进的群",
+        "follow.bot_tasks" => "正在干的活",
+        "follow.queued" => "… 排队 {count} · {task}",
+        "follow.go_review" => "去验收",
+        "follow.handle" => "处理",
+        "follow.jump_group" => "群聊",
+        "follow.jump_dm" => "私聊",
         "chat.composer.attach.file" => "文件…",
         "chat.composer.attach.image" => "图片…",
         "chat.composer.attach.screenshot" => "截图",
@@ -1576,6 +1614,79 @@ impl MacBot {
             .get(s(&chat, "bot_id"))
             .cloned()
             .unwrap_or(Value::Null);
+        let header_subtitle = match s(&chat, "kind") {
+            "main" => chat_tr("chat.main.subtitle").to_string(),
+            "bot_dm" => {
+                let bot_id = s(&chat, "bot_id");
+                let label = if s(&bot, "label").is_empty() {
+                    s(&bot, "name")
+                } else {
+                    s(&bot, "label")
+                };
+                let working = self
+                    .state
+                    .assignments
+                    .values()
+                    .filter(|assignment| {
+                        s(assignment, "bot_id") == bot_id
+                            && matches!(s(assignment, "status"), "working" | "running")
+                    })
+                    .count();
+                chat_tr("chat.bot.subtitle")
+                    .to_string()
+                    .replace("{label}", label)
+                    .replace("{count}", &working.to_string())
+            }
+            "project" => {
+                let project = self
+                    .state
+                    .projects
+                    .get(s(&chat, "project_id"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                chat_tr("chat.group.subtitle")
+                    .to_string()
+                    .replace("{count}", &arr(&project, "members").len().to_string())
+            }
+            _ => String::new(),
+        };
+        let pinned_summary = if chat["pinned"] == true {
+            let waiting_count = self
+                .state
+                .questions
+                .values()
+                .filter(|question| {
+                    s(question, "chat_id") == self.selected_chat && question_is_pending(question)
+                })
+                .count();
+            let approval_count = self
+                .state
+                .approvals
+                .values()
+                .filter(|approval| {
+                    s(approval, "chat_id") == self.selected_chat
+                        && s(approval, "state") == "pending"
+                })
+                .count();
+            [
+                (waiting_count > 0).then(|| {
+                    chat_tr("chat.pin.waiting_you")
+                        .to_string()
+                        .replace("{count}", &waiting_count.to_string())
+                }),
+                (approval_count > 0).then(|| {
+                    chat_tr("chat.pin.pending_approval")
+                        .to_string()
+                        .replace("{count}", &approval_count.to_string())
+                }),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ")
+        } else {
+            String::new()
+        };
         let mut header = div()
             .h(px(t.space[12]))
             .flex_none()
@@ -1601,12 +1712,20 @@ impl MacBot {
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(s(&chat, "title").to_string()),
                             )
-                            .when(s(&chat, "kind") == "main", |el| {
+                            .when(!header_subtitle.is_empty(), |el| {
                                 el.child(
                                     div()
                                         .text_size(px(t.desktop_type[1][0]))
                                         .text_color(t.secondary)
-                                        .child(chat_tr("chat.main.subtitle")),
+                                        .child(header_subtitle.clone()),
+                                )
+                            })
+                            .when(!pinned_summary.is_empty(), |el| {
+                                el.child(
+                                    div()
+                                        .text_size(px(t.desktop_type[1][0]))
+                                        .text_color(t.warning)
+                                        .child(pinned_summary.clone()),
                                 )
                             }),
                     ),
@@ -1725,11 +1844,19 @@ impl MacBot {
             contents = contents.child(list);
         }
         if !self.message_following && message_count > 0 {
+            let unread = chat["unread"].as_u64().unwrap_or_default();
+            let jump_label = if unread > 0 {
+                chat_tr("chat.jump_latest")
+                    .to_string()
+                    .replace("{count}", &unread.to_string())
+            } else {
+                chat_tr("chat.follow_latest").to_string()
+            };
             contents = contents.child(
                 Button::new("chat-follow-latest")
                     .ghost()
                     .small()
-                    .label(chat_tr("chat.follow_latest"))
+                    .label(jump_label)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.message_following = true;
                         this.message_virtual_scroll.scroll_to_end();
@@ -1900,6 +2027,39 @@ impl MacBot {
         if let Some(last) = text.split_whitespace().last()
             && last.starts_with('@')
         {
+            composer = composer.child(
+                div()
+                    .text_size(px(t.desktop_type[1][0]))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(chat_tr("chat.mention.title")),
+            );
+            if s(&chat, "kind") == "project" {
+                let working_bots = self
+                    .state
+                    .projects
+                    .get(s(&chat, "project_id"))
+                    .map(|project| {
+                        arr(project, "members")
+                            .iter()
+                            .filter(|member| s(member, "state") == "working")
+                            .count()
+                    })
+                    .unwrap_or_default();
+                if working_bots > 0 {
+                    composer = composer.child(
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(t.accent)
+                            .child(chat_tr("chat.mention.steer_hint")),
+                    );
+                    composer = composer.child(
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(t.secondary)
+                            .child(chat_tr("chat.mention.steer_desc")),
+                    );
+                }
+            }
             let mut choices = div().flex().flex_wrap().gap(px(t.space[2]));
             if s(&chat, "kind") == "project" {
                 let prefix = last.to_string();
@@ -1907,7 +2067,7 @@ impl MacBot {
                     Button::new("mention-everyone")
                         .ghost()
                         .small()
-                        .label(format!("@{}", chat_tr("chat.everyone")))
+                        .label(format!("@{}", chat_tr("chat.mention.everyone")))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             let text = this.composer.read(cx).value().to_string();
                             let start = text.rfind(&prefix).unwrap_or(text.len());
@@ -1938,6 +2098,26 @@ impl MacBot {
                 );
             }
             composer = composer.child(choices);
+        }
+        if text.is_empty() {
+            let placeholder = if !self.connected && !self.fixture {
+                chat_tr("chat.composer.placeholder.offline").to_string()
+            } else if s(&chat, "kind") == "project" {
+                chat_tr("chat.composer.placeholder.group")
+                    .to_string()
+                    .replace("{group}", s(&chat, "title"))
+            } else {
+                chat_tr("chat.composer.placeholder.dm")
+                    .to_string()
+                    .replace("{name}", s(&bot, "name"))
+            };
+            composer = composer.child(
+                div()
+                    .px(px(t.space[4]))
+                    .text_size(px(t.desktop_type[1][0]))
+                    .text_color(t.tertiary)
+                    .child(placeholder),
+            );
         }
         let loaded_skill = window.use_keyed_state(
             SharedString::from(format!("slash-loaded-{}", self.selected_chat)),
@@ -2293,7 +2473,18 @@ impl MacBot {
                 .get(s(member, "bot_id"))
                 .cloned()
                 .unwrap_or(Value::Null);
+            let is_lead = s(member, "bot_id") == s(&project, "lead_bot_id");
             let assignment = member["current_assignment_id"].as_str().map(str::to_string);
+            let member_label = format!(
+                "{}{} · {}",
+                if is_lead {
+                    format!("{} · ", chat_tr("group.statusbar.lead"))
+                } else {
+                    String::new()
+                },
+                s(&bot, "name"),
+                state(s(member, "state"))
+            );
             row = row.child(
                 Button::new(SharedString::from(format!(
                     "status-{}",
@@ -2301,11 +2492,7 @@ impl MacBot {
                 )))
                 .ghost()
                 .small()
-                .label(format!(
-                    "{} · {}",
-                    s(&bot, "name"),
-                    state(s(member, "state"))
-                ))
+                .label(member_label)
                 .on_click(
                     cx.listener(move |this, _, _, cx| this.open_trace(assignment.clone(), cx)),
                 ),
@@ -2318,7 +2505,7 @@ impl MacBot {
                 Button::new("announcement")
                     .ghost()
                     .small()
-                    .label(tr("context.announcement"))
+                    .label(chat_tr("group.announcement.edit"))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(announcement) =
                             this.state.announcements.get(&announcement_project)
@@ -2760,8 +2947,18 @@ impl MacBot {
         let reference_root = root.clone();
         let copy = message_display_text(message).to_string();
         let mut menu = div()
+            .absolute()
+            .top(px(-8.))
+            .right(px(t.space[4]))
             .flex()
+            .items_center()
             .gap(px(t.space[2]))
+            .rounded(px(t.radius[9]))
+            .border_1()
+            .border_color(t.border)
+            .bg(t.panel)
+            .p(px(t.space[1]))
+            .occlude()
             .shadow(vec![
                 BoxShadow::new(px(0.), px(t.elevation_offset_y[2]), t.shadow)
                     .blur_radius(px(t.elevation_blur[2]))
@@ -4435,7 +4632,8 @@ impl MacBot {
                 }
             }
             Some("home") => "context.home",
-            None if project_chat => "context.announcement",
+            None if project_chat => "group.info",
+            None => "follow.title",
             _ => "context.title",
         };
         let header = div()
@@ -4452,7 +4650,13 @@ impl MacBot {
                     .icon(IconName::ChevronLeft)
                     .on_click(cx.listener(|this, _, window, cx| this.back(window, cx))),
             )
-            .child(tr(title))
+            .child(
+                if matches!(title, "group.info" | "follow.title" | "context.replay") {
+                    chat_tr(title)
+                } else {
+                    tr(title)
+                },
+            )
             .child(
                 Button::new("context-close")
                     .ghost()
@@ -4705,11 +4909,35 @@ impl MacBot {
                 body = body.child(
                     div()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(tr("group.announcement")),
+                        .child(chat_tr("group.announcement")),
                 );
                 let announcement_project_id = s(&project, "id").to_owned();
                 let announcement_version = ann.get("version").and_then(Value::as_u64).unwrap_or(0);
                 let announcement_text = s(&ann, "text").to_owned();
+                let announcement_sender = &ann["text_updated_by"];
+                let announcement_author = if s(announcement_sender, "kind") == "user" {
+                    tr("chat.me").to_string()
+                } else {
+                    self.state
+                        .bots
+                        .get(s(announcement_sender, "bot_id"))
+                        .map(|bot| s(bot, "name").to_owned())
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or_else(|| tr("common.bot").to_string())
+                };
+                if let Some(updated_at) = format_message_time(s(&ann, "text_updated_at")) {
+                    body = body.child(
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(t.secondary)
+                            .child(
+                                chat_tr("group.announcement.meta")
+                                    .to_string()
+                                    .replace("{who}", &announcement_author)
+                                    .replace("{time}", &updated_at),
+                            ),
+                    );
+                }
                 let draft_text = self.announcement_draft.read(cx).value().to_string();
                 let project_changed =
                     self.announcement_draft_project.as_deref() != Some(&announcement_project_id);
@@ -4743,7 +4971,9 @@ impl MacBot {
                         .collect::<Vec<_>>()
                         .join("\n"),
                 );
-                if long_announcement && !expanded {
+                if announcement_text.trim().is_empty() {
+                    body = body.child(chat_tr("group.announcement.empty"));
+                } else if long_announcement && !expanded {
                     body = body.child(
                         div()
                             .max_h(px(t.desktop_type[1][1] * 12.))
@@ -4937,20 +5167,45 @@ impl MacBot {
                 body = body.child(
                     div()
                         .key_context("ChatComposer")
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(chat_tr("group.announcement.edit_title")),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(t.desktop_type[1][0]))
+                                .text_color(t.secondary)
+                                .child(chat_tr("group.announcement.edit_hint")),
+                        )
                         .child(Textarea::new(&self.announcement_draft).disabled(!self.connected)),
                 );
                 let save_project_id = announcement_project_id.clone();
                 body = body.child(
-                    Button::new("announcement-save")
-                        .primary()
-                        .small()
-                        .label(tr("common.save"))
-                        .disabled(!self.connected || base_version == 0 || announcement_len > 8000)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.announcement_draft_project = Some(save_project_id.clone());
-                            this.announcement_base_version = base_version;
-                            this.save_announcement(cx);
-                        })),
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(t.space[4]))
+                        .child(
+                            Button::new("announcement-save")
+                                .primary()
+                                .small()
+                                .label(tr("common.save"))
+                                .disabled(
+                                    !self.connected || base_version == 0 || announcement_len > 8000,
+                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.announcement_draft_project = Some(save_project_id.clone());
+                                    this.announcement_base_version = base_version;
+                                    this.save_announcement(cx);
+                                })),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(t.desktop_type[1][0]))
+                                .text_color(t.tertiary)
+                                .child(chat_tr("group.announcement.save_shortcut")),
+                        ),
                 );
                 let restore_project_id = announcement_project_id.clone();
                 let restore_text = announcement_text.clone();
@@ -5025,7 +5280,12 @@ impl MacBot {
                         })),
                     );
                 }
-                body = body.child(tr("context.artifacts"));
+                body = body.child(chat_tr("group.artifacts"));
+                body = body.child(
+                    chat_tr("artifact.preview.list_title")
+                        .to_string()
+                        .replace("{count}", &arr(&ann, "artifacts").len().to_string()),
+                );
                 for artifact in arr(&ann, "artifacts") {
                     body = body.child(self.artifact_row(
                         artifact,
@@ -5094,13 +5354,13 @@ impl MacBot {
                                 })),
                         ),
                 );
-                body = body.child(tr("context.members"));
+                body = body.child(chat_tr("group.members"));
             } else {
                 let bot_id = s(chat, "bot_id");
                 let bot = self.state.bots.get(bot_id).cloned().unwrap_or(Value::Null);
                 let main_dm = s(chat, "kind") == "main";
                 if main_dm {
-                    body = body.child(chat_tr("context.pending_questions"));
+                    body = body.child(chat_tr("follow.waiting_in_chat"));
                     let mut pending_questions = self
                         .state
                         .questions
@@ -5156,7 +5416,7 @@ impl MacBot {
                             )),
                         );
                     }
-                    body = body.child(chat_tr("context.pending_reviews"));
+                    body = body.child(chat_tr("follow.go_review"));
                     let mut review_projects = self
                         .state
                         .projects
@@ -5191,9 +5451,8 @@ impl MacBot {
                                     })
                             })
                             .map(|message| s(message, "id").to_owned());
-                        let label = chat_tr("context.review_waiting")
-                            .to_string()
-                            .replace("{project}", s(&project, "name"));
+                        let label =
+                            format!("{} · {}", chat_tr("follow.go_review"), s(&project, "name"));
                         body = body.child(
                             Button::new(SharedString::from(format!("context-review-{project_id}")))
                                 .ghost()
@@ -5208,7 +5467,7 @@ impl MacBot {
                                 })),
                         );
                     }
-                    body = body.child(chat_tr("context.followed_groups"));
+                    body = body.child(chat_tr("follow.groups"));
                     let mut followed_groups = self
                         .state
                         .projects
@@ -5237,7 +5496,11 @@ impl MacBot {
                             )))
                             .ghost()
                             .small()
-                            .label(s(&project, "name").to_owned())
+                            .label(format!(
+                                "{} · {}",
+                                s(&project, "name"),
+                                chat_tr("follow.jump_group")
+                            ))
                             .on_click(cx.listener(
                                 move |this, _, window, cx| {
                                     this.select_chat(chat_id.clone(), window, cx);
@@ -5246,7 +5509,7 @@ impl MacBot {
                         );
                     }
                 } else {
-                    body = body.child(chat_tr("context.pending_approvals"));
+                    body = body.child(chat_tr("follow.pending_approval_in_chat"));
                     let mut pending_approvals = self
                         .state
                         .approvals
@@ -5307,8 +5570,20 @@ impl MacBot {
                         div()
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(s(&bot, "name").to_string()),
-                    )
-                    .child(tr("context.running"));
+                    );
+                let bot_dm_chat_id = s(&bot, "dm_chat_id").to_owned();
+                if !bot_dm_chat_id.is_empty() && bot_dm_chat_id != self.selected_chat {
+                    body = body.child(
+                        Button::new("follow-jump-dm")
+                            .ghost()
+                            .small()
+                            .label(chat_tr("follow.jump_dm"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.select_chat(bot_dm_chat_id.clone(), window, cx);
+                            })),
+                    );
+                }
+                body = body.child(chat_tr("follow.bot_tasks"));
                 for assignment in self
                     .state
                     .assignments
@@ -5316,20 +5591,38 @@ impl MacBot {
                     .filter(|a| s(a, "bot_id") == bot_id)
                 {
                     let id = s(assignment, "id").to_string();
+                    let assignment_status = s(assignment, "status");
+                    let assignment_label = if assignment_status == "queued" {
+                        let queued_count = self
+                            .state
+                            .messages
+                            .values()
+                            .flat_map(|message| arr(message, "delivery"))
+                            .filter(|delivery| {
+                                s(delivery, "assignment_id") == id
+                                    && s(delivery, "bot_id") == bot_id
+                                    && s(delivery, "state") == "queued"
+                            })
+                            .count();
+                        chat_tr("follow.queued")
+                            .to_string()
+                            .replace("{count}", &queued_count.to_string())
+                            .replace("{task}", s(assignment, "title"))
+                    } else if assignment_status == "blocked" {
+                        format!("{} · {}", chat_tr("follow.handle"), s(assignment, "title"))
+                    } else {
+                        format!("{} · {}", state(assignment_status), s(assignment, "title"))
+                    };
                     body = body.child(
                         Button::new(SharedString::from(format!("task-{id}")))
                             .ghost()
-                            .label(format!(
-                                "{} · {}",
-                                state(s(assignment, "status")),
-                                s(assignment, "title")
-                            ))
+                            .label(assignment_label)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.open_trace(Some(id.clone()), cx)
                             })),
                     );
                 }
-                body = body.child(tr("context.groups"));
+                body = body.child(chat_tr("follow.groups"));
                 for project in self
                     .state
                     .projects
