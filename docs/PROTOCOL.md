@@ -553,6 +553,8 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `chat.history` | `{ chat_id, before_seq?: number, after_seq?: number, limit?: number /* 默认 50，最大 100 */ }` | `{ messages: Message[], has_more: boolean }`（按 seq 升序） |
 | `chat.thread` | — | 不再使用（不做线程） |
 | `chat.send` | `{ chat_id, text: string, mentions: Mention[], quote?: Id /* 引用的消息 id */, quote_mode?: "reply"|"reference" /* 默认 reply */, attachments?: Id[] /* upload_id */ }`（`reply_to` 不再使用） | `{ message: Message }` |
+| `message.delete` | `{ message_id }` | `{}`（仅允许删除 `sender.kind = "user"` 的消息；重复删除已删除消息成功且不重复发出删除事件） |
+| `message.edit` | `{ message_id, text: string }` | `{ message: Message }`（仅允许修改用户发送、`mentions = []` 且仅含一个 `text` block 的消息；`text` 不能为空） |
 | `message.steer` | `{ message_id, bot_id, assignment_id }` | `{ message: Message, assignment: Assignment }`（仅将该消息已有的未读 queued delivery 提升为插话；重复调用幂等） |
 | `chat.mark_read` | `{ chat_id, seq: number }` | `{}` |
 | `chat.react` | `{ message_id, emoji: string, on: boolean }` | `{ message: Message }` |
@@ -565,6 +567,8 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 - 群聊中未 @ 任何人的用户消息会为当前 working 的 Bot 任务记录 `delivery.state = "queued"`；任务详情的「改为插话」调用 `message.steer`，服务端再次校验消息、Bot、任务和待看状态后，才把原消息排入该任务。
 - Bot 通过 `send_msg` 登记 project Home 内普通文件产物时，服务端保存当时文件内容快照；内容未变化不增加版本。历史从新版本部署后首次登记开始，既有产物不会伪造或回填旧版本。`artifact.versions.list` 与 `artifact.version.get` 只返回已真实保存的版本，不从当前文件推测旧内容。URL、目录、越界路径、敏感文件名和超过 5 MiB 的文件不会生成可读历史版本。
 - `bot_dm` 会话是只读的，对它调用 `chat.send` 返回 `forbidden`。
+- `message.delete` 只允许删除当前用户发送的消息（`sender.kind = "user"`）；删除 Bot、系统或其他非用户消息返回 `forbidden`。对已删除消息重试仍返回 `{}`，不重复产生 `message.deleted`；删除成功时持久化事件的 data 为 `{ chat_id, message_id }`。
+- `message.edit` 只允许修改 `sender.kind = "user"`、`mentions` 为空且 `blocks` 恰好包含一个 `type = "text"` block 的消息；其他消息返回 `forbidden`。`text` 非空；成功时替换该 block 的 `markdown` 和消息的 `fallback_text`，设置 `edited_at`，不重新解析 mention 或派发任务，返回更新后的 `{ message }` 并持久化 `message.updated`，data 为 `{ message }`。
 - **强制使用技能**：`text` 以 `/<技能名>` 开头时（例如 `/web-auth-patterns 按这个规范做`），服务端把这个技能的全文加载进本次任务，其余文字作为指令。技能名不存在时，按普通文本处理。
 
 ### 5.3 Bot
