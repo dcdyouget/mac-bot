@@ -57,6 +57,7 @@
 | status.need_approval | 需要你审批 |
 | status.blocked | 卡住 |
 | status.done | 完成 |
+| status.cancelled | 已停止 |
 | status.failed | 失败 |
 | status.recovered | 已恢复 |
 | status.review | 待验收 |
