@@ -276,6 +276,7 @@ impl RenderOnce for ArtifactPreview {
                     offset: point(px(0.), px(tokens.elevation_offset_y[1])),
                     blur_radius: px(tokens.elevation_blur[1]),
                     spread_radius: px(0.),
+                    inset: false,
                 }]);
                 match self.format {
                     ArtifactPreviewFormat::Markdown => surface
