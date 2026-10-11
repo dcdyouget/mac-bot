@@ -19,3 +19,4 @@
 - 原协议草案只有 `chat.send.quote`，无法区分「回复原 Bot」与「仅引用」。新增兼容 `quote_mode: reply | reference`，缺省为 `reply`；纯引用不自动路由给原 Bot。
 - 定时任务详情要求修改执行 Bot，兼容扩展 `routine.update.patch.bot_id`。
 - Web 管理页必要文案补充 key：`admin.metrics.aria`、`admin.duration.{days_hours,hours_minutes,minutes}`、`admin.error.{host_name,port,not_ready,request,unauthorized}`、`admin.copy.success`、`admin.setup.{password,password_suffix}`、`admin.setup.error.{mismatch,required,save}`、`admin.theme.{dark,light,toggle_aria}`、`admin.kpi.{clients_note,restarting,unavailable,bots_note,browser_sessions,browser_version}`、`admin.field.{host_name,port,node_id,password}`、`admin.copy_node_id`、`admin.saved`、`admin.restart.{requested,failed,done}`、`admin.port_dialog.{title,copy,error}`、`admin.password.{current,new,mismatch,changed,error}`、`admin.logs.{filter_aria,empty,load_error}`。
+- 管理页使用 HTTP Basic Auth，浏览器缓存认证凭据，页面无法可靠执行“退出”。右上角改为 `admin.auth.help`“认证说明”，解释浏览器凭据管理及修改密码入口；不显示虚假的登出成功状态。
