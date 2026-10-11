@@ -147,6 +147,10 @@
         "tool"
       ],
       "properties": {
+        "always_allow_supported": {
+          "default": true,
+          "type": "boolean"
+        },
         "assignment_id": {
           "type": [
             "string",
@@ -2859,6 +2863,28 @@
         },
         "timezone": {
           "type": "string"
+        },
+        "tools": {
+          "description": "Default tool toggles applied only when creating new Bots.",
+          "default": {
+            "defaults": {
+              "bash": true,
+              "browser": true,
+              "files": true,
+              "mcp": false,
+              "subagent": true,
+              "web": true
+            }
+          },
+          "type": "object",
+          "required": [
+            "defaults"
+          ],
+          "properties": {
+            "defaults": {
+              "$ref": "#/definitions/ToolToggles"
+            }
+          }
         },
         "trace": {
           "$ref": "#/definitions/TraceSettings"

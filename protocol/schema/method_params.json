@@ -432,7 +432,7 @@
             "integer",
             "null"
           ],
-          "format": "uint16",
+          "format": "uint32",
           "minimum": 0.0
         }
       }
@@ -2288,6 +2288,16 @@
             "null"
           ]
         },
+        "tools": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolsSettingsPatch"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "trace": {
           "anyOf": [
             {
@@ -2626,6 +2636,62 @@
         },
         "web": {
           "type": "boolean"
+        }
+      }
+    },
+    "ToolTogglesPatch": {
+      "type": "object",
+      "properties": {
+        "bash": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "browser": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "files": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "mcp": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "subagent": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "web": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "ToolsSettingsPatch": {
+      "type": "object",
+      "properties": {
+        "defaults": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolTogglesPatch"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },

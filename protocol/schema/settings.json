@@ -47,6 +47,28 @@
     "timezone": {
       "type": "string"
     },
+    "tools": {
+      "description": "Default tool toggles applied only when creating new Bots.",
+      "default": {
+        "defaults": {
+          "bash": true,
+          "browser": true,
+          "files": true,
+          "mcp": false,
+          "subagent": true,
+          "web": true
+        }
+      },
+      "type": "object",
+      "required": [
+        "defaults"
+      ],
+      "properties": {
+        "defaults": {
+          "$ref": "#/definitions/ToolToggles"
+        }
+      }
+    },
     "trace": {
       "$ref": "#/definitions/TraceSettings"
     },
@@ -281,6 +303,37 @@
     },
     "SubagentModel": {
       "type": "string"
+    },
+    "ToolToggles": {
+      "type": "object",
+      "required": [
+        "bash",
+        "browser",
+        "files",
+        "mcp",
+        "subagent",
+        "web"
+      ],
+      "properties": {
+        "bash": {
+          "type": "boolean"
+        },
+        "browser": {
+          "type": "boolean"
+        },
+        "files": {
+          "type": "boolean"
+        },
+        "mcp": {
+          "type": "boolean"
+        },
+        "subagent": {
+          "type": "boolean"
+        },
+        "web": {
+          "type": "boolean"
+        }
+      }
     },
     "TraceSettings": {
       "type": "object",

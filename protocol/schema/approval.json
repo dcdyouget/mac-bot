@@ -14,6 +14,10 @@
     "tool"
   ],
   "properties": {
+    "always_allow_supported": {
+      "default": true,
+      "type": "boolean"
+    },
     "assignment_id": {
       "type": [
         "string",

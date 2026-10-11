@@ -606,8 +606,14 @@ pub struct Approval {
     pub summary: String,
     pub detail: String,
     pub state: ApprovalState,
+    #[serde(default = "default_always_allow_supported")]
+    pub always_allow_supported: bool,
     pub created_at: Time,
     pub decided_at: Option<Time>,
+}
+
+fn default_always_allow_supported() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -805,6 +811,10 @@ pub struct Settings {
     pub host_name: String,
     pub timezone: String,
     pub currency: String,
+    /// Default tool toggles applied only when creating new Bots.
+    #[serde(default = "default_settings_tools")]
+    #[schemars(required)]
+    pub tools: SettingsTools,
     pub concurrency: Concurrency,
     pub models: ModelDefaults,
     pub main_bot: MainBotSettings,
@@ -814,6 +824,24 @@ pub struct Settings {
     pub trace: TraceSettings,
     pub web_search: WebSearchSettings,
     pub push: PushSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct SettingsTools {
+    pub defaults: ToolToggles,
+}
+
+fn default_settings_tools() -> SettingsTools {
+    SettingsTools {
+        defaults: ToolToggles {
+            files: true,
+            bash: true,
+            browser: true,
+            subagent: true,
+            web: true,
+            mcp: false,
+        },
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -2176,6 +2204,8 @@ pub struct SettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<ToolsSettingsPatch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub concurrency: Option<ConcurrencyPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub models: Option<ModelDefaultsPatch>,
@@ -2191,6 +2221,26 @@ pub struct SettingsPatch {
     pub trace: Option<TraceSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_search: Option<WebSearchSettingsPatch>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct ToolsSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub defaults: Option<ToolTogglesPatch>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct ToolTogglesPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bash: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<bool>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
 pub struct ConcurrencyPatch {

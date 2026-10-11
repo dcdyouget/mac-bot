@@ -44,6 +44,16 @@
     "extra_dirs": []
   },
   "timezone": "Asia/Shanghai",
+  "tools": {
+    "defaults": {
+      "files": true,
+      "bash": true,
+      "browser": true,
+      "subagent": true,
+      "web": true,
+      "mcp": false
+    }
+  },
   "trace": {
     "save_full_requests": false
   },
