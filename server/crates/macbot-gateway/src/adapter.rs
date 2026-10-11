@@ -3127,7 +3127,11 @@ impl RpcBackend for ProductionBackend {
                 return Ok(json!({}));
             }
             params["chat_id"] = json!(chat_id);
-            if params.get("client_request_id").and_then(Value::as_str).is_none() {
+            if params
+                .get("client_request_id")
+                .and_then(Value::as_str)
+                .is_none()
+            {
                 params["client_request_id"] = json!(format!("message-delete:{message_id}"));
             }
         }
@@ -6538,8 +6542,7 @@ impl ProductionBackend {
             .get("blocks")
             .and_then(Value::as_array)
             .is_some_and(|blocks| {
-                blocks.len() == 1
-                    && blocks[0].get("type").and_then(Value::as_str) == Some("text")
+                blocks.len() == 1 && blocks[0].get("type").and_then(Value::as_str) == Some("text")
             })
             && message
                 .get("mentions")
