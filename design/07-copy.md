@@ -182,6 +182,9 @@
 | chat.jump_latest | ↓ {count} |
 | chat.loading_older | 正在加载更早的消息… |
 | chat.typing | 正在输入… |
+| chat.status.sent | 已送达 |
+| chat.status.read | 已读 |
+| block.task_card.done_line | {bot} · {title} · 用时 {duration} |
 | chat.menu.reply | 回复 |
 | chat.menu.react | 表情回应 |
 | chat.menu.copy | 复制 |

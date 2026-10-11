@@ -171,7 +171,6 @@ V.main = () => sidebar('main') + `
     ${MB.msg('me', ['顺便看下今天 HN 前三是什么'], { time: '10:05' })}
     ${MB.msg('Z', [MB.handoff('R')], { time: '10:05' })}
     ${MB.msg('R', ['<p>1. <b>Zed 1.0 发布</b> — GPU UI 框架开源新版本</p><p>2. <b>SQLite 的 JSONB</b> 性能对比</p><p>3. <b>本地 LLM 推理</b> M4 基准测试</p>'], { time: '10:07', role: true })}
-    ${MB.day('11:42')}
     ${MB.msg('Z', ['「登录功能」做完了，请你验收：', MB.review({ title: '登录功能', list: [['PRD', 'product/prd.md', 'P', 'file'], ['原型', 'product/prototype/', 'P', 'globe'], ['代码 · 已部署 localhost:3000', 'code/', 'C', 'folder'], ['测试报告 20/20', 'test/report.md', 'T', 'check']] })], { time: '11:42' })}
   </div></div>
   ${composer('给 总管 发消息…')}
@@ -201,7 +200,7 @@ V.group = () => sidebar('group') + `
     ${MB.system('总管 创建了群，拉入 产品、编码、测试')}
     ${MB.msg('Z', [`给 App 加邮箱登录，10/12 前上线。${MB.at('P')} 先出 PRD 和原型，放在 <code>Home/product/</code>。`], { time: '10:00', role: true })}
     ${MB.msg('P', ['收到，开始写 PRD 和原型。'], { time: '10:00', role: true })}
-    ${MB.task({ title: 'PRD 与原型', state: 'done', time: '用时 18 分' })}
+    ${MB.task({ title: 'PRD 与原型', state: 'done', time: '用时 18 分', bot: 'P' })}
     ${MB.msg('P', ['✓ 已完成 PRD 和原型：', MB.artifacts([['PRD', 'product/prd.md', 'P', 'file'], ['原型', 'product/prototype/', 'P', 'globe']]), `${MB.at('C')} 请按 PRD 实现，密码规则见 3.2 节。`], { time: '10:18', role: true })}
     ${MB.msg('C', ['收到，开始实现。'], { time: '10:19', role: true })}
     <div style="position:relative">${MB.msg('me', [`${MB.at('C')} 先只做邮箱登录，不要手机号`], { time: '10:31', delivery: '已送达 · <span style="color:var(--success)">编码 已读取 ✓</span>' })}

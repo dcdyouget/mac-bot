@@ -1,4 +1,6 @@
-# Mac Bot 视觉设计稿 v1
+# Mac Bot 视觉设计稿 v1.1
+
+> **改了什么见 [CHANGELOG.md](CHANGELOG.md)**（按版本记录改动和涉及的文件，实现前先看）。
 
 > 只有设计，没有实现。本目录给出**视觉和交互的像素级规范**，覆盖 macOS 客户端、Android、iOS、服务端 Web 管理页。
 > 产品行为（有哪些页面、按钮做什么）以 `docs/DESIGN.md` 为准；视觉、像素、文案 key、交互细则以本目录为准（DESIGN.md 第 2 章已指向这里）。
@@ -19,6 +21,7 @@ open design/prototype/blocks.html     # 消息块目录（桌面 / 移动并排�
 
 | 文件 | 内容 |
 |------|------|
+| `CHANGELOG.md` | 版本更新记录：每一版改了什么、改在哪些文件、实现要注意什么 |
 | `tokens.json` | **唯一的 token 来源**：颜色（浅 / 深 / 半透明覆盖）、字体、字号、间距、圆角、阴影、动效、布局尺寸 |
 | `tools/build_tokens.py` | 从 tokens.json 生成 `prototype/tokens.css`。改 token 只改 json，然后运行 `python3 design/tools/build_tokens.py` |
 | `01-foundations.md` | 设计语言：参考来源、原则、颜色、材质、字体、间距、圆角、阴影、动效、图标、头像 |

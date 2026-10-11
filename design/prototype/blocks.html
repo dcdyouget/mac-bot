@@ -34,6 +34,8 @@ const ARTS = [['PRD', 'product/prd.md', 'P', 'file'], ['原型', 'product/protot
 const B = [
   ['文本', 'text', '正文按 Markdown 渲染：粗体、列表、行内代码、链接、代码块。同一个人的连续消息合并，组内第一条显示名字和头衔。', ['私聊里 Bot 的回复可以流式输出（message.delta）；群消息都是完整的一条'],
     () => M.msg('R', ['<p>今天 HN 前三：</p><p>1. <b>Zed 1.0 发布</b></p><p>2. SQLite 的 <code>JSONB</code> 性能对比</p>'], { time: '10:07', role: true }) + M.msg('me', ['好的，谢谢'], { time: '10:08' })],
+  ['时间与已读', '06 §2.1', '气泡里不放时间：组头带时间；与上一条相隔 ≥ 5 分钟插一行居中时间；桌面悬停气泡显示精确时间，手机向左拖动露出时间；已读只在我最后一条消息下方显示。', ['日期胶囊用于跨天'],
+    () => M.day('今天') + M.msg('C', ['收到，开始实现。'], { time: '10:19', role: true }) + M.msg('C', ['依赖装好了。'], { time: '10:21', name: false }) + M.msg('me', ['先只做邮箱登录'], { time: '10:31', status: '已读' })],
   ['@ 提及', 'Message.mentions（行内）', '@Bot、@总管、@everyone 用链接色加粗；<b>@你</b>（kind=user）额外加一层浅底色高亮。', ['你在群里 @ 一个正在工作的 Bot = 插话，气泡下方显示送达状态（Message.delivery）'],
     () => M.msg('P', [`✓ 已完成 PRD。${M.at('C')} 请按 PRD 实现；${M.at('me')} 有空看下 3.2 节。`], { time: '10:18' }) + M.msg('me', [`${M.at('C')} 先只做邮箱登录`], { time: '10:31', delivery: '已送达 · <span style="color:var(--success)">编码 已读取 ✓</span>' })],
   ['引用回复', 'Message.quote', '气泡顶部是被引用消息的摘要：左侧 2px 强调色竖条 + 名字 + 单行摘要。点击跳回原消息。回复仍留在群里，不开线程。', [],
@@ -50,7 +52,7 @@ const B = [
   ['完成报告', 'completion', 'send_msg(done) 生成：「✓ 已完成 …」+ 产物（ArtifactRef，带作者）+ 交接的 @。产物同时登记到群的产物清单。', ['next 里的每一项是一个交接：@ 谁，谁就收到新任务', 'notify_main：最后一个 Bot 完成时 @总管，由总管汇总验收'],
     () => M.msg('P', [M.completion({ summary: 'PRD 和原型', artifacts: ARTS.slice(0, 2), next: [['C', '请按 PRD 实现，密码规则见 3.2 节']] })], { time: '10:18' }) + M.msg('T', [M.completion({ summary: '测试 20/20 通过', artifacts: [['测试报告', 'test/report.md', 'T', 'check']], notifyMain: true })], { time: '11:40' })],
   ['任务卡片', 'task_card（系统生成，不在气泡里）', '根据 Assignment 的状态自动生成并原地更新，不是 Bot 说的话。', ['排队 / 工作中（底部有扫光）/ 等你 / 完成 / 失败（红色描边）/ 已恢复'],
-    () => M.task_card({ title: '实现登录', state: 'working', time: '已 25 分' }) + M.task_card({ title: '修复导航', state: 'queued', reason: '排在「首页重构」之后' }) + M.task_card({ title: 'PRD 与原型', state: 'done', time: '用时 18 分' }) + M.task_card({ title: '导出 CSV', state: 'failed', time: '9 分', reason: '模型报错：429 限流' }) + M.task_card({ title: '实现登录', state: 'recovered', time: '服务重启后继续' })],
+    () => M.task_card({ title: '实现登录', state: 'working', time: '已 25 分' }) + M.task_card({ title: '修复导航', state: 'queued', reason: '排在「首页重构」之后' }) + M.task_card({ title: 'PRD 与原型', state: 'done', time: '用时 18 分', bot: 'P' }) + M.task_card({ title: '导出 CSV', state: 'failed', time: '9 分', reason: '模型报错：429 限流' }) + M.task_card({ title: '实现登录', state: 'recovered', time: '服务重启后继续' })],
   ['阶段进展', 'progress', '不用气泡，灰色小字，每个任务最多 3 条。', [], () => M.progress('C', '测试已全部通过，正在部署')],
   ['卡住', 'blocked', 'Bot 卡住、需要人帮忙时发出；Bot 的状态同时变为「! 卡住」。', [],
     () => M.msg('C', [M.blocked({ reason: '缺少 SendGrid 的 API Key，没法发送验证邮件。', need: `${M.at('me')} 或 ${M.at('Z')}` })], { time: '10:52' })],
@@ -76,8 +78,8 @@ const B = [
 ];
 document.getElementById('list').innerHTML = B.map(([t, k, d, notes, f]) => `<div class="blk">
   <div><h3>${t}</h3><div class="kind">${k}</div><p>${d}</p>${notes.length ? `<ul>${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}</div>
-  <div class="lane"><div class="msgs">${f()}</div></div>
-  <div class="lane ctx-m"><div class="msgs">${f()}</div></div></div>`).join('');
+  <div class="lane"><div class="msgs">${(M.resetTime(), f())}</div></div>
+  <div class="lane ctx-m"><div class="msgs">${(M.resetTime(), f())}</div></div></div>`).join('');
 </script>
 </body>
 </html>

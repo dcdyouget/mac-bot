@@ -420,3 +420,23 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .qbadge { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 10.5px; font-weight: 600; box-shadow: 0 0 0 1px var(--border-default); }
 .phone .mb-qitem { padding: 10px 12px; font-size: 13px; } .phone .mb-qitem .x { font-size: 15px; line-height: 21px; }
 .phone .mb-qhint .grow { flex-basis: calc(100% - 24px); }
+
+/* ===== time outside bubbles (06 §2.1) ===== */
+.bubble .meta { display: none; }
+.timesep { align-self: center; margin: 10px 0 4px; font-size: 11px; line-height: 14px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.phone .timesep, .ctx-m .timesep { font-size: 12px; }
+.grp-head { display: flex; align-items: baseline; gap: 6px; margin: 0 0 3px 4px; font-size: 12px; line-height: 16px; color: var(--text-tertiary); }
+.grp-head b { font-weight: 600; color: var(--text-primary); font-size: 13px; }
+.grp-head .t { font-variant-numeric: tabular-nums; }
+.phone .grp-head b, .ctx-m .grp-head b { font-size: 14px; } .phone .grp-head, .ctx-m .grp-head { font-size: 12px; }
+.bubble { position: relative; }
+.bubble .htime { position: absolute; bottom: 4px; left: calc(100% + 8px); font-size: 11px; color: var(--text-tertiary); white-space: nowrap; opacity: 0; transition: opacity var(--duration-instant); pointer-events: none; font-variant-numeric: tabular-nums; }
+.grp.out .bubble .htime { left: auto; right: calc(100% + 8px); }
+.bubble:hover .htime { opacity: 1; }
+.phone .bubble .htime { display: none; }
+.grp.out .delivery { align-self: flex-end; }
+/* task card collapsed after done */
+.mb-task-line { display: flex; align-items: center; gap: 6px; margin: 4px 0 4px 40px; font-size: 12px; color: var(--text-tertiary); }
+.mb-task-line > .ic { color: var(--success); }
+.mb-task-line .mb-link { font-size: 12px; }
+.timesep { align-self: stretch; text-align: center; }

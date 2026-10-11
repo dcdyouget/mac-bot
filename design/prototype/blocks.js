@@ -81,27 +81,38 @@
 
   /* ---------- standalone (not in a bubble) ---------- */
   // state: queued | working | waiting | done | failed | recovered
-  MB.task = ({ title, state = 'working', time = '', reason = '', group }) => {
+  MB.task = ({ title, state = 'working', time = '', reason = '', group, bot }) => {
+    if (state === 'done') return `<div class="mb-task-line">${I('check', 's14')}<span>${bot ? name(bot) + ' · ' : ''}${title}${time ? ' · ' + time : ''}</span><button class="mb-link">详情</button></div>`;
     const ico = { queued: '<span class="t3">…</span>', working: '<span class="spinner"></span>', waiting: I('alert', 's14'), done: I('check', 's14'), failed: I('x', 's14'), recovered: I('refresh', 's14') }[state];
     const word = { queued: '排队', working: '', waiting: '等你', done: '', failed: '失败', recovered: '已恢复' }[state];
     return `<div class="mb-task ${state}"><span class="ti">${ico}</span><span class="grow ellipsis"><b>任务</b> · ${title}${group ? ` <span class="t3">· ${group}</span>` : ''} <span class="t3">· ${word ? word + ' · ' : ''}${time}${reason ? ' · ' + reason : ''}</span></span><button class="mb-btn ghost">详情</button>${state === 'working' ? '<i class="bar"></i>' : ''}</div>`;
   };
   MB.progress = (k, t) => `<div class="mb-progress"><span class="sdot"></span>${name(k)}：${t}</div>`;
   MB.system = (t) => `<div class="sysmsg">${t}</div>`;
-  MB.day = (t) => `<div class="daysep">${t}</div>`;
   MB.typing = (k) => `<div class="grp"><div class="avatar-slot">${av(k)}</div><div class="stack"><div class="bubble mb-typing"><i></i><i></i><i></i></div></div></div>`;
 
   /* ---------- message wrapper ---------- */
   // MB.msg('C', ['text', MB.group(...)], { time, role: true, wide: [false, true] })
+  // Time rules (06 §2.1): no time inside bubbles. A centered time separator appears when a message
+  // is ≥ 5 min after the previous one (reset by MB.day); sender name + time sit above the group;
+  // exact time shows beside a bubble on hover (desktop) / swipe-left (mobile).
+  let lastMin = null;
+  const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})$/.exec(t || ''); return m ? +m[1] * 60 + +m[2] : null; };
+  MB.resetTime = () => { lastMin = null; };
+  MB.timesep = (t) => `<div class="timesep">${t}</div>`;
+  MB.day = (t) => { lastMin = null; return `<div class="daysep">${t}</div>`; };
   MB.msg = (k, parts, o = {}) => {
     const out = k === 'me';
-    const meta = (i) => true ? `<span class="meta">${o.time || ''}${out ? ' ' + I(o.read === false ? 'check' : 'checks', 's14') : ''}</span>` : '';
-    const bubbles = parts.map((p, i) => {
+    const m = toMin(o.time);
+    const sep = m !== null && (lastMin === null || m - lastMin >= 5) && o.sep !== false ? MB.timesep(o.time) : '';
+    if (m !== null) lastMin = m;
+    const head = !out && o.name !== false ? `<div class="grp-head"><b>${name(k)}</b>${o.role ? `<span class="role">${BOT[k][2]}</span>` : ''}${o.time && !sep ? `<span class="t">${o.time}</span>` : ''}</div>` : '';
+    const bubbles = parts.map((p) => {
       const wide = /mb-card|mb-img|mb-file|mb-linkp/.test(p);
-      const head = !out && i === 0 && o.name !== false ? `<div class="name">${name(k)}${o.role ? `<span class="role">${BOT[k][2]}</span>` : ''}</div>` : '';
-      return `<div class="bubble ${wide ? 'wide' : ''}">${head}${p}${meta(i)}</div>`;
+      return `<div class="bubble ${wide ? 'wide' : ''}">${p}${o.time ? `<span class="htime">${o.time}</span>` : ''}</div>`;
     }).join('');
-    return `<div class="grp ${out ? 'out' : ''}">${out ? '' : `<div class="avatar-slot">${av(k)}</div>`}<div class="stack">${bubbles}${o.delivery ? `<div class="delivery">${o.delivery}</div>` : ''}</div></div>`;
+    const status = o.delivery ? `<div class="delivery">${o.delivery}</div>` : out && o.status ? `<div class="delivery">${o.status}</div>` : '';
+    return `${sep}<div class="grp ${out ? 'out' : ''}">${out ? '' : `<div class="avatar-slot">${av(k)}</div>`}<div class="stack">${head}${bubbles}${status}</div></div>`;
   };
 
   /* ---------- additional protocol blocks ---------- */
