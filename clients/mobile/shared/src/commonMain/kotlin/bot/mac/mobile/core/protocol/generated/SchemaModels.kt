@@ -716,6 +716,21 @@ data class ApprovalSettingsPatch(override val raw: JsonObject) : RawProtocolMode
 }
 object ApprovalSettingsPatchSerializer : RawModelSerializer<ApprovalSettingsPatch>(::ApprovalSettingsPatch)
 
+@Serializable(with = ArtifactVersionGetParamsSerializer::class)
+data class ArtifactVersionGetParams(override val raw: JsonObject) : RawProtocolModel {
+    val artifactId: String get() = raw.str("artifact_id")
+    val version: Long get() = raw.long("version")
+}
+object ArtifactVersionGetParamsSerializer : RawModelSerializer<ArtifactVersionGetParams>(::ArtifactVersionGetParams)
+
+@Serializable(with = ArtifactVersionsParamsSerializer::class)
+data class ArtifactVersionsParams(override val raw: JsonObject) : RawProtocolModel {
+    val artifactId: String get() = raw.str("artifact_id")
+    val beforeVersion: Long? get() = raw.longOrNull("before_version")
+    val limit: Long? get() = raw.longOrNull("limit")
+}
+object ArtifactVersionsParamsSerializer : RawModelSerializer<ArtifactVersionsParams>(::ArtifactVersionsParams)
+
 @Serializable(with = AssignmentIdParamsSerializer::class)
 data class AssignmentIdParams(override val raw: JsonObject) : RawProtocolModel {
     val assignmentId: String get() = raw.str("assignment_id")
@@ -1353,6 +1368,36 @@ data class ApprovalResult(override val raw: JsonObject) : RawProtocolModel {
     val approval: Approval get() = Approval(raw.obj("approval"))
 }
 object ApprovalResultSerializer : RawModelSerializer<ApprovalResult>(::ApprovalResult)
+
+@Serializable(with = ArtifactVersionSerializer::class)
+data class ArtifactVersion(override val raw: JsonObject) : RawProtocolModel {
+    val artifactId: String get() = raw.str("artifact_id")
+    val assignmentId: String get() = raw.str("assignment_id")
+    val botId: String get() = raw.str("bot_id")
+    val byteSize: Long get() = raw.long("byte_size")
+    val createdAt: String get() = raw.str("created_at")
+    val kind: String get() = raw.str("kind")
+    val mime: String get() = raw.str("mime")
+    val pathOrUrl: String get() = raw.str("path_or_url")
+    val title: String get() = raw.str("title")
+    val version: Long get() = raw.long("version")
+}
+object ArtifactVersionSerializer : RawModelSerializer<ArtifactVersion>(::ArtifactVersion)
+
+@Serializable(with = ArtifactVersionGetResultSerializer::class)
+data class ArtifactVersionGetResult(override val raw: JsonObject) : RawProtocolModel {
+    val content: String get() = raw.str("content")
+    val contentEncoding: String get() = raw.str("content_encoding")
+    val version: ArtifactVersion get() = ArtifactVersion(raw.obj("version"))
+}
+object ArtifactVersionGetResultSerializer : RawModelSerializer<ArtifactVersionGetResult>(::ArtifactVersionGetResult)
+
+@Serializable(with = ArtifactVersionsResultSerializer::class)
+data class ArtifactVersionsResult(override val raw: JsonObject) : RawProtocolModel {
+    val hasMore: Boolean get() = raw.boolean("has_more")
+    val versions: List<ArtifactVersion> get() = raw.arr("versions").mapNotNull { (it as? JsonObject)?.let(::ArtifactVersion) }
+}
+object ArtifactVersionsResultSerializer : RawModelSerializer<ArtifactVersionsResult>(::ArtifactVersionsResult)
 
 @Serializable(with = AssignmentGetResultSerializer::class)
 data class AssignmentGetResult(override val raw: JsonObject) : RawProtocolModel {
