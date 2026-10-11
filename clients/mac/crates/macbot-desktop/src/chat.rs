@@ -658,6 +658,43 @@ fn image_format(mime: &str) -> ImageFormat {
     }
 }
 
+fn is_home_text_mime(mime: &str, path: &str) -> bool {
+    mime.starts_with("text/")
+        || matches!(
+            mime,
+            "application/json"
+                | "application/xml"
+                | "application/javascript"
+                | "application/x-sh"
+                | "application/toml"
+        )
+        || [
+            ".md",
+            ".markdown",
+            ".txt",
+            ".log",
+            ".json",
+            ".xml",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".rs",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".jsx",
+            ".css",
+            ".html",
+            ".sh",
+            ".py",
+            ".kt",
+            ".swift",
+            ".sql",
+        ]
+        .iter()
+        .any(|extension| path.to_ascii_lowercase().ends_with(extension))
+}
+
 impl MacBot {
     fn markdown_with_folds(
         &mut self,
@@ -4253,7 +4290,83 @@ impl MacBot {
                         )
                     }),
             );
-            if self.home_loading {
+            if !self.home_file_path.is_empty() {
+                let file_path = self.home_file_path.clone();
+                body = body.child(
+                    Button::new("home-file-back")
+                        .ghost()
+                        .small()
+                        .label(tr("action.back"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.home_file_request_id = this.home_file_request_id.wrapping_add(1);
+                            this.home_file_path.clear();
+                            this.home_file_name.clear();
+                            this.home_file_loading = false;
+                            this.home_file_error.clear();
+                            this.home_file_content.clear();
+                            this.home_file_mime.clear();
+                            this.home_file_image = None;
+                            cx.notify();
+                        })),
+                );
+                if let Some(image) = self.home_file_image.clone() {
+                    body = body.child(
+                        div()
+                            .w_full()
+                            .min_h(px(280.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                img(image)
+                                    .max_w(px(720.))
+                                    .max_h(px(560.))
+                                    .object_fit(ObjectFit::Contain),
+                            ),
+                    );
+                } else {
+                    use crate::artifact_preview::{
+                        ArtifactPreview, ArtifactPreviewFormat, ArtifactPreviewState,
+                    };
+
+                    let state = if self.home_file_loading {
+                        ArtifactPreviewState::Loading
+                    } else if !self.home_file_error.is_empty() {
+                        ArtifactPreviewState::Error(self.home_file_error.clone().into())
+                    } else if self.home_file_content.is_empty()
+                        && !is_home_text_mime(&self.home_file_mime, &file_path)
+                    {
+                        ArtifactPreviewState::Unsupported(tr("artifact.preview.unsupported_detail"))
+                    } else {
+                        ArtifactPreviewState::Ready
+                    };
+                    let format = if self.home_file_mime == "text/markdown"
+                        || file_path.ends_with(".md")
+                        || file_path.ends_with(".markdown")
+                    {
+                        ArtifactPreviewFormat::Markdown
+                    } else {
+                        ArtifactPreviewFormat::PlainText
+                    };
+                    let path_for_copy = file_path.clone();
+                    let content_for_copy = self.home_file_content.clone();
+                    body = body.child(
+                        ArtifactPreview::new(self.home_file_name.clone(), file_path.clone())
+                            .content(self.home_file_content.clone(), format)
+                            .state(state)
+                            .on_copy_path(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                    path_for_copy.clone(),
+                                ));
+                            })
+                            .on_copy_text(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                    content_for_copy.clone(),
+                                ));
+                            }),
+                    );
+                }
+            } else if self.home_loading {
                 body = body.child(tr("home.loading"));
             } else if !self.home_error.is_empty() {
                 body = body.child(
@@ -4289,12 +4402,10 @@ impl MacBot {
                                         cx,
                                     );
                                 } else {
-                                    this.download_file(
-                                        json!({
-                                            "root":"project",
-                                            "root_id":project_id,
-                                            "path":entry_path,
-                                        }),
+                                    this.load_home_file(
+                                        project_id.clone(),
+                                        entry_path.clone(),
+                                        entry_name.clone(),
                                         cx,
                                     );
                                 }
@@ -4904,6 +5015,14 @@ impl MacBot {
             .to_string()
     }
     fn load_home_directory(&mut self, project_id: String, path: String, cx: &mut Context<Self>) {
+        self.home_file_request_id = self.home_file_request_id.wrapping_add(1);
+        self.home_file_path.clear();
+        self.home_file_name.clear();
+        self.home_file_loading = false;
+        self.home_file_error.clear();
+        self.home_file_content.clear();
+        self.home_file_mime.clear();
+        self.home_file_image = None;
         self.home_project_id = project_id.clone();
         self.home_path = path.clone();
         self.home_entries.clear();
@@ -4939,6 +5058,85 @@ impl MacBot {
                     Ok(Ok(entries)) => view.home_entries = entries,
                     Ok(Err(error)) => view.home_error = error.to_string(),
                     Err(error) => view.home_error = error.to_string(),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+    fn load_home_file(
+        &mut self,
+        project_id: String,
+        path: String,
+        name: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.home_file_request_id = self.home_file_request_id.wrapping_add(1);
+        let request_id = self.home_file_request_id;
+        self.home_file_path = path.clone();
+        self.home_file_name = name;
+        self.home_file_loading = true;
+        self.home_file_error.clear();
+        self.home_file_content.clear();
+        self.home_file_mime.clear();
+        self.home_file_image = None;
+        let base = self.http_base(cx);
+        let password = self.password.read(cx).value().to_string();
+        let task = self.runtime.spawn(async move {
+            let response = reqwest::Client::new()
+                .get(format!("{base}/api/v1/files"))
+                .bearer_auth(password)
+                .query(&[
+                    ("root", "project"),
+                    ("root_id", project_id.as_str()),
+                    ("path", path.as_str()),
+                ])
+                .send()
+                .await?
+                .error_for_status()?;
+            let mime = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("application/octet-stream")
+                .split(';')
+                .next()
+                .unwrap_or("application/octet-stream")
+                .trim()
+                .to_ascii_lowercase();
+            let bytes = response.bytes().await?.to_vec();
+            Ok::<_, anyhow::Error>((mime, bytes))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |view, cx| {
+                if view.home_file_request_id != request_id || view.home_file_path != path {
+                    return;
+                }
+                view.home_file_loading = false;
+                match result {
+                    Ok(Ok((mime, bytes))) => {
+                        view.home_file_mime = mime.clone();
+                        let image_format = match mime.as_str() {
+                            "image/png" => Some(ImageFormat::Png),
+                            "image/jpeg" | "image/jpg" => Some(ImageFormat::Jpeg),
+                            _ => None,
+                        };
+                        if let Some(format) = image_format {
+                            view.home_file_image = Some(Arc::new(Image::from_bytes(format, bytes)));
+                        } else if is_home_text_mime(&mime, &path) {
+                            match String::from_utf8(bytes) {
+                                Ok(content) => view.home_file_content = content,
+                                Err(_) => {
+                                    view.home_file_error =
+                                        tr("artifact.preview.error_detail").to_string()
+                                }
+                            }
+                        }
+                    }
+                    Ok(Err(error)) => view.home_file_error = error.to_string(),
+                    Err(error) => view.home_file_error = error.to_string(),
                 }
                 cx.notify();
             });
