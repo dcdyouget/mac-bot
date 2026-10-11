@@ -629,6 +629,7 @@
     <string name="block_task_card_title">任务 · %1$s</string>
     <string name="block_task_card_elapsed">已 %1$s</string>
     <string name="block_task_card_took">用时 %1$s</string>
+    <string name="block_task_card_done_line">%1$s · %2$s · 用时 %3$s</string>
     <string name="block_task_card_queued_reason">排在「%1$s」之后</string>
     <string name="block_task_card_recovered">服务重启后继续</string>
     <string name="block_blocked_title">卡住了</string>

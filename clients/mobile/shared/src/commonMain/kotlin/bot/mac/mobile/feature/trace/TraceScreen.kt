@@ -234,17 +234,6 @@ fun TraceScreen(
                 Switch(checked = followLatest, onCheckedChange = { followLatest = it })
             }
         }
-        currentAssignment?.str("instruction")?.takeIf(String::isNotBlank)?.let { instruction ->
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
-                    .background(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.shapes.medium)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(stringResource(Res.string.trace_instruction), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(instruction, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-            }
-        }
         if (assignmentId != null && (queuedLoading || queuedMessages.isNotEmpty() || queuedError != null || !state.connected)) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
@@ -298,6 +287,17 @@ fun TraceScreen(
                         }
                     }
                 }
+            }
+        }
+        currentAssignment?.str("instruction")?.takeIf(String::isNotBlank)?.let { instruction ->
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.shapes.medium)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(stringResource(Res.string.trace_instruction), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(instruction, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
             }
         }
         if (showTraceTools) {

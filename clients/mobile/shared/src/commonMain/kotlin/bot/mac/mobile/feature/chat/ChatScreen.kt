@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -118,6 +119,7 @@ fun ChatScreen(
     val state by repository.state.collectAsState()
     val animationsEnabled = LocalSystemAnimationsEnabled.current
     val messages = state.messages[chatId].orEmpty()
+    val lastOwnMessageIndex = messages.indexOfLast { it.obj("sender").str("kind") == "user" }
     val chat = state.chats.firstOrNull { it.str("id") == chatId }
     var draft by remember(chatId) { mutableStateOf("") }
     var replyTo by remember(chatId) { mutableStateOf<String?>(null) }
@@ -135,6 +137,7 @@ fun ChatScreen(
     var loadingOlder by remember(chatId) { mutableStateOf(false) }
     var pendingAnchor by remember(chatId) { mutableStateOf<ScrollAnchor?>(null) }
     var highlightedMessageId by remember(chatId) { mutableStateOf<String?>(null) }
+    var exactTimesRevealed by remember(chatId) { mutableStateOf(false) }
     var scrollState by remember(chatId) { mutableStateOf(ChatScrollState()) }
     var historyLoaded by remember(chatId) { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -199,7 +202,11 @@ fun ChatScreen(
         }
     }
     LaunchedEffect(draft, hostId, chatId, draftLoaded) {
-        if (draftLoaded) runCatching { platformPersistentStore().write("draft:$hostId:$chatId", draft) }
+        if (draftLoaded) {
+            // Drafts update for every IME key; debounce the disk-backed SharedPreferences commit.
+            kotlinx.coroutines.delay(400)
+            runCatching { platformPersistentStore().write("draft:$hostId:$chatId", draft) }
+        }
     }
 
     LaunchedEffect(chatId) {
@@ -344,7 +351,7 @@ fun ChatScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             if (historyHasMore) {
                 item(key = "load-older") {
@@ -381,15 +388,32 @@ fun ChatScreen(
                 }
             }
             itemsIndexed(messages, key = { _, message -> message.str("id").ifBlank { "message:${message.hashCode()}" } }) { messageIndex, message ->
-                val followsSameAuthor = messages.getOrNull(messageIndex - 1)?.let { sameMessageGroup(it, message) } == true
-                val continuesSameAuthor = messages.getOrNull(messageIndex + 1)?.let { sameMessageGroup(message, it) } == true
+                val previousMessage = messages.getOrNull(messageIndex - 1)
+                val nextMessage = messages.getOrNull(messageIndex + 1)
+                val startsNewDay = previousMessage == null || !sameChatDay(previousMessage, message)
+                val hasTimeSeparator = previousMessage != null && hasChatTimeSeparator(previousMessage, message)
+                if (startsNewDay) ChatDayCapsule(message.str("created_at"))
+                if (hasTimeSeparator) ChatTimeSeparator(message.str("created_at"))
+                val followsSameAuthor = previousMessage?.let { sameMessageGroup(it, message) } == true && !hasTimeSeparator
+                val continuesSameAuthor = nextMessage?.let { sameMessageGroup(message, it) } == true && !hasChatTimeSeparator(message, nextMessage)
+                val messageTopSpacing = when {
+                    startsNewDay || hasTimeSeparator -> 0.dp
+                    followsSameAuthor -> 2.dp
+                    else -> 10.dp
+                }
                 ChatMessageRow(
                     message = message,
                     repository = repository,
                     onQuoteAnnouncement = onQuoteAnnouncement,
                     showSender = !followsSameAuthor,
                     showAvatar = !continuesSameAuthor,
-                    showTime = true,
+                    followsSameAuthor = followsSameAuthor,
+                    continuesSameAuthor = continuesSameAuthor,
+                    showTime = !hasTimeSeparator,
+                    showExactTime = exactTimesRevealed,
+                    onExactTimeReveal = { exactTimesRevealed = it },
+                    lastOwnMessage = messageIndex == lastOwnMessageIndex,
+                    topSpacing = messageTopSpacing,
                     onJumpToMessage = { quotedId ->
                         val index = messages.indexOfFirst { it.str("id") == quotedId }
                         if (index >= 0) {
@@ -609,21 +633,19 @@ fun ChatScreen(
 private fun sameMessageGroup(first: JsonObject, second: JsonObject): Boolean {
     val firstSender = first.obj("sender")
     val secondSender = second.obj("sender")
+    if (firstSender.str("kind") == "system" || secondSender.str("kind") == "system") return false
+    if (hasTimelineBreak(first) || hasTimelineBreak(second)) return false
     if (firstSender.str("kind") != secondSender.str("kind") || firstSender.str("bot_id") != secondSender.str("bot_id")) return false
     val zone = TimeZone.currentSystemDefault()
     val firstInstant = runCatching { Instant.parse(first.str("created_at")) }.getOrNull() ?: return false
     val secondInstant = runCatching { Instant.parse(second.str("created_at")) }.getOrNull() ?: return false
     if (firstInstant.toLocalDateTime(zone).date != secondInstant.toLocalDateTime(zone).date) return false
-    return abs(firstInstant.toEpochMilliseconds() - secondInstant.toEpochMilliseconds()) <= 5 * 60 * 1000L
+    return abs(firstInstant.toEpochMilliseconds() - secondInstant.toEpochMilliseconds()) < 5 * 60 * 1000L
 }
 
 @Composable
-private fun MessageTimeLabel(timestamp: String, modifier: Modifier, color: androidx.compose.ui.graphics.Color) {
-    val instant = runCatching { Instant.parse(timestamp) }.getOrNull()
-    if (instant == null) {
-        Text(timestamp.substringAfter('T').take(5), modifier, style = MaterialTheme.typography.labelSmall, color = color)
-        return
-    }
+private fun ChatDayCapsule(timestamp: String) {
+    val instant = runCatching { Instant.parse(timestamp) }.getOrNull() ?: return
     val zone = TimeZone.currentSystemDefault()
     val local = instant.toLocalDateTime(zone)
     val today = Clock.System.now().toLocalDateTime(zone)
@@ -646,8 +668,58 @@ private fun MessageTimeLabel(timestamp: String, modifier: Modifier, color: andro
         local.year == today.year -> stringResource(Res.string.chat_time_date, padChatTimePart(local.month.ordinal + 1), padChatTimePart(local.day))
         else -> stringResource(Res.string.chat_time_date_year, local.year, padChatTimePart(local.month.ordinal + 1), padChatTimePart(local.day))
     }
-    Text(label, modifier, style = MaterialTheme.typography.labelSmall, color = color)
+    val palette = LocalMobilePalette.current
+    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.Center) {
+        Surface(
+            color = palette.panel,
+            shape = RoundedCornerShape(11.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault),
+        ) {
+            Text(label, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+        }
+    }
 }
+
+@Composable
+private fun ChatTimeSeparator(timestamp: String) {
+    val instant = runCatching { Instant.parse(timestamp) }.getOrNull() ?: return
+    val local = instant.toLocalDateTime(TimeZone.currentSystemDefault())
+    Text(
+        "${padChatTimePart(local.hour)}:${padChatTimePart(local.minute)}",
+        Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = LocalMobilePalette.current.textTertiary,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+    )
+}
+
+@Composable
+private fun ChatClockText(timestamp: String, modifier: Modifier = Modifier) {
+    val instant = runCatching { Instant.parse(timestamp) }.getOrNull()
+    val label = instant?.toLocalDateTime(TimeZone.currentSystemDefault())?.let { "${padChatTimePart(it.hour)}:${padChatTimePart(it.minute)}" }
+        ?: timestamp.substringAfter('T').take(5)
+    Text(label, modifier, style = MaterialTheme.typography.labelSmall, color = LocalMobilePalette.current.textTertiary)
+}
+
+private fun sameChatDay(first: JsonObject, second: JsonObject): Boolean {
+    val zone = TimeZone.currentSystemDefault()
+    val firstDate = runCatching { Instant.parse(first.str("created_at")).toLocalDateTime(zone).date }.getOrNull() ?: return false
+    val secondDate = runCatching { Instant.parse(second.str("created_at")).toLocalDateTime(zone).date }.getOrNull() ?: return false
+    return firstDate == secondDate
+}
+
+private fun hasChatTimeSeparator(first: JsonObject, second: JsonObject): Boolean {
+    if (!sameChatDay(first, second)) return false
+    val firstInstant = runCatching { Instant.parse(first.str("created_at")) }.getOrNull() ?: return false
+    val secondInstant = runCatching { Instant.parse(second.str("created_at")) }.getOrNull() ?: return false
+    return abs(secondInstant.toEpochMilliseconds() - firstInstant.toEpochMilliseconds()) >= 5 * 60 * 1000L
+}
+
+private fun hasTimelineBreak(message: JsonObject): Boolean =
+    message.arr("blocks").any { element ->
+        val type = (element as? JsonObject)?.str("type")
+        type == "task_card" || type == "system" || type == "progress"
+    }
 
 internal fun padChatTimePart(value: Int): String = value.toString().padStart(2, '0')
 
@@ -661,7 +733,13 @@ internal fun ChatMessageRow(
     onQuoteAnnouncement: (String) -> Unit,
     showSender: Boolean,
     showAvatar: Boolean,
+    followsSameAuthor: Boolean,
+    continuesSameAuthor: Boolean,
     showTime: Boolean,
+    showExactTime: Boolean,
+    onExactTimeReveal: (Boolean) -> Unit,
+    lastOwnMessage: Boolean,
+    topSpacing: androidx.compose.ui.unit.Dp,
     state: MobileState,
     onJumpToMessage: (String) -> Unit,
     highlighted: Boolean,
@@ -736,8 +814,18 @@ internal fun ChatMessageRow(
     val messageBody = blockText.ifBlank { message.str("fallback_text") }
     val spokenBody = messageBody.ifBlank { if (blocks.isNotEmpty()) stringResource(Res.string.chat_message_accessibility_card) else "" }
     val messageDescription = stringResource(Res.string.chat_message_accessibility, if (isUser) stringResource(Res.string.common_you) else senderLabel, spokenTime, spokenBody)
-    Column(Modifier.fillMaxWidth().semantics { isTraversalGroup = true; contentDescription = messageDescription }, horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
-        if (showSender) Text(if (isUser) stringResource(Res.string.common_you) else senderLabel, style = MaterialTheme.typography.labelSmall)
+    val standaloneTask = blocks.singleOrNull()?.let { it as? JsonObject }?.takeIf { it.str("type") == "task_card" }
+    Column(Modifier.fillMaxWidth().padding(top = topSpacing).semantics { isTraversalGroup = true; contentDescription = messageDescription }, horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+        if (standaloneTask != null) {
+            StandaloneTaskCard(standaloneTask, state, onOpenTrace)
+        } else {
+        if (showSender && !isUser) {
+            Row(Modifier.padding(start = 4.dp, bottom = 3.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(senderLabel, style = MaterialTheme.typography.labelMedium, color = palette.textPrimary)
+                senderBot?.str("role_note")?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = palette.textTertiary) }
+                if (showTime) ChatClockText(message.str("created_at"))
+            }
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
         if (!isUser) {
             if (showAvatar) Box(Modifier.semantics { contentDescription = avatarDescription }) {
@@ -751,7 +839,9 @@ internal fun ChatMessageRow(
                     var distance = 0f
                     detectHorizontalDragGestures(
                         onHorizontalDrag = { change, amount ->
-                            if (amount > 0) { distance += amount; change.consume() }
+                            distance += amount
+                            if (distance <= -swipeThreshold) onExactTimeReveal(true)
+                            change.consume()
                         },
                         onDragEnd = {
                             if (distance >= swipeThreshold && id.isNotBlank()) {
@@ -759,12 +849,18 @@ internal fun ChatMessageRow(
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onReply(id)
                             }
+                            onExactTimeReveal(false)
                             distance = 0f
                         },
-                        onDragCancel = { distance = 0f },
+                        onDragCancel = { onExactTimeReveal(false); distance = 0f },
                     )
                 },
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(
+                topStart = if (!isUser && followsSameAuthor) 6.dp else 16.dp,
+                topEnd = if (isUser && followsSameAuthor) 6.dp else 16.dp,
+                bottomStart = if (!isUser && showAvatar) 6.dp else 16.dp,
+                bottomEnd = if (isUser && !continuesSameAuthor) 6.dp else 16.dp,
+            ),
             color = if (isUser) palette.bubbleOut else palette.bubbleIn,
             contentColor = if (isUser) palette.bubbleOutText else palette.bubbleInText,
             border = if (highlighted) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
@@ -896,10 +992,11 @@ internal fun ChatMessageRow(
                     Text(stringResource(Res.string.feature_trace_running), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                     Button(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
                 }
-                DeliveryView(message.arr("delivery"), state)
-                if (showTime) MessageTimeLabel(message.str("created_at"), Modifier.align(Alignment.End), if (isUser) palette.textSecondary else palette.textTertiary)
+                if (lastOwnMessage) DeliveryView(message.arr("delivery"), state)
             }
         }
+        }
+        if (showExactTime) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { ChatClockText(message.str("created_at")) }
         }
         if (showMessageActions) androidx.compose.material3.ModalBottomSheet(onDismissRequest = {
             dismissMessageActions()
@@ -933,6 +1030,66 @@ internal fun ChatMessageRow(
                     dismissMessageActions()
                 }) { Text(stringResource(Res.string.chat_menu_quote_to_announcement)) }
                 TextButton(onClick = { clipboard.setText(AnnotatedString(message.str("fallback_text"))); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_copy)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StandaloneTaskCard(block: JsonObject, state: MobileState, onOpenTrace: (String?, String?) -> Unit) {
+    val palette = LocalMobilePalette.current
+    val assignmentId = block.str("assignment_id")
+    val assignment = state.assignments.firstOrNull { it.str("id") == assignmentId }
+    val title = assignment?.str("title").orEmpty().ifBlank { stringResource(Res.string.feature_task) }
+    val status = assignment?.str("status").orEmpty()
+    val botId = assignment?.str("bot_id").orEmpty()
+    val botName = state.bots.firstOrNull { it.str("id") == botId }?.str("name").orEmpty().ifBlank { botId }
+    val start = assignment?.let {
+        runCatching { Instant.parse(it.str("started_at").ifBlank { it.str("created_at") }) }.getOrNull()
+    }
+    val finish = assignment?.let {
+        val finishText = it.str("finished_at").ifBlank { if (status == "done") "" else Clock.System.now().toString() }
+        runCatching { Instant.parse(finishText) }.getOrNull()
+    }
+    val durationMinutes = if (start != null && finish != null) {
+        ((finish.toEpochMilliseconds() - start.toEpochMilliseconds()).coerceAtLeast(0L) / 60_000L).coerceAtLeast(1L)
+    } else null
+    val duration = durationMinutes?.let {
+        if (it >= 60) stringResource(Res.string.common_hours_minutes, (it / 60).toInt(), (it % 60).toInt())
+        else stringResource(Res.string.common_minutes, it.toInt())
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(start = 40.dp, end = 12.dp),
+        color = palette.panel,
+        shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (status == "failed" || status == "blocked") palette.danger else palette.borderSubtle),
+    ) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(if (status == "done") "✓" else if (status in setOf("failed", "blocked")) "!" else "⟳", color = if (status in setOf("failed", "blocked")) palette.danger else palette.success)
+            Column(Modifier.weight(1f)) {
+                if (status == "done") {
+                    Text(
+                        if (duration.isNullOrBlank()) "$botName · $title" else stringResource(Res.string.block_task_card_done_line, botName, title, duration),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else {
+                    Text(
+                        stringResource(Res.string.block_task_card_title, title),
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (status.isNotBlank()) StatusLabel(status)
+                        duration?.let { Text(stringResource(Res.string.block_task_card_elapsed, it), style = MaterialTheme.typography.labelSmall, color = palette.textTertiary) }
+                    }
+                }
+            }
+            if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                Text(stringResource(Res.string.feature_detail), style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -995,36 +1152,87 @@ private fun BlockView(
             val assignment = state.assignments.firstOrNull { it.str("id") == assignmentId }
             val assignmentTitle = assignment?.str("title").orEmpty()
             val assignmentLabel = if (assignmentTitle.isBlank()) stringResource(Res.string.feature_task) else assignmentTitle
-            Text("⟳ $assignmentLabel", style = MaterialTheme.typography.titleSmall)
-            assignment?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
-            if (assignmentId.isNotBlank()) Button(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
+            if (assignment?.str("status") == "done") {
+                val start = runCatching { Instant.parse(assignment.str("started_at").ifBlank { assignment.str("created_at") }) }.getOrNull()
+                val finish = runCatching { Instant.parse(assignment.str("finished_at")) }.getOrNull()
+                val elapsedMinutes = if (start != null && finish != null) {
+                    ((finish.toEpochMilliseconds() - start.toEpochMilliseconds()).coerceAtLeast(0L) / 60_000L).coerceAtLeast(1L)
+                } else null
+                val duration = elapsedMinutes?.let {
+                    if (it >= 60) stringResource(Res.string.common_hours_minutes, (it / 60).toInt(), (it % 60).toInt())
+                    else stringResource(Res.string.common_minutes, it.toInt())
+                }.orEmpty()
+                val botId = assignment.str("bot_id")
+                val botName = state.bots.firstOrNull { it.str("id") == botId }?.str("name").orEmpty().ifBlank { botId }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("✓", color = LocalMobilePalette.current.success, style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        if (duration.isBlank()) "$botName · $assignmentLabel" else stringResource(Res.string.block_task_card_done_line, botName, assignmentLabel, duration),
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LocalMobilePalette.current.textTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                        Text(stringResource(Res.string.feature_detail), style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(Res.string.block_task_card_title, assignmentLabel), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                    assignment?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+                }
+                if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
+            }
         }
         "completion" -> {
-            MarkdownText("✓ ${block.str("summary")}", Modifier.fillMaxWidth())
-            block.arr("next").forEach { element ->
-                val handoff = element as? JsonObject ?: return@forEach
-                val botId = handoff.str("bot_id")
-                val botName = state.bots.firstOrNull { it.str("id") == botId }?.str("name").orEmpty().ifBlank { botId }
-                val targetChat = state.chats.firstOrNull { it.str("bot_id") == botId && it.str("kind") in listOf("direct", "bot_dm") }?.str("id")
-                if (targetChat != null) TextButton(onClick = { onOpenChat(targetChat) }) {
-                    Text(stringResource(Res.string.feature_completion_next, botName), style = MaterialTheme.typography.titleSmall)
-                } else Text(stringResource(Res.string.feature_completion_next, botName), style = MaterialTheme.typography.titleSmall)
-                MarkdownText(handoff.str("instruction"), Modifier.fillMaxWidth())
-            }
-            if (block.boolean("notify_main")) Text(stringResource(Res.string.feature_completion_notify_main), style = MaterialTheme.typography.labelMedium)
-            block.arr("artifacts").forEach { element ->
-                val artifact = element as? JsonObject ?: return@forEach
-                val url = artifact.str("path_or_url")
-                val author = state.bots.firstOrNull { it.str("id") == artifact.str("bot_id") }?.str("name").orEmpty()
-                    .ifBlank { artifact.str("bot_id") }
-                Column {
-                    Text(stringResource(Res.string.feature_artifact_author, author), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(onClick = { onOpenArtifact(artifact.str("artifact_id"), url, artifactProjectId) }) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            LucideIcon(LucideIconKind.FileText, Modifier.size(18.dp))
-                            Text(artifact.str("title").ifBlank { url })
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = LocalMobilePalette.current.panel,
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, LocalMobilePalette.current.borderDefault),
+            ) {
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("✓", color = LocalMobilePalette.current.success, style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(Res.string.block_completion_done), style = MaterialTheme.typography.labelMedium, color = LocalMobilePalette.current.success)
+                    }
+                    MarkdownText(block.str("summary"), Modifier.fillMaxWidth())
+                    block.arr("artifacts").forEach { element ->
+                        val artifact = element as? JsonObject ?: return@forEach
+                        val url = artifact.str("path_or_url")
+                        val author = state.bots.firstOrNull { it.str("id") == artifact.str("bot_id") }?.str("name").orEmpty().ifBlank { artifact.str("bot_id") }
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = LocalMobilePalette.current.bubbleIn,
+                            shape = RoundedCornerShape(8.dp),
+                            onClick = { onOpenArtifact(artifact.str("artifact_id"), url, artifactProjectId) },
+                        ) {
+                            Row(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Surface(Modifier.size(30.dp), color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(6.dp)) {
+                                    Box(contentAlignment = Alignment.Center) { LucideIcon(LucideIconKind.FileText, Modifier.size(18.dp)) }
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(artifact.str("title").ifBlank { url }, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(stringResource(Res.string.feature_artifact_author, author), style = MaterialTheme.typography.labelSmall, color = LocalMobilePalette.current.textTertiary, maxLines = 1)
+                                    Text(url, style = MaterialTheme.typography.labelSmall, color = LocalMobilePalette.current.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                Text(stringResource(Res.string.feature_preview_file), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }
+                    block.arr("next").forEach { element ->
+                        val handoff = element as? JsonObject ?: return@forEach
+                        val botId = handoff.str("bot_id")
+                        val botName = state.bots.firstOrNull { it.str("id") == botId }?.str("name").orEmpty().ifBlank { botId }
+                        val targetChat = state.chats.firstOrNull { it.str("bot_id") == botId && it.str("kind") in listOf("direct", "bot_dm") }?.str("id")
+                        val nextInstruction = stringResource(Res.string.feature_completion_next, botName)
+                        if (targetChat != null) TextButton(onClick = { onOpenChat(targetChat) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
+                            Text("› $nextInstruction · ${handoff.str("instruction")}", style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        } else Text("› $nextInstruction · ${handoff.str("instruction")}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (block.boolean("notify_main")) Text("› ${stringResource(Res.string.block_completion_notify_main)}", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
@@ -1157,50 +1365,63 @@ private fun BlockView(
         "review_card" -> {
             val projectId = block.str("project_id")
             val reviewState = block.str("state")
-            Text(
-                stringResource(Res.string.feature_review_project, reviewProjectLabel(block, state.projects)),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(stringResource(Res.string.feature_review_state, ""), style = MaterialTheme.typography.bodyMedium)
-                StatusLabel(block.str("state"))
-            }
-            when (reviewState) {
-                "confirmed" -> Text(stringResource(Res.string.feature_review_confirmed), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium)
-                "changes_requested" -> Text(stringResource(Res.string.feature_review_changes_requested), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelMedium)
-                "pending" -> if (projectId.isNotBlank()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(onClick = { onProjectAction(projectId, "confirm_done") }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
-                        Text(stringResource(Res.string.feature_confirm_done))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = LocalMobilePalette.current.panel,
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, LocalMobilePalette.current.borderDefault),
+            ) {
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LucideIcon(LucideIconKind.Target, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
+                        Text(stringResource(Res.string.block_review_card_title, reviewProjectLabel(block, state.projects)), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                        if (reviewState != "pending") StatusLabel(reviewState)
                     }
-                    Button(onClick = { onProjectAction(projectId, "request_changes") }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
-                        Text(stringResource(Res.string.feature_request_changes))
+                    when (reviewState) {
+                        "confirmed" -> Text(stringResource(Res.string.feature_review_confirmed), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = LocalMobilePalette.current.success, style = MaterialTheme.typography.labelMedium)
+                        "changes_requested" -> Text(stringResource(Res.string.feature_review_changes_requested), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelMedium)
                     }
-                }
-            }
-            block.arr("artifacts").forEach { element ->
-                val artifact = element as? JsonObject ?: return@forEach
-                val artifactId = artifact.str("artifact_id")
-                val pathOrUrl = artifact.str("path_or_url")
-                if (artifactId.isNotBlank() && pathOrUrl.isNotBlank()) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        shape = RoundedCornerShape(10.dp),
-                        onClick = { onOpenArtifact(artifactId, pathOrUrl, projectId.takeIf { it.isNotBlank() }) },
-                    ) {
-                        Column(Modifier.padding(10.dp)) {
-                            Text(artifact.str("title").ifBlank { pathOrUrl }, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            val authorId = artifact.str("bot_id")
-                            val author = state.bots.firstOrNull { it.str("id") == authorId }?.str("name").orEmpty().ifBlank { authorId }
-                            if (author.isNotBlank()) Text(stringResource(Res.string.feature_artifact_author, author), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(pathOrUrl, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(stringResource(Res.string.feature_preview_file), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    block.arr("artifacts").forEach { element ->
+                        val artifact = element as? JsonObject ?: return@forEach
+                        val artifactId = artifact.str("artifact_id")
+                        val pathOrUrl = artifact.str("path_or_url")
+                        if (artifactId.isNotBlank() && pathOrUrl.isNotBlank()) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = LocalMobilePalette.current.bubbleIn,
+                                shape = RoundedCornerShape(8.dp),
+                                onClick = { onOpenArtifact(artifactId, pathOrUrl, projectId.takeIf { it.isNotBlank() }) },
+                            ) {
+                                Row(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(Modifier.size(28.dp), color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(6.dp)) {
+                                        Box(contentAlignment = Alignment.Center) { LucideIcon(LucideIconKind.FileText, Modifier.size(16.dp)) }
+                                    }
+                                    Column(Modifier.weight(1f)) {
+                                        Text(artifact.str("title").ifBlank { pathOrUrl }, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        val authorId = artifact.str("bot_id")
+                                        val author = state.bots.firstOrNull { it.str("id") == authorId }?.str("name").orEmpty().ifBlank { authorId }
+                                        if (author.isNotBlank()) Text(stringResource(Res.string.feature_artifact_author, author), style = MaterialTheme.typography.labelSmall, color = LocalMobilePalette.current.textTertiary)
+                                        Text(pathOrUrl, style = MaterialTheme.typography.labelSmall, color = LocalMobilePalette.current.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    Text(stringResource(Res.string.feature_preview_file), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
                         }
                     }
+                    if (reviewState == "pending" && projectId.isNotBlank()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Button(onClick = { onProjectAction(projectId, "confirm_done") }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                                Text(stringResource(Res.string.block_review_card_confirm), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            OutlinedButton(onClick = { onProjectAction(projectId, "request_changes") }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                                Text(stringResource(Res.string.block_review_card_request_changes), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    if (projectId.isNotBlank()) TextButton(onClick = { onOpenProject(projectId) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                        Text(stringResource(Res.string.feature_review_enter_group))
+                    }
                 }
-            }
-            if (projectId.isNotBlank()) TextButton(onClick = { onOpenProject(projectId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
-                Text(stringResource(Res.string.feature_review_enter_group))
             }
         }
         "delegation" -> {
