@@ -12,3 +12,10 @@
 | 真实管理页指标与日志 | `/admin/status`、`/admin/logs` 基础输出 | 增补可核实的状态字段和日志查询 | server/protocol agent |
 
 本轮只编译、类型检查、格式和静态检查；测试、UI 验收、安装、部署、服务重启均由用户负责。
+
+## 设计差异与补充文案
+
+- 旧 `docs/DESIGN.md` 第 2 章视觉数值改用 `design/tokens.json` 和 `design/prototype/base.css`；旧线程式回复改为主消息流内引用。`design/` 保持只读。
+- 原协议草案只有 `chat.send.quote`，无法区分「回复原 Bot」与「仅引用」。新增兼容 `quote_mode: reply | reference`，缺省为 `reply`；纯引用不自动路由给原 Bot。
+- 定时任务详情要求修改执行 Bot，兼容扩展 `routine.update.patch.bot_id`。
+- Web 管理页必要文案补充 key：`admin.metrics.aria`、`admin.duration.{days_hours,hours_minutes,minutes}`、`admin.error.{host_name,port,not_ready,request,unauthorized}`、`admin.copy.success`、`admin.setup.{password,password_suffix}`、`admin.setup.error.{mismatch,required,save}`、`admin.theme.{dark,light,toggle_aria}`、`admin.kpi.{clients_note,restarting,unavailable,bots_note,browser_sessions,browser_version}`、`admin.field.{host_name,port,node_id,password}`、`admin.copy_node_id`、`admin.saved`、`admin.restart.{requested,failed,done}`、`admin.port_dialog.{title,copy,error}`、`admin.password.{current,new,mismatch,changed,error}`、`admin.logs.{filter_aria,empty,load_error}`。
