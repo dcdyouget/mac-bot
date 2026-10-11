@@ -525,6 +525,14 @@
 - main代码已推至fe360a2；最新fe360a2 pkg源码/daemon/sidecar审计通过，未fresh安装。Android最新实看仍为System UI无响应，CUA无模拟器控制面、adb输入方式及X会话使用仍待用户回应；fresh管理页新密码需用户接手输入。S0仍唯一整阶段通过，S1/S2新增为真实局部证据。
 - 根协调单独提交理由：记录当前运行版本、真实恢复/流式结论、失败证据及外部条件，避免把单端测试当作全阶段完成；不因文档提交重部署。详情见docs/progress/S2/2026-10-10-takeover-closeout.md。
 
+## 设计：新视觉设计稿 + 协议变更请求（2026-10-10）
+
+- [2026-10-10] 设计（用户授权） → server-mac：PROTOCOL.md / PLAN.md 已按用户要求修改（兼容变更，不升版本），请落地 protocol/rust、schema、fixtures、mock 与服务端实现（状态：待处理）：
+  1. **公告改为自由文本**：`Announcement` 新增 `text`、`version`、`text_updated_by`、`text_updated_at`；`Project.goal/flow/deadline`、`Announcement.highlights` 不再使用（写空值）。新增方法 `announcement.update { project_id, text, base_version }`（版本冲突返回 `conflict`）；新增 Bot 工具 `update_announcement(text, mode: replace|append)`，群内所有成员 Bot（含主 Bot）都有；`create_project(name, members, announcement)`；新增 SystemCode `announcement_updated`。存储见 PLAN 5.5.6。
+  2. **消息块扩展**：`project_card` 增加 `context: created|mentioned` 与 `note`（Bot 提到某个群时也能发群聊卡片）；`ArtifactRef` 增加 `bot_id`、`kind`；`Question` 增加 `multi`、`state: expired`、`answer.option_indexes`，`question.answer` 支持 `option_indexes`；新增块 `link_preview`；`Message` 新增 `quote`（引用回复，与线程 `reply_to` 区分）。
+- [2026-10-10] 设计 → client-mac、client-android：新的视觉与交互设计稿在 `design/`（README 为入口，`prototype/*.html` 可直接打开；消息块以 `design/06-message-blocks.md` 为准，名称与 PROTOCOL 4.6 一致；文案 key 见 `design/07-copy.md`）。DESIGN.md 第 2 章已改为引用 design/。两端按设计稿改造界面，Android 与 iOS 外观一致（状态：待处理）。
+- [2026-10-10] 设计（用户决定） → server-mac、client-mac、client-android：**不做线程**，所有沟通都在群里。`Message.reply_to`、`thread_count` 与 `chat.thread` 标为不再使用（写空值，兼容旧客户端）；回复改用引用：`chat.send` 的 `quote?: Id` → `Message.quote`，回复仍发在群的主消息流里，默认由被引用消息的发送者回应。客户端去掉线程入口（状态：待处理）。
+
 ## integrator：解锁后双端阶段验收更新（2026-10-10）
 
 - S0、S1、S3已达到PLAN第6章联调门槛。S1真实双端同run完成write/bash/read、流式/实时轨迹/回放及kill-9恢复，Bash成功一次，12条旧审批与151个旧job保持；S3固定UTC日仪表盘、真实技能草稿发布与指定Bot范围同步、原记忆回忆、搜索修复均有双端实看证据。见docs/progress/2026-10-10-remaining-native-acceptance.md。
