@@ -39,7 +39,6 @@ pub fn text(key: &str) -> &'static str {
         "settings.models.test_running" => "正在测试连接…",
         "settings.models.test_connected" => "已连接",
         "settings.models.test_failed" => "连接失败",
-        "settings.about.exporting" => "正在导出诊断信息…",
         "settings.runtime.global" => "全局最多同时运行的任务",
         "settings.runtime.per_bot" => "每个 Bot 默认并发",
         "settings.runtime.sub_per_task" => "每个任务最多同时跑子代理",
@@ -55,6 +54,9 @@ pub fn text(key: &str) -> &'static str {
         "settings.computer.open_system_settings" => "去系统设置",
         "settings.about.check_update" => "检查更新",
         "settings.about.export_diag" => "导出诊断信息",
+        "settings.about.exporting" => "正在导出诊断信息…",
+        "settings.about.exported" => "诊断信息已导出",
+        "settings.about.export_failed" => "无法导出诊断信息",
         // Additional settings copy not specified in design/07-copy.md.
         // These keys keep editor labels, helper text, and validation feedback
         // out of view code.

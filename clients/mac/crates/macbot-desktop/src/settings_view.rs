@@ -178,6 +178,12 @@ impl SettingsView {
             self.translucent = crate::local_settings::translucent();
             self.sound_enabled = crate::local_settings::sound_enabled();
             self.launch_at_login = local.launch_at_login;
+            if let Ok(preferences) = crate::local_settings::notification_preferences() {
+                self.notify_need_you = preferences.need_you;
+                self.notify_review = preferences.review;
+                self.notify_dm_mention = preferences.dm_mention;
+                self.notify_all_group = preferences.all_group;
+            }
         }
         if let Some(status) = data.get("provider_test_status")
             && let Some(provider_id) = status.get("provider_id").and_then(Value::as_str)

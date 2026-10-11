@@ -94,7 +94,10 @@ impl MacBot {
         let data = self.page_data();
         self.feature_view
             .update(cx, |v, cx| v.update_data(data, cx));
-        let data = json!({"local":self.local_settings,"settings":self.state.settings,"providers":self.state.providers.values().collect::<Vec<_>>(),"models":self.state.models.values().collect::<Vec<_>>()});
+        let mut data = json!({"local":self.local_settings,"settings":self.state.settings,"providers":self.state.providers.values().collect::<Vec<_>>(),"models":self.state.models.values().collect::<Vec<_>>()});
+        if let Some(status) = self.feature_data.get("provider_test_status") {
+            data["provider_test_status"] = status.clone();
+        }
         self.settings_view
             .update(cx, |v, cx| v.update_data(data, cx));
     }
@@ -280,6 +283,12 @@ impl MacBot {
                 );
             }
             "provider.test" => {
+                self.feature_data["provider_test_status"] = json!({
+                    "provider_id":params["provider_id"],
+                    "ok":value["ok"],
+                    "latency_ms":value["latency_ms"],
+                    "error":value["error"],
+                });
                 self.notice = if value["ok"] == true {
                     format!(
                         "{} · {} ms",
@@ -592,6 +601,18 @@ impl MacBot {
                 cx.notify();
             }
             SettingsAction::Local { key, value } => {
+                if key.starts_with("notify_") {
+                    match crate::local_settings::set_notification_preference(
+                        key,
+                        value.as_bool().unwrap_or(false),
+                    ) {
+                        Ok(_) => self.notice = tr("settings.saved").into(),
+                        Err(error) => self.notice = error.to_string(),
+                    }
+                    self.sync_views(cx);
+                    cx.notify();
+                    return;
+                }
                 if key == "sound_enabled" {
                     let enabled = value.as_bool().unwrap_or(false);
                     match crate::local_settings::set_sound_enabled(enabled) {
@@ -649,6 +670,52 @@ impl MacBot {
             }
             SettingsAction::HostConnections => self.navigate("connect", cx),
             SettingsAction::CheckUpdate => self.check_update(cx),
+            SettingsAction::ExportDiagnostics => {
+                let report = json!({
+                    "generated_at": Utc::now().to_rfc3339(),
+                    "client": {"name":"Mac Bot", "version":env!("CARGO_PKG_VERSION")},
+                    "platform": std::env::consts::OS,
+                    "connection": {
+                        "connected":self.connected,
+                        "connecting":self.connecting,
+                        "host_configured":!self.address.read(cx).value().trim().is_empty(),
+                        "last_error_class":super::diagnostic_error_class(&self.notice),
+                    },
+                    "counts": {
+                        "bots":self.state.bots.len(),
+                        "chats":self.state.chats.len(),
+                        "projects":self.state.projects.len(),
+                        "assignments":self.state.assignments.len(),
+                        "approvals":self.state.approvals.len(),
+                    },
+                });
+                let bytes = serde_json::to_vec_pretty(&report).unwrap_or_default();
+                let directory = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
+                let prompt = cx.prompt_for_new_path(&directory, Some("macbot-diagnostics.json"));
+                self.notice = crate::settings_i18n::text("settings.about.exporting").into();
+                cx.notify();
+                cx.spawn_in(window, async move |this, cx| {
+                    let result = match prompt.await {
+                        Ok(Ok(Some(path))) => std::fs::write(path, bytes)
+                            .map(|_| Some(()))
+                            .map_err(|error| error.to_string()),
+                        Ok(Ok(None)) => Ok(None),
+                        Ok(Err(error)) => Err(error.to_string()),
+                        Err(error) => Err(error.to_string()),
+                    };
+                    let _ = this.update_in(cx, |view, _, cx| {
+                        view.notice = match result {
+                            Ok(Some(())) => {
+                                crate::settings_i18n::text("settings.about.exported").into()
+                            }
+                            Ok(None) => String::new(),
+                            _ => crate::settings_i18n::text("settings.about.export_failed").into(),
+                        };
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
             SettingsAction::Theme(mode) => {
                 if mode == "system" {
                     Theme::sync_system_appearance(Some(window), cx);
