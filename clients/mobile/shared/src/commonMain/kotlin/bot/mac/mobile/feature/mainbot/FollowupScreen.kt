@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -38,6 +37,7 @@ import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.ui.MotionAwareCircularProgressIndicator
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.resources.Res
@@ -165,7 +165,7 @@ fun FollowupScreen(
         }
         if (loading) {
             Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center) {
-                CircularProgressIndicator(Modifier.size(24.dp))
+                MotionAwareCircularProgressIndicator(Modifier.size(24.dp))
                 Text(stringResource(Res.string.followup_loading), Modifier.padding(start = 12.dp))
             }
         } else {

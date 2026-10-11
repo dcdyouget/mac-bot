@@ -1,8 +1,10 @@
 package bot.mac.mobile.core.design
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -18,6 +20,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
@@ -65,14 +70,37 @@ fun BotAvatar(
     }
 
     when {
-        kind == "emoji" && emoji.isNotBlank() -> EmojiAvatar(emoji, size)
-        kind == "image" && image != null -> Image(
-            bitmap = image!!,
-            contentDescription = null,
-            modifier = Modifier.size(size).clip(CircleShape),
-            contentScale = ContentScale.Crop,
-        )
+        kind == "emoji" && emoji.isNotBlank() -> Box(Modifier.size(size)) {
+            EmojiAvatar(emoji, size)
+            if (main) MainBotGlassesBadge(Modifier.align(Alignment.BottomEnd).size(size * 0.4f))
+        }
+        kind == "image" && image != null -> Box(Modifier.size(size)) {
+            Image(
+                bitmap = image!!,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                contentScale = ContentScale.Crop,
+            )
+            if (main) MainBotGlassesBadge(Modifier.align(Alignment.BottomEnd).size(size * 0.4f))
+        }
         else -> BeanAvatar(color = color, main = main, status = status, avatarSize = size)
+    }
+}
+
+@Composable
+private fun MainBotGlassesBadge(modifier: Modifier = Modifier) {
+    val background = MaterialTheme.colorScheme.surface
+    Canvas(modifier) {
+        drawCircle(background, radius = size.minDimension / 2)
+        val frame = DesignTokens.avatarGlasses
+        val stroke = (size.minDimension * 0.09f).coerceAtLeast(1.dp.toPx())
+        val lensWidth = size.width * 0.34f
+        val lensHeight = size.height * 0.30f
+        val lensY = size.height * 0.36f
+        val corner = CornerRadius(size.minDimension * 0.08f)
+        drawRoundRect(frame, Offset(size.width * 0.12f, lensY), Size(lensWidth, lensHeight), corner, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+        drawRoundRect(frame, Offset(size.width * 0.54f, lensY), Size(lensWidth, lensHeight), corner, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+        drawLine(frame, Offset(size.width * 0.46f, size.height * 0.50f), Offset(size.width * 0.54f, size.height * 0.50f), stroke)
     }
 }
 

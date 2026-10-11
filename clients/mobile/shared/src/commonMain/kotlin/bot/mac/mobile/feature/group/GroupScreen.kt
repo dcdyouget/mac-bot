@@ -170,7 +170,7 @@ fun GroupScreen(
         Row(Modifier.fillMaxWidth().padding(12.dp)) {
             Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(project?.str("name")?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.feature_group), style = MaterialTheme.typography.titleLarge)
+                Text(project?.str("name")?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.feature_group), style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
                 project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
             }
             Button(onClick = { showAnnouncement = !showAnnouncement }) { Text(stringResource(Res.string.feature_announcement)) }
@@ -180,7 +180,7 @@ fun GroupScreen(
         }
         if (showEdit) {
             Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(editName, { editName = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_group_name)) })
+                OutlinedTextField(editName, { editName = it.take(32) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), label = { Text(stringResource(Res.string.feature_group_name)) }, supportingText = { Text(stringResource(Res.string.feature_name_max_length, 32)) })
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
                         scope.launch { runCatching { repository.call("project.update", buildJsonObject { put("project_id", projectId); put("patch", buildJsonObject { put("name", editName.trim()) }) }) }.onFailure { error = it.message } }
@@ -313,7 +313,7 @@ fun GroupCreateScreen(
     val createFailed = stringResource(Res.string.feature_create_failed)
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(stringResource(Res.string.feature_create_group), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) }
-        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_group_name)) })
+        OutlinedTextField(name, { name = it.take(32) }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_group_name)) }, supportingText = { Text(stringResource(Res.string.feature_name_max_length, 32)) })
         OutlinedTextField(goal, { goal = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text(stringResource(Res.string.feature_announcement_body)) })
         Text(stringResource(Res.string.feature_group_members), style = MaterialTheme.typography.titleSmall)
         state.bots.filter { !it.boolean("is_main") && !it.boolean("hidden") }.forEach { bot ->

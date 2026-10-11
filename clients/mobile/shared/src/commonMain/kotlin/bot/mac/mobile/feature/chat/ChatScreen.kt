@@ -45,6 +45,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -149,6 +152,11 @@ fun ChatScreen(
     val mentionLabel = stringResource(Res.string.feature_mention_title)
     val backLabel = stringResource(Res.string.common_back)
     val openGroupLabel = stringResource(Res.string.feature_open_group)
+    val composerPlaceholder = when {
+        !state.connected -> stringResource(Res.string.chat_composer_placeholder_offline)
+        groupChat -> stringResource(Res.string.chat_composer_placeholder_group, chat?.str("title").orEmpty())
+        else -> stringResource(Res.string.chat_composer_placeholder_dm, chat?.str("title").orEmpty().ifBlank { stringResource(Res.string.feature_bot) })
+    }
     LaunchedEffect(hostId, chatId) {
         draftLoaded = false
         draft = runCatching { platformPersistentStore().read("draft:$hostId:$chatId") }.getOrNull().orEmpty()
@@ -428,7 +436,7 @@ fun ChatScreen(
                 value = draft,
                 onValueChange = { draft = it; if (it.endsWith("@")) showMentions = true },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text(stringResource(Res.string.feature_send)) },
+                placeholder = { Text(composerPlaceholder) },
                 maxLines = 4,
             )
             if (groupChat || mentionCandidates.isNotEmpty()) IconButton(onClick = { showMentions = true }, modifier = Modifier.semantics { contentDescription = mentionLabel }) { Text("@", color = LocalMobilePalette.current.accent) }
@@ -593,7 +601,21 @@ internal fun ChatMessageRow(
         else -> Res.string.chat_avatar_status_idle
     })
     val avatarDescription = stringResource(Res.string.chat_avatar_description, senderLabel, avatarStatusLabel)
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+    val messageInstant = runCatching { Instant.parse(message.str("created_at")) }.getOrNull()
+    val messageLocalTime = messageInstant?.toLocalDateTime(TimeZone.currentSystemDefault())
+    val spokenTime = if (messageLocalTime == null) message.str("created_at") else stringResource(
+        Res.string.chat_time_full,
+        messageLocalTime.year,
+        messageLocalTime.month.ordinal + 1,
+        messageLocalTime.day,
+        messageLocalTime.hour,
+        messageLocalTime.minute,
+        messageLocalTime.second,
+    )
+    val messageBody = message.str("text").ifBlank { message.str("fallback_text") }
+    val spokenBody = messageBody.ifBlank { if (blocks.isNotEmpty()) stringResource(Res.string.chat_message_accessibility_card) else "" }
+    val messageDescription = stringResource(Res.string.chat_message_accessibility, if (isUser) stringResource(Res.string.feature_you) else senderLabel, spokenTime, spokenBody)
+    Column(Modifier.fillMaxWidth().semantics { isTraversalGroup = true; contentDescription = messageDescription }, horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
         if (showSender) Text(if (isUser) stringResource(Res.string.feature_you) else senderLabel, style = MaterialTheme.typography.labelSmall)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
         if (!isUser) {
@@ -1061,7 +1083,7 @@ private fun BlockView(
         "approval" -> {
             val approvalId = block.str("approval_id")
             val approval = state.approvals.firstOrNull { it.str("id") == approvalId }
-            Text(stringResource(Res.string.feature_approval_needed), style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(Res.string.feature_approval_needed), Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, style = MaterialTheme.typography.titleSmall)
             Text(approval?.str("summary").orEmpty().ifBlank { approvalId })
             MarkdownText(approval?.str("detail").orEmpty(), Modifier.fillMaxWidth())
             if (approval?.str("state") == "pending") Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1080,7 +1102,7 @@ private fun BlockView(
             if (block.str("reason").isNotBlank()) Text(block.str("reason"), style = MaterialTheme.typography.bodyMedium)
             when (block.str("state")) {
                 "pending" -> {
-                    Text(stringResource(Res.string.feature_takeover_pending), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.tertiary)
+                    Text(stringResource(Res.string.feature_takeover_pending), Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.tertiary)
                     if (botId.isNotBlank()) TakeoverFramePreview(repository, botId)
                     if (botId.isNotBlank()) Button(onClick = { onTakeover(botId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
                         Text(stringResource(Res.string.feature_takeover))

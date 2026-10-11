@@ -17,13 +17,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.platform.*
 import bot.mac.mobile.core.protocol.*
 import bot.mac.mobile.core.state.MobileRepository
+import bot.mac.mobile.core.design.DesignTokens
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
@@ -244,7 +244,7 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
                     )
                 }
             }
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (loading) MotionAwareLinearProgressIndicator(Modifier.fillMaxWidth())
             error?.let {
                 Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
             }
@@ -336,7 +336,7 @@ private fun ArtifactHistory(
     ) {
         if (artifactId.isBlank()) Text(stringResource(Res.string.file_preview_history_unavailable), color = MaterialTheme.colorScheme.onSurfaceVariant)
         error?.takeIf(String::isNotBlank)?.let { Text(stringResource(Res.string.file_preview_history_error, it), color = MaterialTheme.colorScheme.error) }
-        if (loading && versions.isEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (loading && versions.isEmpty()) MotionAwareLinearProgressIndicator(Modifier.fillMaxWidth())
         if (!loading && error == null && versions.isEmpty()) Text(stringResource(Res.string.file_preview_versions_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(versions, key = { "${it.str("artifact_id")}:${it.long("version")}" }) { version ->
@@ -359,13 +359,13 @@ private fun ArtifactHistory(
                 }
             }
         }
-        if (loading && selectedVersion != null) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (loading && selectedVersion != null) MotionAwareLinearProgressIndicator(Modifier.fillMaxWidth())
         selectedContent?.let { bytes ->
             Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
                 Column(Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState()).padding(14.dp)) {
                     Text(stringResource(Res.string.file_preview_version_content, selectedVersion?.toInt() ?: 0), style = MaterialTheme.typography.titleMedium)
                     SelectionContainer {
-                        Text(bytes.decodeToString().take(200_000), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                        Text(bytes.decodeToString().take(200_000), style = DesignTokens.mobileMono.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
                     }
                 }
             }
@@ -383,7 +383,7 @@ private fun SourceContent(bytes: ByteArray?) {
                 item {
                     Text(
                         bytes.decodeToString().take(200_000),
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        style = DesignTokens.mobileMono,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                 }

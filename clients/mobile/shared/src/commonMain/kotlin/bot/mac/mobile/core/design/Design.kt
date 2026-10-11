@@ -2,6 +2,7 @@ package bot.mac.mobile.core.design
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -12,6 +13,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
@@ -19,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import bot.mac.mobile.core.platform.platformAnimationsEnabled
+import bot.mac.mobile.core.platform.platformBackdropBlurSupported
 
 /** Values are generated from design/tokens.json. Keep token names aligned across clients. */
 object DesignTokens {
@@ -173,6 +176,24 @@ object DesignTokens {
     val avatarEye = Color(0xFF1C1C1E)
     val avatarGlasses = Color(0xFF1C1C1E)
     val attention = warning
+    val mobileMono = TextStyle(fontSize = 13.sp, lineHeight = 19.sp, fontWeight = FontWeight.Normal, fontFamily = FontFamily.Monospace)
+    val light = mapOf(
+        "bg.desktop" to bgDesktop, "bg.window" to bgWindow, "bg.sidebar" to bgSidebar, "bg.panel" to bgPanel,
+        "bg.chat" to bgChat, "bg.elevated" to bgElevated, "bg.input" to bgInput, "bg.hover" to bgHover,
+        "bg.active" to bgActive, "bg.selected" to bgSelected, "bg.overlay" to bgOverlay,
+        "border.subtle" to borderSubtle, "border.default" to borderDefault, "border.strong" to borderStrong,
+        "text.primary" to textPrimary, "text.secondary" to textSecondary, "text.tertiary" to textTertiary,
+        "text.inverse" to textInverse, "text.link" to textLink, "accent" to accent, "accent.hover" to accentHover,
+        "accent.pressed" to accentPressed, "accent.soft" to accentSoft, "accent.on" to accentOn,
+        "bubble.in" to bubbleIn, "bubble.in.text" to bubbleInText, "bubble.out" to bubbleOut,
+        "bubble.out.text" to bubbleOutText, "bubble.meta" to bubbleMeta, "bubble.out.meta" to bubbleOutMeta,
+        "success" to success, "success.soft" to successSoft, "warning" to warning, "warning.soft" to warningSoft,
+        "danger" to danger, "danger.soft" to dangerSoft, "review" to review, "review.soft" to reviewSoft,
+        "code.text" to codeText, "code.bg" to codeBg,
+        "chart.1" to chart1, "chart.2" to chart2, "chart.3" to chart3, "chart.4" to chart4,
+        "chart.5" to chart5, "chart.6" to chart6, "heat.0" to heat0, "heat.1" to heat1,
+        "heat.2" to heat2, "heat.3" to heat3, "heat.4" to heat4, "shadow.color" to shadowColor,
+    )
 }
 
 object MobileLayout {
@@ -185,7 +206,7 @@ object MobileLayout {
     val messageAvatar = 32.dp
     val fab = 56.dp
     val minimumTouchTarget = 48.dp
-    val sheetTopRadius = 28.dp
+    val sheetTopRadius = 20.dp
     val primaryButtonHeight = 48.dp
 }
 
@@ -197,6 +218,7 @@ data class MobilePalette(
     val success: Color, val successSoft: Color, val warning: Color, val warningSoft: Color,
     val danger: Color, val dangerSoft: Color, val review: Color, val reviewSoft: Color,
     val borderDefault: Color, val borderSubtle: Color, val codeBg: Color,
+    val tokenColors: Map<String, Color> = emptyMap(),
 )
 val LocalMobilePalette = compositionLocalOf {
     MobilePalette(Color(0xFFFBFBFA), Color(0xFFF3F3F1), Color(0xFFF7F7F5), Color(0xFFEFEFEB), Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0xFF1C1C1E), Color(0xFF6E6E73), Color(0xFFA1A1A6), Color(0xFF4A6A9B), Color(0x1F4A6A9B), Color(0xFFFFFFFF), Color(0xFF1C1C1E), Color(0xFFDDE5F0), Color(0xFF1C1C1E), Color(0xFF3E8E66), Color(0x1F3E8E66), Color(0xFFB7812C), Color(0x21B7812C), Color(0xFFB9533F), Color(0x1CB9533F), Color(0xFF7B65A8), Color(0x1F7B65A8), Color(0x1A141418), Color(0x0F141418), Color(0x0D141418))
@@ -204,19 +226,52 @@ val LocalMobilePalette = compositionLocalOf {
 
 val LocalSystemAnimationsEnabled = compositionLocalOf { true }
 
+/** Android translation of design/tokens.json motion values. */
+object DesignMotion {
+    const val instantMillis = 80
+    const val fastMillis = 120
+    const val normalMillis = 200
+    const val slowMillis = 320
+    const val workingRotationMillis = 1200
+    const val reducedMotionFadeMillis = 120
+    val standard = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+    val decelerate = CubicBezierEasing(0f, 0f, 0f, 1f)
+    val accelerate = CubicBezierEasing(0.3f, 0f, 1f, 1f)
+    const val sheetSpringStiffness = 380f
+    const val sheetSpringDamping = 34f
+}
+
+/** Shadow geometry and semantic border token from design/tokens.json elevation levels. */
+data class ElevationToken(
+    val offsetY: androidx.compose.ui.unit.Dp,
+    val blur: androidx.compose.ui.unit.Dp,
+    val borderWidth: androidx.compose.ui.unit.Dp,
+    val borderToken: String?,
+    val fixedShadowColor: Color? = null,
+    val useThemeShadowColor: Boolean = false,
+)
+
+object DesignElevation {
+    val level0 = ElevationToken(0.dp, 0.dp, 0.dp, null)
+    val level1 = ElevationToken(1.dp, 2.dp, 0.dp, null, fixedShadowColor = Color(0x0F000000))
+    val level2 = ElevationToken(2.dp, 8.dp, 0.5.dp, "border.subtle", useThemeShadowColor = true)
+    val level3 = ElevationToken(8.dp, 24.dp, 0.5.dp, "border.default", useThemeShadowColor = true)
+    val level4 = ElevationToken(20.dp, 60.dp, 0.5.dp, "border.default", useThemeShadowColor = true)
+}
+
 private fun palette(dark: Boolean, translucent: Boolean): MobilePalette {
-    val base = if (dark) DesignTokens.dark else emptyMap()
-    val overlay = if (translucent) if (dark) DesignTokens.translucentDark else DesignTokens.translucentLight else emptyMap()
+    val base = if (dark) DesignTokens.dark else DesignTokens.light
+    val overlay = if (translucent && platformBackdropBlurSupported()) if (dark) DesignTokens.translucentDark else DesignTokens.translucentLight else emptyMap()
     fun value(key: String, light: Color): Color = overlay[key] ?: base[key] ?: light
     return MobilePalette(
-        value("bg.window", DesignTokens.bgWindow), value("bg.sidebar", DesignTokens.bgSidebar), value("bg.panel", DesignTokens.bgPanel), value("bg.chat", DesignTokens.bgChat), value("bg.elevated", DesignTokens.bgElevated), value("bg.input", DesignTokens.bgInput), value("text.primary", DesignTokens.textPrimary), value("text.secondary", DesignTokens.textSecondary), value("text.tertiary", DesignTokens.textTertiary), value("accent", DesignTokens.accent), value("accent.soft", DesignTokens.accentSoft), value("bubble.in", DesignTokens.bubbleIn), value("bubble.in.text", DesignTokens.bubbleInText), value("bubble.out", DesignTokens.bubbleOut), value("bubble.out.text", DesignTokens.bubbleOutText), value("success", DesignTokens.success), value("success.soft", DesignTokens.successSoft), value("warning", DesignTokens.warning), value("warning.soft", DesignTokens.warningSoft), value("danger", DesignTokens.danger), value("danger.soft", DesignTokens.dangerSoft), value("review", DesignTokens.review), value("review.soft", DesignTokens.reviewSoft), value("border.default", DesignTokens.borderDefault), value("border.subtle", DesignTokens.borderSubtle), value("code.bg", DesignTokens.codeBg)
+        value("bg.window", DesignTokens.bgWindow), value("bg.sidebar", DesignTokens.bgSidebar), value("bg.panel", DesignTokens.bgPanel), value("bg.chat", DesignTokens.bgChat), value("bg.elevated", DesignTokens.bgElevated), value("bg.input", DesignTokens.bgInput), value("text.primary", DesignTokens.textPrimary), value("text.secondary", DesignTokens.textSecondary), value("text.tertiary", DesignTokens.textTertiary), value("accent", DesignTokens.accent), value("accent.soft", DesignTokens.accentSoft), value("bubble.in", DesignTokens.bubbleIn), value("bubble.in.text", DesignTokens.bubbleInText), value("bubble.out", DesignTokens.bubbleOut), value("bubble.out.text", DesignTokens.bubbleOutText), value("success", DesignTokens.success), value("success.soft", DesignTokens.successSoft), value("warning", DesignTokens.warning), value("warning.soft", DesignTokens.warningSoft), value("danger", DesignTokens.danger), value("danger.soft", DesignTokens.dangerSoft), value("review", DesignTokens.review), value("review.soft", DesignTokens.reviewSoft), value("border.default", DesignTokens.borderDefault), value("border.subtle", DesignTokens.borderSubtle), value("code.bg", DesignTokens.codeBg), tokenColors = base + overlay
     )
 }
 
 @Composable
 fun MacBotTheme(mode: String, content: @Composable () -> Unit) {
     val systemDark = isSystemInDarkTheme()
-    val translucent = mode.startsWith("translucent")
+    val translucent = mode.startsWith("translucent") && platformBackdropBlurSupported()
     val dark = when (mode) {
         "dark", "translucent_dark" -> true
         "light", "translucent_light" -> false
@@ -245,14 +300,14 @@ fun MacBotTheme(mode: String, content: @Composable () -> Unit) {
         MaterialTheme(
             colorScheme = scheme,
             typography = androidx.compose.material3.Typography(
-                displayLarge = TextStyle(fontSize = 34.sp, lineHeight = 41.sp, fontWeight = FontWeight.Bold, color = p.textPrimary),
-                headlineLarge = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, color = p.textPrimary),
-                headlineMedium = TextStyle(fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold, color = p.textPrimary),
+                displayLarge = TextStyle(fontSize = 34.sp, lineHeight = 41.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp, color = p.textPrimary),
+                headlineLarge = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp, color = p.textPrimary),
+                headlineMedium = TextStyle(fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp, color = p.textPrimary),
                 bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, color = p.textPrimary),
                 bodyMedium = TextStyle(fontSize = 15.sp, lineHeight = 21.sp, color = p.textPrimary),
                 bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, color = p.textSecondary),
                 titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Medium, color = p.textPrimary),
-                titleMedium = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, color = p.textPrimary),
+                titleMedium = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp, color = p.textPrimary),
                 titleSmall = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = p.textPrimary),
                 labelLarge = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, color = p.textPrimary),
                 labelSmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, color = p.textSecondary),

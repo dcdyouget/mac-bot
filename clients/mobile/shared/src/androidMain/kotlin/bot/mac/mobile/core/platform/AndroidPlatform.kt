@@ -72,6 +72,10 @@ actual fun platformPersistentStore(): PersistentStore = AndroidPersistentStore(r
 actual fun platformFilePicker(): FilePicker = AndroidFilePicker()
 actual fun platformScreenImageDecoder(): ScreenImageDecoder = AndroidScreenImageDecoder()
 
+// Android blur-behind APIs only blur other windows; they cannot blur surfaces
+// within this single Activity, so design tokens require the opaque fallback.
+actual fun platformBackdropBlurSupported(): Boolean = false
+
 @Composable
 actual fun platformAnimationsEnabled(): Boolean {
     val context = LocalContext.current

@@ -15,6 +15,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -335,9 +336,20 @@ import org.jetbrains.compose.resources.stringResource
 @Composable private fun ChatRow(chat:JsonObject,state:MobileState,onChat:(String)->Unit,repository:ClientRepository) {
     val bot=state.bots.firstOrNull { it.str("id")==chat.str("bot_id") }
     val attention=chat.str("attention")
-    val attentionLabel = stringResource(Res.string.feature_attention_banner)
     val pendingApproval = state.approvals.firstOrNull { it.str("chat_id") == chat.str("id") && it.str("state") == "pending" }
     val pendingQuestion = state.questions.firstOrNull { it.str("chat_id") == chat.str("id") && it.str("state") == "pending" }
+    val attentionLabel = when {
+        pendingApproval != null -> stringResource(Res.string.chat_attention_approval, pendingApproval.str("summary").ifBlank { pendingApproval.str("tool") })
+        pendingQuestion != null -> stringResource(Res.string.chat_attention_question, pendingQuestion.str("text"))
+        attention == "review" -> stringResource(Res.string.chat_attention_review)
+        attention == "blocked" -> stringResource(Res.string.chat_attention_blocked)
+        attention == "working" -> stringResource(Res.string.chat_attention_working)
+        chat.long("unread") > 0 -> stringResource(Res.string.chat_attention_unread, chat.long("unread").toInt())
+        attention.isBlank() || attention == "idle" -> stringResource(Res.string.chat_attention_idle)
+        else -> stringResource(Res.string.chat_attention_other)
+    }
+    val rowDescription = stringResource(Res.string.chat_row_accessibility, chat.str("title"), attentionLabel)
+    val moreLabel = stringResource(Res.string.feature_more_accessibility)
     var menu by remember { mutableStateOf(false) }
     var rowError by remember { mutableStateOf<String?>(null) }
     var swipeOffset by remember(chat.str("id")) { mutableStateOf(0f) }
@@ -406,7 +418,7 @@ import org.jetbrains.compose.resources.stringResource
     ) {
         BotAvatar(repository,bot,chat.str("kind")=="main",bot?.obj("status")?.str("summary") ?: attention)
         Column(Modifier.weight(1f)) {
-            Text(chat.str("title"),style=MaterialTheme.typography.titleMedium)
+            Text(chat.str("title"),style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.semantics { contentDescription = rowDescription })
             pendingApproval?.let { approval ->
                 Text("⚠ ${stringResource(Res.string.feature_approval)} · ${approval.str("summary").ifBlank { approval.str("tool") }}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
             } ?: pendingQuestion?.let { question ->
@@ -420,13 +432,13 @@ import org.jetbrains.compose.resources.stringResource
                     "⚠", color=LocalMobilePalette.current.warning,
                     modifier=Modifier.semantics { contentDescription = attentionLabel },
                 )
-                attention == "review" -> Text("◎", color=LocalMobilePalette.current.review)
-                attention == "blocked" -> Text("!", color=LocalMobilePalette.current.danger)
-                attention == "working" -> Text("⟳", color=LocalMobilePalette.current.accent)
-                chat.long("unread") > 0 -> Badge(containerColor = if (chat.boolean("muted")) LocalMobilePalette.current.textTertiary else MaterialTheme.colorScheme.error) { Text(chat.long("unread").toString()) }
+                attention == "review" -> Text("◎", color=LocalMobilePalette.current.review, modifier=Modifier.semantics { contentDescription = attentionLabel })
+                attention == "blocked" -> Text("!", color=LocalMobilePalette.current.danger, modifier=Modifier.semantics { contentDescription = attentionLabel })
+                attention == "working" -> Text("⟳", color=LocalMobilePalette.current.accent, modifier=Modifier.semantics { contentDescription = attentionLabel })
+                chat.long("unread") > 0 -> Badge(containerColor = if (chat.boolean("muted")) LocalMobilePalette.current.textTertiary else MaterialTheme.colorScheme.error) { Text(chat.long("unread").toString(), modifier=Modifier.semantics { contentDescription = attentionLabel }) }
             }
         }
-        Box { TextButton(onClick={menu=true}) { Text("⋮") }; DropdownMenu(menu,{menu=false}) {
+        Box { TextButton(onClick={menu=true}, modifier=Modifier.semantics { contentDescription = moreLabel }) { Text("⋮") }; DropdownMenu(menu,{menu=false}) {
             DropdownMenuItem(text={Text(stringResource(if (chat.boolean("pinned")) Res.string.chat_unpin else Res.string.chat_pin))},onClick={menu=false;scope.launch{runCatching{repository.call("chat.set_pinned",buildJsonObject{put("chat_id",chat.str("id"));put("pinned",!chat.boolean("pinned"))})}}})
             DropdownMenuItem(text={Text(stringResource(if (chat.boolean("muted")) Res.string.chat_unmute else Res.string.chat_mute))},onClick={menu=false;scope.launch{runCatching{repository.call("chat.set_muted",buildJsonObject{put("chat_id",chat.str("id"));put("muted",!chat.boolean("muted"))})}}})
             chat.str("project_id").takeIf { it.isNotBlank() }?.let { projectId ->

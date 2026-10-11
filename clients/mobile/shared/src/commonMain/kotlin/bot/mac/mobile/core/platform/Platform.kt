@@ -49,6 +49,9 @@ expect fun platformPersistentStore(): PersistentStore
 expect fun platformFilePicker(): FilePicker
 expect fun platformScreenImageDecoder(): ScreenImageDecoder
 
+/** False when the platform cannot blur content behind surfaces in this app window. */
+expect fun platformBackdropBlurSupported(): Boolean
+
 /** Mirrors the system animation preference, including Android's reduced-motion setting. */
 @Composable
 expect fun platformAnimationsEnabled(): Boolean

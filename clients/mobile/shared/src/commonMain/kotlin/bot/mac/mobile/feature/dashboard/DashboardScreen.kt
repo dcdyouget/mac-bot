@@ -52,6 +52,7 @@ import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.ui.MotionAwareLinearProgressIndicator
 import bot.mac.mobile.core.platform.PickedFile
 import bot.mac.mobile.core.platform.exportFile
 import bot.mac.mobile.core.state.MobileRepository
@@ -167,7 +168,7 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
             IconButton(onClick = { reload() }, modifier = Modifier.semantics { contentDescription = refreshLabel }) { Text("↻", color = MaterialTheme.colorScheme.primary) }
         }
         HorizontalDivider()
-        if (loading) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (loading) MotionAwareLinearProgressIndicator(Modifier.fillMaxWidth())
         loadError?.let { Text(stringResource(Res.string.dashboard_error, it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) }
         androidx.compose.foundation.lazy.LazyColumn(
             Modifier.fillMaxSize().padding(horizontal = 12.dp),

@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.protocol.arr
@@ -163,7 +164,7 @@ private fun BotRow(repository: MobileRepository, bot: JsonObject, onOpen: (Strin
             BotAvatar(repository, bot, main = bot.boolean("is_main"), status = status?.str("summary").orEmpty())
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(bot.str("name").ifBlank { id }, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+        Text(bot.str("name").ifBlank { id }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(bot.str("label").ifBlank { bot.str("description") }, style = MaterialTheme.typography.bodySmall, maxLines = 1)
         }
         Column(horizontalAlignment = Alignment.End) {
@@ -326,7 +327,7 @@ fun BotEditorScreen(
     }
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth()) { Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }; Text(if (botId == null) stringResource(Res.string.feature_new_bot) else stringResource(Res.string.feature_edit), Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge) }
-        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_name)) })
+        OutlinedTextField(name, { name = it.take(16) }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_name)) }, supportingText = { Text(stringResource(Res.string.feature_name_max_length, 16)) })
         OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_label)) })
         OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), minLines = 3, label = { Text(stringResource(Res.string.feature_description)) })
         OutlinedTextField(model, { model = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.feature_model_optional)) })

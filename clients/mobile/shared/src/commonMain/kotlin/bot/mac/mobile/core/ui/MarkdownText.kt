@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.platform.openExternalUrl
+import bot.mac.mobile.core.design.DesignTokens
 import bot.mac.mobile.resources.Res
 import bot.mac.mobile.resources.markdown_copy
 import kotlinx.coroutines.launch
@@ -123,8 +124,7 @@ private fun MarkdownCodeBlock(code: String, language: String, background: Color)
         SelectionContainer {
             Text(
                 text = code,
-                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = DesignTokens.mobileMono.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
             )
         }
     }
