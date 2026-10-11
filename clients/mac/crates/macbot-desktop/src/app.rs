@@ -2247,7 +2247,18 @@ impl MacBot {
                 .px_2()
                 .text_xs()
                 .text_color(t.secondary)
-                .child(tr("nav.groups")),
+                .child(
+                    tr("sidebar.section.groups").to_string().replace(
+                        "{count}",
+                        &self
+                            .state
+                            .chats
+                            .values()
+                            .filter(|chat| s(chat, "kind") == "project")
+                            .count()
+                            .to_string(),
+                    ),
+                ),
         );
         let mut groups: Vec<_> = self
             .state
@@ -2287,7 +2298,7 @@ impl MacBot {
                     .py_2()
                     .text_xs()
                     .text_color(t.secondary)
-                    .child(tr("nav.empty_group")),
+                    .child(tr("sidebar.empty_groups")),
             );
         }
         if done > 0 {
@@ -2295,7 +2306,7 @@ impl MacBot {
                 Button::new("completed")
                     .ghost()
                     .small()
-                    .label(format!("{} {done}", tr("nav.done")))
+                    .label(format!("{} {done}", tr("sidebar.completed")))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.show_completed = !this.show_completed;
                         cx.notify();
@@ -2309,7 +2320,18 @@ impl MacBot {
                 .px_2()
                 .text_xs()
                 .text_color(t.secondary)
-                .child(tr("nav.bots")),
+                .child(
+                    tr("sidebar.section.bots").to_string().replace(
+                        "{count}",
+                        &self
+                            .state
+                            .bots
+                            .values()
+                            .filter(|bot| bot["is_main"] != true && bot["hidden"] != true)
+                            .count()
+                            .to_string(),
+                    ),
+                ),
         );
         for bot in self.state.bots.values().filter(|v| v["is_main"] != true) {
             if bot["hidden"] == true && !self.show_hidden {
@@ -2331,7 +2353,11 @@ impl MacBot {
                 Button::new("hidden")
                     .ghost()
                     .small()
-                    .label(format!("{} {hidden}", tr("nav.hidden")))
+                    .label(
+                        tr("sidebar.hidden_bots")
+                            .to_string()
+                            .replace("{count}", &hidden.to_string()),
+                    )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.show_hidden = !this.show_hidden;
                         cx.notify();
@@ -2356,7 +2382,7 @@ impl MacBot {
         for (key, title_key, icon) in [
             ("workbench", "nav.workbench", IconName::LayoutDashboard),
             ("dashboard", "nav.dashboard", IconName::LayoutDashboard),
-            ("routines", "routines.title", IconName::Calendar),
+            ("routines", "nav.routines", IconName::Calendar),
             ("skills", "nav.skills", IconName::Star),
             ("settings", "nav.settings", IconName::Settings),
         ] {
@@ -2390,13 +2416,14 @@ impl MacBot {
                         Button::new("host-switch")
                             .ghost()
                             .label(host)
+                            .tooltip(tr("host.switch.title"))
                             .on_click(cx.listener(|this, _, _, cx| this.navigate("connect", cx))),
                     )
                     .child(
                         Button::new("new")
                             .ghost()
                             .icon(IconName::Plus)
-                            .tooltip(tr("nav.new"))
+                            .tooltip(tr("common.new"))
                             .on_click(cx.listener(|this, _, _, cx| this.navigate("new", cx))),
                     ),
             )
@@ -2404,7 +2431,7 @@ impl MacBot {
                 Button::new("search")
                     .ghost()
                     .icon(IconName::Search)
-                    .label(tr("nav.search"))
+                    .label(tr("common.search"))
                     .on_click(cx.listener(|this, _, _, cx| this.navigate("search", cx))),
             )
             .child(list)
@@ -2494,15 +2521,19 @@ impl MacBot {
                                 div()
                                     .text_2xl()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child(tr("connect.welcome")),
+                                    .child(tr("onboarding.welcome")),
                             )
-                            .child(div().text_color(t.secondary).child(tr("connect.title")))
-                            .child(field("connect.address", &self.address))
+                            .child(
+                                div()
+                                    .text_color(t.secondary)
+                                    .child(tr("onboarding.connect_subtitle")),
+                            )
+                            .child(field("host.field.address", &self.address))
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(t.secondary)
-                                    .child(tr("connect.hint")),
+                                    .child(tr("host.field.address_hint")),
                             )
                             .when(
                                 self.hosts
@@ -2514,7 +2545,7 @@ impl MacBot {
                                             .flex()
                                             .flex_col()
                                             .gap_1()
-                                            .child(tr("connect.saved"))
+                                            .child(tr("host.switch.title"))
                                             .children(
                                                 self.hosts.as_ref().unwrap().hosts().iter().map(
                                                     |host| {
@@ -2536,15 +2567,15 @@ impl MacBot {
                                     )
                                 },
                             )
-                            .child(field("connect.password", &self.password))
-                            .child(field("connect.name", &self.host_name))
+                            .child(field("host.field.password", &self.password))
+                            .child(field("host.field.name", &self.host_name))
                             .child(
                                 Button::new("connect")
                                     .primary()
                                     .label(tr(if self.connecting {
                                         "connect.connecting"
                                     } else {
-                                        "connect.action"
+                                        "host.connect"
                                     }))
                                     .loading(self.connecting)
                                     .on_click(cx.listener(|this, _, _, cx| this.connect(cx))),
@@ -2553,7 +2584,7 @@ impl MacBot {
                                 div()
                                     .text_xs()
                                     .text_color(t.secondary)
-                                    .child(tr("connect.saved")),
+                                    .child(tr("host.manage")),
                             )
                             .children(
                                 self.hosts
@@ -2594,7 +2625,7 @@ impl MacBot {
                             .child(
                                 Button::new("add-host")
                                     .ghost()
-                                    .label(tr("connect.add"))
+                                    .label(tr("host.add"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.active_host = None;
                                         this.address
@@ -2625,14 +2656,14 @@ impl MacBot {
                                 div()
                                     .text_lg()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child(tr("connect.main")),
+                                    .child(tr("onboarding.meet_main")),
                             )
-                            .child(tr("connect.description"))
+                            .child(tr("onboarding.meet_main_desc"))
                             .child(
                                 div()
                                     .mt_6()
                                     .text_color(t.secondary)
-                                    .child(tr("connect.team")),
+                                    .child(tr("onboarding.footer")),
                             )
                             .children(self.templates.iter().map(|template| {
                                 let id = s(template, "id").to_string();
