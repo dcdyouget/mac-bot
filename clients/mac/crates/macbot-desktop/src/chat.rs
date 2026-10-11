@@ -602,6 +602,11 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.main.subtitle" => "主 Bot · 只协调，不干活",
         "chat.bot.subtitle" => "{label} · 工作中 {count} 个活",
         "chat.group.subtitle" => "{count} 位成员",
+        "onboarding.empty.title" => "你好，我是总管",
+        "onboarding.empty.desc" => "把要做的事交给我：需要几个 Bot 配合的，我会拉群分工，做完提醒你验收；小事我直接转给合适的 Bot。",
+        "onboarding.suggest.login" => "帮我给 App 加个登录",
+        "onboarding.suggest.research" => "调研 3 个竞品",
+        "onboarding.suggest.daily" => "每天 9 点给我发晨报",
         "chat.composer.placeholder.dm" => "给 {name} 发消息…",
         "chat.composer.placeholder.group" => "在 {group} 里发消息，@ 指定 Bot…",
         "chat.composer.placeholder.offline" => "已断开，正在重连…",
@@ -1969,22 +1974,75 @@ impl MacBot {
             );
         }
         if message_count == 0 {
-            contents = contents.child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap(px(t.space[5]))
-                    .items_center()
-                    .justify_center()
-                    .text_color(t.secondary)
-                    .child(tr("chat.empty"))
-                    .child(
-                        div()
-                            .text_size(px(t.desktop_type[1][0]))
-                            .child(tr("chat.empty_hint")),
-                    ),
-            );
+            if s(&chat, "kind") == "main" {
+                let suggestions = [
+                    "onboarding.suggest.login",
+                    "onboarding.suggest.research",
+                    "onboarding.suggest.daily",
+                ];
+                let buttons = suggestions.into_iter().enumerate().map(|(index, key)| {
+                    let text = chat_tr(key).to_string();
+                    let draft_chat = self.selected_chat.clone();
+                    Button::new(format!("onboarding-suggestion-{index}"))
+                        .secondary()
+                        .label(text.clone())
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.composer
+                                .update(cx, |input, cx| input.set_value(text.clone(), window, cx));
+                            this.drafts.insert(draft_chat.clone(), text.clone());
+                            cx.notify();
+                        }))
+                });
+                contents = contents.child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap(px(t.space[5]))
+                        .items_center()
+                        .justify_center()
+                        .child(super::bean(&bot, 96., cx))
+                        .child(
+                            div()
+                                .text_size(px(t.desktop_type[7][0]))
+                                .text_color(t.primary)
+                                .child(chat_tr("onboarding.empty.title")),
+                        )
+                        .child(
+                            div()
+                                .max_w(px(380.))
+                                .text_size(px(t.desktop_type[2][0]))
+                                .text_color(t.secondary)
+                                .child(chat_tr("onboarding.empty.desc")),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .justify_center()
+                                .gap(px(t.space[2]))
+                                .mt(px(t.space[2]))
+                                .children(buttons),
+                        ),
+                );
+            } else {
+                contents = contents.child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap(px(t.space[5]))
+                        .items_center()
+                        .justify_center()
+                        .text_color(t.secondary)
+                        .child(tr("chat.empty"))
+                        .child(
+                            div()
+                                .text_size(px(t.desktop_type[1][0]))
+                                .child(tr("chat.empty_hint")),
+                        ),
+                );
+            }
         } else {
             contents = contents.child(list);
         }
