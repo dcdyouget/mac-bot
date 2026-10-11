@@ -115,7 +115,7 @@
     <string name="feature_theme_dark">深色</string>
     <string name="feature_theme_system">跟随系统</string>
     <string name="feature_translucent">半透明材质</string>
-    <string name="feature_translucent_unavailable">当前设备不支持背景模糊，已使用半透明底色</string>
+    <string name="feature_translucent_android_note">Android 未提供与 macOS“降低透明度”等价的公开开关。Android 12+ 的跨窗口模糊不适用于当前应用内界面；半透明模式仅调整配色，系统栏保持不透明。</string>
     <string name="feature_notification_sound">提示音</string>
     <string name="feature_dark_mode">深色模式</string>
     <string name="feature_notifications">通知</string>

@@ -85,14 +85,12 @@ class MainActivity : ComponentActivity() {
                 Configuration.UI_MODE_NIGHT_YES
             val dark = theme == "dark" || theme == "translucent_dark" ||
                 (theme == "system" || theme == "translucent_system") && systemDark
-            val translucent = theme.startsWith("translucent")
-            DisposableEffect(dark, translucent) {
-                val barColor = when {
-                    translucent && dark -> Color(0xB2141416)
-                    translucent -> Color(0x94F3F3F1)
-                    dark -> Color(0xFF18181A)
-                    else -> Color(0xFFFBFBFA)
-                }
+            // Android's public blur APIs operate across windows. This Activity is a
+            // regular, non-floating Compose window, so applying a translucent system
+            // bar here would expose an unblurred background. Keep system bars opaque;
+            // the in-app theme remains controlled by the user's selected mode.
+            DisposableEffect(dark) {
+                val barColor = if (dark) Color(0xFF18181A) else Color(0xFFFBFBFA)
                 window.statusBarColor = barColor.toArgb()
                 window.navigationBarColor = barColor.toArgb()
                 if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false

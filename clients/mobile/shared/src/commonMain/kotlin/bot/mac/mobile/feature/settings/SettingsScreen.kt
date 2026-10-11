@@ -142,7 +142,7 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                     scope.launch { clientRepository?.setTheme(if (enabled) "translucent_$base" else base) }
                 }
                 if (themeMode.startsWith("translucent")) {
-                    Text(stringResource(Res.string.feature_translucent_unavailable), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(Res.string.feature_translucent_android_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 SettingSwitch(stringResource(Res.string.feature_notification_sound), notificationSound) {
                     notificationSound = it
