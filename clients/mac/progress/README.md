@@ -1,6 +1,5 @@
 # client-mac 阶段证据
 
-S0 正式两端会话列表验收见 `../../../docs/progress/S0/main-eb088fa-desktop-sessions.png` 与根目录 COORDINATION.md。
 
 S1–S5 的窗口截图来自隔离 `MacBotQA`（独立 bundle、file 后端、数据根和 7790 mock），属于客户端开发验收。来源 SHA、窗口 PID、服务来源、图片摘要和断言见 [verification.json](verification.json)。mock 与真实服务的阶段联合验收分开记录。
 

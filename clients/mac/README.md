@@ -12,7 +12,7 @@
 
 macOS App 注册 `macbot://` URL scheme。消息链接格式为 `macbot://message/<message_id>?chat_id=<chat_id>&host_id=<node_id>`；打开后，客户端等待 Host 连接并核对 `host_id`，匹配时加载会话历史并定位消息，不匹配时显示提示且不会跳到其他 Host。链接在连接前到达时会排队；客户端通过 `chat.history.before_seq` 最多向前加载 20 页（最多 2,000 条），找到消息、到达历史起点或达到上限时结束并显示对应状态。此 scheme 由打包后的 `.app` 的 `Info.plist` 注册，直接运行可执行文件不会向系统注册。
 
-S0 已在 main 安装版完成桌面与 Android 的 mock 联调。客户端已接入私聊、全部消息块、轨迹、群协作、工作台、Bot 管理、技能、仪表盘、搜索、Agent Computer 和定时任务。后续阶段的客户端原生验收证据见 `progress/S1` 至 `progress/S5`；真实模型执行和两端场景验收由集成线依赖服务端推进。自动更新未配置 manifest URL 时为 disabled；本地产出的 DMG 已通过独立目录内的安装替换测试，公开发布源与签名尚未配置。
+S0 已在 main 安装版完成桌面与 Android 的 mock 联调。客户端已接入私聊、全部消息块、轨迹、群协作、工作台、Bot 管理、技能、仪表盘、搜索、Agent Computer 和定时任务。后续阶段的客户端原生验收证据见 `progress/S1` 至 `progress/S5`。自动更新未配置 manifest URL 时为 disabled；本地产出的 DMG 已通过独立目录内的安装替换测试，公开发布源与签名尚未配置。
 
 ## 编译、测试和检查
 
@@ -25,7 +25,7 @@ cargo test --workspace
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-上述命令是集成线的验证入口；本 README 不宣称它们在每次改动后都已运行通过。
+本 README 不宣称上述命令在每次改动后都已运行通过。
 
 仅做编译静态检查（不运行测试）：
 
@@ -62,7 +62,7 @@ MACBOT_SOURCE_COMMIT=<完整源码SHA> packaging/package.sh debug app  # 干净 
 open dist/MacBot.app
 ```
 
-打包支持无 `.git` 的干净 archive；集成线用 `MACBOT_SOURCE_COMMIT` 显式传入快照 SHA，写入 `Contents/Resources/source-commit`。普通 worktree 自动记录 HEAD 与未提交源码标记；没有 SHA 时写 `unknown`，不会阻断打包。
+打包支持无 `.git` 的干净 archive；可以用 `MACBOT_SOURCE_COMMIT` 显式传入快照 SHA，写入 `Contents/Resources/source-commit`。普通 worktree 自动记录 HEAD 与未提交源码标记；没有 SHA 时写 `unknown`，不会阻断打包。
 
 打包默认对完整 App 使用本机 ad hoc 签名；可用 `CODESIGN_IDENTITY="Developer ID Application: ..." packaging/package.sh release all` 指定签名身份。所有 fixtures、源码标记和 Info.plist 写入后才签名，并在生成 DMG 前对 App 及复制后的 bundle 执行 `codesign --verify --deep --strict`，失败时停止打包。`MACBOT_ADHOC_SIGN=1` 旧调用仍兼容默认行为。`Info.plist` 的 Bundle ID 是 `bot.mac.desktop`，可执行文件名是 `macbot-desktop`。
 
@@ -93,7 +93,7 @@ packaging/screenshot-window.sh progress/S5/connect.png "Mac Bot" 12345
 
 更新清单使用下面的 JSON 结构，`sha256` 必须是下载文件的完整 SHA-256。更新地址和 artifact 地址默认只允许 HTTPS；本机联调允许 `http://localhost`、`http://127.0.0.1` 或 `http://[::1]`。没有设置 `MACBOT_UPDATE_URL` 时检查状态为 `disabled`，这是预期的未配置状态。
 
-设置页保存的更新源写入 `~/Library/Application Support/MacBot/update.json`（权限 0600）；独立 QA 设置 `MACBOT_CLIENT_DATA_DIR` 时改用该目录下的 `update.json`。`MACBOT_UPDATE_URL` 存在时优先使用环境变量，适合集成线临时覆盖。远程 HTTP、无效 JSON、非 64 位十六进制摘要都会被拒绝。
+设置页保存的更新源写入 `~/Library/Application Support/MacBot/update.json`（权限 0600）；独立 QA 设置 `MACBOT_CLIENT_DATA_DIR` 时改用该目录下的 `update.json`。`MACBOT_UPDATE_URL` 存在时优先使用环境变量，适合临时覆盖。远程 HTTP、无效 JSON、非 64 位十六进制摘要都会被拒绝。
 
 ```json
 {
@@ -120,11 +120,11 @@ MACBOT_TEST_UPDATE_DMG="$PWD/dist/MacBot.dmg" \
 
 该测试只在显式设置 `MACBOT_TEST_UPDATE_DMG` 时执行，验证 SHA-256、Bundle ID、版本、原子替换和旧 bundle 备份；不会触碰 `~/Applications` 或工作树应用。独立替换测试已验证本机实际 DMG，测试模式跳过重新打开 GUI；公开源下载和真实安装版重启仍由发布集成验收。
 
-当前状态：`.app`/`.dmg` 打包、DMG 安装脚本、manifest 校验、截图入口和设置页更新入口已集成；更新地址尚未发布时保持 `MACBOT_UPDATE_URL` 未配置，检查结果为 `disabled`。README 中的命令用于独立验证配置和脚本，真实发布验收由集成线执行。
+当前状态：`.app`/`.dmg` 打包、DMG 安装脚本、manifest 校验、截图入口和设置页更新入口已集成；更新地址尚未发布时保持 `MACBOT_UPDATE_URL` 未配置，检查结果为 `disabled`。README 中的命令用于独立验证配置和脚本。
 
 ## 原生验收与性能
 
-`progress/` 的开发窗口截图来自本 worktree；S0 正式安装证据由集成线归档于 `docs/progress/S0/`。独立 mock 测试使用已发布服务端 bundle、独立数据目录和 `127.0.0.1:7790`，不修改共享 `7789` 或 Android 会话。测试记录必须注明服务端 source commit、客户端 commit、窗口 PID 和连接地址。
+`progress/` 的开发窗口截图来自本 worktree；独立 mock 测试使用已发布服务端 bundle、独立数据目录和 `127.0.0.1:7790`，不修改共享 `7789` 或 Android 会话。测试记录必须注明服务端 source commit、客户端 commit、窗口 PID 和连接地址。
 
 消息与轨迹使用虚拟列表并测量可见行高度；Host 缓存按捕获顺序异步写入，断线待发消息保存稳定请求 ID。`macbot-client-core/examples/state_bench.rs` 提供大状态合并基准（`cargo run -p macbot-client-core --example state_bench --release`）；结果是状态层基准，不代表 GUI 帧率。
 
