@@ -2328,6 +2328,7 @@ async fn enqueue_steer_runtime(runtime: RuntimeExecution, result: &Value, params
     let text = params
         .get("text")
         .and_then(Value::as_str)
+        .or_else(|| result.pointer("/steer/text").and_then(Value::as_str))
         .unwrap_or_default()
         .to_owned();
     for _ in 0..40 {
@@ -3581,7 +3582,10 @@ impl crate::RpcBackend for ComposedBackend {
                     });
                 }
             }
-            let quote_mode = params.get("quote_mode").and_then(Value::as_str).unwrap_or("reply");
+            let quote_mode = params
+                .get("quote_mode")
+                .and_then(Value::as_str)
+                .unwrap_or("reply");
             let reply_to = if quote_mode == "reference" {
                 None
             } else {
@@ -3764,7 +3768,7 @@ impl crate::RpcBackend for ComposedBackend {
                 }
             }
         }
-        if matches!(method, "assignment.steer" | "steer") {
+        if matches!(method, "assignment.steer" | "steer" | "message.steer") {
             let runtime = self.runtime.clone();
             let params_for_task = params.clone();
             let result_for_task = result.clone();

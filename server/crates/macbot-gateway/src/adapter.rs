@@ -14,9 +14,9 @@ use macbot_browser::BrowserError;
 use macbot_durable::DurableRuntime;
 use macbot_orchestrator::{BotDmRoute, Orchestrator, OrchestratorSettings, UsageTotals};
 use macbot_protocol::{
-    Announcement, Approval, Assignment, Bot, BotDuplicateResult, Chat, Device, HeatmapResult,
-    Hello, Message, PendingItems, Project, Question, Routine, Settings, UsageBreakdownResult,
-    UsageSummaryResult, UsageTimeseriesResult,
+    Announcement, Approval, Assignment, Bot, BotDuplicateResult, Chat, Device, FileRef,
+    HeatmapResult, Hello, Message, PendingItems, Project, Question, Routine, Settings,
+    UsageBreakdownResult, UsageSummaryResult, UsageTimeseriesResult,
 };
 use macbot_providers::registry::{ProviderRegistry, RegistryError};
 use macbot_skills::BotSkillSettingsSnapshot;
@@ -1744,6 +1744,24 @@ impl ProductionBackend {
                     canonical = Value::Null;
                 }
             }
+            "message.steer" => {
+                if let Some(id) = result
+                    .get("assignment")
+                    .and_then(|value| value.get("id"))
+                    .and_then(Value::as_str)
+                {
+                    if let Some(mut assignment) = current("assignments", Some(id)) {
+                        normalize_assignment(&mut assignment);
+                        canonical["assignment"] = assignment;
+                    }
+                }
+                if let Some(id) = params.get("message_id").and_then(Value::as_str) {
+                    if let Ok((_, mut message)) = self.find_chat_message(id) {
+                        normalize_message(&mut message);
+                        canonical["message"] = message;
+                    }
+                }
+            }
             "send_msg" | "chat.send" | "chat.react" | "execution.steer.delivery" => {
                 let id = result
                     .get("message")
@@ -2129,7 +2147,9 @@ impl ProductionBackend {
             | "project.archive"
             | "project.reopen" => "project.updated",
             "assignment.create" | "assign" | "delegate" => "assignment.created",
-            "assignment.stop" | "assignment.steer" | "steer" => "assignment.updated",
+            "assignment.stop" | "assignment.steer" | "steer" | "message.steer" => {
+                "assignment.updated"
+            }
             "send_msg" | "chat.send" => "message.created",
             "chat.react" | "execution.steer.delivery" => "message.updated",
             "chat.set_pinned" | "chat.set_muted" => "chat.updated",
@@ -2265,28 +2285,52 @@ impl ProductionBackend {
             message: "announcement update result has no announcement".into(),
             details: None,
         })?;
-        let project_id = announcement.get("project_id").and_then(Value::as_str).ok_or_else(|| RpcError {
-            code: "internal".into(), message: "announcement has no project_id".into(), details: None,
-        })?;
-        let version = announcement.get("version").and_then(Value::as_u64).unwrap_or(1);
+        let project_id = announcement
+            .get("project_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "announcement has no project_id".into(),
+                details: None,
+            })?;
+        let version = announcement
+            .get("version")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
         let project_component = announcement_path_component(project_id);
         let path = format!("data/projects/{project_component}/announcement.json");
-        let previous = self.store.read_snapshot::<Value>(path.clone()).map_err(store_error)?;
-        if previous.as_ref().and_then(|value| value.get("version")).and_then(Value::as_u64).is_some_and(|old| old >= version) {
+        let previous = self
+            .store
+            .read_snapshot::<Value>(path.clone())
+            .map_err(store_error)?;
+        if previous
+            .as_ref()
+            .and_then(|value| value.get("version"))
+            .and_then(Value::as_u64)
+            .is_some_and(|old| old >= version)
+        {
             return Ok(());
         }
-        let updated_by = announcement.get("text_updated_by").cloned().unwrap_or_else(|| json!({"kind":"user"}));
-        let updated_at = announcement.get("text_updated_at").cloned().unwrap_or_else(|| json!(now()));
+        let updated_by = announcement
+            .get("text_updated_by")
+            .cloned()
+            .unwrap_or_else(|| json!({"kind":"user"}));
+        let updated_at = announcement
+            .get("text_updated_at")
+            .cloned()
+            .unwrap_or_else(|| json!(now()));
         let entry = json!({
             "text":announcement.get("text").and_then(Value::as_str).unwrap_or(""),
             "version":version,
             "updated_by":updated_by,
             "updated_at":updated_at
         });
-        self.store.append_jsonl(
-            format!("data/projects/{project_component}/announcement.log.jsonl"),
-            &entry,
-        ).map_err(store_error)?;
+        self.store
+            .append_jsonl(
+                format!("data/projects/{project_component}/announcement.log.jsonl"),
+                &entry,
+            )
+            .map_err(store_error)?;
         self.store.write_snapshot(path, &entry).map_err(store_error)
     }
 
@@ -2296,21 +2340,57 @@ impl ProductionBackend {
         result: &Value,
     ) -> Result<(), RpcError> {
         let announcement = result.get("announcement").ok_or_else(|| RpcError {
-            code: "internal".into(), message: "announcement update result has no announcement".into(), details: None,
+            code: "internal".into(),
+            message: "announcement update result has no announcement".into(),
+            details: None,
         })?;
-        let project_id = announcement.get("project_id").and_then(Value::as_str).ok_or_else(|| RpcError {
-            code: "internal".into(), message: "announcement has no project_id".into(), details: None,
-        })?;
-        let version = announcement.get("version").and_then(Value::as_u64).unwrap_or(1);
-        let project = self.orchestrator.rpc("project.get", json!({"project_id":project_id})).await.map_err(Self::error)?;
-        let chat_id = project.pointer("/project/chat_id").and_then(Value::as_str).ok_or_else(|| RpcError {
-            code: "internal".into(), message: "project has no chat_id".into(), details: None,
-        })?;
-        let updated_by = announcement.get("text_updated_by").cloned().unwrap_or_else(|| json!({"kind":"user"}));
+        let project_id = announcement
+            .get("project_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "announcement has no project_id".into(),
+                details: None,
+            })?;
+        let version = announcement
+            .get("version")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        let project = self
+            .orchestrator
+            .rpc("project.get", json!({"project_id":project_id}))
+            .await
+            .map_err(Self::error)?;
+        let chat_id = project
+            .pointer("/project/chat_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "project has no chat_id".into(),
+                details: None,
+            })?;
+        let updated_by = announcement
+            .get("text_updated_by")
+            .cloned()
+            .unwrap_or_else(|| json!({"kind":"user"}));
         let label = if updated_by.get("kind").and_then(Value::as_str) == Some("user") {
             "你".to_owned()
         } else {
-            updated_by.get("bot_id").and_then(Value::as_str).unwrap_or("Bot").to_owned()
+            let bot_id = updated_by
+                .get("bot_id")
+                .and_then(Value::as_str)
+                .unwrap_or("main");
+            self.orchestrator
+                .rpc("bot.get", json!({"bot_id":bot_id}))
+                .await
+                .ok()
+                .and_then(|value| {
+                    value
+                        .pointer("/bot/name")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .unwrap_or_else(|| "Bot".to_owned())
         };
         let text = format!("{label} 更新了公告");
         let message_id = format!("msg_announcement_{project_id}_{version}");
@@ -2340,7 +2420,9 @@ impl ProductionBackend {
             "message.created",
             json!({"message":message}),
         )? {
-            state.publish_event(event.seq, &event.event, event.data).await;
+            state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
         }
         Ok(())
     }
@@ -2962,7 +3044,8 @@ impl RpcBackend for ProductionBackend {
                     "project.create" => self.ensure_project_card(state, &value).await?,
                     "announcement.update" => {
                         self.persist_announcement_text(&value)?;
-                        self.ensure_announcement_updated_message(state, &value).await?;
+                        self.ensure_announcement_updated_message(state, &value)
+                            .await?;
                     }
                     "assignment.create" | "assign" | "delegate" => {
                         self.ensure_assignment_cards(state, &value, method).await?
@@ -3033,13 +3116,21 @@ impl RpcBackend for ProductionBackend {
             "announcement.update" => match self.orchestrator.rpc(method, params.clone()).await {
                 Ok(result) => result,
                 Err(error @ macbot_orchestrator::OrchestratorError::Conflict(_)) => {
-                    let project_id = params.get("project_id").and_then(Value::as_str).unwrap_or("");
-                    let current = self.orchestrator.rpc("project.get", json!({"project_id":project_id})).await.ok();
+                    let project_id = params
+                        .get("project_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let current = self
+                        .orchestrator
+                        .rpc("project.get", json!({"project_id":project_id}))
+                        .await
+                        .ok();
                     let announcement = current.and_then(|value| value.get("announcement").cloned());
                     return Err(RpcError {
                         code: "conflict".into(),
                         message: error.to_string(),
-                        details: announcement.map(|announcement| json!({"announcement":announcement})),
+                        details: announcement
+                            .map(|announcement| json!({"announcement":announcement})),
                     });
                 }
                 Err(error) => return Err(Self::error(error)),
@@ -3207,6 +3298,7 @@ impl RpcBackend for ProductionBackend {
         })?;
         let mut result = result;
         if method == "send_msg" {
+            append_link_preview_blocks(&mut result, &params)?;
             result = self.persist_client_message(&result)?;
         } else if method == "chat.send" {
             let canonical = self.persist_client_message(&result["message"])?;
@@ -3234,7 +3326,8 @@ impl RpcBackend for ProductionBackend {
             if method == "project.create" {
                 self.ensure_project_card(state, &result).await?;
             } else if method == "announcement.update" {
-                self.ensure_announcement_updated_message(state, &result).await?;
+                self.ensure_announcement_updated_message(state, &result)
+                    .await?;
             }
             if matches!(method, "assignment.create" | "assign" | "delegate") {
                 self.ensure_assignment_cards(state, &result, method).await?;
@@ -4869,24 +4962,60 @@ impl ProductionBackend {
             })?;
         let attachment_blocks = self.attachment_blocks(&params)?;
         let mut mentions = self.expand_chat_mentions(chat_id, &params).await?;
-        let quote_id = params.get("quote").or_else(|| params.get("reply_to")).and_then(Value::as_str);
+        let quote_id = params
+            .get("quote")
+            .or_else(|| params.get("reply_to"))
+            .and_then(Value::as_str);
+        if quote_id.is_some() {
+            if let Some(mode) = params.get("quote_mode").and_then(Value::as_str) {
+                if !matches!(mode, "reply" | "reference") {
+                    return Err(RpcError {
+                        code: "invalid_argument".into(),
+                        message: "quote_mode must be reply or reference".into(),
+                        details: None,
+                    });
+                }
+            }
+        }
         let quote = if let Some(quote_id) = quote_id {
             let messages = self.load_chat_messages(chat_id)?;
-            let source = messages.iter().find(|message| message.get("id").and_then(Value::as_str) == Some(quote_id))
-                .ok_or_else(|| RpcError { code:"not_found".into(), message:"quoted message not found in this chat".into(), details:None })?;
-            let sender = source.get("sender").cloned().unwrap_or_else(|| json!({"kind":"system"}));
-            let quote_mode = params.get("quote_mode").and_then(Value::as_str).unwrap_or("reply");
-            if quote_mode == "reply"
-                && sender.get("kind").and_then(Value::as_str) == Some("bot")
-            {
+            let source = messages
+                .iter()
+                .find(|message| message.get("id").and_then(Value::as_str) == Some(quote_id))
+                .ok_or_else(|| RpcError {
+                    code: "not_found".into(),
+                    message: "quoted message not found in this chat".into(),
+                    details: None,
+                })?;
+            let sender = source
+                .get("sender")
+                .cloned()
+                .unwrap_or_else(|| json!({"kind":"system"}));
+            let quote_mode = params
+                .get("quote_mode")
+                .and_then(Value::as_str)
+                .unwrap_or("reply");
+            if quote_mode == "reply" && sender.get("kind").and_then(Value::as_str) == Some("bot") {
                 let bot_id = sender.get("bot_id").and_then(Value::as_str).unwrap_or("");
-                if !bot_id.is_empty() && !mentions.iter().any(|mention| mention.get("bot_id").and_then(Value::as_str) == Some(bot_id)) {
+                if !bot_id.is_empty()
+                    && !mentions.iter().any(|mention| {
+                        mention.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                    })
+                {
                     mentions.push(json!({"kind":"bot","bot_id":bot_id,"instruction":null}));
                 }
             }
-            let excerpt = source.get("fallback_text").and_then(Value::as_str).unwrap_or("").chars().take(120).collect::<String>();
+            let excerpt = source
+                .get("fallback_text")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .chars()
+                .take(120)
+                .collect::<String>();
             Some(json!({"message_id":quote_id,"sender":sender,"excerpt":excerpt}))
-        } else { None };
+        } else {
+            None
+        };
         let mut send = json!({"bot_id":"user","chat_id":chat_id,"text":text,"intent":"ack","mentions":mentions});
         if let Some(id) = params.get("client_request_id") {
             send["client_request_id"] = id.clone();
@@ -5293,7 +5422,10 @@ impl ProductionBackend {
                 message: "project.create result has no project id".into(),
                 details: None,
             })?;
-        let announcement = self.orchestrator.rpc("project.get", json!({"project_id":project_id})).await
+        let announcement = self
+            .orchestrator
+            .rpc("project.get", json!({"project_id":project_id}))
+            .await
             .map_err(Self::error)?;
         if let Some(announcement) = announcement.get("announcement") {
             self.persist_announcement_text(&json!({"announcement":announcement}))?;
@@ -7107,6 +7239,7 @@ fn operation_event_entity_present(method: &str, result: &Value) -> bool {
         | "project.request_changes" => result["project"].is_object(),
         "assignment.create" | "assign" | "delegate" | "assignment.stop" | "assignment.steer"
         | "steer" => result["assignment"].is_object() || result["id"].is_string(),
+        "message.steer" => result["assignment"].is_object() && result["message"].is_object(),
         "send_msg" | "chat.send" | "chat.react" => {
             result["message"].is_object() || result["id"].is_string()
         }
@@ -7132,6 +7265,9 @@ fn event_data(method: &str, params: &Value, result: &Value) -> Value {
         }
         "announcement.update" => {
             json!({ "announcement": result.get("announcement").cloned().unwrap_or(Value::Null) })
+        }
+        "message.steer" => {
+            json!({ "assignment": result.get("assignment").cloned().unwrap_or(Value::Null) })
         }
         "project.request_changes" => {
             json!({ "message": result.get("message").cloned().unwrap_or(Value::Null) })
@@ -7247,6 +7383,14 @@ fn normalize_result(method: &str, mut result: Value) -> Result<Value, String> {
         "assignment.get" | "assignment.stop" => {
             if let Some(item) = result.get_mut("assignment") {
                 normalize_assignment(item);
+            }
+        }
+        "message.steer" => {
+            if let Some(item) = result.get_mut("assignment") {
+                normalize_assignment(item);
+            }
+            if let Some(item) = result.get_mut("message") {
+                normalize_message(item);
             }
         }
         "assignment.list" => {
@@ -7528,6 +7672,156 @@ fn normalize_assignment(value: &mut Value) {
 }
 fn normalize_chat(value: &mut Value) {
     let _ = obj(value);
+}
+
+fn append_link_preview_blocks(message: &mut Value, params: &Value) -> Result<(), RpcError> {
+    let Some(previews) = params.get("link_previews") else {
+        return Ok(());
+    };
+    if previews.is_null() {
+        return Ok(());
+    }
+    let previews = previews.as_array().ok_or_else(|| RpcError {
+        code: "invalid_params".into(),
+        message: "link_previews must be an array".into(),
+        details: None,
+    })?;
+    if previews.len() > 8 {
+        return Err(RpcError {
+            code: "invalid_params".into(),
+            message: "at most 8 link previews may be attached to one message".into(),
+            details: None,
+        });
+    }
+    let mut blocks = Vec::with_capacity(previews.len());
+    for preview in previews {
+        if !preview.is_object() {
+            return Err(RpcError {
+                code: "invalid_params".into(),
+                message: "each link preview must be an object".into(),
+                details: None,
+            });
+        }
+        let url = preview
+            .get("url")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| RpcError {
+                code: "invalid_params".into(),
+                message: "link preview url is required".into(),
+                details: None,
+            })?;
+        if url.len() > 2_048 {
+            return Err(RpcError {
+                code: "invalid_params".into(),
+                message: "link preview url is too long".into(),
+                details: None,
+            });
+        }
+        let parsed = reqwest::Url::parse(url).map_err(|_| RpcError {
+            code: "invalid_params".into(),
+            message: "link preview url is invalid".into(),
+            details: None,
+        })?;
+        if !matches!(parsed.scheme(), "http" | "https")
+            || parsed.host_str().is_none()
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+        {
+            return Err(RpcError {
+                code: "invalid_params".into(),
+                message: "link preview url must be an http(s) URL without credentials".into(),
+                details: None,
+            });
+        }
+        let host = parsed.host_str().unwrap_or_default();
+        for field in ["site", "title", "description"] {
+            if preview
+                .get(field)
+                .is_some_and(|value| !value.is_null() && !value.is_string())
+            {
+                return Err(RpcError {
+                    code: "invalid_params".into(),
+                    message: format!("link preview {field} must be a string"),
+                    details: None,
+                });
+            }
+        }
+        let site = preview
+            .get("site")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(host);
+        let title = preview
+            .get("title")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(host);
+        let description = preview.get("description").and_then(Value::as_str);
+        if site.chars().count() > 128
+            || title.chars().count() > 256
+            || description.is_some_and(|value| value.chars().count() > 1_024)
+            || [site, title]
+                .iter()
+                .any(|value| value.chars().any(char::is_control))
+            || description.is_some_and(|value| value.chars().any(char::is_control))
+        {
+            return Err(RpcError {
+                code: "invalid_params".into(),
+                message: "link preview metadata is too long or contains control characters".into(),
+                details: None,
+            });
+        }
+        let image = match preview.get("image") {
+            None | Some(Value::Null) => Value::Null,
+            Some(value) => {
+                let file: FileRef =
+                    serde_json::from_value(value.clone()).map_err(|_| RpcError {
+                        code: "invalid_params".into(),
+                        message: "link preview image must be a FileRef".into(),
+                        details: None,
+                    })?;
+                if file.path.starts_with('/')
+                    || file
+                        .path
+                        .split('/')
+                        .any(|part| matches!(part, "" | "." | ".."))
+                    || file.path.chars().any(char::is_control)
+                {
+                    return Err(RpcError {
+                        code: "invalid_params".into(),
+                        message: "link preview image path is invalid".into(),
+                        details: None,
+                    });
+                }
+                serde_json::to_value(file).expect("FileRef is serializable")
+            }
+        };
+        blocks.push(json!({
+            "type":"link_preview", "url":url, "site":site, "title":title,
+            "description":description, "image":image
+        }));
+    }
+    if let Some(message) = message.get_mut("message") {
+        let target = message;
+        let Some(blocks_target) = target.get_mut("blocks").and_then(Value::as_array_mut) else {
+            return Err(RpcError {
+                code: "internal".into(),
+                message: "send_msg result has no blocks array".into(),
+                details: None,
+            });
+        };
+        blocks_target.extend(blocks);
+    } else if let Some(blocks_target) = message.get_mut("blocks").and_then(Value::as_array_mut) {
+        blocks_target.extend(blocks);
+    } else {
+        return Err(RpcError {
+            code: "internal".into(),
+            message: "send_msg result has no blocks array".into(),
+            details: None,
+        });
+    }
+    Ok(())
 }
 
 fn deduplicate_review_card_artifacts(message: &mut Value) {

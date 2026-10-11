@@ -2588,7 +2588,7 @@ impl ExecutionEngine {
                 "type":"function",
                 "function":{
                     "name":"send_msg",
-                    "description":"Send a complete message to a group chat. Use decision for a request that needs a response: include options for a user question or mentions for a Bot handoff. When answering an existing decision, use reply_to and progress or done; do not use decision to report an answer.",
+                    "description":"Send a complete message to a group chat. Use decision for a request that needs a response: include options for a user question or mentions for a Bot handoff. Set multi only for a multi-select user question. Attach structured link_previews only when providing real metadata for links in the message. When answering an existing decision, use reply_to and progress or done; do not use decision to report an answer.",
                     "parameters":{
                         "type":"object",
                         "required":["intent","text"],
@@ -2599,6 +2599,8 @@ impl ExecutionEngine {
                                 "mentions":{"type":"array","items":{}},
                                 "artifacts":{"type":"array","items":{"type":"object"}},
                                 "options":{"type":"array","items":{"type":"string"}},
+                            "multi":{"type":"boolean","description":"For decision questions, allow selecting more than one option."},
+                            "link_previews":{"type":"array","description":"Structured link previews attached to this message.","items":{"type":"object","required":["url"],"properties":{"url":{"type":"string"},"site":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"image":{"type":"object"}}}},
                             "chat_id":{"type":"string","description":"An existing Chat.id, not a Project.id. Omit to use the current chat; use an explicit existing chat ID for cross-chat delivery."},
                             "message_id":{"type":"string"},
                             "reply_to":{"type":"string"}

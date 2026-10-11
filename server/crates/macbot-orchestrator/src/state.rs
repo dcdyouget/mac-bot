@@ -962,8 +962,6 @@ pub struct QuestionRequest {
     #[serde(default)]
     pub options: Vec<String>,
     #[serde(default)]
-    pub multi: bool,
-    #[serde(default)]
     pub allow_free_text: bool,
 }
 
@@ -1242,16 +1240,30 @@ impl Inner {
             "assignment.steer" | "steer" => Self::json(self.queue_steer(
                 serde_json::from_value(p).map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
             )?),
+            "message.steer" => {
+                let message_id = str_param(&p, "message_id")?;
+                let bot_id = str_param(&p, "bot_id")?;
+                let assignment_id = str_param(&p, "assignment_id")?;
+                Self::json(self.promote_pending_message(&message_id, &bot_id, &assignment_id)?)
+            }
             "send_msg" => {
                 let assignment_id = p.get("assignment_id").and_then(Value::as_str);
+                let multi = match p.get("multi") {
+                    None | Some(Value::Null) => false,
+                    Some(Value::Bool(value)) => *value,
+                    Some(_) => {
+                        return Err(OrchestratorError::Invalid("multi must be a boolean".into()))
+                    }
+                };
                 let root = assignment_id.and_then(|id| {
                     self.assignments
                         .get(id)
                         .and_then(|assignment| assignment.root_message_id.clone())
                 });
-                let message = self.send_msg(
+                let message = self.send_msg_with_multi(
                     serde_json::from_value(p)
                         .map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
+                    multi,
                 )?;
                 let mut value = serde_json::to_value(message)
                     .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
@@ -1752,12 +1764,15 @@ impl Inner {
             updated_at: ts.clone(),
             done_at: None,
         };
-        self.announcement_text.insert(id.clone(), AnnouncementText {
-            text: announcement.to_owned(),
-            version: 1,
-            updated_by: "main".into(),
-            updated_at: ts.clone(),
-        });
+        self.announcement_text.insert(
+            id.clone(),
+            AnnouncementText {
+                text: announcement.to_owned(),
+                version: 1,
+                updated_by: "main".into(),
+                updated_at: ts.clone(),
+            },
+        );
         self.highlights.insert(id.clone(), Vec::new());
         self.projects.insert(id.clone(), project.clone());
         Ok(
@@ -1768,26 +1783,41 @@ impl Inner {
     fn update_announcement(&mut self, p: &Value) -> Result<Value> {
         let project_id = str_param(p, "project_id")?;
         let _ = self.project(&project_id)?;
-        let text = p.get("text").and_then(Value::as_str)
+        let text = p
+            .get("text")
+            .and_then(Value::as_str)
             .ok_or_else(|| OrchestratorError::Invalid("text is required".into()))?;
         if text.chars().count() > 8_000 {
             return Err(OrchestratorError::Invalid(
                 "announcement must be at most 8000 characters".into(),
             ));
         }
-        let base_version = p.get("base_version").and_then(Value::as_u64)
+        let base_version = p
+            .get("base_version")
+            .and_then(Value::as_u64)
             .ok_or_else(|| OrchestratorError::Invalid("base_version is required".into()))?;
-        let current = self.announcement_text.entry(project_id.clone()).or_insert_with(|| AnnouncementText {
-            text: String::new(), version: 1, updated_by: "main".into(), updated_at: now(),
-        });
+        let current = self
+            .announcement_text
+            .entry(project_id.clone())
+            .or_insert_with(|| AnnouncementText {
+                text: String::new(),
+                version: 1,
+                updated_by: "main".into(),
+                updated_at: now(),
+            });
         if current.version != base_version {
             return Err(OrchestratorError::Conflict(format!(
-                "announcement version changed from {base_version} to {}", current.version
+                "announcement version changed from {base_version} to {}",
+                current.version
             )));
         }
         current.text = text.to_owned();
         current.version += 1;
-        current.updated_by = p.get("updated_by").and_then(Value::as_str).unwrap_or("user").to_owned();
+        current.updated_by = p
+            .get("updated_by")
+            .and_then(Value::as_str)
+            .unwrap_or("user")
+            .to_owned();
         current.updated_at = now();
         Ok(json!({"announcement": self.announcement(&project_id)?}))
     }
@@ -2269,10 +2299,26 @@ impl Inner {
             .collect();
         Ok(Announcement {
             project_id: project_id.into(),
-            text: self.announcement_text.get(project_id).map(|text| text.text.clone()).unwrap_or_default(),
-            version: self.announcement_text.get(project_id).map(|text| text.version).unwrap_or(1),
-            text_updated_by: self.announcement_text.get(project_id).map(|text| text.updated_by.clone()).unwrap_or_else(|| "main".into()),
-            text_updated_at: self.announcement_text.get(project_id).map(|text| text.updated_at.clone()).unwrap_or_else(now),
+            text: self
+                .announcement_text
+                .get(project_id)
+                .map(|text| text.text.clone())
+                .unwrap_or_default(),
+            version: self
+                .announcement_text
+                .get(project_id)
+                .map(|text| text.version)
+                .unwrap_or(1),
+            text_updated_by: self
+                .announcement_text
+                .get(project_id)
+                .map(|text| text.updated_by.clone())
+                .unwrap_or_else(|| "main".into()),
+            text_updated_at: self
+                .announcement_text
+                .get(project_id)
+                .map(|text| text.updated_at.clone())
+                .unwrap_or_else(now),
             members,
             artifacts,
             highlights: self
@@ -2398,7 +2444,16 @@ impl Inner {
     }
 
     fn send_msg(&mut self, req: SendMessageRequest) -> Result<Message> {
+        self.send_msg_with_multi(req, false)
+    }
+
+    fn send_msg_with_multi(&mut self, req: SendMessageRequest, multi: bool) -> Result<Message> {
         self.validate_send_msg_target(&req.chat_id, &req.bot_id)?;
+        if multi && (req.intent != "decision" || req.options.is_empty()) {
+            return Err(OrchestratorError::Invalid(
+                "multi is only valid for a decision with options".into(),
+            ));
+        }
         if !matches!(
             req.intent.as_str(),
             "ack" | "progress" | "decision" | "done" | "blocked"
@@ -2494,11 +2549,29 @@ impl Inner {
                 MentionInput::User(_) => Mention::User,
             })
             .collect::<Vec<_>>();
+        let sent_at = now();
+        let queued_deliveries =
+            if req.bot_id == "user" && req.mentions.is_empty() && project_id.is_some() {
+                self.assignments
+                    .values()
+                    .filter(|assignment| {
+                        assignment.origin_chat_id == req.chat_id && assignment.status == "working"
+                    })
+                    .map(|assignment| Delivery {
+                        bot_id: assignment.bot_id.clone(),
+                        assignment_id: Some(assignment.id.clone()),
+                        state: "queued".into(),
+                        at: sent_at.clone(),
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
         let mut msg = Message {
             id: msg_id.clone(),
             chat_id: req.chat_id.clone(),
             sender: req.bot_id.clone(),
-            created_at: now(),
+            created_at: sent_at,
             text: req.text.clone(),
             intent: Some(req.intent.clone()),
             assignment_id: req.assignment_id.clone(),
@@ -2506,7 +2579,7 @@ impl Inner {
             artifacts: req.artifacts.clone(),
             options: req.options.clone(),
             question_id: None,
-            delivery: Vec::new(),
+            delivery: queued_deliveries,
             fallback_text: req.text.clone(),
         };
         if let Some(aid) = &req.assignment_id {
@@ -2563,15 +2636,17 @@ impl Inner {
         }
         let mut question_id = None;
         if req.intent == "decision" && !req.options.is_empty() {
-            let question = self.create_question(QuestionRequest {
-                bot_id: req.bot_id.clone(),
-                assignment_id: req.assignment_id.clone(),
-                chat_id: req.chat_id.clone(),
-                text: req.text.clone(),
-                options: req.options.clone(),
-                allow_free_text: true,
-                multi: false,
-            })?;
+            let question = self.create_question_with_multi(
+                QuestionRequest {
+                    bot_id: req.bot_id.clone(),
+                    assignment_id: req.assignment_id.clone(),
+                    chat_id: req.chat_id.clone(),
+                    text: req.text.clone(),
+                    options: req.options.clone(),
+                    allow_free_text: true,
+                },
+                multi,
+            )?;
             question_id = Some(question.id);
         }
         msg.question_id = question_id;
@@ -2786,9 +2861,11 @@ impl Inner {
                 approval.state = "expired".into();
                 approval.decided_at = Some(finished_at.clone());
             }
-            for question in self.questions.values_mut().filter(|question| {
-                question.assignment_id == id && question.state == "pending"
-            }) {
+            for question in self
+                .questions
+                .values_mut()
+                .filter(|question| question.assignment_id == id && question.state == "pending")
+            {
                 question.state = "expired".into();
             }
             self.create_task_stopped_message(id)?;
@@ -2824,6 +2901,14 @@ impl Inner {
     }
 
     fn queue_steer(&mut self, req: SteerRequest) -> Result<SteerDelivery> {
+        self.queue_steer_for_assignment(req, None)
+    }
+
+    fn queue_steer_for_assignment(
+        &mut self,
+        req: SteerRequest,
+        selected_assignment: Option<&str>,
+    ) -> Result<SteerDelivery> {
         let message_id = req.message_id.unwrap_or_else(new_id);
         let existing = self
             .assignments
@@ -2832,6 +2917,7 @@ impl Inner {
                 a.bot_id == req.bot_id
                     && a.project_id == req.project_id
                     && a.origin_chat_id == req.chat_id
+                    && selected_assignment.is_none_or(|selected| selected == a.id)
                     && matches!(
                         a.status.as_str(),
                         "working" | "waiting_user" | "waiting_bot" | "blocked"
@@ -2924,6 +3010,78 @@ impl Inner {
             state: state.into(),
             at: ts,
         })
+    }
+
+    fn promote_pending_message(
+        &mut self,
+        message_id: &str,
+        bot_id: &str,
+        assignment_id: &str,
+    ) -> Result<Value> {
+        let message = self
+            .messages
+            .get(message_id)
+            .cloned()
+            .ok_or_else(|| OrchestratorError::NotFound(format!("message {message_id}")))?;
+        if message.sender != "user" {
+            return Err(OrchestratorError::Forbidden(
+                "only a user message can be changed into a steer".into(),
+            ));
+        }
+        if !message.mentions.is_empty() {
+            return Err(OrchestratorError::Conflict(
+                "addressed messages cannot be promoted from the waiting queue".into(),
+            ));
+        }
+        let assignment = self.assignment(assignment_id)?.clone();
+        if assignment.bot_id != bot_id || assignment.origin_chat_id != message.chat_id {
+            return Err(OrchestratorError::Forbidden(
+                "message is not queued for this Bot task".into(),
+            ));
+        }
+        let already_promoted = assignment
+            .steers
+            .iter()
+            .any(|steer| steer.message_id == message_id);
+        if !already_promoted {
+            let queued = message.delivery.iter().any(|delivery| {
+                delivery.bot_id == bot_id
+                    && delivery.assignment_id.as_deref() == Some(assignment_id)
+                    && delivery.state == "queued"
+            });
+            if !queued {
+                return Err(OrchestratorError::Conflict(
+                    "message is not waiting for this Bot".into(),
+                ));
+            }
+            if assignment.status != "working" {
+                return Err(OrchestratorError::Conflict(
+                    "Bot task is no longer working".into(),
+                ));
+            }
+            let delivery = self.queue_steer_for_assignment(
+                SteerRequest {
+                    bot_id: bot_id.to_owned(),
+                    project_id: assignment.project_id.clone(),
+                    chat_id: assignment.origin_chat_id.clone(),
+                    text: message.text.clone(),
+                    message_id: Some(message_id.to_owned()),
+                },
+                Some(assignment_id),
+            )?;
+            if delivery.assignment_id.as_deref() != Some(assignment_id) {
+                return Err(OrchestratorError::Conflict(
+                    "Bot task is no longer available".into(),
+                ));
+            }
+        }
+        let assignment = self.assignment(assignment_id)?.clone();
+        let message = self.messages.get(message_id).cloned().unwrap_or(message);
+        Ok(json!({
+            "assignment":assignment,
+            "message":message,
+            "steer":{"message_id":message_id,"assignment_id":assignment_id,"text":message.text}
+        }))
     }
     fn mark_steer(&mut self, message_id: &str, state: &str) -> Result<SteerDelivery> {
         let assignment_id = self
@@ -3136,6 +3294,10 @@ impl Inner {
         Ok(out)
     }
     fn create_question(&mut self, r: QuestionRequest) -> Result<Question> {
+        self.create_question_with_multi(r, false)
+    }
+
+    fn create_question_with_multi(&mut self, r: QuestionRequest, multi: bool) -> Result<Question> {
         let (assignment_id, scope_only) = match r.assignment_id {
             Some(assignment_id) => {
                 if !self.assignments.contains_key(&assignment_id) {
@@ -3167,7 +3329,7 @@ impl Inner {
             chat_id: r.chat_id,
             text: r.text,
             options: r.options,
-            multi: r.multi,
+            multi,
             allow_free_text: r.allow_free_text,
             state: "pending".into(),
             answer: None,
@@ -3473,7 +3635,12 @@ impl Inner {
             .ok_or_else(|| OrchestratorError::NotFound(format!("question {id}")))?;
         if q.state != "pending" {
             return Err(OrchestratorError::Conflict(
-                if q.state == "expired" { "question expired" } else { "question already answered" }.into(),
+                if q.state == "expired" {
+                    "question expired"
+                } else {
+                    "question already answered"
+                }
+                .into(),
             ));
         }
         if let Some(option) = option {
@@ -3499,7 +3666,9 @@ impl Inner {
             }
         }
         if !q.multi && options.len() > 1 {
-            return Err(OrchestratorError::Invalid("single-choice question accepts one option".into()));
+            return Err(OrchestratorError::Invalid(
+                "single-choice question accepts one option".into(),
+            ));
         }
         q.answer = Some(QuestionAnswer {
             option_index: options.first().copied(),
