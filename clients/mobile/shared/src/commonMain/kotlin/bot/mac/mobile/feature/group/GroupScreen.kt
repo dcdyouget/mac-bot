@@ -56,6 +56,8 @@ fun GroupScreen(
     onOpenChat: (String) -> Unit = {},
     onLoopAction: (String, String) -> Unit = { _, _ -> },
     onTakeover: (String) -> Unit = {},
+    onOpenGroupInfo: (String) -> Unit = {},
+    editAnnouncementOnOpen: Boolean = false,
 ) {
     val state by repository.state.collectAsState()
     val project = state.projects.firstOrNull { it.str("id") == projectId }
@@ -152,6 +154,9 @@ fun GroupScreen(
             repository.call("project.get", buildJsonObject { put("project_id", projectId) })
         }.onFailure { error = it.message }
     }
+    LaunchedEffect(projectId, editAnnouncementOnOpen) {
+        if (editAnnouncementOnOpen) showAnnouncementEditor = true
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Row(Modifier.fillMaxWidth().padding(12.dp)) {
             Button(onClick = onBack) { Text(stringResource(Res.string.feature_back)) }
@@ -160,6 +165,7 @@ fun GroupScreen(
                 project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
             }
             Button(onClick = { showAnnouncement = !showAnnouncement }) { Text(stringResource(Res.string.feature_announcement)) }
+            Button(onClick = { onOpenGroupInfo(projectId) }) { Text(stringResource(Res.string.feature_group_info)) }
             Button(onClick = { announcementText = announcement?.str("text").orEmpty(); announcementBaseVersion = announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L; showAnnouncementEditor = true }) { Text(stringResource(Res.string.feature_edit)) }
             Button(onClick = { showEdit = !showEdit }) { Text(stringResource(Res.string.feature_edit_group)) }
         }

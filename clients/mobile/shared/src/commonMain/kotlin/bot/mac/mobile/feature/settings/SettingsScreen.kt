@@ -49,6 +49,10 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
     val themeMode = clientRepository?.theme?.collectAsState()?.value ?: "system"
     var notifications by remember { mutableStateOf(clientRepository?.notifications?.value ?: true) }
     var notificationSound by remember { mutableStateOf(clientRepository?.notificationSound?.value ?: true) }
+    var notifyNeedsYou by remember { mutableStateOf(clientRepository?.notifyNeedsYou?.value ?: true) }
+    var notifyReview by remember { mutableStateOf(clientRepository?.notifyReview?.value ?: true) }
+    var notifyCompletion by remember { mutableStateOf(clientRepository?.notifyCompletion?.value ?: true) }
+    var notifyMessages by remember { mutableStateOf(clientRepository?.notifyMessages?.value ?: true) }
     var error by remember { mutableStateOf<String?>(null) }
     var editingProvider by remember { mutableStateOf<JsonObject?>(null) }
     var deletingProvider by remember { mutableStateOf<JsonObject?>(null) }
@@ -147,6 +151,12 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                 SettingSwitch(stringResource(Res.string.feature_notifications), notifications) {
                     notifications = it
                     scope.launch { clientRepository?.setNotifications(it) }
+                }
+                if (notifications) {
+                    SettingSwitch(stringResource(Res.string.feature_notify_needs_you), notifyNeedsYou) { notifyNeedsYou = it; scope.launch { clientRepository?.setNotificationCategory("needs_you", it) } }
+                    SettingSwitch(stringResource(Res.string.feature_notify_review), notifyReview) { notifyReview = it; scope.launch { clientRepository?.setNotificationCategory("review", it) } }
+                    SettingSwitch(stringResource(Res.string.feature_notify_completion), notifyCompletion) { notifyCompletion = it; scope.launch { clientRepository?.setNotificationCategory("completion", it) } }
+                    SettingSwitch(stringResource(Res.string.feature_notify_messages), notifyMessages) { notifyMessages = it; scope.launch { clientRepository?.setNotificationCategory("messages", it) } }
                 }
             }
             item {

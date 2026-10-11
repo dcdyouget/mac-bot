@@ -19,6 +19,7 @@ fun MainBotScreen(
     onOpenChat: (String) -> Unit = {},
     onLoopAction: (rootMessageId: String, action: String) -> Unit = { _, _ -> },
     onTakeover: (botId: String) -> Unit = {},
+    onOpenFollowup: (chatId: String) -> Unit = {},
 ) {
     ChatScreen(
         repository = repository,
@@ -33,5 +34,6 @@ fun MainBotScreen(
         onOpenChat = onOpenChat,
         onLoopAction = onLoopAction,
         onTakeover = onTakeover,
+        onOpenFollowup = onOpenFollowup,
     )
 }

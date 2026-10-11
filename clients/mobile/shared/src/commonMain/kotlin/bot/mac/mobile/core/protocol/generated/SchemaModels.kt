@@ -930,6 +930,15 @@ data class MainBotSettingsPatch(override val raw: JsonObject) : RawProtocolModel
 }
 object MainBotSettingsPatchSerializer : RawModelSerializer<MainBotSettingsPatch>(::MainBotSettingsPatch)
 
+@Serializable(with = MessageSteerParamsSerializer::class)
+data class MessageSteerParams(override val raw: JsonObject) : RawProtocolModel {
+    val assignmentId: String get() = raw.str("assignment_id")
+    val botId: String get() = raw.str("bot_id")
+    val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
+    val messageId: String get() = raw.str("message_id")
+}
+object MessageSteerParamsSerializer : RawModelSerializer<MessageSteerParams>(::MessageSteerParams)
+
 @Serializable(with = ModelDefaultsPatchSerializer::class)
 data class ModelDefaultsPatch(override val raw: JsonObject) : RawProtocolModel {
     val botDefault: String? get() = raw.stringOrNull("bot_default")
@@ -1532,6 +1541,13 @@ data class InFlight(override val raw: JsonObject) : RawProtocolModel {
     val thinking: String get() = raw.str("thinking")
 }
 object InFlightSerializer : RawModelSerializer<InFlight>(::InFlight)
+
+@Serializable(with = MessageSteerResultSerializer::class)
+data class MessageSteerResult(override val raw: JsonObject) : RawProtocolModel {
+    val assignment: Assignment get() = Assignment(raw.obj("assignment"))
+    val message: Message get() = Message(raw.obj("message"))
+}
+object MessageSteerResultSerializer : RawModelSerializer<MessageSteerResult>(::MessageSteerResult)
 
 @Serializable(with = ModelRefreshResultSerializer::class)
 data class ModelRefreshResult(override val raw: JsonObject) : RawProtocolModel {

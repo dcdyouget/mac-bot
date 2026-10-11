@@ -16,14 +16,18 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import bot.mac.mobile.core.design.*
 import bot.mac.mobile.core.ui.FilePreview
 import bot.mac.mobile.core.network.ConnectionStatus
+import bot.mac.mobile.core.network.MainEvent
 import bot.mac.mobile.core.protocol.*
 import bot.mac.mobile.core.state.*
 import bot.mac.mobile.core.platform.PlatformBackHandler
 import bot.mac.mobile.feature.connect.ConnectScreen
 import bot.mac.mobile.feature.mainbot.MainBotScreen
+import bot.mac.mobile.feature.mainbot.FollowupScreen
 import bot.mac.mobile.feature.trace.TraceScreen
 import bot.mac.mobile.feature.trace.HistoryAssignmentScreen
 import bot.mac.mobile.feature.trace.buildSteerChatParams
@@ -59,6 +63,9 @@ import org.jetbrains.compose.resources.stringResource
     var actionError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val attentionMessage = stringResource(Res.string.feature_attention_banner)
+    val attentionAction = stringResource(Res.string.feature_attention_open)
     fun open(next: String, id: String = "", second: String = "") {
         if (next == page && id == target && second == secondTarget) return
         routeHistory = routeHistory + JsonArray(listOf(JsonPrimitive(page),JsonPrimitive(target),JsonPrimitive(secondTarget))).toString()
@@ -91,6 +98,45 @@ import org.jetbrains.compose.resources.stringResource
         }.onFailure{actionError=it.message} }
     }
     LaunchedEffect(Unit) { repository.initialize() }
+    LaunchedEffect(active?.id, page, target) {
+        repository.hostEvents.collect { hostEvent ->
+            if (hostEvent.hostId != active?.id) return@collect
+            val eventName: String
+            val data: JsonObject
+            when (val event = hostEvent.event) {
+                is MainEvent.Persistent -> { eventName = event.event; data = event.data }
+                is MainEvent.Ephemeral -> { eventName = event.event; data = event.data }
+                is MainEvent.Hello -> return@collect
+            }
+            val approval = data.obj("approval")
+            val question = data.obj("question")
+            val project = data.obj("project")
+            val botId = data.str("bot_id").ifBlank { approval.str("bot_id") }
+            val projectId = data.str("project_id").ifBlank { project.str("id") }
+            val chatId = data.str("chat_id").ifBlank { approval.str("chat_id").ifBlank { question.str("chat_id") } }
+            val needsYou = eventName in setOf("approval.requested", "question.asked", "takeover.requested") ||
+                (eventName == "project.updated" && project.str("status") == "review")
+            if (!needsYou) return@collect
+            val currentChat = when (page) {
+                "chat" -> target
+                "group" -> hostEvent.state.chats.firstOrNull { it.str("kind") == "project" && it.str("project_id") == target }?.str("id").orEmpty()
+                else -> ""
+            }
+            if (chatId.isNotBlank() && chatId == currentChat) return@collect
+            val destination = when (eventName) {
+                "approval.requested", "question.asked" -> "approvals"
+                "takeover.requested" -> "computer"
+                else -> "group"
+            }
+            val destinationId = when (destination) {
+                "computer" -> botId
+                "group" -> projectId
+                else -> approval.str("id").ifBlank { question.str("id") }
+            }
+            val result = snackbarHostState.showSnackbar(attentionMessage, attentionAction, duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) open(destination, destinationId)
+        }
+    }
     LaunchedEffect(deepLink) {
         val link = deepLink ?: return@LaunchedEffect
         repository.initialize()
@@ -110,6 +156,7 @@ import org.jetbrains.compose.resources.stringResource
         Surface(Modifier.fillMaxSize()) {
             Scaffold(
                 containerColor = LocalMobilePalette.current.window,
+                snackbarHost = { SnackbarHost(snackbarHostState) },
                 bottomBar = {
                     if (page == "home" && hosts.isNotEmpty()) NavigationBar(
                         modifier = Modifier.height(80.dp),
@@ -145,8 +192,13 @@ import org.jetbrains.compose.resources.stringResource
                     }
                     when {
                         page == "connect" || hosts.isEmpty() -> ConnectScreen(repository, back)
-                        page == "chat" -> MainBotScreen(repository = repository, chatId = target, onOpenTrace = { assignment, chat -> open("trace", assignment.orEmpty(), chat.orEmpty()) }, onOpenProject = { open("group", it) }, onBack = back, onProjectAction = { projectId, action -> if (action == "confirm_done") scope.launch { runCatching { repository.call("project.confirm_done",jsonParams("project_id" to projectId)) }.onFailure { actionError=it.message } } else { changesProject=projectId;changesText="" } }, onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)})
-                        page == "group" -> GroupScreen(repository = repository, projectId = target, onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenHome={open("file",target,"")},onCopyHome={clipboard.setText(AnnotatedString(it))})
+                        page == "chat" -> MainBotScreen(repository = repository, chatId = target, onOpenTrace = { assignment, chat -> open("trace", assignment.orEmpty(), chat.orEmpty()) }, onOpenProject = { open("group", it) }, onBack = back, onProjectAction = { projectId, action -> if (action == "confirm_done") scope.launch { runCatching { repository.call("project.confirm_done",jsonParams("project_id" to projectId)) }.onFailure { actionError=it.message } } else { changesProject=projectId;changesText="" } }, onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenFollowup={open("followup",it)})
+                        page == "group" -> GroupScreen(repository = repository, projectId = target, onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenHome={open("file",target,"")},onCopyHome={clipboard.setText(AnnotatedString(it))},onOpenGroupInfo={open("groupinfo",it)},editAnnouncementOnOpen=secondTarget=="edit_announcement")
+                        page == "groupinfo" -> GroupInfoScreen(repository, target, back, onEditAnnouncement = { open("group", it, "edit_announcement") }, onOpenHome = { open("file", target, it) }, onCopyHome = { clipboard.setText(AnnotatedString(it)) }, onOpenArtifact = openArtifact)
+                        page == "followup" -> FollowupScreen(repository, target, onBack = back, onOpenProject = { open("group", it) }, onOpenChat = { openChat(it) }, onOpenTrace = { assignment, chat -> open("trace", assignment, chat.orEmpty()) }, onOpenApproval = { open("approvals") }, onOpenQuestion = { id ->
+                            val question = repository.state.value.questions.firstOrNull { it.str("id") == id }
+                            question?.str("chat_id")?.takeIf(String::isNotBlank)?.let(::openChat) ?: open("approvals")
+                        })
                         page == "create_group" -> GroupCreateScreen(repository, onCreated = { open("group", it) }, onBack = back)
                         page == "history" -> HistoryAssignmentScreen(repository,chatId=target.ifBlank{null},onOpenTrace={open("trace",it)},onBack=back)
                         page == "trace" -> TraceScreen(repository, target.ifBlank { null }, secondTarget.ifBlank { null }, { bot, tabId -> open("computer", bot, tabId.orEmpty()) }, onBack=back, onSteer={assignmentId,text ->
@@ -275,27 +327,62 @@ import org.jetbrains.compose.resources.stringResource
 @Composable private fun ChatRow(chat:JsonObject,state:MobileState,onChat:(String)->Unit,repository:ClientRepository) {
     val bot=state.bots.firstOrNull { it.str("id")==chat.str("bot_id") }
     val attention=chat.str("attention")
+    val pendingApproval = state.approvals.firstOrNull { it.str("chat_id") == chat.str("id") && it.str("state") == "pending" }
+    val pendingQuestion = state.questions.firstOrNull { it.str("chat_id") == chat.str("id") && it.str("state") == "pending" }
     var menu by remember { mutableStateOf(false) }
-    val swipeThreshold = with(LocalDensity.current) { 48.dp.toPx() }
+    var rowError by remember { mutableStateOf<String?>(null) }
+    var swipeOffset by remember(chat.str("id")) { mutableStateOf(0f) }
+    val density = LocalDensity.current
+    val revealWidth = with(density) { 216.dp.toPx() }
+    val swipeThreshold = with(density) { 48.dp.toPx() }
     var suppressNextClick by remember { mutableStateOf(false) }
     val scope=rememberCoroutineScope()
     LaunchedEffect(menu) { if (!menu) suppressNextClick = false }
-    Row(
+    Box(Modifier.fillMaxWidth().heightIn(min = 72.dp)) {
+        Row(Modifier.align(Alignment.CenterEnd).width(216.dp).fillMaxHeight(), horizontalArrangement=Arrangement.spacedBy(0.dp)) {
+            val projectId = chat.str("project_id")
+            listOf(
+                Triple(if (chat.boolean("pinned")) "★" else "☆", if (chat.boolean("pinned")) Res.string.chat_unpin else Res.string.chat_pin, "pin"),
+                Triple(if (projectId.isNotBlank()) "✓" else "✓", Res.string.chat_confirm_done, "done"),
+                Triple(if (chat.boolean("muted")) "◉" else "◌", if (chat.boolean("muted")) Res.string.chat_unmute else Res.string.chat_mute, "mute"),
+            ).forEach { (icon, label, action) ->
+                Column(
+                    Modifier.width(72.dp).fillMaxHeight().background(when (action) { "pin" -> LocalMobilePalette.current.accent; "done" -> LocalMobilePalette.current.success; else -> LocalMobilePalette.current.textSecondary })
+                        .clickable {
+                            if (action == "done" && projectId.isBlank()) return@clickable
+                            scope.launch {
+                                runCatching {
+                                    when (action) {
+                                        "pin" -> repository.call("chat.set_pinned", buildJsonObject { put("chat_id", chat.str("id")); put("pinned", !chat.boolean("pinned")) })
+                                        "mute" -> repository.call("chat.set_muted", buildJsonObject { put("chat_id", chat.str("id")); put("muted", !chat.boolean("muted")) })
+                                        else -> repository.call("project.confirm_done", buildJsonObject { put("project_id", projectId) })
+                                    }
+                                }.onFailure { rowError = it.message ?: "" }
+                                swipeOffset = 0f
+                            }
+                        }, verticalArrangement=Arrangement.Center, horizontalAlignment=Alignment.CenterHorizontally,
+                ) {
+                    Text(icon, color=MaterialTheme.colorScheme.surface, style=MaterialTheme.typography.titleMedium)
+                    Text(stringResource(label), color=MaterialTheme.colorScheme.surface, style=MaterialTheme.typography.labelSmall, maxLines=1)
+                }
+            }
+        }
+        Column(Modifier.fillMaxWidth().offset { IntOffset(swipeOffset.roundToInt(), 0) }.background(LocalMobilePalette.current.window)) {
+            Row(
             Modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp)
-            .pointerInput(chat.str("id"), swipeThreshold) {
+            .pointerInput(chat.str("id"), swipeThreshold, revealWidth) {
                 var swipeDistance = 0f
                 detectHorizontalDragGestures(
                     onHorizontalDrag = { change, amount ->
                         change.consume()
-                        swipeDistance = (swipeDistance + amount).coerceIn(-swipeThreshold * 3, 0f)
+                        swipeDistance = (swipeDistance + amount).coerceIn(-revealWidth, revealWidth)
+                        swipeOffset = (swipeOffset + amount).coerceIn(-revealWidth, 0f)
                     },
                     onDragEnd = {
-                        if (swipeDistance <= -swipeThreshold) {
-                            suppressNextClick = true
-                            menu = true
-                        }
+                        if (swipeDistance <= -swipeThreshold) { swipeOffset = -revealWidth; suppressNextClick = true }
+                        else if (swipeDistance >= swipeThreshold) swipeOffset = 0f
                         swipeDistance = 0f
                     },
                     onDragCancel = { swipeDistance = 0f },
@@ -311,9 +398,15 @@ import org.jetbrains.compose.resources.stringResource
         BotAvatar(repository,bot,chat.str("kind")=="main",bot?.obj("status")?.str("summary") ?: attention)
         Column(Modifier.weight(1f)) {
             Text(chat.str("title"),style=MaterialTheme.typography.titleMedium)
+            pendingApproval?.let { approval ->
+                Text("⚠ ${stringResource(Res.string.feature_approval)} · ${approval.str("summary").ifBlank { approval.str("tool") }}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
+            } ?: pendingQuestion?.let { question ->
+                Text("⚠ ${stringResource(Res.string.feature_status_waiting_user)} · ${question.str("text")}", maxLines=1, color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
+            }
             Text(chat.obj("last_message").str("text"),maxLines=1,color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
         }
         Column(horizontalAlignment=Alignment.End) {
+            if (pendingApproval != null && chat.str("kind") in listOf("direct", "bot_dm")) Text(stringResource(Res.string.feature_approval), color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
             if(attention in listOf("waiting_user","review","blocked","working")) Text(
                 when(attention){"waiting_user"->"⚠";"review"->"◎";"blocked"->"!";else->"⟳"},
                 color=when(attention){"waiting_user"->LocalMobilePalette.current.warning;"review"->LocalMobilePalette.current.review;"blocked"->LocalMobilePalette.current.danger;else->LocalMobilePalette.current.accent},
@@ -327,6 +420,9 @@ import org.jetbrains.compose.resources.stringResource
                 DropdownMenuItem(text={Text(stringResource(Res.string.chat_confirm_done))},onClick={menu=false;scope.launch{runCatching{repository.call("project.confirm_done",buildJsonObject{put("project_id",projectId)})}}})
             }
         } }
+            }
+            rowError?.let { Text(it, Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal=16.dp, vertical=4.dp), color=MaterialTheme.colorScheme.onErrorContainer, style=MaterialTheme.typography.labelSmall) }
+        }
     }
 }
 @Composable private fun MineScreen(onOpen:(String)->Unit) {

@@ -20,6 +20,7 @@ internal data class PendingNotification(
     val chatId: String? = null,
     val deepLinkKind: String? = null,
     val deepLinkId: String? = null,
+    val category: String = "",
 ) {
     val ledgerKey: String get() = "$hostId:${when (kind) {
         NotificationKind.APPROVAL -> "approval"

@@ -117,6 +117,10 @@ class ClientRepository(
     val theme = MutableStateFlow("system")
     val notifications = MutableStateFlow(true)
     val notificationSound = MutableStateFlow(true)
+    val notifyNeedsYou = MutableStateFlow(true)
+    val notifyReview = MutableStateFlow(true)
+    val notifyCompletion = MutableStateFlow(true)
+    val notifyMessages = MutableStateFlow(true)
     val deepLink = MutableStateFlow<String?>(null)
 
     suspend fun initialize() = initMutex.withLock {
@@ -127,6 +131,10 @@ class ClientRepository(
         theme.value = storage.read("theme") ?: "system"
         notifications.value = storage.read("notifications") != "false"
         notificationSound.value = storage.read("notification_sound") != "false"
+        notifyNeedsYou.value = storage.read("notify_needs_you") != "false"
+        notifyReview.value = storage.read("notify_review") != "false"
+        notifyCompletion.value = storage.read("notify_completion") != "false"
+        notifyMessages.value = storage.read("notify_messages") != "false"
         _hostStates.value = _hosts.value.associate { it.id to loadState(it.id) }
         _hostStatuses.value = _hosts.value.associate { it.id to ConnectionSnapshot(ConnectionStatus.STOPPED) }
         initialized = true
@@ -138,6 +146,21 @@ class ClientRepository(
     suspend fun setTheme(value: String) { theme.value = value; storage.write("theme", value) }
     suspend fun setNotifications(value: Boolean) { notifications.value = value; storage.write("notifications", value.toString()) }
     suspend fun setNotificationSound(value: Boolean) { notificationSound.value = value; storage.write("notification_sound", value.toString()) }
+    suspend fun setNotificationCategory(category: String, value: Boolean) {
+        when (category) {
+            "needs_you" -> { notifyNeedsYou.value = value; storage.write("notify_needs_you", value.toString()) }
+            "review" -> { notifyReview.value = value; storage.write("notify_review", value.toString()) }
+            "completion" -> { notifyCompletion.value = value; storage.write("notify_completion", value.toString()) }
+            "messages" -> { notifyMessages.value = value; storage.write("notify_messages", value.toString()) }
+        }
+    }
+    fun notificationCategoryEnabled(category: String): Boolean = when (category) {
+        "needs_you" -> notifyNeedsYou.value
+        "review" -> notifyReview.value
+        "completion" -> notifyCompletion.value
+        "messages" -> notifyMessages.value
+        else -> true
+    }
 
     suspend fun saveHost(name: String, addresses: List<String>, password: String, existingId: String? = null) {
         require(name.isNotBlank() && addresses.isNotEmpty() && password.isNotEmpty())
@@ -601,7 +624,7 @@ class ClientRepository(
 
 
     companion object {
-        val WRITE_METHODS = setOf("device.register", "chat.send", "chat.mark_read", "chat.react", "chat.set_pinned", "chat.set_muted", "bot.create", "bot.update", "bot.duplicate", "bot.delete", "bot.create_from_template", "project.create", "project.update", "project.add_member", "project.remove_member", "project.confirm_done", "project.request_changes", "project.archive", "project.reopen", "announcement.update", "assignment.stop", "approval.decide", "question.answer", "loop.resolve", "takeover.start", "takeover.release", "skill.create", "skill.update", "skill.delete", "skill.set_enabled", "skill.publish", "skill.import", "routine.create", "routine.update", "routine.delete", "routine.set_enabled", "routine.test_run", "provider.create", "provider.update", "provider.delete", "provider.test", "model.refresh", "model.upsert", "model.delete", "settings.update")
+        val WRITE_METHODS = setOf("device.register", "chat.send", "chat.mark_read", "chat.react", "chat.set_pinned", "chat.set_muted", "message.steer", "bot.create", "bot.update", "bot.duplicate", "bot.delete", "bot.create_from_template", "project.create", "project.update", "project.add_member", "project.remove_member", "project.confirm_done", "project.request_changes", "project.archive", "project.reopen", "announcement.update", "assignment.stop", "approval.decide", "question.answer", "loop.resolve", "takeover.start", "takeover.release", "skill.create", "skill.update", "skill.delete", "skill.set_enabled", "skill.publish", "skill.import", "routine.create", "routine.update", "routine.delete", "routine.set_enabled", "routine.test_run", "provider.create", "provider.update", "provider.delete", "provider.test", "model.refresh", "model.upsert", "model.delete", "settings.update")
     }
 }
 

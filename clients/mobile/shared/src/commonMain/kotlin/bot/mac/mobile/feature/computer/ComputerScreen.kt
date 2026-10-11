@@ -2,6 +2,7 @@ package bot.mac.mobile.feature.computer
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,7 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -40,6 +40,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -55,6 +56,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import bot.mac.mobile.core.design.DesignTokens
+import bot.mac.mobile.core.design.LocalMobilePalette
 import bot.mac.mobile.core.network.ScreenConnection
 import bot.mac.mobile.core.network.ScreenFrame
 import bot.mac.mobile.core.network.ScreenState
@@ -108,6 +112,10 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
     var lastFrameAt by remember { mutableStateOf<Long?>(null) }
     val scope = rememberCoroutineScope()
     val activeHost by repository.activeHost.collectAsState()
+    val mobileState by repository.state.collectAsState()
+    val botName = mobileState.bots.firstOrNull { (it["id"]?.toString()?.trim('"') ?: "") == botId }
+        ?.get("name")?.toString()?.trim('"').orEmpty().ifBlank { botId }
+    val palette = LocalMobilePalette.current
     val emptyState = remember { MutableStateFlow<ScreenState?>(null) }
     val screenState by (activeConnection?.state ?: emptyState).collectAsState()
     val takeoverActive = screenState?.driver == "user"
@@ -205,15 +213,32 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
     }
 
     val tabs = screenState?.tabs.orEmpty()
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Row(Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize().background(Color(0xFF0F0F11))) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).height(36.dp)
+                .clip(RoundedCornerShape(18.dp)).background(Color(0xCC28282C))
+                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(18.dp)).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             Box(Modifier.size(32.dp).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
                 Text("‹", color = Color.White, style = MaterialTheme.typography.headlineSmall)
             }
-            Text(stringResource(Res.string.computer_title), Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium)
-            Text(statusLabel(screenState?.driver), color = if (takeoverActive) MaterialTheme.colorScheme.primary else Color.White, style = MaterialTheme.typography.labelMedium)
+            Text(botName, Modifier.weight(1f), color = Color.White, maxLines = 1, style = MaterialTheme.typography.labelLarge)
+            Text(
+                statusLabel(screenState?.driver), color = if (takeoverActive) palette.warning else Color(0xFF9DB5DE),
+                maxLines = 1, style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (takeoverActive) palette.warningSoft else Color(0x338AA6D6)).padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+            if (!takeoverActive) {
+                Button(onClick = {
+                    scope.launch {
+                        takeoverError = captureError(requestError) { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
+                        if (takeoverError == null) takeoverHostId = activeHost?.id
+                    }
+                }, modifier = Modifier.height(32.dp)) { Text(stringResource(Res.string.computer_takeover), style = MaterialTheme.typography.labelSmall, maxLines = 1) }
+            }
         }
-        HorizontalDivider(color = Color.DarkGray)
         if (tabs.isNotEmpty()) {
             LazyRow(
                 Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 8.dp),
@@ -232,7 +257,7 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
             }
         }
         screenError?.let { Text(stringResource(Res.string.computer_error, it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)) }
-        Box(Modifier.fillMaxWidth().weight(1f).padding(8.dp).clipToBounds().onSizeChanged { viewport = it }
+        Box(Modifier.fillMaxWidth().weight(1f).padding(8.dp).then(if (takeoverActive) Modifier.border(2.dp, palette.warning) else Modifier).clipToBounds().onSizeChanged { viewport = it }
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val first = awaitFirstDown(requireUnconsumed = false)
@@ -341,7 +366,16 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                 ))
             }
         }
-        Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (takeoverActive) {
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp).height(48.dp)
+                    .clip(RoundedCornerShape(10.dp)).background(palette.warningSoft).padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(Res.string.computer_takeover_active), Modifier.weight(1f), color = palette.warning, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                TextButton(onClick = { releaseDialog = true }) { Text(stringResource(Res.string.computer_release), color = palette.warning) }
+            }
+        } else Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(Res.string.computer_quality), color = Color.LightGray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 4.dp))
             Quality.entries.forEach { candidate ->
                 FilterChip(quality == candidate, { if (!takeoverActive) quality = candidate }, enabled = !takeoverActive, label = { Text(candidate.label()) })
@@ -355,14 +389,7 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
-            Button(onClick = {
-                if (!takeoverActive) scope.launch {
-                    takeoverError = captureError(requestError) { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
-                    if (takeoverError == null) {
-                        takeoverHostId = activeHost?.id
-                    }
-                } else releaseDialog = true
-            }, modifier = Modifier.height(36.dp)) { Text(if (takeoverActive) stringResource(Res.string.computer_release) else stringResource(Res.string.computer_takeover)) }
+            if (takeoverError != null) Text(takeoverError!!, color = DesignTokens.warning, maxLines = 1, style = MaterialTheme.typography.labelSmall)
         }
     }
     if (releaseDialog) AlertDialog(onDismissRequest = { releaseDialog = false }, title = { Text(stringResource(Res.string.computer_release)) }, text = { OutlinedTextField(releaseNote, { releaseNote = it }, label = { Text(stringResource(Res.string.computer_release_note)) }) }, confirmButton = { Button(onClick = {

@@ -27,6 +27,7 @@ import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.feature.chat.StatusLabel
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
+import kotlin.uuid.Uuid
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -45,9 +46,45 @@ fun WorkbenchScreen(
     var filter by remember { mutableStateOf(WorkbenchFilter.ALL) }
     var grouping by remember { mutableStateOf(WorkbenchGrouping.BOT) }
     var error by remember { mutableStateOf<String?>(null) }
+    var historyLoading by remember { mutableStateOf(false) }
+    var historyError by remember { mutableStateOf<String?>(null) }
+    var steering by remember { mutableStateOf<Set<String>>(emptySet()) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { runCatching { repository.call("workbench.get", buildJsonObject {}) }.onFailure { error = it.message } }
+    LaunchedEffect(state.assignments, state.chats, state.connected) {
+        if (!state.connected || state.assignments.isEmpty()) return@LaunchedEffect
+        val botIds = state.assignments.map { it.str("bot_id") }.filter(String::isNotBlank).toSet()
+        val projectIds = state.assignments.map { it.str("project_id") }.filter(String::isNotBlank).toSet()
+        val relevantChats = state.chats.filter { chat ->
+            chat.str("bot_id") in botIds || chat.str("project_id") in projectIds
+        }
+        if (relevantChats.isEmpty()) return@LaunchedEffect
+        historyLoading = true
+        historyError = null
+        try {
+            relevantChats.forEach { chat ->
+                runCatching {
+                    repository.call("chat.history", buildJsonObject {
+                        put("chat_id", chat.str("id"))
+                        put("limit", 100)
+                    })
+                }.onFailure { historyError = it.message ?: "" }
+            }
+        } finally {
+            historyLoading = false
+        }
+    }
     val assignments = state.assignments.filter { filter.accept(it) }
+    val visibleAssignmentIds = assignments.map { it.str("id") }.filter(String::isNotBlank).toSet()
+    val queuedMessages = state.messages.values.flatten()
+        .filter { it.str("assignment_id") in visibleAssignmentIds }
+        .flatMap { message ->
+            message.arr("delivery").mapNotNull { it as? JsonObject }
+                .filter { it.str("state") == "queued" && it.str("bot_id").isNotBlank() }
+                .map { delivery -> QueuedSteer(message, delivery, message.str("assignment_id")) }
+        }
+        .distinctBy { "${it.message.str("id")}:${it.delivery.str("bot_id")}:${it.assignmentId}" }
+        .sortedBy { it.message.long("seq") }
     val waiting = state.workbench.arr("waiting").mapNotNull { it as? JsonObject }
     val groupedAssignments = assignments.groupBy { assignment ->
         when (grouping) {
@@ -62,6 +99,8 @@ fun WorkbenchScreen(
             Text(stringResource(Res.string.feature_running_count, state.workbench.str("running").ifBlank { "0" }, state.workbench.str("global_limit").ifBlank { "—" }), style = MaterialTheme.typography.labelLarge)
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        if (!state.connected) Text(stringResource(Res.string.followup_offline), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        historyError?.takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             WorkbenchFilter.entries.forEach { candidate -> FilterChip(selected = filter == candidate, onClick = { filter = candidate }, label = { Text(candidate.label()) }) }
         }
@@ -71,6 +110,45 @@ fun WorkbenchScreen(
             }
         }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (queuedMessages.isNotEmpty() || historyLoading) {
+                item {
+                    Text(
+                        "${stringResource(Res.string.feature_history_queued)} · ${stringResource(Res.string.feature_trace_steer_hint)}",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                items(queuedMessages, key = { "steer:${it.message.str("id")}:${it.delivery.str("bot_id")}:${it.assignmentId}" }) { queued ->
+                    val key = "${queued.message.str("id")}:${queued.delivery.str("bot_id")}:${queued.assignmentId}"
+                    val botName = state.bots.firstOrNull { it.str("id") == queued.delivery.str("bot_id") }?.str("name")
+                        .orEmpty().ifBlank { queued.delivery.str("bot_id") }
+                    val assignmentTitle = state.assignments.firstOrNull { it.str("id") == queued.assignmentId }?.str("title")
+                        .orEmpty().ifBlank { stringResource(Res.string.feature_task) }
+                    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(12.dp)) {
+                        Text("$assignmentTitle · $botName", style = MaterialTheme.typography.titleSmall)
+                        Text(queued.message.str("fallback_text").ifBlank { stringResource(Res.string.feature_task) }, maxLines = 3)
+                        Button(
+                            enabled = state.connected && key !in steering,
+                            onClick = {
+                                steering = steering + key
+                                scope.launch {
+                                    runCatching {
+                                        repository.call("message.steer", buildJsonObject {
+                                            put("message_id", queued.message.str("id"))
+                                            put("bot_id", queued.delivery.str("bot_id"))
+                                            put("assignment_id", queued.assignmentId)
+                                            put("client_request_id", Uuid.random().toString())
+                                        })
+                                    }.onFailure { historyError = it.message ?: "" }
+                                    steering = steering - key
+                                }
+                            },
+                        ) {
+                            Text(if (key in steering) stringResource(Res.string.feature_loading) else stringResource(Res.string.feature_trace_steer_action))
+                        }
+                    }
+                }
+            }
+            if (historyLoading && queuedMessages.isEmpty()) item { Text(stringResource(Res.string.feature_history_loading)) }
             if (waiting.isNotEmpty()) {
                 item { Text(stringResource(Res.string.feature_waiting), style = MaterialTheme.typography.titleMedium) }
                 items(waiting, key = { "waiting:${it.str("kind")}:${it.str("project_id")}:${it.str("bot_id")}:${it.hashCode()}" }) { item ->
@@ -104,6 +182,8 @@ fun WorkbenchScreen(
         Text(stringResource(Res.string.feature_done_today, state.workbench.str("done_today").ifBlank { "0" }), style = MaterialTheme.typography.labelLarge)
     }
 }
+
+private data class QueuedSteer(val message: JsonObject, val delivery: JsonObject, val assignmentId: String)
 
 private enum class WorkbenchGrouping {
     BOT, PROJECT, STATUS;

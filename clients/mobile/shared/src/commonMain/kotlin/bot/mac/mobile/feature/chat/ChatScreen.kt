@@ -34,12 +34,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
@@ -84,6 +86,8 @@ fun ChatScreen(
     onTakeover: (botId: String) -> Unit = {},
     onOpenArtifact: (artifactId: String, pathOrUrl: String, projectId: String?) -> Unit = { _, _, _ -> },
     onOpenHistory: (chatId: String) -> Unit = {},
+    onOpenGroupInfo: (projectId: String) -> Unit = {},
+    onOpenFollowup: (chatId: String) -> Unit = {},
     artifactProjectId: String? = null,
     showHeader: Boolean = true,
 ) {
@@ -105,6 +109,7 @@ fun ChatScreen(
     var historyBeforeSeq by remember(chatId) { mutableStateOf<Long?>(null) }
     var loadingOlder by remember(chatId) { mutableStateOf(false) }
     var pendingAnchor by remember(chatId) { mutableStateOf<ScrollAnchor?>(null) }
+    var highlightedMessageId by remember(chatId) { mutableStateOf<String?>(null) }
     var scrollState by remember(chatId) { mutableStateOf(ChatScrollState()) }
     var historyLoaded by remember(chatId) { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -116,6 +121,7 @@ fun ChatScreen(
     val groupChat = chat?.str("kind") == "project"
     val loadingError = stringResource(Res.string.feature_loading_error)
     val sendError = stringResource(Res.string.feature_send_error)
+    val quoteOriginalUnloaded = stringResource(Res.string.feature_quote_original_unloaded)
     LaunchedEffect(hostId, chatId) {
         draftLoaded = false
         draft = runCatching { platformPersistentStore().read("draft:$hostId:$chatId") }.getOrNull().orEmpty()
@@ -195,10 +201,13 @@ fun ChatScreen(
                     chat?.str("attention")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
                 }
                 chat?.str("project_id")?.takeIf { it.isNotBlank() }?.let { projectId ->
-                    Text("ⓘ", Modifier.padding(8.dp))
+                    IconButton(onClick = { onOpenGroupInfo(projectId) }) { Text("ⓘ") }
                     IconButton(onClick = { onOpenProject(projectId) }) { Text("›") }
                 }
                 if (chat?.str("kind") in setOf("main", "direct")) {
+                    TextButton(onClick = { onOpenFollowup(chatId) }) {
+                        Text(stringResource(Res.string.feature_followup))
+                    }
                     TextButton(onClick = { onOpenTrace(null, chatId) }) {
                         Text(stringResource(Res.string.feature_trace))
                     }
@@ -249,6 +258,18 @@ fun ChatScreen(
             items(messages, key = { it.str("id").ifBlank { "message:${it.hashCode()}" } }) { message ->
                 ChatMessageRow(
                     message = message,
+                    onJumpToMessage = { quotedId ->
+                        val index = messages.indexOfFirst { it.str("id") == quotedId }
+                        if (index >= 0) {
+                            scope.launch {
+                                listState.animateScrollToItem(index + if (historyHasMore) 1 else 0)
+                                highlightedMessageId = quotedId
+                                kotlinx.coroutines.delay(600)
+                                if (highlightedMessageId == quotedId) highlightedMessageId = null
+                            }
+                        } else error = quoteOriginalUnloaded
+                    },
+                    highlighted = highlightedMessageId == message.str("id"),
                     onReply = { replyTo = it },
                     onQuote = { id, mode -> quoteMode = mode; replyTo = id },
                     onReact = { id, emoji -> scope.launch { runCatching { repository.call("chat.react", buildJsonObject { put("message_id", id); put("emoji", emoji); put("on", true) }) }.onFailure { error = it.message ?: sendError } } },
@@ -291,6 +312,7 @@ fun ChatScreen(
                     onOpenChat = onOpenChat,
                     onLoopAction = onLoopAction,
                     onTakeover = onTakeover,
+                    onReleaseTakeover = { botId -> scope.launch { runCatching { repository.call("takeover.release", buildJsonObject { put("bot_id", botId) }) }.onFailure { error = it.message ?: sendError } } },
                     onOpenArtifact = onOpenArtifact,
                     artifactProjectId = artifactProjectId ?: chat?.str("project_id")?.takeIf { it.isNotBlank() },
                 state = state,
@@ -419,6 +441,8 @@ private data class ScrollAnchor(val id: String, val offset: Int)
 internal fun ChatMessageRow(
     message: JsonObject,
     state: MobileState,
+    onJumpToMessage: (String) -> Unit,
+    highlighted: Boolean,
     onReply: (String) -> Unit,
     onQuote: (String, String) -> Unit,
     onReact: (String, String) -> Unit,
@@ -435,6 +459,7 @@ internal fun ChatMessageRow(
     onOpenChat: (String) -> Unit,
     onLoopAction: (String, String) -> Unit,
     onTakeover: (String) -> Unit,
+    onReleaseTakeover: (String) -> Unit,
     onOpenArtifact: (String, String, String?) -> Unit,
     artifactProjectId: String?,
 ) {
@@ -475,6 +500,7 @@ internal fun ChatMessageRow(
             shape = RoundedCornerShape(16.dp),
             color = if (isUser) palette.bubbleOut else palette.bubbleIn,
             contentColor = if (isUser) palette.bubbleOutText else palette.bubbleInText,
+            border = if (highlighted) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         ) {
             Column(
                 Modifier.fillMaxWidth(0.9f).combinedClickable(
@@ -488,13 +514,20 @@ internal fun ChatMessageRow(
             ) {
                 val quote = message.obj("quote")
                 if (quote.str("message_id").isNotBlank()) {
-                    Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = .55f), shape = RoundedCornerShape(6.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp)) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = .55f),
+                        shape = RoundedCornerShape(6.dp),
+                        onClick = { onJumpToMessage(quote.str("message_id")) },
+                    ) {
+                        Row(Modifier.fillMaxWidth().padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(Modifier.width(2.dp).heightIn(min = 34.dp).background(MaterialTheme.colorScheme.primary))
+                            Column(Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 5.dp)) {
                             val quoteSenderId = quote.obj("sender").str("bot_id")
                             val quoteSender = state.bots.firstOrNull { it.str("id") == quoteSenderId }?.str("name")
                                 ?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.feature_you)
                             Text(quoteSender, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            Text(quote.str("excerpt"), style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                            Text(quote.str("excerpt"), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     }
                 }
@@ -504,11 +537,54 @@ internal fun ChatMessageRow(
                     val block = element as? JsonObject ?: return@any true
                     block.str("type") !in KnownBlockTypes
                 }
-                if (blocks.isEmpty() || unknown) if (fallback.isNotBlank()) Text(fallback, style = MaterialTheme.typography.bodyLarge)
+                if (blocks.isEmpty() && fallback.isNotBlank()) Text(fallback, style = MaterialTheme.typography.bodyLarge)
+                if (unknown) Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp), border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault)) {
+                    Text("⚠ ${fallback.ifBlank { stringResource(Res.string.feature_unknown_block) }} · ${stringResource(Res.string.feature_update_client)}", Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall)
+                }
+                val questionBlocks = blocks.mapNotNull { it as? JsonObject }.filter { it.str("type") == "question" }
+                val questionIds = questionBlocks.map { it.str("question_id") }
+                var selectedQuestion by remember(message.str("id"), questionIds) {
+                    mutableStateOf(questionBlocks.indexOfFirst { block ->
+                        state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "pending"
+                    }.coerceAtLeast(0))
+                }
+                LaunchedEffect(questionIds, state.questions.map { it.str("id") to it.str("state") }) {
+                    if (questionBlocks.isNotEmpty() && state.questions.firstOrNull { it.str("id") == questionIds.getOrNull(selectedQuestion) }?.str("state") == "answered") {
+                        val nextPending = questionBlocks.indexOfFirst { block ->
+                            state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "pending"
+                        }
+                        if (nextPending >= 0) selectedQuestion = nextPending
+                    }
+                }
+                if (questionBlocks.size > 1) {
+                    val answered = questionBlocks.count { block -> state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "answered" }
+                    Column(Modifier.fillMaxWidth().background(palette.panel, RoundedCornerShape(12.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(stringResource(Res.string.feature_question_stack_title, questionBlocks.size, selectedQuestion + 1, answered), style = MaterialTheme.typography.labelMedium)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(enabled = selectedQuestion > 0, onClick = { selectedQuestion-- }) { Text("‹") }
+                            questionBlocks.forEachIndexed { index, block ->
+                                val status = state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state")
+                                TextButton(onClick = { selectedQuestion = index }) {
+                                    Text(if (status == "answered") "✓ ${index + 1}" else (index + 1).toString())
+                                }
+                            }
+                            TextButton(enabled = selectedQuestion < questionBlocks.lastIndex, onClick = { selectedQuestion++ }) { Text("›") }
+                        }
+                        questionBlocks.getOrNull(selectedQuestion)?.let { block ->
+                            BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
+                                onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId)
+                        }
+                    }
+                }
+                var questionStackRendered = false
                 blocks.forEach { element ->
                     (element as? JsonObject)?.let { block ->
-                        BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
-                            onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onOpenArtifact, artifactProjectId)
+                        if (block.str("type") == "question" && questionBlocks.size > 1) {
+                            if (!questionStackRendered) questionStackRendered = true
+                        } else {
+                            BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
+                                onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId)
+                        }
                     }
                 }
                 if (assignmentId.isNotBlank()) {
@@ -561,6 +637,7 @@ private fun BlockView(
     onOpenChat: (String) -> Unit,
     onLoopAction: (String, String) -> Unit,
     onTakeover: (String) -> Unit,
+    onReleaseTakeover: (String) -> Unit,
     onOpenArtifact: (String, String, String?) -> Unit,
     artifactProjectId: String?,
 ) {
@@ -604,13 +681,22 @@ private fun BlockView(
                 val handoff = element as? JsonObject ?: return@forEach
                 val botId = handoff.str("bot_id")
                 val botName = state.bots.firstOrNull { it.str("id") == botId }?.str("name").orEmpty().ifBlank { botId }
-                Text(stringResource(Res.string.feature_completion_next, botName), style = MaterialTheme.typography.titleSmall)
+                val targetChat = state.chats.firstOrNull { it.str("bot_id") == botId && it.str("kind") in listOf("direct", "bot_dm") }?.str("id")
+                if (targetChat != null) TextButton(onClick = { onOpenChat(targetChat) }) {
+                    Text(stringResource(Res.string.feature_completion_next, botName), style = MaterialTheme.typography.titleSmall)
+                } else Text(stringResource(Res.string.feature_completion_next, botName), style = MaterialTheme.typography.titleSmall)
                 MarkdownText(handoff.str("instruction"), Modifier.fillMaxWidth())
             }
+            if (block.boolean("notify_main")) Text(stringResource(Res.string.feature_completion_notify_main), style = MaterialTheme.typography.labelMedium)
             block.arr("artifacts").forEach { element ->
                 val artifact = element as? JsonObject ?: return@forEach
                 val url = artifact.str("path_or_url")
-                Button(onClick = { onOpenArtifact(artifact.str("artifact_id"), url, artifactProjectId) }) { Text("▤ ${artifact.str("title").ifBlank { url }}") }
+                val author = state.bots.firstOrNull { it.str("id") == artifact.str("bot_id") }?.str("name").orEmpty()
+                    .ifBlank { artifact.str("bot_id") }
+                Column {
+                    Text(stringResource(Res.string.feature_artifact_author, author), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(onClick = { onOpenArtifact(artifact.str("artifact_id"), url, artifactProjectId) }) { Text("▤ ${artifact.str("title").ifBlank { url }}") }
+                }
             }
         }
         "progress" -> Text(stringResource(Res.string.feature_progress, block.str("text")), style = MaterialTheme.typography.bodyMedium)
@@ -621,11 +707,16 @@ private fun BlockView(
             shape = RoundedCornerShape(10.dp),
             onClick = { blockScope.launch { openExternalUrl(block.str("url")) } },
         ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(block.str("site"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                Text(block.str("title"), style = MaterialTheme.typography.titleSmall)
-                block.str("description").takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 3) }
-                Text(block.str("url"), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Spacer(Modifier.width(2.dp).heightIn(min = 56.dp).background(MaterialTheme.colorScheme.primary))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(block.str("site"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(block.str("title"), style = MaterialTheme.typography.titleSmall)
+                    block.str("description").takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 3) }
+                    Text(block.str("url"), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                }
+                val image = fileRef(block.obj("image"))
+                imagePreviews[fileKey(image)]?.let { Image(it, contentDescription = null, modifier = Modifier.size(56.dp), contentScale = ContentScale.Crop) }
             }
         }
         "question" -> {
@@ -678,9 +769,13 @@ private fun BlockView(
             ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(stringResource(if (block.str("context") == "created") Res.string.feature_project_created else Res.string.feature_project_mentioned), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    Text(project?.str("name").orEmpty().ifBlank { projectId }, style = MaterialTheme.typography.titleSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(Modifier.size(40.dp), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) { Box(contentAlignment = Alignment.Center) { Text("◉", color = MaterialTheme.colorScheme.primary) } }
+                        Text(project?.str("name").orEmpty().ifBlank { projectId }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
+                    }
+                    Text(stringResource(Res.string.feature_project_card_members, project?.arr("members")?.size ?: 0), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     block.str("note").takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2) }
-                    project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
                     Text(stringResource(Res.string.feature_open_group), style = MaterialTheme.typography.labelMedium)
                 }
             }
@@ -726,7 +821,7 @@ private fun BlockView(
                 Button(onClick = { onApproval(approvalId, "allow_once") }) { Text(stringResource(Res.string.feature_allow_once)) }
                 Button(onClick = { onApproval(approvalId, "always_allow") }) { Text(stringResource(Res.string.feature_always_allow)) }
                 Button(onClick = { onApproval(approvalId, "deny") }) { Text(stringResource(Res.string.feature_deny)) }
-            }
+            } else if (approval != null) StatusLabel(approval.str("state"))
         }
         "approval_ref" -> {
             Text(stringResource(Res.string.feature_approval_ref), style = MaterialTheme.typography.bodyMedium)
@@ -736,21 +831,32 @@ private fun BlockView(
         "takeover_request" -> {
             Text("✋ ${block.str("reason")}", style = MaterialTheme.typography.bodyMedium)
             val botId = block.str("bot_id")
-            if (block.str("state") != "done" && botId.isNotBlank()) Button(onClick = { onTakeover(botId) }) { Text(stringResource(Res.string.feature_takeover)) }
-            if (botId.isNotBlank()) Button(onClick = { onOpenScreen(botId, null) }) { Text(stringResource(Res.string.feature_open_screen)) }
+            when (block.str("state")) {
+                "pending" -> if (botId.isNotBlank()) Button(onClick = { onTakeover(botId) }) { Text(stringResource(Res.string.feature_takeover)) }
+                "active" -> {
+                    Text(stringResource(Res.string.feature_takeover_active), style = MaterialTheme.typography.labelMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (botId.isNotBlank()) Button(onClick = { onOpenScreen(botId, null) }) { Text(stringResource(Res.string.feature_open_screen)) }
+                        if (botId.isNotBlank()) Button(onClick = { onReleaseTakeover(botId) }) { Text(stringResource(Res.string.feature_return_control)) }
+                    }
+                }
+                else -> StatusLabel("done")
+            }
         }
         "bot_dm_ref" -> {
             Text(stringResource(Res.string.feature_bot_dm, block.str("count")), style = MaterialTheme.typography.bodyMedium)
             block.str("chat_id").takeIf { it.isNotBlank() }?.let { Button(onClick = { onOpenChat(it) }) { Text(stringResource(Res.string.feature_open_chat)) } }
         }
-        "system" -> Text(block.str("text"), style = MaterialTheme.typography.bodyMedium)
+        "system" -> if (block.str("code") == "announcement_updated" && !artifactProjectId.isNullOrBlank()) {
+            TextButton(onClick = { onOpenProject(artifactProjectId) }) { Text(block.str("text"), style = MaterialTheme.typography.bodyMedium) }
+        } else Text(block.str("text"), style = MaterialTheme.typography.bodyMedium)
         "loop_paused" -> {
             val root = block.str("root_message_id")
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(Res.string.feature_loop_paused_label, block.str("hops")), style = MaterialTheme.typography.bodyMedium)
                 StatusLabel(block.str("state"))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (block.str("state") == "paused") Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { onLoopAction(root, "continue") }) { Text(stringResource(Res.string.feature_loop_continue)) }
                 Button(onClick = { onLoopAction(root, "end") }) { Text(stringResource(Res.string.feature_loop_end)) }
             }

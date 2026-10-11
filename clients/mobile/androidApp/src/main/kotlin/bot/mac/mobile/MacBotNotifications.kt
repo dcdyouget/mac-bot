@@ -14,6 +14,7 @@ import android.os.Build
 import android.media.AudioAttributes
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import androidx.core.content.ContextCompat
 import bot.mac.mobile.core.state.AppRuntime
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +26,14 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 
 private const val NOTIFICATION_LEDGER_PREFS = "macbot_notification_ledger"
+
+internal fun PendingNotification.resolvedCategory(): String = category.ifBlank {
+    when (kind) {
+        NotificationKind.APPROVAL, NotificationKind.NEEDS_YOU -> "needs_you"
+        NotificationKind.COMPLETED -> "completion"
+        NotificationKind.MESSAGE -> "messages"
+    }
+}
 
 object MacBotNotifications {
     const val CHANNEL_NEEDS_YOU = "needs-you"
@@ -79,10 +88,10 @@ object MacBotNotifications {
 
     suspend fun postCompleted(
         context: Context, hostId: String, id: String, title: String, text: String,
-        eventSeq: Long? = null, projectId: String? = null, chatId: String? = null,
+        eventSeq: Long? = null, projectId: String? = null, chatId: String? = null, category: String = "completion",
     ) {
         if (projectId.isNullOrBlank() && chatId.isNullOrBlank()) return
-        enqueue(context, PendingNotification(NotificationKind.COMPLETED, hostId, id, title, text, eventSeq, projectId, chatId))
+        enqueue(context, PendingNotification(NotificationKind.COMPLETED, hostId, id, title, text, eventSeq, projectId, chatId, category = category))
     }
 
     suspend fun postMessage(
@@ -95,14 +104,15 @@ object MacBotNotifications {
 
     suspend fun postNeedsYouEvent(
         context: Context, hostId: String, id: String, title: String, text: String,
-        deepLinkKind: String, deepLinkId: String, eventSeq: Long? = null,
+        deepLinkKind: String, deepLinkId: String, eventSeq: Long? = null, category: String = "needs_you",
     ) = enqueue(context, PendingNotification(
         NotificationKind.NEEDS_YOU, hostId, id, title, text, eventSeq,
-        deepLinkKind = deepLinkKind, deepLinkId = deepLinkId,
+        deepLinkKind = deepLinkKind, deepLinkId = deepLinkId, category = category,
     ))
 
     private suspend fun enqueue(context: Context, request: PendingNotification) {
         if (!AppRuntime.repository.notifications.value) return
+        if (!AppRuntime.repository.notificationCategoryEnabled(request.resolvedCategory())) return
         delivery(context).enqueue(request)
         resumePending(context)
     }
@@ -153,11 +163,17 @@ object MacBotNotifications {
             putString(DELIVERY_KEY, request.ledgerKey)
             putString(DELIVERY_MARKER, request.marker)
         }
+        val style = if (request.kind == NotificationKind.MESSAGE) {
+            val person = Person.Builder().setName(request.title).build()
+            NotificationCompat.MessagingStyle(person).addMessage(request.text, System.currentTimeMillis(), person)
+        } else {
+            NotificationCompat.BigTextStyle().bigText(request.text)
+        }
         val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(icon)
             .setContentTitle(request.title)
             .setContentText(request.text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(request.text))
+            .setStyle(style)
             .setAutoCancel(true)
             .setOnlyAlertOnce(request.kind != NotificationKind.MESSAGE)
             .addExtras(extras)
@@ -258,7 +274,8 @@ internal class AndroidNotificationDeliveryBackend(
     override fun allowed(): Boolean = MacBotNotifications.canNotify(context) && notificationsEnabled()
     override fun allowed(request: PendingNotification): Boolean {
         val channel = MacBotNotifications.channelId(context, request.kind)
-        return allowed() && manager.getNotificationChannel(channel)?.importance != NotificationManager.IMPORTANCE_NONE
+        return allowed() && AppRuntime.repository.notificationCategoryEnabled(request.resolvedCategory()) &&
+            manager.getNotificationChannel(channel)?.importance != NotificationManager.IMPORTANCE_NONE
     }
     override fun active(): List<RetainedNotification> = manager.activeNotifications.map { record ->
         val notification = record.notification

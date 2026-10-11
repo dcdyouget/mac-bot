@@ -1,13 +1,24 @@
 package bot.mac.mobile.core.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.platform.*
@@ -17,37 +28,307 @@ import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import org.jetbrains.compose.resources.stringResource
+import androidx.compose.runtime.collectAsState
 
-@Composable fun FilePreview(repository: MobileRepository, rootId: String, initialPath: String, onBack: () -> Unit) {
+private enum class PreviewTab { Preview, Source, History }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FilePreview(repository: MobileRepository, rootId: String, initialPath: String, onBack: () -> Unit) {
     var path by remember(initialPath) { mutableStateOf(initialPath) }
     var content by remember { mutableStateOf<ByteArray?>(null) }
     var entries by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
+    var modifiedAt by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var selectedTab by remember { mutableStateOf(PreviewTab.Preview) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(rootId,path) {
-        loading = true; content = null; error = null; entries = emptyList()
+    val clipboard = LocalClipboardManager.current
+    val snackbar = remember { SnackbarHostState() }
+    val mobileState by repository.state.collectAsState()
+    val copiedMessage = stringResource(Res.string.file_preview_copied)
+    val failedMessage = stringResource(Res.string.file_preview_action_failed)
+    val exportLabel = stringResource(Res.string.file_save)
+
+    LaunchedEffect(rootId, path) {
+        loading = true
+        content = null
+        error = null
+        entries = emptyList()
+        modifiedAt = ""
         if (path.startsWith("http://") || path.startsWith("https://")) {
-            runCatching { openExternalUrl(path) }.onFailure { error=it.message }; loading=false
+            runCatching { openExternalUrl(path) }
+                .onFailure { error = it.message }
+            loading = false
         } else {
             val params = mapOf("root" to "project", "root_id" to rootId, "path" to path)
-            runCatching { repository.fetchBytes("/api/v1/files", params) }.onSuccess { content=it }.onFailure {
-                runCatching { protocolJson.parseToJsonElement(repository.fetchText("/api/v1/files/list",params)).jsonObject.objects("entries") }.onSuccess { values-> entries=values }.onFailure { failure->error=failure.message }
+            val fetched = runCatching { repository.fetchBytes("/api/v1/files", params) }
+            fetched.onSuccess { content = it }
+            fetched.onFailure { fileError ->
+                runCatching {
+                    protocolJson.parseToJsonElement(
+                        repository.fetchText("/api/v1/files/list", params),
+                    ).jsonObject.objects("entries")
+                }.onSuccess { values ->
+                    entries = values
+                    error = if (values.isEmpty()) fileError.message else null
+                }.onFailure { listError -> error = listError.message ?: fileError.message }
             }
-            loading=false
+            val parentPath = path.substringBeforeLast('/', "")
+            if (parentPath != path) {
+                runCatching {
+                    protocolJson.parseToJsonElement(
+                        repository.fetchText(
+                            "/api/v1/files/list",
+                            mapOf("root" to "project", "root_id" to rootId, "path" to parentPath),
+                        ),
+                    ).jsonObject.objects("entries")
+                }.onSuccess { values ->
+                    modifiedAt = values.firstOrNull { it.str("path") == path }?.str("modified_at").orEmpty()
+                }
+            }
+            loading = false
         }
     }
-    val bytes=content
+
+    val bytes = content
     val image = remember(bytes) { bytes?.let { platformScreenImageDecoder().decodeJpeg(it) } }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row { TextButton(onClick=onBack){Text(stringResource(Res.string.common_back))}; Text(path,Modifier.weight(1f).padding(12.dp),maxLines=2) }
-        if(loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
-        if(bytes!=null) {
-            Button(onClick={scope.launch{ runCatching { exportFile(PickedFile(path.substringAfterLast('/').ifBlank{"artifact"}, if(image!=null)"image/png" else "application/octet-stream",bytes)) }.onFailure { error=it.message } }}){Text(stringResource(Res.string.file_save))}
-            if(image!=null) Image(image,null,Modifier.weight(1f).fillMaxWidth(),contentScale=ContentScale.Fit)
-            else LazyColumn(Modifier.weight(1f)) { item { SelectionContainer { Text(bytes.decodeToString().take(100000)) } } }
+    val isText = remember(path, bytes) {
+        val ext = path.substringAfterLast('.', "").lowercase()
+        ext in setOf("md", "markdown", "txt", "json", "csv", "xml", "html", "css", "js", "kt", "rs", "py", "yaml", "yml", "toml", "log") ||
+            bytes?.decodeToString()?.take(256)?.contains('\u0000') == false
+    }
+    val artifact = remember(mobileState.announcements, rootId, path) {
+        mobileState.announcements[rootId]?.let { announcement ->
+            Announcement(announcement).artifacts.firstOrNull { it.pathOrUrl == path || it.pathOrUrl.trimEnd('/') == path.trimEnd('/') }
         }
-        LazyColumn { items(entries,key={it.str("path")}) { entry -> ListItem(headlineContent={Text(entry.str("name"))},trailingContent={Text(if(entry.boolean("is_dir"))"›" else "▤")},modifier=Modifier.clickable { path=entry.str("path") }) } }
+    }
+    val artifactAuthor = remember(artifact, mobileState.bots) {
+        artifact?.botId?.let { botId ->
+            mobileState.bots.firstOrNull { it.str("id") == botId }?.let { bot -> bot.str("label").ifBlank { bot.str("name") } }
+        }.orEmpty()
+    }
+    val title = artifact?.title?.takeIf { it.isNotBlank() } ?: path.trimEnd('/').substringAfterLast('/').ifBlank { path }
+    val timestamp = artifact?.updatedAt?.takeIf { it.isNotBlank() } ?: modifiedAt
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            if (!path.startsWith("http://") && !path.startsWith("https://")) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(path))
+                            scope.launch { snackbar.showSnackbar(copiedMessage) }
+                        },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    ) { Text(stringResource(Res.string.file_preview_copy_path)) }
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val file = bytes?.let {
+                                    PickedFile(title.ifBlank { "artifact" }, mimeTypeFor(path, image != null), it)
+                                }
+                                val result = runCatching {
+                                    if (path.startsWith("http://") || path.startsWith("https://")) {
+                                        openExternalUrl(path)
+                                    } else if (file != null) {
+                                        // Android's document picker is the available system handoff for a local artifact.
+                                        exportFile(file)
+                                    } else false
+                                }
+                                if (result.isFailure || result.getOrNull() != true) {
+                                    snackbar.showSnackbar(failedMessage.replace("%1\$s", result.exceptionOrNull()?.message ?: exportLabel))
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        enabled = !loading && (bytes != null || path.startsWith("http://") || path.startsWith("https://")),
+                    ) { Text(stringResource(Res.string.file_preview_share_open)) }
+                }
+            }
+        },
+    ) { insets ->
+        Column(Modifier.fillMaxSize().padding(insets)) {
+            CenterAlignedTopAppBar(
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(title, maxLines = 1, style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            text = if (artifactAuthor.isBlank()) stringResource(Res.string.file_preview_author_unknown)
+                            else stringResource(Res.string.feature_artifact_author, artifactAuthor),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                navigationIcon = {
+                    TextButton(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
+                },
+                actions = {
+                    Text(
+                        stringResource(Res.string.file_preview_version_unknown),
+                        modifier = Modifier.padding(end = 12.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+            )
+            if (timestamp.isNotBlank()) {
+                Text(
+                    stringResource(Res.string.file_preview_modified, timestamp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(10.dp))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                PreviewTab.entries.forEach { tab ->
+                    val selected = selectedTab == tab
+                    val label = when (tab) {
+                        PreviewTab.Preview -> stringResource(Res.string.file_preview_tab_preview)
+                        PreviewTab.Source -> stringResource(Res.string.file_preview_tab_source)
+                        PreviewTab.History -> stringResource(Res.string.file_preview_tab_history)
+                    }
+                    Text(
+                        text = label,
+                        modifier = Modifier.weight(1f).heightIn(min = 40.dp)
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceContainer,
+                                RoundedCornerShape(8.dp),
+                            )
+                            .clickable { selectedTab = tab }
+                            .wrapContentHeight(Alignment.CenterVertically),
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal),
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            error?.let {
+                Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
+            }
+            when (selectedTab) {
+                PreviewTab.History -> HistorySnapshot(bytes, path)
+                PreviewTab.Source -> SourceContent(bytes)
+                PreviewTab.Preview -> PreviewContent(bytes, image, isText, entries) { selectedPath ->
+                    path = selectedPath
+                    selectedTab = PreviewTab.Preview
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistorySnapshot(bytes: ByteArray?, path: String) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(stringResource(Res.string.file_preview_history_unavailable), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (bytes != null) {
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                    Text(stringResource(Res.string.file_preview_snapshot), style = MaterialTheme.typography.titleMedium)
+                    Text(path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            SelectionContainer {
+                Text(
+                    bytes.decodeToString().take(200_000),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceContent(bytes: ByteArray?) {
+    if (bytes == null) {
+        Text(stringResource(Res.string.file_preview_source_unavailable), Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else {
+        SelectionContainer {
+            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+                item {
+                    Text(
+                        bytes.decodeToString().take(200_000),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewContent(
+    bytes: ByteArray?,
+    image: androidx.compose.ui.graphics.ImageBitmap?,
+    isText: Boolean,
+    entries: List<JsonObject>,
+    onOpen: (String) -> Unit,
+) {
+    if (entries.isNotEmpty()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+            items(entries, key = { it.str("path") }) { entry ->
+                ListItem(
+                    headlineContent = { Text(entry.str("name"), maxLines = 1) },
+                    supportingContent = { if (!entry.boolean("is_dir")) Text(entry.str("size")) },
+                    trailingContent = { Text(if (entry.boolean("is_dir")) "›" else "▤") },
+                    modifier = Modifier.clickable { onOpen(entry.str("path")) },
+                )
+            }
+        }
+    } else if (bytes == null) {
+        Spacer(Modifier.fillMaxSize())
+    } else if (image != null) {
+        Image(image, contentDescription = null, Modifier.fillMaxSize().padding(12.dp), contentScale = ContentScale.Fit)
+    } else if (isText) {
+        LazyColumn(
+            Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            contentPadding = PaddingValues(vertical = 12.dp),
+        ) {
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                ) {
+                    Column(Modifier.padding(18.dp)) { MarkdownText(bytes.decodeToString().take(200_000)) }
+                }
+            }
+        }
+    } else {
+        Text(stringResource(Res.string.file_preview_source_unavailable), Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private fun mimeTypeFor(path: String, isImage: Boolean): String {
+    if (isImage) return "image/*"
+    return when (path.substringAfterLast('.', "").lowercase()) {
+        "md", "markdown" -> "text/markdown"
+        "txt", "log" -> "text/plain"
+        "json" -> "application/json"
+        "csv" -> "text/csv"
+        "pdf" -> "application/pdf"
+        else -> "application/octet-stream"
     }
 }

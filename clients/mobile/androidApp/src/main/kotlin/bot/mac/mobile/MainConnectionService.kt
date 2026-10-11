@@ -237,7 +237,7 @@ private object NotificationEventRouter {
                     val id = project.str("id").ifBlank { project.str("project_id") }
                     if (id.isNotBlank()) MacBotNotifications.postCompleted(
                         context, hostId, id, context.getString(R.string.notification_project_review_title),
-                        project.str("name").ifBlank { project.str("goal") }, eventSeq = seq, projectId = id,
+                        project.str("name").ifBlank { project.str("goal") }, eventSeq = seq, projectId = id, category = "review",
                     )
                 }
             }
