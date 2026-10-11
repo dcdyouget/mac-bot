@@ -122,14 +122,13 @@ does not replay historical notifications that an older build marked delivered.
 
 Capacity, replay, multi-Host isolation, restart recovery and notification actions
 are covered by host-side JUnit/Robolectric API 36 tests. These tests use an
-isolated simulated NotificationManager and do not touch the shared AVD. During
-an integrator-owned acceptance window, build and verify a same-signature release
-candidate with the commands above, then let the integrator perform `adb install
--r`; do not clear notifications or reinstall the app to hide quota failures.
+isolated simulated NotificationManager and do not touch the shared AVD. When verifying on the shared AVD, build a same-signature release candidate with the
+commands above and install it with `adb install -r`; do not clear notifications or
+reinstall the app to hide quota failures.
 
 ## Verification
 
-Phase evidence and emulator screenshots are stored under `verification/`. The integrator can archive them in `docs/progress/`. See `verification/STATUS.md` for completed checks and remaining integration dependencies.
+Phase evidence and emulator screenshots are stored under `verification/`. See `verification/STATUS.md` for completed checks and remaining integration dependencies.
 
 For repeatable performance checks on this M4 Mac, use `-gpu host`. The AVD default has GPU acceleration disabled and uses SwiftShader; keep software-rendered measurements separate. Verified hardware backend: Android Emulator OpenGL ES Translator (Apple M4).
 
