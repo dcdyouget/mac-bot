@@ -87,6 +87,7 @@ pub struct SettingsView {
     update_url: Entity<InputState>,
     provider_kind: String,
     approval_mode: String,
+    default_tool_toggles: BTreeMap<String, bool>,
     approval_rules: Vec<ApprovalRuleEditor>,
     rules_synced: bool,
     trace_full: bool,
@@ -153,6 +154,7 @@ impl SettingsView {
             update_url,
             provider_kind: "openai-completions".into(),
             approval_mode: "require".into(),
+            default_tool_toggles: default_tool_toggles(),
             approval_rules: Vec::new(),
             rules_synced: false,
             trace_full: false,
@@ -256,6 +258,10 @@ impl SettingsView {
         let models = settings.get("models").unwrap_or(&Value::Null);
         let skills = settings.get("skills").unwrap_or(&Value::Null);
         let browser = settings.get("browser").unwrap_or(&Value::Null);
+        let tool_defaults = settings
+            .get("tools")
+            .and_then(|tools| tools.get("defaults"))
+            .unwrap_or(&Value::Null);
         let stream = browser.get("stream").unwrap_or(&Value::Null);
         let desktop_stream = stream.get("desktop").unwrap_or(&Value::Null);
         let global = value_string(concurrency.get("global"), "8");
@@ -330,6 +336,15 @@ impl SettingsView {
         set_input(&self.stream_max_width, stream_max_width, window, cx);
         set_input(&self.stream_quality, stream_quality, window, cx);
         set_input(&self.stream_max_fps, stream_max_fps, window, cx);
+        for (tool, default) in default_tool_toggles() {
+            self.default_tool_toggles.insert(
+                tool.clone(),
+                tool_defaults
+                    .get(&tool)
+                    .and_then(Value::as_bool)
+                    .unwrap_or(default),
+            );
+        }
 
         if !self.rules_synced {
             self.approval_rules = server_rules
@@ -641,6 +656,7 @@ impl SettingsView {
                 "subagent": value_or_null(self.default_subagent.read(cx).value().as_ref()),
                 "maintenance": value_or_null(self.default_maintenance.read(cx).value().as_ref())},
             "approvals": {"mode": self.approval_mode, "rules": rules},
+            "tools": {"defaults": self.default_tool_toggles},
             "skills": {"extra_dirs": dirs},
             "browser": {"default_mode": self.browser_mode.read(cx).value(),
                 "chrome_profile": self.chrome_profile.read(cx).value(),
@@ -1061,7 +1077,45 @@ impl Render for SettingsView {
                         cx.notify();
                     })),
             );
+        let default_tool_controls = div().flex().flex_col().children(
+            [
+                ("files", "bot.tool.file"),
+                ("bash", "bot.tool.bash"),
+                ("browser", "bot.tool.browser"),
+                ("subagent", "bot.tool.subagent"),
+                ("web", "bot.tool.web"),
+                ("mcp", "bot.tool.mcp"),
+            ]
+            .into_iter()
+            .map(|(tool, label)| {
+                let checked = self
+                    .default_tool_toggles
+                    .get(tool)
+                    .copied()
+                    .unwrap_or(false);
+                let tool_key = tool.to_owned();
+                div()
+                    .h(px(44.))
+                    .px(px(tokens.space[5]))
+                    .flex()
+                    .items_center()
+                    .child(
+                        Checkbox::new(format!("settings-default-tool-{tool}"))
+                            .checked(checked)
+                            .label(t(label))
+                            .on_click(cx.listener(move |this, next, _, cx| {
+                                this.default_tool_toggles.insert(tool_key.clone(), *next);
+                                cx.notify();
+                            })),
+                    )
+            }),
+        );
         let approval_form = Form::vertical()
+            .child(
+                Field::new()
+                    .label(t("settings.tools.defaults"))
+                    .child(default_tool_controls),
+            )
             .child(Field::new().label(t("approval_mode")).child(approval_mode))
             .child(
                 Field::new()
@@ -1563,6 +1617,20 @@ impl Render for SettingsView {
                     ),
             )
     }
+}
+
+fn default_tool_toggles() -> BTreeMap<String, bool> {
+    [
+        ("files", true),
+        ("bash", true),
+        ("browser", true),
+        ("subagent", true),
+        ("web", true),
+        ("mcp", false),
+    ]
+    .into_iter()
+    .map(|(key, enabled)| (key.to_owned(), enabled))
+    .collect()
 }
 
 fn input_state(
