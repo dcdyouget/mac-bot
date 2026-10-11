@@ -11,9 +11,18 @@ import { RoutinesPage, type RoutineRecord, type RoutineRun, type RoutineInput, t
 import type { RoutineBot, RoutineProject } from './components/RoutinesPage'
 import { SkillsPage, type SkillDetail, type SkillImportSource, type SkillRecord } from './components/SkillsPage'
 import { MemoryPage, type UserMemoryEntry, type UserMemoryQuota, type UserProfile, type UserProfilePatch } from './components/MemoryPage'
+import { TracePage, type TraceAssignment, type TraceInFlight, type TraceItem, type TraceQueueMessage } from './components/TracePage'
 
 const NO_RULES: Record<string, Json>[] = []
 type ThemeMode = 'light' | 'dark' | 'system'
+type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory' | 'trace'
+type TraceReturnPage = Exclude<AppPage, 'trace'>
+type TraceRoute = { assignmentId: string; hostScope: string; returnPage: TraceReturnPage; returnChatId: string; returnSelectedAssignment: string | null }
+type TraceHistory = { items?: TraceItem[]; first_aseq: number | null; last_aseq: number | null; has_more_before: boolean; live: boolean }
+type TraceSubscriptionState = { status?: string; stream?: string | null; assignment_id?: string | null; chat_id?: string | null; in_flight?: TraceInFlight[]; error?: string | null }
+type TraceDelta = { stream?: string; request_id?: string; channel?: 'text' | 'thinking' | 'tool_args'; call_id?: string | null; text?: string }
+type TraceToolOutput = { stream?: string; call_id?: string; chunk?: string }
+type MessageWithDelivery = Message & { seq?: number; delivery?: { bot_id?: string; assignment_id?: string | null; state?: 'queued' | 'delivered' | 'read'; at?: string }[] }
 
 const THEME_STORAGE_KEY = 'macbot.appearance.theme'
 const MATERIAL_STORAGE_KEY = 'macbot.appearance.translucent'
@@ -28,6 +37,30 @@ function mergeMessages(...groups: Message[][]): Message[] {
     if (typeof leftSeq === 'number' && typeof rightSeq === 'number') return leftSeq - rightSeq
     return String(left.created_at ?? '').localeCompare(String(right.created_at ?? ''))
   })
+}
+
+function traceItemKey(item: TraceItem) { return `${item.run_id}\u0000${item.aseq}` }
+
+function mergeTraceItems(...groups: TraceItem[][]): TraceItem[] {
+  const byKey = new Map<string, TraceItem>()
+  for (const group of groups) for (const item of group) byKey.set(traceItemKey(item), item)
+  return [...byKey.values()].sort((left, right) => left.aseq - right.aseq)
+}
+
+function messagePlainText(message: Message): string {
+  if (message.fallback_text?.trim()) return message.fallback_text.trim()
+  return (message.blocks ?? []).map((block) => typeof block.text === 'string' ? block.text : '').filter(Boolean).join('\n')
+}
+
+function traceQueueMessage(message: Message, bots: BridgeState['bots']): TraceQueueMessage {
+  const botId = message.sender?.bot_id
+  return {
+    id: message.id,
+    text: messagePlainText(message),
+    sender: message.sender?.kind === 'user' ? t('common.user') : (botId ? bots[botId]?.name : undefined) ?? t('common.bot'),
+    at: message.created_at,
+    steerable: true,
+  }
 }
 
 function assertHostScope(current: string, expected: string) {
@@ -57,7 +90,21 @@ function App() {
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
   const [selectedChat, setSelectedChat] = useState('')
-  const [activePage, setActivePage] = useState<'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory'>('chat')
+  const [activePage, setActivePage] = useState<AppPage>('chat')
+  const [traceRoute, setTraceRoute] = useState<TraceRoute | null>(null)
+  const [traceAssignment, setTraceAssignment] = useState<TraceAssignment | null>(null)
+  const [traceItems, setTraceItems] = useState<TraceItem[]>([])
+  const [traceFirstAseq, setTraceFirstAseq] = useState<number | null>(null)
+  const [traceHasMoreBefore, setTraceHasMoreBefore] = useState(false)
+  const [traceLive, setTraceLive] = useState(false)
+  const [traceInFlight, setTraceInFlight] = useState<TraceInFlight[]>([])
+  const [traceToolOutputs, setTraceToolOutputs] = useState<Record<string, string>>({})
+  const [tracePendingMessages, setTracePendingMessages] = useState<TraceQueueMessage[]>([])
+  const [traceReviewDetails, setTraceReviewDetails] = useState<Record<string, { text: string; result?: string }>>({})
+  const [traceLoading, setTraceLoading] = useState(false)
+  const [traceLoadingMore, setTraceLoadingMore] = useState(false)
+  const [traceError, setTraceError] = useState<string | null>(null)
+  const [traceRetry, setTraceRetry] = useState(0)
   const [mentionBotId, setMentionBotId] = useState<string | null>(null)
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [draft, setDraft] = useState('')
@@ -67,8 +114,6 @@ function App() {
   const [sending, setSending] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [hostPermissions, setHostPermissions] = useState<Record<string, string> | null>(null)
-  const [activeAssignment, setActiveAssignment] = useState<string | null>(null)
-  const [assignmentTrace, setAssignmentTrace] = useState<Record<string, unknown>[]>([])
   const [artifactPreview, setArtifactPreview] = useState<{ title: string; path: string; content: string; error?: string } | null>(null)
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [settingsError, setSettingsError] = useState<string | null>(null)
@@ -97,12 +142,18 @@ function App() {
   const [reducedTransparency, setReducedTransparency] = useState(false)
   const hostScope = state.active_host?.id ?? state.node_id ?? endpoint.trim()
   const hostScopeRef = useRef(hostScope)
+  const stateRef = useRef(state)
+  const traceRouteRef = useRef(traceRoute)
+  const traceStreamRef = useRef<string | null>(null)
+  const traceHistoryRequestRef = useRef(0)
   const routinesDataScopeRef = useRef<string | null>(null)
   const skillsDataScopeRef = useRef<string | null>(null)
   const memoryDataScopeRef = useRef<string | null>(null)
   const sidebarSearchRef = useRef<HTMLInputElement>(null)
   const announcementPanelRef = useRef<HTMLElement>(null)
   hostScopeRef.current = hostScope
+  stateRef.current = state
+  traceRouteRef.current = traceRoute
   const historyCacheKey = (scope: string, chatId: string) => `${scope}\u0000${chatId}`
 
   useEffect(() => {
@@ -204,6 +255,206 @@ function App() {
     })
     return () => unlisten?.()
   }, [])
+
+  useEffect(() => {
+    let active = true
+    let unlisten: (() => void)[] = []
+    void Promise.all([
+      listen<{ stream?: string; item?: TraceItem }>('trace-item', ({ payload }) => {
+        if (!active || payload.stream !== traceStreamRef.current || !payload.item) return
+        const item = payload.item
+        if (!item.run_id || typeof item.aseq !== 'number' || !item.data) return
+        setTraceItems((current) => mergeTraceItems(current, [item]))
+        setTraceFirstAseq((current) => current === null ? item.aseq : Math.min(current, item.aseq))
+        if (item.type === 'llm.response') {
+          const requestId = typeof item.data.request_id === 'string' ? item.data.request_id : ''
+          if (requestId) setTraceInFlight((current) => current.filter((request) => request.request_id !== requestId))
+        }
+      }),
+      listen<TraceDelta>('trace-delta', ({ payload }) => {
+        if (!active || payload.stream !== traceStreamRef.current || !payload.request_id || !payload.text) return
+        setTraceInFlight((current) => {
+          const existing = current.find((request) => request.request_id === payload.request_id)
+          const next = current.filter((request) => request.request_id !== payload.request_id)
+          const request: TraceInFlight = existing ? { ...existing } : { request_id: payload.request_id!, text: '', thinking: '' }
+          if (payload.channel === 'thinking') request.thinking = `${request.thinking}${payload.text}`.slice(-64_000)
+          else if (payload.channel === 'tool_args') request.tool_args = `${request.tool_args ?? ''}${payload.text}`.slice(-64_000)
+          else request.text = `${request.text}${payload.text}`.slice(-64_000)
+          return [...next, request]
+        })
+      }),
+      listen<TraceToolOutput>('trace-tool-output', ({ payload }) => {
+        if (!active || payload.stream !== traceStreamRef.current || !payload.call_id || !payload.chunk) return
+        setTraceToolOutputs((current) => {
+          const next = { ...current, [payload.call_id!]: `${current[payload.call_id!] ?? ''}${payload.chunk}`.slice(-24_000) }
+          const keys = Object.keys(next)
+          while (keys.length > 16) delete next[keys.shift()!]
+          while (Object.values(next).reduce((total, text) => total + text.length, 0) > 128_000) delete next[Object.keys(next)[0]]
+          return next
+        })
+      }),
+      listen<TraceSubscriptionState>('trace-subscription-state', ({ payload }) => {
+        if (!active) return
+        const route = traceRouteRef.current
+        if (!route || route.hostScope !== hostScopeRef.current || payload.assignment_id !== route.assignmentId) return
+        const incomingStream = typeof payload.stream === 'string' ? payload.stream : null
+        const currentStream = traceStreamRef.current
+        if (incomingStream && currentStream && payload.status !== 'subscribed' && incomingStream !== currentStream) return
+        if (payload.status === 'subscribed' && incomingStream) {
+          traceStreamRef.current = incomingStream
+          setTraceLive(true)
+          setTraceInFlight(payload.in_flight ?? [])
+          setTraceError(null)
+        } else if (payload.status === 'disconnected') {
+          if (!incomingStream || !currentStream || incomingStream === currentStream) traceStreamRef.current = null
+          setTraceLive(false)
+        } else if (payload.status === 'unsubscribed') {
+          if (!incomingStream || incomingStream === currentStream) traceStreamRef.current = null
+          setTraceLive(false)
+        } else if (payload.status === 'error') {
+          if (!incomingStream || incomingStream === currentStream) traceStreamRef.current = null
+          setTraceLive(false)
+          setTraceError(payload.error ?? t('trace.state.error'))
+        }
+      }),
+    ]).then((listeners) => { if (active) unlisten = listeners; else listeners.forEach((dispose) => dispose()) })
+      .catch((error: unknown) => { if (active && traceRouteRef.current) setTraceError(String(error)) })
+    return () => { active = false; unlisten.forEach((dispose) => dispose()) }
+  }, [])
+
+  useEffect(() => {
+    const route = traceRoute
+    if (!route || activePage !== 'trace') return
+    if (route.hostScope !== hostScope) {
+      setTraceRoute(null)
+      setTraceAssignment(null)
+      setTraceItems([])
+      setTracePendingMessages([])
+      setTraceInFlight([])
+      setTraceToolOutputs({})
+      setTraceError(null)
+      setActivePage('chat')
+      return
+    }
+    if (state.connection !== 'connected') {
+      setTraceLive(false)
+      setTraceLoading(false)
+      return
+    }
+
+    const token = ++traceHistoryRequestRef.current
+    const scope = route.hostScope
+    let cancelled = false
+    let stream: string | null = null
+    const current = () => !cancelled && traceHistoryRequestRef.current === token && hostScopeRef.current === scope && traceRouteRef.current?.assignmentId === route.assignmentId && traceRouteRef.current.hostScope === scope
+
+    setTraceAssignment((existing) => existing?.id === route.assignmentId ? existing : (stateRef.current.assignments[route.assignmentId] as unknown as TraceAssignment | undefined) ?? { id: route.assignmentId })
+    setTraceItems([])
+    setTraceFirstAseq(null)
+    setTraceHasMoreBefore(false)
+    setTracePendingMessages([])
+    setTraceReviewDetails({})
+    setTraceInFlight([])
+    setTraceToolOutputs({})
+    setTraceError(null)
+    setTraceLoading(true)
+    traceStreamRef.current = null
+
+    const load = async () => {
+      try {
+        const [assignmentResult, history] = await Promise.all([
+          invoke<{ assignment: TraceAssignment }>('protocol_request', { method: 'assignment.get', params: { assignment_id: route.assignmentId } }),
+          invoke<TraceHistory>('protocol_request', { method: 'trace.history', params: { assignment_id: route.assignmentId, tail: true, limit: 200 } }),
+        ])
+        if (!current()) return
+        const assignment = assignmentResult.assignment
+        setTraceAssignment(assignment)
+        setState((value) => ({ ...value, assignments: { ...value.assignments, [assignment.id]: assignment as unknown as Record<string, Json> } }))
+        const items = history.items ?? []
+        setTraceItems(mergeTraceItems([], items))
+        setTraceFirstAseq(history.first_aseq)
+        setTraceHasMoreBefore(history.has_more_before)
+        setTraceLive(history.live)
+
+        if (assignment.origin_chat_id) {
+          const reviewIds = new Set(items.filter((item) => item.type === 'queue.review').flatMap((item) => Array.isArray(item.data.message_ids) ? item.data.message_ids.map(String) : []))
+          const messages = new Map<string, Message>()
+          const authoritativeMessages = new Map<string, Message>()
+          const snapshot = stateRef.current
+          for (const message of [...Object.values(snapshot.messages), ...Object.values(snapshot.pending_messages)]) {
+            if (message.chat_id === assignment.origin_chat_id) messages.set(message.id, message)
+          }
+          const deliveryFor = (message: Message) => (message as MessageWithDelivery).delivery?.find((delivery) => delivery.bot_id === assignment.bot_id && delivery.assignment_id === assignment.id)
+          const expectedPending = Number(assignment.pending_messages ?? 0)
+          let beforeSeq: number | undefined
+          let hasMore = true
+          for (let pageIndex = 0; pageIndex < 40 && hasMore; pageIndex += 1) {
+            const queuedCount = [...authoritativeMessages.values()].filter((message) => deliveryFor(message)?.state === 'queued').length
+            const foundReviews = [...reviewIds].every((id) => messages.has(id))
+            if (pageIndex > 0 && queuedCount >= expectedPending && foundReviews) break
+            const page = await invoke<{ messages?: Message[]; has_more?: boolean }>('protocol_request', {
+              method: 'chat.history', params: { chat_id: assignment.origin_chat_id, ...(beforeSeq !== undefined ? { before_seq: beforeSeq } : {}), limit: 100 },
+            })
+            if (!current()) return
+            const rows = page.messages ?? []
+            rows.forEach((message) => { messages.set(message.id, message); authoritativeMessages.set(message.id, message) })
+            hasMore = page.has_more === true
+            const seqs = rows.map((message) => (message as MessageWithDelivery).seq).filter((seq): seq is number => typeof seq === 'number')
+            if (!seqs.length) break
+            const nextBefore = Math.min(...seqs)
+            if (beforeSeq !== undefined && nextBefore >= beforeSeq) break
+            beforeSeq = nextBefore
+          }
+          const rows = [...messages.values()]
+          const pending = expectedPending > 0
+            ? [...authoritativeMessages.values()].filter((message) => deliveryFor(message)?.state === 'queued').map((message) => traceQueueMessage(message, snapshot.bots))
+            : []
+          setTracePendingMessages(pending)
+          const details = Object.fromEntries([...reviewIds].map((id) => {
+            const message = messages.get(id)
+            return [id, { text: message ? messagePlainText(message) : id }]
+          }))
+          setTraceReviewDetails(details)
+          const cacheKey = historyCacheKey(scope, assignment.origin_chat_id)
+          setHistoryByChat((value) => ({ ...value, [cacheKey]: mergeMessages(value[cacheKey] ?? [], rows) }))
+        }
+
+        if (history.live) {
+          const subscribed = await invoke<{ stream: string; in_flight?: TraceInFlight[] }>('trace_subscribe', {
+            assignmentId: route.assignmentId,
+            sinceAseq: history.last_aseq ?? 0,
+          })
+          stream = subscribed.stream
+          if (!current()) {
+            if (stream) void invoke('trace_unsubscribe', { stream }).catch(() => undefined)
+            return
+          }
+          traceStreamRef.current = stream
+          setTraceLive(true)
+          setTraceInFlight(subscribed.in_flight ?? [])
+        }
+      } catch (error) {
+        if (current()) setTraceError(String(error))
+      } finally {
+        if (current()) setTraceLoading(false)
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+      if (traceHistoryRequestRef.current === token) traceHistoryRequestRef.current += 1
+      if (stream) {
+        if (traceStreamRef.current === stream) traceStreamRef.current = null
+        void invoke('trace_unsubscribe', { stream }).catch(() => undefined)
+      }
+    }
+  }, [activePage, hostScope, state.connection, traceRoute, traceRetry])
+
+  useEffect(() => {
+    if (activePage !== 'trace' || !traceRoute) return
+    const latest = state.assignments[traceRoute.assignmentId]
+    if (latest) setTraceAssignment(latest as unknown as TraceAssignment)
+  }, [activePage, state.assignments, traceRoute])
 
   useEffect(() => {
     if (!connecting) return
@@ -357,6 +608,40 @@ function App() {
   function openWorkbenchChat(chatId: string) {
     selectChat(chatId)
     setActivePage('chat')
+  }
+
+  function openTrace(assignmentId: string) {
+    const existingRoute = activePage === 'trace' ? traceRouteRef.current : null
+    const route: TraceRoute = {
+      assignmentId,
+      hostScope,
+      returnPage: existingRoute?.returnPage ?? (activePage === 'trace' ? 'chat' : activePage),
+      returnChatId: existingRoute?.returnChatId ?? selectedChat,
+      returnSelectedAssignment: existingRoute?.returnSelectedAssignment ?? selectedAssignment,
+    }
+    traceRouteRef.current = route
+    traceStreamRef.current = null
+    setTraceRoute(route)
+    setTraceAssignment((stateRef.current.assignments[assignmentId] as unknown as TraceAssignment | undefined) ?? { id: assignmentId })
+    setSelectedAssignment(assignmentId)
+    setActivePage('trace')
+  }
+
+  function backFromTrace() {
+    const route = traceRouteRef.current ?? traceRoute
+    traceRouteRef.current = null
+    if (route?.hostScope === hostScopeRef.current) {
+      setActivePage(route.returnPage)
+      if (route.returnPage === 'chat') {
+        setSelectedChat(route.returnChatId)
+        localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScopeRef.current}`, route.returnChatId)
+      }
+      setSelectedAssignment(route.returnSelectedAssignment)
+    } else {
+      setActivePage('chat')
+      setSelectedAssignment(null)
+    }
+    setTraceRoute(null)
   }
 
   function mentionAssignmentBot(botId: string, chatId: string) {
@@ -828,15 +1113,63 @@ function App() {
     }
   }
 
-  async function loadAssignmentTrace(assignmentId: string) {
-    setActiveAssignment(assignmentId)
+  async function loadMoreTrace() {
+    const route = traceRouteRef.current
+    const beforeAseq = traceFirstAseq
+    if (!route || beforeAseq === null || traceLoadingMore) return
+    const scope = route.hostScope
+    setTraceLoadingMore(true)
     try {
-      const result = await invoke<{ items: Record<string, unknown>[] }>('protocol_request', {
-        method: 'trace.history', params: { assignment_id: assignmentId, tail: true, limit: 200 },
+      const result = await invoke<TraceHistory>('protocol_request', {
+        method: 'trace.history', params: { assignment_id: route.assignmentId, before_aseq: beforeAseq, limit: 200 },
       })
-      setAssignmentTrace(result.items ?? [])
+      if (hostScopeRef.current !== scope || traceRouteRef.current?.assignmentId !== route.assignmentId) return
+      const items = result.items ?? []
+      setTraceItems((current) => mergeTraceItems(current, items))
+      setTraceFirstAseq((current) => current === null ? result.first_aseq : result.first_aseq === null ? current : Math.min(current, result.first_aseq))
+      setTraceHasMoreBefore(result.has_more_before)
     } catch (error) {
-      setAssignmentTrace([{ type: 'error', error: String(error) }])
+      if (hostScopeRef.current === scope) setTraceError(String(error))
+    } finally {
+      if (traceRouteRef.current?.assignmentId === route.assignmentId && hostScopeRef.current === scope) setTraceLoadingMore(false)
+    }
+  }
+
+  async function stopTraceAssignment(assignmentId: string) {
+    const route = traceRouteRef.current
+    if (!route || route.assignmentId !== assignmentId) return
+    const scope = route.hostScope
+    try {
+      const result = await invoke<{ assignment: TraceAssignment }>('protocol_request', { method: 'assignment.stop', params: { assignment_id: assignmentId } })
+      if (hostScopeRef.current !== scope || activePage !== 'trace' || traceRouteRef.current?.assignmentId !== assignmentId) return
+      setTraceAssignment(result.assignment)
+      setState((current) => ({ ...current, assignments: { ...current.assignments, [assignmentId]: result.assignment as unknown as Record<string, Json> } }))
+    } catch (error) {
+      if (hostScopeRef.current === scope && activePage === 'trace' && traceRouteRef.current?.assignmentId === assignmentId) setTraceError(String(error))
+    }
+  }
+
+  async function steerTraceMessage(messageId: string) {
+    const route = traceRouteRef.current
+    const assignment = traceAssignment
+    if (!route || !assignment?.bot_id) return
+    const scope = route.hostScope
+    try {
+      const result = await invoke<{ message: Message; assignment: TraceAssignment }>('protocol_request', { method: 'message.steer', params: { message_id: messageId, bot_id: assignment.bot_id, assignment_id: assignment.id } })
+      if (hostScopeRef.current !== scope || traceRouteRef.current?.assignmentId !== route.assignmentId) return
+      setTraceAssignment(result.assignment)
+      setState((current) => ({
+        ...current,
+        assignments: { ...current.assignments, [assignment.id]: result.assignment as unknown as Record<string, Json> },
+        messages: { ...current.messages, [messageId]: result.message },
+      }))
+      setTracePendingMessages((current) => current.filter((message) => message.id !== messageId))
+      if (result.message.chat_id) {
+        const key = historyCacheKey(scope, result.message.chat_id)
+        setHistoryByChat((current) => ({ ...current, [key]: mergeMessages(current[key] ?? [], [result.message]) }))
+      }
+    } catch (error) {
+      if (hostScopeRef.current === scope) setTraceError(String(error))
     }
   }
 
@@ -1001,7 +1334,7 @@ function App() {
         <button className="icon-button" aria-label={t('chat.search')}><Search size={17} /></button>
         <button className="icon-button" aria-label="切换右面板"><PanelRight size={17} /></button>
       </header>
-      {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={(id) => { setSelectedAssignment(id); void loadAssignmentTrace(id) }} />}
+      {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={openTrace} />}
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
         <span className="announcement-bar" /><span className="announcement-summary"><strong>{t('group.announcement')}</strong><small>{announcement ? summarizeMarkdown(announcement.text) : announcementLoading ? t('settings.permissions.loading') : t('group.announcement.empty')}</small></span><ChevronDown size={14} />
       </button>}
@@ -1012,7 +1345,7 @@ function App() {
           {buildMessageTimeline(currentMessages).map((entry) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className="timeline-fragment" key={entry.message.id}>
             {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-            <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={(id) => void loadAssignmentTrace(id)} onPreviewArtifact={(artifact) => void previewArtifact(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
+            <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onPreviewArtifact={(artifact) => void previewArtifact(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
             const decisionScope = hostScope
             const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
             if (result.approval && hostScopeRef.current === decisionScope) {
@@ -1063,7 +1396,7 @@ function App() {
             const assignment = member.current_assignment_id ? state.assignments[member.current_assignment_id] : undefined
             const status = memberStatusKey(member.state)
             return <button type="button" className={`group-member-row ${selectedAssignment === member.current_assignment_id ? 'selected' : ''}`} key={member.bot_id} onClick={() => {
-              if (member.current_assignment_id) { setSelectedAssignment(member.current_assignment_id); void loadAssignmentTrace(member.current_assignment_id) }
+              if (member.current_assignment_id) openTrace(member.current_assignment_id)
             }}>
               <BeanAvatar main={state.bots[member.bot_id]?.is_main === true} size="32" seed={botName} />
               <span className="group-member-copy"><strong>{botName}</strong><small>{member.role_note || (member.bot_id === currentProject?.lead_bot_id ? t('group.statusbar.lead') : '')}</small></span>
@@ -1076,7 +1409,7 @@ function App() {
             <span className="group-artifact-icon">{artifact.kind === 'dir' ? <Folder size={14} /> : <MessageCircle size={14} />}</span><span className="group-artifact-copy"><strong>{artifact.title}</strong><small>{t('common.provided_by').replace('{bot}', state.bots[artifact.bot_id]?.name ?? t('common.bot'))}</small><code>{artifact.path_or_url}</code><small>{t('common.updated_at').replace('{time}', formatShortTime(artifact.updated_at))}</small></span><button type="button" className="trace-button" onClick={() => void previewArtifact({ artifact_id: artifact.id, title: artifact.title, path_or_url: artifact.path_or_url, bot_id: artifact.bot_id, kind: artifact.kind })}>{t('common.preview')}</button>
           </div>) : <div className="panel-empty">{announcementLoading ? t('settings.permissions.loading') : t('group.artifacts')}</div>}
         </section>
-        {selectedAssignment && state.assignments[selectedAssignment] && <section className="follow-section"><div className="section-label">{t('trace.show')}</div><div className="assignment-card"><strong>{String(state.assignments[selectedAssignment].title ?? '')}</strong><div className="assignment-meta">{String(state.assignments[selectedAssignment].instruction ?? '')}</div><div className="trace-items">{assignmentTrace.map((item, index) => <div className="trace-item" key={index}>{String(item.type ?? '')}</div>)}</div></div></section>}
+        {selectedAssignment && state.assignments[selectedAssignment] && <section className="follow-section"><div className="section-label">{t('trace.show')}</div><div className="assignment-card"><strong>{String(state.assignments[selectedAssignment].title ?? '')}</strong><div className="assignment-meta">{String(state.assignments[selectedAssignment].instruction ?? '')}</div><button className="trace-button" type="button" onClick={() => openTrace(selectedAssignment)}>{t('common.open')}</button></div></section>}
       </div> : currentChat ? <div className="panel-content">
         {currentApprovals.length > 0 && <section className="follow-section"><div className="section-label"><Shield size={13} />{t('follow.pending_approval')} <span>{currentApprovals.length}</span></div>
           {currentApprovals.filter((item) => item.chat_id === currentChat.id).map((approval) => <div className="approval-summary" key={String(approval.id)}><strong>{String(approval.tool)} · {String(approval.summary)}</strong><span>{String(approval.risk)}</span></div>)}
@@ -1085,20 +1418,35 @@ function App() {
           {currentAssignments.length === 0 ? <div className="panel-empty">{t('follow.empty')}</div> : currentAssignments.map((assignment) => <div className="assignment-card" key={String(assignment.id)}>
             <div className="assignment-title"><strong>{String(assignment.title ?? assignment.bot_id)}</strong>{Number(assignment.pending_messages ?? 0) > 0 && <span className="pending-badge"><Clock3 size={12} />{t('queue.pending').replace('{count}', String(assignment.pending_messages))}</span>}</div>
             <div className="assignment-meta">{statusText(memberStatusKey(String(assignment.status ?? '')))} · {state.bots[String(assignment.bot_id ?? '')]?.name ?? t('common.bot')}</div>
-            <button className="trace-button" onClick={() => void loadAssignmentTrace(String(assignment.id))}>{t('trace.show')}</button>
-            {activeAssignment === assignment.id && <div className="trace-items">{assignmentTrace.map((item, index) => item.type === 'queue.review'
-              ? <div className="trace-queue-review" key={index}><Clock3 size={13} />{t('trace.queue_review').replace('{count}', String((item.data as Record<string, unknown> | undefined)?.count ?? 0))}</div>
-              : <div className="trace-item" key={index}>{String(item.type ?? item.error ?? '')}</div>)}</div>}
+            <button className="trace-button" onClick={() => openTrace(String(assignment.id))}>{t('trace.show')}</button>
           </div>)}
         </section>
       </div> : null}
     </aside>
     </>}
-    {activePage === 'workbench' && <WorkbenchPage state={state} onOpenChat={openWorkbenchChat} onTrace={(assignmentId, chatId) => {
-      setActivePage('chat')
-      if (chatId) selectChat(chatId)
-      void loadAssignmentTrace(assignmentId)
-    }} onMention={mentionAssignmentBot} onRefresh={() => { void invoke<BridgeState>('get_bridge_state').then(setState).catch((error: unknown) => setState((current) => ({ ...current, error: String(error) }))) }} />}
+    {activePage === 'trace' && <TracePage
+      assignment={traceAssignment ?? { id: traceRoute?.assignmentId ?? '' }}
+      projectName={traceAssignment?.project_id ? state.projects[traceAssignment.project_id]?.name : undefined}
+      botName={traceAssignment?.bot_id ? state.bots[traceAssignment.bot_id]?.name : undefined}
+      items={traceItems}
+      pendingMessages={tracePendingMessages}
+      inFlight={traceInFlight}
+      toolOutputs={traceToolOutputs}
+      loading={traceLoading}
+      loadingMore={traceLoadingMore}
+      error={traceError}
+      hasMoreBefore={traceHasMoreBefore}
+      live={traceLive}
+      queueReviewDetails={traceReviewDetails}
+      onBack={backFromTrace}
+      onLoadMore={() => void loadMoreTrace()}
+      onRetry={() => setTraceRetry((value) => value + 1)}
+      onStop={(assignmentId) => void stopTraceAssignment(assignmentId)}
+      onMention={mentionAssignmentBot}
+      onQueueSteer={(messageId) => void steerTraceMessage(messageId)}
+      t={(key) => t(key as CopyKey)}
+    />}
+    {activePage === 'workbench' && <WorkbenchPage state={state} onOpenChat={openWorkbenchChat} onTrace={(assignmentId) => openTrace(assignmentId)} onMention={mentionAssignmentBot} onRefresh={() => { void invoke<BridgeState>('get_bridge_state').then(setState).catch((error: unknown) => setState((current) => ({ ...current, error: String(error) }))) }} />}
     {activePage === 'dashboard' && <DashboardPage />}
     {activePage === 'routines' && <RoutinesPage key={hostScope}
       routines={routinesDataScope === hostScope ? routines : []}
@@ -1114,13 +1462,7 @@ function App() {
       onTestRun={testRoutine}
       onLoadRuns={loadRoutineRuns}
       onDelete={deleteRoutine}
-      onOpenTrace={(assignmentId, run) => {
-        setActivePage('chat')
-        const assignment = state.assignments[assignmentId]
-        const chatId = String(assignment?.origin_chat_id ?? '')
-        if (chatId) selectChat(chatId)
-        void loadAssignmentTrace(run.assignment_id ?? assignmentId)
-      }}
+      onOpenTrace={(assignmentId, run) => openTrace(run.assignment_id ?? assignmentId)}
       t={(key) => t(key)}
     />}
     {activePage === 'skills' && <SkillsPage key={hostScope}

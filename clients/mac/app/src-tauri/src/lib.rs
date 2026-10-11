@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
 
@@ -28,6 +28,13 @@ struct BridgeData {
     client: Option<Client>,
     active_host: Option<HostRecord>,
     pending_messages: PendingMessages,
+    trace_subscription: Option<TraceSubscription>,
+    trace_subscribing: Option<TraceScope>,
+    buffered_trace_events: Vec<(String, Value)>,
+    buffered_trace_bytes: usize,
+    trace_buffer_overflow: bool,
+    connection_generation: u64,
+    trace_cleanup: Option<PendingTraceCleanup>,
 }
 
 impl Default for BridgeData {
@@ -39,12 +46,52 @@ impl Default for BridgeData {
             client: None,
             active_host: None,
             pending_messages: BTreeMap::new(),
+            trace_subscription: None,
+            trace_subscribing: None,
+            buffered_trace_events: Vec::new(),
+            buffered_trace_bytes: 0,
+            trace_buffer_overflow: false,
+            connection_generation: 0,
+            trace_cleanup: None,
         }
     }
 }
 
-#[derive(Clone, Default)]
-struct SharedBridge(Arc<Mutex<BridgeData>>);
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TraceScope {
+    assignment_id: Option<String>,
+    chat_id: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct TraceSubscription {
+    scope: TraceScope,
+    stream: String,
+    in_flight: Vec<Value>,
+    since_aseq: u64,
+    seen_aseq: BTreeSet<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingTraceCleanup {
+    generation: u64,
+    stream: String,
+}
+
+#[derive(Clone)]
+struct SharedBridge(Arc<Mutex<BridgeData>>, Arc<tokio::sync::Mutex<()>>);
+
+impl Default for SharedBridge {
+    fn default() -> Self {
+        Self(
+            Arc::new(Mutex::new(BridgeData::default())),
+            Arc::new(tokio::sync::Mutex::new(())),
+        )
+    }
+}
+
+const MAX_BUFFERED_TRACE_EVENTS: usize = 512;
+const MAX_BUFFERED_TRACE_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Serialize)]
 struct BridgeSnapshot {
@@ -98,6 +145,138 @@ fn emit_snapshot(app: &AppHandle, bridge: &SharedBridge) {
     if let Ok(data) = bridge.0.lock() {
         let _ = app.emit("bridge-state", snapshot(&data));
     }
+}
+
+fn connection_is_current(data: &BridgeData, generation: u64) -> bool {
+    data.connection_generation == generation
+}
+
+fn trace_tauri_event(event: &str) -> Option<&'static str> {
+    match event {
+        "trace.item" => Some("trace-item"),
+        "trace.delta" => Some("trace-delta"),
+        "trace.tool_output" => Some("trace-tool-output"),
+        _ => None,
+    }
+}
+
+fn route_trace_event(
+    data: &mut BridgeData,
+    event: &str,
+    payload: Value,
+) -> Option<(&'static str, Value)> {
+    let tauri_event = trace_tauri_event(event)?;
+    let stream = payload.get("stream").and_then(Value::as_str)?;
+    if let Some(subscription) = data.trace_subscription.as_mut() {
+        if subscription.stream != stream {
+            return None;
+        }
+        if event == "trace.item" {
+            let aseq = payload
+                .get("item")
+                .and_then(|item| item.get("aseq"))
+                .and_then(Value::as_u64)?;
+            if aseq <= subscription.since_aseq || !subscription.seen_aseq.insert(aseq) {
+                return None;
+            }
+        }
+        return Some((tauri_event, payload));
+    }
+    if data.trace_subscribing.is_some() {
+        let size = serde_json::to_vec(&payload)
+            .map(|bytes| bytes.len().saturating_add(event.len()))
+            .unwrap_or(usize::MAX);
+        if data.buffered_trace_events.len() < MAX_BUFFERED_TRACE_EVENTS
+            && data.buffered_trace_bytes.saturating_add(size) <= MAX_BUFFERED_TRACE_BYTES
+        {
+            data.buffered_trace_bytes = data.buffered_trace_bytes.saturating_add(size);
+            data.buffered_trace_events.push((event.to_owned(), payload));
+        } else {
+            data.trace_buffer_overflow = true;
+        }
+    }
+    None
+}
+
+fn activate_trace_subscription(
+    data: &mut BridgeData,
+    subscription: TraceSubscription,
+) -> (Vec<(&'static str, Value)>, bool) {
+    let overflow = std::mem::replace(&mut data.trace_buffer_overflow, false);
+    let buffered = std::mem::take(&mut data.buffered_trace_events);
+    data.buffered_trace_bytes = 0;
+    data.trace_subscribing = None;
+    if overflow {
+        data.trace_subscription = None;
+        return (Vec::new(), true);
+    }
+
+    let stream = subscription.stream.clone();
+    data.trace_subscription = Some(subscription);
+    let mut events = Vec::new();
+    for (event, payload) in buffered {
+        if payload.get("stream").and_then(Value::as_str) != Some(stream.as_str()) {
+            continue;
+        }
+        if let Some(event) = route_trace_event(data, &event, payload) {
+            events.push(event);
+        }
+    }
+    (events, false)
+}
+
+fn finish_trace_unsubscribe(data: &mut BridgeData, stream: &str) -> bool {
+    if data
+        .trace_subscription
+        .as_ref()
+        .is_none_or(|active| active.stream != stream)
+    {
+        return false;
+    }
+    data.trace_subscription = None;
+    data.trace_subscribing = None;
+    data.buffered_trace_events.clear();
+    data.buffered_trace_bytes = 0;
+    data.trace_buffer_overflow = false;
+    true
+}
+
+fn retain_trace_cleanup(data: &mut BridgeData, generation: u64, stream: String) {
+    data.trace_cleanup = Some(PendingTraceCleanup { generation, stream });
+}
+
+fn apply_retry_result(
+    data: &mut BridgeData,
+    generation: u64,
+    request_id: &str,
+    succeeded: bool,
+) -> bool {
+    if !connection_is_current(data, generation) {
+        return false;
+    }
+    if succeeded {
+        data.pending_messages.remove(request_id);
+    } else if let Some(message) = data.pending_messages.get_mut(request_id) {
+        message["in_flight"] = json!(false);
+    }
+    true
+}
+
+fn trace_subscription_state(
+    status: &str,
+    subscription: Option<&TraceSubscription>,
+    scope: Option<&TraceScope>,
+    error: Option<&str>,
+) -> Value {
+    let scope = subscription.map(|active| &active.scope).or(scope);
+    json!({
+        "status": status,
+        "stream": subscription.map(|active| active.stream.as_str()),
+        "assignment_id": scope.and_then(|scope| scope.assignment_id.as_deref()),
+        "chat_id": scope.and_then(|scope| scope.chat_id.as_deref()),
+        "in_flight": subscription.map(|active| active.in_flight.clone()).unwrap_or_default(),
+        "error": error,
+    })
 }
 
 fn saved_host_for_endpoint(endpoint: &str) -> Option<HostRecord> {
@@ -261,11 +440,26 @@ async fn connect_to_host(
     name: String,
     known_host: Option<HostRecord>,
 ) -> Result<(), String> {
+    let (generation, previous_generation) = {
+        let mut data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        let previous_generation = data.connection_generation;
+        data.connection_generation = data.connection_generation.wrapping_add(1);
+        data.connection = "connecting";
+        data.error = None;
+        (data.connection_generation, previous_generation)
+    };
+    clear_trace_for_host_switch(&app, bridge.inner(), previous_generation).await;
     {
         let mut data = bridge
             .0
             .lock()
             .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection_generation != generation {
+            return Err("连接请求已被更新".into());
+        }
         data.connection = "connecting";
         data.error = None;
         data.state = AppState::default();
@@ -303,6 +497,9 @@ async fn connect_to_host(
             .0
             .lock()
             .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection_generation != generation {
+            return Err("连接请求已被更新".into());
+        }
         data.client = Some(handle.client.clone());
     }
 
@@ -316,7 +513,12 @@ async fn connect_to_host(
                 ClientEvent::Bootstrap(_) => true,
                 _ => false,
             };
+            let mut trace_events_to_emit = Vec::new();
+            let mut trace_disconnected = None;
             if let Ok(mut data) = bridge_state.0.lock() {
+                if !connection_is_current(&data, generation) {
+                    break;
+                }
                 match event {
                     ClientEvent::Connected {
                         hello,
@@ -378,7 +580,13 @@ async fn connect_to_host(
                     }
                     ClientEvent::Protocol(protocol_event) => {
                         let old_seq = data.state.last_seq;
+                        let event_name = protocol_event.event.clone();
+                        let event_data = protocol_event.data.clone();
                         data.state.apply_event(protocol_event);
+                        if let Some(routed) = route_trace_event(&mut data, &event_name, event_data)
+                        {
+                            trace_events_to_emit.push(routed);
+                        }
                         if data.state.last_seq != old_seq {
                             persist_cache(&data);
                         }
@@ -390,6 +598,11 @@ async fn connect_to_host(
                             message["in_flight"] = json!(false);
                         }
                         persist_outbox(&data);
+                        trace_disconnected = data.trace_subscription.take();
+                        data.trace_subscribing = None;
+                        data.buffered_trace_events.clear();
+                        data.buffered_trace_bytes = 0;
+                        data.trace_buffer_overflow = false;
                     }
                     ClientEvent::TransportError(error) => {
                         data.connection = "disconnected";
@@ -398,15 +611,416 @@ async fn connect_to_host(
                             message["in_flight"] = json!(false);
                         }
                         persist_outbox(&data);
+                        trace_disconnected = data.trace_subscription.take();
+                        data.trace_subscribing = None;
+                        data.buffered_trace_events.clear();
+                        data.buffered_trace_bytes = 0;
+                        data.trace_buffer_overflow = false;
                     }
+                }
+                for (event_name, payload) in trace_events_to_emit {
+                    let _ = app_handle.emit(event_name, payload);
+                }
+                if let Some(subscription) = trace_disconnected {
+                    emit_trace_subscription_state(
+                        &app_handle,
+                        "disconnected",
+                        Some(&subscription),
+                        None,
+                        None,
+                    );
                 }
             }
             emit_snapshot(&app_handle, &bridge_state);
             if retry_after_event {
-                retry_pending_messages(&app_handle, &bridge_state).await;
+                retry_pending_messages(&app_handle, &bridge_state, generation).await;
             }
         }
     });
+    Ok(())
+}
+
+async fn clear_trace_for_host_switch(
+    app: &AppHandle,
+    bridge: &SharedBridge,
+    previous_generation: u64,
+) {
+    let _trace_guard = bridge.1.lock().await;
+    let (client, subscription, cleanup) = match bridge.0.lock() {
+        Ok(mut data) => {
+            let subscription = data.trace_subscription.take();
+            let cleanup = if data
+                .trace_cleanup
+                .as_ref()
+                .is_some_and(|pending| pending.generation == previous_generation)
+            {
+                data.trace_cleanup.take()
+            } else {
+                None
+            };
+            data.trace_subscribing = None;
+            data.buffered_trace_events.clear();
+            data.buffered_trace_bytes = 0;
+            data.trace_buffer_overflow = false;
+            (data.client.clone(), subscription, cleanup)
+        }
+        Err(_) => (None, None, None),
+    };
+    if let Some(client) = client {
+        if let Some(subscription) = subscription.as_ref() {
+            let _ = client
+                .request("trace.unsubscribe", json!({"stream": subscription.stream}))
+                .await;
+        }
+        if let Some(cleanup) = cleanup {
+            let _ = client
+                .request("trace.unsubscribe", json!({"stream": cleanup.stream}))
+                .await;
+        }
+    }
+    if let Some(subscription) = subscription {
+        let _ = app.emit(
+            "trace-subscription-state",
+            trace_subscription_state("unsubscribed", Some(&subscription), None, None),
+        );
+    }
+}
+
+fn emit_trace_subscription_state(
+    app: &AppHandle,
+    status: &str,
+    subscription: Option<&TraceSubscription>,
+    scope: Option<&TraceScope>,
+    error: Option<&str>,
+) {
+    let _ = app.emit(
+        "trace-subscription-state",
+        trace_subscription_state(status, subscription, scope, error),
+    );
+}
+
+#[tauri::command]
+async fn trace_subscribe(
+    app: AppHandle,
+    bridge: State<'_, SharedBridge>,
+    assignment_id: Option<String>,
+    chat_id: Option<String>,
+    since_aseq: u64,
+) -> Result<Value, String> {
+    if assignment_id.is_some() == chat_id.is_some() {
+        return Err("trace.subscribe 需要且只能指定 assignment_id 或 chat_id".into());
+    }
+    let scope = TraceScope {
+        assignment_id,
+        chat_id,
+    };
+    let _trace_guard = bridge.1.lock().await;
+
+    let (client, previous, generation, cleanup) = {
+        let mut data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        let client = data
+            .client
+            .clone()
+            .ok_or_else(|| "尚未连接 Bot 主机".to_string())?;
+        if data.connection != "connected" {
+            return Err("尚未连接 Bot 主机".into());
+        }
+        let generation = data.connection_generation;
+        if data
+            .trace_cleanup
+            .as_ref()
+            .is_some_and(|pending| pending.generation != generation)
+        {
+            data.trace_cleanup = None;
+        }
+        let cleanup = data.trace_cleanup.take();
+        let previous = data.trace_subscription.clone();
+        (client, previous, generation, cleanup)
+    };
+
+    if let Some(cleanup) = cleanup {
+        if let Err(error) = client
+            .request("trace.unsubscribe", json!({"stream": cleanup.stream}))
+            .await
+        {
+            if let Ok(mut data) = bridge.0.lock() {
+                data.trace_cleanup = Some(cleanup);
+            }
+            let message = error.to_string();
+            emit_trace_subscription_state(&app, "error", None, Some(&scope), Some(&message));
+            return Err(message);
+        }
+    }
+
+    if let Some(active) = previous.as_ref().filter(|active| active.scope == scope) {
+        return Ok(trace_subscription_state(
+            "subscribed",
+            Some(active),
+            None,
+            None,
+        ));
+    }
+
+    if let Some(previous) = previous {
+        if let Err(error) = client
+            .request("trace.unsubscribe", json!({"stream": previous.stream}))
+            .await
+        {
+            let message = error.to_string();
+            emit_trace_subscription_state(&app, "error", Some(&previous), None, Some(&message));
+            return Err(message);
+        }
+        if let Ok(mut data) = bridge.0.lock() {
+            if data
+                .trace_subscription
+                .as_ref()
+                .is_some_and(|active| active.stream == previous.stream)
+            {
+                data.trace_subscription = None;
+            }
+        }
+        emit_trace_subscription_state(&app, "unsubscribed", Some(&previous), None, None);
+    }
+
+    let can_subscribe = bridge
+        .0
+        .lock()
+        .map(|data| data.connection_generation == generation && data.connection == "connected")
+        .unwrap_or(false);
+    if !can_subscribe {
+        let message = "连接已断开";
+        emit_trace_subscription_state(&app, "disconnected", None, Some(&scope), Some(message));
+        return Err(message.into());
+    }
+
+    if let Ok(mut data) = bridge.0.lock() {
+        data.trace_subscribing = None;
+        data.buffered_trace_events.clear();
+        data.buffered_trace_bytes = 0;
+        data.trace_buffer_overflow = false;
+    }
+
+    {
+        let mut data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        data.trace_subscribing = Some(scope.clone());
+    }
+
+    let mut params = json!({"since_aseq": since_aseq});
+    if let Some(assignment_id) = &scope.assignment_id {
+        params["assignment_id"] = json!(assignment_id);
+    }
+    if let Some(chat_id) = &scope.chat_id {
+        params["chat_id"] = json!(chat_id);
+    }
+    let response = match client.request("trace.subscribe", params).await {
+        Ok(response) => response,
+        Err(error) => {
+            if let Ok(mut data) = bridge.0.lock() {
+                data.trace_subscribing = None;
+                data.buffered_trace_events.clear();
+                data.buffered_trace_bytes = 0;
+                data.trace_buffer_overflow = false;
+            }
+            let message = error.to_string();
+            emit_trace_subscription_state(&app, "error", None, Some(&scope), Some(&message));
+            return Err(message);
+        }
+    };
+    let Some(stream) = response
+        .get("stream")
+        .and_then(Value::as_str)
+        .filter(|stream| !stream.is_empty())
+        .map(str::to_owned)
+    else {
+        if let Ok(mut data) = bridge.0.lock() {
+            data.trace_subscribing = None;
+            data.buffered_trace_events.clear();
+            data.buffered_trace_bytes = 0;
+            data.trace_buffer_overflow = false;
+        }
+        let message = "trace.subscribe 响应缺少 stream";
+        emit_trace_subscription_state(&app, "error", None, Some(&scope), Some(message));
+        return Err(message.into());
+    };
+    let in_flight = response
+        .get("in_flight")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let subscription = TraceSubscription {
+        scope: scope.clone(),
+        stream: stream.clone(),
+        in_flight,
+        since_aseq,
+        seen_aseq: BTreeSet::new(),
+    };
+    let (attached, overflow) = {
+        let mut data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection != "connected" {
+            data.trace_subscribing = None;
+            data.buffered_trace_events.clear();
+            data.buffered_trace_bytes = 0;
+            data.trace_buffer_overflow = false;
+            (false, false)
+        } else {
+            let (buffered, overflow) = activate_trace_subscription(&mut data, subscription.clone());
+            if overflow {
+                emit_trace_subscription_state(
+                    &app,
+                    "error",
+                    Some(&subscription),
+                    None,
+                    Some("trace.subscribe 实时事件缓冲已满，请重新加载轨迹"),
+                );
+            } else {
+                emit_trace_subscription_state(&app, "subscribed", Some(&subscription), None, None);
+                for (event_name, event_payload) in buffered {
+                    let _ = app.emit(event_name, event_payload);
+                }
+            }
+            (true, overflow)
+        }
+    };
+    if !attached {
+        let cleanup_error = client
+            .request("trace.unsubscribe", json!({"stream": subscription.stream}))
+            .await
+            .err();
+        if let Some(error) = cleanup_error {
+            if let Ok(mut data) = bridge.0.lock() {
+                retain_trace_cleanup(&mut data, generation, subscription.stream.clone());
+            }
+            let message = format!("连接已断开；取消服务端轨迹订阅失败：{error}");
+            emit_trace_subscription_state(&app, "disconnected", None, Some(&scope), Some(&message));
+        } else {
+            emit_trace_subscription_state(
+                &app,
+                "disconnected",
+                None,
+                Some(&scope),
+                Some("连接已断开"),
+            );
+        }
+        return Err("连接已断开".into());
+    }
+    if overflow {
+        let message = "trace.subscribe 实时事件缓冲已满，请重新加载轨迹";
+        let cleanup_error = client
+            .request("trace.unsubscribe", json!({"stream": subscription.stream}))
+            .await
+            .err();
+        if let Some(cleanup_error) = cleanup_error {
+            if let Ok(mut data) = bridge.0.lock() {
+                retain_trace_cleanup(&mut data, generation, subscription.stream.clone());
+            }
+            let combined = format!("{message}；取消服务端订阅失败：{cleanup_error}");
+            emit_trace_subscription_state(
+                &app,
+                "error",
+                Some(&subscription),
+                None,
+                Some(&combined),
+            );
+            return Err(combined);
+        }
+        return Err(message.into());
+    }
+    Ok(trace_subscription_state(
+        "subscribed",
+        Some(&subscription),
+        None,
+        None,
+    ))
+}
+
+#[tauri::command]
+async fn trace_unsubscribe(
+    app: AppHandle,
+    bridge: State<'_, SharedBridge>,
+    stream: String,
+) -> Result<(), String> {
+    let _trace_guard = bridge.1.lock().await;
+    let (client, subscription, cleanup) = {
+        let mut data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        let subscription = data
+            .trace_subscription
+            .as_ref()
+            .filter(|active| active.stream == stream)
+            .cloned();
+        let cleanup = if subscription.is_none()
+            && data.trace_cleanup.as_ref().is_some_and(|pending| {
+                pending.generation == data.connection_generation && pending.stream == stream
+            }) {
+            data.trace_cleanup.take()
+        } else {
+            None
+        };
+        if subscription.is_none() && cleanup.is_none() {
+            return Ok(());
+        }
+        (data.client.clone(), subscription, cleanup)
+    };
+    let active_subscription = subscription;
+    let request_stream = active_subscription
+        .as_ref()
+        .map(|active| active.stream.as_str())
+        .or_else(|| cleanup.as_ref().map(|pending| pending.stream.as_str()))
+        .expect("one trace stream was selected")
+        .to_owned();
+    let Some(client) = client else {
+        let message = "尚未连接 Bot 主机";
+        if let Some(cleanup) = cleanup {
+            if let Ok(mut data) = bridge.0.lock() {
+                data.trace_cleanup = Some(cleanup);
+            }
+        }
+        if let Some(subscription) = active_subscription.as_ref() {
+            emit_trace_subscription_state(&app, "error", Some(subscription), None, Some(message));
+        }
+        return Err(message.into());
+    };
+    if let Err(error) = client
+        .request("trace.unsubscribe", json!({"stream": request_stream}))
+        .await
+    {
+        let message = error.to_string();
+        if let Some(cleanup) = cleanup {
+            if let Ok(mut data) = bridge.0.lock() {
+                data.trace_cleanup = Some(cleanup);
+            }
+        }
+        if let Some(subscription) = active_subscription.as_ref() {
+            emit_trace_subscription_state(&app, "error", Some(subscription), None, Some(&message));
+        }
+        return Err(message);
+    }
+    let removed = if let Ok(mut data) = bridge.0.lock() {
+        if let Some(subscription) = active_subscription.as_ref() {
+            finish_trace_unsubscribe(&mut data, &subscription.stream)
+        } else {
+            true
+        }
+    } else {
+        false
+    };
+    if !removed {
+        return Ok(());
+    }
+    if let Some(subscription) = active_subscription.as_ref() {
+        emit_trace_subscription_state(&app, "unsubscribed", Some(subscription), None, None);
+    }
     Ok(())
 }
 
@@ -480,12 +1094,15 @@ async fn connect_saved_host(
     connect_to_host(app, bridge, endpoint, password, name, Some(host)).await
 }
 
-async fn retry_pending_messages(app: &AppHandle, bridge: &SharedBridge) {
+async fn retry_pending_messages(app: &AppHandle, bridge: &SharedBridge, generation: u64) {
     loop {
         let next = {
             let Ok(mut data) = bridge.0.lock() else {
                 return;
             };
+            if !connection_is_current(&data, generation) {
+                return;
+            }
             let Some((id, message)) = data.pending_messages.iter_mut().find(|(_, message)| {
                 message["send_status"] == "queued" && message["in_flight"] != true
             }) else {
@@ -502,10 +1119,8 @@ async fn retry_pending_messages(app: &AppHandle, bridge: &SharedBridge) {
         };
         let result = client.request("chat.send", next.2).await;
         if let Ok(mut data) = bridge.0.lock() {
-            if result.is_ok() {
-                data.pending_messages.remove(&next.1);
-            } else if let Some(message) = data.pending_messages.get_mut(&next.1) {
-                message["in_flight"] = json!(false);
+            if !apply_retry_result(&mut data, generation, &next.1, result.is_ok()) {
+                return;
             }
             persist_outbox(&data);
             let _ = app.emit("bridge-state", snapshot(&data));
@@ -747,6 +1362,8 @@ pub fn run() {
             protocol_request,
             save_usage_csv,
             upload_skill_zip,
+            trace_subscribe,
+            trace_unsubscribe,
             get_bridge_state,
             get_local_preferences,
             save_local_preferences,
@@ -759,8 +1376,14 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{skill_upload_payload, uploaded_skill_id, InvokeBody};
+    use super::{
+        activate_trace_subscription, apply_retry_result, connection_is_current,
+        finish_trace_unsubscribe, retain_trace_cleanup, route_trace_event, skill_upload_payload,
+        trace_subscription_state, trace_tauri_event, uploaded_skill_id, BridgeData, InvokeBody,
+        PendingTraceCleanup, TraceScope, TraceSubscription, MAX_BUFFERED_TRACE_BYTES,
+    };
     use serde_json::json;
+    use std::collections::BTreeSet;
 
     #[test]
     fn raw_upload_bytes_keep_the_decoded_file_name() {
@@ -788,5 +1411,274 @@ mod tests {
         );
         assert!(uploaded_skill_id(&json!({"upload_id":"  "})).is_err());
         assert!(uploaded_skill_id(&json!({})).is_err());
+    }
+
+    #[test]
+    fn trace_event_routing_filters_stream_and_duplicate_items() {
+        let mut data = BridgeData {
+            trace_subscription: Some(TraceSubscription {
+                scope: TraceScope {
+                    assignment_id: Some("a1".into()),
+                    chat_id: None,
+                },
+                stream: "s1".into(),
+                in_flight: vec![],
+                since_aseq: 4,
+                seen_aseq: BTreeSet::new(),
+            }),
+            ..BridgeData::default()
+        };
+
+        assert!(route_trace_event(
+            &mut data,
+            "trace.item",
+            json!({"stream":"other", "item":{"aseq":5}}),
+        )
+        .is_none());
+        assert!(route_trace_event(
+            &mut data,
+            "trace.item",
+            json!({"stream":"s1", "item":{"aseq":4}}),
+        )
+        .is_none());
+        let (event, payload) = route_trace_event(
+            &mut data,
+            "trace.item",
+            json!({"stream":"s1", "item":{"aseq":5}}),
+        )
+        .unwrap();
+        assert_eq!(event, "trace-item");
+        assert_eq!(payload["item"]["aseq"], 5);
+        assert!(route_trace_event(
+            &mut data,
+            "trace.item",
+            json!({"stream":"s1", "item":{"aseq":5}}),
+        )
+        .is_none());
+        let (event, payload) = route_trace_event(
+            &mut data,
+            "trace.item",
+            json!({"stream":"s1", "item":{"aseq":7}}),
+        )
+        .unwrap();
+        assert_eq!(event, "trace-item");
+        assert_eq!(payload["item"]["aseq"], 7);
+        let (event, payload) = route_trace_event(
+            &mut data,
+            "trace.item",
+            json!({"stream":"s1", "item":{"aseq":6}}),
+        )
+        .unwrap();
+        assert_eq!(event, "trace-item");
+        assert_eq!(payload["item"]["aseq"], 6);
+        assert!(route_trace_event(
+            &mut data,
+            "trace.item",
+            json!({"stream":"s1", "item":{"aseq":7}}),
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn trace_events_are_buffered_until_subscribe_returns() {
+        let mut data = BridgeData {
+            trace_subscribing: Some(TraceScope {
+                assignment_id: Some("a1".into()),
+                chat_id: None,
+            }),
+            ..BridgeData::default()
+        };
+        assert!(route_trace_event(
+            &mut data,
+            "trace.delta",
+            json!({"stream":"s1", "request_id":"r1", "text":"hello"}),
+        )
+        .is_none());
+        assert_eq!(data.buffered_trace_events.len(), 1);
+        assert!(route_trace_event(&mut data, "trace.unknown", json!({"stream":"s1"}),).is_none());
+        assert_eq!(data.buffered_trace_events.len(), 1);
+    }
+
+    #[test]
+    fn buffered_items_are_committed_before_live_items_can_advance_cursor() {
+        let mut data = BridgeData {
+            trace_subscribing: Some(TraceScope {
+                assignment_id: Some("a1".into()),
+                chat_id: None,
+            }),
+            buffered_trace_events: vec![(
+                "trace.item".into(),
+                json!({"stream":"s1", "item":{"aseq":5}}),
+            )],
+            buffered_trace_bytes: 64,
+            ..BridgeData::default()
+        };
+        let subscription = TraceSubscription {
+            scope: TraceScope {
+                assignment_id: Some("a1".into()),
+                chat_id: None,
+            },
+            stream: "s1".into(),
+            in_flight: vec![],
+            since_aseq: 4,
+            seen_aseq: BTreeSet::new(),
+        };
+        let (buffered, overflow) = activate_trace_subscription(&mut data, subscription);
+        assert!(!overflow);
+        assert_eq!(buffered.len(), 1);
+        assert_eq!(buffered[0].1["item"]["aseq"], 5);
+        let (live_event, live_payload) = route_trace_event(
+            &mut data,
+            "trace.item",
+            json!({"stream":"s1", "item":{"aseq":6}}),
+        )
+        .unwrap();
+        assert_eq!(live_event, "trace-item");
+        assert_eq!(live_payload["item"]["aseq"], 6);
+    }
+
+    #[test]
+    fn trace_buffer_has_an_aggregate_byte_limit() {
+        let mut data = BridgeData {
+            trace_subscribing: Some(TraceScope {
+                assignment_id: Some("a1".into()),
+                chat_id: None,
+            }),
+            ..BridgeData::default()
+        };
+        let oversized = "x".repeat(MAX_BUFFERED_TRACE_BYTES);
+        assert!(route_trace_event(
+            &mut data,
+            "trace.delta",
+            json!({"stream":"s1", "text":oversized}),
+        )
+        .is_none());
+        assert!(data.buffered_trace_events.is_empty());
+        assert_eq!(data.buffered_trace_bytes, 0);
+        assert!(data.trace_buffer_overflow);
+    }
+
+    #[test]
+    fn stale_connection_generations_are_rejected() {
+        let data = BridgeData {
+            connection_generation: 8,
+            ..BridgeData::default()
+        };
+        assert!(connection_is_current(&data, 8));
+        assert!(!connection_is_current(&data, 7));
+    }
+
+    #[test]
+    fn unsubscribe_failure_leaves_stream_available_for_retry() {
+        let mut data = BridgeData {
+            trace_subscription: Some(TraceSubscription {
+                scope: TraceScope {
+                    assignment_id: Some("a1".into()),
+                    chat_id: None,
+                },
+                stream: "s1".into(),
+                in_flight: vec![],
+                since_aseq: 2,
+                seen_aseq: BTreeSet::new(),
+            }),
+            ..BridgeData::default()
+        };
+        // Failed requests do not call finish_trace_unsubscribe and retain the stream.
+        assert!(data.trace_subscription.is_some());
+        assert!(!finish_trace_unsubscribe(&mut data, "different-stream"));
+        assert_eq!(data.trace_subscription.as_ref().unwrap().stream, "s1");
+        assert!(finish_trace_unsubscribe(&mut data, "s1"));
+        assert!(data.trace_subscription.is_none());
+    }
+
+    #[test]
+    fn failed_overflow_cleanup_retains_stream_for_retry() {
+        let mut data = BridgeData {
+            connection_generation: 9,
+            ..BridgeData::default()
+        };
+        retain_trace_cleanup(&mut data, 9, "s-orphan".into());
+        assert_eq!(
+            data.trace_cleanup,
+            Some(PendingTraceCleanup {
+                generation: 9,
+                stream: "s-orphan".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn stale_retry_results_cannot_mutate_new_host_outbox() {
+        let mut data = BridgeData {
+            connection_generation: 4,
+            ..BridgeData::default()
+        };
+        data.pending_messages
+            .insert("same-id".into(), json!({"in_flight":true}));
+        assert!(!apply_retry_result(&mut data, 3, "same-id", true));
+        assert_eq!(data.pending_messages["same-id"]["in_flight"], true);
+        assert!(apply_retry_result(&mut data, 4, "same-id", true));
+        assert!(!data.pending_messages.contains_key("same-id"));
+    }
+
+    #[test]
+    fn trace_protocol_events_have_stable_tauri_names_and_payloads() {
+        assert_eq!(trace_tauri_event("trace.item"), Some("trace-item"));
+        assert_eq!(trace_tauri_event("trace.delta"), Some("trace-delta"));
+        assert_eq!(
+            trace_tauri_event("trace.tool_output"),
+            Some("trace-tool-output")
+        );
+        assert_eq!(trace_tauri_event("trace.unknown"), None);
+
+        let mut data = BridgeData {
+            trace_subscription: Some(TraceSubscription {
+                scope: TraceScope {
+                    assignment_id: Some("a1".into()),
+                    chat_id: None,
+                },
+                stream: "s1".into(),
+                in_flight: vec![],
+                since_aseq: 0,
+                seen_aseq: BTreeSet::new(),
+            }),
+            ..BridgeData::default()
+        };
+        let (event, payload) = route_trace_event(
+            &mut data,
+            "trace.delta",
+            json!({"stream":"s1", "request_id":"r1", "channel":"analysis", "text":"x"}),
+        )
+        .unwrap();
+        assert_eq!(event, "trace-delta");
+        assert_eq!(payload["request_id"], "r1");
+        let (event, payload) = route_trace_event(
+            &mut data,
+            "trace.tool_output",
+            json!({"stream":"s1", "call_id":"call1", "chunk":"out"}),
+        )
+        .unwrap();
+        assert_eq!(event, "trace-tool-output");
+        assert_eq!(payload["chunk"], "out");
+    }
+
+    #[test]
+    fn trace_subscription_state_has_stable_shape() {
+        let subscription = TraceSubscription {
+            scope: TraceScope {
+                assignment_id: None,
+                chat_id: Some("c1".into()),
+            },
+            stream: "s1".into(),
+            in_flight: vec![json!({"request_id":"r1", "text":"prompt", "thinking":""})],
+            since_aseq: 0,
+            seen_aseq: BTreeSet::new(),
+        };
+        let state = trace_subscription_state("subscribed", Some(&subscription), None, None);
+        assert_eq!(state["status"], "subscribed");
+        assert_eq!(state["stream"], "s1");
+        assert_eq!(state["chat_id"], "c1");
+        assert_eq!(state["in_flight"].as_array().unwrap().len(), 1);
+        assert!(state["error"].is_null());
     }
 }
