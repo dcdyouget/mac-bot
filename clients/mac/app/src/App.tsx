@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { AtSign, ChevronDown, ChevronRight, Command, MessageCircle, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3 } from 'lucide-react'
 import { t } from './i18n'
 import { emptyState, type BridgeState, type Chat, type Json, type Message, type Question } from './types'
+import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
 
 const NO_RULES: Record<string, Json>[] = []
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -32,6 +33,7 @@ function App() {
   const [hostPermissions, setHostPermissions] = useState<Record<string, string> | null>(null)
   const [activeAssignment, setActiveAssignment] = useState<string | null>(null)
   const [assignmentTrace, setAssignmentTrace] = useState<Record<string, unknown>[]>([])
+  const [artifactPreview, setArtifactPreview] = useState<{ title: string; path: string; content: string; error?: string } | null>(null)
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -267,6 +269,65 @@ function App() {
     }
   }
 
+  async function previewArtifact(artifact: ArtifactRef) {
+    const scope = hostScope
+    setArtifactPreview({ title: artifact.title, path: artifact.path_or_url, content: '' })
+    if (artifact.kind === 'url') return
+    try {
+      const versions = await invoke<{ versions: { version: number }[] }>('protocol_request', { method: 'artifact.versions.list', params: { artifact_id: artifact.artifact_id, limit: 1 } })
+      const version = versions.versions?.[0]?.version
+      if (version === undefined) {
+        if (hostScopeRef.current === scope) setArtifactPreview({ title: artifact.title, path: artifact.path_or_url, content: '', error: t('common.unsupported_block') })
+        return
+      }
+      const result = await invoke<{ content: string; content_encoding: string }>('protocol_request', { method: 'artifact.version.get', params: { artifact_id: artifact.artifact_id, version } })
+      const content = result.content_encoding === 'base64' ? new TextDecoder().decode(Uint8Array.from(atob(result.content), (char) => char.charCodeAt(0))) : result.content
+      if (hostScopeRef.current === scope) setArtifactPreview({ title: artifact.title, path: artifact.path_or_url, content })
+    } catch (error) {
+      if (hostScopeRef.current === scope) setArtifactPreview({ title: artifact.title, path: artifact.path_or_url, content: '', error: String(error) })
+    }
+  }
+
+  function updateMessageBlock(scope: string, chatId: string, messageId: string, blockIndex: number, patch: Record<string, Json>) {
+    const update = (message: Message): Message => ({ ...message, blocks: message.blocks?.map((block, index) => index === blockIndex ? { ...block, ...patch } : block) })
+    setState((current) => ({ ...current, messages: Object.fromEntries(Object.entries(current.messages).map(([id, message]) => [id, id === messageId ? update(message) : message])) }))
+    const cacheKey = historyCacheKey(scope, chatId)
+    setHistoryByChat((current) => ({ ...current, [cacheKey]: (current[cacheKey] ?? []).map((message) => message.id === messageId ? update(message) : message) }))
+  }
+
+  async function confirmProject(projectId: string, messageId: string, blockIndex: number) {
+    const scope = hostScope
+    const chatId = currentChat?.id ?? ''
+    const result = await invoke<{ project?: BridgeState['projects'][string] }>('protocol_request', { method: 'project.confirm_done', params: { project_id: projectId } })
+    if (hostScopeRef.current !== scope) return
+    if (result.project) setState((current) => ({ ...current, projects: { ...current.projects, [projectId]: result.project! } }))
+    updateMessageBlock(scope, chatId, messageId, blockIndex, { state: 'confirmed' })
+  }
+
+  async function requestProjectChanges(projectId: string, messageId: string, blockIndex: number, text: string) {
+    const scope = hostScope
+    const chatId = currentChat?.id ?? ''
+    await invoke('protocol_request', { method: 'project.request_changes', params: { project_id: projectId, text } })
+    if (hostScopeRef.current !== scope) return
+    updateMessageBlock(scope, chatId, messageId, blockIndex, { state: 'changes_requested' })
+  }
+
+  async function openProject(projectId: string, chatId?: string) {
+    if (!projectId) throw new Error(t('common.unsupported_block'))
+    const scope = hostScope
+    let targetChatId = chatId || state.projects[projectId]?.chat_id || Object.values(state.chats).find((chat) => chat.project_id === projectId)?.id || ''
+    if (!targetChatId) {
+      const result = await invoke<{ project?: BridgeState['projects'][string] }>('protocol_request', { method: 'project.get', params: { project_id: projectId } })
+      if (hostScopeRef.current !== scope) return
+      if (result.project) {
+        targetChatId = result.project.chat_id ?? ''
+        setState((current) => ({ ...current, projects: { ...current.projects, [projectId]: result.project! } }))
+      }
+    }
+    if (!targetChatId) throw new Error(t('common.unsupported_block'))
+    if (hostScopeRef.current === scope) selectChat(targetChatId)
+  }
+
   async function connect(event: React.FormEvent) {
     event.preventDefault()
     setConnecting(true)
@@ -352,7 +413,7 @@ function App() {
         {!currentChat ? <div className="empty-conversation"><BeanAvatar main size="72" /><strong>{t('onboarding.empty.title')}</strong><span>{t('onboarding.empty.desc')}</span></div>
           : currentMessages.length ? <div className="message-list">
           <div className="day-separator">{t('common.today')}</div>
-          {currentMessages.map((message) => <MessageBubble key={message.id} message={message} senderName={message.sender?.kind === 'user' ? t('common.user') : state.bots[message.sender?.bot_id ?? '']?.name ?? t('common.bot')} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} chatTitle={currentChat.title ?? ''} onApprovalDecide={async (approvalId, decision) => {
+          {currentMessages.map((message) => <MessageBubble key={message.id} message={message} senderName={message.sender?.kind === 'user' ? t('common.user') : state.bots[message.sender?.bot_id ?? '']?.name ?? t('common.bot')} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={(id) => void loadAssignmentTrace(id)} onPreviewArtifact={(artifact) => void previewArtifact(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
             const decisionScope = hostScope
             const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
             if (result.approval && hostScopeRef.current === decisionScope) {
@@ -395,6 +456,13 @@ function App() {
         </section>
       </div> : null}
     </aside>
+    {artifactPreview && <div className="artifact-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setArtifactPreview(null) }}>
+      <section className="artifact-preview-panel" role="dialog" aria-modal="true" aria-label={artifactPreview.title}>
+        <header><div><strong>{artifactPreview.title}</strong><small>{artifactPreview.path}</small></div><button type="button" className="icon-button" onClick={() => setArtifactPreview(null)} aria-label={t('common.close')}>×</button></header>
+        <nav><span className="selected">{t('artifact.preview.tabs.preview')}</span><span>{t('artifact.preview.tabs.source')}</span></nav>
+        {artifactPreview.error ? <p className="artifact-preview-error">{artifactPreview.error}</p> : artifactPreview.path.startsWith('http') ? <a className="artifact-preview-url" href={artifactPreview.path} target="_blank" rel="noreferrer">{artifactPreview.path}</a> : <pre>{artifactPreview.content || artifactPreview.path}</pre>}
+      </section>
+    </div>}
     {showSettings && <SettingsPanel settings={state.settings} bots={state.bots} permissions={hostPermissions} busy={settingsBusy} error={settingsError} themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} onTheme={setThemeMode} onTranslucency={setTranslucent} onMode={updateApprovalMode} onRules={updateApprovalRules} onClose={() => setShowSettings(false)} />}
   </main>
 }
@@ -471,21 +539,29 @@ function BeanAvatar({ main = false, size = '32', seed = '' }: { main?: boolean; 
 }
 
 type QuestionAnswer = { option_index?: number; option_indexes?: number[]; text?: string }
+function isArtifactRef(value: unknown): value is ArtifactRef { return Boolean(value) && typeof value === 'object' && typeof (value as ArtifactRef).artifact_id === 'string' && typeof (value as ArtifactRef).title === 'string' && typeof (value as ArtifactRef).path_or_url === 'string' }
 
 type ApprovalDecision = 'allow_once' | 'always_allow' | 'deny'
 
-function MessageBubble({ message, senderName, questions, approvals, assignments, projects, chatTitle, onApprovalDecide, onQuestionAnswer }: { message: Message; senderName: string; questions: BridgeState['questions']; approvals: BridgeState['approvals']; assignments: BridgeState['assignments']; projects: BridgeState['projects']; chatTitle: string; onApprovalDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void>; onQuestionAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
+function MessageBubble({ message, senderName, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: { message: Message; senderName: string; questions: BridgeState['questions']; approvals: BridgeState['approvals']; assignments: BridgeState['assignments']; projects: BridgeState['projects']; bots: BridgeState['bots']; chats: BridgeState['chats']; chatTitle: string; onOpenProject: (projectId: string, chatId?: string) => Promise<void>; onTaskDetail: (assignmentId: string) => void; onPreviewArtifact: (artifact: ArtifactRef) => void; onConfirmProject: (projectId: string, messageId: string, blockIndex: number) => Promise<void>; onRequestChanges: (projectId: string, messageId: string, blockIndex: number, text: string) => Promise<void>; onApprovalDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void>; onQuestionAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
   const isUser = message.sender?.kind === 'user'
   const blocks = message.blocks ?? []
-  const hasRenderable = blocks.some((block) => block.type === 'question' || block.type === 'approval' || block.type === 'approval_ref')
+  const hasRenderable = blocks.some((block) => block.type && block.type !== 'text')
   const text = blocks.map((block) => typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : '').filter(Boolean).join('\n')
   const time = message.created_at ? new Date(message.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''
+  if (blocks.length === 1 && blocks[0].type === 'task_card') {
+    const assignmentId = typeof blocks[0].assignment_id === 'string' ? blocks[0].assignment_id : ''
+    return assignments[assignmentId] ? <TaskCard assignment={assignments[assignmentId]} groupName={chatTitle} onDetail={onTaskDetail} /> : <div className="block-fallback">{message.fallback_text || t('common.unsupported_block')}</div>
+  }
+  if (blocks.length === 1 && blocks[0].type === 'progress') return <ProgressRow text={String(blocks[0].text ?? '')} botName={senderName} />
+  if (blocks.length === 1 && blocks[0].type === 'system') return <SystemNotice code={String(blocks[0].code ?? '')} text={String(blocks[0].text ?? '')} botName={senderName} />
   return <article className={`message-group ${isUser ? 'outgoing' : ''}`}>
     {!isUser && <div className="avatar-slot"><BeanAvatar main={senderName === '总管'} size="32" seed={senderName} /></div>}
     <div className="message-stack">
       {!isUser && <div className="message-author">{senderName}</div>}
       <div className="bubble">
         {hasRenderable ? <div className="message-blocks">{blocks.map((block, index) => {
+          if (block.type === 'text') return <p className="message-text-block" key={index}>{String(block.markdown ?? block.text ?? '')}</p>
           if (block.type === 'question') {
             if (blocks[index - 1]?.type === 'question') return null
             const questionIds: string[] = []
@@ -508,8 +584,36 @@ function MessageBubble({ message, senderName, questions, approvals, assignments,
             const projectName = String(projects[projectId]?.name ?? chatTitle)
             return <ApprovalCard key={`${id}-${index}`} approval={approval} projectName={projectName} reference={block.type === 'approval_ref'} onDecide={(decision) => onApprovalDecide(id, decision)} />
           }
+          if (block.type === 'project_card') {
+            const projectId = String(block.project_id ?? '')
+            const project = projects[projectId] as (Record<string, Json> & { chat_id?: string; name?: string; status?: string; members?: { bot_id?: string }[] }) | undefined
+            const targetChatId = project?.chat_id ?? Object.values(chats).find((chat) => chat.project_id === projectId)?.id ?? ''
+            if (!projectId) return <FallbackCard key={index} text={message.fallback_text || t('common.unsupported_block')} />
+            return <ProjectCard key={`${projectId}-${index}`} projectId={projectId} context={String(block.context ?? '')} note={typeof block.note === 'string' ? block.note : null} project={{ ...project, chat_id: targetChatId }} bots={bots} onOpen={onOpenProject} />
+          }
+          if (block.type === 'task_card') {
+            const assignmentId = String(block.assignment_id ?? '')
+            return assignments[assignmentId] ? <TaskCard key={index} assignment={assignments[assignmentId]} groupName={chatTitle} onDetail={onTaskDetail} /> : <div className="block-fallback" key={index}>{message.fallback_text || t('common.unsupported_block')}</div>
+          }
+          if (block.type === 'progress') return <ProgressRow key={index} text={String(block.text ?? '')} botName={senderName} />
+          if (block.type === 'delegation') {
+            const botId = String(block.bot_id ?? '')
+            const assignment = assignments[String(block.assignment_id ?? '')]
+            return <DelegationLine key={index} botName={bots[botId]?.name ?? t('common.bot')} title={typeof assignment?.title === 'string' ? assignment.title : undefined} instruction={typeof assignment?.instruction === 'string' ? assignment.instruction : undefined} />
+          }
+          if (block.type === 'completion') return <CompletionCard key={index} block={block as Record<string, Json>} bots={bots} onPreview={onPreviewArtifact} />
+          if (block.type === 'review_card') {
+            const projectId = String(block.project_id ?? '')
+            if (!projectId) return <FallbackCard key={index} text={message.fallback_text || t('common.unsupported_block')} />
+            const project = projects[projectId] as (Record<string, Json> & { chat_id?: string; name?: string }) | undefined
+            const artifacts = Array.isArray(block.artifacts) ? block.artifacts.filter(isArtifactRef) : []
+            const targetChatId = project?.chat_id ?? Object.values(chats).find((chat) => chat.project_id === projectId)?.id ?? ''
+            return <ReviewCard key={index} projectName={project?.name ?? chatTitle} state={String(block.state ?? 'pending')} artifacts={artifacts} bots={bots} onPreview={onPreviewArtifact} onOpenProject={() => onOpenProject(projectId, targetChatId)} onConfirm={() => onConfirmProject(projectId, message.id, index)} onRequestChanges={(value) => onRequestChanges(projectId, message.id, index, value)} />
+          }
+          if (block.type === 'system') return <SystemNotice key={index} code={String(block.code ?? '')} text={String(block.text ?? '')} botName={senderName} />
           const value = typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : ''
-          return value ? <p className="message-text-block" key={index}>{value}</p> : null
+          if (value) return <p className="message-text-block" key={index}>{value}</p>
+          return <div className="block-fallback" key={index}><Shield size={13} />{message.fallback_text || t('common.unsupported_block')}<small>{t('block.fallback.hint')}</small></div>
         })}</div> : <>{text || message.fallback_text || t('common.unsupported_block')}</>}
         {time && <span className="message-time">{time}</span>}
       </div>
