@@ -671,12 +671,24 @@ pub struct Skill {
     pub name: String,
     pub description: String,
     pub source: SkillSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_from: Option<SkillDraftFrom>,
     pub path: String,
     pub files: Vec<String>,
     pub enabled: bool,
     pub disabled_bot_ids: Vec<Id>,
     pub invocations_7d: Invocations7d,
     pub updated_at: Time,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct SkillDraftFrom {
+    pub bot_id: Id,
+    pub bot_name: String,
+    #[serde(default)]
+    pub project_id: Option<Id>,
+    #[serde(default)]
+    pub project_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

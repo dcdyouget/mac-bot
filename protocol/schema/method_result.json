@@ -3667,6 +3667,16 @@
             "type": "string"
           }
         },
+        "draft_from": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SkillDraftFrom"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "enabled": {
           "type": "boolean"
         },
@@ -3720,6 +3730,16 @@
             "type": "string"
           }
         },
+        "draft_from": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SkillDraftFrom"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "enabled": {
           "type": "boolean"
         },
@@ -3743,6 +3763,35 @@
         },
         "updated_at": {
           "type": "string"
+        }
+      }
+    },
+    "SkillDraftFrom": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "bot_name"
+      ],
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "bot_name": {
+          "type": "string"
+        },
+        "project_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },

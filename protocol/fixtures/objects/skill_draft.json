@@ -1,0 +1,20 @@
+{
+  "description": "PRD 模板草稿",
+  "disabled_bot_ids": [],
+  "draft_from": {
+    "bot_id": "bot_product",
+    "bot_name": "产品",
+    "project_id": "project_login",
+    "project_name": "登录功能"
+  },
+  "enabled": true,
+  "files": [],
+  "invocations_7d": {
+    "by_bot": [],
+    "total": 0
+  },
+  "name": "prd-template-draft",
+  "path": "skills/.drafts/prd-template-draft",
+  "source": "draft",
+  "updated_at": "2026-10-09T10:19:02.312Z"
+}

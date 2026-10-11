@@ -577,6 +577,7 @@ object SettingsSerializer : RawModelSerializer<Settings>(::Settings)
 data class Skill(override val raw: JsonObject) : RawProtocolModel {
     val description: String get() = raw.str("description")
     val disabledBotIds: List<String> get() = raw.arr("disabled_bot_ids").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    val draftFrom: SkillDraftFrom? get() = raw["draft_from"]?.jsonObject?.let(::SkillDraftFrom)
     val enabled: Boolean get() = raw.boolean("enabled")
     val files: List<String> get() = raw.arr("files").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val invocations7d: Invocations7d get() = Invocations7d(raw.obj("invocations_7d"))
@@ -586,6 +587,15 @@ data class Skill(override val raw: JsonObject) : RawProtocolModel {
     val updatedAt: String get() = raw.str("updated_at")
 }
 object SkillSerializer : RawModelSerializer<Skill>(::Skill)
+
+@Serializable(with = SkillDraftFromSerializer::class)
+data class SkillDraftFrom(override val raw: JsonObject) : RawProtocolModel {
+    val botId: String get() = raw.str("bot_id")
+    val botName: String get() = raw.str("bot_name")
+    val projectId: String? get() = raw.stringOrNull("project_id")
+    val projectName: String? get() = raw.stringOrNull("project_name")
+}
+object SkillDraftFromSerializer : RawModelSerializer<SkillDraftFrom>(::SkillDraftFrom)
 
 @Serializable(with = SkillSettingsSerializer::class)
 data class SkillSettings(override val raw: JsonObject) : RawProtocolModel {
@@ -1791,6 +1801,7 @@ data class SkillDetail(override val raw: JsonObject) : RawProtocolModel {
     val content: String get() = raw.str("content")
     val description: String get() = raw.str("description")
     val disabledBotIds: List<String> get() = raw.arr("disabled_bot_ids").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    val draftFrom: SkillDraftFrom? get() = raw["draft_from"]?.jsonObject?.let(::SkillDraftFrom)
     val enabled: Boolean get() = raw.boolean("enabled")
     val files: List<String> get() = raw.arr("files").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val invocations7d: Invocations7d get() = Invocations7d(raw.obj("invocations_7d"))
