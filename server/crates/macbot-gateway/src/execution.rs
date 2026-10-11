@@ -2628,6 +2628,7 @@ impl ExecutionEngine {
                                 "artifacts":{"type":"array","items":{"type":"object"}},
                                 "options":{"type":"array","items":{"type":"string"}},
                             "multi":{"type":"boolean","description":"For decision questions, allow selecting more than one option."},
+                            "allow_free_text":{"type":"boolean","description":"For decision questions, allow a free-text answer in addition to selecting options. Defaults to true."},
                             "link_previews":{"type":"array","description":"Structured link previews attached to this message.","items":{"type":"object","required":["url"],"properties":{"url":{"type":"string"},"site":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"image":{"type":"object"}}}},
                             "chat_id":{"type":"string","description":"An existing Chat.id, not a Project.id. Omit to use the current chat; use an explicit existing chat ID for cross-chat delivery."},
                             "message_id":{"type":"string"},
@@ -4545,6 +4546,14 @@ mod tests {
         assert_eq!(
             schema.pointer("/function/parameters/properties/reply_to/type"),
             Some(&json!("string"))
+        );
+        assert_eq!(
+            schema.pointer("/function/parameters/properties/multi/type"),
+            Some(&json!("boolean"))
+        );
+        assert_eq!(
+            schema.pointer("/function/parameters/properties/allow_free_text/type"),
+            Some(&json!("boolean"))
         );
         let description = schema["function"]["description"].as_str().unwrap();
         assert!(description.contains("decision"));

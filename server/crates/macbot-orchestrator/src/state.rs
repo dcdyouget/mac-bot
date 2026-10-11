@@ -1309,15 +1309,25 @@ impl Inner {
                         return Err(OrchestratorError::Invalid("multi must be a boolean".into()));
                     }
                 };
+                let allow_free_text = match p.get("allow_free_text") {
+                    None | Some(Value::Null) => true,
+                    Some(Value::Bool(value)) => *value,
+                    Some(_) => {
+                        return Err(OrchestratorError::Invalid(
+                            "allow_free_text must be a boolean".into(),
+                        ));
+                    }
+                };
                 let root = assignment_id.and_then(|id| {
                     self.assignments
                         .get(id)
                         .and_then(|assignment| assignment.root_message_id.clone())
                 });
-                let message = self.send_msg_with_multi(
+                let message = self.send_msg_with_options(
                     serde_json::from_value(p)
                         .map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
                     multi,
+                    allow_free_text,
                 )?;
                 let mut value = serde_json::to_value(message)
                     .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
@@ -2605,6 +2615,15 @@ impl Inner {
     }
 
     fn send_msg_with_multi(&mut self, req: SendMessageRequest, multi: bool) -> Result<Message> {
+        self.send_msg_with_options(req, multi, true)
+    }
+
+    fn send_msg_with_options(
+        &mut self,
+        req: SendMessageRequest,
+        multi: bool,
+        allow_free_text: bool,
+    ) -> Result<Message> {
         self.validate_send_msg_target(&req.chat_id, &req.bot_id)?;
         if multi && (req.intent != "decision" || req.options.is_empty()) {
             return Err(OrchestratorError::Invalid(
@@ -2800,7 +2819,7 @@ impl Inner {
                     chat_id: req.chat_id.clone(),
                     text: req.text.clone(),
                     options: req.options.clone(),
-                    allow_free_text: true,
+                    allow_free_text,
                 },
                 multi,
             )?;
@@ -4791,6 +4810,60 @@ mod tests {
         let v = o.rpc("bot.create", json!({"name":name}));
         let v = tokio::runtime::Runtime::new().unwrap().block_on(v).unwrap();
         v["bot"]["id"].as_str().unwrap().into()
+    }
+
+    #[test]
+    fn send_msg_multi_question_persists_options_and_rejects_free_text() {
+        let orchestrator = Orchestrator::default();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let message = runtime
+            .block_on(orchestrator.rpc(
+                "send_msg",
+                json!({
+                    "bot_id":"main",
+                    "chat_id":"chat_main",
+                    "assignment_id":null,
+                    "run_id":"run-multi-question",
+                    "call_id":"call-multi-question",
+                    "text":"Choose all that apply",
+                    "intent":"decision",
+                    "options":["A","B","C"],
+                    "multi":true,
+                    "allow_free_text":false,
+                    "mentions":["user"]
+                }),
+            ))
+            .unwrap();
+        let question_id = message["question_id"].as_str().unwrap().to_owned();
+        let before_restart = orchestrator.snapshot().unwrap();
+        let question = &before_restart["questions"][&question_id];
+        assert_eq!(question["options"], json!(["A", "B", "C"]));
+        assert_eq!(question["multi"], true);
+        assert_eq!(question["allow_free_text"], false);
+
+        let restored = Orchestrator::default();
+        restored.restore(before_restart).unwrap();
+        let after_restart = restored.snapshot().unwrap();
+        let question = &after_restart["questions"][&question_id];
+        assert_eq!(question["options"], json!(["A", "B", "C"]));
+        assert_eq!(question["multi"], true);
+        assert_eq!(question["allow_free_text"], false);
+        assert!(runtime
+            .block_on(restored.rpc(
+                "question.answer",
+                json!({"question_id":question_id,"text":"custom"}),
+            ))
+            .is_err());
+        let answer = runtime
+            .block_on(restored.rpc(
+                "question.answer",
+                json!({"question_id":question_id,"option_indexes":[0,2]}),
+            ))
+            .unwrap();
+        assert_eq!(
+            answer["question"]["answer"]["option_indexes"],
+            json!([0, 2])
+        );
     }
 
     #[test]

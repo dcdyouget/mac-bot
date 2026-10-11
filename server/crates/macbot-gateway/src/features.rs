@@ -714,13 +714,38 @@ impl FeatureService {
             .lock()
             .map_err(|_| FeatureError::Invalid("project finalize lock poisoned".into()))?;
         let project_entry_id = format!("project-summary:{project_id}");
+        let worklog_entry_id = format!("project-summary-worklog:{project_id}:main");
         let existing = self.shared_memory.entries()?;
         let existing_project = existing.iter().find(|entry| entry.id == project_entry_id);
+        let existing_worklog = existing.iter().find(|entry| entry.id == worklog_entry_id);
+        let worklog_can_be_saved = existing
+            .iter()
+            .filter(|entry| {
+                entry.target == MemoryTarget::bot("main") && entry.kind == MemoryKind::BotWorklog
+            })
+            .map(|entry| entry.content.chars().count())
+            .sum::<usize>()
+            .saturating_sub(
+                existing_worklog
+                    .as_ref()
+                    .map(|entry| entry.content.chars().count())
+                    .unwrap_or_default(),
+            )
+            .saturating_add(summary.chars().count())
+            <= macbot_memory::BOT_WORKLOG_LIMIT;
         if existing_project
             .as_ref()
             .is_some_and(|project| project.content == summary)
+            && (!worklog_can_be_saved
+                || existing_worklog
+                    .as_ref()
+                    .is_some_and(|worklog| worklog.content == summary))
         {
-            return Ok(vec![existing_project.expect("checked above").clone()]);
+            let mut entries = vec![existing_project.expect("checked above").clone()];
+            if worklog_can_be_saved {
+                entries.push(existing_worklog.expect("checked above").clone());
+            }
+            return Ok(entries);
         }
 
         let run_id = format!("project-summary-run:{project_id}");
@@ -745,6 +770,28 @@ impl FeatureService {
         if let Err(error) = self.shared_memory.stage(&run_id, request) {
             let _ = self.rollback_memory_run(&run_id);
             return Err(error.into());
+        }
+        if worklog_can_be_saved {
+            let worklog = MemoryRequest {
+                target: MemoryTarget::bot("main"),
+                action: if existing_worklog.is_some() {
+                    MemoryAction::Replace
+                } else {
+                    MemoryAction::Add
+                },
+                content: summary.to_owned(),
+                id: Some(worklog_entry_id),
+                kind: Some(MemoryKind::BotWorklog),
+                source: MemorySource {
+                    bot_id: Some("main".into()),
+                    run_id: Some(run_id.clone()),
+                    session_id: None,
+                },
+            };
+            if let Err(error) = self.shared_memory.stage(&run_id, worklog) {
+                let _ = self.rollback_memory_run(&run_id);
+                return Err(error.into());
+            }
         }
         match self.commit_memory_run(&run_id) {
             Ok(entries) => Ok(entries),
@@ -2310,18 +2357,18 @@ mod tests {
         let first = service
             .finalize_project_summary("project-a", "bot-a", "最终项目结论")
             .unwrap();
-        assert_eq!(first.len(), 1);
-        assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
+        assert_eq!(first.len(), 2);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
         let retry = service
             .finalize_project_summary("project-a", "bot-a", "最终项目结论")
             .unwrap();
         assert_eq!(retry, first);
-        assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
         let updated = service
             .finalize_project_summary("project-a", "bot-a", "第二次项目结论")
             .unwrap();
-        assert_eq!(updated.len(), 1);
-        assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
+        assert_eq!(updated.len(), 2);
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
         let retry_updated = service
             .finalize_project_summary("project-a", "bot-a", "第二次项目结论")
             .unwrap();
@@ -2330,7 +2377,7 @@ mod tests {
 
         let restored = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
         let entries = restored.shared_memory.entries().unwrap();
-        assert_eq!(entries.len(), 1);
+        assert_eq!(entries.len(), 2);
         assert!(entries.iter().any(|entry| {
             entry.target == MemoryTarget::project("project-a")
                 && entry.kind == MemoryKind::Project
@@ -2339,6 +2386,49 @@ mod tests {
         assert!(!entries
             .iter()
             .any(|entry| entry.target == MemoryTarget::bot("bot-a")));
+        assert!(entries.iter().any(|entry| {
+            entry.id == "project-summary-worklog:project-a:main"
+                && entry.target == MemoryTarget::bot("main")
+                && entry.content == "第二次项目结论"
+        }));
+    }
+
+    #[test]
+    fn main_project_summary_writes_worklog_and_is_idempotent() {
+        let home = tempfile::tempdir().unwrap().keep();
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let first = service
+            .finalize_project_summary("project-main", "main", "项目完成，产物 artifacts/report.md")
+            .unwrap();
+        assert_eq!(first.len(), 2);
+        let entries = service.shared_memory.entries().unwrap();
+        let summary = entries
+            .iter()
+            .find(|entry| entry.id == "project-summary:project-main")
+            .unwrap();
+        let worklog = entries
+            .iter()
+            .find(|entry| entry.id == "project-summary-worklog:project-main:main")
+            .unwrap();
+        assert_eq!(summary.target, MemoryTarget::project("project-main"));
+        assert_eq!(worklog.target, MemoryTarget::bot("main"));
+        assert_eq!(worklog.kind, MemoryKind::BotWorklog);
+        assert!(worklog.content.contains("artifacts/report.md"));
+        assert_eq!(
+            service
+                .finalize_project_summary("project-main", "main", &summary.content)
+                .unwrap(),
+            first
+        );
+        drop(service);
+
+        let restored = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
+        assert!(restored
+            .shared_memory
+            .entries()
+            .unwrap()
+            .iter()
+            .any(|entry| entry.id == "project-summary-worklog:project-main:main"));
     }
 
     #[test]
@@ -2397,7 +2487,7 @@ mod tests {
             .unwrap();
         assert_eq!(first, retry);
         let entries = service.shared_memory.entries().unwrap();
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 3);
         assert!(entries.iter().any(|entry| {
             entry.id == "project-summary-worklog:project-legacy:bot-a"
                 && entry.content == "legacy project summary worklog"
