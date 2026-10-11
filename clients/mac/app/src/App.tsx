@@ -18,6 +18,7 @@ import { ComputerPage, type ComputerConnection, type ComputerDriver, type Comput
 import { BotPanel, type BotProject, type BotRecord } from './components/BotPanel'
 import { ArtifactPage, type ProjectArtifact } from './components/ArtifactPage'
 import { SettingsDetail, type SettingsSection } from './components/SettingsDetail'
+import { GroupSettingsPage, type GroupSettingsMember } from './components/GroupSettingsPage'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
 import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './components/ChatAttachments'
@@ -26,6 +27,8 @@ import { getChatSkillPickerItems, shouldRefreshSkillsOnPickerOpen } from './comp
 import { makeSkillCreateIntent, type SkillCreateIntent } from './components/skillCreateIntent'
 
 type ThemeMode = 'light' | 'dark' | 'system'
+type ContextPanelPage = 'context' | 'group-settings'
+type PendingContextAction = { id: string; messageId: string; title: string; kind: 'question' | 'review' }
 type SettingsNavigationSection = 'general' | 'memory' | 'models' | 'runtime' | 'tools' | 'skills' | 'computer' | 'hosts' | 'about'
 type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory' | 'trace' | 'computer' | 'artifact'
 type TraceReturnPage = Exclude<AppPage, 'trace' | 'computer' | 'artifact'>
@@ -126,6 +129,10 @@ function App() {
   const [announcementDraft, setAnnouncementDraft] = useState('')
   const [announcementError, setAnnouncementError] = useState<string | null>(null)
   const [announcementSaving, setAnnouncementSaving] = useState(false)
+  const [contextPanelOpen, setContextPanelOpen] = useState(true)
+  const [contextPanelStack, setContextPanelStack] = useState<ContextPanelPage[]>(['context'])
+  const [groupSettingsBusy, setGroupSettingsBusy] = useState(false)
+  const [groupSettingsError, setGroupSettingsError] = useState<string | null>(null)
   const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null)
   const [historyByChat, setHistoryByChat] = useState<Record<string, Message[]>>({})
   const [historyQuestions, setHistoryQuestions] = useState<Record<string, BridgeState['questions']>>({})
@@ -296,6 +303,16 @@ function App() {
     window.addEventListener('keydown', handleSearchShortcut)
     return () => window.removeEventListener('keydown', handleSearchShortcut)
   }, [showConnect])
+
+  useEffect(() => {
+    const handlePanelEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !contextPanelOpen || showSearch || showSettings) return
+      if (contextPanelStack.length > 1) { popContextPanelPage(); return }
+      if (window.innerWidth <= 1100) setContextPanelOpen(false)
+    }
+    window.addEventListener('keydown', handlePanelEscape)
+    return () => window.removeEventListener('keydown', handlePanelEscape)
+  }, [contextPanelOpen, contextPanelStack.length, showSearch, showSettings])
 
   useEffect(() => {
     const root = document.documentElement
@@ -801,11 +818,50 @@ function App() {
         ? assignment.bot_id === currentChat.bot_id
         : assignment.origin_chat_id === currentChat?.id,
   )
-  const currentApprovals = Object.values({ ...state.approvals, ...historyApprovals[hostScope] }).filter((approval) => approval.state === 'pending')
-  const currentQuestions = { ...state.questions, ...historyQuestions[hostScope] }
+  const activeCurrentAssignments = currentAssignments.filter((assignment) =>
+    ['working', 'waiting_user', 'waiting_bot', 'blocked', 'queued'].includes(String(assignment.status)),
+  )
+  const configuredTaskLimit = Number(state.bots[String(currentChat?.bot_id ?? '')]?.max_parallel ?? 3)
+  const currentBotTaskLimit = Number.isFinite(configuredTaskLimit) ? Math.max(1, Math.min(8, configuredTaskLimit)) : 3
+  const currentApprovals = (Object.values({ ...state.approvals, ...historyApprovals[hostScope] }) as Record<string, Json>[]).filter((approval) => approval.state === 'pending')
+  const currentQuestions = useMemo(() => ({ ...state.questions, ...historyQuestions[hostScope] }), [state.questions, historyQuestions, hostScope])
   const currentApprovalRecords = { ...state.approvals, ...historyApprovals[hostScope] }
   const currentProjectId = typeof currentChat?.project_id === 'string' ? currentChat.project_id : null
   const currentProject = currentProjectId ? state.projects[currentProjectId] : undefined
+  const currentProjectIdRef = useRef(currentProjectId)
+  currentProjectIdRef.current = currentProjectId
+  const currentPendingActions = useMemo<PendingContextAction[]>(() => {
+    const seen = new Set<string>()
+    const actions: PendingContextAction[] = []
+    for (const message of currentMessages) for (const [index, block] of (message.blocks ?? []).entries()) {
+      if (block.type === 'question') {
+        const questionId = typeof block.question_id === 'string' ? block.question_id : ''
+        const question = questionId ? currentQuestions[questionId] : undefined
+        if (!question || question.state !== 'pending' || seen.has(questionId)) continue
+        seen.add(questionId)
+        actions.push({ id: questionId, messageId: message.id, title: question.text, kind: 'question' })
+        continue
+      }
+      if (block.type === 'review_card' && block.state === 'pending') {
+        const projectId = typeof block.project_id === 'string' ? block.project_id : ''
+        const id = `${message.id}:${index}`
+        if (seen.has(id)) continue
+        seen.add(id)
+        actions.push({ id, messageId: message.id, title: state.projects[projectId]?.name ?? t('project.status.review'), kind: 'review' })
+      }
+    }
+    return actions
+  }, [currentMessages, currentQuestions, state.projects])
+  const approvalMessageIds = useMemo(() => {
+    const ids = new Map<string, string>()
+    for (const message of currentMessages) for (const block of message.blocks ?? []) {
+      if (block.type === 'approval' && typeof block.approval_id === 'string') ids.set(block.approval_id, message.id)
+    }
+    return ids
+  }, [currentMessages])
+  const contextPanelPage = contextPanelStack[contextPanelStack.length - 1] ?? 'context'
+  const isMainChat = currentChat?.kind === 'main' || Boolean(currentChat?.bot_id && state.bots[currentChat.bot_id]?.is_main)
+  const followedProjects = Object.values(state.projects).filter((project) => ['active', 'review'].includes(String(project.status ?? '')))
   const skillPickerSkills = useMemo(() => skillsDataScope === hostScope && !skillsLoading && !skillsError ? skills : [], [hostScope, skills, skillsDataScope, skillsError, skillsLoading])
   const slashSkillItems = useMemo(() => getChatSkillPickerItems(skillPickerSkills, slashPicker?.query ?? ''), [skillPickerSkills, slashPicker?.query])
   const acknowledgeSkillCreateIntent = useCallback((id: string) => {
@@ -828,14 +884,23 @@ function App() {
   }, [slashPicker, slashSelectedIndex, slashSkillItems, skillTargetBotId])
 
   useEffect(() => {
+    setContextPanelStack(['context'])
+    setGroupSettingsError(null)
+    setGroupSettingsBusy(false)
+  }, [hostScope, currentChat?.id])
+
+  useEffect(() => {
     if (!currentProjectId) {
       setAnnouncement(null)
       setAnnouncementEditing(false)
+      setAnnouncementError(null)
       return
     }
     if (state.connection !== 'connected') return
     let active = true
     const scope = hostScope
+    setAnnouncement(null)
+    setAnnouncementDraft('')
     setAnnouncementLoading(true)
     setAnnouncementError(null)
     void invoke<{ project: BridgeState['projects'][string]; announcement: Announcement }>('protocol_request', {
@@ -1367,6 +1432,62 @@ function App() {
     } finally {
       setAnnouncementSaving(false)
     }
+  }
+
+  async function runGroupProjectAction(method: 'project.update' | 'project.add_member' | 'project.remove_member' | 'project.confirm_done' | 'project.archive' | 'project.reopen', params: Record<string, unknown>) {
+    const projectId = currentProjectId
+    if (!projectId || state.connection !== 'connected') throw new Error(t('status.reconnecting'))
+    const scope = hostScope
+    setGroupSettingsBusy(true)
+    setGroupSettingsError(null)
+    try {
+      const result = await invoke<{ project?: BridgeState['projects'][string] }>('protocol_request', { method, params: { project_id: projectId, ...params } })
+      assertHostScope(hostScopeRef.current, scope)
+      if (!result.project) throw new Error(t('group.settings.update_failed'))
+      setState((current) => ({
+        ...current,
+        projects: { ...current.projects, [projectId]: result.project! },
+        chats: method === 'project.update' && typeof result.project?.name === 'string'
+          ? Object.fromEntries(Object.entries(current.chats).map(([id, chat]) => [id, chat.project_id === projectId ? { ...chat, title: String(result.project!.name) } : chat]))
+          : current.chats,
+      }))
+      const detail = await invoke<{ project: BridgeState['projects'][string]; announcement: Announcement }>('protocol_request', { method: 'project.get', params: { project_id: projectId } })
+      assertHostScope(hostScopeRef.current, scope)
+      setState((current) => ({ ...current, projects: { ...current.projects, [projectId]: detail.project } }))
+      if (currentProjectIdRef.current === projectId) {
+        setAnnouncement(detail.announcement)
+        setAnnouncementDraft(detail.announcement.text ?? '')
+      }
+    } catch (error) {
+      if (hostScopeRef.current === scope) setGroupSettingsError(String(error))
+      throw error
+    } finally {
+      if (hostScopeRef.current === scope) setGroupSettingsBusy(false)
+    }
+  }
+
+  async function addGroupMembers(botIds: string[]) {
+    for (const botId of botIds) await runGroupProjectAction('project.add_member', { bot_id: botId })
+  }
+
+  function pushGroupSettings() {
+    setGroupSettingsError(null)
+    setContextPanelOpen(true)
+    setContextPanelStack((stack) => [...stack, 'group-settings'])
+  }
+
+  function popContextPanelPage() {
+    setContextPanelStack((stack) => stack.length > 1 ? stack.slice(0, -1) : ['context'])
+  }
+
+  function openPanelProject(projectId: string, chatId?: string) {
+    void openProject(projectId, chatId).catch((error: unknown) => {
+      setState((current) => ({ ...current, error: String(error) }))
+    })
+  }
+
+  function scrollToMessage(messageId: string) {
+    document.getElementById(`message-${messageId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
   function openSettings(section: SettingsNavigationSection = 'runtime') {
@@ -2117,10 +2238,14 @@ function App() {
           <span>{currentChat?.kind === 'project' || currentChat?.project_id ? groupSubtitle(currentChat, currentProject, announcement) : currentChat?.bot_id ? botSubtitle(currentChat, currentAssignments, state.bots) : t('chat.main.subtitle')}</span></div>
         {currentChat?.bot_id && <button className="icon-button" type="button" aria-label={t('computer.title').replace('{bot}', chatTitle(currentChat))} title={t('computer.title').replace('{bot}', chatTitle(currentChat))} onClick={() => openComputer(currentChat.bot_id!)}><Monitor size={16} /></button>}
         <button className="icon-button" aria-label={t('chat.search')} onClick={() => setShowSearch(true)}><Search size={17} /></button>
-        <button className="icon-button" aria-label={currentChatBotId ? t('bot.action.settings') : t('group.info')} title={currentChatBotId ? t('bot.action.settings') : t('group.info')} onClick={() => { if (currentChatBotId) openBotPanel(currentChatBotId) }}><PanelRight size={17} /></button>
+        <button className="icon-button" aria-label={contextPanelOpen ? t('follow.collapse') : t('group.info')} title={contextPanelOpen ? t('follow.collapse') : t('group.info')} aria-expanded={contextPanelOpen} onClick={() => {
+          if (botPanelId) { setBotPanelId(null); setContextPanelOpen(true); return }
+          setContextPanelOpen((open) => !open)
+          setContextPanelStack(['context'])
+        }}><PanelRight size={17} /></button>
       </header>
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={openTrace} />}
-      {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+      {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => { setContextPanelOpen(true); setContextPanelStack(['context']); requestAnimationFrame(() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
         <span className="announcement-bar" /><span className="announcement-summary"><strong>{t('group.announcement')}</strong><small>{announcement ? summarizeMarkdown(announcement.text) : announcementLoading ? t('settings.permissions.loading') : t('group.announcement.empty')}</small></span><ChevronDown size={14} />
       </button>}
       {state.connection !== 'connected' && <div className="offline-bar">{t('host.reconnecting').replace('{host}', state.active_host?.name ?? hostName)} · {t('host.reconnecting_detail')}</div>}
@@ -2206,9 +2331,40 @@ function App() {
         })
       }}
       t={(key) => t(key as CopyKey)}
-    /> : <aside className="context-panel glass-sidebar">
-      <div className="panel-heading drag-region"><strong>{currentProjectId ? t('group.info') : t('follow.title')}</strong><button className="icon-button" aria-label={t('follow.collapse')}><PanelRight size={16} /></button></div>
-      {currentChat && currentProjectId ? <div className="panel-content group-context-panel">
+    /> : contextPanelOpen ? <>
+      <button type="button" className="context-panel-scrim" aria-label={t('follow.collapse')} onClick={() => setContextPanelOpen(false)} />
+      <aside className={`context-panel glass-sidebar context-panel-open ${currentProjectId ? 'group-context-panel-open' : ''}`}>
+      <div className={`panel-heading drag-region ${contextPanelPage === 'group-settings' ? 'context-panel-page-heading' : ''}`}>
+        {contextPanelPage === 'group-settings' && <button type="button" className="icon-button" aria-label={t('common.back')} onClick={popContextPanelPage}><ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} /></button>}
+        <strong>{contextPanelPage === 'group-settings' ? t('group.settings.title') : currentProjectId ? t('group.info') : t('follow.title')}</strong>
+        {currentProjectId && contextPanelPage === 'context' && <button type="button" className="icon-button" aria-label={t('group.settings.title')} title={t('group.settings.title')} onClick={pushGroupSettings}><Settings size={15} /></button>}
+        <button type="button" className="icon-button" aria-label={t('follow.collapse')} title={t('follow.collapse')} onClick={() => setContextPanelOpen(false)}><PanelRight size={16} /></button>
+      </div>
+      {contextPanelPage === 'group-settings' && currentProjectId ? currentProject ? <div className="context-panel-page-stack">
+        <GroupSettingsPage
+          projectId={currentProjectId}
+          name={String(currentProject.name ?? currentChat?.title ?? currentProjectId)}
+          status={String(currentProject.status ?? 'active')}
+          leadBotId={typeof currentProject.lead_bot_id === 'string' ? currentProject.lead_bot_id : undefined}
+          members={(announcement?.members ?? (Array.isArray(currentProject.members) ? currentProject.members as unknown as GroupSettingsMember[] : []))}
+          bots={bots.map((bot) => ({ id: bot.id, name: bot.name, is_main: bot.is_main }))}
+          busy={groupSettingsBusy}
+          error={groupSettingsError}
+          onRename={(name) => runGroupProjectAction('project.update', { patch: { name } })}
+          onAddMembers={addGroupMembers}
+          onRemoveMember={(botId) => runGroupProjectAction('project.remove_member', { bot_id: botId })}
+          onMarkDone={() => runGroupProjectAction('project.confirm_done', {})}
+          onArchive={async () => {
+            await runGroupProjectAction('project.archive', {})
+            setContextPanelStack(['context'])
+            setContextPanelOpen(false)
+            const main = chats.find((chat) => chat.kind === 'main')
+            if (main) selectChat(main.id)
+          }}
+          onReopen={() => runGroupProjectAction('project.reopen', {})}
+          t={(key) => t(key as CopyKey)}
+        />
+      </div> : <div className="panel-content"><div className="panel-empty">{announcementLoading ? t('settings.permissions.loading') : groupSettingsError ?? t('group.settings.load_failed')}</div></div> : currentChat && currentProjectId ? <div className="panel-content group-context-panel">
         <section className="follow-section" ref={announcementPanelRef}>
           <div className="section-label"><span>{t('group.announcement')}</span><span className="panel-section-meta">{announcement && t('group.announcement.meta').replace('{who}', botOrUserName(announcement.text_updated_by, state.bots)).replace('{time}', formatShortTime(announcement.text_updated_at))}</span>
             <button className="panel-inline-action" type="button" onClick={() => { setAnnouncementDraft(announcement?.text ?? ''); setAnnouncementEditing((value) => !value); setAnnouncementError(null) }}><Edit3 size={13} />{t('group.announcement.edit')}</button>
@@ -2245,18 +2401,46 @@ function App() {
         </section>
         {selectedAssignment && state.assignments[selectedAssignment] && <section className="follow-section"><div className="section-label">{t('trace.show')}</div><div className="assignment-card"><strong>{String(state.assignments[selectedAssignment].title ?? '')}</strong><div className="assignment-meta">{String(state.assignments[selectedAssignment].instruction ?? '')}</div><button className="trace-button" type="button" onClick={() => openTrace(selectedAssignment)}>{t('common.open')}</button></div></section>}
       </div> : currentChat ? <div className="panel-content">
-        {currentApprovals.length > 0 && <section className="follow-section"><div className="section-label"><Shield size={13} />{t('follow.pending_approval')} <span>{currentApprovals.length}</span></div>
-          {currentApprovals.filter((item) => item.chat_id === currentChat.id).map((approval) => <div className="approval-summary" key={String(approval.id)}><strong>{String(approval.tool)} · {String(approval.summary)}</strong><span>{String(approval.risk)}</span></div>)}
+        {isMainChat ? <>
+          <section className="follow-section"><div className="section-label"><Shield size={13} />{t('follow.awaiting')} <span>{currentPendingActions.length + currentApprovals.filter((item) => item.chat_id === currentChat.id).length}</span></div>
+            {currentApprovals.filter((item) => item.chat_id === currentChat.id).map((approval) => {
+              const messageId = approvalMessageIds.get(String(approval.id))
+              const content = <><Shield size={14} /><span><strong>{String(approval.tool)} · {String(approval.summary)}</strong><small>{String(approval.risk ?? '')}</small></span></>
+              return messageId ? <button type="button" className="context-action-row" key={String(approval.id)} onClick={() => scrollToMessage(messageId)}>{content}</button> : <div className="context-action-row" key={String(approval.id)}>{content}</div>
+            })}
+            {currentPendingActions.map((item) => <button type="button" className="context-action-row" key={item.id} onClick={() => scrollToMessage(item.messageId)}><span className={`context-action-kind ${item.kind}`}>{item.kind === 'question' ? '?' : '✓'}</span><span><strong>{item.title}</strong><small>{t(item.kind === 'question' ? 'follow.pending_question' : 'follow.pending_review')}</small></span></button>)}
+            {!currentPendingActions.length && !currentApprovals.some((item) => item.chat_id === currentChat.id) && <div className="panel-empty">{t('follow.empty')}</div>}
+          </section>
+          <section className="follow-section"><div className="section-label">{t('follow.groups')} <span>{followedProjects.length}</span></div>
+            {followedProjects.length ? followedProjects.map((project) => {
+              const projectChat = chats.find((chat) => chat.project_id === project.id) ?? chats.find((chat) => chat.id === project.chat_id)
+              const statusKey = project.status === 'review' ? 'project.status.review' : 'project.status.active'
+              return <button type="button" className="follow-project-row" key={project.id} onClick={() => openPanelProject(project.id, projectChat?.id)}><span className="follow-project-avatar"><Users size={14} /></span><span className="follow-project-copy"><strong>{project.name ?? project.id}</strong><small>{t(statusKey)}</small></span><ChevronRight size={14} /></button>
+            }) : <div className="panel-empty">{t('follow.empty')}</div>}
+          </section>
+        </> : <>
+        {currentApprovals.some((item) => item.chat_id === currentChat.id) && <section className="follow-section"><div className="section-label"><Shield size={13} />{t('follow.pending_approval')} <span>{currentApprovals.filter((item) => item.chat_id === currentChat.id).length}</span></div>
+          {currentApprovals.filter((item) => item.chat_id === currentChat.id).map((approval) => {
+            const messageId = approvalMessageIds.get(String(approval.id))
+            const content = <><Shield size={14} /><span><strong>{String(approval.tool)} · {String(approval.summary)}</strong><small>{String(approval.risk ?? '')}</small></span></>
+            return messageId ? <button type="button" className="context-action-row" key={String(approval.id)} onClick={() => scrollToMessage(messageId)}>{content}</button> : <div className="context-action-row" key={String(approval.id)}>{content}</div>
+          })}
         </section>}
-        <section className="follow-section"><div className="section-label">{t('follow.section.active')}</div>
-          {currentAssignments.length === 0 ? <div className="panel-empty">{t('follow.empty')}</div> : currentAssignments.map((assignment) => <div className="assignment-card" key={String(assignment.id)}>
-            <div className="assignment-title"><strong>{String(assignment.title ?? assignment.bot_id)}</strong>{Number(assignment.pending_messages ?? 0) > 0 && <span className="pending-badge"><Clock3 size={12} />{t('queue.pending').replace('{count}', String(assignment.pending_messages))}</span>}</div>
-            <div className="assignment-meta">{statusText(memberStatusKey(String(assignment.status ?? '')))} · {state.bots[String(assignment.bot_id ?? '')]?.name ?? t('common.bot')}</div>
-            <button className="trace-button" onClick={() => openTrace(String(assignment.id))}>{t('trace.show')}</button>
-          </div>)}
-        </section>
+        <section className="follow-section"><div className="section-label">{t('follow.section.active')} <span>{activeCurrentAssignments.length} / {currentBotTaskLimit}</span></div>
+          {activeCurrentAssignments.length === 0 ? <div className="panel-empty">{t('follow.empty')}</div> : activeCurrentAssignments.map((assignment) => {
+            const assignmentProjectId = typeof assignment.project_id === 'string' ? assignment.project_id : ''
+            const assignmentProject = assignmentProjectId ? state.projects[assignmentProjectId] : undefined
+            const projectChat = assignmentProjectId ? chats.find((chat) => chat.project_id === assignmentProjectId) ?? chats.find((chat) => chat.id === assignmentProject?.chat_id) : undefined
+            return <div className="assignment-card" key={String(assignment.id)}>
+              <div className="assignment-title"><strong>{String(assignment.title ?? assignment.bot_id)}</strong>{Number(assignment.pending_messages ?? 0) > 0 && <span className="pending-badge"><Clock3 size={12} />{t('queue.pending').replace('{count}', String(assignment.pending_messages))}</span>}</div>
+              <div className="assignment-meta">{statusText(memberStatusKey(String(assignment.status ?? '')))} · {state.bots[String(assignment.bot_id ?? '')]?.name ?? t('common.bot')}</div>
+              <div className="context-assignment-actions"><button className="trace-button" type="button" onClick={() => openTrace(String(assignment.id))}>{t('trace.show')}</button>{projectChat && <button className="trace-button" type="button" onClick={() => selectChat(projectChat.id)}>{t('follow.open_group')}</button>}</div>
+            </div>
+          })}
+        </section></>}
       </div> : null}
-    </aside>}
+      </aside>
+    </> : <aside className="context-panel-collapsed"><button type="button" aria-label={t('group.info')} title={t('group.info')} onClick={() => setContextPanelOpen(true)}><PanelRight size={16} /></button></aside>}
     </>}
     {activePage === 'artifact' && artifactRoute && <ArtifactPage
       key={`${artifactRoute.hostScope}:${artifactRoute.projectId}:${artifactRoute.artifactId}`}
