@@ -2917,6 +2917,9 @@ fn send_chat(state: &mut MockState, params: &Value, home: &std::path::Path) -> R
     if let Some(chat) = updated_chat {
         state.emit("chat.updated", json!({"chat":chat}));
     }
+    for assignment in refresh_pending_message_counts(state) {
+        state.emit("assignment.updated", json!({"assignment":assignment}));
+    }
     Ok(json!({"message":message}))
 }
 
@@ -2962,6 +2965,9 @@ fn message_delete(state: &mut MockState, params: &Value) -> RpcResult {
         "message.deleted",
         json!({"chat_id":chat_id,"message_id":message_id}),
     );
+    for assignment in refresh_pending_message_counts(state) {
+        state.emit("assignment.updated", json!({"assignment":assignment}));
+    }
     Ok(json!({}))
 }
 
@@ -3071,6 +3077,13 @@ fn message_steer(state: &mut MockState, params: &Value) -> RpcResult {
             None,
         ));
     }
+    if message.get("deleted").and_then(Value::as_bool) == Some(true) {
+        return Err(rpc_error(
+            "conflict",
+            "deleted messages cannot be changed into a steer",
+            None,
+        ));
+    }
     if message
         .get("mentions")
         .and_then(Value::as_array)
@@ -3082,6 +3095,36 @@ fn message_steer(state: &mut MockState, params: &Value) -> RpcResult {
             None,
         ));
     }
+    let assignment_index = state
+        .assignments
+        .iter()
+        .position(|assignment| assignment.get("id").and_then(Value::as_str) == Some(assignment_id))
+        .ok_or_else(|| rpc_error("not_found", "assignment not found", None))?;
+    let assignment = &state.assignments[assignment_index];
+    if assignment.get("bot_id").and_then(Value::as_str) != Some(bot_id)
+        || assignment.get("origin_chat_id").and_then(Value::as_str) != Some(&chat_id)
+    {
+        return Err(rpc_error(
+            "forbidden",
+            "message is not queued for this Bot task",
+            None,
+        ));
+    }
+
+    let already_promoted = assignment
+        .get("steers")
+        .and_then(Value::as_array)
+        .is_some_and(|steers| {
+            steers
+                .iter()
+                .any(|steer| steer.get("message_id").and_then(Value::as_str) == Some(message_id))
+        });
+    if already_promoted {
+        let assignment = state.assignments[assignment_index].clone();
+        let message = state.messages[&chat_id][message_index].clone();
+        return Ok(json!({"message":message,"assignment":assignment}));
+    }
+
     let seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
     let last_read_seq = state
         .chats
@@ -3112,21 +3155,7 @@ fn message_steer(state: &mut MockState, params: &Value) -> RpcResult {
         ));
     }
 
-    let assignment_index = state
-        .assignments
-        .iter()
-        .position(|assignment| assignment.get("id").and_then(Value::as_str) == Some(assignment_id))
-        .ok_or_else(|| rpc_error("not_found", "assignment not found", None))?;
     let assignment = &mut state.assignments[assignment_index];
-    if assignment.get("bot_id").and_then(Value::as_str) != Some(bot_id)
-        || assignment.get("origin_chat_id").and_then(Value::as_str) != Some(&chat_id)
-    {
-        return Err(rpc_error(
-            "forbidden",
-            "message is not queued for this Bot task",
-            None,
-        ));
-    }
     if assignment.get("status").and_then(Value::as_str) != Some("working") {
         return Err(rpc_error("conflict", "Bot task is no longer working", None));
     }
@@ -3146,10 +3175,81 @@ fn message_steer(state: &mut MockState, params: &Value) -> RpcResult {
             "applied_at":null
         }));
     }
-    let assignment = assignment.clone();
-    state.emit("assignment.updated", json!({"assignment":assignment}));
     let message = state.messages[&chat_id][message_index].clone();
+    let changed_assignments = refresh_pending_message_counts(state);
+    let assignment = state.assignments[assignment_index].clone();
+    let target_emitted = changed_assignments
+        .iter()
+        .any(|changed| changed.get("id").and_then(Value::as_str) == Some(assignment_id));
+    for changed in changed_assignments {
+        state.emit("assignment.updated", json!({"assignment":changed}));
+    }
+    if !target_emitted {
+        state.emit(
+            "assignment.updated",
+            json!({"assignment":assignment.clone()}),
+        );
+    }
     Ok(json!({"message":message,"assignment":assignment}))
+}
+
+/// Keep the wire-visible pending count derived from canonical message
+/// deliveries. A message delivered to multiple working assignments counts
+/// once for each queued assignment, and changing one delivery leaves the
+/// other assignments untouched.
+fn refresh_pending_message_counts(state: &mut MockState) -> Vec<Value> {
+    let counts = state
+        .assignments
+        .iter()
+        .map(|assignment| {
+            let assignment_id = assignment.get("id").and_then(Value::as_str).unwrap_or("");
+            let bot_id = assignment
+                .get("bot_id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let chat_id = assignment
+                .get("origin_chat_id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let count = state
+                .messages
+                .values()
+                .flatten()
+                .filter(|message| {
+                    message.pointer("/sender/kind").and_then(Value::as_str) == Some("user")
+                        && message.get("deleted").and_then(Value::as_bool) != Some(true)
+                        && message
+                            .get("mentions")
+                            .and_then(Value::as_array)
+                            .is_none_or(Vec::is_empty)
+                        && message.get("chat_id").and_then(Value::as_str) == Some(chat_id)
+                        && message
+                            .get("delivery")
+                            .and_then(Value::as_array)
+                            .is_some_and(|deliveries| {
+                                deliveries.iter().any(|delivery| {
+                                    delivery.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                                        && delivery.get("assignment_id").and_then(Value::as_str)
+                                            == Some(assignment_id)
+                                        && delivery.get("state").and_then(Value::as_str)
+                                            == Some("queued")
+                                })
+                            })
+                })
+                .count();
+            (assignment_id.to_owned(), count)
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut changed = Vec::new();
+    for assignment in &mut state.assignments {
+        let assignment_id = assignment.get("id").and_then(Value::as_str).unwrap_or("");
+        let count = counts.get(assignment_id).copied().unwrap_or(0);
+        if assignment.get("pending_messages").and_then(Value::as_u64) != Some(count as u64) {
+            assignment["pending_messages"] = json!(count);
+            changed.push(assignment.clone());
+        }
+    }
+    changed
 }
 
 fn mark_read(state: &mut MockState, params: &Value) -> RpcResult {
@@ -6276,6 +6376,253 @@ mod contract_tests {
 
         let projects = call(&gateway, "project.list", json!({"status":["active"]})).await;
         assert!(projects["projects"].is_array());
+    }
+
+    #[tokio::test]
+    async fn mock_waiting_queue_counts_per_assignment_and_promotes_only_selected_delivery() {
+        let gateway = gateway().await;
+        let other_code_task = call(
+            &gateway,
+            "assignment.create",
+            json!({
+                "bot_id":"bot_code",
+                "project_id":"prj_login",
+                "origin_chat_id":"chat_login",
+                "title":"编码并行测试任务",
+                "instruction":"保持执行",
+                "from":"main"
+            }),
+        )
+        .await;
+        let other_bot_task = call(
+            &gateway,
+            "assignment.create",
+            json!({
+                "bot_id":"bot_test",
+                "project_id":"prj_login",
+                "origin_chat_id":"chat_login",
+                "title":"测试并行任务",
+                "instruction":"保持执行",
+                "from":"main"
+            }),
+        )
+        .await;
+        let send_params = json!({
+            "chat_id":"chat_login",
+            "text":"请把交付补充移动端说明",
+            "mentions":[],
+            "client_request_id":"mock-waiting-queue-send"
+        });
+        let mut send_events = gateway.state.events.subscribe();
+        let sent = call(&gateway, "chat.send", send_params.clone()).await;
+        let retry = call(&gateway, "chat.send", send_params).await;
+        assert_eq!(retry, sent, "a retry replays the canonical queued message");
+        let message = sent["message"].clone();
+        let second_message = call(
+            &gateway,
+            "chat.send",
+            json!({
+                "chat_id":"chat_login",
+                "text":"再补一条待看消息",
+                "mentions":[],
+                "client_request_id":"mock-waiting-queue-send-second"
+            }),
+        )
+        .await["message"]
+            .clone();
+        let deliveries = message["delivery"].as_array().unwrap();
+        let mut counted_assignments = Vec::new();
+        while counted_assignments.len() < 3 {
+            let event = tokio::time::timeout(std::time::Duration::from_secs(1), send_events.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if event["event"] == "assignment.updated"
+                && event["data"]["assignment"]["pending_messages"] == 2
+            {
+                counted_assignments.push(event["data"]["assignment"]["id"].clone());
+            }
+        }
+        for assignment_id in [
+            "asg_mock_working",
+            other_code_task["id"].as_str().unwrap(),
+            other_bot_task["id"].as_str().unwrap(),
+        ] {
+            assert!(
+                deliveries.iter().any(|delivery| {
+                    delivery["assignment_id"] == assignment_id && delivery["state"] == "queued"
+                }),
+                "missing queued delivery for {assignment_id}: {deliveries:?}"
+            );
+            let assignment = call(
+                &gateway,
+                "assignment.get",
+                json!({"assignment_id":assignment_id}),
+            )
+            .await;
+            assert_eq!(assignment["assignment"]["pending_messages"], 2);
+        }
+
+        let mut steer_events = gateway.state.events.subscribe();
+        let steer_params = json!({
+            "message_id":message["id"],
+            "bot_id":"bot_code",
+            "assignment_id":"asg_mock_working",
+            "client_request_id":"mock-waiting-queue-steer"
+        });
+        let promoted = call(&gateway, "message.steer", steer_params.clone()).await;
+        let retry = call(&gateway, "message.steer", steer_params).await;
+        assert_eq!(retry, promoted, "a retry does not duplicate the steer");
+        let duplicate_without_request_id = call(
+            &gateway,
+            "message.steer",
+            json!({
+                "message_id":message["id"],
+                "bot_id":"bot_code",
+                "assignment_id":"asg_mock_working"
+            }),
+        )
+        .await;
+        assert_eq!(duplicate_without_request_id, promoted);
+        let assignment_event = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                let event = steer_events.recv().await.unwrap();
+                if event["event"] == "assignment.updated"
+                    && event["data"]["assignment"]["id"] == "asg_mock_working"
+                {
+                    break event;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            assignment_event["data"]["assignment"]["pending_messages"],
+            2
+        );
+        assert_eq!(
+            assignment_event["data"]["assignment"]["steers"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let promoted_delivery = promoted["message"]["delivery"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|delivery| delivery["assignment_id"] == "asg_mock_working")
+            .unwrap();
+        assert_eq!(promoted_delivery["state"], "queued");
+        assert_eq!(promoted["assignment"]["pending_messages"], 2);
+        assert_eq!(
+            promoted["assignment"]["steers"].as_array().unwrap().len(),
+            1
+        );
+
+        for assignment_id in [
+            other_code_task["id"].as_str().unwrap(),
+            other_bot_task["id"].as_str().unwrap(),
+        ] {
+            let assignment = call(
+                &gateway,
+                "assignment.get",
+                json!({"assignment_id":assignment_id}),
+            )
+            .await;
+            assert_eq!(assignment["assignment"]["pending_messages"], 2);
+        }
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_login","limit":100}),
+        )
+        .await;
+        let stored = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["id"] == message["id"])
+            .unwrap();
+        assert_eq!(stored["delivery"], promoted["message"]["delivery"]);
+        assert!(history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|candidate| candidate["id"] == second_message["id"]));
+        let _ = call(&gateway, "bootstrap", json!({})).await;
+        let after_reconnect = call(
+            &gateway,
+            "assignment.get",
+            json!({"assignment_id":"asg_mock_working"}),
+        )
+        .await;
+        assert_eq!(after_reconnect["assignment"]["pending_messages"], 2);
+    }
+
+    #[tokio::test]
+    async fn mock_deleted_queued_message_cannot_be_promoted_and_does_not_change_assignment() {
+        let gateway = gateway().await;
+        let sent = call(
+            &gateway,
+            "chat.send",
+            json!({
+                "chat_id":"chat_login",
+                "text":"待删除的待看消息",
+                "mentions":[],
+                "client_request_id":"mock-delete-queued-message"
+            }),
+        )
+        .await;
+        let message_id = sent["message"]["id"].as_str().unwrap().to_owned();
+        assert_eq!(sent["message"]["delivery"][0]["state"], "queued");
+        assert_eq!(
+            call(
+                &gateway,
+                "assignment.get",
+                json!({"assignment_id":"asg_mock_working"})
+            )
+            .await["assignment"]["pending_messages"],
+            1
+        );
+
+        call(
+            &gateway,
+            "message.delete",
+            json!({"message_id":message_id,"client_request_id":"mock-delete-queued"}),
+        )
+        .await;
+        let before_steer = call(
+            &gateway,
+            "assignment.get",
+            json!({"assignment_id":"asg_mock_working"}),
+        )
+        .await["assignment"]
+            .clone();
+        assert_eq!(before_steer["pending_messages"], 0);
+
+        let error = gateway
+            .rpc(
+                "message.steer",
+                json!({
+                    "message_id":message_id,
+                    "bot_id":"bot_code",
+                    "assignment_id":"asg_mock_working",
+                    "client_request_id":"mock-steer-deleted-queued"
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "conflict");
+        let after_steer = call(
+            &gateway,
+            "assignment.get",
+            json!({"assignment_id":"asg_mock_working"}),
+        )
+        .await["assignment"]
+            .clone();
+        assert_eq!(after_steer, before_steer);
+        assert!(after_steer["steers"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
