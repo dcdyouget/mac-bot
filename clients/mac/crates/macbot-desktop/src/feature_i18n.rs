@@ -235,6 +235,7 @@ pub fn text(key: &str) -> &'static str {
         "computer.empty" => "暂无画面",
         "common.close" => "关闭",
         "common.cancel" => "取消",
+        "common.submit" => "提交",
         "common.confirm" => "确认",
         "common.loading" => "加载中…",
         "common.unavailable_hint" => "此页面暂不可用",
