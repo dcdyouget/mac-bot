@@ -292,12 +292,25 @@ fn solid(hex: u32) -> Hsla {
 
 pub fn sync_theme(cx: &mut App) {
     let tokens = Tokens::get(cx);
-    let theme = Theme::global_mut(cx);
-    theme.background = tokens.window;
-    theme.foreground = tokens.primary;
-    theme.sidebar = tokens.sidebar;
-    theme.muted = tokens.bot;
-    theme.muted_foreground = tokens.secondary;
-    theme.primary = tokens.accent;
-    theme.font_size = gpui_kit::gpui::px(tokens.desktop_type[3][0]);
+    Theme::update(cx, |theme| {
+        theme.background = tokens.window;
+        theme.foreground = tokens.primary;
+        theme.sidebar = tokens.sidebar;
+        theme.muted = tokens.bot;
+        theme.muted_foreground = tokens.secondary;
+
+        // Primary controls have separate normal, hover, pressed, and ink
+        // colors in GPUI Kit. Keep both semantic primary colors and the
+        // button-specific component colors aligned with the design roles.
+        theme.primary = tokens.accent;
+        theme.primary_hover = tokens.accent_hover;
+        theme.primary_active = tokens.accent_pressed;
+        theme.primary_foreground = tokens.accent_on;
+        theme.button_primary = tokens.accent;
+        theme.button_primary_hover = tokens.accent_hover;
+        theme.button_primary_active = tokens.accent_pressed;
+        theme.button_primary_foreground = tokens.accent_on;
+
+        theme.font_size = gpui_kit::gpui::px(tokens.desktop_type[3][0]);
+    });
 }
