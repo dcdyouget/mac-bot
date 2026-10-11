@@ -1455,6 +1455,19 @@ pub struct ChatSendResult {
     pub message: Message,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MessageSteerParams {
+    pub message_id: Id,
+    pub bot_id: Id,
+    pub assignment_id: Id,
+    #[serde(flatten)]
+    pub meta: WriteMeta,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MessageSteerResult {
+    pub message: Message,
+    pub assignment: Assignment,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ChatMarkReadParams {
     pub chat_id: Id,
     pub seq: u64,
@@ -2393,6 +2406,8 @@ pub enum Method {
     ChatThread,
     #[serde(rename = "chat.send")]
     ChatSend,
+    #[serde(rename = "message.steer")]
+    MessageSteer,
     #[serde(rename = "chat.mark_read")]
     ChatMarkRead,
     #[serde(rename = "chat.react")]
@@ -2538,6 +2553,7 @@ pub enum MethodParams {
     ChatHistory(ChatHistoryParams),
     ChatThread(ChatThreadParams),
     ChatSend(ChatSendParams),
+    MessageSteer(MessageSteerParams),
     ChatMarkRead(ChatMarkReadParams),
     ChatReact(ChatReactParams),
     ChatSetPinned(ChatPinnedParams),
@@ -2618,6 +2634,7 @@ pub enum MethodResult {
     ChatHistory(ChatHistoryResult),
     ChatThread(ChatThreadResult),
     ChatSend(ChatSendResult),
+    MessageSteer(MessageSteerResult),
     ChatMarkRead(EmptyResult),
     ChatReact(ChatReactResult),
     ChatSetPinned(ChatPinnedResult),
@@ -2703,6 +2720,7 @@ impl MethodParams {
             Method::ChatHistory => p!(ChatHistory, ChatHistoryParams),
             Method::ChatThread => p!(ChatThread, ChatThreadParams),
             Method::ChatSend => p!(ChatSend, ChatSendParams),
+            Method::MessageSteer => p!(MessageSteer, MessageSteerParams),
             Method::ChatMarkRead => p!(ChatMarkRead, ChatMarkReadParams),
             Method::ChatReact => p!(ChatReact, ChatReactParams),
             Method::ChatSetPinned => p!(ChatSetPinned, ChatPinnedParams),
@@ -2790,6 +2808,7 @@ impl MethodResult {
             Method::ChatHistory => r!(ChatHistory, ChatHistoryResult),
             Method::ChatThread => r!(ChatThread, ChatThreadResult),
             Method::ChatSend => r!(ChatSend, ChatSendResult),
+            Method::MessageSteer => r!(MessageSteer, MessageSteerResult),
             Method::ChatMarkRead => r!(ChatMarkRead, EmptyResult),
             Method::ChatReact => r!(ChatReact, ChatReactResult),
             Method::ChatSetPinned => r!(ChatSetPinned, ChatPinnedResult),

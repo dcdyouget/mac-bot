@@ -30,6 +30,9 @@
       "$ref": "#/definitions/ChatSendParams"
     },
     {
+      "$ref": "#/definitions/MessageSteerParams"
+    },
+    {
       "$ref": "#/definitions/ChatMarkReadParams"
     },
     {
@@ -1304,6 +1307,32 @@
           }
         }
       ]
+    },
+    "MessageSteerParams": {
+      "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
+      "type": "object",
+      "required": [
+        "assignment_id",
+        "bot_id",
+        "message_id"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": "string"
+        },
+        "bot_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message_id": {
+          "type": "string"
+        }
+      }
     },
     "ModelCaps": {
       "type": "object",

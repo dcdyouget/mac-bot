@@ -30,6 +30,9 @@
       "$ref": "#/definitions/ChatSendResult"
     },
     {
+      "$ref": "#/definitions/MessageSteerResult"
+    },
+    {
       "$ref": "#/definitions/EmptyResult"
     },
     {
@@ -2406,6 +2409,21 @@
         },
         "text": {
           "type": "string"
+        }
+      }
+    },
+    "MessageSteerResult": {
+      "type": "object",
+      "required": [
+        "assignment",
+        "message"
+      ],
+      "properties": {
+        "assignment": {
+          "$ref": "#/definitions/Assignment"
+        },
+        "message": {
+          "$ref": "#/definitions/Message"
         }
       }
     },

@@ -546,12 +546,14 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `chat.history` | `{ chat_id, before_seq?: number, after_seq?: number, limit?: number /* 默认 50，最大 100 */ }` | `{ messages: Message[], has_more: boolean }`（按 seq 升序） |
 | `chat.thread` | — | 不再使用（不做线程） |
 | `chat.send` | `{ chat_id, text: string, mentions: Mention[], quote?: Id /* 引用的消息 id */, quote_mode?: "reply"|"reference" /* 默认 reply */, attachments?: Id[] /* upload_id */ }`（`reply_to` 不再使用） | `{ message: Message }` |
+| `message.steer` | `{ message_id, bot_id, assignment_id }` | `{ message: Message, assignment: Assignment }`（仅将该消息已有的 queued delivery 提升为插话；重复调用幂等） |
 | `chat.mark_read` | `{ chat_id, seq: number }` | `{}` |
 | `chat.react` | `{ message_id, emoji: string, on: boolean }` | `{ message: Message }` |
 | `chat.set_pinned` | `{ chat_id, pinned: boolean }` | `{ chat: Chat }` |
 | `chat.set_muted` | `{ chat_id, muted: boolean }` | `{ chat: Chat }` |
 
 - `chat.send` 里用户可以用的 mention 只有 `bot`、`main`、`everyone`（`instruction` 必须为 null）。服务端按 PLAN 5.4 的规则路由。
+- 群聊中未 @ 任何人的用户消息会为当前 working 的 Bot 任务记录 `delivery.state = "queued"`；任务详情的「改为插话」调用 `message.steer`，服务端再次校验消息、Bot、任务和待看状态后，才把原消息排入该任务。
 - `bot_dm` 会话是只读的，对它调用 `chat.send` 返回 `forbidden`。
 - **强制使用技能**：`text` 以 `/<技能名>` 开头时（例如 `/web-auth-patterns 按这个规范做`），服务端把这个技能的全文加载进本次任务，其余文字作为指令。技能名不存在时，按普通文本处理。
 

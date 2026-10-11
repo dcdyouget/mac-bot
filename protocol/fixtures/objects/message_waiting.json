@@ -1,0 +1,27 @@
+{
+  "id": "msg_waiting_1",
+  "chat_id": "chat_login",
+  "seq": 8,
+  "sender": { "kind": "user" },
+  "created_at": "2026-10-09T10:19:02.312Z",
+  "edited_at": null,
+  "deleted": false,
+  "reply_to": null,
+  "quote": null,
+  "thread_count": 0,
+  "mentions": [],
+  "blocks": [{ "type": "text", "markdown": "请检查登录流程的错误提示。" }],
+  "fallback_text": "请检查登录流程的错误提示。",
+  "intent": null,
+  "assignment_id": null,
+  "streaming": false,
+  "delivery": [
+    {
+      "bot_id": "bot_encode",
+      "assignment_id": "asg_1",
+      "state": "queued",
+      "at": "2026-10-09T10:19:02.312Z"
+    }
+  ],
+  "reactions": []
+}

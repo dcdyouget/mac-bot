@@ -12,6 +12,7 @@
     "chat.history",
     "chat.thread",
     "chat.send",
+    "message.steer",
     "chat.mark_read",
     "chat.react",
     "chat.set_pinned",
