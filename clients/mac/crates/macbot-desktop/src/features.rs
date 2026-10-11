@@ -2023,7 +2023,7 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
             ),
             stat(t("block.takeover.title"), &takeovers.to_string(), tokens),
         ]))
-        .child(workbench_waiting(&waiting, tokens, cx))
+        .child(workbench_waiting(&waiting, data, tokens, cx))
         .child(card(t("workbench.title"), active_groups, tokens))
         .child(card(
             &t("workbench.done_today").replace("{count}", &done.len().to_string()),
@@ -2446,6 +2446,7 @@ fn workbench_model_label(job: &Value, data: &Value) -> String {
 #[allow(clippy::collapsible_if)]
 fn workbench_waiting(
     waiting: &[Value],
+    data: &Value,
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
@@ -2512,23 +2513,133 @@ fn workbench_waiting(
             "question" => {
                 if let Some(question) = item.get("question") {
                     if let Some(question_id) = question.get("id").and_then(Value::as_str) {
-                        if let Some(options) = question.get("options").and_then(Value::as_array) {
+                        let options = question
+                            .get("options")
+                            .and_then(Value::as_array)
+                            .map(Vec::as_slice)
+                            .unwrap_or_default();
+                        let multi = question
+                            .get("multi")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
+                        let pending = question
+                            .get("state")
+                            .and_then(Value::as_str)
+                            .map(|state| state == "pending")
+                            .unwrap_or(true);
+                        let mut selected = question_option_selection(data, question_id);
+                        selected.retain(|index| (*index as usize) < options.len());
+                        if multi {
                             for (index, option) in options.iter().enumerate() {
+                                let index = index as u32;
+                                let checked = selected.contains(&index);
+                                let question_id = question_id.to_owned();
+                                let label = format!(
+                                    "{}{}",
+                                    if checked { "☑ " } else { "□ " },
+                                    option.as_str().unwrap_or_default()
+                                );
+                                row = row.child(
+                                    Button::new(format!(
+                                        "workbench-waiting-{item_index}-question-{index}"
+                                    ))
+                                    .label(label)
+                                    .ghost()
+                                    .disabled(!pending)
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            let mut selected =
+                                                question_option_selection(&this.data, &question_id);
+                                            if selected.contains(&index) {
+                                                selected.retain(|value| *value != index);
+                                            } else {
+                                                selected.push(index);
+                                                selected.sort_unstable();
+                                            }
+                                            set_question_option_selection(
+                                                &mut this.data,
+                                                &question_id,
+                                                selected,
+                                            );
+                                            cx.notify();
+                                        },
+                                    )),
+                                );
+                            }
+                            if !options.is_empty() {
+                                let selected_for_submit = selected.clone();
+                                let question_id_for_submit = question_id.to_owned();
+                                let request_id = question_request_id(question_id, &selected);
+                                row = row.child(
+                                    Button::new(format!(
+                                        "workbench-waiting-{item_index}-question-submit"
+                                    ))
+                                    .label(t("common.submit"))
+                                    .primary()
+                                    .disabled(!pending || selected.is_empty())
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.emit_action(
+                                                FeatureAction::Rpc {
+                                                    method: "question.answer".into(),
+                                                    params: json!({
+                                                        "question_id": question_id_for_submit,
+                                                        "option_indexes": selected_for_submit,
+                                                        "client_request_id": format!(
+                                                            "question-answer:{}:{}",
+                                                            question_id_for_submit,
+                                                            indexes
+                                                        )
+                                                    }),
+                                                },
+                                                cx,
+                                            );
+                                        },
+                                    )),
+                                );
+                                let question_id_for_cancel = question_id.to_owned();
+                                row = row.child(
+                                    Button::new(format!(
+                                        "workbench-waiting-{item_index}-question-cancel"
+                                    ))
+                                    .label(t("common.cancel"))
+                                    .ghost()
+                                    .disabled(!pending || selected.is_empty())
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            set_question_option_selection(
+                                                &mut this.data,
+                                                &question_id_for_cancel,
+                                                Vec::new(),
+                                            );
+                                            cx.notify();
+                                        },
+                                    )),
+                                );
+                            }
+                        } else if pending {
+                            for (index, option) in options.iter().enumerate() {
+                                let request_id = question_request_id(question_id, &[index as u32]);
                                 row = row.child(action_button_with_id(
                                     format!("workbench-waiting-{item_index}-question-{index}"),
-                                    option.as_str().unwrap_or(t("common.ok")),
+                                    option.as_str().unwrap_or_default(),
                                     FeatureAction::Rpc {
                                         method: "question.answer".into(),
-                                        params: json!({"question_id": question_id, "option_index": index}),
+                                        params: json!({
+                                            "question_id": question_id,
+                                            "option_index": index,
+                                            "client_request_id": request_id
+                                        }),
                                     },
                                     cx,
                                 ));
                             }
                         }
-                        if question
-                            .get("allow_free_text")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false)
+                        if pending
+                            && question
+                                .get("allow_free_text")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false)
                         {
                             row = row.child(action_button_with_id(
                                 format!("workbench-waiting-{item_index}-answer"),
@@ -2560,6 +2671,64 @@ fn workbench_waiting(
         container = container.child(row);
     }
     container
+}
+
+fn question_option_selection(data: &Value, question_id: &str) -> Vec<u32> {
+    data.get("workbench_question_selections")
+        .and_then(Value::as_object)
+        .and_then(|selections| selections.get(question_id))
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_u64)
+                .filter_map(|value| u32::try_from(value).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn question_request_id(question_id: &str, indexes: &[u32]) -> String {
+    // The same pending answer keeps the same valid UUID across retries; changing
+    // the selected options produces a different idempotency key.
+    let material = format!(
+        "{}:{}",
+        question_id,
+        indexes
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let mut first = 0xcbf29ce484222325u64;
+    let mut second = 0x84222325cbf29ce4u64;
+    for byte in material.bytes() {
+        first = (first ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+        second = (second ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+    }
+    let mut bytes = [0u8; 16];
+    bytes[..8].copy_from_slice(&first.to_be_bytes());
+    bytes[8..].copy_from_slice(&second.to_be_bytes());
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    uuid::Uuid::from_bytes(bytes).to_string()
+}
+
+fn set_question_option_selection(data: &mut Value, question_id: &str, selected: Vec<u32>) {
+    if !data.is_object() {
+        *data = json!({});
+    }
+    if let Some(object) = data.as_object_mut() {
+        let selections = object
+            .entry("workbench_question_selections")
+            .or_insert_with(|| json!({}));
+        if !selections.is_object() {
+            *selections = json!({});
+        }
+        if let Some(selections) = selections.as_object_mut() {
+            selections.insert(question_id.to_owned(), json!(selected));
+        }
+    }
 }
 
 fn waiting_title(item: &Value, kind: &str) -> String {
