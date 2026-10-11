@@ -21,6 +21,9 @@ button:disabled { cursor: default; opacity: .5; }
 .drag-region button, .drag-region input { -webkit-app-region: no-drag; }
 
 .app-shell { display: flex; width: 100%; height: 100%; background: var(--bg-window); }
+.deep-link-notice { position: fixed; z-index: 100; top: 12px; left: 50%; display: flex; width: min(620px, calc(100vw - 32px)); min-height: 40px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px 8px 14px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--bg-elevated); box-shadow: var(--elevation-3); color: var(--text-primary); font-size: 12px; transform: translateX(-50%); }
+.deep-link-notice button { display: grid; width: 26px; height: 26px; flex: none; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+.deep-link-notice button:hover { background: var(--bg-hover); color: var(--text-primary); }
 .sidebar, .context-panel { display: flex; flex: none; flex-direction: column; min-height: 0; background: var(--bg-sidebar); }
 .sidebar { width: 260px; border-right: 1px solid var(--border-subtle); }
 .context-panel { width: 280px; border-left: 1px solid var(--border-subtle); }
@@ -55,6 +58,14 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .chat-row-text small { color: var(--text-tertiary); font-size: 11px; }
 .row-chevron { color: var(--text-tertiary); }
 .nav-empty { padding: 4px 8px 8px; color: var(--text-tertiary); font-size: 12px; }
+.completed-groups-toggle { display: flex; width: 100%; height: 28px; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 6px; color: var(--text-secondary); background: transparent; font: 500 11px var(--font-family-ui); text-align: left; cursor: pointer; }
+.completed-groups-toggle:hover, .completed-group-row:hover, .archived-groups-search:hover { background: var(--bg-hover); }
+.completed-groups-toggle svg { flex: none; color: var(--text-tertiary); }
+.completed-group-row { display: flex; width: 100%; height: 40px; align-items: center; gap: 8px; padding: 0 8px 0 24px; border: 0; border-radius: 7px; color: var(--text-secondary); background: transparent; opacity: .75; text-align: left; cursor: pointer; }
+.completed-group-row.selected { background: var(--bg-active); opacity: 1; }
+.completed-group-avatar { display: grid; width: 24px; height: 24px; flex: none; place-items: center; border-radius: 50%; color: var(--text-tertiary); background: var(--bg-active); }
+.completed-group-title { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.archived-groups-search { display: flex; width: 100%; min-height: 28px; align-items: center; padding: 0 8px 0 40px; border: 0; border-radius: 6px; color: var(--text-tertiary); background: transparent; font: 11px var(--font-family-ui); text-align: left; cursor: pointer; }
 .sidebar-footer { display: flex; flex-direction: column; flex: none; gap: 2px; padding: 8px; border-top: 1px solid var(--border-subtle); }
 .sidebar-footer button { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; text-align: left; }
 .sidebar-footer button:hover { background: var(--bg-hover); }
@@ -86,6 +97,8 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .message-time { float: right; margin: 6px -4px -4px 10px; color: var(--bubble-meta); font-size: 11px; line-height: 14px; }
 .outgoing .message-time { color: var(--bubble-out-meta); }
 .timeline-fragment { display: contents; }
+.message-group.deep-link-highlight { border-radius: 12px; outline: 2px solid var(--accent); outline-offset: 3px; animation: deep-link-highlight-fade 2.2s ease-out forwards; }
+@keyframes deep-link-highlight-fade { 0%, 70% { outline-color: var(--accent); } 100% { outline-color: transparent; } }
 .time-separator { align-self: center; margin: 10px 0 4px; color: var(--text-tertiary); font-size: 11px; line-height: 14px; font-variant-numeric: tabular-nums; }
 .message-group.group-middle { margin-top: 3px; }
 .message-group.group-start { margin-top: 10px; }
@@ -227,9 +240,13 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .artifact-preview-panel pre { overflow: auto; margin: 0; padding: 16px; color: var(--text-primary); font: 12px/18px var(--font-family-mono); white-space: pre-wrap; }
 .artifact-preview-panel .artifact-preview-url { margin: 16px; color: var(--accent); overflow-wrap: anywhere; }
 .artifact-preview-error { padding: 16px; }
-.empty-conversation { display: flex; flex: 1; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--text-secondary); }
-.empty-conversation strong { margin-top: 8px; color: var(--text-primary); font-size: 17px; }
-.empty-conversation span { font-size: 13px; }
+.main-empty-state { display: flex; flex: 1; min-height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 12px; padding: 40px; color: var(--text-secondary); text-align: center; }
+.main-empty-state > strong { margin-top: 4px; color: var(--text-primary); font-size: 22px; font-weight: 600; }
+.main-empty-state > span { max-width: 380px; font-size: 13px; line-height: 20px; }
+.main-empty-suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
+.main-empty-suggestions button { min-height: 32px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-secondary); background: var(--bg-elevated); font: 500 12px var(--font-family-ui); cursor: pointer; }
+.main-empty-suggestions button:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.main-empty-suggestions button:focus-visible, .completed-groups-toggle:focus-visible, .completed-group-row:focus-visible, .archived-groups-search:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .avatar.large { width: 72px; height: 72px; font-size: 24px; }
 .composer-wrap { display: flex; flex: none; justify-content: center; padding: 12px 20px 16px; }
 .composer-box { width: min(100%, 760px); padding: 8px 10px 8px 12px; border-radius: 14px; background: var(--bg-elevated); box-shadow: 0 0 0 1px var(--border-default), var(--elevation-1); }

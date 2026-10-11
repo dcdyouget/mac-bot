@@ -21,6 +21,8 @@ import { SettingsDetail, type SettingsSection } from './components/SettingsDetai
 import { GroupSettingsPage, type GroupSettingsMember } from './components/GroupSettingsPage'
 import { EmptyGroupSuggestions, WelcomeTemplates, type WelcomeTemplateRecord } from './components/WelcomeTemplates'
 import { welcomeTemplateRetryAction, type WelcomeTemplateChoice } from './components/welcomeTemplates.model'
+import { buildMainEmptySuggestionAction, splitSidebarGroups } from './components/sidebarGroups.model'
+import { classifyDeepLink, type PendingDeepLink } from './components/deepLinkRouting.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
 import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './components/ChatAttachments'
@@ -152,6 +154,7 @@ function App() {
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
   const [selectedChat, setSelectedChat] = useState('')
+  const [completedGroupsExpanded, setCompletedGroupsExpanded] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [groupCreating, setGroupCreating] = useState(false)
   const [groupCreateError, setGroupCreateError] = useState<string | null>(null)
@@ -201,6 +204,9 @@ function App() {
   const [skillCreateIntent, setSkillCreateIntent] = useState<SkillCreateIntent | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [listenerReady, setListenerReady] = useState(false)
+  const [pendingDeepLinks, setPendingDeepLinks] = useState<PendingDeepLink[]>([])
+  const [deepLinkNotice, setDeepLinkNotice] = useState<string | null>(null)
+  const [deepLinkScrollTarget, setDeepLinkScrollTarget] = useState<{ hostScope: string; chatId: string; messageId: string } | null>(null)
   const [historyLoadingChat, setHistoryLoadingChat] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
@@ -248,6 +254,9 @@ function App() {
   const onboardingPendingRef = useRef(onboardingPending)
   const welcomeTemplateApplyingRef = useRef<string | null>(null)
   const traceHistoryRequestRef = useRef(0)
+  const deepLinkProcessingRef = useRef(false)
+  const deepLinkRequestRef = useRef(0)
+  const selectChatRef = useRef<(chatId: string) => void>(() => undefined)
   const routinesDataScopeRef = useRef<string | null>(null)
   const skillsDataScopeRef = useRef<string | null>(null)
   const memoryDataScopeRef = useRef<string | null>(null)
@@ -399,6 +408,121 @@ function App() {
     })
     return () => unlisten?.()
   }, [])
+
+  useEffect(() => {
+    let active = true
+    let unlisten: (() => void) | undefined
+    let draining = false
+    let drainAgain = false
+    const drainPendingLinks = async () => {
+      if (!active) return
+      if (draining) { drainAgain = true; return }
+      do {
+        drainAgain = false
+        draining = true
+        try {
+          const links = await invoke<PendingDeepLink[]>('take_pending_deep_links')
+          if (active && Array.isArray(links) && links.length) setPendingDeepLinks((current) => [...current, ...links])
+        } catch (error) {
+          if (active) setDeepLinkNotice(t('deep_link.load_failed').replace('{error}', String(error)))
+        } finally {
+          draining = false
+        }
+      } while (active && drainAgain)
+    }
+    void listen('deep-link-available', () => { void drainPendingLinks() }).then((dispose) => {
+      if (!active) { dispose(); return }
+      unlisten = dispose
+      // Subscribe before draining so links arriving during startup remain queued
+      // until this first take, and runtime links wake the same drain path.
+      void drainPendingLinks()
+    }).catch((error: unknown) => {
+      if (active) setDeepLinkNotice(t('deep_link.load_failed').replace('{error}', String(error)))
+    })
+    return () => { active = false; unlisten?.() }
+  }, [])
+
+  useEffect(() => {
+    const pending = pendingDeepLinks[0]
+    if (!pending) return
+    const resolution = classifyDeepLink(pending, state.connection === 'connected', state.node_id, state.chats)
+    if (resolution === 'wait_for_host') return
+    const dequeue = () => setPendingDeepLinks((current) => current[0] === pending ? current.slice(1) : current)
+    if (resolution !== 'ready' || pending.status !== 'valid') {
+      const noticeKey: CopyKey = resolution === 'invalid' ? 'deep_link.invalid' : resolution === 'host_mismatch' ? 'deep_link.host_mismatch' : 'deep_link.chat_missing'
+      setDeepLinkNotice(t(noticeKey))
+      dequeue()
+      return
+    }
+    if (deepLinkProcessingRef.current) return
+
+    const target = pending.link
+    const scope = hostScope
+    const nodeId = state.node_id
+    const requestId = ++deepLinkRequestRef.current
+    const isCurrent = () => deepLinkRequestRef.current === requestId
+      && hostScopeRef.current === scope
+      && stateRef.current.connection === 'connected'
+      && stateRef.current.node_id === nodeId
+    deepLinkProcessingRef.current = true
+    setDeepLinkNotice(t('deep_link.loading'))
+    let completed = false
+
+    void (async () => {
+      const cacheKey = historyCacheKey(scope, target.chat_id)
+      const collected = new Map<string, Message>()
+      for (const message of historyByChat[cacheKey] ?? []) if (message.chat_id === target.chat_id) collected.set(message.id, message)
+      for (const message of Object.values(state.messages)) if (message.chat_id === target.chat_id) collected.set(message.id, message)
+      for (const message of Object.values(state.pending_messages)) if (message.chat_id === target.chat_id) collected.set(message.id, message)
+
+      let beforeSeq: number | undefined
+      let hasMore = true
+      let pageCount = 0
+      while (!collected.has(target.message_id) && hasMore && pageCount < 20 && collected.size < 2000) {
+        const page = await invoke<{ messages?: Message[]; has_more?: boolean }>('protocol_request', {
+          method: 'chat.history',
+          params: { chat_id: target.chat_id, ...(beforeSeq !== undefined ? { before_seq: beforeSeq } : {}), limit: 100 },
+        })
+        if (!isCurrent()) return
+        pageCount += 1
+        const messages = (page.messages ?? []).filter((message) => message.chat_id === target.chat_id)
+        for (const message of messages) collected.set(message.id, message)
+        hasMore = page.has_more === true
+        const seqs = messages.map((message) => (message as Message & { seq?: number }).seq).filter((seq): seq is number => typeof seq === 'number' && Number.isFinite(seq))
+        if (!seqs.length) break
+        const nextBeforeSeq = Math.min(...seqs)
+        if (beforeSeq !== undefined && nextBeforeSeq >= beforeSeq) break
+        beforeSeq = nextBeforeSeq
+      }
+      if (!isCurrent()) return
+
+      const messages = [...collected.values()]
+      setHistoryByChat((current) => ({ ...current, [cacheKey]: mergeMessages(current[cacheKey] ?? [], messages) }))
+      if (!collected.has(target.message_id)) {
+        setDeepLinkNotice(t('deep_link.message_missing').replace('{count}', String(collected.size)))
+      } else {
+        onboardingPendingRef.current = false
+        setOnboardingPending(false)
+        setShowConnect(false)
+        setShowSearch(false)
+        setActivePage('chat')
+        selectChatRef.current(target.chat_id)
+        setDeepLinkScrollTarget({ hostScope: scope, chatId: target.chat_id, messageId: target.message_id })
+        setDeepLinkNotice(null)
+      }
+      completed = true
+    })().catch((error: unknown) => {
+      if (isCurrent()) {
+        setDeepLinkNotice(t('deep_link.load_failed').replace('{error}', String(error)))
+        completed = true
+      }
+    }).finally(() => {
+      if (deepLinkRequestRef.current !== requestId) return
+      deepLinkProcessingRef.current = false
+      if (completed) dequeue()
+      else setPendingDeepLinks((current) => [...current])
+    })
+  }, [pendingDeepLinks, state.connection, state.node_id, state.chats, state.messages, state.pending_messages, hostScope, historyByChat])
 
   useEffect(() => {
     if (!showConnect || !onboardingPending || state.connection !== 'connected') return
@@ -794,6 +918,19 @@ function App() {
   }, [historyByChat, state.messages, state.pending_messages, hostScope, currentChat?.id])
 
   useEffect(() => {
+    const target = deepLinkScrollTarget
+    if (!target || activePage !== 'chat' || target.hostScope !== hostScope || currentChat?.id !== target.chatId) return
+    const wrapper = document.getElementById(`message-${target.messageId}`)
+    const element = wrapper?.querySelector<HTMLElement>('.message-group')
+    if (!element) return
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    element.classList.add('deep-link-highlight')
+    const timer = window.setTimeout(() => element.classList.remove('deep-link-highlight'), 2200)
+    setDeepLinkScrollTarget(null)
+    return () => window.clearTimeout(timer)
+  }, [deepLinkScrollTarget, activePage, hostScope, currentChat?.id, currentMessages])
+
+  useEffect(() => {
     if (currentChat && !selectedChat) {
       setSelectedChat(currentChat.id)
       localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScope}`, currentChat.id)
@@ -969,6 +1106,7 @@ function App() {
     localStorage.setItem(SELECTED_CHAT_STORAGE_KEY, chatId)
     localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScope}`, chatId)
   }
+  selectChatRef.current = selectChat
 
   function updateSlashPickerFromCaret(value: string, caret: number) {
     setDraft(value)
@@ -2260,6 +2398,7 @@ function App() {
   if (showConnect) {
     return <ConnectScreen endpoint={endpoint} setEndpoint={setEndpoint} password={password} setPassword={setPassword}
       hostName={hostName} setHostName={setHostName} onSubmit={connect} connecting={connecting} ready={listenerReady} error={state.error}
+      deepLinkNotice={deepLinkNotice}
       hosts={savedHosts} hostError={hostError} connected={state.connection === 'connected'}
       templates={welcomeTemplates} selectedChoice={welcomeTemplateChoice} templateFetchError={welcomeTemplatesFetchError}
       templateApplyError={welcomeTemplateApplyFailure?.message ?? null} templateApplying={welcomeTemplateApplyingId !== null}
@@ -2270,6 +2409,7 @@ function App() {
   }
 
   const groups = chats.filter((chat) => chat.kind === 'project' || chat.project_id)
+  const sidebarGroups = splitSidebarGroups(groups, state.projects)
   const mainChats = chats.filter((chat) => chat.kind === 'main')
   const botChats = chats.filter((chat) => chat.kind === 'direct' || chat.kind === 'bot_dm')
   const chatTitle = (chat: Chat) => chat.title ?? (chat.bot_id ? state.bots[chat.bot_id]?.name : undefined) ?? (chat.kind === 'main' ? mainBot?.name : undefined) ?? t('chat.empty.select')
@@ -2293,6 +2433,7 @@ function App() {
     || Boolean(activeSearchSideTarget?.chat_id)
 
   return <main className="app-shell">
+    {deepLinkNotice && <div className="deep-link-notice" role="alert"><span>{deepLinkNotice}</span><button type="button" aria-label={t('common.close')} onClick={() => setDeepLinkNotice(null)}><X size={14} /></button></div>}
     <aside className="sidebar glass-sidebar">
       <div className="sidebar-head drag-region">
         <button className="host-switch" aria-expanded={hostMenuOpen} onClick={() => setHostMenuOpen((open) => !open)}><span className={`status-dot ${state.connection}`} />{state.active_host?.name ?? hostName}<ChevronDown size={14} /></button>
@@ -2312,9 +2453,21 @@ function App() {
         <div className="nav-section"><div className="section-label">{t('sidebar.main_bot.tag')}</div>
           {mainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} onDetails={() => openBotPanel(chat.bot_id ?? mainBot?.id ?? '')} detailsLabel={t('bot.action.settings')} main />)}
         </div>
-        <div className="nav-section"><div className="section-label">{t('sidebar.section.groups').replace('{count}', String(groups.length))}</div>
-          {groups.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
+        <div className="nav-section"><div className="section-label">{t('sidebar.section.groups').replace('{count}', String(sidebarGroups.active.length))}</div>
+          {sidebarGroups.active.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
           {groups.length === 0 && <div className="nav-empty">{t('sidebar.empty_groups')}</div>}
+          {sidebarGroups.done.length > 0 && <>
+            <button type="button" className="completed-groups-toggle" aria-expanded={completedGroupsExpanded} onClick={() => setCompletedGroupsExpanded((expanded) => !expanded)}>
+              {completedGroupsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <span>{t('sidebar.completed').replace('{count}', String(sidebarGroups.done.length))}</span>
+            </button>
+            {completedGroupsExpanded && sidebarGroups.done.map((chat) => <button type="button" className={`completed-group-row${currentChat?.id === chat.id ? ' selected' : ''}`} key={chat.id} onClick={() => selectChat(chat.id)}>
+              <span className="completed-group-avatar"><Users size={13} /></span><span className="completed-group-title">{chatTitle(chat)}</span>
+            </button>)}
+          </>}
+          {sidebarGroups.archived.length > 0 && <button type="button" className="archived-groups-search" onClick={() => setShowSearch(true)}>
+            {t('sidebar.archived.search').replace('{count}', String(sidebarGroups.archived.length))}
+          </button>}
         </div>
         <div className="nav-section"><div className="section-label">{t('sidebar.section.bots').replace('{count}', String(botChats.length))}</div>
           {botChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} onDetails={() => openBotPanel(chat.bot_id ?? '')} detailsLabel={t('bot.action.settings')} />)}
@@ -2349,7 +2502,20 @@ function App() {
       {state.connection !== 'connected' && <div className="offline-bar">{t('host.reconnecting').replace('{host}', state.active_host?.name ?? hostName)} · {t('host.reconnecting_detail')}</div>}
       {draggingFiles && <div className="chat-drop-overlay"><Paperclip size={24} /><strong>{t('chat.drop.title').replace('{group}', currentChat ? chatTitle(currentChat) : t('chat.empty.select'))}</strong><span>{t('chat.drop.desc')}</span></div>}
       <div className="message-scroll">
-        {!currentChat ? <div className="empty-conversation"><BeanAvatar main size="72" /><strong>{t('onboarding.empty.title')}</strong><span>{t('onboarding.empty.desc')}</span></div>
+        {!currentChat || (currentChat.kind === 'main' && currentMessages.length === 0 && historyLoadingChat !== currentChat.id) ? <div className="main-empty-state">
+          <BeanAvatar main size="96" /><strong>{t('onboarding.empty.title')}</strong><span>{t('onboarding.empty.desc')}</span>
+          {mainChats.length > 0 && <div className="main-empty-suggestions">
+            {(['onboarding.suggest.login', 'onboarding.suggest.research', 'onboarding.suggest.daily'] as const).map((key) => {
+              const text = t(key)
+              return <button type="button" key={key} onClick={() => {
+                const action = buildMainEmptySuggestionAction(text, currentChat?.id ?? mainChats[0]?.id ?? null)
+                if (action.chatId && !currentChat) selectChat(action.chatId)
+                setDraft(action.draft)
+                requestAnimationFrame(() => composerTextareaRef.current?.focus())
+              }}>{text}</button>
+            })}
+          </div>}
+        </div>
           : currentMessages.length ? <div className="message-list">
           {buildMessageTimeline(currentMessages).map((entry) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} key={entry.message.id} onContextMenu={(event) => { event.preventDefault(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
             {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
@@ -2818,7 +2984,7 @@ function botSubtitle(chat: Chat, assignments: Record<string, Json>[], bots: Brid
   return t('chat.bot.subtitle').replace('{label}', label).replace('{count}', String(active))
 }
 
-type ConnectProps = { endpoint: string; setEndpoint: (value: string) => void; password: string; setPassword: (value: string) => void; hostName: string; setHostName: (value: string) => void; onSubmit: (event: React.FormEvent) => void; connecting: boolean; ready: boolean; error: string | null; hosts: HostRecord[]; hostError: string | null; connected: boolean; templates: WelcomeTemplateRecord[]; selectedChoice: WelcomeTemplateChoice | null; templateFetchError: string | null; templateApplyError: string | null; templatesLoading: boolean; templateApplying: boolean; onSelectTemplate: (choice: WelcomeTemplateChoice) => void; onRetryTemplates: () => void; onRetryTemplateApply: () => void; onConnectSaved: (host: HostRecord) => void; onRemoveHost: (host: HostRecord) => void }
+type ConnectProps = { endpoint: string; setEndpoint: (value: string) => void; password: string; setPassword: (value: string) => void; hostName: string; setHostName: (value: string) => void; onSubmit: (event: React.FormEvent) => void; connecting: boolean; ready: boolean; error: string | null; deepLinkNotice: string | null; hosts: HostRecord[]; hostError: string | null; connected: boolean; templates: WelcomeTemplateRecord[]; selectedChoice: WelcomeTemplateChoice | null; templateFetchError: string | null; templateApplyError: string | null; templatesLoading: boolean; templateApplying: boolean; onSelectTemplate: (choice: WelcomeTemplateChoice) => void; onRetryTemplates: () => void; onRetryTemplateApply: () => void; onConnectSaved: (host: HostRecord) => void; onRemoveHost: (host: HostRecord) => void }
 
 function ConnectScreen(props: ConnectProps) {
   return <main className="connect-screen">
@@ -2831,6 +2997,7 @@ function ConnectScreen(props: ConnectProps) {
         <button className="connect-button" type="submit" disabled={props.connecting || !props.ready || props.connected}>{props.connecting ? t('host.connecting') : props.connected ? t('onboarding.templates.connected') : props.ready ? t('host.connect') : t('host.initializing')}<ChevronRight size={16} /></button>
         {props.error && <div className="connect-error">{props.error || t('host.error.generic')}</div>}
       </form>
+      {props.deepLinkNotice && <div className="connect-error" role="alert">{props.deepLinkNotice}</div>}
       {props.hosts.length > 0 && <div className="saved-host-list"><div className="section-label">{t('host.switch.title')}</div>{props.hosts.map((host) => <div className="saved-host-row" key={host.id}><button type="button" onClick={() => props.onConnectSaved(host)}><span className="status-dot disconnected" /><span><strong>{host.name}</strong><small>{host.addresses[0] ?? ''}</small></span></button><button type="button" aria-label={t('common.delete')} onClick={() => props.onRemoveHost(host)}><Trash2 size={13} /></button></div>)}</div>}
       {props.hostError && <div className="connect-error" role="alert">{props.hostError}</div>}
       <div className="connect-local-note">连接信息保存在本机；密码不会写入界面状态。</div>
@@ -2920,7 +3087,7 @@ function ChatRow(props: { title: string; subtitle: string; selected: boolean; ma
   </div>
 }
 
-function BeanAvatar({ main = false, size = '32', seed = '' }: { main?: boolean; size?: '32' | '40' | '64' | '72'; seed?: string }) {
+function BeanAvatar({ main = false, size = '32', seed = '' }: { main?: boolean; size?: '32' | '40' | '64' | '72' | '96'; seed?: string }) {
   const color = (Array.from(seed).reduce((sum, char) => sum + char.charCodeAt(0), 0) % 6) + 1
   return <div className={`av s${size} bean-avatar`} style={{ '--c': `var(--avatar-${main ? 0 : color})` } as React.CSSProperties}>
     {main && <svg className="glasses" viewBox="0 0 100 100" aria-hidden="true"><rect x="18" y="36" width="27" height="22" rx="7"/><rect x="55" y="36" width="27" height="22" rx="7"/><path d="M45 45h10M18 43l-7-3M82 43l7-3"/></svg>}

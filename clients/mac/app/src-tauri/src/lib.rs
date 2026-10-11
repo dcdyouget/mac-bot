@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     io::Read,
     path::{Component, Path, PathBuf},
     process::Command,
@@ -18,6 +18,8 @@ use macbot_desktop_services::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+#[cfg(target_os = "macos")]
+use tauri::RunEvent;
 use tauri::{
     ipc::{Channel, InvokeBody, Request, Response},
     AppHandle, Emitter, Manager, State,
@@ -178,6 +180,7 @@ struct BridgeData {
     error: Option<String>,
     server_version: Option<String>,
     protocol_version: Option<u32>,
+    pending_deep_links: VecDeque<DeepLinkDispatch>,
     state: AppState,
     client: Option<Client>,
     active_host: Option<HostRecord>,
@@ -200,6 +203,7 @@ impl Default for BridgeData {
             error: None,
             server_version: None,
             protocol_version: None,
+            pending_deep_links: VecDeque::new(),
             state: AppState::default(),
             client: None,
             active_host: None,
@@ -215,6 +219,22 @@ impl Default for BridgeData {
             screen_generation: 0,
         }
     }
+}
+
+const MAX_PENDING_DEEP_LINKS: usize = 128;
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "status", content = "link", rename_all = "snake_case")]
+enum DeepLinkDispatch {
+    Valid(MessageDeepLink),
+    Invalid,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct MessageDeepLink {
+    message_id: String,
+    chat_id: String,
+    host_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -413,6 +433,143 @@ fn negotiated_versions(hello: &Value) -> (Option<String>, Option<u32>) {
 fn clear_negotiated_versions(data: &mut BridgeData) {
     data.server_version = None;
     data.protocol_version = None;
+}
+
+fn decode_deep_link_component(input: &str) -> Option<String> {
+    let mut bytes = Vec::with_capacity(input.len());
+    let mut index = 0;
+    let input = input.as_bytes();
+    while index < input.len() {
+        match input[index] {
+            b'%' if index + 2 < input.len() => {
+                let high = (input[index + 1] as char).to_digit(16)? as u8;
+                let low = (input[index + 2] as char).to_digit(16)? as u8;
+                bytes.push((high << 4) | low);
+                index += 3;
+            }
+            b'%' => return None,
+            b'+' => {
+                bytes.push(b' ');
+                index += 1;
+            }
+            byte => {
+                bytes.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8(bytes).ok()
+}
+
+fn valid_deep_link_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 256
+        && !value
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '/' | '\\' | '\0'))
+}
+
+fn parse_message_deep_link(raw: &str) -> Option<MessageDeepLink> {
+    if raw.len() > 2048 {
+        return None;
+    }
+    let url = url::Url::parse(raw).ok()?;
+    if url.scheme() != "macbot"
+        || url.host_str() != Some("message")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let path_segments = url.path_segments()?.collect::<Vec<_>>();
+    if path_segments.len() != 1 {
+        return None;
+    }
+    let message_id = decode_deep_link_component(path_segments[0])?;
+    if !valid_deep_link_id(&message_id) {
+        return None;
+    }
+    let mut chat_id = None;
+    let mut host_id = None;
+    for pair in url.query()?.split('&') {
+        let (key, value) = pair.split_once('=')?;
+        let key = decode_deep_link_component(key)?;
+        let value = decode_deep_link_component(value)?;
+        if !valid_deep_link_id(&value) {
+            return None;
+        }
+        match key.as_str() {
+            "chat_id" if chat_id.is_none() => chat_id = Some(value),
+            "host_id" if host_id.is_none() => host_id = Some(value),
+            _ => return None,
+        }
+    }
+    Some(MessageDeepLink {
+        message_id,
+        chat_id: chat_id?,
+        host_id: host_id?,
+    })
+}
+
+fn enqueue_message_deep_link(queue: &mut VecDeque<DeepLinkDispatch>, raw: &str) -> bool {
+    let is_macbot = url::Url::parse(raw)
+        .map(|url| url.scheme() == "macbot")
+        .unwrap_or_else(|_| {
+            raw.split_once(':')
+                .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("macbot"))
+        });
+    if !is_macbot {
+        return false;
+    }
+    if queue.len() >= MAX_PENDING_DEEP_LINKS {
+        queue.pop_front();
+    }
+    let dispatch = parse_message_deep_link(raw)
+        .map(DeepLinkDispatch::Valid)
+        .unwrap_or(DeepLinkDispatch::Invalid);
+    queue.push_back(dispatch);
+    true
+}
+
+fn drain_pending_deep_links(data: &mut BridgeData) -> Vec<DeepLinkDispatch> {
+    data.pending_deep_links.drain(..).collect()
+}
+
+fn handle_opened_urls(app: &AppHandle, bridge: &SharedBridge, urls: &[url::Url]) {
+    let mut received_macbot_url = false;
+    if let Ok(mut data) = bridge.0.lock() {
+        for url in urls {
+            received_macbot_url |=
+                enqueue_message_deep_link(&mut data.pending_deep_links, url.as_str());
+        }
+    }
+    if received_macbot_url {
+        show_or_recreate_main_window(app);
+        let _ = app.emit("deep-link-available", ());
+    }
+}
+
+fn show_or_recreate_main_window(app: &AppHandle) {
+    let window = app.get_webview_window("main").or_else(|| {
+        app.config()
+            .app
+            .windows
+            .iter()
+            .find(|window| window.label == "main")
+            .and_then(|config| {
+                tauri::WebviewWindowBuilder::from_config(app, config)
+                    .ok()?
+                    .build()
+                    .ok()
+            })
+    });
+    if let Some(window) = window {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }
 
 fn emit_snapshot(app: &AppHandle, bridge: &SharedBridge) {
@@ -2055,6 +2212,17 @@ fn get_bridge_state(bridge: State<'_, SharedBridge>) -> Result<BridgeSnapshot, S
 }
 
 #[tauri::command]
+fn take_pending_deep_links(
+    bridge: State<'_, SharedBridge>,
+) -> Result<Vec<DeepLinkDispatch>, String> {
+    bridge
+        .0
+        .lock()
+        .map(|mut data| drain_pending_deep_links(&mut data))
+        .map_err(|_| "客户端状态不可用".to_string())
+}
+
+#[tauri::command]
 async fn set_window_material(app: AppHandle, translucent: bool) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
@@ -2894,7 +3062,7 @@ async fn upload_skill_zip(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(SharedBridge::default())
         .invoke_handler(tauri::generate_handler![
@@ -2922,13 +3090,23 @@ pub fn run() {
             screen_input,
             screen_switch_tab,
             get_bridge_state,
+            take_pending_deep_links,
             get_local_preferences,
             save_local_preferences,
             get_pending_messages,
             set_window_material
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Mac Bot desktop application");
+        .build(tauri::generate_context!())
+        .expect("failed to build Mac Bot desktop application");
+    app.run(move |handle, event| {
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Opened { urls } = event {
+            let bridge = handle.state::<SharedBridge>();
+            handle_opened_urls(handle, bridge.inner(), &urls);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (handle, event);
+    });
 }
 
 #[cfg(test)]
@@ -2936,15 +3114,17 @@ mod tests {
     use super::{
         activate_trace_subscription, apply_retry_result, authorized_project_home,
         chat_attachment_payload, clear_negotiated_versions, connection_is_current,
-        diagnostics_text, encode_screen_frame, expand_home_path, finish_trace_unsubscribe,
-        inject_client_locale, negotiated_versions, normalize_bcp47_locale, pending_message,
-        redact_endpoint, resolve_home_attachment_path, resolve_project_artifact_path,
-        retain_trace_cleanup, route_trace_event, screen_connection_payload,
-        screen_generation_matches, skill_upload_payload, snapshot, system_settings_url,
-        trace_subscription_state, trace_tauri_event, update_check_result, uploaded_chat_attachment,
-        uploaded_skill_id, validate_screen_input, write_diagnostics, BridgeData, InvokeBody,
-        PendingTraceCleanup, ScreenFrame, ScreenPoint, SystemPermission, TraceScope,
-        TraceSubscription, UpdateStatus, MAX_BUFFERED_TRACE_BYTES, MAX_SCREEN_JPEG_BYTES,
+        diagnostics_text, drain_pending_deep_links, encode_screen_frame, enqueue_message_deep_link,
+        expand_home_path, finish_trace_unsubscribe, inject_client_locale, negotiated_versions,
+        normalize_bcp47_locale, parse_message_deep_link, pending_message, redact_endpoint,
+        resolve_home_attachment_path, resolve_project_artifact_path, retain_trace_cleanup,
+        route_trace_event, screen_connection_payload, screen_generation_matches,
+        skill_upload_payload, snapshot, system_settings_url, trace_subscription_state,
+        trace_tauri_event, update_check_result, uploaded_chat_attachment, uploaded_skill_id,
+        validate_screen_input, write_diagnostics, BridgeData, DeepLinkDispatch, InvokeBody,
+        MessageDeepLink, PendingTraceCleanup, ScreenFrame, ScreenPoint, SystemPermission,
+        TraceScope, TraceSubscription, UpdateStatus, MAX_BUFFERED_TRACE_BYTES,
+        MAX_PENDING_DEEP_LINKS, MAX_SCREEN_JPEG_BYTES,
     };
     use macbot_client_core::ScreenFrameHeader;
     use serde_json::json;
@@ -2967,6 +3147,120 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn message_deep_link_accepts_the_legacy_gpui_format() {
+        assert_eq!(
+            parse_message_deep_link("macbot://message/msg_1?chat_id=chat_1&host_id=node_1"),
+            Some(MessageDeepLink {
+                message_id: "msg_1".into(),
+                chat_id: "chat_1".into(),
+                host_id: "node_1".into(),
+            })
+        );
+        assert_eq!(
+            parse_message_deep_link("macbot://message/msg%2Done?host_id=node-1&chat_id=chat-1")
+                .unwrap()
+                .message_id,
+            "msg-one"
+        );
+        assert_eq!(
+            parse_message_deep_link(
+                "macbot://message/task_attention%3Aapproval%3Aassign-1?chat_id=chat-1&host_id=node-1"
+            )
+            .unwrap()
+            .message_id,
+            "task_attention:approval:assign-1"
+        );
+        assert_eq!(
+            parse_message_deep_link(
+                "macbot://message/task_stopped%3Aassign-2?chat_id=chat-1&host_id=node-1"
+            )
+            .unwrap()
+            .message_id,
+            "task_stopped:assign-2"
+        );
+    }
+
+    #[test]
+    fn message_deep_link_rejects_malformed_or_unsafe_uris() {
+        let bad_links = [
+            "https://message/msg?chat_id=chat&host_id=node",
+            "macbot://other/msg?chat_id=chat&host_id=node",
+            "macbot://message/a/b?chat_id=chat&host_id=node",
+            "macbot://message/?chat_id=chat&host_id=node",
+            "macbot://message/msg?chat_id=chat",
+            "macbot://message/msg?chat_id=chat&host_id=node&chat_id=other",
+            "macbot://message/msg?chat_id=chat&host_id=node&extra=x",
+            "macbot://message/msg%2Fother?chat_id=chat&host_id=node",
+            "macbot://message/msg%5Cother?chat_id=chat&host_id=node",
+            "macbot://message/msg%ZZ?chat_id=chat&host_id=node",
+            "macbot://message/msg%00other?chat_id=chat&host_id=node",
+            "macbot://message/msg?chat_id=chat&host_id=node#fragment",
+            "macbot://user@message/msg?chat_id=chat&host_id=node",
+            "macbot://message:123/msg?chat_id=chat&host_id=node",
+            "macbot://message/msg?chat_id=bad%2Fid&host_id=node",
+        ];
+        for link in bad_links {
+            assert!(parse_message_deep_link(link).is_none(), "accepted {link}");
+        }
+        assert!(parse_message_deep_link(&format!(
+            "macbot://message/{}?chat_id=chat&host_id=node",
+            "m".repeat(2049)
+        ))
+        .is_none());
+    }
+
+    #[test]
+    fn deep_links_queue_for_cold_start_and_running_instance_drain() {
+        let mut queue = std::collections::VecDeque::new();
+        assert!(!enqueue_message_deep_link(
+            &mut queue,
+            "https://example.com/message/id"
+        ));
+
+        // A cold-start URL arrives before React mounts and is retained until drained.
+        assert!(enqueue_message_deep_link(
+            &mut queue,
+            "macbot://message/cold?chat_id=chat&host_id=node"
+        ));
+        let mut bridge = BridgeData {
+            pending_deep_links: queue,
+            ..BridgeData::default()
+        };
+        assert_eq!(
+            drain_pending_deep_links(&mut bridge),
+            vec![DeepLinkDispatch::Valid(MessageDeepLink {
+                message_id: "cold".into(),
+                chat_id: "chat".into(),
+                host_id: "node".into(),
+            })]
+        );
+        assert!(drain_pending_deep_links(&mut bridge).is_empty());
+
+        // A later URL for an already-running instance uses the same queue/event path.
+        assert!(enqueue_message_deep_link(
+            &mut bridge.pending_deep_links,
+            "macbot://message/live?chat_id=chat&host_id=node"
+        ));
+        assert_eq!(drain_pending_deep_links(&mut bridge).len(), 1);
+        assert!(bridge.pending_deep_links.is_empty());
+    }
+
+    #[test]
+    fn deep_link_queue_is_bounded_and_malformed_macbot_links_are_reported() {
+        let mut queue = std::collections::VecDeque::new();
+        assert!(enqueue_message_deep_link(&mut queue, "macbot:bad%"));
+        assert_eq!(queue, [DeepLinkDispatch::Invalid]);
+        for index in 0..=MAX_PENDING_DEEP_LINKS {
+            enqueue_message_deep_link(
+                &mut queue,
+                &format!("macbot://message/{index}?chat_id=chat&host_id=node"),
+            );
+        }
+        assert_eq!(queue.len(), MAX_PENDING_DEEP_LINKS);
+        assert!(matches!(queue.front(), Some(DeepLinkDispatch::Valid(_))));
     }
 
     #[test]
