@@ -284,6 +284,7 @@ pub fn text(key: &str) -> &'static str {
         "block.approval.allow_once" => "允许一次",
         "block.approval.always_allow" => "总是允许",
         "block.approval.deny" => "拒绝",
+        "block.blocked.switch_model" => "换模型",
         "block.question.other" => "其他，我来说…",
         "block.question.title_deck" => "{bot} 需要你决定 · 第 {n} / {total} 题",
         "block.review_card.confirm" => "确认完成",

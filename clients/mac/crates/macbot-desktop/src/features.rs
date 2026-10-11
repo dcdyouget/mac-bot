@@ -1734,11 +1734,7 @@ fn workbench(data: &Value, tokens: &Tokens, cx: &mut Context<FeaturePage>) -> im
                     .child(t("workbench.empty.done_today"))
                     .into_any_element()
             } else {
-                rows(
-                    done.iter().map(|job| workbench_done_label(job, data)),
-                    tokens,
-                )
-                .into_any_element()
+                workbench_done_rows(&done, data, tokens, cx).into_any_element()
             },
             tokens,
         ));
@@ -1928,25 +1924,24 @@ fn workbench_job_row(
             ));
         }
         if status_raw == "failed" {
-            let retry_version = job
-                .get("finished_at")
-                .and_then(Value::as_str)
-                .or_else(|| job.get("started_at").and_then(Value::as_str))
-                .or_else(|| job.get("created_at").and_then(Value::as_str))
-                .unwrap_or("failed");
             actions = actions.child(action_button_with_id(
                 format!("workbench-{row_key}-retry"),
                 t("common.retry"),
-                FeatureAction::Rpc {
-                    method: "assignment.retry".into(),
-                    params: json!({
-                        "assignment_id":assignment_id,
-                        "client_request_id":format!("assignment-retry:{assignment_id}:{retry_version}"),
-                    }),
-                },
+                assignment_retry_action(job),
                 cx,
             ));
         }
+    }
+    if status_raw == "blocked"
+        && let Some(bot_id) = job.get("bot_id").and_then(Value::as_str)
+        && !bot_id.is_empty()
+    {
+        actions = actions.child(action_button_with_id(
+            format!("workbench-{row_key}-switch-model"),
+            t("block.blocked.switch_model"),
+            FeatureAction::Navigate(format!("bot_settings?bot_id={bot_id}")),
+            cx,
+        ));
     }
     div()
         .flex()
@@ -1985,6 +1980,57 @@ fn workbench_done_label(job: &Value, data: &Value) -> String {
         project,
         string(job, "title", t("common.unnamed_task"))
     )
+}
+
+fn workbench_done_rows(
+    jobs: &[Value],
+    data: &Value,
+    tokens: &Tokens,
+    cx: &mut Context<FeaturePage>,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(tokens.space[2]))
+        .children(jobs.iter().map(|job| {
+            let mut row = div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .py(px(tokens.space[4]))
+                .border_b(px(tokens.desktop_layout.divider))
+                .border_color(tokens.border)
+                .child(workbench_done_label(job, data));
+            if job.get("status").and_then(Value::as_str) == Some("failed")
+                && let Some(assignment_id) = job.get("id").and_then(Value::as_str)
+                && !assignment_id.is_empty()
+            {
+                row = row.child(action_button_with_id(
+                    format!("workbench-done-{assignment_id}-retry"),
+                    t("common.retry"),
+                    assignment_retry_action(job),
+                    cx,
+                ));
+            }
+            row
+        }))
+}
+
+fn assignment_retry_action(job: &Value) -> FeatureAction {
+    let assignment_id = string(job, "id", "");
+    let retry_version = job
+        .get("finished_at")
+        .and_then(Value::as_str)
+        .or_else(|| job.get("started_at").and_then(Value::as_str))
+        .or_else(|| job.get("created_at").and_then(Value::as_str))
+        .unwrap_or("failed");
+    FeatureAction::Rpc {
+        method: "assignment.retry".into(),
+        params: json!({
+            "assignment_id": assignment_id,
+            "client_request_id": format!("assignment-retry:{assignment_id}:{retry_version}"),
+        }),
+    }
 }
 
 fn workbench_elapsed(job: &Value) -> String {
@@ -2086,11 +2132,18 @@ fn workbench_waiting(
             "approval" => {
                 if let Some(approval) = item.get("approval") {
                     if let Some(approval_id) = approval.get("id").and_then(Value::as_str) {
-                        for (label, decision) in [
+                        let mut decisions = vec![
                             (t("block.approval.allow_once"), "allow_once"),
-                            (t("block.approval.always_allow"), "always_allow"),
                             (t("block.approval.deny"), "deny"),
-                        ] {
+                        ];
+                        if approval
+                            .get("always_allow_supported")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true)
+                        {
+                            decisions.insert(1, (t("block.approval.always_allow"), "always_allow"));
+                        }
+                        for (label, decision) in decisions {
                             row = row.child(action_button_with_id(
                                 format!("workbench-waiting-{item_index}-approval-{decision}"),
                                 label,
