@@ -2095,7 +2095,7 @@ impl MacBot {
                 );
         }
         let mut row = div()
-            .id(SharedString::from(id))
+            .id(SharedString::from(id.clone()))
             .group("message-row")
             .relative()
             .flex()
@@ -2143,7 +2143,7 @@ impl MacBot {
                     .with_animations(
                         SharedString::from(format!("message-highlight-{id}")),
                         animations,
-                        |overlay, index, progress| {
+                        move |overlay, index, progress| {
                             if reduce_motion || index > 0 {
                                 overlay.opacity(1. - progress)
                             } else {
