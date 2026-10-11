@@ -272,6 +272,47 @@ fn message_display_text(message: &Value) -> &str {
     }
 }
 
+fn markdown_plain_text(markdown: &str) -> String {
+    let chars = markdown.chars().collect::<Vec<_>>();
+    let mut plain = String::with_capacity(markdown.len());
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '[' {
+            if let Some(close_label) = chars[index + 1..].iter().position(|ch| *ch == ']') {
+                let close_label = index + 1 + close_label;
+                if chars.get(close_label + 1) == Some(&'(') {
+                    if let Some(close_url) =
+                        chars[close_label + 2..].iter().position(|ch| *ch == ')')
+                    {
+                        plain.extend(chars[index + 1..close_label].iter().copied());
+                        index = close_label + 3 + close_url;
+                        continue;
+                    }
+                }
+            }
+        }
+        let ch = chars[index];
+        if ch == '\n' {
+            plain.push(ch);
+            index += 1;
+            while index < chars.len() && matches!(chars[index], '#' | '>' | '-' | '*' | '+') {
+                index += 1;
+            }
+            if index < chars.len() && chars[index] == ' ' {
+                index += 1;
+            }
+            continue;
+        }
+        if matches!(ch, '`' | '*' | '_' | '~') {
+            index += 1;
+            continue;
+        }
+        plain.push(ch);
+        index += 1;
+    }
+    plain
+}
+
 fn question_is_pending(question: &Value) -> bool {
     s(question, "state") == "pending" && question["expired"] != true
 }
@@ -486,6 +527,25 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.question_empty" => "请先在输入框填写回答",
         "chat.image_loading" => "图片加载中…",
         "chat.image_retry" => "重试加载",
+        "chat.image.fullscreen" => "全屏查看图片",
+        "chat.image.close_fullscreen" => "关闭图片预览",
+        "chat.message.expand" => "展开全文",
+        "chat.message.collapse" => "收起全文",
+        "chat.code.expand" => "展开代码",
+        "chat.code.collapse" => "收起代码",
+        "chat.code.copy" => "复制代码",
+        "chat.announcement.expand" => "展开公告",
+        "chat.announcement.collapse" => "收起公告",
+        "chat.mention.bot" => "打开 {bot} 的私聊",
+        "chat.mention.main" => "打开总管私聊",
+        "chat.mention.main_label" => "@总管",
+        "chat.mention.user" => "提及你",
+        "chat.mention.everyone" => "提及所有成员",
+        "chat.reaction.accessible" => "用 {emoji} 回应",
+        "chat.edit.label" => "正在编辑你发送的消息",
+        "chat.edit.cancel" => "取消编辑",
+        "chat.edit.save" => "保存修改",
+        "chat.edit.unavailable" => "最近一条自己发的消息不支持编辑",
         "chat.follow_latest" => "跟随最新消息",
         "chat.sending" => "发送中…",
         "chat.send_failed" => "发送失败",
@@ -540,7 +600,7 @@ fn chat_tr(key: &str) -> SharedString {
     .into()
 }
 
-fn inline_image(file: &Value, id: &str, max_width: f32) -> Option<AnyElement> {
+fn image_from_file(file: &Value) -> Option<Arc<Image>> {
     let bytes = file
         .get("bytes")
         .or_else(|| file.get("data"))
@@ -560,14 +620,7 @@ fn inline_image(file: &Value, id: &str, max_width: f32) -> Option<AnyElement> {
         ImageFormat::Jpeg
     };
     let image = Arc::new(Image::from_bytes(format, bytes));
-    Some(
-        img(image)
-            .id(SharedString::from(format!("image-{id}")))
-            .max_w(px(max_width))
-            .h(px(280.))
-            .object_fit(ObjectFit::Contain)
-            .into_any_element(),
-    )
+    Some(image)
 }
 
 fn standard_motion_easing(progress: f32) -> f32 {
@@ -606,6 +659,151 @@ fn image_format(mime: &str) -> ImageFormat {
 }
 
 impl MacBot {
+    fn markdown_with_folds(
+        &mut self,
+        id: &str,
+        markdown: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let t = Tokens::get(cx);
+        let message_key = SharedString::from(format!("message-expand-{id}"));
+        let message_expanded = window.use_keyed_state(message_key, cx, |_, _| false);
+        let long_message = markdown.lines().count() > 30;
+        let is_message_expanded = *message_expanded.read(cx);
+        let visible_markdown = if long_message && !is_message_expanded {
+            markdown.lines().take(30).collect::<Vec<_>>().join("\n")
+        } else {
+            markdown.to_owned()
+        };
+
+        let mut chunks = Vec::<(bool, String, String)>::new();
+        let mut text_chunk = String::new();
+        let mut code_chunk: Option<(String, String)> = None;
+        for line in visible_markdown.lines() {
+            if let Some((language, code)) = code_chunk.as_mut() {
+                if line.trim_start().starts_with("```") {
+                    chunks.push((true, language.clone(), std::mem::take(code)));
+                    code_chunk = None;
+                } else {
+                    code.push_str(line);
+                    code.push('\n');
+                }
+            } else if line.trim_start().starts_with("```") {
+                if !text_chunk.is_empty() {
+                    chunks.push((false, String::new(), std::mem::take(&mut text_chunk)));
+                }
+                let language = line.trim_start().trim_start_matches('`').trim().to_owned();
+                code_chunk = Some((language, String::new()));
+            } else {
+                text_chunk.push_str(line);
+                text_chunk.push('\n');
+            }
+        }
+        if let Some((language, code)) = code_chunk {
+            chunks.push((true, language, code));
+        }
+        if !text_chunk.is_empty() {
+            chunks.push((false, String::new(), text_chunk));
+        }
+
+        let mut content = div().flex().flex_col().gap(px(t.space[3]));
+        for (index, (is_code, language, text)) in chunks.into_iter().enumerate() {
+            if !is_code {
+                content = content.child(TextView::markdown(
+                    SharedString::from(format!("md-{id}-{index}")),
+                    text,
+                ));
+                continue;
+            }
+
+            let code_key = SharedString::from(format!("code-expand-{id}-{index}"));
+            let code_expanded = window.use_keyed_state(code_key, cx, |_, _| false);
+            let long_code = text.lines().count() > 20;
+            let is_expanded = *code_expanded.read(cx);
+            let shown = if long_code && !is_expanded {
+                text.lines().take(20).collect::<Vec<_>>().join("\n")
+            } else {
+                text.clone()
+            };
+            let mut code_view = div()
+                .flex()
+                .flex_col()
+                .gap(px(t.space[2]))
+                .rounded(px(t.radius[2]))
+                .bg(t.code_bg)
+                .p(px(t.space[4]));
+            if !language.is_empty() {
+                code_view = code_view.child(
+                    div()
+                        .text_size(px(t.desktop_type[0][0]))
+                        .text_color(t.tertiary)
+                        .child(language),
+                );
+            }
+            code_view = code_view.child(
+                div()
+                    .font_family(t.font_mono)
+                    .text_size(px(t.desktop_type[1][0]))
+                    .text_color(t.primary)
+                    .child(shown),
+            );
+            let copied = text.clone();
+            code_view = code_view.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(t.space[2]))
+                    .child(
+                        Button::new(SharedString::from(format!("copy-code-{id}-{index}")))
+                            .ghost()
+                            .xsmall()
+                            .label(chat_tr("chat.code.copy"))
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()))
+                            }),
+                    )
+                    .when(long_code, |row| {
+                        let code_state = code_expanded.clone();
+                        row.child(
+                            Button::new(SharedString::from(format!("toggle-code-{id}-{index}")))
+                                .ghost()
+                                .xsmall()
+                                .label(chat_tr(if is_expanded {
+                                    "chat.code.collapse"
+                                } else {
+                                    "chat.code.expand"
+                                }))
+                                .on_click(cx.listener(move |_, _, _, cx| {
+                                    code_state.update(cx, |expanded, _| *expanded = !*expanded);
+                                    cx.notify();
+                                })),
+                        )
+                    }),
+            );
+            content = content.child(code_view);
+        }
+
+        if long_message {
+            let state = message_expanded.clone();
+            content = content.child(
+                Button::new(SharedString::from(format!("toggle-message-{id}")))
+                    .ghost()
+                    .small()
+                    .label(chat_tr(if is_message_expanded {
+                        "chat.message.collapse"
+                    } else {
+                        "chat.message.expand"
+                    }))
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        state.update(cx, |expanded, _| *expanded = !*expanded);
+                        cx.notify();
+                    })),
+            );
+        }
+        content.into_any_element()
+    }
+
     fn remember_pending_action_handle(
         &mut self,
         message: &Value,
@@ -1123,6 +1321,14 @@ impl MacBot {
     }
 
     pub(super) fn send_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .announcement_draft
+            .focus_handle(cx)
+            .contains_focused(window, cx)
+        {
+            self.save_announcement(cx);
+            return;
+        }
         if !self.connected {
             self.notice = tr("error.offline").to_string();
             cx.notify();
@@ -1132,7 +1338,18 @@ impl MacBot {
         if text.trim().is_empty() && self.attachments.is_empty() {
             return;
         }
-        if let Some(project) = self.changes_project.take() {
+        if let Some(message) = self
+            .quote_message
+            .as_ref()
+            .filter(|message| message["editing"] == true)
+        {
+            self.rpc(
+                "message.edit",
+                json!({"message_id":s(message, "id"),"text":text}),
+                cx,
+            );
+            self.quote_message = None;
+        } else if let Some(project) = self.changes_project.take() {
             self.rpc(
                 "project.request_changes",
                 json!({"project_id":project,"text":text}),
@@ -1160,6 +1377,67 @@ impl MacBot {
         self.drafts.remove(&self.selected_chat);
         self.attachments.clear();
         self.quote_message = None;
+        cx.notify();
+    }
+
+    fn save_announcement(&mut self, cx: &mut Context<Self>) {
+        let text = self.announcement_draft.read(cx).value().to_string();
+        if !self.connected || self.announcement_base_version == 0 || text.chars().count() > 8000 {
+            return;
+        }
+        let Some(project_id) = self.announcement_draft_project.clone() else {
+            return;
+        };
+        self.rpc(
+            "announcement.update",
+            json!({
+                "project_id":project_id,
+                "text":text,
+                "base_version":self.announcement_base_version,
+            }),
+            cx,
+        );
+    }
+
+    pub(super) fn edit_previous_own_message(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.composer.read(cx).value().trim().is_empty() || self.page != "chat" {
+            return;
+        }
+        let latest = self
+            .state
+            .messages
+            .values()
+            .filter(|message| {
+                s(message, "chat_id") == self.selected_chat
+                    && s(&message["sender"], "kind") == "user"
+                    && message["deleted"] != true
+                    && message["in_flight"] != true
+                    && s(message, "send_status") != "queued"
+            })
+            .max_by_key(|message| message["seq"].as_u64().unwrap_or_default())
+            .cloned();
+        let Some(mut message) = latest else {
+            return;
+        };
+        let blocks = arr(&message, "blocks");
+        if message["streaming"] == true
+            || !arr(&message, "mentions").is_empty()
+            || blocks.len() != 1
+            || s(&blocks[0], "type") != "text"
+        {
+            self.notice = chat_tr("chat.edit.unavailable").to_string();
+            cx.notify();
+            return;
+        }
+        let markdown = text_block_markdown(&blocks[0]).to_owned();
+        message["editing"] = json!(true);
+        self.quote_message = Some(message);
+        self.composer
+            .update(cx, |input, cx| input.set_value(markdown, window, cx));
         cx.notify();
     }
     pub(super) fn chat_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -1363,6 +1641,17 @@ impl MacBot {
         let readonly = s(&chat, "kind") == "bot_dm";
         let mut composer = div()
             .key_context("ChatComposer")
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                let composer_focused = this.composer.focus_handle(cx).contains_focused(window, cx);
+                let composer_empty = this.composer.read(cx).value().trim().is_empty();
+                if composer_focused
+                    && composer_empty
+                    && matches!(event.keystroke.key.as_str(), "up" | "ArrowUp")
+                {
+                    cx.stop_propagation();
+                    this.edit_previous_own_message(window, cx);
+                }
+            }))
             .flex_none()
             .border_t_1()
             .border_color(t.border)
@@ -1410,6 +1699,7 @@ impl MacBot {
             }
         }
         if let Some(quoted) = self.quote_message.clone() {
+            let editing_message = quoted["editing"] == true;
             let quoted_id = s(&quoted, "id").to_owned();
             let excerpt = message_display_text(&quoted)
                 .chars()
@@ -1439,7 +1729,9 @@ impl MacBot {
                             .flex_1()
                             .min_w_0()
                             .child(
-                                chat_tr(if s(&quoted, "quote_mode") == "reference" {
+                                chat_tr(if editing_message {
+                                    "chat.edit.label"
+                                } else if s(&quoted, "quote_mode") == "reference" {
                                     "chat.quote_bar.title"
                                 } else {
                                     "chat.reply_bar.title"
@@ -1466,10 +1758,22 @@ impl MacBot {
                         Button::new("quote-cancel")
                             .ghost()
                             .xsmall()
-                            .label("×")
-                            .tooltip(tr("action.close"))
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .label(if editing_message {
+                                chat_tr("chat.edit.cancel")
+                            } else {
+                                SharedString::from("×")
+                            })
+                            .tooltip(if editing_message {
+                                chat_tr("chat.edit.cancel")
+                            } else {
+                                tr("action.close")
+                            })
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 this.quote_message = None;
+                                if editing_message {
+                                    this.composer
+                                        .update(cx, |input, cx| input.set_value("", window, cx));
+                                }
                                 cx.notify();
                             })),
                     )
@@ -1556,6 +1860,13 @@ impl MacBot {
                 composer = composer.child(choices);
             }
         }
+        let composer_line_count = self.composer.read(cx).value().lines().count().max(1) as f32;
+        let composer_height = (composer_line_count * t.desktop_type[3][1] + t.space[4] * 2.)
+            .clamp(t.desktop_layout.composer_min, t.desktop_layout.composer_max);
+        let editing_message = self
+            .quote_message
+            .as_ref()
+            .is_some_and(|message| message["editing"] == true);
         composer = composer.child(
             div()
                 .rounded(px(t.radius[11]))
@@ -1575,13 +1886,18 @@ impl MacBot {
                 .child(
                     Textarea::new(&self.composer)
                         .disabled(!self.connected || readonly)
+                        .h(px(composer_height))
                         .flex_1(),
                 )
                 .child(
                     Button::new("send")
                         .primary()
                         .icon(IconName::ArrowUp)
-                        .tooltip(crate::i18n::tr("common.send"))
+                        .tooltip(chat_tr(if editing_message {
+                            "chat.edit.save"
+                        } else {
+                            "common.send"
+                        }))
                         .disabled(!self.connected || readonly)
                         .on_click(cx.listener(|this, _, window, cx| this.send_message(window, cx))),
                 ),
@@ -1720,14 +2036,8 @@ impl MacBot {
                 cx,
             ));
         }
-        let announcement_summary = s(&ann, "text")
+        let announcement_summary = markdown_plain_text(s(&ann, "text"))
             .chars()
-            .filter(|character| {
-                !matches!(
-                    character,
-                    '#' | '*' | '_' | '`' | '[' | ']' | '(' | ')' | '>'
-                )
-            })
             .take(80)
             .collect::<String>();
         div()
@@ -1852,14 +2162,17 @@ impl MacBot {
             } else {
                 delta
             };
-            bubble = bubble.child(TextView::markdown(
-                SharedString::from(format!("stream-{id}")),
-                text.to_string(),
-            ));
+            bubble =
+                bubble.child(self.markdown_with_folds(&format!("stream-{id}"), text, window, cx));
         } else {
             let blocks = arr(message, "blocks");
             if blocks.is_empty() {
-                bubble = bubble.child(message_display_text(message).to_string());
+                bubble = bubble.child(self.markdown_with_folds(
+                    &format!("{id}-fallback"),
+                    message_display_text(message),
+                    window,
+                    cx,
+                ));
             }
             let has_unknown = blocks.iter().any(|block| !known_block(s(block, "type")));
             let mut index = 0;
@@ -1939,6 +2252,82 @@ impl MacBot {
                 )
             })
             .child(bubble);
+        let mut mention_row = div().flex().items_center().gap(px(t.space[2]));
+        let mut mention_count = 0;
+        for (index, mention) in arr(message, "mentions").iter().enumerate() {
+            match s(mention, "kind") {
+                "bot" => {
+                    let Some(mentioned_bot) = self.state.bots.get(s(mention, "bot_id")) else {
+                        continue;
+                    };
+                    let name = s(mentioned_bot, "name").to_owned();
+                    let chat_id = s(mentioned_bot, "dm_chat_id").to_owned();
+                    mention_row = mention_row.child(
+                        Button::new(SharedString::from(format!("message-mention-{id}-{index}")))
+                            .ghost()
+                            .xsmall()
+                            .label(format!("@{name}"))
+                            .tooltip(
+                                chat_tr("chat.mention.bot")
+                                    .to_string()
+                                    .replace("{bot}", &name),
+                            )
+                            .disabled(chat_id.is_empty())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                if !chat_id.is_empty() {
+                                    this.select_chat(chat_id.clone(), window, cx);
+                                }
+                            })),
+                    );
+                    mention_count += 1;
+                }
+                "main" => {
+                    let main_chat = self
+                        .state
+                        .chats
+                        .values()
+                        .find(|chat| s(chat, "kind") == "main")
+                        .map(|chat| s(chat, "id").to_owned())
+                        .unwrap_or_default();
+                    mention_row = mention_row.child(
+                        Button::new(SharedString::from(format!("message-mention-{id}-{index}")))
+                            .ghost()
+                            .xsmall()
+                            .label(chat_tr("chat.mention.main_label"))
+                            .tooltip(chat_tr("chat.mention.main"))
+                            .disabled(main_chat.is_empty())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                if !main_chat.is_empty() {
+                                    this.select_chat(main_chat.clone(), window, cx);
+                                }
+                            })),
+                    );
+                    mention_count += 1;
+                }
+                "user" => {
+                    mention_row = mention_row.child(
+                        div()
+                            .text_color(t.link)
+                            .text_size(px(t.desktop_type[1][0]))
+                            .child(chat_tr("chat.mention.user")),
+                    );
+                    mention_count += 1;
+                }
+                "everyone" => {
+                    mention_row = mention_row.child(
+                        div()
+                            .text_color(t.link)
+                            .text_size(px(t.desktop_type[1][0]))
+                            .child(chat_tr("chat.mention.everyone")),
+                    );
+                    mention_count += 1;
+                }
+                _ => {}
+            }
+        }
+        if mention_count > 0 {
+            message_content = message_content.child(mention_row);
+        }
         let is_focused = self
             .message_list_cache
             .index_of_message(&id)
@@ -2053,7 +2442,6 @@ impl MacBot {
         let root = id.clone();
         let reference_root = root.clone();
         let copy = message_display_text(message).to_string();
-        let react = id.clone();
         let mut menu = div()
             .flex()
             .gap(px(t.space[2]))
@@ -2105,20 +2493,30 @@ impl MacBot {
                             }
                             cx.notify();
                         })),
-                )
-                .child(
-                    Button::new(SharedString::from(format!("react-{id}")))
+                );
+            for (index, emoji) in ["👍", "❤️", "😂", "😮", "😢", "🙏"].into_iter().enumerate()
+            {
+                let message_id = id.clone();
+                let emoji_value = emoji.to_owned();
+                menu = menu.child(
+                    Button::new(SharedString::from(format!("react-{id}-{index}")))
                         .ghost()
                         .xsmall()
-                        .label(chat_tr("chat.menu.react"))
+                        .label(emoji)
+                        .tooltip(
+                            chat_tr("chat.reaction.accessible")
+                                .to_string()
+                                .replace("{emoji}", emoji),
+                        )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.rpc(
                                 "chat.react",
-                                json!({"message_id":react,"emoji":"👍","on":true}),
+                                json!({"message_id":message_id,"emoji":emoji_value,"on":true}),
                                 cx,
                             );
                         })),
                 );
+            }
         }
         let mut row = div()
             .id(SharedString::from(id.clone()))
@@ -2201,6 +2599,8 @@ impl MacBot {
             let selected_chat = self.selected_chat.clone();
             let node_id = self.active_node_id.clone().unwrap_or_default();
             let message_id = s(&source_message, "id").to_owned();
+            let can_delete =
+                s(&source_message["sender"], "kind") == "user" && source_message["deleted"] != true;
             let deep_link_available =
                 !node_id.is_empty() && !selected_chat.is_empty() && !message_id.is_empty();
             let deep_link = format!(
@@ -2227,19 +2627,40 @@ impl MacBot {
                         }
                     }),
                 );
+                menu = menu.item(
+                    PopupMenuItem::new(chat_tr("chat.menu.copy_link"))
+                        .disabled(!deep_link_available)
+                        .on_click({
+                            let deep_link = deep_link.clone();
+                            move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(deep_link.clone()))
+                            }
+                        }),
+                );
+                for emoji in ["👍", "❤️", "😂", "😮", "😢", "🙏"] {
+                    let entity = entity.clone();
+                    let reaction_message_id = message_id.clone();
+                    let reaction_emoji = emoji.to_owned();
+                    menu = menu.item(
+                        PopupMenuItem::new(
+                            chat_tr("chat.reaction.accessible").replace("{emoji}", emoji),
+                        )
+                        .on_click(move |_, _, cx| {
+                            let _ = entity.update(cx, |this, cx| {
+                                this.rpc(
+                                    "chat.react",
+                                    json!({
+                                        "message_id":reaction_message_id,
+                                        "emoji":reaction_emoji,
+                                        "on":true,
+                                    }),
+                                    cx,
+                                );
+                            });
+                        }),
+                    );
+                }
                 menu = menu
-                    .item(
-                        PopupMenuItem::new(chat_tr("chat.menu.copy_link"))
-                            .disabled(!deep_link_available)
-                            .on_click({
-                                let deep_link = deep_link.clone();
-                                move |_, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        deep_link.clone(),
-                                    ))
-                                }
-                            }),
-                    )
                     .separator()
                     .item(PopupMenuItem::new(chat_tr("chat.menu.reply")).on_click({
                         let entity = entity.clone();
@@ -2346,6 +2767,21 @@ impl MacBot {
                                 }
                             }),
                     );
+                if can_delete {
+                    let entity = entity.clone();
+                    let delete_message_id = message_id.clone();
+                    menu = menu.item(PopupMenuItem::new(chat_tr("chat.menu.delete")).on_click(
+                        move |_, _, cx| {
+                            let _ = entity.update(cx, |this, cx| {
+                                this.rpc(
+                                    "message.delete",
+                                    json!({"message_id":delete_message_id}),
+                                    cx,
+                                );
+                            });
+                        },
+                    ));
+                }
                 menu
             })
             .into_any_element()
@@ -2368,11 +2804,7 @@ impl MacBot {
         let mut project_card_chat = None;
         match kind {
             "text" => {
-                return TextView::markdown(
-                    SharedString::from(format!("md-{id}")),
-                    text_block_markdown(block).to_string(),
-                )
-                .into_any_element();
+                return self.markdown_with_folds(id, text_block_markdown(block), window, cx);
             }
             "progress" => {
                 body = body.child(
@@ -2633,7 +3065,7 @@ impl MacBot {
                         .child(chat_tr("block.completion.done"))
                         .child(s(block, "summary").to_string()),
                 );
-                if arr(block, "next").is_empty() {
+                if block["notify_main"] == true {
                     body = body.child(chat_tr("block.completion.notify_main"));
                 }
                 for artifact in arr(block, "artifacts") {
@@ -2877,12 +3309,11 @@ impl MacBot {
                                             .text_color(t.secondary)
                                             .child(bot_name),
                                     )
-                                    .child(TextView::markdown(
-                                        SharedString::from(format!(
-                                            "dm-ref-{id}-{}",
-                                            s(&message, "id")
-                                        )),
-                                        text.to_owned(),
+                                    .child(self.markdown_with_folds(
+                                        &format!("dm-ref-{id}-{}", s(&message, "id")),
+                                        text,
+                                        window,
+                                        cx,
                                     )),
                             );
                         }
@@ -3407,8 +3838,8 @@ impl MacBot {
 
     fn inline_image(&mut self, file: &Value, id: &str, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
-        if let Some(image) = inline_image(file, id, t.desktop_layout.chat_max_content) {
-            return image;
+        if let Some(image) = image_from_file(file) {
+            return self.image_preview(image, id, cx);
         }
         let key = image_key(file);
         if let Some(error) = self.image_errors.get(&key).cloned() {
@@ -3435,12 +3866,7 @@ impl MacBot {
                 .into_any_element();
         }
         if let Some(image) = self.image_cache.get(&key).cloned() {
-            return img(image)
-                .id(SharedString::from(format!("image-{id}")))
-                .max_w(px(t.desktop_layout.chat_max_content))
-                .h(px(280.))
-                .object_fit(ObjectFit::Contain)
-                .into_any_element();
+            return self.image_preview(image, id, cx);
         }
         if self.image_loading.insert(key.clone()) {
             self.load_inline_image(file.clone(), key, cx);
@@ -3449,6 +3875,46 @@ impl MacBot {
             .text_size(px(t.desktop_type[1][0]))
             .text_color(t.secondary)
             .child(chat_tr("chat.image_loading"))
+            .into_any_element()
+    }
+
+    fn image_preview(&self, image: Arc<Image>, id: &str, cx: &mut Context<Self>) -> AnyElement {
+        let t = Tokens::get(cx);
+        let fullscreen_image = image.clone();
+        div()
+            .id(SharedString::from(format!("image-{id}")))
+            .role(gpui::accesskit::Role::Button)
+            .aria_label(chat_tr("chat.image.fullscreen"))
+            .cursor_pointer()
+            .child(
+                img(image)
+                    .max_w(px(t.desktop_layout.chat_max_content))
+                    .h(px(280.))
+                    .object_fit(ObjectFit::Contain),
+            )
+            .on_click(cx.listener(move |_, _, window, cx| {
+                window.open_dialog(cx, move |dialog, _, _| {
+                    dialog
+                        .w(px(1040.))
+                        .title(chat_tr("chat.image.fullscreen"))
+                        .content(move |content, _, app| {
+                            content.child(
+                                div()
+                                    .w_full()
+                                    .h(px(680.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(Tokens::get(app).chat)
+                                    .child(
+                                        img(fullscreen_image.clone())
+                                            .size_full()
+                                            .object_fit(ObjectFit::Contain),
+                                    ),
+                            )
+                        })
+                });
+            }))
             .into_any_element()
     }
 
@@ -3808,10 +4274,54 @@ impl MacBot {
                     self.announcement_base_text = announcement_text.clone();
                     self.announcement_base_version = announcement_version;
                 }
-                body = body.child(TextView::markdown(
+                let announcement_expanded = window.use_keyed_state(
+                    SharedString::from(format!("announcement-expanded-{announcement_project_id}")),
+                    cx,
+                    |_, _| false,
+                );
+                let long_announcement = announcement_text.chars().count() > 2000;
+                let expanded = *announcement_expanded.read(cx);
+                let announcement_view = TextView::markdown(
                     SharedString::from(format!("announcement-text-{announcement_project_id}")),
-                    announcement_text,
-                ));
+                    announcement_text
+                        .lines()
+                        .take(if expanded || !long_announcement {
+                            usize::MAX
+                        } else {
+                            12
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                );
+                if long_announcement && !expanded {
+                    body = body.child(
+                        div()
+                            .max_h(px(t.desktop_type[1][1] * 12.))
+                            .overflow_hidden()
+                            .child(announcement_view),
+                    );
+                } else {
+                    body = body.child(announcement_view);
+                }
+                if long_announcement {
+                    let announcement_state = announcement_expanded.clone();
+                    body = body.child(
+                        Button::new(SharedString::from(format!(
+                            "toggle-announcement-{announcement_project_id}"
+                        )))
+                        .ghost()
+                        .small()
+                        .label(chat_tr(if expanded {
+                            "chat.announcement.collapse"
+                        } else {
+                            "chat.announcement.expand"
+                        }))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            announcement_state.update(cx, |value, _| *value = !*value);
+                            cx.notify();
+                        })),
+                    );
+                }
                 if let Some(conflict) = self.announcement_conflict.clone() {
                     let latest_text = s(&conflict, "text").to_owned();
                     let latest_version =
@@ -3974,8 +4484,11 @@ impl MacBot {
                                 .replace("{len}", &format!("{announcement_len}")),
                         ),
                 );
-                body =
-                    body.child(Textarea::new(&self.announcement_draft).disabled(!self.connected));
+                body = body.child(
+                    div()
+                        .key_context("ChatComposer")
+                        .child(Textarea::new(&self.announcement_draft).disabled(!self.connected)),
+                );
                 body = body.child(
                     Button::new("announcement-save")
                         .primary()
@@ -3983,16 +4496,9 @@ impl MacBot {
                         .label(tr("common.save"))
                         .disabled(!self.connected || base_version == 0 || announcement_len > 8000)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            let text = this.announcement_draft.read(cx).value().to_string();
-                            this.rpc(
-                                "announcement.update",
-                                json!({
-                                    "project_id":announcement_project_id,
-                                    "text":text,
-                                    "base_version":base_version,
-                                }),
-                                cx,
-                            );
+                            this.announcement_draft_project = Some(announcement_project_id.clone());
+                            this.announcement_base_version = base_version;
+                            this.save_announcement(cx);
                         })),
                 );
                 for member in arr(&ann, "members") {
