@@ -275,7 +275,11 @@ import org.jetbrains.compose.resources.stringResource
             val main = state.chats.firstOrNull { it.str("kind")=="main" }
             main?.let { item { ChatRow(it, state, onChat, repository) } }
             item { Text(stringResource(Res.string.chat_groups),Modifier.padding(16.dp),style=MaterialTheme.typography.titleMedium) }
-            val groups=state.chats.filter { it.str("kind")=="project" }.sortedWith(compareByDescending<JsonObject>{it.boolean("pinned")}.thenByDescending{it.str("updated_at")})
+            val groups=state.chats.filter { it.str("kind")=="project" }.sortedWith(
+                compareBy<JsonObject> { chatAttentionRank(it, state) }
+                    .thenByDescending { it.boolean("pinned") }
+                    .thenByDescending { it.str("updated_at") },
+            )
             val visible=groups.filter { chat -> val status=state.projects.firstOrNull { it.str("id")==chat.str("project_id") }?.str("status"); status !in listOf("done","archived") || completed }
             items(visible,key={it.str("id")}) { ChatRow(it,state,onChat,repository) }
             if (groups.isEmpty()) item { Text(stringResource(Res.string.chat_empty),Modifier.padding(horizontal=16.dp,vertical=12.dp),color=MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -406,12 +410,16 @@ import org.jetbrains.compose.resources.stringResource
             Text(chat.obj("last_message").str("text"),maxLines=1,color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
         }
         Column(horizontalAlignment=Alignment.End) {
-            if (pendingApproval != null && chat.str("kind") in listOf("direct", "bot_dm")) Text(stringResource(Res.string.feature_approval), color=LocalMobilePalette.current.warning, style=MaterialTheme.typography.labelSmall)
-            if(attention in listOf("waiting_user","review","blocked","working")) Text(
-                when(attention){"waiting_user"->"⚠";"review"->"◎";"blocked"->"!";else->"⟳"},
-                color=when(attention){"waiting_user"->LocalMobilePalette.current.warning;"review"->LocalMobilePalette.current.review;"blocked"->LocalMobilePalette.current.danger;else->LocalMobilePalette.current.accent},
-            )
-            if(chat.long("unread")>0) Badge { Text(chat.long("unread").toString()) }
+            when {
+                pendingApproval != null || pendingQuestion != null || attention == "waiting_user" -> Text(
+                    "⚠", color=LocalMobilePalette.current.warning,
+                    modifier=Modifier.semantics { contentDescription = "${stringResource(Res.string.feature_attention_banner)}" },
+                )
+                attention == "review" -> Text("◎", color=LocalMobilePalette.current.review)
+                attention == "blocked" -> Text("!", color=LocalMobilePalette.current.danger)
+                attention == "working" -> Text("⟳", color=LocalMobilePalette.current.accent)
+                chat.long("unread") > 0 -> Badge(containerColor = if (chat.boolean("muted")) LocalMobilePalette.current.textTertiary else MaterialTheme.colorScheme.error) { Text(chat.long("unread").toString()) }
+            }
         }
         Box { TextButton(onClick={menu=true}) { Text("⋮") }; DropdownMenu(menu,{menu=false}) {
             DropdownMenuItem(text={Text(stringResource(if (chat.boolean("pinned")) Res.string.chat_unpin else Res.string.chat_pin))},onClick={menu=false;scope.launch{runCatching{repository.call("chat.set_pinned",buildJsonObject{put("chat_id",chat.str("id"));put("pinned",!chat.boolean("pinned"))})}}})
@@ -424,6 +432,17 @@ import org.jetbrains.compose.resources.stringResource
             rowError?.let { Text(it, Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal=16.dp, vertical=4.dp), color=MaterialTheme.colorScheme.onErrorContainer, style=MaterialTheme.typography.labelSmall) }
         }
     }
+}
+
+private fun chatAttentionRank(chat: JsonObject, state: MobileState): Int = when {
+    state.approvals.any { it.str("chat_id") == chat.str("id") && it.str("state") == "pending" } -> 0
+    state.questions.any { it.str("chat_id") == chat.str("id") && it.str("state") == "pending" } -> 0
+    chat.str("attention") == "waiting_user" -> 0
+    chat.str("attention") == "review" -> 1
+    chat.str("attention") == "blocked" -> 2
+    chat.str("attention") == "working" -> 3
+    chat.long("unread") > 0 -> 4
+    else -> 5
 }
 @Composable private fun MineScreen(onOpen:(String)->Unit) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainer)) {
