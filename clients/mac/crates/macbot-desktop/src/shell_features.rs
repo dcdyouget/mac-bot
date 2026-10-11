@@ -281,6 +281,11 @@ impl MacBot {
         value: &Value,
         cx: &mut Context<Self>,
     ) {
+        if self.page == "new" && matches!(method, "bot.create" | "project.create") {
+            self.feature_view.update(cx, |view, cx| {
+                view.update_data(json!({"new_pending": false, "new_error": Value::Null}), cx)
+            });
+        }
         match method {
             "bot.get" if self.page == "bot/detail" => {
                 let detail = &mut self.feature_data["bot_detail"];
