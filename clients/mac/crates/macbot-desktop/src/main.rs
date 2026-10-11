@@ -57,8 +57,27 @@ fn main() {
             KeyBinding::new("cmd-e", app::EditAnnouncement, None),
             KeyBinding::new("cmd-\\", app::ToggleSidebar, None),
             KeyBinding::new("cmd-shift-\\", app::ToggleContext, None),
+            KeyBinding::new("cmd-i", app::ToggleContext, None),
+            KeyBinding::new("cmd-j", app::FocusPending, None),
             KeyBinding::new("f6", app::CycleFocus, None),
             KeyBinding::new("shift-f6", app::CycleFocusBack, None),
+            KeyBinding::new("cmd-enter", app::SendMessage, Some("ChatComposer")),
+            KeyBinding::new("up", app::FocusPrevMessage, Some("ChatMessage")),
+            KeyBinding::new("down", app::FocusNextMessage, Some("ChatMessage")),
+            KeyBinding::new("r", app::FocusedMessageReply, Some("ChatMessage")),
+            KeyBinding::new("q", app::FocusedMessageReference, Some("ChatMessage")),
+            KeyBinding::new("1", app::QuestionOption1, Some("QuestionCard")),
+            KeyBinding::new("2", app::QuestionOption2, Some("QuestionCard")),
+            KeyBinding::new("3", app::QuestionOption3, Some("QuestionCard")),
+            KeyBinding::new("4", app::QuestionOption4, Some("QuestionCard")),
+            KeyBinding::new("5", app::QuestionOption5, Some("QuestionCard")),
+            KeyBinding::new("6", app::QuestionOption6, Some("QuestionCard")),
+            KeyBinding::new("7", app::QuestionOption7, Some("QuestionCard")),
+            KeyBinding::new("8", app::QuestionOption8, Some("QuestionCard")),
+            KeyBinding::new("9", app::QuestionOption9, Some("QuestionCard")),
+            KeyBinding::new("left", app::QuestionPrev, Some("QuestionCard")),
+            KeyBinding::new("right", app::QuestionNext, Some("QuestionCard")),
+            KeyBinding::new("o", app::QuestionOther, Some("QuestionCard")),
             KeyBinding::new("escape", app::Back, None),
         ]);
         cx.on_action(|_: &app::Quit, cx| cx.quit());
@@ -85,11 +104,16 @@ fn main() {
 }
 
 fn open_main_window(cx: &mut App) {
-    let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
+    let layout = tokens::Tokens::get(cx).desktop_layout;
+    let bounds = Bounds::centered(
+        None,
+        size(px(layout.window_default[0]), px(layout.window_default[1])),
+        cx,
+    );
     let (handle, _) = gpui_kit::open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            window_min_size: Some(size(px(960.), px(600.))),
+            window_min_size: Some(size(px(layout.window_min[0]), px(layout.window_min[1]))),
             titlebar: Some(TitlebarOptions {
                 title: Some("Mac Bot".into()),
                 ..Default::default()
