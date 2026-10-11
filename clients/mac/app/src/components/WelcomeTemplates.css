@@ -1,0 +1,39 @@
+.welcome-templates { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 14px; }
+.welcome-templates-heading h2 { margin: 8px 0; color: var(--text-primary); font-size: 22px; line-height: 28px; }
+.welcome-templates-heading p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 19px; }
+.welcome-template-list { display: flex; flex-direction: column; gap: 10px; }
+.welcome-template-card { display: flex; min-width: 0; min-height: 72px; align-items: center; gap: 12px; padding: 14px 16px; border: 0; border-radius: 12px; color: var(--text-primary); background: var(--bg-elevated); box-shadow: 0 0 0 1px var(--border-subtle), var(--elevation-1); text-align: left; cursor: pointer; transition: box-shadow 140ms ease, background 140ms ease; }
+.welcome-template-card:hover { background: color-mix(in srgb, var(--bg-elevated) 90%, var(--accent) 10%); }
+.welcome-template-card:disabled { opacity: .58; cursor: not-allowed; }
+.welcome-template-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.welcome-template-card.selected { box-shadow: 0 0 0 2px var(--accent), var(--elevation-1); }
+.welcome-template-avatars { display: flex; width: 72px; flex: 0 0 72px; align-items: center; padding-left: 2px; }
+.welcome-template-avatar { display: inline-flex; width: 28px; height: 28px; flex: 0 0 28px; align-items: center; justify-content: center; margin-left: -7px; border: 2px solid var(--bg-elevated); border-radius: 50%; color: #fff; background: var(--template-avatar-color); font-size: 11px; font-weight: 600; }
+.welcome-template-avatar:first-child { margin-left: 0; }
+.welcome-template-avatar-more { display: inline-flex; width: 25px; height: 25px; align-items: center; justify-content: center; margin-left: -5px; border: 2px solid var(--bg-elevated); border-radius: 50%; color: var(--text-secondary); background: var(--bg-active); font-size: 9px; font-weight: 600; }
+.welcome-template-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.welcome-template-copy strong { overflow: hidden; color: var(--text-primary); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.welcome-template-copy small { overflow: hidden; margin-top: 3px; color: var(--text-tertiary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.welcome-template-check { flex: 0 0 auto; color: var(--accent); }
+.welcome-template-main-only { min-height: 64px; }
+.welcome-template-plus { display: inline-flex; width: 32px; height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary); background: var(--bg-active); }
+.welcome-template-footer { display: flex; align-items: center; gap: 6px; margin-top: auto; color: var(--text-tertiary); font-size: 12px; }
+.welcome-template-footer svg { color: var(--accent); }
+.welcome-templates-state { display: flex; min-height: 72px; align-items: center; justify-content: center; gap: 8px; color: var(--text-tertiary); font-size: 12px; text-align: center; }
+.welcome-templates-error { flex-direction: column; color: var(--danger); }
+.welcome-templates-error button { padding: 5px 9px; border: 0; border-radius: 7px; color: var(--accent); background: var(--accent-soft); font: inherit; cursor: pointer; }
+
+.empty-group-suggestions { display: flex; width: min(100%, 560px); flex-direction: column; align-items: center; gap: 12px; margin: auto; padding: 40px 24px; text-align: center; }
+.empty-group-suggestions-mark { display: flex; width: 56px; height: 56px; align-items: center; justify-content: center; border-radius: 18px; color: var(--accent); background: var(--accent-soft); }
+.empty-group-suggestions h2 { margin: 0; color: var(--text-primary); font-size: 20px; font-weight: 600; }
+.empty-group-suggestions p { max-width: 420px; margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 20px; }
+.empty-group-suggestion-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 3px; }
+.empty-group-suggestion-list button { min-height: 32px; padding: 6px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; color: var(--text-secondary); background: var(--bg-elevated); font: 500 11px var(--font-family-sans); cursor: pointer; }
+.empty-group-suggestion-list button:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.empty-group-suggestion-list button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 720px) {
+  .welcome-template-card { gap: 8px; padding: 12px; }
+  .welcome-template-avatars { width: 58px; flex-basis: 58px; }
+  .empty-group-suggestions { padding: 28px 16px; }
+}

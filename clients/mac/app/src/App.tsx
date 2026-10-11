@@ -19,6 +19,8 @@ import { BotPanel, type BotProject, type BotRecord } from './components/BotPanel
 import { ArtifactPage, type ProjectArtifact } from './components/ArtifactPage'
 import { SettingsDetail, type SettingsSection } from './components/SettingsDetail'
 import { GroupSettingsPage, type GroupSettingsMember } from './components/GroupSettingsPage'
+import { EmptyGroupSuggestions, WelcomeTemplates, type WelcomeTemplateRecord } from './components/WelcomeTemplates'
+import { welcomeTemplateRetryAction, type WelcomeTemplateChoice } from './components/welcomeTemplates.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
 import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './components/ChatAttachments'
@@ -138,6 +140,14 @@ function App() {
   const [historyQuestions, setHistoryQuestions] = useState<Record<string, BridgeState['questions']>>({})
   const [historyApprovals, setHistoryApprovals] = useState<Record<string, BridgeState['approvals']>>({})
   const [showConnect, setShowConnect] = useState(true)
+  const [onboardingPending, setOnboardingPending] = useState(false)
+  const [welcomeTemplates, setWelcomeTemplates] = useState<WelcomeTemplateRecord[]>([])
+  const [welcomeTemplateChoice, setWelcomeTemplateChoice] = useState<WelcomeTemplateChoice | null>(null)
+  const [welcomeTemplatesLoading, setWelcomeTemplatesLoading] = useState(false)
+  const [welcomeTemplatesFetchError, setWelcomeTemplatesFetchError] = useState<string | null>(null)
+  const [welcomeTemplateApplyFailure, setWelcomeTemplateApplyFailure] = useState<{ templateId: string; message: string } | null>(null)
+  const [welcomeTemplatesRetry, setWelcomeTemplatesRetry] = useState(0)
+  const [welcomeTemplateApplyingId, setWelcomeTemplateApplyingId] = useState<string | null>(null)
   const [endpoint, setEndpoint] = useState('127.0.0.1:7789')
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
@@ -235,12 +245,15 @@ function App() {
   const computerFrameScopeRef = useRef(computerFrameScope)
   const computerFrameRef = useRef(computerFrame)
   const traceStreamRef = useRef<string | null>(null)
+  const onboardingPendingRef = useRef(onboardingPending)
+  const welcomeTemplateApplyingRef = useRef<string | null>(null)
   const traceHistoryRequestRef = useRef(0)
   const routinesDataScopeRef = useRef<string | null>(null)
   const skillsDataScopeRef = useRef<string | null>(null)
   const memoryDataScopeRef = useRef<string | null>(null)
   const announcementPanelRef = useRef<HTMLElement>(null)
   hostScopeRef.current = hostScope
+  onboardingPendingRef.current = onboardingPending
   stateRef.current = state
   traceRouteRef.current = traceRoute
   computerRouteRef.current = computerRoute
@@ -364,7 +377,7 @@ function App() {
       setHistoryQuestions((current) => ({ ...current, [scope]: { ...current[scope], ...event.payload.questions } }))
       setHistoryApprovals((current) => ({ ...current, [scope]: { ...current[scope], ...event.payload.approvals } }))
       if (event.payload.connection === 'connected') {
-        setShowConnect(false)
+        if (!onboardingPendingRef.current) setShowConnect(false)
         if (event.payload.active_host?.name) setHostName(event.payload.active_host.name)
         void invoke<HostRecord[]>('list_hosts').then(setSavedHosts).catch((error: unknown) => setHostError(String(error)))
       }
@@ -386,6 +399,29 @@ function App() {
     })
     return () => unlisten?.()
   }, [])
+
+  useEffect(() => {
+    if (!showConnect || !onboardingPending || state.connection !== 'connected') return
+    if (welcomeTemplateChoice?.kind === 'main_only') {
+      onboardingPendingRef.current = false
+      setOnboardingPending(false)
+      setShowConnect(false)
+      return
+    }
+    let active = true
+    const scope = hostScope
+    setWelcomeTemplatesLoading(true)
+    setWelcomeTemplatesFetchError(null)
+    void invoke<{ templates: WelcomeTemplateRecord[] }>('protocol_request', { method: 'bot.templates', params: {} }).then((result) => {
+      assertHostScope(hostScopeRef.current, scope)
+      if (active) setWelcomeTemplates(Array.isArray(result.templates) ? result.templates : [])
+    }).catch((error: unknown) => {
+      if (active && hostScopeRef.current === scope) setWelcomeTemplatesFetchError(String(error))
+    }).finally(() => {
+      if (active && hostScopeRef.current === scope) setWelcomeTemplatesLoading(false)
+    })
+    return () => { active = false }
+  }, [showConnect, onboardingPending, state.connection, hostScope, welcomeTemplatesRetry, welcomeTemplateChoice])
 
   useEffect(() => {
     let active = true
@@ -1016,6 +1052,51 @@ function App() {
     setActivePage('chat')
   }
 
+  function finishOnboarding() {
+    onboardingPendingRef.current = false
+    setOnboardingPending(false)
+    setShowConnect(false)
+  }
+
+  async function chooseWelcomeTemplate(choice: WelcomeTemplateChoice) {
+    if (choice.kind === 'main_only') {
+      if (welcomeTemplateApplyingRef.current) return
+      setWelcomeTemplateChoice(choice)
+      if (stateRef.current.connection === 'connected') finishOnboarding()
+      return
+    }
+    if (stateRef.current.connection !== 'connected' || welcomeTemplateApplyingRef.current) return
+    const scope = hostScopeRef.current
+    welcomeTemplateApplyingRef.current = choice.template_id
+    setWelcomeTemplateApplyingId(choice.template_id)
+    setWelcomeTemplateApplyFailure(null)
+    try {
+      const result = await invoke<{ bots: BotRecord[]; dm_chats: Chat[] }>('protocol_request', {
+        method: 'bot.create_from_template',
+        params: { template_id: choice.template_id },
+      })
+      assertHostScope(hostScopeRef.current, scope)
+      setState((current) => ({
+        ...current,
+        bots: { ...current.bots, ...Object.fromEntries((result.bots ?? []).map((bot) => [bot.id, bot as unknown as BridgeState['bots'][string]])) },
+        chats: { ...current.chats, ...Object.fromEntries((result.dm_chats ?? []).map((chat) => [chat.id, chat])) },
+      }))
+      setWelcomeTemplateChoice(choice)
+      finishOnboarding()
+    } catch (error) {
+      if (hostScopeRef.current === scope) setWelcomeTemplateApplyFailure({ templateId: choice.template_id, message: String(error) })
+    } finally {
+      if (welcomeTemplateApplyingRef.current === choice.template_id) welcomeTemplateApplyingRef.current = null
+      setWelcomeTemplateApplyingId((current) => current === choice.template_id ? null : current)
+    }
+  }
+
+  function retryWelcomeTemplateApply() {
+    if (!welcomeTemplateApplyFailure || welcomeTemplateApplyingRef.current) return
+    const retry = welcomeTemplateRetryAction({ kind: 'apply', ...welcomeTemplateApplyFailure })
+    if (retry.kind === 'apply') void chooseWelcomeTemplate({ kind: 'team_template', template_id: retry.templateId })
+  }
+
   async function createGroup(input: { name: string; memberBotIds: string[]; announcement: string }) {
     if (groupCreating || state.connection !== 'connected') return
     const scope = hostScope
@@ -1381,6 +1462,8 @@ function App() {
   }
 
   async function connectSavedHost(hostId: string) {
+    onboardingPendingRef.current = false
+    setOnboardingPending(false)
     setShowSearch(false)
     setConnecting(true)
     setHostMenuOpen(false)
@@ -2106,6 +2189,15 @@ function App() {
 
   async function connect(event: React.FormEvent) {
     event.preventDefault()
+    const enterOnboarding = showConnect
+    onboardingPendingRef.current = enterOnboarding
+    setOnboardingPending(enterOnboarding)
+    if (enterOnboarding) {
+      setWelcomeTemplateChoice((choice) => choice?.kind === 'main_only' ? choice : null)
+      setWelcomeTemplates([])
+      setWelcomeTemplatesFetchError(null)
+      setWelcomeTemplateApplyFailure(null)
+    }
     setShowSearch(false)
     setConnecting(true)
     setQuoteTarget(null)
@@ -2168,7 +2260,13 @@ function App() {
   if (showConnect) {
     return <ConnectScreen endpoint={endpoint} setEndpoint={setEndpoint} password={password} setPassword={setPassword}
       hostName={hostName} setHostName={setHostName} onSubmit={connect} connecting={connecting} ready={listenerReady} error={state.error}
-      hosts={savedHosts} hostError={hostError} onConnectSaved={(host) => void connectSavedHost(host.id)} onRemoveHost={(host) => void removeSavedHost(host)} />
+      hosts={savedHosts} hostError={hostError} connected={state.connection === 'connected'}
+      templates={welcomeTemplates} selectedChoice={welcomeTemplateChoice} templateFetchError={welcomeTemplatesFetchError}
+      templateApplyError={welcomeTemplateApplyFailure?.message ?? null} templateApplying={welcomeTemplateApplyingId !== null}
+      templatesLoading={state.connection !== 'connected' || welcomeTemplatesLoading}
+      onSelectTemplate={(choice) => void chooseWelcomeTemplate(choice)} onRetryTemplates={() => setWelcomeTemplatesRetry((retry) => retry + 1)}
+      onRetryTemplateApply={retryWelcomeTemplateApply}
+      onConnectSaved={(host) => void connectSavedHost(host.id)} onRemoveHost={(host) => void removeSavedHost(host)} />
   }
 
   const groups = chats.filter((chat) => chat.kind === 'project' || chat.project_id)
@@ -2272,7 +2370,17 @@ function App() {
             }
           }} />
           </div>)}
-        </div> : historyLoadingChat === currentChat.id ? <div className="message-list history-loading" aria-busy="true" /> : null}
+          </div> : historyLoadingChat === currentChat.id ? <div className="message-list history-loading" aria-busy="true" />
+            : currentChat.kind === 'project' || currentChat.project_id ? <EmptyGroupSuggestions
+              title={t('onboarding.empty.title')}
+              description={t('onboarding.empty.desc')}
+              suggestions={[
+                { id: 'login', label: t('onboarding.suggest.login'), text: t('onboarding.suggest.login') },
+                { id: 'research', label: t('onboarding.suggest.research'), text: t('onboarding.suggest.research') },
+                { id: 'daily', label: t('onboarding.suggest.daily'), text: t('onboarding.suggest.daily') },
+              ]}
+              onSuggestion={(text) => { setDraft(text); requestAnimationFrame(() => composerTextareaRef.current?.focus()) }}
+            /> : null}
       </div>
       <form className="composer-wrap" onSubmit={sendMessage}>
         <div className="composer-box">
@@ -2710,7 +2818,7 @@ function botSubtitle(chat: Chat, assignments: Record<string, Json>[], bots: Brid
   return t('chat.bot.subtitle').replace('{label}', label).replace('{count}', String(active))
 }
 
-type ConnectProps = { endpoint: string; setEndpoint: (value: string) => void; password: string; setPassword: (value: string) => void; hostName: string; setHostName: (value: string) => void; onSubmit: (event: React.FormEvent) => void; connecting: boolean; ready: boolean; error: string | null; hosts: HostRecord[]; hostError: string | null; onConnectSaved: (host: HostRecord) => void; onRemoveHost: (host: HostRecord) => void }
+type ConnectProps = { endpoint: string; setEndpoint: (value: string) => void; password: string; setPassword: (value: string) => void; hostName: string; setHostName: (value: string) => void; onSubmit: (event: React.FormEvent) => void; connecting: boolean; ready: boolean; error: string | null; hosts: HostRecord[]; hostError: string | null; connected: boolean; templates: WelcomeTemplateRecord[]; selectedChoice: WelcomeTemplateChoice | null; templateFetchError: string | null; templateApplyError: string | null; templatesLoading: boolean; templateApplying: boolean; onSelectTemplate: (choice: WelcomeTemplateChoice) => void; onRetryTemplates: () => void; onRetryTemplateApply: () => void; onConnectSaved: (host: HostRecord) => void; onRemoveHost: (host: HostRecord) => void }
 
 function ConnectScreen(props: ConnectProps) {
   return <main className="connect-screen">
@@ -2720,7 +2828,7 @@ function ConnectScreen(props: ConnectProps) {
         <label><span>{t('host.field.address')}</span><input autoFocus className="focus" value={props.endpoint} onChange={(event) => props.setEndpoint(event.target.value)} placeholder="host:port" /><small>{t('host.field.address_hint')}</small></label>
         <label><span>{t('host.field.password')}</span><input type="password" value={props.password} onChange={(event) => props.setPassword(event.target.value)} placeholder={t('host.field.password')} /></label>
         <label><span>{t('host.field.name')}</span><input value={props.hostName} onChange={(event) => props.setHostName(event.target.value)} placeholder="Mac mini（家）" /></label>
-        <button className="connect-button" type="submit" disabled={props.connecting || !props.ready}>{props.connecting ? t('host.connecting') : props.ready ? t('host.connect') : t('host.initializing')}<ChevronRight size={16} /></button>
+        <button className="connect-button" type="submit" disabled={props.connecting || !props.ready || props.connected}>{props.connecting ? t('host.connecting') : props.connected ? t('onboarding.templates.connected') : props.ready ? t('host.connect') : t('host.initializing')}<ChevronRight size={16} /></button>
         {props.error && <div className="connect-error">{props.error || t('host.error.generic')}</div>}
       </form>
       {props.hosts.length > 0 && <div className="saved-host-list"><div className="section-label">{t('host.switch.title')}</div>{props.hosts.map((host) => <div className="saved-host-row" key={host.id}><button type="button" onClick={() => props.onConnectSaved(host)}><span className="status-dot disconnected" /><span><strong>{host.name}</strong><small>{host.addresses[0] ?? ''}</small></span></button><button type="button" aria-label={t('common.delete')} onClick={() => props.onRemoveHost(host)}><Trash2 size={13} /></button></div>)}</div>}
@@ -2728,11 +2836,28 @@ function ConnectScreen(props: ConnectProps) {
       <div className="connect-local-note">连接信息保存在本机；密码不会写入界面状态。</div>
     </section>
     <section className="template-side">
-      <div><div className="eyebrow">{t('app.title')}</div><h2>{t('onboarding.meet_main')}</h2><p>{t('onboarding.meet_main_desc')}</p></div>
-      <div className="template-card selected"><div className="template-avatars"><span className="avatar" style={{ background: 'var(--avatar-2)' }}>产</span><span className="avatar" style={{ background: 'var(--avatar-1)' }}>编</span><span className="avatar" style={{ background: 'var(--avatar-4)' }}>测</span></div><div className="grow"><strong>{t('onboarding.template.product')}</strong><small>{t('onboarding.template.product_desc')}</small></div><span className="selected-mark">✓</span></div>
-      <div className="template-card"><div className="template-avatars"><span className="avatar" style={{ background: 'var(--avatar-3)' }}>研</span><span className="avatar" style={{ background: 'var(--avatar-5)' }}>写</span></div><div className="grow"><strong>{t('onboarding.template.research')}</strong><small>{t('onboarding.template.research_desc')}</small></div></div>
-      <div className="template-card"><div className="template-plus">＋</div><div className="grow"><strong>{t('onboarding.template.only_main')}</strong><small>{t('onboarding.template.only_main_desc')}</small></div></div>
-      <div className="template-foot">{t('onboarding.footer')}</div>
+      <WelcomeTemplates
+        templates={props.templates}
+        selectedChoice={props.selectedChoice}
+        loading={props.templatesLoading}
+        fetchError={props.templateFetchError}
+        applyError={props.templateApplyError}
+        applying={props.templateApplying}
+        copy={{
+          title: t('onboarding.meet_main'),
+          description: t('onboarding.meet_main_desc'),
+          mainOnly: t('onboarding.template.only_main'),
+          mainOnlyDescription: t('onboarding.template.only_main_desc'),
+          footer: t('onboarding.footer'),
+          loading: t(props.connected ? 'onboarding.templates.loading' : 'onboarding.templates.connect_first'),
+          applying: t('common.loading'),
+          empty: t('onboarding.templates.empty'),
+          retry: t('onboarding.templates.retry'),
+        }}
+        onSelect={props.onSelectTemplate}
+        onRetryFetch={props.onRetryTemplates}
+        onRetryApply={props.onRetryTemplateApply}
+      />
     </section>
   </main>
 }
