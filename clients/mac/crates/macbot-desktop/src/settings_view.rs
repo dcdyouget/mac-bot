@@ -95,6 +95,7 @@ pub struct SettingsView {
     local_theme: String,
     font_size: String,
     translucent: bool,
+    notifications: bool,
     sound_enabled: bool,
     notify_need_you: bool,
     notify_review: bool,
@@ -164,6 +165,7 @@ impl SettingsView {
                 .as_str()
                 .to_owned(),
             translucent: crate::local_settings::translucent(),
+            notifications: local.notifications,
             sound_enabled: crate::local_settings::sound_enabled(),
             notify_need_you: notification_preferences.need_you,
             notify_review: notification_preferences.review,
@@ -185,6 +187,7 @@ impl SettingsView {
         {
             self.local_theme = local.theme;
             self.translucent = crate::local_settings::translucent();
+            self.notifications = local.notifications;
             self.sound_enabled = crate::local_settings::sound_enabled();
             self.launch_at_login = local.launch_at_login;
             self.keep_in_menubar = crate::local_settings::keep_in_menubar();
@@ -1455,6 +1458,19 @@ impl Render for SettingsView {
                                 .flex()
                                 .flex_col()
                                 .gap(px(tokens.space[4]))
+                                .child(
+                                    Checkbox::new("settings-notifications-enabled")
+                                        .checked(self.notifications)
+                                        .label(t("settings.notify.enabled"))
+                                        .on_click(cx.listener(|this, checked, _, cx| {
+                                            this.notifications = *checked;
+                                            cx.emit(SettingsAction::Local {
+                                                key: "notifications".into(),
+                                                value: Value::Bool(*checked),
+                                            });
+                                            cx.notify();
+                                        })),
+                                )
                                 .child(
                                     Checkbox::new("settings-notify-need-you")
                                         .checked(self.notify_need_you)

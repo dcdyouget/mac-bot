@@ -70,6 +70,20 @@ fn diagnostic_error_class(error: &str) -> &'static str {
     }
 }
 
+fn connection_error_copy(error: &str) -> &'static str {
+    let error = error.to_ascii_lowercase();
+    if error.contains("password not set") || error.contains("setup_required") {
+        "host.error.no_password"
+    } else if error.contains("401") || error.contains("unauthorized") || error.contains("password")
+    {
+        "host.error.password"
+    } else if error.contains("protocol") || error.contains("version") {
+        "host.error.version"
+    } else {
+        "host.error.unreachable"
+    }
+}
+
 fn play_bubble_sound() {
     let bundled = std::env::current_exe()
         .ok()
@@ -214,6 +228,7 @@ pub struct MacBot {
     pending_action_handles: BTreeMap<String, FocusHandle>,
     highlighted_message_id: Option<String>,
     pending_chat_jump: Option<(String, String)>,
+    history_older_loading: Option<(String, u64)>,
     focus_messages: FocusHandle,
     focus_context: FocusHandle,
     focus_sidebar: FocusHandle,
@@ -269,6 +284,8 @@ pub struct MacBot {
     steer_inflight: BTreeSet<String>,
     changes_project: Option<String>,
     attachments: Vec<String>,
+    file_drop_active: bool,
+    file_drop_paths: Vec<std::path::PathBuf>,
     message_virtual_scroll: gpui_kit::gpui::ListState,
     image_cache: BTreeMap<String, std::sync::Arc<Image>>,
     image_loading: std::collections::BTreeSet<String>,
@@ -389,6 +406,7 @@ impl MacBot {
             pending_action_handles: BTreeMap::new(),
             highlighted_message_id: None,
             pending_chat_jump: None,
+            history_older_loading: None,
             focus_messages: cx.focus_handle(),
             focus_context: cx.focus_handle(),
             focus_sidebar: cx.focus_handle(),
@@ -444,6 +462,8 @@ impl MacBot {
             steer_inflight: BTreeSet::new(),
             changes_project: None,
             attachments: vec![],
+            file_drop_active: false,
+            file_drop_paths: vec![],
             message_virtual_scroll: gpui_kit::gpui::ListState::new(
                 0,
                 gpui_kit::gpui::ListAlignment::Top,
@@ -524,16 +544,17 @@ impl MacBot {
         let entity = cx.entity().downgrade();
         let handle = window.window_handle();
         cx.on_system_notification_response(move |response, cx| {
-            if let Some(chat) = response.tag.strip_prefix("macbot.chat.") {
-                let chat = chat.to_string();
-                let _ = handle.update(cx, |_, window, cx| {
-                    if let Some(entity) = entity.upgrade() {
-                        entity.update(cx, |view, cx| view.select_chat(chat, window, cx));
-                        window.activate_window();
-                    }
-                });
-                cx.activate(true);
-            }
+            let tag = response.tag.to_string();
+            let action = response.action_id.map(|id| id.to_string());
+            let _ = handle.update(cx, |_, window, cx| {
+                if let Some(entity) = entity.upgrade() {
+                    entity.update(cx, |view, cx| {
+                        view.handle_notification_response(&tag, action.as_deref(), window, cx)
+                    });
+                    window.activate_window();
+                }
+            });
+            cx.activate(true);
         });
         view
     }
@@ -705,6 +726,46 @@ impl MacBot {
             self.notice.clear();
         }
     }
+    pub(super) fn is_loading_older_history(&self, chat_id: &str) -> bool {
+        self.history_older_loading
+            .as_ref()
+            .is_some_and(|(loading_chat, _)| loading_chat == chat_id)
+    }
+    pub(super) fn set_file_drop_state(
+        &mut self,
+        active: bool,
+        paths: Option<Vec<std::path::PathBuf>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.file_drop_active = active;
+        if let Some(paths) = paths {
+            self.file_drop_paths = paths;
+        }
+        if !active {
+            self.file_drop_paths.clear();
+        }
+        cx.notify();
+    }
+    fn finish_older_history_request(
+        &mut self,
+        method: &str,
+        params: &Value,
+        deep_link_request_id: Option<u64>,
+    ) {
+        if method != "chat.history" || deep_link_request_id.is_some() {
+            return;
+        }
+        let Some(before_seq) = params.get("before_seq").and_then(Value::as_u64) else {
+            return;
+        };
+        if self
+            .history_older_loading
+            .as_ref()
+            .is_some_and(|(chat_id, seq)| chat_id == s(params, "chat_id") && *seq == before_seq)
+        {
+            self.history_older_loading = None;
+        }
+    }
     fn connect(&mut self, cx: &mut Context<Self>) {
         self.cancel_search_open();
         let endpoint = self.address.read(cx).value().to_string();
@@ -716,6 +777,7 @@ impl MacBot {
         }
         self.connection_generation = self.connection_generation.wrapping_add(1);
         let generation = self.connection_generation;
+        self.history_older_loading = None;
         self.close_trace(cx);
         self.close_screen();
         if let Some(client) = self.client.take() {
@@ -852,6 +914,17 @@ impl MacBot {
                     && search.in_flight_before_seq == Some(request_before_seq)
             })
             .map(|search| search.request_id);
+        if method == "chat.history"
+            && deep_link_request_id.is_none()
+            && let Some(before_seq) = request_before_seq
+        {
+            let chat_id = s(&params, "chat_id").to_owned();
+            if self.history_older_loading.is_some() {
+                return;
+            }
+            self.history_older_loading = Some((chat_id, before_seq));
+            cx.notify();
+        }
         let generation = self.connection_generation;
         let trace_epoch = self.trace_epoch;
         let method = method.to_owned();
@@ -885,6 +958,7 @@ impl MacBot {
                     {
                         return;
                     }
+                    view.finish_older_history_request(&method, &params_copy, deep_link_request_id);
                     match result {
                         Ok(Ok(value)) => {
                             view.rpc_result(&method, &params_copy, value, deep_link_request_id, cx)
@@ -1025,9 +1099,29 @@ impl MacBot {
                 let notification = event.event == "message.created"
                     && event.seq.is_some_and(|seq| seq > self.state.last_seq);
                 let message = event.data.get("message").cloned();
+                let approval_requested = event.event == "approval.requested"
+                    && event.seq.is_some_and(|seq| seq > self.state.last_seq);
+                let approval = event.data.get("approval").cloned();
                 self.state.apply_event(event);
                 if notification && let Some(message) = message {
                     self.notify_message(&message, cx);
+                }
+                if approval_requested && let Some(approval) = approval {
+                    let approval_id = s(&approval, "id").to_owned();
+                    if !approval_id.is_empty() && s(&approval, "state") == "pending" {
+                        self.state
+                            .approvals
+                            .insert(approval_id.clone(), approval.clone());
+                        let message = json!({
+                            "chat_id": s(&approval, "chat_id"),
+                            "sender": {"kind":"bot", "bot_id":s(&approval, "bot_id")},
+                            "blocks": [{"type":"approval", "approval_id":approval_id}],
+                            "text": s(&approval, "summary"),
+                            "mentions": [],
+                            "delivery": []
+                        });
+                        self.notify_message(&message, cx);
+                    }
                 }
                 if self.screen_client.is_some() {
                     self.sync_screen_request(cx);
@@ -1038,12 +1132,12 @@ impl MacBot {
                 self.connecting = false;
                 self.trace_stream = None;
                 self.trace_epoch = self.trace_epoch.wrapping_add(1);
-                if let Some(e) = error {
-                    self.notice = e;
+                if let Some(error) = error {
+                    self.notice = tr(connection_error_copy(&error)).to_string();
                 }
             }
             ClientEvent::TransportError(error) => {
-                self.notice = error;
+                self.notice = tr(connection_error_copy(&error)).to_string();
                 self.connecting = false;
             }
         }
@@ -1877,7 +1971,10 @@ impl MacBot {
         cx.notify();
     }
     fn notify_message(&mut self, message: &Value, cx: &App) {
-        if !self.local_settings.notifications || s(&message["sender"], "kind") == "user" {
+        if !self.local_settings.notifications
+            || self.fixture
+            || s(&message["sender"], "kind") == "user"
+        {
             return;
         }
         let chat_id = s(message, "chat_id");
@@ -1905,6 +2002,25 @@ impl MacBot {
         let review = blocks
             .iter()
             .any(|block| s(block, "type") == "review_card" && s(block, "state") == "pending");
+        let pending_approval = blocks.iter().find_map(|block| {
+            if s(block, "type") != "approval" {
+                return None;
+            }
+            self.state
+                .approvals
+                .get(s(block, "approval_id"))
+                .filter(|approval| s(approval, "state") == "pending")
+        });
+        let pending_review = blocks.iter().find_map(|block| {
+            if s(block, "type") != "review_card" || s(block, "state") != "pending" {
+                return None;
+            }
+            let project_id = s(block, "project_id");
+            self.state
+                .projects
+                .get(project_id)
+                .filter(|project| s(project, "status") == "review")
+        });
         let is_group = s(chat, "kind") == "project";
         let is_dm = matches!(s(chat, "kind"), "direct" | "bot_dm" | "main");
         let mentions_user = arr(message, "mentions")
@@ -1934,17 +2050,184 @@ impl MacBot {
         if app_is_active {
             return;
         }
-        let body = if s(message, "fallback_text").is_empty() {
-            s(message, "text")
+        let (tag, title, body, actions) = if let Some(approval) = pending_approval {
+            let bot = self.state.bots.get(s(&message["sender"], "bot_id"));
+            let bot_name = bot
+                .map(|bot| {
+                    let label = s(bot, "label");
+                    if label.is_empty() {
+                        s(bot, "name")
+                    } else {
+                        label
+                    }
+                })
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| tr("common.bot").to_string());
+            let title = tr("notify.need_you.title")
+                .to_string()
+                .replace("{bot}", bot_name);
+            let summary = s(approval, "summary");
+            let body = tr("notify.approval.body").to_string().replace(
+                "{summary}",
+                if summary.is_empty() {
+                    s(message, "text")
+                } else {
+                    summary
+                },
+            );
+            (
+                format!("macbot.approval.{}", s(approval, "id")),
+                title,
+                body,
+                vec![
+                    SystemNotificationAction {
+                        id: "allow_once".into(),
+                        label: tr("notify.action.allow_once"),
+                    },
+                    SystemNotificationAction {
+                        id: "deny".into(),
+                        label: tr("notify.action.deny"),
+                    },
+                    SystemNotificationAction {
+                        id: "open".into(),
+                        label: tr("notify.action.open"),
+                    },
+                ],
+            )
+        } else if let Some(project) = pending_review {
+            let project_id = s(project, "id");
+            let project_name = s(project, "name");
+            (
+                format!("macbot.review.{project_id}"),
+                tr("notify.review.title").to_string(),
+                tr("notify.review.body").to_string().replace(
+                    "{project}",
+                    if project_name.is_empty() {
+                        s(chat, "title")
+                    } else {
+                        project_name
+                    },
+                ),
+                vec![
+                    SystemNotificationAction {
+                        id: "confirm".into(),
+                        label: tr("notify.action.confirm"),
+                    },
+                    SystemNotificationAction {
+                        id: "open".into(),
+                        label: tr("notify.action.open"),
+                    },
+                ],
+            )
         } else {
-            s(message, "fallback_text")
+            let body = if s(message, "fallback_text").is_empty() {
+                s(message, "text")
+            } else {
+                s(message, "fallback_text")
+            };
+            (
+                format!("macbot.chat.{chat_id}"),
+                s(chat, "title").to_owned(),
+                body.to_owned(),
+                vec![SystemNotificationAction {
+                    id: "open".into(),
+                    label: tr("notify.action.open"),
+                }],
+            )
         };
         cx.show_system_notification(SystemNotification {
-            tag: format!("macbot.chat.{chat_id}").into(),
-            title: s(chat, "title").to_owned().into(),
+            tag: tag.into(),
+            title: title.into(),
             body: body.chars().take(120).collect::<String>().into(),
-            actions: vec![],
+            actions,
         });
+    }
+    fn handle_notification_response(
+        &mut self,
+        tag: &str,
+        action: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let open_chat =
+            |view: &mut Self, chat_id: &str, window: &mut Window, cx: &mut Context<Self>| {
+                if view.state.chats.contains_key(chat_id) {
+                    view.select_chat(chat_id.to_owned(), window, cx);
+                } else {
+                    view.notice = tr("notify.action.unavailable").to_string();
+                }
+            };
+        if let Some(chat_id) = tag.strip_prefix("macbot.chat.") {
+            open_chat(self, chat_id, window, cx);
+            cx.notify();
+            return;
+        }
+        if let Some(approval_id) = tag.strip_prefix("macbot.approval.") {
+            let approval = self.state.approvals.get(approval_id).cloned();
+            match action {
+                Some("allow_once" | "deny") => {
+                    if !self.connected || self.fixture {
+                        self.notice = tr("notify.action.offline").to_string();
+                    } else if approval
+                        .as_ref()
+                        .is_some_and(|approval| s(approval, "state") == "pending")
+                    {
+                        self.rpc(
+                            "approval.decide",
+                            json!({
+                                "approval_id": approval_id,
+                                "decision": if action == Some("allow_once") { "allow_once" } else { "deny" }
+                            }),
+                            cx,
+                        );
+                    } else {
+                        self.notice = tr("notify.action.expired").to_string();
+                    }
+                    if let Some(chat_id) = approval.as_ref().map(|v| s(v, "chat_id"))
+                        && !chat_id.is_empty()
+                    {
+                        open_chat(self, chat_id, window, cx);
+                    }
+                }
+                _ => {
+                    if let Some(chat) = approval.as_ref().map(|v| s(v, "chat_id")) {
+                        open_chat(self, chat, window, cx);
+                    } else {
+                        self.notice = tr("notify.action.unavailable").to_string();
+                    }
+                }
+            }
+            cx.notify();
+            return;
+        }
+        if let Some(project_id) = tag.strip_prefix("macbot.review.") {
+            let project = self.state.projects.get(project_id).cloned();
+            let chat_id = self
+                .state
+                .chats
+                .values()
+                .find(|chat| s(chat, "project_id") == project_id)
+                .map(|chat| s(chat, "id").to_owned());
+            if action == Some("confirm") {
+                if !self.connected || self.fixture {
+                    self.notice = tr("notify.action.offline").to_string();
+                } else if project
+                    .as_ref()
+                    .is_some_and(|project| s(project, "status") == "review")
+                {
+                    self.rpc("project.confirm_done", json!({"project_id":project_id}), cx);
+                } else {
+                    self.notice = tr("notify.action.expired").to_string();
+                }
+            }
+            if let Some(chat_id) = chat_id {
+                open_chat(self, &chat_id, window, cx);
+            } else if project.is_none() {
+                self.notice = tr("notify.action.unavailable").to_string();
+            }
+            cx.notify();
+        }
     }
     fn sync_screen_request(&mut self, cx: &mut Context<Self>) {
         let reason = self
@@ -2727,6 +3010,15 @@ impl MacBot {
             )
         });
         let mut done = 0;
+        let archived = groups
+            .iter()
+            .filter(|chat| {
+                self.state
+                    .projects
+                    .get(s(chat, "project_id"))
+                    .is_some_and(|project| s(project, "status") == "archived")
+            })
+            .count();
         for chat in groups {
             let status = self
                 .state
@@ -2765,6 +3057,19 @@ impl MacBot {
                         this.show_completed = !this.show_completed;
                         cx.notify();
                     })),
+            );
+        }
+        if archived > 0 {
+            list = list.child(
+                Button::new("archived-projects-search")
+                    .ghost()
+                    .small()
+                    .label(
+                        tr("sidebar.archived_hint")
+                            .to_string()
+                            .replace("{count}", &archived.to_string()),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.navigate("search", cx))),
             );
         }
         list = list.child(
@@ -3073,7 +3378,7 @@ impl MacBot {
 
     fn sidebar_summary_text(&self, chat: &Value, todo: &SidebarTodoSummary) -> String {
         if let Some(summary) = todo.approvals.first() {
-            return tr("sidebar.todo.approval_summary")
+            return tr("sidebar.approval_line")
                 .to_string()
                 .replace("{summary}", summary);
         }
@@ -3083,7 +3388,7 @@ impl MacBot {
                 .replace("{summary}", question);
         }
         if todo.review {
-            return tr("sidebar.todo.review_summary").to_string();
+            return tr("status.review_you").to_string();
         }
         if todo.blocked > 0 {
             return tr("sidebar.todo.blocked_summary")
@@ -3361,6 +3666,20 @@ impl Render for MacBot {
         let t = Tokens::get(cx);
         let layout = t.desktop_layout;
         let window_width = window.bounds().size.width;
+        let reconnect_host = self
+            .state
+            .hello
+            .as_ref()
+            .map(|hello| s(hello, "host_name"))
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .or_else(|| {
+                self.active_host
+                    .as_ref()
+                    .and_then(|id| self.hosts.as_ref()?.get(id))
+                    .map(|host| host.name.clone())
+            })
+            .unwrap_or_else(|| tr("app.name").to_string());
         let context_page = self.page == "chat" || self.context.last().is_some_and(|v| v == "trace");
         let context_requested = self.context_visible && context_page;
         let context_overlay = context_requested && window_width < px(1100.);
@@ -3552,7 +3871,7 @@ impl Render for MacBot {
                 )
             })
             .when(
-                !self.connected && self.client.is_some() && self.notice.is_empty(),
+                !self.connected && self.client.is_some() && !self.connecting,
                 |el| {
                     el.child(
                         div()
@@ -3561,7 +3880,15 @@ impl Render for MacBot {
                             .bg(t.warning_soft)
                             .text_size(px(t.desktop_type[1][0]))
                             .text_color(t.warning)
-                            .child(tr("status.disconnected")),
+                            .flex()
+                            .flex_col()
+                            .gap(px(t.space[1]))
+                            .child(
+                                tr("host.reconnecting")
+                                    .to_string()
+                                    .replace("{host}", &reconnect_host),
+                            )
+                            .child(tr("host.reconnecting_detail")),
                     )
                 },
             )

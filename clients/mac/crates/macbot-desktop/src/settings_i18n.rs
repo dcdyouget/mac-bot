@@ -30,6 +30,7 @@ pub fn text(key: &str) -> &'static str {
         // design/07 defines the category toggles, while its Mac prototype
         // also needs a short section label and the shared sound hint.
         "settings.notify.section" => "通知",
+        "settings.notify.enabled" => "开启系统通知",
         "settings.notify.need_you" => "需要你（审批、提问、接管）",
         "settings.notify.review" => "待验收",
         "settings.notify.dm_mention" => "私聊和 @ 你的消息",
