@@ -57,6 +57,7 @@ import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.protocol.generated.Approval as ApprovalWireModel
 import bot.mac.mobile.core.platform.PickedFile
 import bot.mac.mobile.core.platform.exportFile
 import bot.mac.mobile.core.platform.platformFilePicker
@@ -1135,12 +1136,13 @@ private fun BlockView(
         "approval" -> {
             val approvalId = block.str("approval_id")
             val approval = state.approvals.firstOrNull { it.str("id") == approvalId }
+            val alwaysAllowSupported = approval?.let { ApprovalWireModel(it).alwaysAllowSupported } ?: true
             Text(stringResource(Res.string.feature_approval_needed), Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, style = MaterialTheme.typography.titleSmall)
             Text(approval?.str("summary").orEmpty().ifBlank { approvalId })
             MarkdownText(approval?.str("detail").orEmpty(), Modifier.fillMaxWidth())
             if (approval?.str("state") == "pending") Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { onApproval(approvalId, "allow_once") }) { Text(stringResource(Res.string.block_approval_allow_once)) }
-                Button(onClick = { onApproval(approvalId, "always_allow") }) { Text(stringResource(Res.string.block_approval_always_allow)) }
+                if (alwaysAllowSupported) Button(onClick = { onApproval(approvalId, "always_allow") }) { Text(stringResource(Res.string.block_approval_always_allow)) }
                 Button(onClick = { onApproval(approvalId, "deny") }) { Text(stringResource(Res.string.block_approval_deny)) }
             } else if (approval != null) StatusLabel(approval.str("state"))
         }

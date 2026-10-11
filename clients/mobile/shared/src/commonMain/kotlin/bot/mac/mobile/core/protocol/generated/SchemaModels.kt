@@ -71,6 +71,7 @@ object AnnouncementSerializer : RawModelSerializer<Announcement>(::Announcement)
 
 @Serializable(with = ApprovalSerializer::class)
 data class Approval(override val raw: JsonObject) : RawProtocolModel {
+    val alwaysAllowSupported: Boolean? get() = raw.boolOrNull("always_allow_supported")
     val assignmentId: String? get() = raw.stringOrNull("assignment_id")
     val botId: String get() = raw.str("bot_id")
     val chatId: String get() = raw.str("chat_id")
@@ -566,6 +567,7 @@ data class Settings(override val raw: JsonObject) : RawProtocolModel {
     val push: PushSettings get() = PushSettings(raw.obj("push"))
     val skills: SkillSettings get() = SkillSettings(raw.obj("skills"))
     val timezone: String get() = raw.str("timezone")
+    val tools: JsonObject? get() = raw.objectOrNull("tools")
     val trace: TraceSettings get() = TraceSettings(raw.obj("trace"))
     val webSearch: WebSearchSettings get() = WebSearchSettings(raw.obj("web_search"))
 }
@@ -1186,6 +1188,7 @@ data class SettingsPatch(override val raw: JsonObject) : RawProtocolModel {
     val models: ModelDefaultsPatch? get() = raw["models"]?.jsonObject?.let(::ModelDefaultsPatch)
     val skills: SkillSettingsPatch? get() = raw["skills"]?.jsonObject?.let(::SkillSettingsPatch)
     val timezone: String? get() = raw.stringOrNull("timezone")
+    val tools: ToolsSettingsPatch? get() = raw["tools"]?.jsonObject?.let(::ToolsSettingsPatch)
     val trace: TraceSettingsPatch? get() = raw["trace"]?.jsonObject?.let(::TraceSettingsPatch)
     val webSearch: WebSearchSettingsPatch? get() = raw["web_search"]?.jsonObject?.let(::WebSearchSettingsPatch)
 }
@@ -1270,6 +1273,23 @@ data class TakeoverStartParams(override val raw: JsonObject) : RawProtocolModel 
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
 }
 object TakeoverStartParamsSerializer : RawModelSerializer<TakeoverStartParams>(::TakeoverStartParams)
+
+@Serializable(with = ToolTogglesPatchSerializer::class)
+data class ToolTogglesPatch(override val raw: JsonObject) : RawProtocolModel {
+    val bash: Boolean? get() = raw.boolOrNull("bash")
+    val browser: Boolean? get() = raw.boolOrNull("browser")
+    val files: Boolean? get() = raw.boolOrNull("files")
+    val mcp: Boolean? get() = raw.boolOrNull("mcp")
+    val subagent: Boolean? get() = raw.boolOrNull("subagent")
+    val web: Boolean? get() = raw.boolOrNull("web")
+}
+object ToolTogglesPatchSerializer : RawModelSerializer<ToolTogglesPatch>(::ToolTogglesPatch)
+
+@Serializable(with = ToolsSettingsPatchSerializer::class)
+data class ToolsSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
+    val defaults: ToolTogglesPatch? get() = raw["defaults"]?.jsonObject?.let(::ToolTogglesPatch)
+}
+object ToolsSettingsPatchSerializer : RawModelSerializer<ToolsSettingsPatch>(::ToolsSettingsPatch)
 
 @Serializable(with = TraceHistoryParamsSerializer::class)
 data class TraceHistoryParams(override val raw: JsonObject) : RawProtocolModel {
