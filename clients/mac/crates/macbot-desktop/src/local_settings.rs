@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 const STORE_FILE: &str = "local-settings.json";
 const TRANSLUCENCY_FILE: &str = "local-translucency.json";
 const SOUND_FILE: &str = "local-sound.json";
+const NOTIFICATION_PREFERENCES_FILE: &str = "local-notification-preferences.json";
 const LAUNCH_AGENT_DIR: &str = "Library/LaunchAgents";
 const LAUNCH_AGENT_FILE: &str = "bot.mac.desktop.plist";
 const BUNDLE_LABEL: &str = "bot.mac.desktop";
@@ -26,6 +27,64 @@ pub struct LocalSettings {
     pub theme: String,
     pub notifications: bool,
     pub launch_at_login: bool,
+}
+
+/// Per-category notification choices are stored separately to keep existing
+/// LocalSettings snapshots backward compatible.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct NotificationPreferences {
+    pub need_you: bool,
+    pub review: bool,
+    pub dm_mention: bool,
+    pub all_group: bool,
+}
+
+impl Default for NotificationPreferences {
+    fn default() -> Self {
+        Self {
+            need_you: true,
+            review: true,
+            dm_mention: true,
+            all_group: false,
+        }
+    }
+}
+
+pub fn notification_preferences() -> Result<NotificationPreferences> {
+    let path = crate::storage_paths::data_file(NOTIFICATION_PREFERENCES_FILE)?;
+    match fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .with_context(|| format!("decode notification preferences {}", path.display())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(NotificationPreferences::default())
+        }
+        Err(error) => {
+            Err(error).with_context(|| format!("read notification preferences {}", path.display()))
+        }
+    }
+}
+
+pub fn set_notification_preference(key: &str, enabled: bool) -> Result<NotificationPreferences> {
+    let mut preferences = notification_preferences()?;
+    match key {
+        "notify_need_you" => preferences.need_you = enabled,
+        "notify_review" => preferences.review = enabled,
+        "notify_dm_mention" => preferences.dm_mention = enabled,
+        "notify_all_group" => preferences.all_group = enabled,
+        _ => return Err(anyhow!("unknown notification preference key {key}")),
+    }
+    let path = crate::storage_paths::data_file(NOTIFICATION_PREFERENCES_FILE)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("notification preferences have no parent directory"))?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create local settings directory {}", parent.display()))?;
+    set_mode(parent, 0o700)?;
+    let bytes =
+        serde_json::to_vec_pretty(&preferences).context("encode notification preferences")?;
+    atomic_private_write(&path, &bytes)?;
+    Ok(preferences)
 }
 
 impl Default for LocalSettings {

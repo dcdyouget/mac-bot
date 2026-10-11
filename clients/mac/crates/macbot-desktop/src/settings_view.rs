@@ -16,6 +16,7 @@ use gpui_kit::gpui::{
 };
 use gpui_kit::prelude::FluentBuilder;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use crate::settings_i18n::text as t;
@@ -26,6 +27,7 @@ pub enum SettingsAction {
     Rpc { method: String, params: Value },
     HostConnections,
     CheckUpdate,
+    ExportDiagnostics,
     Theme(String),
     UpdateUrl(String),
     Local { key: String, value: Value },
@@ -37,6 +39,16 @@ struct ApprovalRuleEditor {
     created_at: String,
     kind: String,
     text: Entity<InputState>,
+}
+
+#[derive(Clone)]
+enum ProviderTestState {
+    Running,
+    Complete {
+        ok: bool,
+        latency_ms: Option<u64>,
+        error: Option<String>,
+    },
 }
 
 pub struct SettingsView {
@@ -81,8 +93,12 @@ pub struct SettingsView {
     local_theme: String,
     translucent: bool,
     sound_enabled: bool,
-    notifications: bool,
+    notify_need_you: bool,
+    notify_review: bool,
+    notify_dm_mention: bool,
+    notify_all_group: bool,
     launch_at_login: bool,
+    provider_test_states: BTreeMap<String, ProviderTestState>,
 }
 
 impl EventEmitter<SettingsAction> for SettingsView {}
@@ -90,6 +106,8 @@ impl EventEmitter<SettingsAction> for SettingsView {}
 impl SettingsView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let local = crate::local_settings::load().unwrap_or_default();
+        let notification_preferences =
+            crate::local_settings::notification_preferences().unwrap_or_default();
         let update_url = input_state(window, cx, t("update_url_placeholder"));
         let configured_url = std::env::var("MACBOT_UPDATE_URL")
             .ok()
@@ -139,8 +157,12 @@ impl SettingsView {
             local_theme: local.theme,
             translucent: crate::local_settings::translucent(),
             sound_enabled: crate::local_settings::sound_enabled(),
-            notifications: local.notifications,
+            notify_need_you: notification_preferences.need_you,
+            notify_review: notification_preferences.review,
+            notify_dm_mention: notification_preferences.dm_mention,
+            notify_all_group: notification_preferences.all_group,
             launch_at_login: local.launch_at_login,
+            provider_test_states: BTreeMap::new(),
         }
     }
 
@@ -155,8 +177,23 @@ impl SettingsView {
             self.local_theme = local.theme;
             self.translucent = crate::local_settings::translucent();
             self.sound_enabled = crate::local_settings::sound_enabled();
-            self.notifications = local.notifications;
             self.launch_at_login = local.launch_at_login;
+        }
+        if let Some(status) = data.get("provider_test_status")
+            && let Some(provider_id) = status.get("provider_id").and_then(Value::as_str)
+            && let Some(ok) = status.get("ok").and_then(Value::as_bool)
+        {
+            self.provider_test_states.insert(
+                provider_id.to_owned(),
+                ProviderTestState::Complete {
+                    ok,
+                    latency_ms: status.get("latency_ms").and_then(Value::as_u64),
+                    error: status
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                },
+            );
         }
         self.data = data;
         if self.selected_provider.is_none() {
@@ -615,6 +652,45 @@ impl Render for SettingsView {
                     this.select_provider(id_for_click.clone(), window, cx);
                 }))
         });
+        let selected_provider_id = self.selected_provider.as_deref();
+        let provider_model_count = selected_provider_id
+            .map(|provider_id| {
+                models
+                    .iter()
+                    .filter(|model| string_value(model, "provider_id", "") == provider_id)
+                    .count()
+            })
+            .unwrap_or(0);
+        let provider_model_count_label =
+            format!("{} · {}", t("settings.models.count"), provider_model_count);
+        let provider_test_status = selected_provider_id
+            .and_then(|provider_id| self.provider_test_states.get(provider_id))
+            .map(|status| match status {
+                ProviderTestState::Running => (
+                    t("settings.models.test_running").to_owned(),
+                    tokens.secondary,
+                ),
+                ProviderTestState::Complete {
+                    ok: true,
+                    latency_ms,
+                    ..
+                } => (
+                    latency_ms.map_or_else(
+                        || t("settings.models.test_connected").to_owned(),
+                        |latency| format!("{} · {latency} ms", t("settings.models.test_connected")),
+                    ),
+                    tokens.success,
+                ),
+                ProviderTestState::Complete {
+                    ok: false, error, ..
+                } => (
+                    error.as_deref().map_or_else(
+                        || t("settings.models.test_failed").to_owned(),
+                        |error| format!("{}：{error}", t("settings.models.test_failed")),
+                    ),
+                    tokens.danger,
+                ),
+            });
         let model_buttons = models.iter().enumerate().map(|(index, model)| {
             let reference = model_ref(model).unwrap_or_default().to_owned();
             let title = string_value(model, "display_name", &reference);
@@ -696,6 +772,9 @@ impl Render for SettingsView {
                     .outline()
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Some(id) = this.selected_provider.clone() {
+                            this.provider_test_states
+                                .insert(id.clone(), ProviderTestState::Running);
+                            cx.notify();
                             this.emit_rpc("provider.test", json!({"provider_id": id}), cx);
                         }
                     })),
@@ -1019,6 +1098,21 @@ impl Render for SettingsView {
                         )
                     })
                     .children(provider_buttons)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(tokens.secondary)
+                                    .child(provider_model_count_label),
+                            )
+                            .when_some(provider_test_status, |content, (status, color)| {
+                                content.child(div().text_xs().text_color(color).child(status))
+                            }),
+                    )
                     .child(provider_form),
                 &tokens,
             ))
@@ -1228,17 +1322,62 @@ impl Render for SettingsView {
                     )
                     .child(
                         Field::new().label(t("notifications")).child(
-                            Checkbox::new("settings-notifications")
-                                .checked(self.notifications)
-                                .label(t("settings.notify.enabled"))
-                                .on_click(cx.listener(|this, checked, _, cx| {
-                                    this.notifications = *checked;
-                                    cx.emit(SettingsAction::Local {
-                                        key: "notifications".into(),
-                                        value: Value::Bool(*checked),
-                                    });
-                                    cx.notify();
-                                })),
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_2()
+                                .child(
+                                    Checkbox::new("settings-notify-need-you")
+                                        .checked(self.notify_need_you)
+                                        .label(t("settings.notify.need_you"))
+                                        .on_click(cx.listener(|this, checked, _, cx| {
+                                            this.notify_need_you = *checked;
+                                            cx.emit(SettingsAction::Local {
+                                                key: "notify_need_you".into(),
+                                                value: Value::Bool(*checked),
+                                            });
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    Checkbox::new("settings-notify-review")
+                                        .checked(self.notify_review)
+                                        .label(t("settings.notify.review"))
+                                        .on_click(cx.listener(|this, checked, _, cx| {
+                                            this.notify_review = *checked;
+                                            cx.emit(SettingsAction::Local {
+                                                key: "notify_review".into(),
+                                                value: Value::Bool(*checked),
+                                            });
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    Checkbox::new("settings-notify-dm-mention")
+                                        .checked(self.notify_dm_mention)
+                                        .label(t("settings.notify.dm_mention"))
+                                        .on_click(cx.listener(|this, checked, _, cx| {
+                                            this.notify_dm_mention = *checked;
+                                            cx.emit(SettingsAction::Local {
+                                                key: "notify_dm_mention".into(),
+                                                value: Value::Bool(*checked),
+                                            });
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    Checkbox::new("settings-notify-all-group")
+                                        .checked(self.notify_all_group)
+                                        .label(t("settings.notify.all_group"))
+                                        .on_click(cx.listener(|this, checked, _, cx| {
+                                            this.notify_all_group = *checked;
+                                            cx.emit(SettingsAction::Local {
+                                                key: "notify_all_group".into(),
+                                                value: Value::Bool(*checked),
+                                            });
+                                            cx.notify();
+                                        })),
+                                ),
                         ),
                     )
                     .child(
@@ -1318,6 +1457,14 @@ impl Render for SettingsView {
                             .on_click(
                                 cx.listener(|_, _, _, cx| cx.emit(SettingsAction::CheckUpdate)),
                             ),
+                    )
+                    .child(
+                        Button::new("settings-export-diagnostics")
+                            .label(t("settings.about.export_diag"))
+                            .outline()
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                cx.emit(SettingsAction::ExportDiagnostics)
+                            })),
                     )
                     .child(div().text_sm().text_color(tokens.secondary).child(format!(
                                 "{} · v{} · {}",
