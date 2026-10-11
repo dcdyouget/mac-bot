@@ -20,6 +20,7 @@ use image::GenericImageView;
 use macbot_browser::{BrowserError, BrowserManager, CliRunner, ProcessRunner};
 use password_hash::SaltString;
 use rand_core::OsRng;
+use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -59,6 +60,10 @@ pub use backend::{ComposedBackend, RuntimeError, RuntimeExecution};
 const VERSION: &str = "0.1.0";
 const PROTOCOL: u64 = 1;
 const MAX_UPLOAD: usize = 100 * 1024 * 1024;
+
+#[derive(RustEmbed)]
+#[folder = "assets/"]
+struct AdminAssets;
 
 /// A backend can replace the mock dispatcher without changing the wire layer.
 #[async_trait::async_trait]
@@ -736,8 +741,10 @@ impl Gateway {
             .route("/api/v1/trace/output", get(trace_output_handler))
             .route("/api/v1/usage/export.csv", get(usage_csv_handler))
             .route("/admin", get(admin_handler))
+            .route("/admin/assets/tokens.css", get(admin_tokens_handler))
             .route("/admin/setup", post(admin_setup_handler))
             .route("/admin/settings", post(admin_settings_handler))
+            .route("/admin/password", post(admin_password_handler))
             .route("/admin/status", get(admin_status_handler))
             .route("/admin/logs", get(admin_logs_handler))
             .route("/admin/restart", post(admin_restart_handler))
@@ -3074,44 +3081,39 @@ async fn admin_handler(
         );
         return response;
     }
-    Html(ADMIN_HTML).into_response()
+    let html = AdminAssets::get("admin.html").expect("embedded admin.html asset");
+    Html(String::from_utf8_lossy(&html.data).into_owned()).into_response()
 }
 
-const ADMIN_HTML: &str = r#"<!doctype html>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Mac Bot Server</title><h1>Mac Bot Server</h1>
-<p id="status">加载中…</p>
-<section id="setup"><h2>首次设置密码</h2>
-<form method="post" action="/admin/setup"><input name="password" type="password" required placeholder="访问密码"><button>设置密码</button></form></section>
-<section id="settings"><h2>设置</h2>
-<form id="settings-form"><label>名称 <input id="host_name"></label>
-<label>端口 <input id="port" type="number" min="1" max="65535"></label>
-<button>保存</button></form><p id="settings-result"></p></section>
-<section><h2>日志</h2><button id="reload-logs">刷新</button><pre id="logs"></pre></section>
-<button id="restart">重启服务</button>
-<script>
-const $ = (id) => document.getElementById(id);
-async function load() {
-  const r = await fetch('/admin/status');
-  if (!r.ok) { $('status').textContent = '需要 HTTP Basic Auth'; return; }
-  const x = await r.json();
-  if (x.setup_required) { $('status').textContent = '请先设置访问密码'; $('settings').style.display='none'; return; }
-  $('status').textContent = `运行中 · ${x.host_name} · 端口 ${x.port} · seq ${x.seq}`;
-  $('host_name').value = x.host_name || '';
-  $('port').value = x.port || '';
-  $('setup').style.display = 'none';
-  await logs();
+async fn admin_tokens_handler(
+    State(gw): State<Gateway>,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    if !is_local_or_basic(remote, &headers, &gw).await {
+        let mut response = error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "admin authentication required",
+        );
+        response.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Basic realm=\"Mac Bot\""),
+        );
+        return response;
+    }
+    let Some(css) = AdminAssets::get("admin-tokens.css") else {
+        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "asset", "admin tokens missing");
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        css.data.into_owned(),
+    )
+        .into_response()
 }
-async function logs() { $('logs').textContent = await (await fetch('/admin/logs')).text(); }
-$('settings-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const r = await fetch('/admin/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({host_name:$('host_name').value, port:Number($('port').value)})});
-  $('settings-result').textContent = r.ok ? '已保存，重启后端口生效' : await r.text();
-});
-$('reload-logs').onclick = logs;
-$('restart').onclick = async () => { $('settings-result').textContent = await (await fetch('/admin/restart', {method:'POST'})).text(); };
-load().catch((e) => $('status').textContent = e.toString());
-</script>"#;
 async fn is_local_or_basic(remote: SocketAddr, headers: &HeaderMap, gw: &Gateway) -> bool {
     if gw.auth.setup_required().await {
         return remote.ip().is_loopback();

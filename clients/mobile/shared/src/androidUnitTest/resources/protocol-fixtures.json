@@ -41,9 +41,7 @@
         {
           "artifact_id": "art_prd",
           "path_or_url": "product/prd.md",
-          "title": "PRD",
-          "bot_id": "bot_product",
-          "kind": "file"
+          "title": "PRD"
         }
       ],
       "next": [
@@ -121,8 +119,6 @@
     "line": 1,
     "value": {
       "project_id": "prj_login",
-      "context": "created",
-      "note": null,
       "type": "project_card"
     }
   },
@@ -142,9 +138,7 @@
         {
           "artifact_id": "art_prd",
           "path_or_url": "product/prd.md",
-          "title": "PRD",
-          "bot_id": "bot_product",
-          "kind": "file"
+          "title": "PRD"
         }
       ],
       "project_id": "prj_login",
@@ -197,13 +191,6 @@
           "highlights": [],
           "members": [],
           "project_id": "prj_login",
-          "text": "只做邮箱登录，周六前完成。",
-          "version": 1,
-          "text_updated_by": {
-            "kind": "bot",
-            "bot_id": "bot_main"
-          },
-          "text_updated_at": "2026-10-09T10:19:02.312Z",
           "updated_at": "2026-10-09T10:19:02.312Z"
         }
       },
@@ -1278,13 +1265,6 @@
       ],
       "members": [],
       "project_id": "prj_login",
-      "text": "只做邮箱登录，周六前完成。",
-      "version": 1,
-      "text_updated_by": {
-        "kind": "bot",
-        "bot_id": "bot_main"
-      },
-      "text_updated_at": "2026-10-09T10:19:02.312Z",
       "updated_at": "2026-10-09T10:19:02.312Z"
     }
   },
@@ -1546,7 +1526,6 @@
         "是",
         "否"
       ],
-      "multi": false,
       "state": "pending",
       "text": "继续？"
     }
@@ -2080,8 +2059,7 @@
           },
           "seq": 1,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -2396,9 +2374,7 @@
           "blocks": [
             {
               "project_id": "prj_login",
-              "type": "project_card",
-              "context": "created",
-              "note": null
+              "type": "project_card"
             }
           ],
           "chat_id": "chat_main",
@@ -2418,8 +2394,7 @@
           },
           "seq": 2,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -2464,8 +2439,7 @@
           },
           "seq": 1,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -2592,8 +2566,7 @@
           },
           "seq": 2,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -3193,16 +3166,12 @@
                 {
                   "artifact_id": "art_prd",
                   "path_or_url": "product/prd.md",
-                  "title": "PRD",
-                  "bot_id": "bot_product",
-                  "kind": "file"
+                  "title": "PRD"
                 },
                 {
                   "artifact_id": "art_prototype",
                   "path_or_url": "product/prototype/",
-                  "title": "邮箱登录原型",
-                  "bot_id": "bot_product",
-                  "kind": "dir"
+                  "title": "邮箱登录原型"
                 }
               ],
               "next": [
@@ -3239,8 +3208,7 @@
           },
           "seq": 3,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -3411,8 +3379,7 @@
           },
           "seq": 4,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -3505,8 +3472,7 @@
           },
           "seq": 5,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -3557,8 +3523,7 @@
           },
           "seq": 5,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.updated",
@@ -3609,8 +3574,7 @@
           },
           "seq": 5,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.updated",
@@ -3702,8 +3666,7 @@
           },
           "seq": 6,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -3898,8 +3861,7 @@
           },
           "seq": 1,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -3947,16 +3909,12 @@
                 {
                   "artifact_id": "art_code",
                   "path_or_url": "code/",
-                  "title": "代码",
-                  "bot_id": "bot_code",
-                  "kind": "dir"
+                  "title": "代码"
                 },
                 {
                   "artifact_id": "art_preview",
                   "path_or_url": "http://localhost:3000",
-                  "title": "预览地址",
-                  "bot_id": "bot_code",
-                  "kind": "url"
+                  "title": "预览地址"
                 }
               ],
               "next": [
@@ -3993,8 +3951,7 @@
           },
           "seq": 7,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -4144,8 +4101,7 @@
           },
           "seq": 8,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -4260,8 +4216,7 @@
           },
           "seq": 9,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -4306,9 +4261,7 @@
                 {
                   "artifact_id": "art_report",
                   "path_or_url": "test/report.md",
-                  "title": "测试报告",
-                  "bot_id": "bot_test",
-                  "kind": "file"
+                  "title": "测试报告"
                 }
               ],
               "next": [
@@ -4343,8 +4296,7 @@
           },
           "seq": 10,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -4518,30 +4470,22 @@
                 {
                   "artifact_id": "art_prd",
                   "path_or_url": "product/prd.md",
-                  "title": "PRD",
-                  "bot_id": "bot_main",
-                  "kind": "file"
+                  "title": "PRD"
                 },
                 {
                   "artifact_id": "art_prototype",
                   "path_or_url": "product/prototype/",
-                  "title": "邮箱登录原型",
-                  "bot_id": "bot_main",
-                  "kind": "dir"
+                  "title": "邮箱登录原型"
                 },
                 {
                   "artifact_id": "art_code",
                   "path_or_url": "code/",
-                  "title": "代码",
-                  "bot_id": "bot_main",
-                  "kind": "dir"
+                  "title": "代码"
                 },
                 {
                   "artifact_id": "art_report",
                   "path_or_url": "test/report.md",
-                  "title": "测试报告",
-                  "bot_id": "bot_main",
-                  "kind": "file"
+                  "title": "测试报告"
                 }
               ],
               "project_id": "prj_login",
@@ -4566,8 +4510,7 @@
           },
           "seq": 3,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -4626,8 +4569,7 @@
           },
           "seq": 4,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.created",
@@ -4649,30 +4591,22 @@
                 {
                   "artifact_id": "art_prd",
                   "path_or_url": "product/prd.md",
-                  "title": "PRD",
-                  "bot_id": "bot_main",
-                  "kind": "file"
+                  "title": "PRD"
                 },
                 {
                   "artifact_id": "art_prototype",
                   "path_or_url": "product/prototype/",
-                  "title": "邮箱登录原型",
-                  "bot_id": "bot_main",
-                  "kind": "dir"
+                  "title": "邮箱登录原型"
                 },
                 {
                   "artifact_id": "art_code",
                   "path_or_url": "code/",
-                  "title": "代码",
-                  "bot_id": "bot_main",
-                  "kind": "dir"
+                  "title": "代码"
                 },
                 {
                   "artifact_id": "art_report",
                   "path_or_url": "test/report.md",
-                  "title": "测试报告",
-                  "bot_id": "bot_main",
-                  "kind": "file"
+                  "title": "测试报告"
                 }
               ],
               "project_id": "prj_login",
@@ -4697,8 +4631,7 @@
           },
           "seq": 3,
           "streaming": false,
-          "thread_count": 0,
-          "quote": null
+          "thread_count": 0
         }
       },
       "event": "message.updated",
