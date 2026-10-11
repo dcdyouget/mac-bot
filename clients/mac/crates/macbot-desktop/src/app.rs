@@ -2227,7 +2227,6 @@ impl MacBot {
 
     fn sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
-        let layout = t.desktop_layout;
         let mut list = div()
             .id("chat-list")
             .flex_1()
