@@ -540,7 +540,7 @@ fn chat_tr(key: &str) -> SharedString {
     .into()
 }
 
-fn inline_image(file: &Value, id: &str) -> Option<AnyElement> {
+fn inline_image(file: &Value, id: &str, max_width: f32) -> Option<AnyElement> {
     let bytes = file
         .get("bytes")
         .or_else(|| file.get("data"))
@@ -563,7 +563,7 @@ fn inline_image(file: &Value, id: &str) -> Option<AnyElement> {
     Some(
         img(image)
             .id(SharedString::from(format!("image-{id}")))
-            .max_w(px(620.))
+            .max_w(px(max_width))
             .h(px(280.))
             .object_fit(ObjectFit::Contain)
             .into_any_element(),
@@ -1369,7 +1369,8 @@ impl MacBot {
             .p(px(t.space[6]))
             .flex()
             .flex_col()
-            .gap(px(t.space[4]));
+            .gap(px(t.space[4]))
+            .text_size(px(t.desktop_type[3][0]));
         if s(&chat, "kind") == "project" {
             let project = self
                 .state
@@ -1558,7 +1559,7 @@ impl MacBot {
         composer = composer.child(
             div()
                 .rounded(px(t.radius[11]))
-                .bg(t.sidebar)
+                .bg(t.input)
                 .flex()
                 .items_end()
                 .gap(px(t.space[4]))
@@ -1814,6 +1815,7 @@ impl MacBot {
                             .child(
                                 div()
                                     .text_size(px(t.desktop_type[1][0]))
+                                    .text_color(t.link)
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(sender),
                             )
@@ -1914,7 +1916,11 @@ impl MacBot {
                     .flex()
                     .justify_end()
                     .text_size(px(t.desktop_type[1][0]))
-                    .text_color(t.tertiary)
+                    .text_color(if user {
+                        t.bubble_out_meta
+                    } else {
+                        t.bubble_meta
+                    })
                     .child(time),
             );
         }
@@ -1923,7 +1929,7 @@ impl MacBot {
             .flex_col()
             .min_w_0()
             .gap(px(t.space[2]))
-            .max_w(px(660.))
+            .max_w(px(t.desktop_layout.chat_max_content))
             .when(!user && !system && !merged_identity, |el| {
                 el.child(
                     div()
@@ -2122,6 +2128,7 @@ impl MacBot {
             .w_full()
             .min_w_0()
             .gap(px(t.space[5]))
+            .hover(|style| style.bg(t.hover))
             .when(is_focused || is_highlighted, |row| {
                 row.rounded(px(t.radius[8]))
                     .border_1()
@@ -2131,6 +2138,7 @@ impl MacBot {
                         t.border_strong
                     })
             })
+            .when(is_focused, |row| row.bg(t.selected))
             .when(user, |el| el.justify_end())
             .when(system, |el| el.justify_center())
             .when(!user && !system && merged_identity, |el| {
@@ -3391,7 +3399,7 @@ impl MacBot {
 
     fn inline_image(&mut self, file: &Value, id: &str, cx: &mut Context<Self>) -> AnyElement {
         let t = Tokens::get(cx);
-        if let Some(image) = inline_image(file, id) {
+        if let Some(image) = inline_image(file, id, t.desktop_layout.chat_max_content) {
             return image;
         }
         let key = image_key(file);
@@ -3421,7 +3429,7 @@ impl MacBot {
         if let Some(image) = self.image_cache.get(&key).cloned() {
             return img(image)
                 .id(SharedString::from(format!("image-{id}")))
-                .max_w(px(620.))
+                .max_w(px(t.desktop_layout.chat_max_content))
                 .h(px(280.))
                 .object_fit(ObjectFit::Contain)
                 .into_any_element();
@@ -3487,6 +3495,7 @@ impl MacBot {
         fallback_bot_id: &str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let t = Tokens::get(cx);
         let path = s(artifact, "path_or_url").to_string();
         let bot_id = if s(artifact, "bot_id").is_empty() {
             fallback_bot_id
@@ -3507,20 +3516,20 @@ impl MacBot {
         let mut row = div()
             .flex()
             .flex_col()
-            .gap_1()
+            .gap(px(t.space[2]))
             .child(format!("▤ {}", s(&artifact, "title")))
             .when(!author.is_empty(), |el| {
                 el.child(
                     div()
-                        .text_xs()
-                        .text_color(Tokens::get(cx).secondary)
+                        .text_size(px(t.desktop_type[1][0]))
+                        .text_color(t.secondary)
                         .child(author),
                 )
             })
             .child(
                 div()
-                    .text_xs()
-                    .text_color(Tokens::get(cx).code)
+                    .text_size(px(t.desktop_type[1][0]))
+                    .text_color(t.code_text)
                     .child(path.clone()),
             );
         if kind == "dir" {
@@ -3583,9 +3592,10 @@ impl MacBot {
             .flex()
             .items_center()
             .justify_between()
-            .p_3()
+            .p(px(t.space[5]))
             .border_b_1()
             .border_color(t.border)
+            .text_size(px(t.desktop_type[4][0]))
             .child(
                 Button::new("context-back")
                     .ghost()
@@ -3608,10 +3618,11 @@ impl MacBot {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .p_4()
+            .p(px(t.space[6]))
             .flex()
             .flex_col()
-            .gap_4();
+            .gap(px(t.space[6]))
+            .text_size(px(t.desktop_type[2][0]));
         if self.context.last().is_some_and(|p| p == "home") {
             let project = self
                 .state
@@ -3631,12 +3642,12 @@ impl MacBot {
                     div()
                         .flex()
                         .items_center()
-                        .gap_2()
+                        .gap(px(t.space[4]))
                         .child(
                             div()
                                 .flex_1()
-                                .text_xs()
-                                .text_color(t.code)
+                                .text_size(px(t.desktop_type[1][0]))
+                                .text_color(t.code_text)
                                 .child(project_path),
                         )
                         .child(
@@ -3663,7 +3674,7 @@ impl MacBot {
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
+                    .gap(px(t.space[4]))
                     .child(
                         Button::new("home-root")
                             .ghost()
@@ -3674,7 +3685,12 @@ impl MacBot {
                                 this.load_home_directory(project_id, String::new(), cx);
                             })),
                     )
-                    .child(div().text_xs().text_color(t.secondary).child(shown_path))
+                    .child(
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(t.secondary)
+                            .child(shown_path),
+                    )
                     .when(!self.home_path.is_empty(), |el| {
                         el.child(
                             Button::new("home-up")
@@ -3699,7 +3715,7 @@ impl MacBot {
             } else if !self.home_error.is_empty() {
                 body = body.child(
                     div()
-                        .text_xs()
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.danger)
                         .child(tr("home.error"))
                         .child(div().child(self.home_error.clone())),
@@ -3807,7 +3823,7 @@ impl MacBot {
                         .p(px(t.space[3]))
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(px(t.desktop_type[1][0]))
                                 .text_color(t.secondary)
                                 .child(chat_tr("group.announcement.local_draft")),
                         )
@@ -3826,7 +3842,7 @@ impl MacBot {
                         .p(px(t.space[3]))
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(px(t.desktop_type[1][0]))
                                 .text_color(t.secondary)
                                 .child(chat_tr("group.announcement.server_latest")),
                         )
@@ -3841,11 +3857,11 @@ impl MacBot {
                             .flex()
                             .flex_col()
                             .gap(px(t.space[3]))
-                            .px_3()
-                            .py_2()
-                            .rounded(px(6.))
+                            .px(px(t.space[5]))
+                            .py(px(t.space[4]))
+                            .rounded(px(t.radius[1]))
                             .bg(t.warning_soft)
-                            .text_xs()
+                            .text_size(px(t.desktop_type[1][0]))
                             .text_color(t.warning)
                             .child(
                                 chat_tr("group.announcement.conflict")
@@ -3940,12 +3956,15 @@ impl MacBot {
                 let announcement_len = self.announcement_draft.read(cx).value().chars().count();
                 let base_version = self.announcement_base_version;
                 body = body.child(
-                    div().text_xs().text_color(t.secondary).child(
-                        chat_tr("group.announcement.version")
-                            .to_string()
-                            .replace("{n}", &base_version.to_string())
-                            .replace("{len}", &format!("{announcement_len}")),
-                    ),
+                    div()
+                        .text_size(px(t.desktop_type[1][0]))
+                        .text_color(t.secondary)
+                        .child(
+                            chat_tr("group.announcement.version")
+                                .to_string()
+                                .replace("{n}", &base_version.to_string())
+                                .replace("{len}", &format!("{announcement_len}")),
+                        ),
                 );
                 body =
                     body.child(Textarea::new(&self.announcement_draft).disabled(!self.connected));
@@ -4034,7 +4053,11 @@ impl MacBot {
                 }
                 body = body.child(tr("context.highlights"));
                 for highlight in arr(&ann, "highlights") {
-                    body = body.child(div().text_sm().child(s(highlight, "text").to_string()));
+                    body = body.child(
+                        div()
+                            .text_size(px(t.desktop_type[3][0]))
+                            .child(s(highlight, "text").to_string()),
+                    );
                 }
                 body = body.child(self.rpc_button(
                     "archive-project",
@@ -4063,14 +4086,14 @@ impl MacBot {
                     div()
                         .flex()
                         .items_center()
-                        .gap_2()
+                        .gap(px(t.space[4]))
                         .child(home_button)
                         .child(
                             div()
                                 .flex_1()
-                                .font_family("SF Mono")
-                                .text_xs()
-                                .text_color(t.code)
+                                .font_family(t.font_mono_gpui)
+                                .text_size(px(t.desktop_type[9][0]))
+                                .text_color(t.code_text)
                                 .child(home_path),
                         )
                         .child(
@@ -4092,7 +4115,7 @@ impl MacBot {
                 let bot_id = s(chat, "bot_id");
                 let bot = self.state.bots.get(bot_id).cloned().unwrap_or(Value::Null);
                 body = body
-                    .child(bean(&bot, 48., cx))
+                    .child(bean(&bot, t.desktop_layout.avatar_panel, cx))
                     .child(
                         div()
                             .font_weight(FontWeight::SEMIBOLD)
@@ -4162,7 +4185,7 @@ impl MacBot {
             .size_full()
             .flex()
             .flex_col()
-            .bg(t.sidebar)
+            .bg(t.panel)
             .track_focus(&self.focus_context)
             .child(header)
             .child(body)
@@ -4199,8 +4222,8 @@ impl MacBot {
             .flex_none()
             .flex()
             .flex_col()
-            .gap_2()
-            .p_3()
+            .gap(px(tokens.space[4]))
+            .p(px(tokens.space[5]))
             .border_b_1()
             .border_color(tokens.border_subtle)
             .child(
@@ -4211,16 +4234,19 @@ impl MacBot {
                 ),
             )
             .child(
-                div().text_xs().text_color(tokens.secondary).child(
-                    tr("trace.queue.hint")
-                        .to_string()
-                        .replace("{bot}", &bot_name),
-                ),
+                div()
+                    .text_size(px(tokens.desktop_type[1][0]))
+                    .text_color(tokens.secondary)
+                    .child(
+                        tr("trace.queue.hint")
+                            .to_string()
+                            .replace("{bot}", &bot_name),
+                    ),
             );
         if queued.is_empty() {
             section = section.child(
                 div()
-                    .text_xs()
+                    .text_size(px(tokens.desktop_type[1][0]))
                     .text_color(tokens.tertiary)
                     .child(tr("trace.queue.empty")),
             );
@@ -4240,8 +4266,13 @@ impl MacBot {
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .child(div().flex_1().text_sm().child(excerpt))
+                    .gap(px(tokens.space[4]))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(tokens.desktop_type[3][0]))
+                            .child(excerpt),
+                    )
                     .child(
                         Button::new(SharedString::from(format!("trace-steer-{message_id}")))
                             .ghost()
