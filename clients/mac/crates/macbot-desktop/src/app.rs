@@ -3573,9 +3573,9 @@ impl Render for MacBot {
                         .bottom(px(t.space[0]))
                         .w(px(layout.panel_width))
                         .shadow(vec![
-                            BoxShadow::new(px(0.), px(t.elevation_offset_y[3]), t.shadow)
-                                .blur_radius(px(t.elevation_blur[3]))
-                                .spread_radius(px(t.elevation_outline[3])),
+                            BoxShadow::new(px(0.), px(t.elevation_offset_y[4]), t.shadow)
+                                .blur_radius(px(t.elevation_blur[4]))
+                                .spread_radius(px(t.elevation_outline[4])),
                         ])
                         .bg(t.panel)
                         .border_l_1()
@@ -3592,9 +3592,9 @@ impl Render for MacBot {
                         .bottom(px(t.space[0]))
                         .w(px(layout.sidebar_width))
                         .shadow(vec![
-                            BoxShadow::new(px(0.), px(t.elevation_offset_y[3]), t.shadow)
-                                .blur_radius(px(t.elevation_blur[3]))
-                                .spread_radius(px(t.elevation_outline[3])),
+                            BoxShadow::new(px(0.), px(t.elevation_offset_y[4]), t.shadow)
+                                .blur_radius(px(t.elevation_blur[4]))
+                                .spread_radius(px(t.elevation_outline[4])),
                         ])
                         .bg(t.sidebar)
                         .border_r_1()
