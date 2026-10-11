@@ -94,7 +94,7 @@ impl MacBot {
         let data = self.page_data();
         self.feature_view
             .update(cx, |v, cx| v.update_data(data, cx));
-        let mut data = json!({"local":self.local_settings,"settings":self.state.settings,"providers":self.state.providers.values().collect::<Vec<_>>(),"models":self.state.models.values().collect::<Vec<_>>()});
+        let mut data = json!({"local":self.local_settings,"settings":self.state.settings,"providers":self.state.providers.values().collect::<Vec<_>>(),"models":self.state.models.values().collect::<Vec<_>>(),"hello":self.state.hello.clone(),"connected":self.connected});
         if let Some(status) = self.feature_data.get("provider_test_status") {
             data["provider_test_status"] = status.clone();
         }

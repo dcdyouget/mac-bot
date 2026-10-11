@@ -57,6 +57,13 @@ pub fn text(key: &str) -> &'static str {
         "settings.computer.permissions" => "Bot 主机的系统权限",
         "settings.computer.open_system_settings" => "去系统设置",
         "settings.about.check_update" => "检查更新",
+        "settings.about.version" => "客户端 {client} · 协议 {protocol} · Host macbotd {server}",
+        "settings.about.version_unavailable" => {
+            "客户端 {client} · 协议 {protocol} · Host macbotd 版本暂不可用"
+        }
+        "settings.about.version_disconnected" => {
+            "客户端 {client} · 协议 {protocol} · Host macbotd 未连接"
+        }
         "settings.about.export_diag" => "导出诊断信息",
         "settings.about.exporting" => "正在导出诊断信息…",
         "settings.about.exported" => "诊断信息已导出",

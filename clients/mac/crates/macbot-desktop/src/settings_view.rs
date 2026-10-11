@@ -1082,6 +1082,32 @@ impl Render for SettingsView {
                 let patch = this.settings_patch(cx);
                 this.emit_rpc("settings.update", json!({"patch": patch}), cx);
             }));
+        let client_version = crate::update::current_version();
+        let hello = self
+            .data
+            .get("hello")
+            .filter(|_| self.data.get("connected").and_then(Value::as_bool) == Some(true));
+        let protocol_version = hello
+            .and_then(|hello| hello.get("protocol"))
+            .and_then(Value::as_u64)
+            .map(|version| version.to_string())
+            .unwrap_or_else(|| "—".to_owned());
+        let server_version = hello
+            .and_then(|hello| hello.get("server_version"))
+            .and_then(Value::as_str)
+            .filter(|version| !version.trim().is_empty());
+        let connected = self.data.get("connected").and_then(Value::as_bool) == Some(true);
+        let version_key = if server_version.is_some() {
+            "settings.about.version"
+        } else if connected {
+            "settings.about.version_unavailable"
+        } else {
+            "settings.about.version_disconnected"
+        };
+        let version_line = t(version_key)
+            .replace("{client}", &client_version)
+            .replace("{protocol}", &protocol_version)
+            .replace("{server}", server_version.unwrap_or("—"));
         div()
             .id("settings-view")
             .flex()
@@ -1501,16 +1527,7 @@ impl Render for SettingsView {
                         div()
                             .text_size(px(tokens.desktop_type[3][0]))
                             .text_color(tokens.secondary)
-                            .child(format!(
-                                "{} · v{} · {}",
-                                t("settings.section.about"),
-                                crate::update::current_version(),
-                                std::env::var("MACBOT_UPDATE_URL")
-                                    .ok()
-                                    .filter(|url| !url.trim().is_empty())
-                                    .or_else(|| { crate::update::load_update_url().ok().flatten() })
-                                    .unwrap_or_else(|| t("update_unconfigured").to_string())
-                            )),
+                            .child(version_line),
                     ),
             )
     }
