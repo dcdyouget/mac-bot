@@ -612,3 +612,5 @@ server 用户 App payload 已更新至 d56e92e，gateway 236 项通过；历史�
 ## design UI 协议请求与落地（2026-10-11）
 
 新版 `design/` 要求公告自由文本与版本编辑、同流引用回复、多选/过期问题、群卡片说明、链接预览、定时任务执行 Bot 编辑，以及“待看消息改为插话”。原协议缺相应字段或生产入口，故本开发分支申请兼容扩展；`protocol:` 提交 `ef90ee4`、`08c8369` 已同步 PROTOCOL、Rust、schema、fixtures，`server:` 提交 `c59fc84`、`20aa430` 已接真实服务端逻辑。`quote_mode` 区分 reply/reference，缺省 reply；`message.steer` 只接已排队且未提及 Bot 的用户消息与匹配的在运行任务，重复请求幂等。Kotlin/双端随分支跟进。此记录只说明开发分支的契约决策，不代表测试或部署通过。
+
+新版产物预览要求真实历史，现有协议缺版本接口：追加 `artifact.versions.list` 和 `artifact.version.get`，仅对新登记且可安全读取的项目文件存内容快照，不为旧产物、URL 或目录伪造版本。失败任务重试原为无效按钮：追加 `assignment.retry`，仅 `failed` 可用，以稳定 `client_request_id` 幂等创建关联原任务的新任务；`blocked` 和 `waiting_user` 不自动重跑。服务端、协议与两端按此契约实现，本分支不做测试或部署。
