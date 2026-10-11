@@ -1936,12 +1936,24 @@ fn workbench_job_row(
         && let Some(bot_id) = job.get("bot_id").and_then(Value::as_str)
         && !bot_id.is_empty()
     {
-        actions = actions.child(action_button_with_id(
-            format!("workbench-{row_key}-switch-model"),
-            t("block.blocked.switch_model"),
-            FeatureAction::Navigate(format!("bot_settings?bot_id={bot_id}")),
-            cx,
-        ));
+        actions = actions.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(tokens.space[1]))
+                .child(action_button_with_id(
+                    format!("workbench-{row_key}-switch-model"),
+                    t("block.blocked.switch_model"),
+                    FeatureAction::Navigate(format!("bot_settings?bot_id={bot_id}")),
+                    cx,
+                ))
+                .child(
+                    div()
+                        .text_size(px(tokens.desktop_type[1][0]))
+                        .text_color(tokens.secondary)
+                        .child(t("block.blocked.switch_model_hint")),
+                ),
+        );
     }
     div()
         .flex()
