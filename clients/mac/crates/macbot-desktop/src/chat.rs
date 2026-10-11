@@ -331,6 +331,7 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.question_submit" => "提交",
         "chat.question_expired" => "已过期",
         "chat.project_created" => "新建了群聊",
+        "chat.project_open" => "打开项目群聊",
         "chat.reference" => "引用",
         "chat.announcement_reload" => "载入最新公告",
         "chat.announcement_length" => "字",
@@ -1246,6 +1247,7 @@ impl MacBot {
         let t = Tokens::get(cx);
         let mut body = div().flex().flex_col().gap_2();
         let kind = s(block, "type");
+        let mut project_card_chat = None;
         match kind {
             "text" => {
                 return TextView::markdown(
@@ -1308,20 +1310,35 @@ impl MacBot {
                     .unwrap_or(Value::Null);
                 let project_id = s(block, "project_id").to_string();
                 let chat = s(&project, "chat_id").to_string();
-                body = body.child(
-                    Button::new(SharedString::from(format!("project-card-open-{id}")))
-                        .ghost()
-                        .small()
-                        .label(format!(
-                            "{} · {}",
-                            s(&project, "name"),
-                            state(s(&project, "status"))
-                        ))
-                        .on_click(cx.listener({
-                            let chat = chat.clone();
-                            move |this, _, window, cx| this.select_chat(chat.clone(), window, cx)
-                        })),
-                );
+                if kind == "project_card" && !chat.is_empty() {
+                    project_card_chat = Some(chat.clone());
+                }
+                let card_title =
+                    format!("{} · {}", s(&project, "name"), state(s(&project, "status")));
+                if kind == "project_card" {
+                    body = body.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(card_title)
+                            .child("›"),
+                    );
+                } else {
+                    body = body.child(
+                        Button::new(SharedString::from(format!("project-card-open-{id}")))
+                            .ghost()
+                            .small()
+                            .label(card_title)
+                            .on_click(cx.listener({
+                                let chat = chat.clone();
+                                move |this, _, window, cx| {
+                                    this.select_chat(chat.clone(), window, cx)
+                                }
+                            })),
+                    );
+                }
                 if s(block, "context") == "created" {
                     body = body.child(
                         div()
@@ -1371,15 +1388,17 @@ impl MacBot {
                                 })),
                         );
                 }
-                body = body.child(
-                    Button::new(SharedString::from(format!("enter-{id}")))
-                        .ghost()
-                        .small()
-                        .label(tr("action.enter"))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.select_chat(chat.clone(), window, cx)
-                        })),
-                );
+                if kind != "project_card" {
+                    body = body.child(
+                        Button::new(SharedString::from(format!("enter-{id}")))
+                            .ghost()
+                            .small()
+                            .label(tr("action.enter"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.select_chat(chat.clone(), window, cx)
+                            })),
+                    );
+                }
             }
             "task_card" => {
                 let aid = s(block, "assignment_id").to_string();
@@ -1746,7 +1765,17 @@ impl MacBot {
             // fallback is rendered exactly once.
             _ => {}
         }
-        body.into_any_element()
+        if let Some(chat) = project_card_chat {
+            body.id(SharedString::from(format!("project-card-{id}")))
+                .role(gpui::accesskit::Role::Button)
+                .aria_label(SharedString::from(chat_tr("chat.project_open")))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.select_chat(chat.clone(), window, cx)
+                }))
+                .into_any_element()
+        } else {
+            body.into_any_element()
+        }
     }
     fn rpc_button(
         &self,
