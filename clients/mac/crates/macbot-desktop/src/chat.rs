@@ -139,6 +139,20 @@ fn merges_bot_identity(previous: &Value, current: &Value) -> bool {
 }
 
 impl MessageListCache {
+    pub(super) fn len(&self) -> usize {
+        self.keys.len()
+    }
+
+    pub(super) fn message_at(&self, index: usize, view: &MacBot) -> Option<Value> {
+        self.keys.get(index).and_then(|key| list_message(view, key))
+    }
+
+    pub(super) fn index_of_message(&self, message_id: &str) -> Option<usize> {
+        self.keys
+            .iter()
+            .position(|key| matches!(key, MessageKey::Stored(id) if id == message_id))
+    }
+
     fn key_id(key: &MessageKey) -> String {
         match key {
             MessageKey::Stored(id) => format!("stored:{id}"),
@@ -245,6 +259,13 @@ fn message_display_text(message: &Value) -> &str {
 
 fn question_is_pending(question: &Value) -> bool {
     s(question, "state") == "pending" && question["expired"] != true
+}
+
+fn q_is_multi(question: &Value) -> bool {
+    question
+        .get("multi")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn question_label(question: &Value) -> &'static str {
@@ -371,6 +392,20 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.project_status" => "当前状态",
         "chat.question_submit" => "提交",
         "chat.question_expired" => "已过期",
+        "chat.question_stack_progress" => "{bot} 需要你决定 · 第 {n}/{total} 题 · 已答 {answered}",
+        "chat.question_stack_done" => "已回答 {n} 个问题",
+        "chat.question_stack_previous" => "上一题",
+        "chat.question_stack_next" => "下一题",
+        "chat.question_stack_question" => "问题 {n}",
+        "chat.question_stack_done_number" => "✓ {n}",
+        "chat.approval_ref_waiting" => "在私聊里等你审批",
+        "chat.approval_ref_go" => "前往",
+        "chat.approval_ref_summary" => "⚑ {bot} 在私聊里等你审批",
+        "chat.bot_dm_summary" => "✉ {sender} 私信了 {recipient}（{count} 条）",
+        "chat.quote_jump" => "跳转到引用的消息",
+        "chat.expand" => "展开⌄",
+        "chat.collapse" => "收起⌃",
+        "chat.bot_dm_loading" => "正在载入私信内容…",
         "chat.project_created" => "新建了群聊",
         "chat.project_open" => "打开项目群聊",
         "chat.time.yesterday" => "昨天",
@@ -450,6 +485,511 @@ fn image_format(mime: &str) -> ImageFormat {
 }
 
 impl MacBot {
+    fn remember_pending_action_handle(
+        &mut self,
+        message: &Value,
+        button_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> FocusHandle {
+        let handle = window
+            .use_keyed_state(SharedString::from(button_id.to_owned()), cx, |_, cx| {
+                cx.focus_handle()
+            })
+            .read(cx)
+            .clone();
+        let message_id = s(message, "id");
+        if !message_id.is_empty() {
+            self.pending_action_handles
+                .insert(message_id.to_owned(), handle.clone());
+        }
+        handle
+    }
+
+    pub(super) fn select_question_option(
+        &mut self,
+        question_id: String,
+        index: usize,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.connected {
+            return;
+        }
+        self.active_question_id = Some(question_id.clone());
+        let question = self
+            .state
+            .questions
+            .get(&question_id)
+            .cloned()
+            .unwrap_or(Value::Null);
+        if !question_is_pending(&question) || index >= arr(&question, "options").len() {
+            return;
+        }
+        if q_is_multi(&question) {
+            let selected = self.question_selections.entry(question_id).or_default();
+            if !selected.insert(index) {
+                selected.remove(&index);
+            }
+        } else {
+            self.rpc(
+                "question.answer",
+                json!({"question_id":question_id,"option_index":index}),
+                cx,
+            );
+        }
+        cx.notify();
+    }
+
+    pub(super) fn open_question_other(
+        &mut self,
+        question_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.connected {
+            return;
+        }
+        self.active_question_id = Some(question_id.clone());
+        self.question_selections
+            .entry(question_id.clone())
+            .or_default()
+            .insert(QUESTION_TEXT_SENTINEL);
+        if let Some(input) = self.question_inputs.get(&question_id).cloned() {
+            input.update(cx, |input, cx| input.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    pub(super) fn advance_question_after_answer(
+        &mut self,
+        question_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(message) = self.state.messages.values().find(|message| {
+            s(message, "chat_id") == self.selected_chat
+                && arr(message, "blocks").iter().any(|block| {
+                    s(block, "type") == "question" && s(block, "question_id") == question_id
+                })
+        }) else {
+            self.active_question_id = Some(question_id.to_owned());
+            cx.notify();
+            return;
+        };
+        let blocks = arr(message, "blocks");
+        let Some(position) = blocks.iter().position(|block| {
+            s(block, "type") == "question" && s(block, "question_id") == question_id
+        }) else {
+            return;
+        };
+        let start = blocks[..=position]
+            .iter()
+            .rposition(|block| s(block, "type") != "question")
+            .map(|index| index + 1)
+            .unwrap_or(0);
+        let end = blocks[position + 1..]
+            .iter()
+            .position(|block| s(block, "type") != "question")
+            .map(|offset| position + 1 + offset)
+            .unwrap_or(blocks.len());
+        let next = blocks[start..end]
+            .iter()
+            .skip(position + 1 - start)
+            .chain(blocks[start..position].iter())
+            .filter(|block| s(block, "question_id") != question_id)
+            .map(|block| s(block, "question_id"))
+            .find(|candidate| {
+                self.state
+                    .questions
+                    .get(*candidate)
+                    .is_some_and(question_is_pending)
+            });
+        self.active_question_id = Some(next.unwrap_or(question_id).to_owned());
+        cx.notify();
+    }
+
+    pub(super) fn jump_to_message(&mut self, message_id: &str, cx: &mut Context<Self>) -> bool {
+        let mut cache = std::mem::take(&mut self.message_list_cache);
+        cache.refresh(self);
+        let index = cache.index_of_message(message_id);
+        self.message_list_cache = cache;
+        if let Some(index) = index {
+            self.message_virtual_scroll.scroll_to_reveal_item(index);
+            self.message_following = false;
+            self.highlighted_message_id = Some(message_id.to_owned());
+            let message_id = message_id.to_owned();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |this, cx| {
+                executor.timer(std::time::Duration::from_millis(600)).await;
+                let _ = this.update(cx, |view, cx| {
+                    if view.highlighted_message_id.as_deref() == Some(message_id.as_str()) {
+                        view.highlighted_message_id = None;
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+            cx.notify();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(super) fn focus_latest_pending_action(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let latest = self
+            .state
+            .messages
+            .values()
+            .filter(|message| s(message, "chat_id") == self.selected_chat)
+            .filter_map(|message| {
+                let seq = message["seq"].as_u64().unwrap_or_default();
+                let actionable =
+                    arr(message, "blocks")
+                        .iter()
+                        .any(|block| match s(block, "type") {
+                            "question" => self
+                                .state
+                                .questions
+                                .get(s(block, "question_id"))
+                                .is_some_and(question_is_pending),
+                            "approval" => self
+                                .state
+                                .approvals
+                                .get(s(block, "approval_id"))
+                                .is_some_and(|approval| s(approval, "state") == "pending"),
+                            "review_card" => s(block, "state") == "pending",
+                            _ => false,
+                        });
+                actionable.then_some((seq, s(message, "id").to_owned(), message.clone()))
+            })
+            .max_by_key(|(seq, _, _)| *seq);
+        let Some((_, message_id, message)) = latest else {
+            return false;
+        };
+        if let Some(question_id) = arr(&message, "blocks")
+            .iter()
+            .find(|block| {
+                s(block, "type") == "question"
+                    && self
+                        .state
+                        .questions
+                        .get(s(block, "question_id"))
+                        .is_some_and(question_is_pending)
+            })
+            .map(|block| s(block, "question_id").to_owned())
+        {
+            self.active_question_id = Some(question_id);
+        }
+        let mut cache = std::mem::take(&mut self.message_list_cache);
+        cache.refresh(self);
+        let index = cache.index_of_message(&message_id);
+        self.message_list_cache = cache;
+        if let Some(index) = index {
+            self.message_virtual_scroll.scroll_to_reveal_item(index);
+            self.focus_message_index = Some(index);
+            if let Some(handle) = self.pending_action_handles.get(&message_id).cloned() {
+                handle.focus(window, cx);
+                cx.notify();
+                return true;
+            }
+            self.focus_messages.focus(window, cx);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(super) fn quote_focused_message(
+        &mut self,
+        mode: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = self.focus_message_index else {
+            return;
+        };
+        let Some(message) = self.message_list_cache.message_at(index, self) else {
+            return;
+        };
+        if message["pending"] == true || s(&message, "id").is_empty() {
+            return;
+        }
+        let message_id = s(&message, "id").to_owned();
+        self.quote_message = self.state.messages.get(&message_id).cloned();
+        if let Some(quote) = self.quote_message.as_mut() {
+            quote["quote_mode"] = json!(if mode == "reference" {
+                "reference"
+            } else {
+                "reply"
+            });
+            let excerpt = message_display_text(quote)
+                .chars()
+                .take(120)
+                .collect::<String>();
+            quote["excerpt"] = json!(excerpt);
+        }
+        self.composer
+            .update(cx, |input, cx| input.focus(window, cx));
+        cx.notify();
+    }
+
+    pub(super) fn move_question_stack(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(current) = self.active_question_id.as_deref() else {
+            return;
+        };
+        let Some(stack) = self.question_stack_for(current) else {
+            return;
+        };
+        let Some(index) = stack.iter().position(|id| id == current) else {
+            return;
+        };
+        let next = (index as isize + delta).clamp(0, stack.len() as isize - 1) as usize;
+        self.active_question_id = stack.get(next).cloned();
+        cx.notify();
+    }
+
+    pub(super) fn select_question_stack_number(&mut self, number: usize, cx: &mut Context<Self>) {
+        let Some(current) = self.active_question_id.as_deref() else {
+            return;
+        };
+        let Some(stack) = self.question_stack_for(current) else {
+            return;
+        };
+        if let Some(id) = stack.get(number).cloned() {
+            self.active_question_id = Some(id);
+            cx.notify();
+        }
+    }
+
+    pub(super) fn open_active_question_other(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(question_id) = self.active_question_id.clone() {
+            self.open_question_other(question_id, window, cx);
+        }
+    }
+
+    pub(super) fn question_shortcut(
+        &mut self,
+        action: &str,
+        option_index: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            "option" => {
+                if let (Some(question_id), Some(index)) =
+                    (self.active_question_id.clone(), option_index)
+                {
+                    self.select_question_option(question_id, index, window, cx);
+                }
+            }
+            "prev" => self.move_question_stack(-1, cx),
+            "next" => self.move_question_stack(1, cx),
+            "other" => self.open_active_question_other(window, cx),
+            _ => {}
+        }
+    }
+
+    fn question_stack_for(&self, question_id: &str) -> Option<Vec<String>> {
+        let message = self.state.messages.values().find(|message| {
+            s(message, "chat_id") == self.selected_chat
+                && arr(message, "blocks").iter().any(|block| {
+                    s(block, "type") == "question" && s(block, "question_id") == question_id
+                })
+        })?;
+        let blocks = arr(message, "blocks");
+        let position = blocks.iter().position(|block| {
+            s(block, "type") == "question" && s(block, "question_id") == question_id
+        })?;
+        let start = blocks[..=position]
+            .iter()
+            .rposition(|block| s(block, "type") != "question")
+            .map(|index| index + 1)
+            .unwrap_or(0);
+        let end = blocks[position + 1..]
+            .iter()
+            .position(|block| s(block, "type") != "question")
+            .map(|offset| position + 1 + offset)
+            .unwrap_or(blocks.len());
+        Some(
+            blocks[start..end]
+                .iter()
+                .map(|block| s(block, "question_id").to_owned())
+                .collect(),
+        )
+    }
+
+    fn question_stack(
+        &mut self,
+        message: &Value,
+        blocks: &[Value],
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let ids = blocks
+            .iter()
+            .map(|block| s(block, "question_id").to_owned())
+            .collect::<Vec<_>>();
+        let current_id = self
+            .active_question_id
+            .as_ref()
+            .filter(|active| ids.contains(active))
+            .cloned()
+            .or_else(|| {
+                ids.iter()
+                    .find(|id| {
+                        self.state
+                            .questions
+                            .get(*id)
+                            .is_some_and(question_is_pending)
+                    })
+                    .cloned()
+            })
+            .or_else(|| ids.first().cloned())
+            .unwrap_or_default();
+        self.active_question_id = Some(current_id.clone());
+        let current_index = ids.iter().position(|id| id == &current_id).unwrap_or(0);
+        let answered = ids
+            .iter()
+            .filter(|id| {
+                self.state
+                    .questions
+                    .get(*id)
+                    .is_some_and(|question| !question_is_pending(question))
+            })
+            .count();
+        let all_answered = answered == ids.len();
+        let bot_name = self
+            .state
+            .bots
+            .get(s(&message["sender"], "bot_id"))
+            .map(|bot| s(bot, "name").to_owned())
+            .unwrap_or_else(|| tr("chat.system").to_string());
+        let heading = if all_answered {
+            chat_tr("chat.question_stack_done")
+                .to_string()
+                .replace("{n}", &ids.len().to_string())
+        } else {
+            chat_tr("chat.question_stack_progress")
+                .to_string()
+                .replace("{bot}", &bot_name)
+                .replace("{n}", &(current_index + 1).to_string())
+                .replace("{total}", &ids.len().to_string())
+                .replace("{answered}", &answered.to_string())
+        };
+        let t = Tokens::get(cx);
+        let mut tabs = div().flex().items_center().gap_1().flex_wrap();
+        if !all_answered && current_index > 0 {
+            tabs = tabs.child(
+                Button::new(SharedString::from(format!("{id}-previous")))
+                    .ghost()
+                    .small()
+                    .label(chat_tr("chat.question_stack_previous"))
+                    .on_click(cx.listener(move |this, _, _, cx| this.move_question_stack(-1, cx))),
+            );
+        }
+        for (index, question_id) in ids.iter().enumerate() {
+            let question = self
+                .state
+                .questions
+                .get(question_id)
+                .cloned()
+                .unwrap_or(Value::Null);
+            let selected = question_id == &current_id;
+            let done = !question_is_pending(&question);
+            let label = if all_answered {
+                chat_tr("chat.question_stack_question")
+                    .to_string()
+                    .replace("{n}", &(index + 1).to_string())
+            } else if done {
+                chat_tr("chat.question_stack_done_number")
+                    .to_string()
+                    .replace("{n}", &(index + 1).to_string())
+            } else {
+                (index + 1).to_string()
+            };
+            let target = question_id.clone();
+            tabs = tabs.child(
+                Button::new(SharedString::from(format!("{id}-question-tab-{index}")))
+                    .when(selected, |button| button.primary())
+                    .when(!selected && done, |button| button.secondary())
+                    .when(!selected && !done, |button| button.ghost())
+                    .small()
+                    .label(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.active_question_id = Some(target.clone());
+                        cx.notify();
+                    })),
+            );
+        }
+        if !all_answered && current_index + 1 < ids.len() {
+            tabs = tabs.child(
+                Button::new(SharedString::from(format!("{id}-next")))
+                    .ghost()
+                    .small()
+                    .label(chat_tr("chat.question_stack_next"))
+                    .on_click(cx.listener(move |this, _, _, cx| this.move_question_stack(1, cx))),
+            );
+        }
+        let current = blocks.get(current_index).cloned().unwrap_or(Value::Null);
+        let current_block_id = format!("{id}-{}", current_index);
+        let question_card = self.block(message, &current, &current_block_id, window, cx);
+        let remaining = if all_answered {
+            0
+        } else {
+            ids.iter()
+                .filter(|question_id| {
+                    self.state
+                        .questions
+                        .get(*question_id)
+                        .is_some_and(question_is_pending)
+                })
+                .count()
+                .saturating_sub(1)
+                .min(2)
+        };
+        let mut stack = div()
+            .w_full()
+            .key_context("QuestionCard")
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.accent)
+                            .child(heading),
+                    )
+                    .child(tabs),
+            );
+        for layer in (0..remaining).rev() {
+            stack = stack.child(
+                div()
+                    .mx(px((layer + 1) as f32 * 8.))
+                    .h(px(8.))
+                    .rounded(px(8.))
+                    .bg(if layer == 0 { t.active } else { t.panel })
+                    .border_1()
+                    .border_color(t.border_subtle),
+            );
+        }
+        stack.child(question_card).into_any_element()
+    }
+
     pub(super) fn send_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.connected {
             self.notice = tr("error.offline").to_string();
@@ -584,31 +1124,37 @@ impl MacBot {
         if self.message_following {
             self.message_virtual_scroll.scroll_to_end();
         }
-        let list = list(self.message_virtual_scroll.clone(), move |index, _, cx| {
-            view_entity.update(cx, |view, cx| {
-                let keys = &view.message_list_cache.keys;
-                let key = &keys[index];
-                let message = list_message(view, key).unwrap_or(Value::Null);
-                let merged = index
-                    .checked_sub(1)
-                    .and_then(|previous| keys.get(previous))
-                    .and_then(|previous| list_message(view, previous))
-                    .is_some_and(|previous| merges_bot_identity(&previous, &message));
-                let row_id =
-                    SharedString::from(format!("message-row-{}", MessageListCache::key_id(key)));
-                div()
-                    .id(row_id)
-                    .w_full()
-                    .min_w_0()
-                    .child(view.message_row(&message, merged, cx))
-                    .into_any_element()
-            })
-        })
+        let list = list(
+            self.message_virtual_scroll.clone(),
+            move |index, window, cx| {
+                view_entity.update(cx, |view, cx| {
+                    let keys = &view.message_list_cache.keys;
+                    let key = &keys[index];
+                    let message = list_message(view, key).unwrap_or(Value::Null);
+                    let merged = index
+                        .checked_sub(1)
+                        .and_then(|previous| keys.get(previous))
+                        .and_then(|previous| list_message(view, previous))
+                        .is_some_and(|previous| merges_bot_identity(&previous, &message));
+                    let row_id = SharedString::from(format!(
+                        "message-row-{}",
+                        MessageListCache::key_id(key)
+                    ));
+                    div()
+                        .id(row_id)
+                        .w_full()
+                        .min_w_0()
+                        .child(view.message_row(&message, merged, window, cx))
+                        .into_any_element()
+                })
+            },
+        )
         .w_full()
         .flex_1()
         .min_h_0();
         let mut contents = div()
             .id("messages")
+            .key_context("ChatMessage")
             .track_focus(&self.focus_messages)
             .flex()
             .flex_col()
@@ -680,6 +1226,7 @@ impl MacBot {
         }
         let readonly = s(&chat, "kind") == "bot_dm";
         let mut composer = div()
+            .key_context("ChatComposer")
             .flex_none()
             .border_t_1()
             .border_color(t.border)
@@ -1041,6 +1588,7 @@ impl MacBot {
         &mut self,
         message: &Value,
         merged_identity: bool,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = Tokens::get(cx);
@@ -1074,6 +1622,7 @@ impl MacBot {
                 t.bubble_in_text
             });
         if let Some(quote) = message.get("quote").filter(|quote| !quote.is_null()) {
+            let quoted_message_id = s(quote, "message_id").to_owned();
             let sender = if s(&quote["sender"], "kind") == "user" {
                 tr("chat.me").to_string()
             } else {
@@ -1086,6 +1635,9 @@ impl MacBot {
             let excerpt = s(quote, "excerpt").to_owned();
             bubble = bubble.child(
                 div()
+                    .id(SharedString::from(format!("quote-jump-{id}")))
+                    .role(gpui::accesskit::Role::Button)
+                    .aria_label(chat_tr("chat.quote_jump"))
                     .flex()
                     .items_center()
                     .gap_2()
@@ -1105,7 +1657,19 @@ impl MacBot {
                                     .child(sender),
                             )
                             .child(div().text_xs().text_color(t.secondary).child(excerpt)),
-                    ),
+                    )
+                    .when(!quoted_message_id.is_empty(), |quote| {
+                        quote
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this.jump_to_message(&quoted_message_id, cx) {
+                                    let chat_id = this.selected_chat.clone();
+                                    this.pending_chat_jump =
+                                        Some((chat_id.clone(), quoted_message_id.clone()));
+                                    this.rpc("chat.history", json!({"chat_id":chat_id}), cx);
+                                }
+                            }))
+                    }),
             );
         }
         if message["streaming"] == true {
@@ -1130,8 +1694,42 @@ impl MacBot {
                 bubble = bubble.child(message_display_text(message).to_string());
             }
             let has_unknown = blocks.iter().any(|block| !known_block(s(block, "type")));
-            for (index, block) in blocks.iter().enumerate() {
-                bubble = bubble.child(self.block(message, block, &format!("{id}-{index}"), cx));
+            let mut index = 0;
+            while index < blocks.len() {
+                if s(&blocks[index], "type") == "question" {
+                    let end = blocks[index..]
+                        .iter()
+                        .position(|block| s(block, "type") != "question")
+                        .map(|offset| index + offset)
+                        .unwrap_or(blocks.len());
+                    if end - index > 1 {
+                        bubble = bubble.child(self.question_stack(
+                            message,
+                            &blocks[index..end],
+                            &format!("{id}-questions-{index}"),
+                            window,
+                            cx,
+                        ));
+                    } else {
+                        bubble = bubble.child(self.block(
+                            message,
+                            &blocks[index],
+                            &format!("{id}-{index}"),
+                            window,
+                            cx,
+                        ));
+                    }
+                    index = end;
+                } else {
+                    bubble = bubble.child(self.block(
+                        message,
+                        &blocks[index],
+                        &format!("{id}-{index}"),
+                        window,
+                        cx,
+                    ));
+                    index += 1;
+                }
             }
             if has_unknown && !message_display_text(message).is_empty() {
                 bubble = bubble.child(message_display_text(message).to_string());
@@ -1162,6 +1760,11 @@ impl MacBot {
                 )
             })
             .child(bubble);
+        let is_focused = self
+            .message_list_cache
+            .index_of_message(&id)
+            .is_some_and(|index| self.focus_message_index == Some(index));
+        let is_highlighted = self.highlighted_message_id.as_deref() == Some(id.as_str());
         for delivery in arr(message, "delivery") {
             let name = self
                 .state
@@ -1330,6 +1933,16 @@ impl MacBot {
             .w_full()
             .min_w_0()
             .gap_3()
+            .when(is_focused || is_highlighted, |row| {
+                row.rounded(px(12.))
+                    .border_1()
+                    .border_color(if is_highlighted {
+                        t.accent
+                    } else {
+                        t.border_strong
+                    })
+                    .when(is_highlighted, |row| row.bg(t.active))
+            })
             .when(user, |el| el.justify_end())
             .when(system, |el| el.justify_center())
             .when(!user && !system && merged_identity, |el| {
@@ -1346,6 +1959,7 @@ impl MacBot {
         message: &Value,
         block: &Value,
         id: &str,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = Tokens::get(cx);
@@ -1470,14 +2084,20 @@ impl MacBot {
                 }
                 if kind == "review_card" && s(block, "state") == "pending" {
                     let project_copy = project_id.clone();
+                    let button_id = format!("confirm-{id}");
+                    let focus =
+                        self.remember_pending_action_handle(message, &button_id, window, cx);
                     body = body
-                        .child(self.rpc_button(
-                            &format!("confirm-{id}"),
-                            "action.confirm",
-                            "project.confirm_done",
-                            json!({"project_id":project_id}),
-                            cx,
-                        ))
+                        .child(
+                            self.rpc_button(
+                                &button_id,
+                                "action.confirm",
+                                "project.confirm_done",
+                                json!({"project_id":project_id}),
+                                cx,
+                            )
+                            .track_focus(&focus),
+                        )
                         .child(
                             Button::new(SharedString::from(format!("changes-{id}")))
                                 .outline()
@@ -1615,13 +2235,20 @@ impl MacBot {
                     ));
                 if s(&approval, "state") == "pending" {
                     for decision in ["allow_once", "always_allow", "deny"] {
-                        body = body.child(self.rpc_button(
-                            &format!("{decision}-{id}"),
+                        let button_id = format!("{decision}-{id}");
+                        let mut button = self.rpc_button(
+                            &button_id,
                             &format!("action.{decision}"),
                             "approval.decide",
                             json!({"approval_id":approval["id"],"decision":decision}),
                             cx,
-                        ));
+                        );
+                        if decision == "allow_once" {
+                            let focus = self
+                                .remember_pending_action_handle(message, &button_id, window, cx);
+                            button = button.track_focus(&focus);
+                        }
+                        body = body.child(button);
                     }
                 } else {
                     let (label_key, color) = match s(&approval, "state") {
@@ -1634,23 +2261,153 @@ impl MacBot {
                     body = body.child(div().text_color(color).child(tr(label_key)));
                 }
             }
-            "approval_ref" | "bot_dm_ref" => {
-                let target = s(block, "chat_id").to_string();
+            "approval_ref" => {
+                let target_chat = s(block, "chat_id").to_owned();
+                let approval_id = s(block, "approval_id").to_owned();
+                let bot_name = self
+                    .state
+                    .chats
+                    .get(&target_chat)
+                    .and_then(|chat| self.state.bots.get(s(chat, "bot_id")))
+                    .map(|bot| s(bot, "name"))
+                    .unwrap_or_else(|| s(&message["sender"], "name"));
                 body = body
-                    .child(tr(if kind == "approval_ref" {
-                        "block.approval_ref"
-                    } else {
-                        "block.dm"
-                    }))
                     .child(
-                        Button::new(SharedString::from(format!("ref-{id}")))
-                            .ghost()
+                        chat_tr("chat.approval_ref_summary")
+                            .to_string()
+                            .replace("{bot}", bot_name),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("approval-ref-{id}")))
+                            .secondary()
                             .small()
-                            .label(tr("action.open"))
+                            .label(chat_tr("chat.approval_ref_go"))
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                this.select_chat(target.clone(), window, cx)
+                                this.pending_chat_jump =
+                                    Some((target_chat.clone(), approval_id.clone()));
+                                this.select_chat(target_chat.clone(), window, cx);
                             })),
                     );
+            }
+            "bot_dm_ref" => {
+                let target_chat = s(block, "chat_id").to_owned();
+                let count = block["count"].as_u64().unwrap_or(0);
+                let expanded = self.expanded_bot_dm_refs.contains(id);
+                let block_id = id.to_owned();
+                let history_chat_id = target_chat.clone();
+                let sender = self
+                    .state
+                    .bots
+                    .get(s(&message["sender"], "bot_id"))
+                    .map(|bot| s(bot, "name").to_owned())
+                    .unwrap_or_else(|| tr("chat.system").to_string());
+                let recipient = self
+                    .state
+                    .chats
+                    .get(&target_chat)
+                    .and_then(|chat| self.state.bots.get(s(chat, "bot_id")))
+                    .map(|bot| s(bot, "name").to_owned())
+                    .unwrap_or_else(|| {
+                        self.state
+                            .chats
+                            .get(&target_chat)
+                            .map(|chat| s(chat, "title").to_owned())
+                            .unwrap_or_else(|| tr("chat.system").to_string())
+                    });
+                body = body.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            chat_tr("chat.bot_dm_summary")
+                                .to_string()
+                                .replace("{sender}", &sender)
+                                .replace("{recipient}", &recipient)
+                                .replace("{count}", &count.to_string()),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("bot-dm-expand-{id}")))
+                                .ghost()
+                                .small()
+                                .label(chat_tr(if expanded {
+                                    "chat.collapse"
+                                } else {
+                                    "chat.expand"
+                                }))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if !this.expanded_bot_dm_refs.remove(&block_id) {
+                                        this.expanded_bot_dm_refs.insert(block_id.clone());
+                                        this.rpc(
+                                            "chat.history",
+                                            json!({"chat_id":history_chat_id.clone()}),
+                                            cx,
+                                        );
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                );
+                if expanded {
+                    let mut messages = self
+                        .state
+                        .messages
+                        .values()
+                        .filter(|message| {
+                            s(message, "chat_id") == target_chat && message["deleted"] != true
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    messages.sort_by_key(|message| message["seq"].as_u64().unwrap_or_default());
+                    let mut transcript = div()
+                        .ml(px(24.))
+                        .pl_3()
+                        .border_l_1()
+                        .border_color(t.border_subtle)
+                        .flex()
+                        .flex_col()
+                        .gap_2();
+                    if messages.is_empty() {
+                        transcript = transcript.child(chat_tr("chat.empty"));
+                    } else {
+                        for message in messages.iter().rev().take(count.max(1) as usize).rev() {
+                            let text = message_display_text(message);
+                            let bot_name = self
+                                .state
+                                .bots
+                                .get(s(&message["sender"], "bot_id"))
+                                .map(|bot| s(bot, "name").to_owned())
+                                .unwrap_or_else(|| {
+                                    if s(&message["sender"], "kind") == "user" {
+                                        tr("chat.me").to_string()
+                                    } else {
+                                        tr("chat.system").to_string()
+                                    }
+                                });
+                            transcript = transcript.child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(t.secondary)
+                                            .child(bot_name),
+                                    )
+                                    .child(TextView::markdown(
+                                        SharedString::from(format!(
+                                            "dm-ref-{id}-{}",
+                                            s(&message, "id")
+                                        )),
+                                        text.to_owned(),
+                                    )),
+                            );
+                        }
+                    }
+                    body = body.child(transcript);
+                }
             }
             "question" => {
                 let q = self
@@ -1661,6 +2418,14 @@ impl MacBot {
                     .unwrap_or(Value::Null);
                 let question_id = s(&q, "id").to_string();
                 let pending = question_is_pending(&q);
+                if pending
+                    && self
+                        .message_list_cache
+                        .index_of_message(s(message, "id"))
+                        .is_some_and(|index| self.focus_message_index == Some(index))
+                {
+                    self.active_question_id = Some(question_id.clone());
+                }
                 let multi = q["multi"].as_bool().unwrap_or(false);
                 let allow_free_text = q["allow_free_text"].as_bool().unwrap_or(false);
                 let selected = self
@@ -1680,32 +2445,57 @@ impl MacBot {
                         if multi {
                             let question = question_id.clone();
                             let label = option.as_str().unwrap_or("").to_owned();
-                            body = body.child(
-                                Button::new(SharedString::from(format!("option-{id}-{index}")))
-                                    .when(selected.contains(&index), |button| button.primary())
-                                    .when(!selected.contains(&index), |button| button.outline())
-                                    .small()
-                                    .label(label)
-                                    .disabled(!self.connected)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        let options = this
-                                            .question_selections
-                                            .entry(question.clone())
-                                            .or_default();
-                                        if !options.insert(index) {
-                                            options.remove(&index);
-                                        }
-                                        cx.notify();
-                                    })),
-                            );
+                            let button_id = format!("option-{id}-{index}");
+                            let mut button = Button::new(SharedString::from(button_id.clone()))
+                                .when(selected.contains(&index), |button| button.primary())
+                                .when(!selected.contains(&index), |button| button.outline())
+                                .small()
+                                .label(label)
+                                .disabled(!self.connected);
+                            if index == 0 {
+                                let focus = self.remember_pending_action_handle(
+                                    message, &button_id, window, cx,
+                                );
+                                button = button.track_focus(&focus);
+                            }
+                            body = body.child(button.on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.active_question_id = Some(question.clone());
+                                    let options = this
+                                        .question_selections
+                                        .entry(question.clone())
+                                        .or_default();
+                                    if !options.insert(index) {
+                                        options.remove(&index);
+                                    }
+                                    let _ = window;
+                                    cx.notify();
+                                },
+                            )));
                         } else {
-                            body = body.child(self.rpc_button(
-                                &format!("option-{id}-{index}"),
-                                option.as_str().unwrap_or(""),
-                                "question.answer",
-                                json!({"question_id":question_id,"option_index":index}),
-                                cx,
-                            ));
+                            let answer_question_id = question_id.clone();
+                            let button_id = format!("option-{id}-{index}");
+                            let mut button = Button::new(SharedString::from(button_id.clone()))
+                                .outline()
+                                .small()
+                                .label(option.as_str().unwrap_or(""))
+                                .disabled(!self.connected);
+                            if index == 0 {
+                                let focus = self.remember_pending_action_handle(
+                                    message, &button_id, window, cx,
+                                );
+                                button = button.track_focus(&focus);
+                            }
+                            body = body.child(button.on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.select_question_option(
+                                        answer_question_id.clone(),
+                                        index,
+                                        window,
+                                        cx,
+                                    );
+                                },
+                            )));
                         }
                     }
                     if multi {
@@ -1720,6 +2510,7 @@ impl MacBot {
                                 .label(chat_tr("chat.question_submit"))
                                 .disabled(!self.connected || !has_option_selection)
                                 .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.active_question_id = Some(submit_question_id.clone());
                                     let indexes = this
                                         .question_selections
                                         .get(&submit_question_id)
@@ -1746,17 +2537,7 @@ impl MacBot {
                             .label(chat_tr("chat.question_other"))
                             .disabled(!self.connected)
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                let options = this
-                                    .question_selections
-                                    .entry(open_input_id.clone())
-                                    .or_default();
-                                if options.insert(QUESTION_TEXT_SENTINEL)
-                                    && let Some(input) =
-                                        this.question_inputs.get(&open_input_id).cloned()
-                                {
-                                    input.update(cx, |input, cx| input.focus(window, cx));
-                                }
-                                cx.notify();
+                                this.open_question_other(open_input_id.clone(), window, cx);
                             }));
                         let mut other_controls = div().flex().items_center().gap_2().child(other);
                         if free_text_open {
@@ -1771,6 +2552,7 @@ impl MacBot {
                                     .label(chat_tr("chat.question_text"))
                                     .disabled(!self.connected)
                                     .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.active_question_id = Some(input_id.clone());
                                         let Some(input) =
                                             this.question_inputs.get(&input_id).cloned()
                                         else {
@@ -2020,6 +2802,8 @@ impl MacBot {
                     this.select_chat(chat.clone(), window, cx)
                 }))
                 .into_any_element()
+        } else if kind == "question" {
+            body.key_context("QuestionCard").into_any_element()
         } else {
             body.into_any_element()
         }

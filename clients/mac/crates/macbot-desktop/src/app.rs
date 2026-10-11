@@ -93,6 +93,24 @@ gpui_kit::actions!(
         ToggleContext,
         CycleFocus,
         CycleFocusBack,
+        FocusPrevMessage,
+        FocusNextMessage,
+        FocusedMessageReply,
+        FocusedMessageReference,
+        QuestionOption1,
+        QuestionOption2,
+        QuestionOption3,
+        QuestionOption4,
+        QuestionOption5,
+        QuestionOption6,
+        QuestionOption7,
+        QuestionOption8,
+        QuestionOption9,
+        QuestionPrev,
+        QuestionNext,
+        QuestionOther,
+        FocusPending,
+        SendMessage,
         EditAnnouncement,
         Back,
         Chat1,
@@ -150,6 +168,12 @@ pub struct MacBot {
     message_following: bool,
     focus: FocusHandle,
     focus_region: usize,
+    focus_message_index: Option<usize>,
+    active_question_id: Option<String>,
+    expanded_bot_dm_refs: BTreeSet<String>,
+    pending_action_handles: BTreeMap<String, FocusHandle>,
+    highlighted_message_id: Option<String>,
+    pending_chat_jump: Option<(String, String)>,
     focus_messages: FocusHandle,
     focus_context: FocusHandle,
     focus_sidebar: FocusHandle,
@@ -305,6 +329,12 @@ impl MacBot {
             message_following: true,
             focus: cx.focus_handle(),
             focus_region: 0,
+            focus_message_index: None,
+            active_question_id: None,
+            expanded_bot_dm_refs: BTreeSet::new(),
+            pending_action_handles: BTreeMap::new(),
+            highlighted_message_id: None,
+            pending_chat_jump: None,
             focus_messages: cx.focus_handle(),
             focus_context: cx.focus_handle(),
             focus_sidebar: cx.focus_handle(),
@@ -783,6 +813,25 @@ impl MacBot {
                 for v in arr(&value, "messages") {
                     insert(&mut self.state.messages, v, "id");
                 }
+                if s(params, "chat_id") == self.selected_chat
+                    && let Some((target_chat, target_id)) = self.pending_chat_jump.clone()
+                    && target_chat == self.selected_chat
+                {
+                    let target_message = self.state.messages.values().find(|message| {
+                        s(message, "chat_id") == target_chat
+                            && (s(message, "id") == target_id
+                                || arr(message, "blocks").iter().any(|block| {
+                                    s(block, "type") == "approval"
+                                        && s(block, "approval_id") == target_id
+                                }))
+                    });
+                    if let Some(message_id) =
+                        target_message.map(|message| s(message, "id").to_owned())
+                    {
+                        self.pending_chat_jump = None;
+                        self.jump_to_message(&message_id, cx);
+                    }
+                }
             }
             "assignment.list" => {
                 for v in arr(&value, "items") {
@@ -808,8 +857,10 @@ impl MacBot {
             }
             "question.answer" => {
                 if let Some(question) = value.get("question") {
+                    let question_id = s(question, "id").to_owned();
                     insert(&mut self.state.questions, question, "id");
-                    self.question_selections.remove(s(question, "id"));
+                    self.question_selections.remove(&question_id);
+                    self.advance_question_after_answer(&question_id, cx);
                 }
             }
             "artifact.versions.list" => {
@@ -1213,6 +1264,7 @@ impl MacBot {
         self.close_trace(cx);
         self.close_screen();
         self.message_following = true;
+        self.focus_message_index = None;
         self.selected_chat = id.clone();
         self.page = "chat".into();
         self.context.clear();
@@ -1434,6 +1486,31 @@ impl MacBot {
         if let Some(bot) = self.state.bots.get(s(&message["sender"], "bot_id"))
             && bot["notifications"] == false
         {
+            return;
+        }
+        let preferences = crate::local_settings::notification_preferences().unwrap_or_default();
+        let blocks = arr(message, "blocks");
+        let needs_you = blocks.iter().any(|block| {
+            matches!(
+                s(block, "type"),
+                "question" | "approval" | "takeover_request" | "blocked" | "loop_paused"
+            )
+        }) || arr(message, "delivery")
+            .iter()
+            .any(|delivery| s(delivery, "state") == "queued");
+        let review = blocks
+            .iter()
+            .any(|block| s(block, "type") == "review_card" && s(block, "state") == "pending");
+        let is_group = s(chat, "kind") == "project";
+        let is_dm = matches!(s(chat, "kind"), "direct" | "bot_dm" | "main");
+        let mentions_user = arr(message, "mentions")
+            .iter()
+            .any(|mention| s(mention, "kind") == "user");
+        let enabled = (needs_you && preferences.need_you)
+            || (review && preferences.review)
+            || (is_dm && mentions_user && preferences.dm_mention)
+            || (is_group && preferences.all_group);
+        if !enabled {
             return;
         }
         let app_is_active = cx.active_window().is_some();
@@ -1659,6 +1736,29 @@ impl MacBot {
             cx.notify();
             return;
         }
+    }
+    fn move_message_focus(&mut self, backwards: bool, window: &Window, cx: &mut Context<Self>) {
+        if self.page != "chat" || !self.focus_messages.contains_focused(window, cx) {
+            return;
+        }
+        let count = self.message_list_cache.len();
+        if count == 0 {
+            self.focus_message_index = None;
+            return;
+        }
+        let current =
+            self.focus_message_index
+                .unwrap_or(if backwards { count } else { usize::MAX });
+        let next = if backwards {
+            current.saturating_sub(1).min(count - 1)
+        } else if current == usize::MAX {
+            0
+        } else {
+            (current + 1).min(count - 1)
+        };
+        self.focus_message_index = Some(next);
+        self.message_virtual_scroll.scroll_to_reveal_item(next);
+        cx.notify();
     }
     fn navigate(&mut self, page: &str, cx: &mut Context<Self>) {
         self.cancel_search_open();
@@ -2566,8 +2666,10 @@ impl Render for MacBot {
         let window_width = window.bounds().size.width;
         let context_page = self.page == "chat" || self.context.last().is_some_and(|v| v == "trace");
         let context_requested = self.context_visible && context_page;
-        let context_overlay = context_requested && window_width < px(1200.);
+        let context_overlay = context_requested && window_width < px(1100.);
         let context_inline = context_requested && !context_overlay;
+        let sidebar_overlay = self.sidebar_visible && window_width < px(820.);
+        let sidebar_inline = self.sidebar_visible && !sidebar_overlay;
         let center = if self.page == "computer" {
             self.computer.clone().into_any_element()
         } else if self.page == "connect" {
@@ -2581,6 +2683,7 @@ impl Render for MacBot {
         };
         div()
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .bg(t.window)
@@ -2607,6 +2710,70 @@ impl Render for MacBot {
             )
             .on_action(cx.listener(|this, _: &CycleFocusBack, window, cx| {
                 this.cycle_focus(true, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusPending, window, cx| {
+                if this.page == "chat" {
+                    this.focus_message_index = None;
+                    this.focus_latest_pending_action(window, cx);
+                    if this.focus_message_index.is_none() {
+                        this.focus_messages.focus(window, cx);
+                    }
+                }
+            }))
+            .on_action(cx.listener(|this, _: &FocusPrevMessage, window, cx| {
+                this.move_message_focus(true, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusNextMessage, window, cx| {
+                this.move_message_focus(false, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusedMessageReply, window, cx| {
+                this.quote_focused_message("reply", window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &FocusedMessageReference, window, cx| {
+                    this.quote_focused_message("reference", window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &QuestionOption1, window, cx| {
+                this.question_shortcut("option", Some(0), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionOption2, window, cx| {
+                this.question_shortcut("option", Some(1), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionOption3, window, cx| {
+                this.question_shortcut("option", Some(2), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionOption4, window, cx| {
+                this.question_shortcut("option", Some(3), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionOption5, window, cx| {
+                this.question_shortcut("option", Some(4), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionOption6, window, cx| {
+                this.question_shortcut("option", Some(5), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionOption7, window, cx| {
+                this.question_shortcut("option", Some(6), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionOption8, window, cx| {
+                this.question_shortcut("option", Some(7), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionOption9, window, cx| {
+                this.question_shortcut("option", Some(8), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionPrev, window, cx| {
+                this.question_shortcut("prev", None, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionNext, window, cx| {
+                this.question_shortcut("next", None, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &QuestionOther, window, cx| {
+                this.question_shortcut("other", None, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SendMessage, window, cx| {
+                if this.page == "chat" {
+                    this.send_message(window, cx)
+                }
             }))
             .on_action(cx.listener(|this, _: &EditAnnouncement, window, cx| {
                 let project_id = this
@@ -2636,7 +2803,19 @@ impl Render for MacBot {
                 this.context_visible = true;
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &Back, window, cx| this.back(window, cx)))
+            .on_action(cx.listener(|this, _: &Back, window, cx| {
+                let width = window.bounds().size.width;
+                if width < px(1100.) && this.context_visible {
+                    this.context_visible = false;
+                    this.close_trace(cx);
+                    cx.notify();
+                } else if width < px(820.) && this.sidebar_visible {
+                    this.sidebar_visible = false;
+                    cx.notify();
+                } else {
+                    this.back(window, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &Chat1, window, cx| this.select_pinned(0, window, cx)))
             .on_action(cx.listener(|this, _: &Chat2, window, cx| this.select_pinned(1, window, cx)))
             .on_action(cx.listener(|this, _: &Chat3, window, cx| this.select_pinned(2, window, cx)))
@@ -2692,7 +2871,7 @@ impl Render for MacBot {
                 } else {
                     "main-panes-two"
                 })
-                .when(self.sidebar_visible, |el| {
+                .when(sidebar_inline, |el| {
                     el.child(
                         resizable_panel()
                             .size(px(260.))
@@ -2716,6 +2895,24 @@ impl Render for MacBot {
                     )
                 }),
             )
+            .when(sidebar_overlay || context_overlay, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .top(px(0.))
+                        .right(px(0.))
+                        .bottom(px(0.))
+                        .left(px(0.))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.sidebar_visible = false;
+                                this.context_visible = false;
+                                cx.notify();
+                            }),
+                        ),
+                )
+            })
             .when(context_overlay, |el| {
                 el.child(
                     div()
@@ -2724,10 +2921,26 @@ impl Render for MacBot {
                         .right(px(0.))
                         .bottom(px(0.))
                         .w(px(280.))
+                        .shadow_lg()
                         .bg(t.panel)
                         .border_l_1()
                         .border_color(t.border)
                         .child(self.context_panel(window, cx)),
+                )
+            })
+            .when(sidebar_overlay, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .top(px(0.))
+                        .left(px(0.))
+                        .bottom(px(0.))
+                        .w(px(260.))
+                        .shadow_lg()
+                        .bg(t.sidebar)
+                        .border_r_1()
+                        .border_color(t.border)
+                        .child(self.sidebar(cx)),
                 )
             })
     }
