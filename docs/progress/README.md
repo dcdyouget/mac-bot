@@ -1,3 +1,5 @@
+> 清理说明：按用户要求，已移除历史测试截图、日志、RPC journal 和验收数据文件；以下历史记录中的附件链接可能失效。代码、设计和文字记录保留，历史附件可从 Git 历史查看。此前未完成的验收不会因清理而变为通过。
+
 # Mac Bot 集成进度与使用说明
 
 最新结论（2026-10-11，fresh续验）：**S0–S4的既有阶段结论保持；S5 fresh仍未通过**。3d6b289 native pkg 与系统 receipt 保持不变；server `d56e92e703ce3e1a49dc37c080c8eea42cee3f9c` user-App payload 已部署，当前 PID `16934`，jobs 哈希、pending 和 plist 均保持不变，详见 [d56e92e 更新审计](S5/fresh-server-d56e92e-update.json)。同一 durable UUID `4dfb02dd-6117-492c-b806-6c1067eabd56` 的 live retry 返回 `{}`、耗时 0.038 秒，无新 operation，两个 takeover 记录和原 job hash 不变，但 `browser_takeover=false`；见 [同 UUID 幂等复核](S5/fresh-s4-takeover-same-uuid-d56e92e.json)。旧 scope 首次 done/自动关闭及后续重复消费失败均保留为历史边界，native 跨重启 Bot driver 仍待最终核验；d56 重启后 Android 截图仍显示 Bot 操作中、无输入框、接管/处理按钮，不能计新输入或完整 S4。Fresh-X-Readonly Bot 已按只读 scope 创建并发送唯一 x.com 只读请求；job 状态 failed、round 0，provider 返回 HTTP 429，未发生 browser 调用且不重发，不能写 X 通过。桌面旧画面、Dock timeout、BetterDisplay occlusion、性能与完整 S4/S5 验收仍未收口。

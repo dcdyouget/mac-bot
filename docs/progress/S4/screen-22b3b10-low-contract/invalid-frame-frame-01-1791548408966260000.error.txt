@@ -1,1 +1,0 @@
-screen low-quality frame width 1280 exceeds 640px
