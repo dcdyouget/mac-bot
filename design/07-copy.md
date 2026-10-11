@@ -372,6 +372,26 @@
 | trace.item.steer_applied | 已在下一步生效 |
 | trace.summary | 模型请求 {req} · 工具调用 {tools} · 子代理 {sub} · 插话 {steer} · 输入 {in} / 输出 {out} · {cost} |
 | trace.running | 运行中 |
+| trace.queue.review_message | 原文 |
+| trace.queue.review_result | 处理结果 |
+| trace.queue.review_details | 查看处理结果 |
+| trace.state.loading | 正在加载轨迹… |
+| trace.state.empty | 暂无运行轨迹 |
+| trace.state.no_matches | 没有匹配的轨迹 |
+| trace.state.error | 加载运行轨迹失败 |
+| trace.state.load_more | 加载更早记录 |
+| trace.state.unknown | 未知记录 |
+| trace.state.instruction_empty | 暂无任务指令 |
+| trace.state.request_context | 上下文 |
+| trace.state.thinking | 思考 |
+| trace.state.tool_failed | 工具执行失败 |
+| trace.state.run_failed | 运行失败 |
+| trace.state.returned | 任务结束 |
+| trace.state.waiting | 等待中 |
+| trace.state.resumed | 继续运行 |
+| trace.state.compaction | 上下文压缩 |
+| trace.state.subagent_task | 子代理任务 |
+| trace.state.from | 来自 |
 
 ## workbench · 工作台
 
