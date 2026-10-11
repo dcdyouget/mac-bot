@@ -29,6 +29,7 @@ const IDEMPOTENCY_FILE: &str = "data/features/idempotency.json";
 const SKILLS_FILE: &str = "data/features/skills.json";
 const CONVERSATIONS_FILE: &str = "data/features/conversations.json";
 const MAINTENANCE_FILE: &str = "data/features/maintenance.json";
+const PROFILE_ONBOARDING_FILE: &str = "data/features/profile_onboarding.json";
 
 #[derive(Debug, Error)]
 pub enum FeatureError {
@@ -158,6 +159,7 @@ pub struct FeatureService {
     maintenance: Arc<RwLock<Option<Arc<dyn AsyncMaintenanceProvider>>>>,
     maintenance_policy: Arc<RwLock<MaintenancePolicy>>,
     maintenance_state: Arc<RwLock<MaintenanceState>>,
+    profile_onboarding: Arc<Mutex<ProfileOnboardingState>>,
     project_finalize_lock: Arc<Mutex<()>>,
 }
 
@@ -186,6 +188,34 @@ impl Default for MaintenancePolicy {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct MaintenanceState {
     usage: BTreeMap<String, MaintenanceUsage>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct ProfileOnboardingState {
+    initial_prompted: bool,
+    reminder_sent: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileOnboardingPrompt {
+    Initialize,
+    Reminder,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProfileOnboardingStatus {
+    pub available: bool,
+    pub prompt: Option<ProfileOnboardingPrompt>,
+}
+
+pub struct UserProfileOnboardingInput {
+    pub run_id: String,
+    pub bot_id: String,
+    pub expected_version: u64,
+    pub name: Option<String>,
+    pub language: Option<String>,
+    pub identity: Option<String>,
+    pub skip: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -244,6 +274,9 @@ impl FeatureService {
         let maintenance_state = shared_store
             .read_snapshot::<MaintenanceState>(MAINTENANCE_FILE)?
             .unwrap_or_default();
+        let profile_onboarding = shared_store
+            .read_snapshot::<ProfileOnboardingState>(PROFILE_ONBOARDING_FILE)?
+            .unwrap_or_default();
         Ok(Self {
             shared_store,
             skill_registry: Arc::new(RwLock::new(registry)),
@@ -255,7 +288,122 @@ impl FeatureService {
             maintenance: Arc::new(RwLock::new(None)),
             maintenance_policy: Arc::new(RwLock::new(MaintenancePolicy::default())),
             maintenance_state: Arc::new(RwLock::new(maintenance_state)),
+            profile_onboarding: Arc::new(Mutex::new(profile_onboarding)),
             project_finalize_lock: Arc::new(Mutex::new(())),
+        })
+    }
+
+    /// Initialize the local user's profile and claim the one-time onboarding
+    /// prompt/reminder for an authenticated main-Bot private-chat request.
+    /// The caller must establish that the request is a direct user chat.
+    pub fn profile_onboarding_status(
+        &self,
+        host_timezone: &str,
+    ) -> FeatureResult<ProfileOnboardingStatus> {
+        let profile = self
+            .shared_memory
+            .user_profile_get_or_init(&self.memory_path, host_timezone)?;
+        if profile.onboarded {
+            return Ok(ProfileOnboardingStatus {
+                available: false,
+                prompt: None,
+            });
+        }
+
+        let mut state = self
+            .profile_onboarding
+            .lock()
+            .map_err(|_| FeatureError::Invalid("profile onboarding lock poisoned".into()))?;
+        let mut candidate = state.clone();
+        let prompt = if !candidate.initial_prompted {
+            candidate.initial_prompted = true;
+            Some(ProfileOnboardingPrompt::Initialize)
+        } else if !candidate.reminder_sent {
+            candidate.reminder_sent = true;
+            Some(ProfileOnboardingPrompt::Reminder)
+        } else {
+            None
+        };
+        if prompt.is_some() {
+            self.shared_store
+                .write_snapshot(PROFILE_ONBOARDING_FILE, &candidate)?;
+            *state = candidate;
+        }
+        Ok(ProfileOnboardingStatus {
+            available: true,
+            prompt,
+        })
+    }
+
+    pub fn profile_needs_first_connection_greeting(
+        &self,
+        host_timezone: &str,
+    ) -> FeatureResult<bool> {
+        let profile = self
+            .shared_memory
+            .user_profile_get_or_init(&self.memory_path, host_timezone)?;
+        Ok(!profile.onboarded
+            && profile.name.is_none()
+            && profile.language.is_none()
+            && profile.identity.is_none())
+    }
+
+    /// Apply the model's completion or explicit skip from an eligible
+    /// onboarding run. Ownership and actor are fixed by the gateway runtime.
+    pub fn set_user_profile_onboarding(
+        &self,
+        input: UserProfileOnboardingInput,
+    ) -> FeatureResult<FeatureResponse> {
+        if !input.skip
+            && input.name.is_none()
+            && input.language.is_none()
+            && input.identity.is_none()
+        {
+            return Err(FeatureError::Invalid(
+                "provide at least one profile field or set skip=true".into(),
+            ));
+        }
+        let params = json!({
+            "client_request_id":format!("profile-onboarding:{}", input.run_id),
+            "expected_version":input.expected_version,
+            "name":input.name.clone(),
+            "language":input.language.clone(),
+            "identity":input.identity.clone(),
+            "skip":input.skip,
+        });
+        self.transact_user_memory("memory.profile.onboard", &params, move |store| {
+            let profile =
+                store.apply_user_profile_onboarding(macbot_memory::UserProfileUpdate {
+                    // Existing profile state retains its Host timezone. This is
+                    // only a fallback for a malformed or legacy missing state.
+                    timezone: "UTC".into(),
+                    expected_version: input.expected_version,
+                    name: if input.skip {
+                        None
+                    } else {
+                        input.name.map(Some)
+                    },
+                    language: if input.skip {
+                        None
+                    } else {
+                        input.language.map(Some)
+                    },
+                    identity: if input.skip {
+                        None
+                    } else {
+                        input.identity.map(Some)
+                    },
+                    updated_by: macbot_memory::MemorySender::Bot {
+                        bot_id: input.bot_id,
+                    },
+                })?;
+            let profile = protocol_user_profile(&profile);
+            let result = json!({"profile":profile});
+            Ok((
+                result.clone(),
+                "memory.profile.updated".into(),
+                json!({"profile":profile}),
+            ))
         })
     }
 
@@ -2702,6 +2850,87 @@ mod tests {
             json!({"scope":"user","user_id":"local-user","run_id":"bot-run","content":"must not write user preference"}),
         );
         assert!(matches!(bot_write, Err(FeatureError::Invalid(_))));
+    }
+
+    #[test]
+    fn profile_onboarding_completes_or_skips_with_host_timezone_bot_actor_and_cas() {
+        let home = tempdir().unwrap().keep();
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let initial = service.profile_onboarding_status("Asia/Tokyo").unwrap();
+        assert!(initial.available);
+        assert_eq!(initial.prompt, Some(ProfileOnboardingPrompt::Initialize));
+
+        let completed = service
+            .set_user_profile_onboarding(UserProfileOnboardingInput {
+                run_id: "run-onboard".into(),
+                bot_id: "main-bot".into(),
+                expected_version: 1,
+                name: Some("Ari".into()),
+                language: Some("zh-CN".into()),
+                identity: Some("product designer".into()),
+                skip: false,
+            })
+            .unwrap();
+        let profile = &completed.result["profile"];
+        assert_eq!(profile["name"], "Ari");
+        assert_eq!(profile["language"], "zh-CN");
+        assert_eq!(profile["identity"], "product designer");
+        assert_eq!(profile["timezone"], "Asia/Tokyo");
+        assert_eq!(profile["onboarded"], true);
+        assert_eq!(profile["updated_by"]["kind"], "bot");
+        assert_eq!(profile["updated_by"]["bot_id"], "main-bot");
+        assert_eq!(completed.events[0].event, "memory.profile.updated");
+        assert!(!service.profile_onboarding_status("UTC").unwrap().available);
+
+        let stale = service.set_user_profile_onboarding(UserProfileOnboardingInput {
+            run_id: "run-stale".into(),
+            bot_id: "main-bot".into(),
+            expected_version: 1,
+            name: Some("Other".into()),
+            language: None,
+            identity: None,
+            skip: false,
+        });
+        assert!(matches!(stale, Err(FeatureError::UserProfileConflict(_))));
+
+        drop(service);
+        let restored = FeatureService::open(home, Vec::<PathBuf>::new()).unwrap();
+        let restored_profile = restored
+            .user_memory_rpc("memory.profile.get", json!({}), "UTC")
+            .unwrap();
+        assert_eq!(restored_profile.result["profile"]["timezone"], "Asia/Tokyo");
+        assert_eq!(restored_profile.result["profile"]["onboarded"], true);
+    }
+
+    #[test]
+    fn profile_onboarding_skip_and_single_reminder_survive_restart() {
+        let home = tempdir().unwrap().keep();
+        let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let initial = service.profile_onboarding_status("Asia/Shanghai").unwrap();
+        assert_eq!(initial.prompt, Some(ProfileOnboardingPrompt::Initialize));
+        let reminder = service.profile_onboarding_status("UTC").unwrap();
+        assert_eq!(reminder.prompt, Some(ProfileOnboardingPrompt::Reminder));
+        drop(service);
+
+        let restored = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
+        let after_restart = restored.profile_onboarding_status("UTC").unwrap();
+        assert!(after_restart.available);
+        assert_eq!(after_restart.prompt, None);
+        let skipped = restored
+            .set_user_profile_onboarding(UserProfileOnboardingInput {
+                run_id: "run-skip".into(),
+                bot_id: "main-bot".into(),
+                expected_version: 1,
+                name: None,
+                language: None,
+                identity: None,
+                skip: true,
+            })
+            .unwrap();
+        assert_eq!(skipped.result["profile"]["onboarded"], true);
+        assert_eq!(skipped.result["profile"]["updated_by"]["kind"], "bot");
+        assert_eq!(skipped.result["profile"]["timezone"], "Asia/Shanghai");
+        assert!(!restored.profile_onboarding_status("UTC").unwrap().available);
     }
 
     #[test]

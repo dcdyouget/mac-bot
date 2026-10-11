@@ -870,6 +870,22 @@ impl SharedMemoryStore {
         *store = candidate;
         Ok(profile)
     }
+
+    /// Commit the conversational first-run profile flow. It uses the same
+    /// field validation and CAS semantics as a normal profile update, while
+    /// recording that onboarding was completed (including an explicit skip).
+    pub fn user_profile_onboard_persisted(
+        &self,
+        path: impl AsRef<Path>,
+        update: UserProfileUpdate,
+    ) -> Result<UserProfile, MemoryError> {
+        let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
+        let mut candidate = store.clone_without_staging();
+        let profile = candidate.apply_user_profile_onboarding(update)?;
+        candidate.save_to(path)?;
+        *store = candidate;
+        Ok(profile)
+    }
 }
 
 impl MemoryStore {
@@ -1054,6 +1070,28 @@ impl MemoryStore {
         current.updated_by = update.updated_by;
         current.updated_at = Utc::now();
         Ok(current.clone())
+    }
+
+    pub fn apply_user_profile_onboarding(
+        &mut self,
+        update: UserProfileUpdate,
+    ) -> Result<UserProfile, MemoryError> {
+        if let Some(profile) = self
+            .user_profile
+            .as_ref()
+            .filter(|profile| profile.onboarded)
+        {
+            if profile.version != update.expected_version {
+                return Err(MemoryError::ProfileConflict(Box::new(profile.clone())));
+            }
+            return Err(MemoryError::Invalid(
+                "profile onboarding has already completed".into(),
+            ));
+        }
+        let mut profile = self.apply_user_profile_update(update)?;
+        profile.onboarded = true;
+        self.user_profile = Some(profile.clone());
+        Ok(profile)
     }
 
     pub fn user_quota(&self, target: &MemoryTarget) -> (usize, usize) {
@@ -1788,7 +1826,7 @@ pub fn assemble_context(store: &MemoryStore, request: &ContextRequest) -> Contex
         request.previous_snapshot.as_ref(),
         request.now,
     );
-    let memory_text = snapshot
+    let memory_entries = snapshot
         .entries
         .iter()
         .map(|entry| {
@@ -1801,6 +1839,20 @@ pub fn assemble_context(store: &MemoryStore, request: &ContextRequest) -> Contex
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let profile_text = if request
+        .memory_targets
+        .iter()
+        .any(|target| target.scope == MemoryScope::User && target.owner_id == "user")
+    {
+        store.user_profile.as_ref().map(render_user_profile)
+    } else {
+        None
+    };
+    let memory_text = match (profile_text, memory_entries.is_empty()) {
+        (Some(profile), true) => profile,
+        (Some(profile), false) => format!("{profile}\n{memory_entries}"),
+        (None, _) => memory_entries,
+    };
     let mut layers = vec![
         ContextLayer {
             level: 0,
@@ -1872,6 +1924,33 @@ pub fn assemble_context(store: &MemoryStore, request: &ContextRequest) -> Contex
         new_segment: snapshot_stale || threshold,
         segment_reason: reason,
     }
+}
+
+fn render_user_profile(profile: &UserProfile) -> String {
+    let mut lines = vec!["用户档案（优先参考）".to_owned()];
+    if let Some(name) = profile
+        .name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!("称呼：{name}"));
+    }
+    if let Some(language) = profile
+        .language
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!("语言：{language}"));
+    }
+    if let Some(identity) = profile
+        .identity
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!("身份：{identity}"));
+    }
+    lines.push(format!("Host 时区：{}", profile.timezone));
+    lines.join("\n")
 }
 
 trait KindName {
@@ -2369,6 +2448,93 @@ mod tests {
         assert!(!l3.contains("m0"));
         assert!(l3.contains("m10"));
         assert!(package.new_segment); // initial snapshot is intentionally a new segment
+    }
+
+    #[test]
+    fn user_profile_is_pinned_in_user_authorized_private_and_group_contexts() {
+        let mut store = MemoryStore::new();
+        store.user_profile = Some(UserProfile {
+            name: Some("小林".into()),
+            language: Some("zh-CN".into()),
+            identity: Some("设计师".into()),
+            timezone: "Asia/Shanghai".into(),
+            onboarded: true,
+            version: 2,
+            updated_by: MemorySender::User,
+            updated_at: Utc::now(),
+        });
+        let make_request = |kind, bot_id: &str, user_scope: bool| ContextRequest {
+            kind,
+            memory_targets: [
+                user_scope.then(|| MemoryTarget::user("user")),
+                Some(MemoryTarget::bot(bot_id)),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            l0_platform_rules: String::new(),
+            l1_bot_identity: String::new(),
+            announcement: String::new(),
+            task: String::new(),
+            trigger: String::new(),
+            references: vec![],
+            recent_messages: vec![],
+            segment_summary: String::new(),
+            recent_context: vec![],
+            run_events: vec![],
+            model_context_window: 128_000,
+            previous_snapshot: None,
+            now: Utc::now(),
+        };
+        for (kind, bot) in [
+            (ConversationKind::Private, "main"),
+            (ConversationKind::Private, "worker"),
+            (ConversationKind::Group, "worker"),
+        ] {
+            let context = assemble_context(&store, &make_request(kind, bot, true));
+            let l2 = &context.layers[2].content;
+            assert!(l2.starts_with("用户档案（优先参考）"));
+            assert!(l2.contains("称呼：小林"));
+            assert!(l2.contains("语言：zh-CN"));
+            assert!(l2.contains("身份：设计师"));
+            assert!(l2.contains("Host 时区：Asia/Shanghai"));
+        }
+
+        store
+            .apply_user_profile_update(UserProfileUpdate {
+                timezone: "UTC".into(),
+                expected_version: 2,
+                name: Some(Some("林女士".into())),
+                language: None,
+                identity: None,
+                updated_by: MemorySender::User,
+            })
+            .unwrap();
+        let updated = assemble_context(
+            &store,
+            &make_request(ConversationKind::Private, "worker-2", true),
+        );
+        assert!(updated.layers[2]
+            .content
+            .starts_with("用户档案（优先参考）"));
+        assert!(updated.layers[2].content.contains("称呼：林女士"));
+        assert!(!updated.layers[2].content.contains("称呼：小林"));
+
+        let bot_only = assemble_context(
+            &store,
+            &make_request(ConversationKind::Private, "worker-2", false),
+        );
+        assert!(!bot_only.layers[2].content.contains("用户档案"));
+        assert!(!bot_only.layers[2].content.contains("林女士"));
+        let other_user = assemble_context(
+            &store,
+            &ContextRequest {
+                memory_targets: vec![MemoryTarget::user("user-other")],
+                ..make_request(ConversationKind::Private, "worker-2", false)
+            },
+        );
+        assert!(!other_user.layers[2].content.contains("用户档案"));
+        assert!(!other_user.layers[2].content.contains("林女士"));
     }
 
     #[test]

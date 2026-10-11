@@ -3886,6 +3886,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mock_bootstrap_emits_one_stable_first_connection_greeting() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            mock: true,
+            ..Default::default()
+        });
+        gw.rpc("bootstrap", json!({})).await.unwrap();
+        gw.rpc("bootstrap", json!({})).await.unwrap();
+        let history = gw
+            .rpc("chat.history", json!({"chat_id":"chat_main","limit":100}))
+            .await
+            .unwrap();
+        let greetings = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| {
+                message.get("id").and_then(Value::as_str)
+                    == Some("msg_profile_onboarding_greeting_v1")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(greetings.len(), 1);
+        assert_eq!(greetings[0]["sender"]["bot_id"], "bot_main");
+        assert!(greetings[0]["fallback_text"]
+            .as_str()
+            .unwrap()
+            .contains("你也可以跳过"));
+
+        let completed = Gateway::new(GatewayConfig {
+            home: dir.path().join("completed-profile"),
+            password: Some("dev".into()),
+            mock: true,
+            ..Default::default()
+        });
+        completed
+            .rpc(
+                "memory.profile.update",
+                json!({"name":"Ari","expected_version":1}),
+            )
+            .await
+            .unwrap();
+        {
+            let mut state = completed.state.inner.write().await;
+            let profile = state
+                .extra
+                .get_mut("memory_user_profile")
+                .and_then(|profiles| profiles.first_mut())
+                .unwrap();
+            profile["onboarded"] = json!(true);
+        }
+        completed.rpc("bootstrap", json!({})).await.unwrap();
+        completed.rpc("bootstrap", json!({})).await.unwrap();
+        let history = completed
+            .rpc("chat.history", json!({"chat_id":"chat_main","limit":100}))
+            .await
+            .unwrap();
+        assert!(!history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message.get("id").and_then(Value::as_str)
+                    == Some("msg_profile_onboarding_greeting_v1")
+            }));
+    }
+
+    #[tokio::test]
     async fn formal_node_id_is_uuidv7_and_persists() {
         let dir = tempfile::tempdir().unwrap();
         let first = Gateway::new(GatewayConfig {

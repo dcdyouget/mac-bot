@@ -70,6 +70,7 @@ async fn dispatch(
         "ping" => Ok(json!({"server_time":now()})),
         "session.resume" => Ok(json!({"mode":"replay"})),
         "bootstrap" => {
+            ensure_mock_profile_greeting(state);
             let hello = json!({
                 "protocol":1,"server_version":"0.1.0","node_id":gateway.node_id.read().await.clone(),
                 "host_name":gateway.host_name.read().await.clone(),"server_time":now(),
@@ -1043,6 +1044,28 @@ fn ensure_mock_user_memory(state: &mut MockState) {
                 "updated_by":{"kind":"system"},
                 "updated_at":now()
             })],
+        );
+    }
+}
+
+fn ensure_mock_profile_greeting(state: &mut MockState) {
+    let profile = extra_get(state, "memory_user_profile")
+        .into_iter()
+        .next()
+        .unwrap_or(Value::Null);
+    let is_empty = profile.get("onboarded").and_then(Value::as_bool) != Some(true)
+        && ["name", "language", "identity"]
+            .iter()
+            .all(|field| profile.get(field).is_none_or(Value::is_null));
+    if is_empty {
+        upsert_mock_message(
+            state,
+            "chat_main",
+            "msg_profile_onboarding_greeting_v1",
+            json!({"kind":"bot","bot_id":"bot_main"}),
+            json!([{"type":"text","markdown":"你好，我是总管。为了之后更好地配合你，想先了解你希望我怎么称呼你、使用什么语言，以及你的身份或角色；你也可以跳过。"}]),
+            "你好，我是总管。为了之后更好地配合你，想先了解你希望我怎么称呼你、使用什么语言，以及你的身份或角色；你也可以跳过。".into(),
+            None,
         );
     }
 }
@@ -4560,16 +4583,22 @@ mod contract_tests {
             json!({"chat_id":"chat_main","limit":100}),
         )
         .await;
-        assert!(history["messages"].as_array().unwrap().iter().any(|message| {
-            message["id"] == "msg_main_welcome"
-                && message["chat_id"] == "chat_main"
-                && message["sender"]["kind"] == "user"
-        }));
+        assert!(history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["id"] == "msg_main_welcome"
+                    && message["chat_id"] == "chat_main"
+                    && message["sender"]["kind"] == "user"
+            }));
         assert!(initial["entries"].as_array().unwrap().iter().any(|entry| {
             entry["source"]["chat_id"] == "chat_main"
-                && history["messages"].as_array().unwrap().iter().any(|message| {
-                    message["id"] == entry["source"]["message_id"]
-                })
+                && history["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|message| message["id"] == entry["source"]["message_id"])
         }));
         let created = call(
             &gateway,

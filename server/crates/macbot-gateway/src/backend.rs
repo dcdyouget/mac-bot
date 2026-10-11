@@ -18,7 +18,8 @@ use crate::{
     },
     features::{
         FeatureError, FeatureService, MaintenanceTickReport, MaintenanceUsageContext,
-        MaintenanceUsageSink, ModelMaintenanceAdapter, SharedFeatureService,
+        MaintenanceUsageSink, ModelMaintenanceAdapter, ProfileOnboardingPrompt,
+        SharedFeatureService,
     },
     memory_tools::{FeatureExecutionSink, FeatureRunContext, FeatureToolRuntime},
     GatewayState, RpcBackend,
@@ -1497,7 +1498,34 @@ impl ComposedBackend {
             "direct"
         };
         let private = chat_kind != "project";
-        let tools = bot_tool_allowlist(bot, bot_is_main, private, self.web_search_configured());
+        let mut tools = bot_tool_allowlist(bot, bot_is_main, private, self.web_search_configured());
+        let onboarding =
+            if bot_is_main && private && assignment_id.is_none() && project_id.is_none() {
+                let host_timezone = self
+                    .inner
+                    .orchestrator
+                    .rpc("settings.get", json!({}))
+                    .await
+                    .ok()
+                    .and_then(|result| result.get("settings").cloned())
+                    .and_then(|settings| {
+                        settings
+                            .get("timezone")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    })
+                    .unwrap_or_else(|| "UTC".to_owned());
+                self.feature_service
+                    .profile_onboarding_status(&host_timezone)
+                    .ok()
+            } else {
+                None
+            };
+        if onboarding.is_some_and(|status| status.available) {
+            tools
+                .get_or_insert_with(Vec::new)
+                .push("set_user_profile".into());
+        }
         let run_id = if private {
             message_id
                 .map(|id| {
@@ -1526,6 +1554,17 @@ impl ComposedBackend {
             .ok();
         let mut messages =
             self.chat_model_messages(&snapshot, &chat_id, &bot_id, message_id, history.as_ref());
+        if let Some(prompt) = onboarding.and_then(|status| status.prompt) {
+            let content = match prompt {
+                ProfileOnboardingPrompt::Initialize => {
+                    "首次私聊初始化：自然地询问用户希望使用的称呼、语言和身份；用户可以随时跳过。只在用户回答或明确跳过后调用 set_user_profile，并传入档案当前 expected_version。Host 时区只读，不询问也不修改。完成后简短确认。"
+                }
+                ProfileOnboardingPrompt::Reminder => {
+                    "用户档案仍未完成。这是唯一一次主动提醒：自然询问用户是否愿意补充称呼、语言和身份，也可以跳过；Host 时区只读。用户若明确补充，可用 set_user_profile 完成初始化。"
+                }
+            };
+            messages.insert(0, json!({"role":"system","content":content}));
+        }
         messages.push(json!({"role":"user","content":instruction}));
         let price = self.runtime.price_for_model(&model);
         let cwd = self.runtime.cwd_for(project_id.as_deref(), &bot_id);
@@ -3279,6 +3318,61 @@ impl crate::RpcBackend for ComposedBackend {
     }
 
     async fn call(&self, method: &str, params: Value, state: &GatewayState) -> crate::RpcResult {
+        if method == "bootstrap" {
+            let snapshot = self
+                .inner
+                .orchestrator
+                .snapshot()
+                .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+            let main_bot = snapshot
+                .get("bots")
+                .and_then(Value::as_object)
+                .and_then(|bots| {
+                    bots.values()
+                        .find(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+                });
+            if let Some(bot) = main_bot {
+                let bot_id = bot.get("id").and_then(Value::as_str).unwrap_or("main");
+                let chat_id = bot
+                    .get("dm_chat_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("chat_main");
+                let timezone = self
+                    .inner
+                    .orchestrator
+                    .rpc("settings.get", json!({}))
+                    .await
+                    .ok()
+                    .and_then(|result| result.get("settings").cloned())
+                    .and_then(|settings| {
+                        settings
+                            .get("timezone")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    })
+                    .unwrap_or_else(|| "UTC".to_owned());
+                let needs_greeting = self
+                    .feature_service
+                    .profile_needs_first_connection_greeting(&timezone)
+                    .map_err(feature_rpc_error)?;
+                if needs_greeting {
+                    self.inner
+                        .call(
+                            "send_msg",
+                            json!({
+                                "bot_id":bot_id,
+                                "chat_id":chat_id,
+                                "client_request_id":"profile-onboarding:first-connection-greeting:v1",
+                                "text":"你好，我是总管。为了之后更好地配合你，想先了解你希望我怎么称呼你、使用什么语言，以及你的身份或角色；你也可以跳过。",
+                                "intent":"ack",
+                                "mentions":[]
+                            }),
+                            state,
+                        )
+                        .await?;
+                }
+            }
+        }
         if method == "trace.history" {
             return self.trace_history(&params);
         }
@@ -5700,7 +5794,7 @@ impl RuntimeExecution {
                     })
             })
             .unwrap_or_default();
-        MemoryAccess::group(project_id.to_owned(), members)
+        MemoryAccess::group_for_user("user", project_id.to_owned(), members)
     }
 
     fn visible_project_ids(&self, request: &ExecutionRequest, is_main: bool) -> Vec<String> {
@@ -5856,6 +5950,15 @@ impl RuntimeExecution {
         context.project_id = request.project_id.clone();
         context.session_id = Some(request.chat_id.clone());
         context.chat_id = Some(request.chat_id.clone());
+        context.profile_onboarding = is_main
+            && request.private
+            && request.assignment_id.is_none()
+            && request.project_id.is_none()
+            && !request.routine
+            && request
+                .tools
+                .as_ref()
+                .is_some_and(|tools| tools.iter().any(|tool| tool == "set_user_profile"));
         context.access = self.feature_access(request);
         context.recent_context = request
             .messages
@@ -7942,6 +8045,118 @@ mod persistence_tests {
             assignments.push(value["id"].as_str().unwrap().to_owned());
         }
         (backend, gateway.state, assignments)
+    }
+
+    #[tokio::test]
+    async fn first_connection_greeting_is_idempotent_across_bootstrap_and_restart() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let inner = Arc::new(ProductionBackend::open(&path).unwrap());
+        let composed =
+            ComposedBackend::open(inner.clone(), gateway.state.clone(), path.clone()).unwrap();
+        wait_for_startup_recovery(&composed).await;
+
+        for _ in 0..2 {
+            composed
+                .call("bootstrap", json!({}), &gateway.state)
+                .await
+                .expect("bootstrap should succeed");
+        }
+        let history = composed
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .expect("read greeted chat history");
+        let greeting_count = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| {
+                message.pointer("/sender/kind").and_then(Value::as_str) == Some("bot")
+                    && message
+                        .pointer("/fallback_text")
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| text.contains("你也可以跳过"))
+            })
+            .count();
+        assert_eq!(greeting_count, 1);
+
+        drop(composed);
+        drop(inner);
+        let reopened = Arc::new(ProductionBackend::open(&path).unwrap());
+        let after_restart =
+            ComposedBackend::open(reopened.clone(), gateway.state.clone(), path.clone()).unwrap();
+        after_restart
+            .call("bootstrap", json!({}), &gateway.state)
+            .await
+            .expect("bootstrap after restart should succeed");
+        let history = reopened
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .expect("read restarted chat history");
+        let greeting_count = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| {
+                message.pointer("/sender/kind").and_then(Value::as_str) == Some("bot")
+                    && message
+                        .pointer("/fallback_text")
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| text.contains("你也可以跳过"))
+            })
+            .count();
+        assert_eq!(greeting_count, 1);
+    }
+
+    #[tokio::test]
+    async fn runtime_feature_access_authorizes_host_user_profile_for_private_and_group_runs() {
+        let (inner, state, assignments) = seeded_backend().await;
+        let snapshot = inner.orchestrator.snapshot().unwrap();
+        let assignment = snapshot["assignments"][&assignments[0]].clone();
+        let project_id = assignment["project_id"].as_str().unwrap();
+        let bot_id = assignment["bot_id"].as_str().unwrap();
+        let dir = tempdir().unwrap();
+        let composed =
+            ComposedBackend::open(inner, state.clone(), dir.path().to_path_buf()).unwrap();
+        wait_for_startup_recovery(&composed).await;
+        let private: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":"private-profile-access",
+            "chat_id":"chat_main",
+            "bot_id":"main",
+            "model":"mock/model",
+            "instruction":"test",
+            "private":true
+        }))
+        .unwrap();
+        let group: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":"group-profile-access",
+            "chat_id":assignment["origin_chat_id"],
+            "bot_id":bot_id,
+            "model":"mock/model",
+            "instruction":"test",
+            "private":false,
+            "project_id":project_id
+        }))
+        .unwrap();
+
+        let private_access = composed.runtime.feature_access(&private);
+        let group_access = composed.runtime.feature_access(&group);
+        assert_eq!(private_access.user_id.as_deref(), Some("user"));
+        assert_eq!(group_access.user_id.as_deref(), Some("user"));
+        assert_eq!(group_access.project_id.as_deref(), Some(project_id));
+        assert!(group_access.is_project_member(bot_id, project_id));
     }
 
     fn unwrap_arc<T>(value: Arc<T>) -> T {

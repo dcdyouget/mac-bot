@@ -3,7 +3,9 @@
 //! Transport registration belongs to `backend.rs`; this module owns the actual
 //! calls and carries the authenticated run context into `FeatureService`.
 
-use crate::features::{FeatureError, FeatureService, MemoryAccess, MemoryActor};
+use crate::features::{
+    FeatureError, FeatureService, MemoryAccess, MemoryActor, UserProfileOnboardingInput,
+};
 use async_trait::async_trait;
 use macbot_memory::{ContextPackage, ContextRequest, MemoryEntry, MemorySource, MemoryTarget};
 use macbot_skills::SkillDraftFrom;
@@ -27,6 +29,9 @@ pub struct FeatureRunContext {
     pub session_id: Option<String>,
     pub chat_id: Option<String>,
     pub allow_memory: bool,
+    /// This run was admitted by the gateway's main-Bot private onboarding
+    /// policy. Model arguments cannot turn this capability on.
+    pub profile_onboarding: bool,
     /// Runtime supplied prompt metadata. Defaults are deliberately stable so
     /// older callers keep the same context shape until they provide richer
     /// Bot/project settings.
@@ -53,6 +58,7 @@ impl FeatureRunContext {
             session_id: None,
             chat_id: None,
             allow_memory: true,
+            profile_onboarding: false,
             model_context_window: 128_000,
             bot_identity: None,
             draft_from: None,
@@ -76,6 +82,7 @@ impl FeatureRunContext {
             session_id: None,
             chat_id: None,
             allow_memory: true,
+            profile_onboarding: false,
             model_context_window: 128_000,
             bot_identity: None,
             draft_from: None,
@@ -128,6 +135,15 @@ impl FeatureRunContext {
         context.project_id = request.project_id.clone();
         context.session_id = Some(request.chat_id.clone());
         context.chat_id = Some(request.chat_id.clone());
+        context.profile_onboarding = is_main
+            && request.private
+            && request.assignment_id.is_none()
+            && request.project_id.is_none()
+            && !request.routine
+            && request
+                .tools
+                .as_ref()
+                .is_some_and(|tools| tools.iter().any(|tool| tool == "set_user_profile"));
         context
     }
 }
@@ -192,6 +208,11 @@ impl FeatureToolRuntime {
         // mutation and must never be exposed in its model tool set.
         if !self.run.actor.is_main() {
             tools.push(Arc::new(SkillDraftTool {
+                runtime: self.clone(),
+            }));
+        }
+        if self.run.profile_onboarding {
+            tools.push(Arc::new(SetUserProfileTool {
                 runtime: self.clone(),
             }));
         }
@@ -638,6 +659,102 @@ impl Tool for SkillTool {
 
 struct MemoryTool {
     runtime: FeatureToolRuntime,
+}
+
+struct SetUserProfileTool {
+    runtime: FeatureToolRuntime,
+}
+
+#[async_trait]
+impl Tool for SetUserProfileTool {
+    fn name(&self) -> &str {
+        "set_user_profile"
+    }
+
+    fn description(&self) -> &str {
+        "Complete the first private-chat profile setup for the user, or mark onboarding skipped. Ask for name, preferred language, and identity; never ask for or change the Host timezone. Use only after the user answers or asks to skip."
+    }
+
+    fn schema(&self) -> Value {
+        json!({
+            "type":"object",
+            "required":["expected_version"],
+            "properties":{
+                "expected_version":{"type":"integer","minimum":1},
+                "name":{"type":"string","maxLength":20},
+                "language":{"type":"string","maxLength":35},
+                "identity":{"type":"string","maxLength":100},
+                "skip":{"type":"boolean","description":"Set true when the user explicitly skips onboarding; this marks the profile onboarded without changing its fields."}
+            },
+            "additionalProperties":false
+        })
+    }
+
+    fn risk(&self, _: &Value) -> Risk {
+        Risk::Write
+    }
+
+    async fn call(&self, ctx: &ToolContext, args: Value) -> ToolResult {
+        if !self.runtime.run.profile_onboarding
+            || !matches!(self.runtime.run.actor, MemoryActor::MainBot { .. })
+            || !self.runtime.run.private
+            || self.runtime.run.project_id.is_some()
+            || self.runtime.run.access.user_id.is_none()
+        {
+            return ToolResult::error("profile onboarding is unavailable in this run");
+        }
+        let result = (|| -> Result<Value, FeatureError> {
+            let object = object(&args)?;
+            if object.keys().any(|key| {
+                !matches!(
+                    key.as_str(),
+                    "expected_version" | "name" | "language" | "identity" | "skip"
+                )
+            }) {
+                return Err(FeatureError::Invalid(
+                    "unknown set_user_profile argument".into(),
+                ));
+            }
+            let expected_version = object
+                .get("expected_version")
+                .and_then(Value::as_u64)
+                .filter(|version| *version > 0)
+                .ok_or_else(|| FeatureError::Invalid("expected_version is required".into()))?;
+            let skip = object.get("skip").and_then(Value::as_bool).unwrap_or(false);
+            let field = |key: &str| -> Result<Option<String>, FeatureError> {
+                match object.get(key) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(Value::String(value)) => Ok(Some(value.clone())),
+                    Some(_) => Err(FeatureError::Invalid(format!("{key} must be a string"))),
+                }
+            };
+            let bot_id = match &self.runtime.run.actor {
+                MemoryActor::MainBot { bot_id } => bot_id,
+                _ => unreachable!("actor checked before parsing"),
+            };
+            let run_id = self
+                .runtime
+                .run
+                .run_id
+                .as_deref()
+                .filter(|run_id| *run_id == ctx.run_id)
+                .ok_or_else(|| FeatureError::Invalid("onboarding run identity mismatch".into()))?;
+            let response =
+                self.runtime
+                    .service
+                    .set_user_profile_onboarding(UserProfileOnboardingInput {
+                        run_id: run_id.to_owned(),
+                        bot_id: bot_id.to_owned(),
+                        expected_version,
+                        name: field("name")?,
+                        language: field("language")?,
+                        identity: field("identity")?,
+                        skip,
+                    })?;
+            Ok(response.result)
+        })();
+        into_result(result)
+    }
 }
 
 #[async_trait]
@@ -1279,6 +1396,60 @@ mod tests {
         assert!(!runtime.run.private);
     }
 
+    #[test]
+    fn profile_onboarding_tool_is_private_main_only_and_requires_gateway_admission() {
+        let home = tempdir().unwrap().keep();
+        let service = FeatureService::open_shared(home, Vec::new()).unwrap();
+        let make_request = |private: bool, project_id: Option<&str>| {
+            serde_json::from_value::<crate::execution::ExecutionRequest>(json!({
+                "run_id":"run-onboarding",
+                "chat_id":"chat-main",
+                "bot_id":"main",
+                "model":"mock/model",
+                "instruction":"hello",
+                "private":private,
+                "project_id":project_id,
+                "tools":["set_user_profile"]
+            }))
+            .unwrap()
+        };
+
+        let private_main = make_request(true, None);
+        let main_runtime = FeatureToolRuntime::for_execution(
+            Arc::clone(&service),
+            &private_main,
+            MemoryAccess::user("local-user"),
+            true,
+        );
+        assert!(main_runtime
+            .tools()
+            .iter()
+            .any(|tool| tool.name() == "set_user_profile"));
+
+        let group_request = make_request(false, Some("project-a"));
+        let group_runtime = FeatureToolRuntime::for_execution(
+            Arc::clone(&service),
+            &group_request,
+            MemoryAccess::group("project-a", vec!["main".into()]),
+            true,
+        );
+        assert!(!group_runtime
+            .tools()
+            .iter()
+            .any(|tool| tool.name() == "set_user_profile"));
+
+        let bot_runtime = FeatureToolRuntime::for_execution(
+            service,
+            &private_main,
+            MemoryAccess::user("local-user"),
+            false,
+        );
+        assert!(!bot_runtime
+            .tools()
+            .iter()
+            .any(|tool| tool.name() == "set_user_profile"));
+    }
+
     #[tokio::test]
     async fn memory_tool_commits_immediately_and_uses_compare_and_swap() {
         let runtime = runtime();
@@ -1713,5 +1884,78 @@ mod tests {
         assert!(!package.layers[3].content.contains("m0"));
         assert!(package.new_segment);
         assert_eq!(MemoryScope::User.to_string(), "user");
+    }
+
+    #[test]
+    fn runtime_user_and_project_group_targets_receive_only_the_authorized_profile() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        service
+            .user_memory_rpc("memory.profile.get", json!({}), "Asia/Shanghai")
+            .unwrap();
+        service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"name":"Initial Name","expected_version":1}),
+                "Asia/Shanghai",
+            )
+            .unwrap();
+
+        let make_request = |bot_id: &str, private: bool, project_id: Option<&str>| {
+            serde_json::from_value::<crate::execution::ExecutionRequest>(json!({
+                "run_id":"profile-context-run",
+                "chat_id":"profile-context-chat",
+                "bot_id":bot_id,
+                "model":"mock/model",
+                "instruction":"continue",
+                "private":private,
+                "project_id":project_id
+            }))
+            .unwrap()
+        };
+        let context = |request: &crate::execution::ExecutionRequest, access: MemoryAccess| {
+            let runtime =
+                FeatureToolRuntime::for_execution(Arc::clone(&service), request, access, false);
+            let sink = FeatureExecutionSink::new(Arc::new(EventRecordingSink::default()), runtime);
+            let request = sink.context_request(request);
+            sink.runtime.context(&request).unwrap()
+        };
+
+        let private_request = make_request("worker-a", true, None);
+        let private = context(&private_request, MemoryAccess::user("user"));
+        assert!(private.layers[2]
+            .content
+            .starts_with("用户档案（优先参考）"));
+        assert!(private.layers[2].content.contains("称呼：Initial Name"));
+
+        let group_request = make_request("worker-b", false, Some("project-a"));
+        let group = context(
+            &group_request,
+            MemoryAccess::group_for_user("user", "project-a", vec!["worker-b".into()]),
+        );
+        assert!(group.layers[2].content.starts_with("用户档案（优先参考）"));
+        assert!(group.layers[2].content.contains("称呼：Initial Name"));
+
+        service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"name":"Updated Name","expected_version":2}),
+                "Asia/Shanghai",
+            )
+            .unwrap();
+        let updated_group = context(
+            &group_request,
+            MemoryAccess::group_for_user("user", "project-a", vec!["worker-b".into()]),
+        );
+        assert!(updated_group.layers[2]
+            .content
+            .contains("称呼：Updated Name"));
+        assert!(!updated_group.layers[2]
+            .content
+            .contains("称呼：Initial Name"));
+
+        let other_user = context(&private_request, MemoryAccess::user("user-other"));
+        assert!(!other_user.layers[2].content.contains("用户档案"));
+        assert!(!other_user.layers[2].content.contains("Updated Name"));
     }
 }
