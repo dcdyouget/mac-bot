@@ -125,6 +125,10 @@ gpui_kit::actions!(
         CycleFocusBack,
         FocusPrevMessage,
         FocusNextMessage,
+        OpenCurrentTrace,
+        PreviousChat,
+        NextChat,
+        NextPendingChat,
         FocusedMessageReply,
         FocusedMessageReference,
         QuestionOption1,
@@ -1543,6 +1547,127 @@ impl MacBot {
             }
         }
         cx.notify();
+    }
+    fn visible_chat_ids(&self) -> Vec<String> {
+        let mut ids = self
+            .state
+            .chats
+            .values()
+            .filter(|chat| s(chat, "kind") == "main")
+            .map(|chat| s(chat, "id").to_owned())
+            .collect::<Vec<_>>();
+
+        let mut groups = self
+            .state
+            .chats
+            .values()
+            .filter(|chat| s(chat, "kind") == "project")
+            .collect::<Vec<_>>();
+        groups.sort_by_key(|chat| {
+            (
+                !chat["pinned"].as_bool().unwrap_or(false),
+                self.sidebar_attention_rank(chat),
+                std::cmp::Reverse(s(chat, "updated_at").to_owned()),
+            )
+        });
+        ids.extend(groups.into_iter().filter_map(|chat| {
+            let status = self
+                .state
+                .projects
+                .get(s(chat, "project_id"))
+                .map(|project| s(project, "status"))
+                .unwrap_or("active");
+            (status != "archived" && (status != "done" || self.show_completed))
+                .then(|| s(chat, "id").to_owned())
+        }));
+
+        ids.extend(
+            self.state
+                .bots
+                .values()
+                .filter(|bot| bot["is_main"] != true)
+                .filter(|bot| self.show_hidden || bot["hidden"] != true)
+                .filter_map(|bot| {
+                    self.state
+                        .chats
+                        .get(s(bot, "dm_chat_id"))
+                        .map(|chat| s(chat, "id").to_owned())
+                }),
+        );
+        ids
+    }
+
+    fn chat_has_pending_item(&self, chat_id: &str) -> bool {
+        self.state
+            .messages
+            .values()
+            .filter(|message| s(message, "chat_id") == chat_id)
+            .any(|message| {
+                arr(message, "blocks")
+                    .iter()
+                    .any(|block| match s(block, "type") {
+                        "question" => self
+                            .state
+                            .questions
+                            .get(s(block, "question_id"))
+                            .is_some_and(|question| {
+                                s(question, "state") == "pending" && question["expired"] != true
+                            }),
+                        "approval" => self
+                            .state
+                            .approvals
+                            .get(s(block, "approval_id"))
+                            .is_some_and(|approval| s(approval, "state") == "pending"),
+                        "review_card" => s(block, "state") == "pending",
+                        _ => false,
+                    })
+            })
+    }
+
+    fn select_adjacent_chat(
+        &mut self,
+        previous: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.page != "chat" {
+            return;
+        }
+        let ids = self.visible_chat_ids();
+        if ids.len() < 2 {
+            return;
+        }
+        let current = ids.iter().position(|id| id == &self.selected_chat);
+        let next = match (current, previous) {
+            (Some(index), true) => (index + ids.len() - 1) % ids.len(),
+            (Some(index), false) => (index + 1) % ids.len(),
+            (None, _) => 0,
+        };
+        self.select_chat(ids[next].clone(), window, cx);
+    }
+
+    fn select_next_pending_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.page != "chat" {
+            return;
+        }
+        let ids = self.visible_chat_ids();
+        if ids.len() < 2 {
+            return;
+        }
+        let current = ids.iter().position(|id| id == &self.selected_chat);
+        let start = current.unwrap_or(ids.len() - 1);
+        let next = (1..=ids.len())
+            .map(|offset| (start + offset) % ids.len())
+            .find(|index| self.chat_has_pending_item(&ids[*index]));
+        if let Some(index) = next {
+            self.select_chat(ids[index].clone(), window, cx);
+        }
+    }
+
+    fn open_current_trace(&mut self, cx: &mut Context<Self>) {
+        if self.page == "chat" && !self.selected_chat.is_empty() {
+            self.open_trace(None, cx);
+        }
     }
     fn open_computer(&mut self, bot: String, cx: &mut Context<Self>) {
         self.open_computer_with_options(bot, false, cx);
@@ -3226,6 +3351,16 @@ impl Render for MacBot {
             }))
             .on_action(cx.listener(|this, _: &FocusNextMessage, window, cx| {
                 this.move_message_focus(false, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &OpenCurrentTrace, _, cx| this.open_current_trace(cx)))
+            .on_action(cx.listener(|this, _: &PreviousChat, window, cx| {
+                this.select_adjacent_chat(true, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &NextChat, window, cx| {
+                this.select_adjacent_chat(false, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &NextPendingChat, window, cx| {
+                this.select_next_pending_chat(window, cx)
             }))
             .on_action(cx.listener(|this, _: &FocusedMessageReply, window, cx| {
                 this.quote_focused_message("reply", window, cx)
