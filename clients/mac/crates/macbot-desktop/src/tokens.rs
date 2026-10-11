@@ -149,18 +149,13 @@ impl Tokens {
             [0x4a6a9b, 0x5e9c88, 0xc0956a, 0x9a7bb5, 0xb86b6b, 0x8c8c8c]
         }
         .map(solid);
-        let heat = if dark {
-            [0x1f1f22, 0x26324a, 0x3a5070, 0x5d7ba8, 0x8aa6d6]
-        } else {
-            [0xecece8, 0xcdd7e5, 0x9db0cc, 0x6b87b0, 0x4a6a9b]
-        }
-        .map(solid);
+        let heat = heatmap_colors(dark);
         let avatar = [
             0x7c93b8, 0x86a894, 0xc6a47e, 0xa08dbf, 0xc48a8a, 0x7fa9ae, 0xb5a36c, 0x9b9b9b,
             0xc49ab0, 0x8c9bc4,
         ]
         .map(solid);
-        let heatmap_activity = heat[1..5].try_into().unwrap_or([heat[1]; 4]);
+        let heatmap_activity = activity_colors(heat);
         let mut desktop_type = [
             [11., 14., 400., 0.1],
             [12., 16., 400., 0.],
@@ -284,6 +279,21 @@ impl Tokens {
     pub fn bean(&self, index: u64) -> Hsla {
         self.avatar[index as usize % self.avatar.len()]
     }
+}
+
+/// Dashboard heat colors, independent of `App` for focused palette tests.
+pub(crate) fn heatmap_colors(dark: bool) -> [Hsla; 5] {
+    if dark {
+        [0x1f1f22, 0x26324a, 0x3a5070, 0x5d7ba8, 0x8aa6d6]
+    } else {
+        [0xecece8, 0xcdd7e5, 0x9db0cc, 0x6b87b0, 0x4a6a9b]
+    }
+    .map(solid)
+}
+
+/// Four activity levels derived from the heat palette, excluding its empty level.
+pub(crate) fn activity_colors(heat: [Hsla; 5]) -> [Hsla; 4] {
+    heat[1..5].try_into().unwrap_or([heat[1]; 4])
 }
 
 fn solid(hex: u32) -> Hsla {
