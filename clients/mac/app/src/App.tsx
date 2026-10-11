@@ -24,6 +24,7 @@ import { welcomeTemplateRetryAction, type WelcomeTemplateChoice } from './compon
 import { buildMainEmptySuggestionAction, splitSidebarGroups } from './components/sidebarGroups.model'
 import { classifyDeepLink, type PendingDeepLink } from './components/deepLinkRouting.model'
 import { CONTEXT_PANEL_TRANSITION_MS, transitionContextPanel, type ContextPanelPhase } from './components/contextPanelMotion.model'
+import { isKeepInMenubarEnabled, isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPreferencePatch } from './components/localPreferences.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
 import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './components/ChatAttachments'
@@ -128,6 +129,7 @@ function App() {
   const [hostDialogOpen, setHostDialogOpen] = useState(false)
   const [hostError, setHostError] = useState<string | null>(null)
   const [localPreferences, setLocalPreferences] = useState<LocalPreferences>({})
+  const [localPreferencesLoaded, setLocalPreferencesLoaded] = useState(false)
   const [announcement, setAnnouncement] = useState<Announcement | null>(null)
   const [announcementLoading, setAnnouncementLoading] = useState(false)
   const [announcementEditing, setAnnouncementEditing] = useState(false)
@@ -242,6 +244,7 @@ function App() {
   const [systemDark, setSystemDark] = useState(false)
   const [reducedTransparency, setReducedTransparency] = useState(false)
   const hostScope = state.active_host?.id ?? state.node_id ?? endpoint.trim()
+  const localPreferenceSaveRequestRef = useRef(0)
   const [contextPanelPhase, setContextPanelPhase] = useState<ContextPanelPhase>('open')
   const contextPanelOpen = contextPanelPhase === 'open'
   const contextPanelRetained = contextPanelPhase !== 'closed'
@@ -368,7 +371,8 @@ function App() {
       setLocalPreferences(preferences)
       if (preferences.theme === 'light' || preferences.theme === 'dark' || preferences.theme === 'system') setThemeMode(preferences.theme)
       if (typeof preferences.translucent === 'boolean') setTranslucent(preferences.translucent)
-    }).catch((error: unknown) => { if (active) setSettingsError(String(error)) })
+      setLocalPreferencesLoaded(true)
+    }).catch((error: unknown) => { if (active) { setSettingsError(String(error)); setLocalPreferencesLoaded(true) } })
     return () => { active = false }
   }, [])
 
@@ -1636,13 +1640,20 @@ function App() {
   }
 
   async function savePreferences(patch: LocalPreferences) {
-    const next = { ...localPreferences, ...patch }
-    setLocalPreferences(next)
+    const requestId = ++localPreferenceSaveRequestRef.current
+    const previous = localPreferences
+    setSettingsError(null)
+    setLocalPreferences((current) => mergeLocalPreferences(current, patch))
     try {
       const saved = await invoke<LocalPreferences>('save_local_preferences', { preferences: patch })
-      setLocalPreferences((current) => ({ ...current, ...saved }))
+      if (isLatestLocalPreferenceSave(requestId, localPreferenceSaveRequestRef.current)) {
+        setLocalPreferences((current) => mergeLocalPreferences(current, saved))
+      }
     } catch (error) {
-      setSettingsError(String(error))
+      if (isLatestLocalPreferenceSave(requestId, localPreferenceSaveRequestRef.current)) {
+        setLocalPreferences((current) => rollbackLocalPreferencePatch(current, previous, patch))
+        setSettingsError(String(error))
+      }
     }
   }
 
@@ -1654,6 +1665,10 @@ function App() {
   function updateTranslucency(enabled: boolean) {
     setTranslucent(enabled)
     void savePreferences({ translucent: enabled })
+  }
+
+  function updateKeepInMenubar(enabled: boolean) {
+    void savePreferences({ keep_in_menubar: enabled })
   }
 
   async function connectSavedHost(hostId: string) {
@@ -2947,7 +2962,7 @@ function App() {
         }}
         onOpenSystemSettings={(permissionKey) => invoke('open_system_settings', { permissionKey })}
         t={(key) => t(key as CopyKey)}
-      /> : <GeneralSettings themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} error={settingsError} onTheme={updateTheme} onTranslucency={updateTranslucency} />}
+      /> : <GeneralSettings themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} keepInMenubar={isKeepInMenubarEnabled(localPreferences)} keepInMenubarLoaded={localPreferencesLoaded} error={settingsError} onTheme={updateTheme} onTranslucency={updateTranslucency} onKeepInMenubar={updateKeepInMenubar} />}
     </SettingsPanel>}
     {showSearch && <SearchPage key={hostScope} onSearch={searchRequest} onOpenResult={openSearchResult} sourceLabel={searchSourceLabel} onClose={() => setShowSearch(false)} t={(key) => t(key)} />}
     {activeSearchSideTarget && <aside className="search-side-detail" aria-label={t('search.result.open')}>
@@ -3123,12 +3138,15 @@ function SettingsPanel(props: { selected: SettingsNavigationSection; error: stri
   </section></div>
 }
 
-function GeneralSettings({ themeMode, translucent, reducedTransparency, error, onTheme, onTranslucency }: { themeMode: ThemeMode; translucent: boolean; reducedTransparency: boolean; error: string | null; onTheme: (mode: ThemeMode) => void; onTranslucency: (enabled: boolean) => void }) {
+function GeneralSettings({ themeMode, translucent, reducedTransparency, keepInMenubar, keepInMenubarLoaded, error, onTheme, onTranslucency, onKeepInMenubar }: { themeMode: ThemeMode; translucent: boolean; reducedTransparency: boolean; keepInMenubar: boolean; keepInMenubarLoaded: boolean; error: string | null; onTheme: (mode: ThemeMode) => void; onTranslucency: (enabled: boolean) => void; onKeepInMenubar: (enabled: boolean) => void }) {
   return <section className="settings-detail">
     <header className="settings-detail-heading"><h2>{t('settings.section.general')}</h2></header>
     <section className="settings-detail-section"><h3>{t('settings.appearance')}</h3><div className="settings-detail-card settings-general-card">
       <label className="appearance-row"><span>{t('settings.theme')}</span><select aria-label={t('settings.theme')} value={themeMode} onChange={(event) => onTheme(event.target.value as ThemeMode)}><option value="light">{t('settings.theme.light')}</option><option value="dark">{t('settings.theme.dark')}</option><option value="system">{t('settings.theme.system')}</option></select></label>
       <label className="appearance-row"><span>{t('settings.translucent')}<small>{t('settings.translucent_hint')}</small></span><input type="checkbox" checked={translucent} disabled={reducedTransparency} onChange={(event) => onTranslucency(event.target.checked)} /></label>
+    </div></section>
+    <section className="settings-detail-section"><h3>{t('settings.startup')}</h3><div className="settings-detail-card settings-general-card">
+      <label className="appearance-row"><span>{t('settings.keep_in_menubar')}<small>{keepInMenubarLoaded ? t('settings.keep_in_menubar_hint') : t('common.loading')}</small></span><input type="checkbox" aria-label={t('settings.keep_in_menubar')} checked={keepInMenubar} disabled={!keepInMenubarLoaded} onChange={(event) => onKeepInMenubar(event.target.checked)} /></label>
     </div></section>
     {error && <div className="connect-error settings-page-error" role="alert">{error}</div>}
   </section>

@@ -1,9 +1,11 @@
+#[cfg(target_os = "macos")]
+use std::sync::atomic::Ordering;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::Read,
     path::{Component, Path, PathBuf},
     process::Command,
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicBool, Arc, Mutex},
 };
 
 use macbot_client_core::{
@@ -23,6 +25,11 @@ use tauri::RunEvent;
 use tauri::{
     ipc::{Channel, InvokeBody, Request, Response},
     AppHandle, Emitter, Manager, State,
+};
+#[cfg(target_os = "macos")]
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{TrayIcon, TrayIconBuilder},
 };
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
@@ -362,6 +369,13 @@ impl Default for SharedBridge {
     }
 }
 
+#[derive(Default)]
+struct WindowLifecycle {
+    tray_available: AtomicBool,
+    #[cfg(target_os = "macos")]
+    tray_icon: Mutex<Option<TrayIcon>>,
+}
+
 const MAX_BUFFERED_TRACE_EVENTS: usize = 512;
 const MAX_BUFFERED_TRACE_BYTES: usize = 1024 * 1024;
 
@@ -569,6 +583,81 @@ fn show_or_recreate_main_window(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CloseWindowAction {
+    Hide,
+    Close,
+}
+
+fn close_window_action(keep_in_menubar: bool, tray_available: bool) -> CloseWindowAction {
+    if keep_in_menubar && tray_available {
+        CloseWindowAction::Hide
+    } else {
+        CloseWindowAction::Close
+    }
+}
+
+fn should_reopen_main_window(has_visible_windows: bool) -> bool {
+    !has_visible_windows
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TrayMenuCopy {
+    open: &'static str,
+    quit: &'static str,
+}
+
+fn tray_menu_copy(locale: Option<&str>) -> TrayMenuCopy {
+    let language = locale
+        .unwrap_or("zh-CN")
+        .split(['-', '_', '.', '@'])
+        .next()
+        .unwrap_or_default();
+    if language.eq_ignore_ascii_case("zh") {
+        TrayMenuCopy {
+            open: "打开",
+            quit: "退出 Mac Bot",
+        }
+    } else {
+        TrayMenuCopy {
+            open: "Open",
+            quit: "Quit Mac Bot",
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn install_menu_bar(app: &tauri::App) {
+    let result = (|| -> tauri::Result<TrayIcon> {
+        let labels = tray_menu_copy(system_client_locale().as_deref());
+        let open = MenuItem::with_id(app, "open-main", labels.open, true, None::<&str>)?;
+        let separator = PredefinedMenuItem::separator(app)?;
+        let quit = MenuItem::with_id(app, "quit-app", labels.quit, true, None::<&str>)?;
+        let menu = Menu::with_items(app, &[&open, &separator, &quit])?;
+        TrayIconBuilder::new()
+            .title("Mac Bot")
+            .menu(&menu)
+            .show_menu_on_left_click(true)
+            .on_menu_event(|app, event| match event.id().as_ref() {
+                "open-main" => show_or_recreate_main_window(app),
+                "quit-app" => app.exit(0),
+                _ => {}
+            })
+            .build(app)
+    })();
+
+    match result {
+        Ok(tray) => {
+            let lifecycle = app.state::<WindowLifecycle>();
+            if let Ok(mut icon) = lifecycle.tray_icon.lock() {
+                *icon = Some(tray);
+                lifecycle.tray_available.store(true, Ordering::Release);
+            };
+        }
+        Err(error) => eprintln!("Unable to install Mac Bot menu bar item: {error}"),
     }
 }
 
@@ -3065,6 +3154,30 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(SharedBridge::default())
+        .manage(WindowLifecycle::default())
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            install_menu_bar(app);
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            #[cfg(target_os = "macos")]
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    let lifecycle = window.app_handle().state::<WindowLifecycle>();
+                    if close_window_action(
+                        local_settings::keep_in_menubar(),
+                        lifecycle.tray_available.load(Ordering::Acquire),
+                    ) == CloseWindowAction::Hide
+                    {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (window, event);
+        })
         .invoke_handler(tauri::generate_handler![
             connect_host,
             connect_saved_host,
@@ -3100,9 +3213,18 @@ pub fn run() {
         .expect("failed to build Mac Bot desktop application");
     app.run(move |handle, event| {
         #[cfg(target_os = "macos")]
-        if let RunEvent::Opened { urls } = event {
-            let bridge = handle.state::<SharedBridge>();
-            handle_opened_urls(handle, bridge.inner(), &urls);
+        match event {
+            RunEvent::Opened { urls } => {
+                let bridge = handle.state::<SharedBridge>();
+                handle_opened_urls(handle, bridge.inner(), &urls);
+            }
+            RunEvent::Reopen {
+                has_visible_windows,
+                ..
+            } if should_reopen_main_window(has_visible_windows) => {
+                show_or_recreate_main_window(handle);
+            }
+            _ => {}
         }
         #[cfg(not(target_os = "macos"))]
         let _ = (handle, event);
@@ -3113,18 +3235,19 @@ pub fn run() {
 mod tests {
     use super::{
         activate_trace_subscription, apply_retry_result, authorized_project_home,
-        chat_attachment_payload, clear_negotiated_versions, connection_is_current,
-        diagnostics_text, drain_pending_deep_links, encode_screen_frame, enqueue_message_deep_link,
-        expand_home_path, finish_trace_unsubscribe, inject_client_locale, negotiated_versions,
-        normalize_bcp47_locale, parse_message_deep_link, pending_message, redact_endpoint,
-        resolve_home_attachment_path, resolve_project_artifact_path, retain_trace_cleanup,
-        route_trace_event, screen_connection_payload, screen_generation_matches,
+        chat_attachment_payload, clear_negotiated_versions, close_window_action,
+        connection_is_current, diagnostics_text, drain_pending_deep_links, encode_screen_frame,
+        enqueue_message_deep_link, expand_home_path, finish_trace_unsubscribe,
+        inject_client_locale, negotiated_versions, normalize_bcp47_locale, parse_message_deep_link,
+        pending_message, redact_endpoint, resolve_home_attachment_path,
+        resolve_project_artifact_path, retain_trace_cleanup, route_trace_event,
+        screen_connection_payload, screen_generation_matches, should_reopen_main_window,
         skill_upload_payload, snapshot, system_settings_url, trace_subscription_state,
-        trace_tauri_event, update_check_result, uploaded_chat_attachment, uploaded_skill_id,
-        validate_screen_input, write_diagnostics, BridgeData, DeepLinkDispatch, InvokeBody,
-        MessageDeepLink, PendingTraceCleanup, ScreenFrame, ScreenPoint, SystemPermission,
-        TraceScope, TraceSubscription, UpdateStatus, MAX_BUFFERED_TRACE_BYTES,
-        MAX_PENDING_DEEP_LINKS, MAX_SCREEN_JPEG_BYTES,
+        trace_tauri_event, tray_menu_copy, update_check_result, uploaded_chat_attachment,
+        uploaded_skill_id, validate_screen_input, write_diagnostics, BridgeData, CloseWindowAction,
+        DeepLinkDispatch, InvokeBody, MessageDeepLink, PendingTraceCleanup, ScreenFrame,
+        ScreenPoint, SystemPermission, TraceScope, TraceSubscription, TrayMenuCopy, UpdateStatus,
+        MAX_BUFFERED_TRACE_BYTES, MAX_PENDING_DEEP_LINKS, MAX_SCREEN_JPEG_BYTES,
     };
     use macbot_client_core::ScreenFrameHeader;
     use serde_json::json;
@@ -3147,6 +3270,38 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn close_window_hides_only_when_preference_and_tray_are_available() {
+        assert_eq!(close_window_action(true, true), CloseWindowAction::Hide);
+        assert_eq!(close_window_action(false, true), CloseWindowAction::Close);
+        assert_eq!(close_window_action(true, false), CloseWindowAction::Close);
+    }
+
+    #[test]
+    fn macos_reopen_only_recreates_or_shows_when_no_window_is_visible() {
+        assert!(should_reopen_main_window(false));
+        assert!(!should_reopen_main_window(true));
+    }
+
+    #[test]
+    fn tray_menu_copy_follows_system_locale_with_chinese_fallback() {
+        assert_eq!(
+            tray_menu_copy(Some("zh-Hans-CN")),
+            TrayMenuCopy {
+                open: "打开",
+                quit: "退出 Mac Bot",
+            }
+        );
+        assert_eq!(
+            tray_menu_copy(Some("en-US")),
+            TrayMenuCopy {
+                open: "Open",
+                quit: "Quit Mac Bot",
+            }
+        );
+        assert_eq!(tray_menu_copy(None), tray_menu_copy(Some("zh-CN")));
     }
 
     #[test]
