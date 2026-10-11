@@ -2,6 +2,7 @@ use super::*;
 use chrono::Datelike;
 use std::sync::Arc;
 
+use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_kit::gpui::list;
 use gpui_kit::prelude::FluentBuilder;
 
@@ -378,8 +379,91 @@ fn takeover_request_is_actionable(block: &Value) -> bool {
 
 fn chat_tr(key: &str) -> SharedString {
     match key {
+        "common.submit" => "提交",
+        "block.question.single" => "单选",
+        "block.question.multi" => "多选",
+        "block.question.from" => "来自 {bot}",
+        "block.question.free_text_hint" => "也可以直接回复文字",
+        "block.question.selected_n" => "已选 {count} 项",
+        "block.question.answered" => "你选择了 {letters} · {options}",
+        "block.question.expired" => "已过期",
+        "block.question.title_deck" => "{bot} 需要你决定 · 第 {n} / {total} 题",
+        "block.question.answered_count" => "已答 {count}",
+        "block.question.all_answered" => "已回答 {count} 个问题",
+        "block.question.tab" => "问题 {n}",
+        "block.question.other" => "其他，我来说…",
+        "block.question.you_picked" => "你选择了 {letters}",
+        "block.question.you_replied" => "你回复了",
+        "block.question.your_reply" => "你的回复",
+        "block.question.tap_to_submit" => "点一项就提交",
+        "chat.reply_bar.title" => "回复 {name}",
+        "chat.quote_bar.title" => "引用 {name}",
+        "chat.quote_bar.hint" => "不指定谁回应",
+        "chat.menu.reply" => "回复",
+        "chat.menu.react" => "表情回应",
+        "chat.menu.copy" => "复制",
+        "chat.menu.quote" => "引用",
+        "chat.menu.copy_text" => "复制文字",
+        "chat.menu.quote_to_announcement" => "引用到公告",
+        "chat.menu.view_trace" => "查看工作详情",
+        "chat.menu.delete" => "删除",
+        "chat.main.subtitle" => "主 Bot · 只协调，不干活",
+        "chat.queue.at_now" => "@{bot} 立即生效",
+        "chat.delivery.main_received" => "总管 已收到",
+        "chat.delivery.queue_seen" => "{bot} 交付前已查看 ✓",
+        "trace.queue.seen" => "已查看",
+        "trace.item.queue_review" => "交付前查看新消息 {count} 条",
+        "workbench.queued_msgs" => "待看 {count}",
+        "block.project_card.created" => "新建了群聊",
+        "block.project_card.subtitle" => "群聊 · {members}",
+        "block.project_card.enter" => "进入群聊",
+        "block.completion.done" => "已完成",
+        "block.completion.notify_main" => "全部完成，请汇总验收",
+        "block.task_card.title" => "任务 · {title}",
+        "block.task_card.took" => "用时 {duration}",
+        "block.task_card.queued_reason" => "排在「{task}」之后",
+        "block.task_card.recovered" => "服务重启后继续",
+        "block.blocked.title" => "卡住了",
+        "block.blocked.need" => "需要：{who}",
+        "block.blocked.switch_model" => "换模型",
+        "block.review_card.title" => "待验收 · {project}",
+        "block.review_card.confirm" => "确认完成",
+        "block.review_card.request_changes" => "提修改意见",
+        "block.review_card.changes_dialog_title" => "提修改意见 · {project}",
+        "block.review_card.changes_dialog_hint" => {
+            "意见会发到群里并 @总管，由总管派给对应的 Bot；群回到「进行中」。"
+        }
+        "block.delegation.text" => "交给 {bot} 处理（不建群）",
+        "block.approval.title" => "需要审批 · {tool}",
+        "block.approval.meta" => "来自 {project} · 命中规则「{rule}」",
+        "block.approval.allow_once" => "允许一次",
+        "block.approval.always_allow" => "总是允许",
+        "block.approval.deny" => "拒绝",
+        "block.approval.allowed_once" => "已允许一次 · 你 {time}",
+        "block.approval.always_allowed" => "已设为总是允许 · 你 {time}",
+        "block.approval.denied" => "已拒绝 · 你 {time}",
+        "block.approval.expired" => "已过期（任务已结束）",
+        "block.approval_ref.text" => "{bot} 在私聊里等你审批",
+        "block.approval_ref.go" => "前往",
+        "block.bot_dm_ref.text" => "{a} 私信了 {b}（{count} 条）",
+        "block.bot_dm_ref.expand" => "展开",
+        "block.loop_paused.title" => "已暂停",
+        "block.loop_paused.desc" => "Bot 之间连续往返 {count} 次",
+        "block.loop_paused.continue" => "再允许 8 次",
+        "block.loop_paused.end" => "结束这一轮",
+        "block.loop_paused.continued" => "你允许继续 8 次",
+        "block.loop_paused.ended" => "你结束了这一轮",
+        "block.system.announcement_updated" => "{who} 更新了公告",
+        "block.system.member_added" => "{bot} 加入了群",
+        "block.system.created" => "总管 创建了群，拉入 {members}",
+        "block.fallback.hint" => "这类消息需要更新客户端才能完整显示",
+        "group.announcement.conflict" => "{who} 刚刚也改了公告（版本 {n}）。查看差异后再保存",
+        "group.announcement.version" => "版本 {n} · {len} / 8000 字",
+        "chat.composer.attach.file" => "文件…",
+        "chat.composer.attach.image" => "图片…",
+        "chat.composer.attach.screenshot" => "截图",
+        "chat.composer.attach.from_home" => "从 Home 选择…",
         "chat.question_text" => "填写文字并提交",
-        "chat.question_other" => "✎ 其他，我来说…",
         "chat.question_empty" => "请先在输入框填写回答",
         "chat.image_loading" => "图片加载中…",
         "chat.image_retry" => "重试加载",
@@ -875,16 +959,19 @@ impl MacBot {
             .map(|bot| s(bot, "name").to_owned())
             .unwrap_or_else(|| tr("chat.system").to_string());
         let heading = if all_answered {
-            chat_tr("chat.question_stack_done")
+            chat_tr("block.question.all_answered")
                 .to_string()
-                .replace("{n}", &ids.len().to_string())
+                .replace("{count}", &ids.len().to_string())
         } else {
-            chat_tr("chat.question_stack_progress")
+            chat_tr("block.question.title_deck")
                 .to_string()
                 .replace("{bot}", &bot_name)
                 .replace("{n}", &(current_index + 1).to_string())
                 .replace("{total}", &ids.len().to_string())
-                .replace("{answered}", &answered.to_string())
+                + " · "
+                + &chat_tr("block.question.answered_count")
+                    .to_string()
+                    .replace("{count}", &answered.to_string())
         };
         let t = Tokens::get(cx);
         let mut tabs = div().flex().items_center().gap_1().flex_wrap();
@@ -907,11 +994,11 @@ impl MacBot {
             let selected = question_id == &current_id;
             let done = !question_is_pending(&question);
             let label = if all_answered {
-                chat_tr("chat.question_stack_question")
+                chat_tr("block.question.tab")
                     .to_string()
                     .replace("{n}", &(index + 1).to_string())
             } else if done {
-                chat_tr("chat.question_stack_done_number")
+                chat_tr("block.question.tab")
                     .to_string()
                     .replace("{n}", &(index + 1).to_string())
             } else {
@@ -1080,7 +1167,7 @@ impl MacBot {
                                     div()
                                         .text_xs()
                                         .text_color(t.secondary)
-                                        .child(tr("chat.main")),
+                                        .child(chat_tr("chat.main.subtitle")),
                                 )
                             }),
                     ),
@@ -1296,15 +1383,23 @@ impl MacBot {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(format!(
-                                "{} · {}",
-                                tr(if s(&quoted, "quote_mode") == "reference" {
-                                    "chat.reference"
+                            .child(
+                                chat_tr(if s(&quoted, "quote_mode") == "reference" {
+                                    "chat.quote_bar.title"
                                 } else {
-                                    "chat.reply"
-                                }),
-                                sender
-                            ))
+                                    "chat.reply_bar.title"
+                                })
+                                .to_string()
+                                .replace("{name}", &sender),
+                            )
+                            .when(s(&quoted, "quote_mode") == "reference", |el| {
+                                el.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(t.secondary)
+                                        .child(chat_tr("chat.quote_bar.hint")),
+                                )
+                            })
                             .child(div().text_xs().text_color(t.secondary).child(excerpt)),
                     )
                     .child(
@@ -1413,7 +1508,7 @@ impl MacBot {
                     Button::new("attachment")
                         .ghost()
                         .icon(IconName::Plus)
-                        .tooltip(tr("chat.attach"))
+                        .tooltip(chat_tr("chat.composer.attach.file"))
                         .disabled(!self.connected || readonly)
                         .on_click(cx.listener(|this, _, window, cx| this.attach(window, cx))),
                 )
@@ -1426,7 +1521,7 @@ impl MacBot {
                     Button::new("send")
                         .primary()
                         .icon(IconName::ArrowUp)
-                        .tooltip(tr("chat.send"))
+                        .tooltip(chat_tr("common.send"))
                         .disabled(!self.connected || readonly)
                         .on_click(cx.listener(|this, _, window, cx| this.send_message(window, cx))),
                 ),
@@ -1732,7 +1827,14 @@ impl MacBot {
                 }
             }
             if has_unknown && !message_display_text(message).is_empty() {
-                bubble = bubble.child(message_display_text(message).to_string());
+                bubble = bubble
+                    .child(message_display_text(message).to_string())
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(t.tertiary)
+                            .child(chat_tr("block.fallback.hint")),
+                    );
             }
         }
         if let Some(time) = format_message_time(s(message, "created_at")) {
@@ -1778,13 +1880,24 @@ impl MacBot {
             let assignment_id = s(delivery, "assignment_id").to_owned();
             let steer_key = format!("{message_id}:{bot_id}");
             let steer_pending = self.steer_inflight.contains(&steer_key);
-            let delivery_label = tr(match delivery_state {
+            let recipient_is_main = self
+                .state
+                .bots
+                .get(&bot_id)
+                .is_some_and(|bot| bot["is_main"] == true);
+            let group_delivery = self
+                .state
+                .chats
+                .get(&self.selected_chat)
+                .is_some_and(|chat| s(chat, "kind") == "project");
+            let delivery_key = match delivery_state {
+                "read" if group_delivery => "chat.delivery.queue_seen",
                 "read" => "chat.delivery.read",
+                "delivered" if recipient_is_main => "chat.delivery.main_received",
                 "delivered" => "chat.delivery.queued",
                 _ => "chat.delivery.queued_for",
-            })
-            .to_string()
-            .replace("{bot}", name);
+            };
+            let delivery_label = chat_tr(delivery_key).to_string().replace("{bot}", name);
             let mut delivery_row = div()
                 .flex()
                 .items_center()
@@ -1797,7 +1910,11 @@ impl MacBot {
                     Button::new(SharedString::from(format!("steer-{message_id}-{bot_id}")))
                         .ghost()
                         .xsmall()
-                        .label(tr("trace.queue.to_steer"))
+                        .label(
+                            chat_tr("chat.queue.at_now")
+                                .to_string()
+                                .replace("{bot}", name),
+                        )
                         .disabled(!self.connected || steer_pending)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if !this.steer_inflight.insert(steer_key.clone()) {
@@ -1869,7 +1986,7 @@ impl MacBot {
                 Button::new(SharedString::from(format!("copy-{id}")))
                     .ghost()
                     .xsmall()
-                    .label(tr("chat.copy"))
+                    .label(chat_tr("chat.menu.copy_text"))
                     .on_click(move |_, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                     }),
@@ -1880,7 +1997,7 @@ impl MacBot {
                     Button::new(SharedString::from(format!("reply-{id}")))
                         .ghost()
                         .xsmall()
-                        .label(tr("chat.reply"))
+                        .label(chat_tr("chat.menu.reply"))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.quote_message = this.state.messages.get(&root).cloned();
                             if let Some(quote) = this.quote_message.as_mut() {
@@ -1898,7 +2015,7 @@ impl MacBot {
                     Button::new(SharedString::from(format!("reference-{id}")))
                         .ghost()
                         .xsmall()
-                        .label(chat_tr("chat.reference"))
+                        .label(chat_tr("chat.menu.quote"))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.quote_message = this.state.messages.get(&reference_root).cloned();
                             if let Some(quote) = this.quote_message.as_mut() {
@@ -1916,17 +2033,17 @@ impl MacBot {
                     Button::new(SharedString::from(format!("react-{id}")))
                         .ghost()
                         .xsmall()
-                        .label(tr("chat.react"))
+                        .label(chat_tr("chat.menu.react"))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.rpc(
                                 "chat.react",
                                 json!({"message_id":react,"emoji":"👍","on":true}),
                                 cx,
-                            )
+                            );
                         })),
                 );
         }
-        div()
+        let row = div()
             .id(SharedString::from(id))
             .group("message-row")
             .flex()
@@ -1951,8 +2068,156 @@ impl MacBot {
             .when(!user && !system && !merged_identity, |el| {
                 el.child(bean(&bot, 28., cx))
             })
-            .child(message_content.child(menu))
+            .child(message_content.child(menu));
+        let row = if !pending {
+            let entity = cx.weak_entity();
+            let source_message = message.clone();
+            let source_text = message_display_text(message).to_string();
+            let message_assignment = s(message, "assignment_id").to_owned();
+            let block_assignment = arr(message, "blocks")
+                .iter()
+                .map(|block| s(block, "assignment_id"))
+                .find(|assignment_id| !assignment_id.is_empty())
+                .unwrap_or("")
+                .to_owned();
+            let trace_assignment = if message_assignment.is_empty() {
+                block_assignment
+            } else {
+                message_assignment
+            };
+            let selected_chat = self.selected_chat.clone();
+            let project_id = self
+                .state
+                .chats
+                .get(&selected_chat)
+                .filter(|chat| s(chat, "kind") == "project")
+                .map(|chat| s(chat, "project_id").to_owned())
+                .unwrap_or_default();
+            let announcement_available =
+                !project_id.is_empty() && self.state.announcements.contains_key(&project_id);
+            row.context_menu(move |menu, _, _| {
+                let mut menu = menu.item(
+                    PopupMenuItem::new(chat_tr("chat.menu.copy_text")).on_click({
+                        let copy = source_text.clone();
+                        move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                        }
+                    }),
+                );
+                menu = menu
+                    .separator()
+                    .item(PopupMenuItem::new(chat_tr("chat.menu.reply")).on_click({
+                        let entity = entity.clone();
+                        let source = source_message.clone();
+                        move |_, window, cx| {
+                            let _ = entity.update(cx, |this, cx| {
+                                let mut quote = source.clone();
+                                quote["quote_mode"] = json!("reply");
+                                quote["excerpt"] = json!(
+                                    message_display_text(&quote)
+                                        .chars()
+                                        .take(120)
+                                        .collect::<String>()
+                                );
+                                this.quote_message = Some(quote);
+                                this.composer
+                                    .update(cx, |input, cx| input.focus(window, cx));
+                                cx.notify();
+                            });
+                        }
+                    }))
+                    .item(PopupMenuItem::new(chat_tr("chat.menu.quote")).on_click({
+                        let entity = entity.clone();
+                        let source = source_message.clone();
+                        move |_, window, cx| {
+                            let _ = entity.update(cx, |this, cx| {
+                                let mut quote = source.clone();
+                                quote["quote_mode"] = json!("reference");
+                                quote["excerpt"] = json!(
+                                    message_display_text(&quote)
+                                        .chars()
+                                        .take(120)
+                                        .collect::<String>()
+                                );
+                                this.quote_message = Some(quote);
+                                this.composer
+                                    .update(cx, |input, cx| input.focus(window, cx));
+                                cx.notify();
+                            });
+                        }
+                    }))
+                    .item(
+                        PopupMenuItem::new(chat_tr("chat.menu.quote_to_announcement"))
+                            .disabled(!announcement_available)
+                            .on_click({
+                                let entity = entity.clone();
+                                let project_id = project_id.clone();
+                                let quote = source_text.clone();
+                                move |_, window, cx| {
+                                    let _ = entity.update(cx, |this, cx| {
+                                        let Some(announcement) =
+                                            this.state.announcements.get(&project_id).cloned()
+                                        else {
+                                            return;
+                                        };
+                                        let current = if this.announcement_draft_project.as_deref()
+                                            == Some(project_id.as_str())
+                                        {
+                                            this.announcement_draft.read(cx).value().to_string()
+                                        } else {
+                                            s(&announcement, "text").to_owned()
+                                        };
+                                        let addition = quote
+                                            .lines()
+                                            .map(|line| format!("> {line}"))
+                                            .collect::<Vec<_>>()
+                                            .join("\n");
+                                        let draft = if current.trim().is_empty() {
+                                            addition
+                                        } else {
+                                            format!("{}\n\n{addition}", current.trim_end())
+                                        };
+                                        this.announcement_base_text =
+                                            s(&announcement, "text").to_owned();
+                                        this.announcement_base_version = announcement
+                                            .get("version")
+                                            .and_then(Value::as_u64)
+                                            .unwrap_or(0);
+                                        this.announcement_draft_project = Some(project_id.clone());
+                                        this.announcement_draft.update(cx, |input, cx| {
+                                            input.set_value(draft, window, cx)
+                                        });
+                                        this.context.clear();
+                                        this.context_visible = true;
+                                        this.notice =
+                                            chat_tr("chat.menu.quote_to_announcement").to_string();
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new(chat_tr("chat.menu.view_trace"))
+                            .disabled(trace_assignment.is_empty())
+                            .on_click({
+                                let entity = entity.clone();
+                                let assignment_id = trace_assignment.clone();
+                                move |_, _, cx| {
+                                    let _ = entity.update(cx, |this, cx| {
+                                        if !assignment_id.is_empty() {
+                                            this.open_trace(Some(assignment_id.clone()), cx);
+                                        }
+                                    });
+                                }
+                            }),
+                    );
+                menu
+            })
             .into_any_element()
+        } else {
+            row.into_any_element()
+        };
+        row
     }
     fn block(
         &mut self,
@@ -1983,12 +2248,22 @@ impl MacBot {
                 )
             }
             "system" => {
-                body = body.child(
-                    div()
-                        .text_xs()
-                        .text_color(t.secondary)
-                        .child(s(block, "text").to_string()),
-                );
+                body = body.child(div().text_xs().text_color(t.secondary).child(
+                    if s(block, "code") == "announcement_updated" {
+                        chat_tr("block.system.announcement_updated")
+                            .to_string()
+                            .replace(
+                                "{who}",
+                                self.state
+                                    .bots
+                                    .get(s(&message["sender"], "bot_id"))
+                                    .map(|bot| s(bot, "name"))
+                                    .unwrap_or("总管"),
+                            )
+                    } else {
+                        s(block, "text").to_string()
+                    },
+                ));
                 if s(block, "code") == "announcement_updated" {
                     let project_id = self
                         .state
@@ -2013,11 +2288,21 @@ impl MacBot {
                 }
             }
             "blocked" => {
-                body = body.child(div().text_color(t.danger).child(format!(
-                    "{} · {}",
-                    tr("block.blocked"),
-                    s(block, "reason")
-                )))
+                let who = s(block, "who");
+                body = body
+                    .child(
+                        div()
+                            .text_color(t.danger)
+                            .child(chat_tr("block.blocked.title")),
+                    )
+                    .child(s(block, "reason").to_string());
+                if !who.is_empty() {
+                    body = body.child(
+                        chat_tr("block.blocked.need")
+                            .to_string()
+                            .replace("{who}", who),
+                    );
+                }
             }
             "project_card" | "review_card" => {
                 let project = self
@@ -2031,8 +2316,13 @@ impl MacBot {
                 if kind == "project_card" && !chat.is_empty() {
                     project_card_chat = Some(chat.clone());
                 }
-                let card_title =
-                    format!("{} · {}", s(&project, "name"), state(s(&project, "status")));
+                let card_title = if kind == "review_card" && s(block, "state") == "pending" {
+                    chat_tr("block.review_card.title")
+                        .to_string()
+                        .replace("{project}", s(&project, "name"))
+                } else {
+                    format!("{} · {}", s(&project, "name"), state(s(&project, "status")))
+                };
                 if kind == "project_card" {
                     body = body.child(
                         div()
@@ -2062,7 +2352,15 @@ impl MacBot {
                         div()
                             .text_xs()
                             .text_color(t.secondary)
-                            .child(chat_tr("chat.project_created")),
+                            .child(chat_tr("block.project_card.created")),
+                    );
+                    let member_count = arr(&project, "members").len();
+                    body = body.child(
+                        div().text_xs().text_color(t.secondary).child(
+                            chat_tr("block.project_card.subtitle")
+                                .to_string()
+                                .replace("{members}", &member_count.to_string()),
+                        ),
                     );
                 }
                 let note = s(block, "note");
@@ -2091,7 +2389,7 @@ impl MacBot {
                         .child(
                             self.rpc_button(
                                 &button_id,
-                                "action.confirm",
+                                "block.review_card.confirm",
                                 "project.confirm_done",
                                 json!({"project_id":project_id}),
                                 cx,
@@ -2102,7 +2400,7 @@ impl MacBot {
                             Button::new(SharedString::from(format!("changes-{id}")))
                                 .outline()
                                 .small()
-                                .label(tr("action.changes"))
+                                .label(chat_tr("block.review_card.request_changes"))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.changes_project = Some(project_copy.clone());
                                     this.notice = tr("notice.changes").to_string();
@@ -2124,7 +2422,7 @@ impl MacBot {
                         Button::new(SharedString::from(format!("enter-{id}")))
                             .ghost()
                             .small()
-                            .label(tr("action.enter"))
+                            .label(chat_tr("block.project_card.enter"))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.select_chat(chat.clone(), window, cx)
                             })),
@@ -2152,16 +2450,19 @@ impl MacBot {
                     .gap_2()
                     .child(div().text_color(status_color).child(state(status)))
                     .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(s(&assignment, "title").to_owned()),
+                        div().font_weight(FontWeight::SEMIBOLD).child(
+                            chat_tr("block.task_card.title")
+                                .to_string()
+                                .replace("{title}", s(&assignment, "title")),
+                        ),
                     );
                 if let Some(elapsed) = assignment_elapsed(&assignment) {
                     summary = summary.child(
-                        div()
-                            .text_xs()
-                            .text_color(t.tertiary)
-                            .child(format!("{} {elapsed}", chat_tr("block.task_card.elapsed"))),
+                        div().text_xs().text_color(t.tertiary).child(
+                            chat_tr("block.task_card.took")
+                                .to_string()
+                                .replace("{duration}", &elapsed),
+                        ),
                     );
                 }
                 body = body.child(summary);
@@ -2185,8 +2486,12 @@ impl MacBot {
                 body = body.child(
                     div()
                         .font_weight(FontWeight::SEMIBOLD)
+                        .child(chat_tr("block.completion.done"))
                         .child(s(block, "summary").to_string()),
                 );
+                if arr(block, "next").is_empty() {
+                    body = body.child(chat_tr("block.completion.notify_main"));
+                }
                 for artifact in arr(block, "artifacts") {
                     let chat_id = s(message, "chat_id");
                     let project_id = self
@@ -2222,23 +2527,44 @@ impl MacBot {
                     .get(s(block, "approval_id"))
                     .cloned()
                     .unwrap_or(Value::Null);
+                let project = self
+                    .state
+                    .assignments
+                    .get(s(&approval, "assignment_id"))
+                    .and_then(|assignment| self.state.projects.get(s(assignment, "project_id")))
+                    .map(|project| s(project, "name"))
+                    .unwrap_or("");
+                let rule = s(&approval, "rule_name");
                 body = body
-                    .child(format!(
-                        "{} · {}",
-                        tr("block.approval"),
-                        s(&approval, "tool")
-                    ))
+                    .child(
+                        chat_tr("block.approval.title")
+                            .to_string()
+                            .replace("{tool}", s(&approval, "tool")),
+                    )
                     .child(s(&approval, "summary").to_string())
                     .child(TextView::markdown(
                         SharedString::from(format!("approval-md-{id}")),
                         s(&approval, "detail").to_string(),
                     ));
+                if !project.is_empty() && !rule.is_empty() {
+                    body = body.child(
+                        chat_tr("block.approval.meta")
+                            .to_string()
+                            .replace("{project}", project)
+                            .replace("{rule}", rule),
+                    );
+                }
                 if s(&approval, "state") == "pending" {
                     for decision in ["allow_once", "always_allow", "deny"] {
                         let button_id = format!("{decision}-{id}");
+                        let label = match decision {
+                            "allow_once" => "block.approval.allow_once",
+                            "always_allow" => "block.approval.always_allow",
+                            _ => "block.approval.deny",
+                        };
                         let mut button = self.rpc_button(
                             &button_id,
-                            &format!("action.{decision}"),
+                            label,
                             "approval.decide",
                             json!({"approval_id":approval["id"],"decision":decision}),
                             cx,
@@ -2252,13 +2578,16 @@ impl MacBot {
                     }
                 } else {
                     let (label_key, color) = match s(&approval, "state") {
-                        "allowed_once" => ("approval.state.allowed_once", t.success),
-                        "always_allowed" => ("approval.state.always_allowed", t.success),
-                        "denied" => ("approval.state.denied", t.danger),
-                        "expired" => ("approval.state.expired", t.tertiary),
+                        "allowed_once" => ("block.approval.allowed_once", t.success),
+                        "always_allowed" => ("block.approval.always_allowed", t.success),
+                        "denied" => ("block.approval.denied", t.danger),
+                        "expired" => ("block.approval.expired", t.tertiary),
                         _ => ("approval.state.unknown", t.secondary),
                     };
-                    body = body.child(div().text_color(color).child(tr(label_key)));
+                    let label = chat_tr(label_key)
+                        .to_string()
+                        .replace("{time}", s(&approval, "decided_at"));
+                    body = body.child(div().text_color(color).child(label));
                 }
             }
             "approval_ref" => {
@@ -2273,7 +2602,7 @@ impl MacBot {
                     .unwrap_or_else(|| s(&message["sender"], "name"));
                 body = body
                     .child(
-                        chat_tr("chat.approval_ref_summary")
+                        chat_tr("block.approval_ref.text")
                             .to_string()
                             .replace("{bot}", bot_name),
                     )
@@ -2281,7 +2610,7 @@ impl MacBot {
                         Button::new(SharedString::from(format!("approval-ref-{id}")))
                             .secondary()
                             .small()
-                            .label(chat_tr("chat.approval_ref_go"))
+                            .label(chat_tr("block.approval_ref.go"))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.pending_chat_jump =
                                     Some((target_chat.clone(), approval_id.clone()));
@@ -2320,10 +2649,10 @@ impl MacBot {
                         .items_center()
                         .gap_2()
                         .child(
-                            chat_tr("chat.bot_dm_summary")
+                            chat_tr("block.bot_dm_ref.text")
                                 .to_string()
-                                .replace("{sender}", &sender)
-                                .replace("{recipient}", &recipient)
+                                .replace("{a}", &sender)
+                                .replace("{b}", &recipient)
                                 .replace("{count}", &count.to_string()),
                         )
                         .child(
@@ -2333,7 +2662,7 @@ impl MacBot {
                                 .label(chat_tr(if expanded {
                                     "chat.collapse"
                                 } else {
-                                    "chat.expand"
+                                    "block.bot_dm_ref.expand"
                                 }))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     if !this.expanded_bot_dm_refs.remove(&block_id) {
@@ -2428,6 +2757,13 @@ impl MacBot {
                 }
                 let multi = q["multi"].as_bool().unwrap_or(false);
                 let allow_free_text = q["allow_free_text"].as_bool().unwrap_or(false);
+                let question_kind_key = if q["expired"] == true || s(&q, "state") == "expired" {
+                    "block.question.expired"
+                } else if multi {
+                    "block.question.multi"
+                } else {
+                    "block.question.single"
+                };
                 let selected = self
                     .question_selections
                     .get(&question_id)
@@ -2437,9 +2773,27 @@ impl MacBot {
                     .child(
                         div()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(tr(question_label(&q))),
+                            .child(chat_tr(question_kind_key)),
+                    )
+                    .child(
+                        chat_tr("block.question.from").to_string().replace(
+                            "{bot}",
+                            self.state
+                                .bots
+                                .get(s(&message["sender"], "bot_id"))
+                                .map(|bot| s(bot, "name"))
+                                .unwrap_or("Bot"),
+                        ),
                     )
                     .child(question_text(&q, block).to_string());
+                if pending && !multi && !allow_free_text {
+                    body = body.child(
+                        div()
+                            .text_xs()
+                            .text_color(t.secondary)
+                            .child(chat_tr("block.question.tap_to_submit")),
+                    );
+                }
                 if pending {
                     for (index, option) in arr(&q, "options").iter().enumerate() {
                         if multi {
@@ -2499,6 +2853,19 @@ impl MacBot {
                         }
                     }
                     if multi {
+                        let selected_options = selected
+                            .iter()
+                            .filter(|index| **index < arr(&q, "options").len())
+                            .count();
+                        if selected_options > 0 {
+                            body = body.child(
+                                div().text_xs().text_color(t.secondary).child(
+                                    chat_tr("block.question.selected_n")
+                                        .to_string()
+                                        .replace("{count}", &selected_options.to_string()),
+                                ),
+                            );
+                        }
                         let submit_question_id = question_id.clone();
                         let option_count = arr(&q, "options").len();
                         let has_option_selection =
@@ -2507,7 +2874,7 @@ impl MacBot {
                             Button::new(SharedString::from(format!("question-submit-{id}")))
                                 .primary()
                                 .small()
-                                .label(chat_tr("chat.question_submit"))
+                    .label(chat_tr("common.submit"))
                                 .disabled(!self.connected || !has_option_selection)
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.active_question_id = Some(submit_question_id.clone());
@@ -2534,7 +2901,7 @@ impl MacBot {
                         let other = Button::new(SharedString::from(format!("question-other-{id}")))
                             .ghost()
                             .small()
-                            .label(chat_tr("chat.question_other"))
+                            .label(chat_tr("block.question.other"))
                             .disabled(!self.connected)
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.open_question_other(open_input_id.clone(), window, cx);
@@ -2543,7 +2910,13 @@ impl MacBot {
                         if free_text_open {
                             let question_input = self.question_inputs.get(&question_id).cloned();
                             if let Some(input) = question_input {
-                                other_controls = other_controls.child(Input::new(&input).flex_1());
+                                other_controls =
+                                    other_controls.child(Input::new(&input).flex_1()).child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(t.secondary)
+                                            .child(chat_tr("block.question.free_text_hint")),
+                                    );
                             }
                             other_controls = other_controls.child(
                                 Button::new(SharedString::from(format!("question-text-send-{id}")))
@@ -2597,18 +2970,32 @@ impl MacBot {
                                 .map(|value| [value as usize].into_iter().collect())
                                 .unwrap_or_default()
                         });
+                    let mut picked_letters = Vec::new();
+                    let mut picked_options = Vec::new();
                     for (index, option) in arr(&q, "options").iter().enumerate() {
                         if selected_indexes.contains(&index) {
-                            body = body.child(
-                                div()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(format!("✓ {}", option.as_str().unwrap_or(""))),
-                            );
+                            picked_letters.push(((b'A' + (index % 26) as u8) as char).to_string());
+                            picked_options.push(option.as_str().unwrap_or("").to_owned());
                         }
+                    }
+                    if !picked_options.is_empty() {
+                        let key = if q_is_multi(&q) {
+                            "block.question.answered"
+                        } else {
+                            "block.question.you_picked"
+                        };
+                        let picked = chat_tr(key)
+                            .to_string()
+                            .replace("{letters}", &picked_letters.join("、"))
+                            .replace("{options}", &picked_options.join("、"));
+                        body = body.child(div().font_weight(FontWeight::SEMIBOLD).child(picked));
                     }
                     let text_answer = s(answer, "text");
                     if !text_answer.is_empty() {
-                        body = body.child(text_answer.to_owned());
+                        body = body
+                            .child(chat_tr("block.question.you_replied"))
+                            .child(chat_tr("block.question.your_reply"))
+                            .child(text_answer.to_owned());
                     }
                 } else if q["expired"] == true || s(&q, "state") == "expired" {
                     for option in arr(&q, "options") {
@@ -2649,16 +3036,18 @@ impl MacBot {
             }
             "delegation" => {
                 let aid = s(block, "assignment_id").to_string();
+                let delegated_bot = self
+                    .state
+                    .bots
+                    .get(s(block, "bot_id"))
+                    .map(|bot| s(bot, "name"))
+                    .unwrap_or("Bot");
                 body = body
-                    .child(format!(
-                        "↪ {} {}",
-                        tr("block.delegation"),
-                        self.state
-                            .bots
-                            .get(s(block, "bot_id"))
-                            .map(|b| s(b, "name"))
-                            .unwrap_or("Bot")
-                    ))
+                    .child(
+                        chat_tr("block.delegation.text")
+                            .to_string()
+                            .replace("{bot}", delegated_bot),
+                    )
                     .child(
                         Button::new(SharedString::from(format!("delegation-{id}")))
                             .ghost()
@@ -2670,15 +3059,32 @@ impl MacBot {
                     );
             }
             "loop_paused" => {
-                body = body.child(tr("block.loop"));
-                for action in ["continue", "end"] {
-                    body = body.child(self.rpc_button(
-                        &format!("loop-{id}-{action}"),
-                        &format!("action.{action}"),
-                        "loop.resolve",
-                        json!({"root_message_id":block["root_message_id"],"action":action}),
-                        cx,
-                    ));
+                let loop_count = block["hops"].as_u64().unwrap_or(0).to_string();
+                let state = s(block, "state");
+                match state {
+                    "continued" => body = body.child(chat_tr("block.loop_paused.continued")),
+                    "ended" => body = body.child(chat_tr("block.loop_paused.ended")),
+                    _ => {
+                        body = body.child(chat_tr("block.loop_paused.title")).child(
+                            chat_tr("block.loop_paused.desc")
+                                .to_string()
+                                .replace("{count}", &loop_count),
+                        );
+                        for action in ["continue", "end"] {
+                            let label = if action == "continue" {
+                                "block.loop_paused.continue"
+                            } else {
+                                "block.loop_paused.end"
+                            };
+                            body = body.child(self.rpc_button(
+                                &format!("loop-{id}-{action}"),
+                                label,
+                                "loop.resolve",
+                                json!({"root_message_id":block["root_message_id"],"action":action}),
+                                cx,
+                            ));
+                        }
+                    }
                 }
             }
             "takeover_request" => {
@@ -2797,7 +3203,7 @@ impl MacBot {
         if let Some(chat) = project_card_chat {
             body.id(SharedString::from(format!("project-card-{id}")))
                 .role(gpui::accesskit::Role::Button)
-                .aria_label(SharedString::from(chat_tr("chat.project_open")))
+                .aria_label(SharedString::from(chat_tr("block.project_card.enter")))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.select_chat(chat.clone(), window, cx)
                 }))
@@ -2817,10 +3223,18 @@ impl MacBot {
         cx: &mut Context<Self>,
     ) -> Button {
         let method = method.to_owned();
+        let label = if label.starts_with("block.approval.")
+            || label.starts_with("block.review_card.")
+            || label.starts_with("block.loop_paused.")
+        {
+            chat_tr(label)
+        } else {
+            tr(label)
+        };
         Button::new(SharedString::from(id.to_owned()))
             .outline()
             .small()
-            .label(tr(label))
+            .label(label)
             .disabled(!self.connected)
             .on_click(cx.listener(move |this, _, _, cx| this.rpc(&method, params.clone(), cx)))
     }
@@ -3200,7 +3614,7 @@ impl MacBot {
                 body = body.child(
                     div()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(tr("context.announcement")),
+                        .child(tr("group.announcement")),
                 );
                 let announcement_project_id = s(&project, "id").to_owned();
                 let announcement_version = ann.get("version").and_then(Value::as_u64).unwrap_or(0);
@@ -3232,12 +3646,27 @@ impl MacBot {
                             .bg(t.warning_soft)
                             .text_xs()
                             .text_color(t.warning)
-                            .child(tr("notice.announcement_conflict"))
+                            .child(
+                                chat_tr("group.announcement.conflict")
+                                    .to_string()
+                                    .replace(
+                                        "{who}",
+                                        self.state
+                                            .bots
+                                            .get(s(&conflict["text_updated_by"], "bot_id"))
+                                            .map(|bot| s(bot, "name"))
+                                            .unwrap_or("你"),
+                                    )
+                                    .replace(
+                                        "{n}",
+                                        &conflict["version"].as_u64().unwrap_or(0).to_string(),
+                                    ),
+                            )
                             .child(
                                 Button::new("announcement-conflict-reload")
                                     .ghost()
                                     .small()
-                                    .label(chat_tr("chat.announcement_reload"))
+                                    .label(tr("common.retry"))
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         let latest = s(&conflict, "text").to_owned();
                                         this.announcement_base_text = latest.clone();
@@ -3256,18 +3685,21 @@ impl MacBot {
                 }
                 let announcement_len = self.announcement_draft.read(cx).value().chars().count();
                 let base_version = self.announcement_base_version;
-                body = body.child(div().text_xs().text_color(t.secondary).child(format!(
-                    "{} / 8000 {}",
-                    announcement_len,
-                    chat_tr("chat.announcement_length")
-                )));
+                body = body.child(
+                    div().text_xs().text_color(t.secondary).child(
+                        chat_tr("group.announcement.version")
+                            .to_string()
+                            .replace("{n}", &base_version.to_string())
+                            .replace("{len}", &format!("{announcement_len}")),
+                    ),
+                );
                 body =
                     body.child(Textarea::new(&self.announcement_draft).disabled(!self.connected));
                 body = body.child(
                     Button::new("announcement-save")
                         .primary()
                         .small()
-                        .label(tr("action.save"))
+                        .label(tr("common.save"))
                         .disabled(!self.connected || base_version == 0 || announcement_len > 8000)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let text = this.announcement_draft.read(cx).value().to_string();
@@ -3518,9 +3950,11 @@ impl MacBot {
             .border_b_1()
             .border_color(tokens.border_subtle)
             .child(
-                div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(tr("trace.queue.title")),
+                div().font_weight(FontWeight::SEMIBOLD).child(
+                    chat_tr("workbench.queued_msgs")
+                        .to_string()
+                        .replace("{count}", &queued.len().to_string()),
+                ),
             )
             .child(
                 div().text_xs().text_color(tokens.secondary).child(
@@ -3558,7 +3992,11 @@ impl MacBot {
                         Button::new(SharedString::from(format!("trace-steer-{message_id}")))
                             .ghost()
                             .xsmall()
-                            .label(tr("trace.queue.to_steer"))
+                            .label(
+                                chat_tr("chat.queue.at_now")
+                                    .to_string()
+                                    .replace("{bot}", &bot_name),
+                            )
                             .disabled(!self.connected || inflight)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if !this.steer_inflight.insert(steer_key.clone()) {
