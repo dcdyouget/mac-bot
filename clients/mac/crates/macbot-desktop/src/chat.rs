@@ -5083,6 +5083,7 @@ impl MacBot {
         self.home_file_image = None;
         let base = self.http_base(cx);
         let password = self.password.read(cx).value().to_string();
+        let request_path = path.clone();
         let task = self.runtime.spawn(async move {
             let response = reqwest::Client::new()
                 .get(format!("{base}/api/v1/files"))
@@ -5090,7 +5091,7 @@ impl MacBot {
                 .query(&[
                     ("root", "project"),
                     ("root_id", project_id.as_str()),
-                    ("path", path.as_str()),
+                    ("path", request_path.as_str()),
                 ])
                 .send()
                 .await?
