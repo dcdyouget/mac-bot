@@ -4,6 +4,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
@@ -55,6 +57,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.withClientLocale
 import bot.mac.mobile.core.protocol.boolean
@@ -82,6 +86,8 @@ import bot.mac.mobile.core.ui.LucideIcon
 import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import bot.mac.mobile.core.network.ScreenConnection
@@ -99,7 +105,6 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -145,7 +150,7 @@ fun ChatScreen(
     var loadingOlder by remember(hostId, chatId) { mutableStateOf(false) }
     var pendingAnchor by remember(hostId, chatId) { mutableStateOf<ScrollAnchor?>(null) }
     var highlightedMessageId by remember(hostId, chatId) { mutableStateOf<String?>(null) }
-    var exactTimesRevealed by remember(hostId, chatId) { mutableStateOf(false) }
+    var exactTimeMessageKey by remember(hostId, chatId) { mutableStateOf<String?>(null) }
     var scrollState by remember(hostId, chatId) { mutableStateOf(ChatScrollState()) }
     var historyLoaded by remember(hostId, chatId) { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -538,7 +543,7 @@ fun ChatScreen(
                     ) { Text(if (loadingOlder) stringResource(Res.string.feature_loading) else stringResource(Res.string.chat_loading_older)) }
                 }
             }
-            itemsIndexed(messages, key = { _, message -> message.str("id").ifBlank { "message:${message.hashCode()}" } }) { messageIndex, message ->
+            itemsIndexed(messages, key = { _, message -> "$hostId:$chatId:${message.str("id").ifBlank { "message:${message.hashCode()}" }}" }) { messageIndex, message ->
                 val previousMessage = messages.getOrNull(messageIndex - 1)
                 val nextMessage = messages.getOrNull(messageIndex + 1)
                 val startsNewDay = previousMessage == null || !sameChatDay(previousMessage, message)
@@ -554,6 +559,8 @@ fun ChatScreen(
                 }
                 ChatMessageRow(
                     message = message,
+                    hostId = hostId,
+                    chatId = chatId,
                     repository = repository,
                     onQuoteAnnouncement = onQuoteAnnouncement,
                     showSender = !followsSameAuthor,
@@ -561,8 +568,12 @@ fun ChatScreen(
                     followsSameAuthor = followsSameAuthor,
                     continuesSameAuthor = continuesSameAuthor,
                     showTime = !hasTimeSeparator,
-                    showExactTime = exactTimesRevealed,
-                    onExactTimeReveal = { exactTimesRevealed = it },
+                    showExactTime = exactTimeMessageKey == "$hostId:$chatId:${message.str("id")}",
+                    onExactTimeReveal = { reveal ->
+                        val messageKey = "$hostId:$chatId:${message.str("id")}"
+                        if (reveal) exactTimeMessageKey = messageKey
+                        else if (exactTimeMessageKey == messageKey) exactTimeMessageKey = null
+                    },
                     lastOwnMessage = messageIndex == lastOwnMessageIndex,
                     topSpacing = messageTopSpacing,
                     onJumpToMessage = { quotedId ->
@@ -926,6 +937,8 @@ private data class ScrollAnchor(val id: String, val offset: Int)
 @Composable
 internal fun ChatMessageRow(
     message: JsonObject,
+    hostId: String,
+    chatId: String,
     repository: MobileRepository,
     onQuoteAnnouncement: (String) -> Unit,
     showSender: Boolean,
@@ -961,9 +974,11 @@ internal fun ChatMessageRow(
     artifactProjectId: String?,
 ) {
     val palette = LocalMobilePalette.current
-    var showMessageActions by remember(message.str("id")) { mutableStateOf(false) }
-    val messageFocusRequester = remember(message.str("id")) { FocusRequester() }
+    val messageIdentity = "$hostId:$chatId:${message.str("id")}"
+    var showMessageActions by remember(messageIdentity) { mutableStateOf(false) }
+    val messageFocusRequester = remember(messageIdentity) { FocusRequester() }
     val actionScope = rememberCoroutineScope()
+    var exactTimeHideJob by remember(messageIdentity) { mutableStateOf<Job?>(null) }
     fun dismissMessageActions() {
         showMessageActions = false
         actionScope.launch {
@@ -976,7 +991,13 @@ internal fun ChatMessageRow(
     val previousQuestionLabel = stringResource(Res.string.feature_question_previous)
     val nextQuestionLabel = stringResource(Res.string.feature_question_next)
     val swipeThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
-    var didSwipeReply by remember(message.str("id")) { mutableStateOf(false) }
+    var didSwipeReply by remember(messageIdentity) { mutableStateOf(false) }
+    var exactTimeOffsetPx by remember(messageIdentity) { mutableStateOf(0f) }
+    val animatedExactTimeOffsetPx by animateFloatAsState(
+        targetValue = exactTimeOffsetPx,
+        animationSpec = tween(durationMillis = 200),
+        label = "messageExactTimeReveal",
+    )
     val sender = message.obj("sender")
     val isUser = sender.str("kind") == "user"
     val id = message.str("id")
@@ -1023,6 +1044,12 @@ internal fun ChatMessageRow(
                 if (showTime) ChatClockText(message.str("created_at"))
             }
         }
+        Box(Modifier.fillMaxWidth()) {
+        if (showExactTime) {
+            Row(Modifier.align(Alignment.CenterEnd).padding(end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                ChatClockText(message.str("created_at"))
+            }
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
         if (!isUser) {
             if (showAvatar) Box(Modifier.semantics { contentDescription = avatarDescription }) {
@@ -1032,12 +1059,18 @@ internal fun ChatMessageRow(
         }
         Surface(
             modifier = (if (isUser) Modifier.fillMaxWidth(0.9f) else Modifier.weight(1f).padding(start = 8.dp))
+                .focusRequester(messageFocusRequester)
+                .offset { IntOffset(-animatedExactTimeOffsetPx.roundToInt(), 0) }
                 .pointerInput(message.str("id"), swipeThreshold) {
                     var distance = 0f
                     detectHorizontalDragGestures(
+                        onDragStart = { exactTimeHideJob?.cancel() },
                         onHorizontalDrag = { change, amount ->
                             distance += amount
-                            if (distance <= -swipeThreshold) onExactTimeReveal(true)
+                            if (distance < 0f) {
+                                exactTimeOffsetPx = (-distance).coerceAtMost(swipeThreshold)
+                                onExactTimeReveal(true)
+                            }
                             change.consume()
                         },
                         onDragEnd = {
@@ -1046,12 +1079,29 @@ internal fun ChatMessageRow(
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onReply(id)
                             }
-                            onExactTimeReveal(false)
+                            exactTimeOffsetPx = 0f
+                            exactTimeHideJob?.cancel()
+                            if (distance < 0f) {
+                                exactTimeHideJob = actionScope.launch {
+                                    delay(200)
+                                    onExactTimeReveal(false)
+                                }
+                            } else {
+                                onExactTimeReveal(false)
+                            }
                             distance = 0f
                         },
-                        onDragCancel = { onExactTimeReveal(false); distance = 0f },
+                        onDragCancel = { exactTimeHideJob?.cancel(); onExactTimeReveal(false); exactTimeOffsetPx = 0f; distance = 0f },
                     )
-                },
+                }
+                .combinedClickable(
+                    onClick = { if (didSwipeReply) didSwipeReply = false },
+                    onLongClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showMessageActions = true
+                    },
+                    onDoubleClick = { if (id.isNotBlank()) onReact(id, "👍") },
+                ),
             shape = RoundedCornerShape(
                 topStart = if (!isUser && followsSameAuthor) 6.dp else 16.dp,
                 topEnd = if (isUser && followsSameAuthor) 6.dp else 16.dp,
@@ -1063,14 +1113,7 @@ internal fun ChatMessageRow(
             border = if (highlighted) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         ) {
             Column(
-                Modifier.fillMaxWidth(0.9f).focusRequester(messageFocusRequester).combinedClickable(
-                    onClick = { if (didSwipeReply) didSwipeReply = false },
-                    onLongClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showMessageActions = true
-                    },
-                    onDoubleClick = { if (id.isNotBlank()) onReact(id, "👍") },
-                ).padding(horizontal = 12.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth(0.9f).padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 val quote = message.obj("quote")
                 if (quote.str("message_id").isNotBlank()) {
@@ -1193,7 +1236,7 @@ internal fun ChatMessageRow(
             }
         }
         }
-        if (showExactTime) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { ChatClockText(message.str("created_at")) }
+        }
         }
         if (showMessageActions) androidx.compose.material3.ModalBottomSheet(onDismissRequest = {
             dismissMessageActions()
