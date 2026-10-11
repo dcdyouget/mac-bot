@@ -33,6 +33,12 @@
       "$ref": "#/definitions/MessageSteerResult"
     },
     {
+      "$ref": "#/definitions/ArtifactVersionsResult"
+    },
+    {
+      "$ref": "#/definitions/ArtifactVersionGetResult"
+    },
+    {
       "$ref": "#/definitions/EmptyResult"
     },
     {
@@ -106,6 +112,9 @@
     },
     {
       "$ref": "#/definitions/AssignmentGetResult"
+    },
+    {
+      "$ref": "#/definitions/AssignmentResult"
     },
     {
       "$ref": "#/definitions/AssignmentResult"
@@ -539,6 +548,13 @@
         }
       }
     },
+    "ArtifactContentEncoding": {
+      "type": "string",
+      "enum": [
+        "utf8",
+        "base64"
+      ]
+    },
     "ArtifactKind": {
       "type": "string",
       "enum": [
@@ -571,6 +587,94 @@
         },
         "title": {
           "type": "string"
+        }
+      }
+    },
+    "ArtifactVersion": {
+      "type": "object",
+      "required": [
+        "artifact_id",
+        "assignment_id",
+        "bot_id",
+        "byte_size",
+        "created_at",
+        "kind",
+        "mime",
+        "path_or_url",
+        "title",
+        "version"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string"
+        },
+        "assignment_id": {
+          "type": "string"
+        },
+        "bot_id": {
+          "type": "string"
+        },
+        "byte_size": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ArtifactKind"
+        },
+        "mime": {
+          "type": "string"
+        },
+        "path_or_url": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ArtifactVersionGetResult": {
+      "type": "object",
+      "required": [
+        "content",
+        "content_encoding",
+        "version"
+      ],
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "content_encoding": {
+          "$ref": "#/definitions/ArtifactContentEncoding"
+        },
+        "version": {
+          "$ref": "#/definitions/ArtifactVersion"
+        }
+      }
+    },
+    "ArtifactVersionsResult": {
+      "type": "object",
+      "required": [
+        "has_more",
+        "versions"
+      ],
+      "properties": {
+        "has_more": {
+          "type": "boolean"
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ArtifactVersion"
+          }
         }
       }
     },

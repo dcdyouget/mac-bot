@@ -567,6 +567,27 @@ pub struct Artifact {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ArtifactVersion {
+    pub artifact_id: Id,
+    pub version: u64,
+    pub title: String,
+    pub path_or_url: String,
+    pub bot_id: Id,
+    pub assignment_id: Id,
+    pub kind: ArtifactKind,
+    pub created_at: Time,
+    pub byte_size: u64,
+    pub mime: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactContentEncoding {
+    Utf8,
+    Base64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
     File,
@@ -1468,6 +1489,28 @@ pub struct MessageSteerResult {
     pub assignment: Assignment,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ArtifactVersionsParams {
+    pub artifact_id: Id,
+    pub limit: Option<u32>,
+    pub before_version: Option<u64>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ArtifactVersionsResult {
+    pub versions: Vec<ArtifactVersion>,
+    pub has_more: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ArtifactVersionGetParams {
+    pub artifact_id: Id,
+    pub version: u64,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ArtifactVersionGetResult {
+    pub version: ArtifactVersion,
+    pub content: String,
+    pub content_encoding: ArtifactContentEncoding,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ChatMarkReadParams {
     pub chat_id: Id,
     pub seq: u64,
@@ -1747,6 +1790,11 @@ pub struct AssignmentIdParams {
     pub assignment_id: Id,
     #[serde(flatten)]
     pub meta: WriteMeta,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct AssignmentRetryParams {
+    pub assignment_id: Id,
+    pub client_request_id: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct AssignmentGetResult {
@@ -2408,6 +2456,10 @@ pub enum Method {
     ChatSend,
     #[serde(rename = "message.steer")]
     MessageSteer,
+    #[serde(rename = "artifact.versions.list")]
+    ArtifactVersionsList,
+    #[serde(rename = "artifact.version.get")]
+    ArtifactVersionGet,
     #[serde(rename = "chat.mark_read")]
     ChatMarkRead,
     #[serde(rename = "chat.react")]
@@ -2460,6 +2512,8 @@ pub enum Method {
     AssignmentGet,
     #[serde(rename = "assignment.stop")]
     AssignmentStop,
+    #[serde(rename = "assignment.retry")]
+    AssignmentRetry,
     #[serde(rename = "trace.history")]
     TraceHistory,
     #[serde(rename = "trace.subscribe")]
@@ -2554,6 +2608,8 @@ pub enum MethodParams {
     ChatThread(ChatThreadParams),
     ChatSend(ChatSendParams),
     MessageSteer(MessageSteerParams),
+    ArtifactVersionsList(ArtifactVersionsParams),
+    ArtifactVersionGet(ArtifactVersionGetParams),
     ChatMarkRead(ChatMarkReadParams),
     ChatReact(ChatReactParams),
     ChatSetPinned(ChatPinnedParams),
@@ -2580,6 +2636,7 @@ pub enum MethodParams {
     AssignmentList(AssignmentListParams),
     AssignmentGet(AssignmentIdParams),
     AssignmentStop(AssignmentIdParams),
+    AssignmentRetry(AssignmentRetryParams),
     TraceHistory(TraceHistoryParams),
     TraceSubscribe(TraceSubscribeParams),
     TraceUnsubscribe(TraceUnsubscribeParams),
@@ -2635,6 +2692,8 @@ pub enum MethodResult {
     ChatThread(ChatThreadResult),
     ChatSend(ChatSendResult),
     MessageSteer(MessageSteerResult),
+    ArtifactVersionsList(ArtifactVersionsResult),
+    ArtifactVersionGet(ArtifactVersionGetResult),
     ChatMarkRead(EmptyResult),
     ChatReact(ChatReactResult),
     ChatSetPinned(ChatPinnedResult),
@@ -2661,6 +2720,7 @@ pub enum MethodResult {
     AssignmentList(AssignmentListResult),
     AssignmentGet(AssignmentGetResult),
     AssignmentStop(AssignmentResult),
+    AssignmentRetry(AssignmentResult),
     TraceHistory(TraceHistoryResult),
     TraceSubscribe(TraceSubscribeResult),
     TraceUnsubscribe(EmptyResult),
@@ -2721,6 +2781,8 @@ impl MethodParams {
             Method::ChatThread => p!(ChatThread, ChatThreadParams),
             Method::ChatSend => p!(ChatSend, ChatSendParams),
             Method::MessageSteer => p!(MessageSteer, MessageSteerParams),
+            Method::ArtifactVersionsList => p!(ArtifactVersionsList, ArtifactVersionsParams),
+            Method::ArtifactVersionGet => p!(ArtifactVersionGet, ArtifactVersionGetParams),
             Method::ChatMarkRead => p!(ChatMarkRead, ChatMarkReadParams),
             Method::ChatReact => p!(ChatReact, ChatReactParams),
             Method::ChatSetPinned => p!(ChatSetPinned, ChatPinnedParams),
@@ -2747,6 +2809,7 @@ impl MethodParams {
             Method::AssignmentList => p!(AssignmentList, AssignmentListParams),
             Method::AssignmentGet => p!(AssignmentGet, AssignmentIdParams),
             Method::AssignmentStop => p!(AssignmentStop, AssignmentIdParams),
+            Method::AssignmentRetry => p!(AssignmentRetry, AssignmentRetryParams),
             Method::TraceHistory => p!(TraceHistory, TraceHistoryParams),
             Method::TraceSubscribe => p!(TraceSubscribe, TraceSubscribeParams),
             Method::TraceUnsubscribe => p!(TraceUnsubscribe, TraceUnsubscribeParams),
@@ -2809,6 +2872,8 @@ impl MethodResult {
             Method::ChatThread => r!(ChatThread, ChatThreadResult),
             Method::ChatSend => r!(ChatSend, ChatSendResult),
             Method::MessageSteer => r!(MessageSteer, MessageSteerResult),
+            Method::ArtifactVersionsList => r!(ArtifactVersionsList, ArtifactVersionsResult),
+            Method::ArtifactVersionGet => r!(ArtifactVersionGet, ArtifactVersionGetResult),
             Method::ChatMarkRead => r!(ChatMarkRead, EmptyResult),
             Method::ChatReact => r!(ChatReact, ChatReactResult),
             Method::ChatSetPinned => r!(ChatSetPinned, ChatPinnedResult),
@@ -2835,6 +2900,7 @@ impl MethodResult {
             Method::AssignmentList => r!(AssignmentList, AssignmentListResult),
             Method::AssignmentGet => r!(AssignmentGet, AssignmentGetResult),
             Method::AssignmentStop => r!(AssignmentStop, AssignmentResult),
+            Method::AssignmentRetry => r!(AssignmentRetry, AssignmentResult),
             Method::TraceHistory => r!(TraceHistory, TraceHistoryResult),
             Method::TraceSubscribe => r!(TraceSubscribe, TraceSubscribeResult),
             Method::TraceUnsubscribe => r!(TraceUnsubscribe, EmptyResult),

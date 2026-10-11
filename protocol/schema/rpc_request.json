@@ -181,6 +181,50 @@
         "expired"
       ]
     },
+    "ArtifactVersionGetParams": {
+      "type": "object",
+      "required": [
+        "artifact_id",
+        "version"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ArtifactVersionsParams": {
+      "type": "object",
+      "required": [
+        "artifact_id"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string"
+        },
+        "before_version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0.0
+        }
+      }
+    },
     "AssignmentIdParams": {
       "description": "Every mutating RPC accepts this id. The server stores the first result and returns it when a client retries the request after reconnecting.",
       "type": "object",
@@ -236,6 +280,21 @@
           "items": {
             "$ref": "#/definitions/AssignmentStatus"
           }
+        }
+      }
+    },
+    "AssignmentRetryParams": {
+      "type": "object",
+      "required": [
+        "assignment_id",
+        "client_request_id"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": "string"
+        },
+        "client_request_id": {
+          "type": "string"
         }
       }
     },
@@ -1144,6 +1203,8 @@
         "chat.thread",
         "chat.send",
         "message.steer",
+        "artifact.versions.list",
+        "artifact.version.get",
         "chat.mark_read",
         "chat.react",
         "chat.set_pinned",
@@ -1170,6 +1231,7 @@
         "assignment.list",
         "assignment.get",
         "assignment.stop",
+        "assignment.retry",
         "trace.history",
         "trace.subscribe",
         "trace.unsubscribe",
@@ -1243,6 +1305,12 @@
         },
         {
           "$ref": "#/definitions/MessageSteerParams"
+        },
+        {
+          "$ref": "#/definitions/ArtifactVersionsParams"
+        },
+        {
+          "$ref": "#/definitions/ArtifactVersionGetParams"
         },
         {
           "$ref": "#/definitions/ChatMarkReadParams"
@@ -1321,6 +1389,9 @@
         },
         {
           "$ref": "#/definitions/AssignmentIdParams"
+        },
+        {
+          "$ref": "#/definitions/AssignmentRetryParams"
         },
         {
           "$ref": "#/definitions/TraceHistoryParams"

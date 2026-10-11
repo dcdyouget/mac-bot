@@ -1,0 +1,16 @@
+{
+  "version": {
+    "artifact_id": "artifact_prd",
+    "version": 2,
+    "title": "PRD",
+    "path_or_url": "product/prd.md",
+    "bot_id": "bot_product",
+    "assignment_id": "asg_prd",
+    "kind": "file",
+    "created_at": "2026-10-09T10:18:00Z",
+    "byte_size": 42,
+    "mime": "text/markdown"
+  },
+  "content": "# 登录功能 PRD\n\n本期只做邮箱登录。",
+  "content_encoding": "utf8"
+}
