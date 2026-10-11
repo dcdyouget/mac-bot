@@ -633,6 +633,21 @@ impl ExecutionEngine {
             && !auto_create_project_requires_confirmation(&settings, tool_name)
     }
 
+    fn matched_ask_first_rule_text(
+        &self,
+        request: &ExecutionRequest,
+        tool_name: &str,
+        args: &Value,
+    ) -> Option<String> {
+        let settings = self
+            .store
+            .read_snapshot::<Value>("data/settings.json")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        matched_ask_first_rule_text(&settings, Some(&request.bot_id), tool_name, args)
+    }
+
     fn coordination_tool_requires_approval(&self, tool_name: &str, args: &Value) -> bool {
         let settings = self
             .store
@@ -1836,6 +1851,7 @@ impl ExecutionEngine {
                             "risk":risk,
                             "summary":format!("Approval required for {}",call.name),
                             "detail":approval_detail_with_home(&call.name,&call.args,cwd,actual_user_home().as_deref(),&self.home).to_string(),
+                            "matched_rule_text":self.matched_ask_first_rule_text(&request, &call.name, &call.args),
                             "always_allow_supported":always_allow_supported,
                             "state":"pending",
                             "created_at":now_rfc3339(),
@@ -2555,6 +2571,7 @@ impl ExecutionEngine {
                         "risk":risk_name,
                         "summary":format!("Approval required for {}",call.name),
                         "detail":approval_detail_with_home(&call.name,&call.args,cwd,actual_user_home().as_deref(),&self.home).to_string(),
+                        "matched_rule_text":self.matched_ask_first_rule_text(request, &call.name, &call.args),
                         "always_allow_supported":always_allow_supported,
                         "state":"pending",
                         "created_at":now_rfc3339(),
@@ -3552,6 +3569,33 @@ fn approval_requires_ask_first(
             return false;
         };
         text == tool_name || text == generated_summary || contains_argument_literal(args, text)
+    })
+}
+
+fn matched_ask_first_rule_text(
+    settings: &Value,
+    bot_id: Option<&str>,
+    tool_name: &str,
+    args: &Value,
+) -> Option<String> {
+    let rules = settings.get("approvals")?.get("rules")?.as_array()?;
+    let generated_summary = format!("Approval required for {tool_name}");
+    rules.iter().find_map(|rule| {
+        if rule
+            .get("bot_id")
+            .and_then(Value::as_str)
+            .is_some_and(|scope| Some(scope) != bot_id)
+            || rule.get("kind").and_then(Value::as_str) != Some("ask_first")
+            || rule.get("enabled").and_then(Value::as_bool) == Some(false)
+        {
+            return None;
+        }
+        let text = rule.get("text").and_then(Value::as_str)?;
+        let matches = rule.get("tool").and_then(Value::as_str) == Some(tool_name)
+            || text == tool_name
+            || text == generated_summary
+            || contains_argument_literal(args, text);
+        matches.then(|| text.to_owned())
     })
 }
 

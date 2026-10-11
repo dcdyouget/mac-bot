@@ -50,6 +50,7 @@
     "approval.list",
     "approval.decide",
     "question.answer",
+    "question.list",
     "loop.resolve",
     "takeover.start",
     "takeover.release",

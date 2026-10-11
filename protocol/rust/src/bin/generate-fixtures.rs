@@ -50,10 +50,38 @@ fn artifact_obj() -> Value {
     json!({"id":"art_prd","project_id":"prj_login","bot_id":"bot_main","assignment_id":"asg_1","title":"PRD","path_or_url":"product/prd.md","kind":"file","created_at":now(),"updated_at":now()})
 }
 fn approval() -> Value {
-    json!({"id":"apr_1","bot_id":"bot_main","assignment_id":null,"chat_id":"chat_main","tool":"bash","risk":"exec","summary":"运行测试","detail":"cargo test","state":"pending","created_at":now(),"decided_at":null,"always_allow_supported":true})
+    json!({"id":"apr_1","bot_id":"bot_main","assignment_id":null,"chat_id":"chat_main","tool":"bash","risk":"exec","summary":"推送登录功能分支","detail":"git push origin feature/email-login","matched_rule_text":"git push","state":"pending","created_at":now(),"decided_at":null,"always_allow_supported":true})
 }
 fn question() -> Value {
     json!({"id":"que_1","bot_id":"bot_main","assignment_id":"asg_1","chat_id":"chat_main","text":"继续？","options":["是","否"],"multi":false,"allow_free_text":true,"state":"pending","answer":null})
+}
+fn answered_question(id: &str, text: &str, options: Value, multi: bool, answer: Value) -> Value {
+    json!({"id":id,"bot_id":"bot_code","assignment_id":"asg_code","chat_id":"chat_login","text":text,"options":options,"multi":multi,"allow_free_text":true,"state":"answered","answer":answer})
+}
+fn question_history() -> Vec<Value> {
+    vec![
+        answered_question(
+            "que_login_1",
+            "按钮放在哪里？",
+            json!(["顶部","表单下方"]),
+            false,
+            json!({"option_index":1,"option_indexes":[],"text":null,"at":now()}),
+        ),
+        answered_question(
+            "que_login_2",
+            "验证邮件用哪个地址？",
+            json!([]),
+            false,
+            json!({"option_index":null,"option_indexes":[],"text":"hi@app.com，已配置 SPF","at":now()}),
+        ),
+        answered_question(
+            "que_login_3",
+            "覆盖哪些浏览器？",
+            json!(["Chrome","Safari","Firefox"]),
+            true,
+            json!({"option_index":null,"option_indexes":[0,1],"text":null,"at":now()}),
+        ),
+    ]
 }
 fn skill() -> Value {
     json!({"name":"prd-template","description":"PRD 模板","source":"builtin","path":"skills/prd-template","files":["template.md"],"enabled":true,"disabled_bot_ids":[],"invocations_7d":{"total":1,"by_bot":[]},"updated_at":now()})
@@ -96,6 +124,7 @@ fn objects(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
         ("artifact", artifact_obj()),
         ("approval", approval()),
         ("question", question()),
+        ("question_multi_answered", question_history()[2].clone()),
         ("skill", skill()),
         ("skill_draft", draft_skill()),
         (
@@ -348,7 +377,7 @@ fn events(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
         (
             "question_answered",
             "question.answered",
-            json!({"question":question()}),
+            json!({"question":question_history()[2].clone()}),
         ),
         ("skill_updated", "skill.updated", json!({"skill":skill()})),
         ("skill_deleted", "skill.deleted", json!({"name":"old"})),
@@ -973,6 +1002,62 @@ fn scenario(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn question_approval_scenario(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut lines = Vec::new();
+    let mut seq = 0u64;
+    push_frame(
+        &mut lines,
+        &mut seq,
+        "chat.created",
+        json!({"chat":chat_for("chat_login","project","登录功能",Some("prj_login"),&["bot_main","bot_code"],0)}),
+    );
+    push_frame(
+        &mut lines,
+        &mut seq,
+        "message.created",
+        json!({"message":scenario_message("msg_questions","chat_login",1,json!({"kind":"bot","bot_id":"bot_code"}),json!([{"type":"text","markdown":"实现前有三个问题需要确认"},{"type":"question","question_id":"que_login_1"},{"type":"question","question_id":"que_login_2"},{"type":"question","question_id":"que_login_3"}]),"实现前有三个问题需要确认",Some("decision"),Some("asg_code"),json!([{ "kind":"user"}]),json!([]))}),
+    );
+    for mut q in question_history() {
+        q["state"] = json!("pending");
+        q["answer"] = Value::Null;
+        push_frame(&mut lines, &mut seq, "question.asked", json!({"question":q}));
+    }
+    for q in question_history() {
+        push_frame(&mut lines, &mut seq, "question.answered", json!({"question":q}));
+    }
+    let approval = approval();
+    push_frame(
+        &mut lines,
+        &mut seq,
+        "approval.requested",
+        json!({"approval":approval.clone()}),
+    );
+    push_frame(
+        &mut lines,
+        &mut seq,
+        "message.created",
+        json!({"message":scenario_message("msg_approval","chat_main",1,json!({"kind":"bot","bot_id":"bot_code"}),json!([{"type":"approval","approval_id":"apr_1"}]),"等待审批：git push origin feature/email-login",None,None,json!([]),json!([]))}),
+    );
+    let mut resolved = approval;
+    resolved["state"] = json!("denied");
+    resolved["decided_at"] = json!(now());
+    push_frame(
+        &mut lines,
+        &mut seq,
+        "approval.resolved",
+        json!({"approval":resolved}),
+    );
+    let body = lines
+        .into_iter()
+        .map(|value| serde_json::to_string(&value))
+        .collect::<Result<Vec<_>, _>>()?
+        .join("\n")
+        + "\n";
+    fs::create_dir_all(root.join("scenarios"))?;
+    fs::write(root.join("scenarios/questions-approval.jsonl"), body)?;
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = env::args()
         .nth(1)
@@ -983,6 +1068,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     traces(&root)?;
     events(&root)?;
     scenario(&root)?;
+    question_approval_scenario(&root)?;
     write(
         &root.join("results"),
         "usage_heatmap_calendar.json",
@@ -999,6 +1085,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         json!({"matrix":matrix,"thresholds":[25.0,50.0,100.0]}),
     )?;
     write(&root.join("results"), "workbench.json", workbench())?;
+    write(
+        &root.join("requests"),
+        "question_list_history.json",
+        json!({"method":"question.list","params":{"chat_id":"chat_login","assignment_id":"asg_code","state":["answered"]}}),
+    )?;
+    write(
+        &root.join("results"),
+        "question_list_history.json",
+        json!({"questions":question_history()}),
+    )?;
     write(
         &root.join("requests"),
         "host_permissions.json",

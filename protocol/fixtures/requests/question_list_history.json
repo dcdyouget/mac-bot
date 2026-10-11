@@ -1,0 +1,10 @@
+{
+  "method": "question.list",
+  "params": {
+    "assignment_id": "asg_code",
+    "chat_id": "chat_login",
+    "state": [
+      "answered"
+    ]
+  }
+}

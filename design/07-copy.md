@@ -250,6 +250,7 @@
 | block.delegation.text | 交给 {bot} 处理（不建群） |
 | block.approval.title | 需要审批 · {tool} |
 | block.approval.meta | 来自 {project} · 命中规则「{rule}」 |
+| block.approval.matched_rule | 命中规则「{rule}」 |
 | block.approval.allow_once | 允许一次 |
 | block.approval.always_allow | 总是允许 |
 | block.approval.deny | 拒绝 |

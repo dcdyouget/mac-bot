@@ -1020,6 +1020,8 @@ pub struct ApprovalRequest {
     pub risk: String,
     pub summary: String,
     pub detail: String,
+    #[serde(default)]
+    pub matched_rule_text: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1406,6 +1408,32 @@ impl Inner {
                     p.get("option_indexes").and_then(Value::as_array).map(|items| items.iter().filter_map(Value::as_u64).map(|n| n as usize).collect()).unwrap_or_default(),
                     p.get("text").and_then(Value::as_str).map(str::to_owned),
                 )? })),
+            "question.list" => {
+                let chat_id = p.get("chat_id").and_then(Value::as_str);
+                let assignment_id = p.get("assignment_id").and_then(Value::as_str);
+                if chat_id.is_none() && assignment_id.is_none() {
+                    return Err(OrchestratorError::Invalid(
+                        "question.list requires chat_id or assignment_id".into(),
+                    ));
+                }
+                let states = p.get("state").and_then(Value::as_array);
+                let mut questions = self
+                    .questions
+                    .values()
+                    .filter(|question| chat_id.is_none_or(|id| question.chat_id == id))
+                    .filter(|question| assignment_id.is_none_or(|id| question.assignment_id == id))
+                    .filter(|question| {
+                        states.is_none_or(|values| {
+                            values
+                                .iter()
+                                .any(|value| value.as_str() == Some(question.state.as_str()))
+                        })
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                questions.sort_by(|a, b| a.id.cmp(&b.id));
+                Ok(json!({"questions": questions}))
+            }
             "loop.resolve" => {
                 let root = str_param(&p, "root_message_id")?;
                 let action = str_param(&p, "action")?;
@@ -3436,6 +3464,7 @@ impl Inner {
             risk: r.risk,
             summary: r.summary,
             detail: r.detail,
+            matched_rule_text: r.matched_rule_text,
             always_allow_supported,
             state: "pending".into(),
             created_at: now(),
@@ -5097,6 +5126,7 @@ mod tests {
                 risk: "high".into(),
                 summary: "旧审批".into(),
                 detail: "继续".into(),
+                matched_rule_text: None,
             })
             .unwrap();
         let question = o
@@ -5281,6 +5311,7 @@ mod tests {
                 risk: "exec".into(),
                 summary: "需要确认".into(),
                 detail: "独立审批".into(),
+                matched_rule_text: None,
             })
             .unwrap();
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -5342,6 +5373,7 @@ mod tests {
                 risk: "exec".into(),
                 summary: "first approval".into(),
                 detail: "first".into(),
+                matched_rule_text: None,
             })
             .unwrap();
         let second = make_assignment("second");
@@ -5354,6 +5386,7 @@ mod tests {
                 risk: "exec".into(),
                 summary: "second approval".into(),
                 detail: "second".into(),
+                matched_rule_text: None,
             })
             .unwrap();
         let standalone = o
@@ -5365,6 +5398,7 @@ mod tests {
                 risk: "external".into(),
                 summary: "standalone".into(),
                 detail: "standalone".into(),
+                matched_rule_text: None,
             })
             .unwrap();
 
@@ -5409,6 +5443,7 @@ mod tests {
                 risk: "exec".into(),
                 summary: "late".into(),
                 detail: "late".into(),
+                matched_rule_text: None,
             })
             .is_err());
 
@@ -5422,6 +5457,7 @@ mod tests {
                 risk: "exec".into(),
                 summary: "historical".into(),
                 detail: "historical".into(),
+                matched_rule_text: None,
             })
             .unwrap();
         o.finish_assignment(&historical.id, "done").unwrap();
@@ -5482,6 +5518,7 @@ mod tests {
                 risk: "exec".into(),
                 summary: summary.into(),
                 detail: summary.into(),
+                matched_rule_text: None,
             })
             .unwrap()
         };
@@ -7804,6 +7841,7 @@ mod tests {
     fn approval_and_question_waiting_states_validate_inputs() {
         let o = Orchestrator::default();
         let rt = tokio::runtime::Runtime::new().unwrap();
+        assert!(rt.block_on(o.rpc("question.list", json!({}))).is_err());
         let worker = bot(&o, "审批");
         let assignment = o
             .create_assignment(AssignmentRequest {
@@ -7829,6 +7867,7 @@ mod tests {
                 risk: "external".into(),
                 summary: "打开网页".into(),
                 detail: "需要用户确认".into(),
+                matched_rule_text: None,
             })
             .unwrap();
         let workbench = rt.block_on(o.rpc("workbench.get", json!({}))).unwrap();
@@ -7858,6 +7897,7 @@ mod tests {
                 risk: "exec".into(),
                 summary: "x".into(),
                 detail: "x".into(),
+                matched_rule_text: None,
             })
             .is_err());
         let approval = o
@@ -7869,6 +7909,7 @@ mod tests {
                 risk: "exec".into(),
                 summary: "执行".into(),
                 detail: "echo x".into(),
+                matched_rule_text: None,
             })
             .unwrap();
         let denied = rt
@@ -7910,6 +7951,7 @@ mod tests {
                     risk: "exec".into(),
                     summary: "允许规则".into(),
                     detail: "echo y".into(),
+                    matched_rule_text: None,
                 },
                 true,
             )
@@ -8249,6 +8291,7 @@ mod tests {
                 risk: "exec".into(),
                 summary: "执行测试命令".into(),
                 detail: "echo migration-marker".into(),
+                matched_rule_text: None,
             })
             .unwrap();
         let before = o.snapshot().unwrap();

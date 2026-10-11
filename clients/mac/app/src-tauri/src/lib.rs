@@ -37,6 +37,7 @@ struct BridgeSnapshot {
     messages: Map<String, Value>,
     assignments: Map<String, Value>,
     approvals: Map<String, Value>,
+    questions: Map<String, Value>,
     settings: Option<Value>,
 }
 
@@ -64,6 +65,7 @@ fn snapshot(data: &BridgeData) -> BridgeSnapshot {
         messages: map_values(&data.state.messages),
         assignments: map_values(&data.state.assignments),
         approvals: map_values(&data.state.approvals),
+        questions: map_values(&data.state.questions),
         settings: data.state.settings.clone(),
     }
 }

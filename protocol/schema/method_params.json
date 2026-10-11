@@ -144,6 +144,9 @@
       "$ref": "#/definitions/QuestionAnswerParams"
     },
     {
+      "$ref": "#/definitions/QuestionListParams"
+    },
+    {
       "$ref": "#/definitions/LoopResolveParams"
     },
     {
@@ -2025,6 +2028,40 @@
           ]
         }
       }
+    },
+    "QuestionListParams": {
+      "type": "object",
+      "properties": {
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "chat_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/QuestionState"
+          }
+        }
+      }
+    },
+    "QuestionState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "answered",
+        "expired"
+      ]
     },
     "QuoteMode": {
       "type": "string",

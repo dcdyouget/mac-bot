@@ -646,6 +646,7 @@ fn chat_tr(key: &str) -> SharedString {
         "block.delegation.text" => "交给 {bot} 处理（不建群）",
         "block.approval.title" => "需要审批 · {tool}",
         "block.approval.meta" => "来自 {project} · 命中规则「{rule}」",
+        "block.approval.matched_rule" => "命中规则「{rule}」",
         "block.approval.allow_once" => "允许一次",
         "block.approval.always_allow" => "总是允许",
         "block.approval.deny" => "拒绝",
@@ -3892,7 +3893,11 @@ impl MacBot {
                     .and_then(|assignment| self.state.projects.get(s(assignment, "project_id")))
                     .map(|project| s(project, "name"))
                     .unwrap_or("");
-                let rule = s(&approval, "rule_name");
+                let rule = if s(&approval, "matched_rule_text").is_empty() {
+                    s(&approval, "rule_name")
+                } else {
+                    s(&approval, "matched_rule_text")
+                };
                 body = body
                     .child(
                         chat_tr("block.approval.title")
@@ -3909,6 +3914,12 @@ impl MacBot {
                         chat_tr("block.approval.meta")
                             .to_string()
                             .replace("{project}", project)
+                            .replace("{rule}", rule),
+                    );
+                } else if !rule.is_empty() {
+                    body = body.child(
+                        chat_tr("block.approval.matched_rule")
+                            .to_string()
                             .replace("{rule}", rule),
                     );
                 }

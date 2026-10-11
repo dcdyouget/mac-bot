@@ -662,6 +662,7 @@ impl ProductionBackend {
                 | "assignment.get"
                 | "trace.history"
                 | "approval.list"
+                | "question.list"
                 | "routine.list"
                 | "routine.runs"
                 | "workbench.get"
@@ -8074,6 +8075,13 @@ fn normalize_result(method: &str, mut result: Value) -> Result<Value, String> {
                 normalize_question(item);
             }
         }
+        "question.list" => {
+            if let Some(items) = result.get_mut("questions").and_then(Value::as_array_mut) {
+                for item in items {
+                    normalize_question(item);
+                }
+            }
+        }
         "routine.create" | "routine.update" | "routine.set_enabled" => {
             if let Some(item) = result.get_mut("routine") {
                 normalize_routine(item);
@@ -9142,6 +9150,7 @@ fn validate_json_shape(method: &str, value: &Value) -> Result<(), String> {
         "device.register" => parse!(Device, value["device"]),
         "approval.decide" => parse!(Approval, value["approval"]),
         "approval.list" => parse!(Vec<Approval>, value["approvals"]),
+        "question.list" => parse!(Vec<Question>, value["questions"]),
         "question.answer" => parse!(Question, value["question"]),
         "routine.create" | "routine.update" | "routine.set_enabled" => {
             parse!(Routine, value["routine"])

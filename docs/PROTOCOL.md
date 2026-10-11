@@ -397,6 +397,7 @@ interface Approval {
   risk: "write" | "exec" | "external";
   summary: string;             // 一句话说明
   detail: string;              // Markdown，例如完整的命令
+  matched_rule_text?: string | null; // 创建审批时命中规则的文案快照；无匹配或旧记录为 null
   state: "pending" | "allowed_once" | "always_allowed" | "denied" | "expired";
   always_allow_supported?: boolean; // 旧服务端省略时兼容为 true；新服务端显式返回；false 时隐藏或禁用「总是允许」
   created_at: Time; decided_at: Time | null;
@@ -413,6 +414,8 @@ interface Question {
 ```
 
 旧服务端快照迁移时，缺少 `always_allow_supported` 的普通审批保留原有“总是允许”能力；可从工具和详情识别的内置高风险审批会迁移为 `false`。旧审批不保存执行工作目录，因此历史 `rm -rf` 一律迁移为 `false`，避免绕过内置确认规则；已有显式值不变。该兼容收紧只影响对应历史审批的持久允许选项，不影响单次允许。
+
+历史消息中的 `question` 块只携带 ID；客户端加载消息后用 `question.list` 取回完整题目与回答状态。`Approval.matched_rule_text` 在审批创建时保存，不随规则之后的修改而改变；旧记录无此快照时返回 null。
 
 ### 4.10 Skill、Routine
 
@@ -632,6 +635,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 |------|------|------|
 | `approval.list` | `{ state?: Approval["state"][] }` | `{ approvals: Approval[] }` |
 | `approval.decide` | `{ approval_id, decision: "allow_once"\|"always_allow"\|"deny" }` | `{ approval: Approval }`（仅当 `always_allow_supported` 为 true 时提供 `always_allow`；该操作会新增一条 auto_allow 规则） |
+| `question.list` | `{ chat_id?: Id, assignment_id?: Id, state?: Question["state"][] }` | `{ questions: Question[] }`（只读；至少提供 `chat_id` 或 `assignment_id`，按消息时间顺序返回该范围内全部问题，包括已回答和已过期；用于恢复历史消息中的 `question_id` 卡片） |
 | `question.answer` | `{ question_id, option_index?: number, option_indexes?: number[] /* 多选 */, text?: string }` | `{ question: Question }`（已过期时返回 `conflict`） |
 | `loop.resolve` | `{ root_message_id, action: "continue"\|"end" }` | `{}` |
 | `takeover.start` | `{ bot_id }` | `{}`（之后 `/ws/screen` 上的输入才会被接受；客户端需要已经打开该 Bot 的画面连接） |

@@ -54,7 +54,7 @@ fun ApprovalScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
             items(pendingApprovals, key = { it.str("id").ifBlank { "approval:${it.hashCode()}" } }) { approval ->
-                ApprovalCard(approval) { id, decision ->
+                ApprovalCard(approval, approvalOriginName(approval, state)) { id, decision ->
                     scope.launch {
                         runCatching { repository.call("approval.decide", buildJsonObject { put("approval_id", id); put("decision", decision) }) }
                             .onFailure { error = it.message }
@@ -80,13 +80,20 @@ fun ApprovalScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
 }
 
 @Composable
-fun ApprovalCard(approval: JsonObject, onDecide: (approvalId: String, decision: String) -> Unit) {
+fun ApprovalCard(approval: JsonObject, sourceName: String = "", onDecide: (approvalId: String, decision: String) -> Unit) {
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val tool = approval.str("tool")
         val toolLabel = if (tool.isBlank()) stringResource(Res.string.trace_filter_tools) else tool
         Text(stringResource(Res.string.block_approval_title, toolLabel), style = MaterialTheme.typography.titleMedium)
         Text(approval.str("summary"))
         MarkdownText(approval.str("detail"), Modifier.fillMaxWidth())
+        ApprovalWireModel(approval).matchedRuleText?.takeIf(String::isNotBlank)?.let { matchedRuleText ->
+            Text(
+                stringResource(Res.string.block_approval_meta, sourceName.ifBlank { stringResource(Res.string.feature_bot) }, matchedRuleText),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         val id = approval.str("id")
         if (approval.str("state") == "pending") {
             val alwaysAllowSupported = ApprovalWireModel(approval).alwaysAllowSupported ?: true
@@ -97,6 +104,14 @@ fun ApprovalCard(approval: JsonObject, onDecide: (approvalId: String, decision: 
             }
         }
     }
+}
+
+private fun approvalOriginName(approval: JsonObject, state: bot.mac.mobile.core.state.MobileState): String {
+    val assignmentId = ApprovalWireModel(approval).assignmentId.orEmpty()
+    val projectId = state.assignments.firstOrNull { it.str("id") == assignmentId }?.str("project_id").orEmpty()
+    return state.projects.firstOrNull { it.str("id") == projectId }?.str("name")?.takeIf(String::isNotBlank)
+        ?: state.bots.firstOrNull { it.str("id") == ApprovalWireModel(approval).botId }?.str("name")?.takeIf(String::isNotBlank)
+        .orEmpty()
 }
 
 @Composable

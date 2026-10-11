@@ -79,6 +79,7 @@ data class Approval(override val raw: JsonObject) : RawProtocolModel {
     val decidedAt: String? get() = raw.stringOrNull("decided_at")
     val detail: String get() = raw.str("detail")
     val id: String get() = raw.str("id")
+    val matchedRuleText: String? get() = raw.stringOrNull("matched_rule_text")
     val risk: String get() = raw.str("risk")
     val state: String get() = raw.str("state")
     val summary: String get() = raw.str("summary")
@@ -1138,6 +1139,14 @@ data class QuestionAnswerParams(override val raw: JsonObject) : RawProtocolModel
 }
 object QuestionAnswerParamsSerializer : RawModelSerializer<QuestionAnswerParams>(::QuestionAnswerParams)
 
+@Serializable(with = QuestionListParamsSerializer::class)
+data class QuestionListParams(override val raw: JsonObject) : RawProtocolModel {
+    val assignmentId: String? get() = raw.stringOrNull("assignment_id")
+    val chatId: String? get() = raw.stringOrNull("chat_id")
+    val state: List<String>? get() = if (raw["state"] == null) null else raw.arr("state").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+}
+object QuestionListParamsSerializer : RawModelSerializer<QuestionListParams>(::QuestionListParams)
+
 @Serializable(with = RoutineCreateParamsSerializer::class)
 data class RoutineCreateParams(override val raw: JsonObject) : RawProtocolModel {
     val botId: String get() = raw.str("bot_id")
@@ -1748,6 +1757,12 @@ data class ProviderTestResult(override val raw: JsonObject) : RawProtocolModel {
     val ok: Boolean get() = raw.boolean("ok")
 }
 object ProviderTestResultSerializer : RawModelSerializer<ProviderTestResult>(::ProviderTestResult)
+
+@Serializable(with = QuestionListResultSerializer::class)
+data class QuestionListResult(override val raw: JsonObject) : RawProtocolModel {
+    val questions: List<Question> get() = raw.arr("questions").mapNotNull { (it as? JsonObject)?.let(::Question) }
+}
+object QuestionListResultSerializer : RawModelSerializer<QuestionListResult>(::QuestionListResult)
 
 @Serializable(with = QuestionResultSerializer::class)
 data class QuestionResult(override val raw: JsonObject) : RawProtocolModel {

@@ -160,4 +160,32 @@ class RpcStateReducerTest {
         assertTrue(deletedModel.models.none { it.str("ref") == "new-provider/model-1" })
         assertTrue(deletedProvider.providers.none { it.str("id") == "new-provider" })
     }
+
+    @Test
+    fun chatScopedQuestionListRestoresHistoryWithoutDroppingOtherChats() {
+        val current = MobileState(
+            questions = listOf(
+                objectOf("""{"id":"q-other","chat_id":"chat-other","state":"pending"}"""),
+                objectOf("""{"id":"q-answered","chat_id":"chat-history","state":"pending"}"""),
+            ),
+        )
+        val result = objectOf(
+            """{"questions":[
+                {"id":"q-answered","chat_id":"chat-history","state":"answered"},
+                {"id":"q-expired","chat_id":"chat-history","state":"expired"}
+            ]}"""
+        )
+
+        val updated = RpcStateReducer.apply(
+            current,
+            "question.list",
+            buildJsonObject { put("chat_id", "chat-history") },
+            result,
+        )
+
+        assertEquals(
+            listOf("q-other" to "pending", "q-answered" to "answered", "q-expired" to "expired"),
+            updated.questions.map { it.str("id") to it.str("state") },
+        )
+    }
 }

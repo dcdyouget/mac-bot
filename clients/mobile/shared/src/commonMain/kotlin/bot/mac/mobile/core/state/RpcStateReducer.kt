@@ -1,6 +1,7 @@
 package bot.mac.mobile.core.state
 
 import bot.mac.mobile.core.protocol.*
+import bot.mac.mobile.core.protocol.generated.QuestionListResult
 import kotlinx.serialization.json.*
 
 object RpcStateReducer {
@@ -19,10 +20,23 @@ object RpcStateReducer {
         lists.forEach { (plural, descriptor) ->
             val (singular, listMethod) = descriptor
             if (result[plural] is JsonArray && method == listMethod) {
-                val objects = result.objects(plural)
+                val objects = if (plural == "questions") QuestionListResult(result).questions.map { it.raw } else result.objects(plural)
                 next = when (plural) {
                     "bots" -> next.copy(bots = objects); "chats" -> next.copy(chats = objects); "projects" -> next.copy(projects = objects)
-                    "approvals" -> next.copy(approvals = objects); "questions" -> next.copy(questions = objects); "skills" -> next.copy(skills = objects); "routines" -> next.copy(routines = objects)
+                    "approvals" -> next.copy(approvals = objects)
+                    "questions" -> {
+                        val chatId = params.str("chat_id")
+                        val assignmentId = params.str("assignment_id")
+                        if (chatId.isBlank() && assignmentId.isBlank()) next.copy(questions = objects)
+                        else {
+                            val replaced = next.questions.filterNot { question ->
+                                (chatId.isNotBlank() && question.str("chat_id") == chatId) ||
+                                    (assignmentId.isNotBlank() && question.str("assignment_id") == assignmentId)
+                            }
+                            next.copy(questions = mergeById(replaced, objects))
+                        }
+                    }
+                    "skills" -> next.copy(skills = objects); "routines" -> next.copy(routines = objects)
                     else -> next
                 }
             }

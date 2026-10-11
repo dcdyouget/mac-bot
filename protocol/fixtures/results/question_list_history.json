@@ -1,0 +1,65 @@
+{
+  "questions": [
+    {
+      "allow_free_text": true,
+      "answer": {
+        "at": "2026-10-09T10:19:02.312Z",
+        "option_index": 1,
+        "option_indexes": [],
+        "text": null
+      },
+      "assignment_id": "asg_code",
+      "bot_id": "bot_code",
+      "chat_id": "chat_login",
+      "id": "que_login_1",
+      "multi": false,
+      "options": [
+        "顶部",
+        "表单下方"
+      ],
+      "state": "answered",
+      "text": "按钮放在哪里？"
+    },
+    {
+      "allow_free_text": true,
+      "answer": {
+        "at": "2026-10-09T10:19:02.312Z",
+        "option_index": null,
+        "option_indexes": [],
+        "text": "hi@app.com，已配置 SPF"
+      },
+      "assignment_id": "asg_code",
+      "bot_id": "bot_code",
+      "chat_id": "chat_login",
+      "id": "que_login_2",
+      "multi": false,
+      "options": [],
+      "state": "answered",
+      "text": "验证邮件用哪个地址？"
+    },
+    {
+      "allow_free_text": true,
+      "answer": {
+        "at": "2026-10-09T10:19:02.312Z",
+        "option_index": null,
+        "option_indexes": [
+          0,
+          1
+        ],
+        "text": null
+      },
+      "assignment_id": "asg_code",
+      "bot_id": "bot_code",
+      "chat_id": "chat_login",
+      "id": "que_login_3",
+      "multi": true,
+      "options": [
+        "Chrome",
+        "Safari",
+        "Firefox"
+      ],
+      "state": "answered",
+      "text": "覆盖哪些浏览器？"
+    }
+  ]
+}

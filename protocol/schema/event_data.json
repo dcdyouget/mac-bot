@@ -484,6 +484,13 @@
         "id": {
           "type": "string"
         },
+        "matched_rule_text": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "risk": {
           "$ref": "#/definitions/ApprovalRisk"
         },

@@ -108,6 +108,7 @@ class FixtureContractTest {
         path == "requests/message_delete.json" -> MessageDeleteParamsSerializer
         path == "requests/message_edit.json" -> MessageEditParamsSerializer
         path == "requests/message_steer.json" -> MessageSteerParamsSerializer
+        path == "requests/question_list_history.json" -> QuestionListParamsSerializer
         path == "requests/host_permissions.json" -> JsonObject.serializer()
         path == "requests/settings_update_partial.json" || path == "requests/settings_update_web_search.json" -> SettingsUpdateParamsSerializer
         path.startsWith("trace/") -> TraceItemSerializer
@@ -121,6 +122,7 @@ class FixtureContractTest {
         path == "results/host_permissions.json" -> HostPermissionsResultSerializer
         path == "results/message_delete.json" -> JsonObject.serializer()
         path == "results/message_edit.json" -> MessageEditResultSerializer
+        path == "results/question_list_history.json" -> QuestionListResultSerializer
         path == "results/usage_heatmap_calendar.json" || path == "results/usage_heatmap_weekhour.json" -> HeatmapResultSerializer
         path.startsWith("blocks/") -> BlockSerializer
         else -> null
@@ -144,6 +146,7 @@ class FixtureContractTest {
         "provider" to ProviderSerializer,
         "question" to QuestionSerializer,
         "question_multi" to QuestionSerializer,
+        "question_multi_answered" to QuestionSerializer,
         "routine" to RoutineSerializer,
         "routine_run" to RoutineRunSerializer,
         "settings" to SettingsSerializer,

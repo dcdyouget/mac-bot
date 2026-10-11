@@ -607,6 +607,8 @@ pub struct Approval {
     pub risk: ApprovalRisk,
     pub summary: String,
     pub detail: String,
+    #[serde(default)]
+    pub matched_rule_text: Option<String>,
     pub state: ApprovalState,
     #[serde(default = "default_always_allow_supported")]
     pub always_allow_supported: bool,
@@ -1964,6 +1966,16 @@ pub struct QuestionAnswerParams {
     pub meta: WriteMeta,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct QuestionListParams {
+    pub chat_id: Option<Id>,
+    pub assignment_id: Option<Id>,
+    pub state: Option<Vec<QuestionState>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct QuestionListResult {
+    pub questions: Vec<Question>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct QuestionResult {
     pub question: Question,
 }
@@ -2632,6 +2644,8 @@ pub enum Method {
     ApprovalDecide,
     #[serde(rename = "question.answer")]
     QuestionAnswer,
+    #[serde(rename = "question.list")]
+    QuestionList,
     #[serde(rename = "loop.resolve")]
     LoopResolve,
     #[serde(rename = "takeover.start")]
@@ -2753,6 +2767,7 @@ pub enum MethodParams {
     ApprovalList(ApprovalListParams),
     ApprovalDecide(ApprovalDecideParams),
     QuestionAnswer(QuestionAnswerParams),
+    QuestionList(QuestionListParams),
     LoopResolve(LoopResolveParams),
     TakeoverStart(TakeoverStartParams),
     TakeoverRelease(TakeoverReleaseParams),
@@ -2840,6 +2855,7 @@ pub enum MethodResult {
     ApprovalList(ApprovalListResult),
     ApprovalDecide(ApprovalResult),
     QuestionAnswer(QuestionResult),
+    QuestionList(QuestionListResult),
     LoopResolve(EmptyResult),
     TakeoverStart(EmptyResult),
     TakeoverRelease(EmptyResult),
@@ -2932,6 +2948,7 @@ impl MethodParams {
             Method::ApprovalList => p!(ApprovalList, ApprovalListParams),
             Method::ApprovalDecide => p!(ApprovalDecide, ApprovalDecideParams),
             Method::QuestionAnswer => p!(QuestionAnswer, QuestionAnswerParams),
+            Method::QuestionList => p!(QuestionList, QuestionListParams),
             Method::LoopResolve => p!(LoopResolve, LoopResolveParams),
             Method::TakeoverStart => p!(TakeoverStart, TakeoverStartParams),
             Method::TakeoverRelease => p!(TakeoverRelease, TakeoverReleaseParams),
@@ -3026,6 +3043,7 @@ impl MethodResult {
             Method::ApprovalList => r!(ApprovalList, ApprovalListResult),
             Method::ApprovalDecide => r!(ApprovalDecide, ApprovalResult),
             Method::QuestionAnswer => r!(QuestionAnswer, QuestionResult),
+            Method::QuestionList => r!(QuestionList, QuestionListResult),
             Method::LoopResolve => r!(LoopResolve, EmptyResult),
             Method::TakeoverStart => r!(TakeoverStart, EmptyResult),
             Method::TakeoverRelease => r!(TakeoverRelease, EmptyResult),

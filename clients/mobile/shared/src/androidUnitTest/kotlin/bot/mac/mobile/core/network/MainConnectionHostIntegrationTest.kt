@@ -3,6 +3,7 @@ package bot.mac.mobile.core.network
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.websocket.WebSockets
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -411,7 +412,16 @@ class MainConnectionHostIntegrationTest {
     fun rejectedWebSocketReportsOnlyStageStatusAndExceptionClass() {
         runBlocking {
             val server = MockWebServer()
-            server.enqueue(MockResponse.Builder().code(401).build())
+            val rejectedHandshakeReceived = CompletableDeferred<Unit>()
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    rejectedHandshakeReceived.complete(Unit)
+                    return MockResponse.Builder()
+                        .code(401)
+                        .addHeader("Connection", "close")
+                        .build()
+                }
+            }
             server.start()
             val client = HttpClient(OkHttp) { install(WebSockets) }
             val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -427,17 +437,28 @@ class MainConnectionHostIntegrationTest {
             try {
                 connection.start()
                 assertEquals("websocket_open", withTimeout(2_000) { diagnostics.receive() }.stage)
-                val failed = withTimeout(2_000) { diagnostics.receive() }
-                assertEquals("websocket_open", failed.stage)
+                // The first diagnostic is emitted before the HTTP request begins. Wait for the
+                // mock to receive the rejected upgrade before asserting the transport failure.
+                withTimeout(5_000) { rejectedHandshakeReceived.await() }
+                var failed: ConnectionDiagnostic? = null
+                withTimeout(5_000) {
+                    while (failed == null) {
+                        diagnostics.receive().let { diagnostic ->
+                            if (diagnostic.exceptionClass != null) failed = diagnostic
+                        }
+                    }
+                }
+                val failure = failed ?: error("missing rejected handshake diagnostic")
+                assertEquals("websocket_open", failure.stage)
                 // OkHttp/Ktor may expose the rejected handshake as WebSocketException
                 // without retaining the HTTP response; when it is retained, keep 401.
-                assertTrue(failed.httpStatus == null || failed.httpStatus == 401)
-                val exceptionClass = failed.exceptionClass ?: error("missing exception class")
+                assertTrue(failure.httpStatus == null || failure.httpStatus == 401)
+                val exceptionClass = failure.exceptionClass ?: error("missing exception class")
                 assertTrue(exceptionClass.isNotBlank())
                 assertTrue(exceptionClass.contains("Exception"))
-                assertTrue(failed.toString().contains("websocket_open"))
-                assertTrue(!failed.toString().contains("diagnostic-secret"))
-                assertTrue(!failed.toString().contains(server.url("/").toString()))
+                assertTrue(failure.toString().contains("websocket_open"))
+                assertTrue(!failure.toString().contains("diagnostic-secret"))
+                assertTrue(!failure.toString().contains(server.url("/").toString()))
             } finally {
                 connection.stop()
                 scope.cancel()

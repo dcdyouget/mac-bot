@@ -202,6 +202,8 @@ pub struct Approval {
     pub risk: String,
     pub summary: String,
     pub detail: String,
+    #[serde(default)]
+    pub matched_rule_text: Option<String>,
     /// Whether this approval may be converted into a persistent allow rule.
     /// Older snapshots omit it, so they remain conservatively unsupported.
     #[serde(default)]

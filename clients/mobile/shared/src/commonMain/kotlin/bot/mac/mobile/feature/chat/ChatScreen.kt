@@ -192,6 +192,11 @@ fun ChatScreen(
             historyLoaded = true
         }.onFailure { error = it.message ?: loadingError }
             .also { if (it.isFailure) historyLoaded = true }
+        // History carries question IDs in its message blocks. Fetch their complete states in one
+        // chat-scoped query so answered and expired cards can be reconstructed after reconnect.
+        runCatching {
+            repository.call("question.list", buildJsonObject { put("chat_id", chatId) })
+        }
     }
     LaunchedEffect(draft.startsWith("/")) {
         if (draft.startsWith("/")) runCatching { repository.call("skill.list", buildJsonObject {}) }
@@ -1139,9 +1144,22 @@ private fun BlockView(
             val approvalId = block.str("approval_id")
             val approval = state.approvals.firstOrNull { it.str("id") == approvalId }
             val alwaysAllowSupported = approval?.let { ApprovalWireModel(it).alwaysAllowSupported } ?: true
+            val matchedRuleText = approval?.let { ApprovalWireModel(it).matchedRuleText }?.takeIf(String::isNotBlank)
             Text(stringResource(Res.string.feature_approval_needed), Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, style = MaterialTheme.typography.titleSmall)
             Text(approval?.str("summary").orEmpty().ifBlank { approvalId })
             MarkdownText(approval?.str("detail").orEmpty(), Modifier.fillMaxWidth())
+            matchedRuleText?.let { ruleText ->
+                val assignmentId = approval?.str("assignment_id").orEmpty()
+                val projectId = state.assignments.firstOrNull { it.str("id") == assignmentId }?.str("project_id").orEmpty()
+                val sourceName = state.projects.firstOrNull { it.str("id") == projectId }?.str("name")?.takeIf(String::isNotBlank)
+                    ?: state.bots.firstOrNull { it.str("id") == approval?.str("bot_id") }?.str("name")?.takeIf(String::isNotBlank)
+                    ?: stringResource(Res.string.feature_bot)
+                Text(
+                    stringResource(Res.string.block_approval_meta, sourceName, ruleText),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (approval?.str("state") == "pending") Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { onApproval(approvalId, "allow_once") }) { Text(stringResource(Res.string.block_approval_allow_once)) }
                 if (alwaysAllowSupported) Button(onClick = { onApproval(approvalId, "always_allow") }) { Text(stringResource(Res.string.block_approval_always_allow)) }

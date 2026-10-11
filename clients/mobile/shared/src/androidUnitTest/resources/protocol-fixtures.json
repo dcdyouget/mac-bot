@@ -236,11 +236,12 @@
           "chat_id": "chat_main",
           "created_at": "2026-10-09T10:19:02.312Z",
           "decided_at": null,
-          "detail": "cargo test",
+          "detail": "git push origin feature/email-login",
           "id": "apr_1",
+          "matched_rule_text": "git push",
           "risk": "exec",
           "state": "pending",
-          "summary": "运行测试",
+          "summary": "推送登录功能分支",
           "tool": "bash"
         }
       },
@@ -262,11 +263,12 @@
           "chat_id": "chat_main",
           "created_at": "2026-10-09T10:19:02.312Z",
           "decided_at": null,
-          "detail": "cargo test",
+          "detail": "git push origin feature/email-login",
           "id": "apr_1",
+          "matched_rule_text": "git push",
           "risk": "exec",
           "state": "pending",
-          "summary": "运行测试",
+          "summary": "推送登录功能分支",
           "tool": "bash"
         }
       },
@@ -892,18 +894,27 @@
       "data": {
         "question": {
           "allow_free_text": true,
-          "answer": null,
-          "assignment_id": "asg_1",
-          "bot_id": "bot_main",
-          "chat_id": "chat_main",
-          "id": "que_1",
-          "multi": false,
+          "answer": {
+            "at": "2026-10-09T10:19:02.312Z",
+            "option_index": null,
+            "option_indexes": [
+              0,
+              1
+            ],
+            "text": null
+          },
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_login_3",
+          "multi": true,
           "options": [
-            "是",
-            "否"
+            "Chrome",
+            "Safari",
+            "Firefox"
           ],
-          "state": "pending",
-          "text": "继续？"
+          "state": "answered",
+          "text": "覆盖哪些浏览器？"
         }
       },
       "event": "question.answered",
@@ -1382,11 +1393,12 @@
       "chat_id": "chat_main",
       "created_at": "2026-10-09T10:19:02.312Z",
       "decided_at": null,
-      "detail": "cargo test",
+      "detail": "git push origin feature/email-login",
       "id": "apr_1",
+      "matched_rule_text": "git push",
       "risk": "exec",
       "state": "pending",
-      "summary": "运行测试",
+      "summary": "推送登录功能分支",
       "tool": "bash"
     }
   },
@@ -1713,6 +1725,34 @@
     }
   },
   {
+    "source": "protocol/fixtures/objects/question_multi_answered.json",
+    "line": 1,
+    "value": {
+      "allow_free_text": true,
+      "answer": {
+        "at": "2026-10-09T10:19:02.312Z",
+        "option_index": null,
+        "option_indexes": [
+          0,
+          1
+        ],
+        "text": null
+      },
+      "assignment_id": "asg_code",
+      "bot_id": "bot_code",
+      "chat_id": "chat_login",
+      "id": "que_login_3",
+      "multi": true,
+      "options": [
+        "Chrome",
+        "Safari",
+        "Firefox"
+      ],
+      "state": "answered",
+      "text": "覆盖哪些浏览器？"
+    }
+  },
+  {
     "source": "protocol/fixtures/objects/routine.json",
     "line": 1,
     "value": {
@@ -1990,6 +2030,20 @@
     }
   },
   {
+    "source": "protocol/fixtures/requests/question_list_history.json",
+    "line": 1,
+    "value": {
+      "method": "question.list",
+      "params": {
+        "assignment_id": "asg_code",
+        "chat_id": "chat_login",
+        "state": [
+          "answered"
+        ]
+      }
+    }
+  },
+  {
     "source": "protocol/fixtures/requests/settings_update_partial.json",
     "line": 1,
     "value": {
@@ -2164,6 +2218,75 @@
         "thread_count": 0,
         "quote": null
       }
+    }
+  },
+  {
+    "source": "protocol/fixtures/results/question_list_history.json",
+    "line": 1,
+    "value": {
+      "questions": [
+        {
+          "allow_free_text": true,
+          "answer": {
+            "at": "2026-10-09T10:19:02.312Z",
+            "option_index": 1,
+            "option_indexes": [],
+            "text": null
+          },
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_login_1",
+          "multi": false,
+          "options": [
+            "顶部",
+            "表单下方"
+          ],
+          "state": "answered",
+          "text": "按钮放在哪里？"
+        },
+        {
+          "allow_free_text": true,
+          "answer": {
+            "at": "2026-10-09T10:19:02.312Z",
+            "option_index": null,
+            "option_indexes": [],
+            "text": "hi@app.com，已配置 SPF"
+          },
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_login_2",
+          "multi": false,
+          "options": [],
+          "state": "answered",
+          "text": "验证邮件用哪个地址？"
+        },
+        {
+          "allow_free_text": true,
+          "answer": {
+            "at": "2026-10-09T10:19:02.312Z",
+            "option_index": null,
+            "option_indexes": [
+              0,
+              1
+            ],
+            "text": null
+          },
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_login_3",
+          "multi": true,
+          "options": [
+            "Chrome",
+            "Safari",
+            "Firefox"
+          ],
+          "state": "answered",
+          "text": "覆盖哪些浏览器？"
+        }
+      ]
     }
   },
   {
@@ -5440,6 +5563,361 @@
       "event": "announcement.updated",
       "kind": "evt",
       "seq": 53,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 1,
+    "value": {
+      "data": {
+        "chat": {
+          "attention": "none",
+          "bot_id": null,
+          "id": "chat_login",
+          "kind": "project",
+          "last_message": null,
+          "last_read_seq": 0,
+          "last_seq": 0,
+          "member_bot_ids": [
+            "bot_main",
+            "bot_code"
+          ],
+          "muted": false,
+          "pinned": true,
+          "project_id": "prj_login",
+          "title": "登录功能",
+          "unread": 0,
+          "updated_at": "2026-10-09T10:19:02.312Z"
+        }
+      },
+      "event": "chat.created",
+      "kind": "evt",
+      "seq": 1,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 2,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_code",
+          "blocks": [
+            {
+              "markdown": "实现前有三个问题需要确认",
+              "type": "text"
+            },
+            {
+              "question_id": "que_login_1",
+              "type": "question"
+            },
+            {
+              "question_id": "que_login_2",
+              "type": "question"
+            },
+            {
+              "question_id": "que_login_3",
+              "type": "question"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "实现前有三个问题需要确认",
+          "id": "msg_questions",
+          "intent": "decision",
+          "mentions": [
+            {
+              "kind": "user"
+            }
+          ],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_code",
+            "kind": "bot"
+          },
+          "seq": 1,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 2,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 3,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": null,
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_login_1",
+          "multi": false,
+          "options": [
+            "顶部",
+            "表单下方"
+          ],
+          "state": "pending",
+          "text": "按钮放在哪里？"
+        }
+      },
+      "event": "question.asked",
+      "kind": "evt",
+      "seq": 3,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 4,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": null,
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_login_2",
+          "multi": false,
+          "options": [],
+          "state": "pending",
+          "text": "验证邮件用哪个地址？"
+        }
+      },
+      "event": "question.asked",
+      "kind": "evt",
+      "seq": 4,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 5,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": null,
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_login_3",
+          "multi": true,
+          "options": [
+            "Chrome",
+            "Safari",
+            "Firefox"
+          ],
+          "state": "pending",
+          "text": "覆盖哪些浏览器？"
+        }
+      },
+      "event": "question.asked",
+      "kind": "evt",
+      "seq": 5,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 6,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": {
+            "at": "2026-10-09T10:19:02.312Z",
+            "option_index": 1,
+            "option_indexes": [],
+            "text": null
+          },
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_login_1",
+          "multi": false,
+          "options": [
+            "顶部",
+            "表单下方"
+          ],
+          "state": "answered",
+          "text": "按钮放在哪里？"
+        }
+      },
+      "event": "question.answered",
+      "kind": "evt",
+      "seq": 6,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 7,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": {
+            "at": "2026-10-09T10:19:02.312Z",
+            "option_index": null,
+            "option_indexes": [],
+            "text": "hi@app.com，已配置 SPF"
+          },
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_login_2",
+          "multi": false,
+          "options": [],
+          "state": "answered",
+          "text": "验证邮件用哪个地址？"
+        }
+      },
+      "event": "question.answered",
+      "kind": "evt",
+      "seq": 7,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 8,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": {
+            "at": "2026-10-09T10:19:02.312Z",
+            "option_index": null,
+            "option_indexes": [
+              0,
+              1
+            ],
+            "text": null
+          },
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_login_3",
+          "multi": true,
+          "options": [
+            "Chrome",
+            "Safari",
+            "Firefox"
+          ],
+          "state": "answered",
+          "text": "覆盖哪些浏览器？"
+        }
+      },
+      "event": "question.answered",
+      "kind": "evt",
+      "seq": 8,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 9,
+    "value": {
+      "data": {
+        "approval": {
+          "always_allow_supported": true,
+          "assignment_id": null,
+          "bot_id": "bot_main",
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "decided_at": null,
+          "detail": "git push origin feature/email-login",
+          "id": "apr_1",
+          "matched_rule_text": "git push",
+          "risk": "exec",
+          "state": "pending",
+          "summary": "推送登录功能分支",
+          "tool": "bash"
+        }
+      },
+      "event": "approval.requested",
+      "kind": "evt",
+      "seq": 9,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 10,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "approval_id": "apr_1",
+              "type": "approval"
+            }
+          ],
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "等待审批：git push origin feature/email-login",
+          "id": "msg_approval",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_code",
+            "kind": "bot"
+          },
+          "seq": 1,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 10,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/questions-approval.jsonl",
+    "line": 11,
+    "value": {
+      "data": {
+        "approval": {
+          "always_allow_supported": true,
+          "assignment_id": null,
+          "bot_id": "bot_main",
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "decided_at": "2026-10-09T10:19:02.312Z",
+          "detail": "git push origin feature/email-login",
+          "id": "apr_1",
+          "matched_rule_text": "git push",
+          "risk": "exec",
+          "state": "denied",
+          "summary": "推送登录功能分支",
+          "tool": "bash"
+        }
+      },
+      "event": "approval.resolved",
+      "kind": "evt",
+      "seq": 11,
       "v": 1
     }
   },

@@ -27,6 +27,7 @@ import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import okio.ByteString
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -84,20 +85,24 @@ class ScreenConnectionHostIntegrationTest {
     fun switchTabIsSentAndRequestedTabIsUsedAfterReconnect(): Unit = runBlocking {
         val server = MockWebServer()
         val requestTabs = Channel<String?>(Channel.UNLIMITED)
+        val reconnectRequests = Channel<RecordedRequest>(Channel.UNLIMITED)
         val switchTabs = Channel<String>(Channel.UNLIMITED)
-        var connectionCount = 0
+        val switchObserved = AtomicBoolean(false)
+        val closeOnNextSwitch = AtomicBoolean(true)
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                requestTabs.trySend(request.url.queryParameter("tab_id"))
-                connectionCount += 1
+                val requestedTab = request.url.queryParameter("tab_id")
+                if (switchObserved.get()) reconnectRequests.trySend(request)
+                else requestTabs.trySend(requestedTab)
                 return MockResponse.Builder().webSocketUpgrade(ScreenListener(
                     onText = { text ->
                         val value = runCatching { protocolJson.parseToJsonElement(text).jsonObject }.getOrNull()
                         if (value != null && value["type"]?.toString()?.trim('"') == "switch_tab") {
                             switchTabs.trySend(value["tab_id"]?.toString()?.trim('"').orEmpty())
+                            switchObserved.set(true)
                         }
                     },
-                    closeOnSwitch = connectionCount == 1,
+                    closeOnSwitch = { closeOnNextSwitch.compareAndSet(true, false) },
                 )).build()
             }
         }
@@ -118,7 +123,21 @@ class ScreenConnectionHostIntegrationTest {
                 while (!connection.switchTab("tab-2")) delay(10)
             }
             assertEquals("tab-2", withTimeout(2_000) { switchTabs.receive() })
-            assertEquals("tab-2", withTimeout(5_000) { requestTabs.receive() })
+            var reconnect: RecordedRequest? = null
+            withTimeout(5_000) {
+                while (reconnect == null) {
+                    val candidate = reconnectRequests.receive()
+                    val upgrade = candidate.headers["Upgrade"]
+                    if (candidate.method == "GET" && upgrade.equals("websocket", ignoreCase = true)) {
+                        reconnect = candidate
+                    }
+                }
+            }
+            val request = reconnect ?: error("missing screen websocket reconnect")
+            assertEquals("/ws/screen", request.url.encodedPath)
+            assertTrue(request.connectionIndex > 0)
+            assertEquals(0, request.exchangeIndex)
+            assertEquals("tab-2", request.url.queryParameter("tab_id"))
         } finally {
             connection.stop()
             scope.cancel()
@@ -132,7 +151,7 @@ class ScreenConnectionHostIntegrationTest {
         private val onText: (String) -> Unit = {},
         private val onClosed: () -> Unit = {},
         private val frame: ByteArray? = null,
-        private val closeOnSwitch: Boolean = false,
+        private val closeOnSwitch: () -> Boolean = { false },
     ) : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
             opened?.trySend(webSocket)
@@ -142,7 +161,7 @@ class ScreenConnectionHostIntegrationTest {
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             onText(text)
-            if (closeOnSwitch && text.contains("\"type\":\"switch_tab\"")) webSocket.close(1001, "switch")
+            if (text.contains("\"type\":\"switch_tab\"") && closeOnSwitch()) webSocket.close(1001, "switch")
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) = Unit

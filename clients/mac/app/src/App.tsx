@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { AtSign, ChevronDown, ChevronRight, Command, MessageCircle, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3 } from 'lucide-react'
 import { t } from './i18n'
-import { emptyState, type BridgeState, type Chat, type Json, type Message } from './types'
+import { emptyState, type BridgeState, type Chat, type Json, type Message, type Question } from './types'
 
 const NO_RULES: Record<string, Json>[] = []
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -14,11 +14,15 @@ const SELECTED_CHAT_STORAGE_KEY = 'macbot.chat.selected'
 
 function App() {
   const [state, setState] = useState<BridgeState>(emptyState)
+  const [historyByChat, setHistoryByChat] = useState<Record<string, Message[]>>({})
+  const [historyQuestions, setHistoryQuestions] = useState<Record<string, BridgeState['questions']>>({})
+  const [historyApprovals, setHistoryApprovals] = useState<Record<string, BridgeState['approvals']>>({})
   const [showConnect, setShowConnect] = useState(true)
   const [endpoint, setEndpoint] = useState('127.0.0.1:7789')
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
   const [selectedChat, setSelectedChat] = useState(() => localStorage.getItem(SELECTED_CHAT_STORAGE_KEY) ?? '')
+  const [sidebarSearch, setSidebarSearch] = useState('')
   const [draft, setDraft] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [listenerReady, setListenerReady] = useState(false)
@@ -37,6 +41,11 @@ function App() {
   const [translucent, setTranslucent] = useState(() => localStorage.getItem(MATERIAL_STORAGE_KEY) !== 'false')
   const [systemDark, setSystemDark] = useState(false)
   const [reducedTransparency, setReducedTransparency] = useState(false)
+  const hostScope = state.node_id ?? endpoint.trim()
+  const hostScopeRef = useRef(hostScope)
+  const sidebarSearchRef = useRef<HTMLInputElement>(null)
+  hostScopeRef.current = hostScope
+  const historyCacheKey = (scope: string, chatId: string) => `${scope}\u0000${chatId}`
 
   useEffect(() => {
     const colorScheme = window.matchMedia('(prefers-color-scheme: dark)')
@@ -52,6 +61,21 @@ function App() {
       colorScheme.removeEventListener('change', syncAppearance)
       reducedTransparency.removeEventListener('change', syncAppearance)
     }
+  }, [])
+
+  useEffect(() => {
+    const handleSearchShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        sidebarSearchRef.current?.focus()
+      }
+      if (event.key === 'Escape' && document.activeElement === sidebarSearchRef.current) {
+        setSidebarSearch('')
+        sidebarSearchRef.current?.blur()
+      }
+    }
+    window.addEventListener('keydown', handleSearchShortcut)
+    return () => window.removeEventListener('keydown', handleSearchShortcut)
   }, [])
 
   useEffect(() => {
@@ -71,6 +95,9 @@ function App() {
     let unlisten: (() => void) | undefined
     void listen<BridgeState>('bridge-state', (event) => {
       setState(event.payload)
+      const scope = event.payload.node_id ?? hostScopeRef.current
+      setHistoryQuestions((current) => ({ ...current, [scope]: { ...current[scope], ...event.payload.questions } }))
+      setHistoryApprovals((current) => ({ ...current, [scope]: { ...current[scope], ...event.payload.approvals } }))
       if (event.payload.connection === 'connected') setShowConnect(false)
       if (event.payload.connection === 'disconnected') setConnecting(false)
     }).then(async (dispose) => {
@@ -126,9 +153,14 @@ function App() {
   const bots = useMemo(() => Object.values(state.bots), [state.bots])
   const mainBot = bots.find((bot) => bot.is_main) ?? bots[0]
   const currentChat = chats.find((chat) => chat.id === selectedChat) ?? chats.find((chat) => chat.kind === 'main') ?? chats[0]
-  const currentMessages = useMemo(() => Object.values(state.messages)
-    .filter((message) => message.chat_id === currentChat?.id)
-    .sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))), [state.messages, currentChat?.id])
+  const currentMessages = useMemo(() => {
+    const byId = new Map<string, Message>()
+    for (const message of historyByChat[historyCacheKey(hostScope, currentChat?.id ?? '')] ?? []) byId.set(message.id, message)
+    for (const message of Object.values(state.messages)) {
+      if (message.chat_id === currentChat?.id) byId.set(message.id, message)
+    }
+    return [...byId.values()].sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')))
+  }, [historyByChat, state.messages, hostScope, currentChat?.id])
 
   useEffect(() => {
     if (currentChat && !selectedChat) selectChat(currentChat.id)
@@ -138,31 +170,43 @@ function App() {
     const chatId = currentChat?.id
     if (!chatId || state.connection !== 'connected') return
     let active = true
+    const scope = hostScope
+    const cacheKey = historyCacheKey(scope, chatId)
     setHistoryLoadingChat(chatId)
-    void invoke<{ messages?: Message[] }>('protocol_request', {
-      method: 'chat.history',
-      params: { chat_id: chatId, limit: 50 },
-    }).then((result) => {
-      if (!active) return
+    void Promise.allSettled([
+      invoke<{ messages?: Message[] }>('protocol_request', {
+        method: 'chat.history', params: { chat_id: chatId, limit: 50 },
+      }),
+      invoke<{ questions?: Question[] }>('protocol_request', {
+        method: 'question.list', params: { chat_id: chatId },
+      }),
+      invoke<{ approvals?: Record<string, Json>[] }>('protocol_request', {
+        method: 'approval.list', params: {},
+      }),
+    ]).then(([historyResult, questionResult, approvalResult]) => {
+      if (!active || hostScopeRef.current !== scope) return
+      const history = historyResult.status === 'fulfilled' ? historyResult.value : null
+      const questionList = questionResult.status === 'fulfilled' ? questionResult.value.questions ?? [] : []
+      const approvalList = approvalResult.status === 'fulfilled' ? approvalResult.value.approvals ?? [] : []
+      const loadError = [historyResult, questionResult, approvalResult].find((result) => result.status === 'rejected')
+      if (history) setHistoryByChat((current) => ({ ...current, [cacheKey]: history.messages ?? [] }))
+      setHistoryQuestions((current) => ({ ...current, [scope]: { ...current[scope], ...Object.fromEntries(questionList.map((question) => [question.id, question])) } }))
+      setHistoryApprovals((current) => ({ ...current, [scope]: { ...current[scope], ...Object.fromEntries(approvalList.filter((approval) => approval.id).map((approval) => [String(approval.id), approval])) } }))
       setState((current) => {
-        const messages = { ...current.messages }
-        for (const message of result.messages ?? []) {
-          if (message.id && !messages[message.id]) messages[message.id] = message
-        }
-        return { ...current, messages }
+        return { ...current, error: loadError?.status === 'rejected' ? String(loadError.reason) : current.error }
       })
-    }).catch((error: unknown) => {
-      if (active) setState((current) => ({ ...current, error: String(error) }))
     }).finally(() => {
       if (active) setHistoryLoadingChat((loadingChat) => loadingChat === chatId ? null : loadingChat)
     })
     return () => { active = false }
-  }, [currentChat?.id, state.connection])
+  }, [currentChat?.id, state.connection, hostScope])
 
   const currentAssignments = Object.values(state.assignments).filter((assignment) =>
     assignment.origin_chat_id === currentChat?.id || assignment.project_id === currentChat?.project_id,
   )
-  const currentApprovals = Object.values(state.approvals).filter((approval) => approval.state === 'pending')
+  const currentApprovals = Object.values({ ...state.approvals, ...historyApprovals[hostScope] }).filter((approval) => approval.state === 'pending')
+  const currentQuestions = { ...state.questions, ...historyQuestions[hostScope] }
+  const currentApprovalRecords = { ...state.approvals, ...historyApprovals[hostScope] }
 
   function selectChat(chatId: string) {
     setSelectedChat(chatId)
@@ -253,8 +297,19 @@ function App() {
   }
 
   const groups = chats.filter((chat) => chat.kind === 'project' || chat.project_id)
-  const directChats = chats.filter((chat) => chat.kind === 'main' || chat.kind === 'bot_dm')
+  const mainChats = chats.filter((chat) => chat.kind === 'main')
+  const botChats = chats.filter((chat) => chat.kind === 'direct' || chat.kind === 'bot_dm')
   const chatTitle = (chat: Chat) => chat.title ?? (chat.bot_id ? state.bots[chat.bot_id]?.name : undefined) ?? (chat.kind === 'main' ? mainBot?.name : undefined) ?? t('chat.empty.select')
+  const matchesSearch = (chat: Chat) => {
+    const query = sidebarSearch.trim().toLocaleLowerCase()
+    if (!query) return true
+    const botName = chat.bot_id ? state.bots[chat.bot_id]?.name ?? '' : ''
+    const projectName = chat.project_id ? state.projects[chat.project_id]?.name ?? '' : ''
+    return `${chatTitle(chat)} ${botName} ${projectName}`.toLocaleLowerCase().includes(query)
+  }
+  const visibleMainChats = mainChats.filter(matchesSearch)
+  const visibleGroups = groups.filter(matchesSearch)
+  const visibleBotChats = botChats.filter(matchesSearch)
 
   return <main className="app-shell">
     <aside className="sidebar glass-sidebar">
@@ -262,17 +317,18 @@ function App() {
         <button className="host-switch"><span className={`status-dot ${state.connection}`} />{hostName}<ChevronDown size={14} /></button>
         <button className="icon-button" aria-label="新建"><Plus size={17} /></button>
       </div>
-      <button className="search-entry"><Search size={14} /><span>{t('sidebar.search.placeholder')}</span><kbd>⌘K</kbd></button>
+      <label className="search-entry"><Search size={14} /><input ref={sidebarSearchRef} value={sidebarSearch} onChange={(event) => setSidebarSearch(event.target.value)} placeholder={t('sidebar.search.placeholder')} aria-label={t('sidebar.search.placeholder')} /><kbd>⌘K</kbd></label>
       <div className="sidebar-scroll">
         <div className="nav-section"><div className="section-label">{t('sidebar.main_bot.tag')}</div>
-          {directChats.filter((chat) => chat.kind === 'main').map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} main />)}
+          {visibleMainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} main />)}
         </div>
         <div className="nav-section"><div className="section-label">{t('sidebar.section.groups').replace('{count}', String(groups.length))}</div>
-          {groups.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
-          {groups.length === 0 && <div className="nav-empty">{t('sidebar.empty_groups')}</div>}
+          {visibleGroups.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
+          {visibleGroups.length === 0 && <div className="nav-empty">{t('sidebar.empty_groups')}</div>}
         </div>
-        <div className="nav-section"><div className="section-label">{t('sidebar.section.bots').replace('{count}', String(bots.length))}</div>
-          {directChats.filter((chat) => chat.kind === 'bot_dm').map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
+        <div className="nav-section"><div className="section-label">{t('sidebar.section.bots').replace('{count}', String(botChats.length))}</div>
+          {visibleBotChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
+          {sidebarSearch.trim() && visibleMainChats.length + visibleGroups.length + visibleBotChats.length === 0 && <div className="nav-empty">{t('sidebar.search.placeholder')}</div>}
         </div>
       </div>
       <nav className="sidebar-footer">
@@ -296,7 +352,21 @@ function App() {
         {!currentChat ? <div className="empty-conversation"><BeanAvatar main size="72" /><strong>{t('onboarding.empty.title')}</strong><span>{t('onboarding.empty.desc')}</span></div>
           : currentMessages.length ? <div className="message-list">
           <div className="day-separator">{t('common.today')}</div>
-          {currentMessages.map((message) => <MessageBubble key={message.id} message={message} senderName={message.sender?.kind === 'user' ? '你' : state.bots[message.sender?.bot_id ?? '']?.name ?? '总管'} />)}
+          {currentMessages.map((message) => <MessageBubble key={message.id} message={message} senderName={message.sender?.kind === 'user' ? t('common.user') : state.bots[message.sender?.bot_id ?? '']?.name ?? t('common.bot')} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} chatTitle={currentChat.title ?? ''} onApprovalDecide={async (approvalId, decision) => {
+            const decisionScope = hostScope
+            const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
+            if (result.approval && hostScopeRef.current === decisionScope) {
+              setHistoryApprovals((current) => ({ ...current, [decisionScope]: { ...current[decisionScope], [approvalId]: result.approval! } }))
+              setState((current) => ({ ...current, approvals: { ...current.approvals, [approvalId]: result.approval! } }))
+            }
+          }} onQuestionAnswer={async (question, answer) => {
+            const answerScope = hostScope
+            const result = await invoke<{ question?: Question }>('protocol_request', { method: 'question.answer', params: { question_id: question.id, ...answer } })
+            if (result.question && hostScopeRef.current === answerScope) {
+              setHistoryQuestions((current) => ({ ...current, [answerScope]: { ...current[answerScope], [result.question!.id]: result.question! } }))
+              setState((current) => ({ ...current, questions: { ...current.questions, [result.question!.id]: result.question! } }))
+            }
+          }} />)}
         </div> : historyLoadingChat === currentChat.id ? <div className="message-list history-loading" aria-busy="true" /> : null}
       </div>
       <form className="composer-wrap" onSubmit={sendMessage}>
@@ -400,21 +470,151 @@ function BeanAvatar({ main = false, size = '32', seed = '' }: { main?: boolean; 
   </div>
 }
 
-function MessageBubble({ message, senderName }: { message: Message; senderName: string }) {
+type QuestionAnswer = { option_index?: number; option_indexes?: number[]; text?: string }
+
+type ApprovalDecision = 'allow_once' | 'always_allow' | 'deny'
+
+function MessageBubble({ message, senderName, questions, approvals, assignments, projects, chatTitle, onApprovalDecide, onQuestionAnswer }: { message: Message; senderName: string; questions: BridgeState['questions']; approvals: BridgeState['approvals']; assignments: BridgeState['assignments']; projects: BridgeState['projects']; chatTitle: string; onApprovalDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void>; onQuestionAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
   const isUser = message.sender?.kind === 'user'
-  const text = (message.blocks ?? []).map((block) => {
-    if (typeof block.text === 'string') return block.text
-    if (typeof block.markdown === 'string') return block.markdown
-    return ''
-  }).filter(Boolean).join('\n') || message.fallback_text || ''
+  const blocks = message.blocks ?? []
+  const hasRenderable = blocks.some((block) => block.type === 'question' || block.type === 'approval' || block.type === 'approval_ref')
+  const text = blocks.map((block) => typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : '').filter(Boolean).join('\n')
   const time = message.created_at ? new Date(message.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''
   return <article className={`message-group ${isUser ? 'outgoing' : ''}`}>
     {!isUser && <div className="avatar-slot"><BeanAvatar main={senderName === '总管'} size="32" seed={senderName} /></div>}
     <div className="message-stack">
       {!isUser && <div className="message-author">{senderName}</div>}
-      <div className="bubble">{text || t('common.unsupported_block')}{time && <span className="message-time">{time}</span>}</div>
+      <div className="bubble">
+        {hasRenderable ? <div className="message-blocks">{blocks.map((block, index) => {
+          if (block.type === 'question') {
+            if (blocks[index - 1]?.type === 'question') return null
+            const questionIds: string[] = []
+            for (let cursor = index; cursor < blocks.length && blocks[cursor].type === 'question'; cursor += 1) {
+              const questionId = blocks[cursor].question_id
+              if (typeof questionId === 'string') questionIds.push(questionId)
+            }
+            const questionList = questionIds.map((id) => questions[id]).filter((question): question is Question => Boolean(question))
+            if (!questionList.length) return <div className="block-fallback" key={index}>{message.fallback_text || t('common.unsupported_block')}</div>
+            return questionList.length > 1
+              ? <QuestionDeck key={`deck-${index}`} questions={questionList} botName={senderName} onAnswer={onQuestionAnswer} />
+              : <QuestionCard key={`${questionList[0].id}-${index}`} question={questionList[0]} botName={senderName} onAnswer={onQuestionAnswer} />
+          }
+          if (block.type === 'approval' || block.type === 'approval_ref') {
+            const id = typeof block.approval_id === 'string' ? block.approval_id : ''
+            const approval = approvals[id]
+            if (!approval) return <div className="block-fallback" key={index}>{message.fallback_text || t('common.unsupported_block')}</div>
+            const assignmentId = typeof approval.assignment_id === 'string' ? approval.assignment_id : ''
+            const projectId = typeof assignments[assignmentId]?.project_id === 'string' ? String(assignments[assignmentId]?.project_id) : ''
+            const projectName = String(projects[projectId]?.name ?? chatTitle)
+            return <ApprovalCard key={`${id}-${index}`} approval={approval} projectName={projectName} reference={block.type === 'approval_ref'} onDecide={(decision) => onApprovalDecide(id, decision)} />
+          }
+          const value = typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : ''
+          return value ? <p className="message-text-block" key={index}>{value}</p> : null
+        })}</div> : <>{text || message.fallback_text || t('common.unsupported_block')}</>}
+        {time && <span className="message-time">{time}</span>}
+      </div>
     </div>
   </article>
+}
+
+function QuestionDeck({ questions, botName, onAnswer }: { questions: Question[]; botName: string; onAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
+  const [activeIndex, setActiveIndex] = useState(() => Math.max(0, questions.findIndex((question) => question.state === 'pending')))
+  const active = questions[Math.min(activeIndex, questions.length - 1)]
+  const answeredCount = questions.filter((question) => question.state === 'answered').length
+  const allAnswered = answeredCount === questions.length
+  const answer = async (question: Question, value: QuestionAnswer) => {
+    await onAnswer(question, value)
+    const next = questions.findIndex((item, index) => index > questions.indexOf(question) && item.state === 'pending')
+    if (next >= 0) setActiveIndex(next)
+  }
+  const header = allAnswered
+    ? t('block.question.all_answered').replace('{count}', String(questions.length))
+    : questions.every((question) => question.state !== 'pending')
+      ? t('block.question.expired')
+      : t('block.question.title_deck').replace('{bot}', botName).replace('{n}', String(activeIndex + 1)).replace('{total}', String(questions.length))
+  return <section className="question-deck">
+    <header className="question-deck-header">{header}{!allAnswered && answeredCount > 0 && <> · {t('block.question.answered_count').replace('{count}', String(answeredCount))}</>}</header>
+    <nav className="question-deck-tabs" aria-label={t('block.question.tab').replace('{n}', String(activeIndex + 1))}>
+      {questions.map((question, index) => <button type="button" key={question.id} className={`${activeIndex === index ? 'active' : ''} ${question.state === 'answered' ? 'answered' : ''}`} onClick={() => setActiveIndex(index)}>{question.state === 'answered' && '✓ '}{t('block.question.tab').replace('{n}', String(index + 1))}</button>)}
+    </nav>
+    {active && <QuestionCard key={active.id} question={active} botName={botName} onAnswer={answer} />}
+    {!allAnswered && questions.length - activeIndex > 1 && <div className="question-deck-stack" aria-hidden="true" />}
+  </section>
+}
+
+function QuestionCard({ question, botName, onAnswer }: { question: Question; botName: string; onAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
+  const [selected, setSelected] = useState<number[]>([])
+  const [otherOpen, setOtherOpen] = useState(false)
+  const [reply, setReply] = useState('')
+  const [busy, setBusy] = useState(false)
+  const answer = question.answer
+  const selectedIndexes = answer?.option_indexes?.length ? answer.option_indexes : answer?.option_index === undefined || answer.option_index === null ? [] : [answer.option_index]
+  const submit = async (value: QuestionAnswer) => {
+    if (busy || question.state !== 'pending') return
+    setBusy(true)
+    try { await onAnswer(question, value) } finally { setBusy(false) }
+  }
+  const toggle = (index: number) => {
+    if (!question.multi) { void submit({ option_index: index }); return }
+    setSelected((current) => current.includes(index) ? current.filter((item) => item !== index) : [...current, index].sort((a, b) => a - b))
+  }
+  const letters = selectedIndexes.map((index) => String.fromCharCode(65 + index)).join('、')
+  const selectedOptions = selectedIndexes.map((index) => question.options[index]).filter((option): option is string => typeof option === 'string')
+  const title = question.state === 'answered'
+    ? answer?.text ? t('block.question.you_replied') : !selectedIndexes.length ? '' : question.multi ? t('block.question.answered').replace('{letters}', letters).replace('{options}', selectedOptions.join('、')) : t('block.question.you_picked').replace('{letters}', letters)
+    : question.state === 'expired' ? t('block.question.expired') : `${question.multi ? t('block.question.multi') : t('block.question.single')} · ${t('block.question.from').replace('{bot}', botName)}`
+  return <section className={`question-card question-${question.state}`}>
+    <div className="question-kicker">{question.state === 'answered' && <span className="question-check">✓</span>}{title}</div>
+    <strong className="question-prompt">{question.text}</strong>
+    <div className="question-options">{question.options.map((option, index) => {
+      const picked = selectedIndexes.includes(index)
+      const isDraft = selected.includes(index)
+      return <button type="button" key={`${index}-${option}`} disabled={question.state !== 'pending' || busy} className={`question-option ${picked ? 'picked' : ''} ${isDraft ? 'draft-picked' : ''}`} onClick={() => toggle(index)}>
+        <span className="question-option-mark">{picked ? '✓' : question.multi ? '□' : String.fromCharCode(65 + index)}</span><span>{option}</span>
+      </button>
+    })}</div>
+    {question.state === 'pending' && !question.multi && <div className="question-instruction">{t('block.question.tap_to_submit')}</div>}
+    {question.state === 'pending' && question.multi && <><div className="question-instruction">{t('block.question.selected_n').replace('{count}', String(selected.length))}</div><button className="question-submit" type="button" disabled={!selected.length || busy} onClick={() => void submit({ option_indexes: selected })}>{t('common.submit')}</button></>}
+    {question.state === 'pending' && question.allow_free_text && <div className="question-other">
+      {!otherOpen ? <button type="button" className="question-other-toggle" onClick={() => setOtherOpen(true)}>✎ {t('block.question.other')}</button> : <><textarea autoFocus value={reply} onChange={(event) => setReply(event.target.value)} placeholder={t('block.question.free_text_hint')} /><button type="button" className="question-submit" disabled={!reply.trim() || busy} onClick={() => void submit({ text: reply.trim() })}>{t('common.send')}</button></>}
+    </div>}
+    {question.state === 'answered' && answer?.text && <div className="question-reply"><span>✎ {t('block.question.your_reply')}</span>{answer.text}</div>}
+  </section>
+}
+
+function ApprovalCard({ approval, projectName, reference, onDecide }: { approval: Record<string, Json>; projectName: string; reference: boolean; onDecide: (decision: ApprovalDecision) => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const state = String(approval.state ?? 'expired')
+  const time = approval.decided_at ? new Date(String(approval.decided_at)).toLocaleString('zh-CN') : ''
+  const stateText: Record<string, string> = { allowed_once: t('block.approval.allowed_once').replace('{time}', time), always_allowed: t('block.approval.always_allowed').replace('{time}', time), denied: t('block.approval.denied').replace('{time}', time), expired: t('block.approval.expired') }
+  const matchedRule = typeof approval.matched_rule_text === 'string' ? approval.matched_rule_text : ''
+  const matchedRuleText = matchedRule ? (projectName ? t('block.approval.meta').replace('{project}', projectName).replace('{rule}', matchedRule) : t('block.approval.matched_rule').replace('{rule}', matchedRule)) : ''
+  if (reference) return <div className="approval-reference"><Shield size={14} /><span>{t('block.approval_ref.text').replace('{bot}', String(approval.bot_id ?? t('common.bot')))}</span><span>{stateText[state] ?? ''}</span>{matchedRuleText && <small>{matchedRuleText}</small>}</div>
+  return <section className={`approval-card approval-${state}`}>
+    <div className="approval-title"><Shield size={15} /><strong>{t('block.approval.title').replace('{tool}', String(approval.tool ?? ''))}</strong><span>{stateText[state] ?? ''}</span></div>
+    <code>{String(approval.summary ?? '')}</code>
+    {typeof approval.detail === 'string' && approval.detail && <p>{approval.detail}</p>}
+    {matchedRuleText && <div className="approval-rule">{matchedRuleText}</div>}
+    {state === 'pending' && <div className="approval-actions">
+      <button type="button" className="approval-action allow-once" disabled={busy} onClick={() => void decide('allow_once')}>{t('block.approval.allow_once')}</button>
+      {approval.always_allow_supported !== false && <button type="button" className="approval-action always-allow" disabled={busy} onClick={() => void decide('always_allow')}>{t('block.approval.always_allow')}</button>}
+      <button type="button" className="approval-action deny" disabled={busy} onClick={() => void decide('deny')}>{t('block.approval.deny')}</button>
+    </div>}
+    {error && <p className="approval-error" role="alert">{error}</p>}
+  </section>
+
+  async function decide(decision: ApprovalDecision) {
+    setBusy(true)
+    setError(null)
+    try {
+      await onDecide(decision)
+    } catch (reason) {
+      setError(String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
 }
 
 export default App

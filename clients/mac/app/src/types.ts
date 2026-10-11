@@ -10,6 +10,18 @@ export type Message = {
   created_at?: string
 }
 
+export type Question = {
+  id: string
+  chat_id: string
+  text: string
+  options: string[]
+  multi?: boolean
+  allow_free_text?: boolean
+  state: 'pending' | 'answered' | 'expired'
+  answer?: { option_index?: number | null; option_indexes?: number[]; text?: string | null; at?: string } | null
+  [key: string]: Json | undefined
+}
+
 export type Chat = {
   id: string
   kind?: string
@@ -29,6 +41,7 @@ export type BridgeState = {
   messages: Record<string, Message>
   assignments: Record<string, Record<string, Json>>
   approvals: Record<string, Record<string, Json>>
+  questions: Record<string, Question>
   settings: Record<string, Json> | null
 }
 
@@ -42,5 +55,6 @@ export const emptyState: BridgeState = {
   messages: {},
   assignments: {},
   approvals: {},
+  questions: {},
   settings: null,
 }

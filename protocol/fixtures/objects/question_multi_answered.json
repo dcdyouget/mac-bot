@@ -1,0 +1,24 @@
+{
+  "allow_free_text": true,
+  "answer": {
+    "at": "2026-10-09T10:19:02.312Z",
+    "option_index": null,
+    "option_indexes": [
+      0,
+      1
+    ],
+    "text": null
+  },
+  "assignment_id": "asg_code",
+  "bot_id": "bot_code",
+  "chat_id": "chat_login",
+  "id": "que_login_3",
+  "multi": true,
+  "options": [
+    "Chrome",
+    "Safari",
+    "Firefox"
+  ],
+  "state": "answered",
+  "text": "覆盖哪些浏览器？"
+}

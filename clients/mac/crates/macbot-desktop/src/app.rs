@@ -1203,6 +1203,11 @@ impl MacBot {
                 }
                 self.process_deep_link_history_page(params, &value, deep_link_request_id, cx);
             }
+            "question.list" => {
+                for question in arr(&value, "questions") {
+                    insert(&mut self.state.questions, question, "id");
+                }
+            }
             "assignment.list" => {
                 for v in arr(&value, "items") {
                     insert(&mut self.state.assignments, v, "id");
@@ -1613,6 +1618,7 @@ impl MacBot {
             self.page = "chat".into();
             if self.connected {
                 self.rpc("chat.history", json!({"chat_id":id}), cx);
+                self.rpc("question.list", json!({"chat_id":id}), cx);
             }
         }
     }
@@ -1626,6 +1632,7 @@ impl MacBot {
             Some((chat_id, _)) => {
                 self.selected_chat = chat_id.clone();
                 self.rpc("chat.history", json!({"chat_id":chat_id}), cx);
+                self.rpc("question.list", json!({"chat_id":self.selected_chat}), cx);
             }
             None => self.selected_chat.clear(),
         }
@@ -1663,6 +1670,7 @@ impl MacBot {
             json!({"chat_id":id})
         };
         self.rpc("chat.history", history_params, cx);
+        self.rpc("question.list", json!({"chat_id":id}), cx);
         if let Some(chat) = self.state.chats.get(&self.selected_chat) {
             let seq = chat["last_seq"].clone();
             let project = chat["project_id"].clone();

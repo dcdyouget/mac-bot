@@ -144,6 +144,9 @@
       "$ref": "#/definitions/QuestionResult"
     },
     {
+      "$ref": "#/definitions/QuestionListResult"
+    },
+    {
       "$ref": "#/definitions/EmptyResult"
     },
     {
@@ -405,6 +408,13 @@
         },
         "id": {
           "type": "string"
+        },
+        "matched_rule_text": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "risk": {
           "$ref": "#/definitions/ApprovalRisk"
@@ -3202,6 +3212,20 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "QuestionListResult": {
+      "type": "object",
+      "required": [
+        "questions"
+      ],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Question"
+          }
         }
       }
     },
