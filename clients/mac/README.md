@@ -1,5 +1,7 @@
 # clients/mac：macOS 桌面客户端
 
+> **迁移中**：界面层正在从 GPUI 迁移到 Tauri 2 + React（用户决定，见 COORDINATION.md 2026-10-11）。`macbot-client-core` 不变；下文的 GPUI 编译和运行说明在迁移完成前仍然可用，迁移完成后由 client-mac 开发线重写。
+
 这是独立的 Cargo workspace，包含 `macbot-client-core` 和 `macbot-desktop`。运行时界面使用 Rust + GPUI，组件只依赖与之匹配的 `gpui-kit` 0.7；协议类型通过 path 依赖引用 `../../protocol/rust`。
 
 界面和交互遵循 [DESIGN.md](../../docs/DESIGN.md) 第 4 章，协议遵循 [PROTOCOL.md](../../docs/PROTOCOL.md)。编译需要 Xcode 的 Metal 工具链（本机已安装）。
