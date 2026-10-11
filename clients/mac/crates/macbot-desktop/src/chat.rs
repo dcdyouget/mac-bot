@@ -1,9 +1,10 @@
 use super::*;
 use chrono::Datelike;
 use std::sync::Arc;
+use std::time::Duration;
 
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
-use gpui_kit::gpui::list;
+use gpui_kit::gpui::{Animation, AnimationExt, list};
 use gpui_kit::prelude::FluentBuilder;
 
 const QUESTION_TEXT_SENTINEL: usize = usize::MAX;
@@ -551,6 +552,24 @@ fn inline_image(file: &Value, id: &str) -> Option<AnyElement> {
     )
 }
 
+fn standard_motion_easing(progress: f32) -> f32 {
+    // Matches design token `motion.ease.standard`: cubic-bezier(0.2, 0, 0, 1).
+    let bezier = |t: f32, p1: f32, p2: f32| {
+        3. * (1. - t).powi(2) * t * p1 + 3. * (1. - t) * t.powi(2) * p2 + t.powi(3)
+    };
+    let mut low = 0.;
+    let mut high = 1.;
+    for _ in 0..12 {
+        let middle = (low + high) / 2.;
+        if bezier(middle, 0.2, 0.) < progress {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    bezier((low + high) / 2., 0., 1.)
+}
+
 fn image_key(file: &Value) -> String {
     format!(
         "{}:{}:{}",
@@ -703,8 +722,16 @@ impl MacBot {
             self.highlighted_message_id = Some(message_id.to_owned());
             let message_id = message_id.to_owned();
             let executor = cx.background_executor().clone();
+            let tokens = Tokens::get(cx);
+            let highlight_lifetime = if cx.reduce_motion() {
+                tokens.motion_ms[1]
+            } else {
+                tokens.motion_ms[2] + tokens.motion_ms[0] + tokens.motion_ms[3]
+            };
             cx.spawn(async move |this, cx| {
-                executor.timer(std::time::Duration::from_millis(600)).await;
+                executor
+                    .timer(Duration::from_millis(highlight_lifetime))
+                    .await;
                 let _ = this.update(cx, |view, cx| {
                     if view.highlighted_message_id.as_deref() == Some(message_id.as_str()) {
                         view.highlighted_message_id = None;
@@ -974,7 +1001,7 @@ impl MacBot {
                     .replace("{count}", &answered.to_string())
         };
         let t = Tokens::get(cx);
-        let mut tabs = div().flex().items_center().gap_1().flex_wrap();
+        let mut tabs = div().flex().items_center().gap(px(t.space[2])).flex_wrap();
         if !all_answered && current_index > 0 {
             tabs = tabs.child(
                 Button::new(SharedString::from(format!("{id}-previous")))
@@ -1049,12 +1076,12 @@ impl MacBot {
             .key_context("QuestionCard")
             .flex()
             .flex_col()
-            .gap_2()
+            .gap(px(t.space[4]))
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap_2()
+                    .gap(px(t.space[4]))
                     .child(
                         div()
                             .font_weight(FontWeight::SEMIBOLD)
@@ -1066,9 +1093,9 @@ impl MacBot {
         for layer in (0..remaining).rev() {
             stack = stack.child(
                 div()
-                    .mx(px((layer + 1) as f32 * 8.))
-                    .h(px(8.))
-                    .rounded(px(8.))
+                    .mx(px((layer + 1) as f32 * t.space[4]))
+                    .h(px(t.space[4]))
+                    .rounded(px(t.radius[2]))
                     .bg(if layer == 0 { t.active } else { t.panel })
                     .border_1()
                     .border_color(t.border_subtle),
@@ -1138,9 +1165,9 @@ impl MacBot {
             .cloned()
             .unwrap_or(Value::Null);
         let mut header = div()
-            .h(px(64.))
+            .h(px(t.space[12]))
             .flex_none()
-            .px_6()
+            .px(px(t.space[8]))
             .border_b_1()
             .border_color(t.border)
             .flex()
@@ -1149,14 +1176,14 @@ impl MacBot {
             .child(
                 div()
                     .flex()
-                    .gap_3()
+                    .gap(px(t.space[5]))
                     .items_center()
-                    .child(bean(&bot, 36., cx))
+                    .child(bean(&bot, t.desktop_layout.avatar_header, cx))
                     .child(
                         div()
                             .flex()
                             .flex_col()
-                            .gap_1()
+                            .gap(px(t.space[2]))
                             .child(
                                 div()
                                     .font_weight(FontWeight::SEMIBOLD)
@@ -1165,7 +1192,7 @@ impl MacBot {
                             .when(s(&chat, "kind") == "main", |el| {
                                 el.child(
                                     div()
-                                        .text_xs()
+                                        .text_size(px(t.desktop_type[1][0]))
                                         .text_color(t.secondary)
                                         .child(chat_tr("chat.main.subtitle")),
                                 )
@@ -1175,7 +1202,7 @@ impl MacBot {
         header = header.child(
             div()
                 .flex()
-                .gap_1()
+                .gap(px(t.space[2]))
                 .child(
                     Button::new("chat-trace")
                         .ghost()
@@ -1247,8 +1274,8 @@ impl MacBot {
             .flex_col()
             .flex_1()
             .min_h_0()
-            .px_6()
-            .py_4()
+            .px(px(t.space[8]))
+            .py(px(t.space[6]))
             .on_scroll_wheel(cx.listener(|this, _, _, cx| {
                 this.message_following = false;
                 cx.notify();
@@ -1271,12 +1298,16 @@ impl MacBot {
                     .flex_1()
                     .flex()
                     .flex_col()
-                    .gap_3()
+                    .gap(px(t.space[5]))
                     .items_center()
                     .justify_center()
                     .text_color(t.secondary)
                     .child(tr("chat.empty"))
-                    .child(div().text_xs().child(tr("chat.empty_hint"))),
+                    .child(
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .child(tr("chat.empty_hint")),
+                    ),
             );
         } else {
             contents = contents.child(list);
@@ -1305,8 +1336,8 @@ impl MacBot {
         {
             contents = contents.child(
                 div()
-                    .py_2()
-                    .text_xs()
+                    .py(px(t.space[4]))
+                    .text_size(px(t.desktop_type[1][0]))
                     .text_color(t.secondary)
                     .child(tr("chat.typing")),
             );
@@ -1317,10 +1348,10 @@ impl MacBot {
             .flex_none()
             .border_t_1()
             .border_color(t.border)
-            .p_4()
+            .p(px(t.space[6]))
             .flex()
             .flex_col()
-            .gap_2();
+            .gap(px(t.space[4]));
         if s(&chat, "kind") == "project" {
             let project = self
                 .state
@@ -1350,8 +1381,13 @@ impl MacBot {
                             "它们"
                         },
                     );
-                composer =
-                    composer.child(div().px_2().text_xs().text_color(t.secondary).child(hint));
+                composer = composer.child(
+                    div()
+                        .px(px(t.space[4]))
+                        .text_size(px(t.desktop_type[1][0]))
+                        .text_color(t.secondary)
+                        .child(hint),
+                );
             }
         }
         if let Some(quoted) = self.quote_message.clone() {
@@ -1373,12 +1409,12 @@ impl MacBot {
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .px_2()
-                    .py_1()
-                    .rounded(px(6.))
+                    .gap(px(t.space[4]))
+                    .px(px(t.space[4]))
+                    .py(px(t.space[2]))
+                    .rounded(px(t.radius[1]))
                     .bg(t.active)
-                    .child(div().w(px(2.)).h(px(24.)).bg(t.accent))
+                    .child(div().w(px(t.space[1])).h(px(t.space[8])).bg(t.accent))
                     .child(
                         div()
                             .flex_1()
@@ -1395,12 +1431,17 @@ impl MacBot {
                             .when(s(&quoted, "quote_mode") == "reference", |el| {
                                 el.child(
                                     div()
-                                        .text_xs()
+                                        .text_size(px(t.desktop_type[1][0]))
                                         .text_color(t.secondary)
                                         .child(chat_tr("chat.quote_bar.hint")),
                                 )
                             })
-                            .child(div().text_xs().text_color(t.secondary).child(excerpt)),
+                            .child(
+                                div()
+                                    .text_size(px(t.desktop_type[1][0]))
+                                    .text_color(t.secondary)
+                                    .child(excerpt),
+                            ),
                     )
                     .child(
                         Button::new("quote-cancel")
@@ -1420,7 +1461,7 @@ impl MacBot {
         if let Some(last) = text.split_whitespace().last()
             && last.starts_with('@')
         {
-            let mut choices = div().flex().flex_wrap().gap_1();
+            let mut choices = div().flex().flex_wrap().gap(px(t.space[2]));
             if s(&chat, "kind") == "project" {
                 let prefix = last.to_string();
                 choices = choices.child(
@@ -1463,7 +1504,7 @@ impl MacBot {
             && let Some(query) = last.strip_prefix('/')
         {
             let query = query.to_lowercase();
-            let mut choices = div().flex().flex_wrap().gap_1();
+            let mut choices = div().flex().flex_wrap().gap(px(t.space[2]));
             let mut skill_count = 0;
             for skill in self.state.skills.values().filter(|skill| {
                 let name = s(skill, "name");
@@ -1489,7 +1530,7 @@ impl MacBot {
             if skill_count > 0 {
                 composer = composer.child(
                     div()
-                        .text_xs()
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.secondary)
                         .child(chat_tr("chat.skill_hint")),
                 );
@@ -1498,12 +1539,12 @@ impl MacBot {
         }
         composer = composer.child(
             div()
-                .rounded(px(22.))
+                .rounded(px(t.radius[11]))
                 .bg(t.sidebar)
                 .flex()
                 .items_end()
-                .gap_2()
-                .p_2()
+                .gap(px(t.space[4]))
+                .p(px(t.space[4]))
                 .child(
                     Button::new("attachment")
                         .ghost()
@@ -1527,11 +1568,16 @@ impl MacBot {
                 ),
         );
         if !self.attachments.is_empty() {
-            composer = composer.child(div().text_xs().text_color(t.accent).child(format!(
-                "{} · {}",
-                tr("notice.attachment"),
-                self.attachments.len()
-            )));
+            composer = composer.child(
+                div()
+                    .text_size(px(t.desktop_type[1][0]))
+                    .text_color(t.accent)
+                    .child(format!(
+                        "{} · {}",
+                        tr("notice.attachment"),
+                        self.attachments.len()
+                    )),
+            );
         }
         div()
             .size_full()
@@ -1544,9 +1590,9 @@ impl MacBot {
             .when(!self.connected && !self.fixture, |el| {
                 el.child(
                     div()
-                        .px_4()
-                        .py_2()
-                        .text_xs()
+                        .px(px(t.space[6]))
+                        .py(px(t.space[4]))
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.attention)
                         .child(tr("status.disconnected")),
                 )
@@ -1572,14 +1618,14 @@ impl MacBot {
         let mut row = div()
             .flex()
             .items_center()
-            .gap_2()
-            .px_4()
-            .py_2()
+            .gap(px(t.space[4]))
+            .px(px(t.space[6]))
+            .py(px(t.space[4]))
             .border_b_1()
             .border_color(t.border)
             .child(
                 div()
-                    .text_xs()
+                    .text_size(px(t.desktop_type[1][0]))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(t.secondary)
                     .child(format!(
@@ -1671,9 +1717,9 @@ impl MacBot {
             .child(row)
             .child(
                 div()
-                    .px_4()
-                    .py_1()
-                    .text_xs()
+                    .px(px(t.space[6]))
+                    .py(px(t.space[2]))
+                    .text_size(px(t.desktop_type[1][0]))
                     .text_color(t.secondary)
                     .child(announcement_summary),
             )
@@ -1705,11 +1751,11 @@ impl MacBot {
             .flex()
             .flex_col()
             .min_w_0()
-            .gap_3()
-            .px_4()
-            .py_3()
-            .rounded(px(16.))
-            .max_w(px(760.))
+            .gap(px(t.space[5]))
+            .px(px(t.space[6]))
+            .py(px(t.space[5]))
+            .rounded(px(t.radius[6]))
+            .max_w(px(t.desktop_layout.chat_max_content))
             .bg(if user { t.bubble_out } else { t.bubble_in })
             .text_color(if user {
                 t.bubble_out_text
@@ -1735,23 +1781,28 @@ impl MacBot {
                     .aria_label(chat_tr("chat.quote_jump"))
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .px_2()
-                    .py_1()
-                    .rounded(px(6.))
+                    .gap(px(t.space[4]))
+                    .px(px(t.space[4]))
+                    .py(px(t.space[2]))
+                    .rounded(px(t.radius[1]))
                     .bg(t.active)
-                    .child(div().w(px(2.)).h(px(28.)).bg(t.accent))
+                    .child(div().w(px(t.space[1])).h(px(28.)).bg(t.accent))
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(px(t.desktop_type[1][0]))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(sender),
                             )
-                            .child(div().text_xs().text_color(t.secondary).child(excerpt)),
+                            .child(
+                                div()
+                                    .text_size(px(t.desktop_type[1][0]))
+                                    .text_color(t.secondary)
+                                    .child(excerpt),
+                            ),
                     )
                     .when(!quoted_message_id.is_empty(), |quote| {
                         quote
@@ -1831,7 +1882,7 @@ impl MacBot {
                     .child(message_display_text(message).to_string())
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(px(t.desktop_type[1][0]))
                             .text_color(t.tertiary)
                             .child(chat_tr("block.fallback.hint")),
                     );
@@ -1842,7 +1893,7 @@ impl MacBot {
                 div()
                     .flex()
                     .justify_end()
-                    .text_xs()
+                    .text_size(px(t.desktop_type[1][0]))
                     .text_color(t.tertiary)
                     .child(time),
             );
@@ -1851,12 +1902,12 @@ impl MacBot {
             .flex()
             .flex_col()
             .min_w_0()
-            .gap_1()
+            .gap(px(t.space[2]))
             .max_w(px(660.))
             .when(!user && !system && !merged_identity, |el| {
                 el.child(
                     div()
-                        .text_xs()
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.secondary)
                         .child(s(&bot, "name").to_string()),
                 )
@@ -1901,8 +1952,8 @@ impl MacBot {
             let mut delivery_row = div()
                 .flex()
                 .items_center()
-                .gap_2()
-                .text_xs()
+                .gap(px(t.space[4]))
+                .text_size(px(t.desktop_type[1][0]))
                 .text_color(t.secondary)
                 .child(delivery_label);
             if delivery_state == "queued" && !assignment_id.is_empty() {
@@ -1945,8 +1996,8 @@ impl MacBot {
             let mut pending_row = div()
                 .flex()
                 .items_center()
-                .gap_2()
-                .text_xs()
+                .gap(px(t.space[4]))
+                .text_size(px(t.desktop_type[1][0]))
                 .text_color(if status == "failed" {
                     t.danger
                 } else {
@@ -1979,7 +2030,7 @@ impl MacBot {
         let react = id.clone();
         let mut menu = div()
             .flex()
-            .gap_1()
+            .gap(px(t.space[2]))
             .invisible()
             .group_hover("message-row", |style| style.visible())
             .child(
@@ -2043,32 +2094,66 @@ impl MacBot {
                         })),
                 );
         }
-        let row = div()
+        let mut row = div()
             .id(SharedString::from(id))
             .group("message-row")
+            .relative()
             .flex()
             .w_full()
             .min_w_0()
-            .gap_3()
+            .gap(px(t.space[5]))
             .when(is_focused || is_highlighted, |row| {
-                row.rounded(px(12.))
+                row.rounded(px(t.radius[8]))
                     .border_1()
                     .border_color(if is_highlighted {
                         t.accent
                     } else {
                         t.border_strong
                     })
-                    .when(is_highlighted, |row| row.bg(t.active))
             })
             .when(user, |el| el.justify_end())
             .when(system, |el| el.justify_center())
             .when(!user && !system && merged_identity, |el| {
-                el.child(div().w(px(28.)))
+                el.child(div().w(px(t.desktop_layout.avatar_message)))
             })
             .when(!user && !system && !merged_identity, |el| {
-                el.child(bean(&bot, 28., cx))
-            })
-            .child(message_content.child(menu));
+                el.child(bean(&bot, t.desktop_layout.avatar_message, cx))
+            });
+        if is_highlighted {
+            let reduce_motion = cx.reduce_motion();
+            let hold_ms = t.motion_ms[2] + t.motion_ms[0];
+            let animations = if reduce_motion {
+                vec![
+                    Animation::new(Duration::from_millis(t.motion_ms[1]))
+                        .with_easing(standard_motion_easing),
+                ]
+            } else {
+                vec![
+                    Animation::new(Duration::from_millis(hold_ms)),
+                    Animation::new(Duration::from_millis(t.motion_ms[3]))
+                        .with_easing(standard_motion_easing),
+                ]
+            };
+            row = row.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .rounded(px(t.radius[8]))
+                    .bg(t.active)
+                    .with_animations(
+                        SharedString::from(format!("message-highlight-{id}")),
+                        animations,
+                        |overlay, index, progress| {
+                            if reduce_motion || index > 0 {
+                                overlay.opacity(1. - progress)
+                            } else {
+                                overlay
+                            }
+                        },
+                    ),
+            );
+        }
+        row = row.child(message_content.child(menu));
         let row = if !pending {
             let entity = cx.weak_entity();
             let source_message = message.clone();
@@ -2228,7 +2313,7 @@ impl MacBot {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = Tokens::get(cx);
-        let mut body = div().flex().flex_col().gap_2();
+        let mut body = div().flex().flex_col().gap(px(t.space[4]));
         let kind = s(block, "type");
         let mut project_card_chat = None;
         match kind {
@@ -2242,28 +2327,31 @@ impl MacBot {
             "progress" => {
                 body = body.child(
                     div()
-                        .text_xs()
+                        .text_size(px(t.desktop_type[1][0]))
                         .text_color(t.secondary)
                         .child(s(block, "text").to_string()),
                 )
             }
             "system" => {
-                body = body.child(div().text_xs().text_color(t.secondary).child(
-                    if s(block, "code") == "announcement_updated" {
-                        chat_tr("block.system.announcement_updated")
-                            .to_string()
-                            .replace(
-                                "{who}",
-                                self.state
-                                    .bots
-                                    .get(s(&message["sender"], "bot_id"))
-                                    .map(|bot| s(bot, "name"))
-                                    .unwrap_or("总管"),
-                            )
-                    } else {
-                        s(block, "text").to_string()
-                    },
-                ));
+                body = body.child(
+                    div()
+                        .text_size(px(t.desktop_type[1][0]))
+                        .text_color(t.secondary)
+                        .child(if s(block, "code") == "announcement_updated" {
+                            chat_tr("block.system.announcement_updated")
+                                .to_string()
+                                .replace(
+                                    "{who}",
+                                    self.state
+                                        .bots
+                                        .get(s(&message["sender"], "bot_id"))
+                                        .map(|bot| s(bot, "name"))
+                                        .unwrap_or("总管"),
+                                )
+                        } else {
+                            s(block, "text").to_string()
+                        }),
+                );
                 if s(block, "code") == "announcement_updated" {
                     let project_id = self
                         .state
@@ -2350,24 +2438,27 @@ impl MacBot {
                 if s(block, "context") == "created" {
                     body = body.child(
                         div()
-                            .text_xs()
+                            .text_size(px(t.desktop_type[1][0]))
                             .text_color(t.secondary)
                             .child(chat_tr("block.project_card.created")),
                     );
                     let member_count = arr(&project, "members").len();
                     body = body.child(
-                        div().text_xs().text_color(t.secondary).child(
-                            chat_tr("block.project_card.subtitle")
-                                .to_string()
-                                .replace("{members}", &member_count.to_string()),
-                        ),
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(t.secondary)
+                            .child(
+                                chat_tr("block.project_card.subtitle")
+                                    .to_string()
+                                    .replace("{members}", &member_count.to_string()),
+                            ),
                     );
                 }
                 let note = s(block, "note");
                 if !note.is_empty() {
                     body = body.child(
                         div()
-                            .text_sm()
+                            .text_size(px(t.desktop_type[3][0]))
                             .max_h(px(36.))
                             .overflow_hidden()
                             .child(note.to_owned()),
@@ -2447,7 +2538,7 @@ impl MacBot {
                 let mut summary = div()
                     .flex()
                     .items_center()
-                    .gap_2()
+                    .gap(px(t.space[4]))
                     .child(div().text_color(status_color).child(state(status)))
                     .child(
                         div().font_weight(FontWeight::SEMIBOLD).child(
@@ -2458,11 +2549,14 @@ impl MacBot {
                     );
                 if let Some(elapsed) = assignment_elapsed(&assignment) {
                     summary = summary.child(
-                        div().text_xs().text_color(t.tertiary).child(
-                            chat_tr("block.task_card.took")
-                                .to_string()
-                                .replace("{duration}", &elapsed),
-                        ),
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(t.tertiary)
+                            .child(
+                                chat_tr("block.task_card.took")
+                                    .to_string()
+                                    .replace("{duration}", &elapsed),
+                            ),
                     );
                 }
                 body = body.child(summary);
@@ -2647,7 +2741,7 @@ impl MacBot {
                     div()
                         .flex()
                         .items_center()
-                        .gap_2()
+                        .gap(px(t.space[4]))
                         .child(
                             chat_tr("block.bot_dm_ref.text")
                                 .to_string()
@@ -2689,13 +2783,13 @@ impl MacBot {
                         .collect::<Vec<_>>();
                     messages.sort_by_key(|message| message["seq"].as_u64().unwrap_or_default());
                     let mut transcript = div()
-                        .ml(px(24.))
-                        .pl_3()
+                        .ml(px(t.space[8]))
+                        .pl(px(t.space[3]))
                         .border_l_1()
                         .border_color(t.border_subtle)
                         .flex()
                         .flex_col()
-                        .gap_2();
+                        .gap(px(t.space[4]));
                     if messages.is_empty() {
                         transcript = transcript.child(chat_tr("chat.empty"));
                     } else {
@@ -2717,10 +2811,10 @@ impl MacBot {
                                 div()
                                     .flex()
                                     .flex_col()
-                                    .gap_1()
+                                    .gap(px(t.space[2]))
                                     .child(
                                         div()
-                                            .text_xs()
+                                            .text_size(px(t.desktop_type[1][0]))
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .text_color(t.secondary)
                                             .child(bot_name),
@@ -2789,7 +2883,7 @@ impl MacBot {
                 if pending && !multi && !allow_free_text {
                     body = body.child(
                         div()
-                            .text_xs()
+                            .text_size(px(t.desktop_type[1][0]))
                             .text_color(t.secondary)
                             .child(chat_tr("block.question.tap_to_submit")),
                     );
@@ -2859,11 +2953,14 @@ impl MacBot {
                             .count();
                         if selected_options > 0 {
                             body = body.child(
-                                div().text_xs().text_color(t.secondary).child(
-                                    chat_tr("block.question.selected_n")
-                                        .to_string()
-                                        .replace("{count}", &selected_options.to_string()),
-                                ),
+                                div()
+                                    .text_size(px(t.desktop_type[1][0]))
+                                    .text_color(t.secondary)
+                                    .child(
+                                        chat_tr("block.question.selected_n")
+                                            .to_string()
+                                            .replace("{count}", &selected_options.to_string()),
+                                    ),
                             );
                         }
                         let submit_question_id = question_id.clone();
@@ -2906,14 +3003,15 @@ impl MacBot {
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.open_question_other(open_input_id.clone(), window, cx);
                             }));
-                        let mut other_controls = div().flex().items_center().gap_2().child(other);
+                        let mut other_controls =
+                            div().flex().items_center().gap(px(t.space[4])).child(other);
                         if free_text_open {
                             let question_input = self.question_inputs.get(&question_id).cloned();
                             if let Some(input) = question_input {
                                 other_controls =
                                     other_controls.child(Input::new(&input).flex_1()).child(
                                         div()
-                                            .text_xs()
+                                            .text_size(px(t.desktop_type[1][0]))
                                             .text_color(t.secondary)
                                             .child(chat_tr("block.question.free_text_hint")),
                                     );
@@ -3014,10 +3112,20 @@ impl MacBot {
                 let description = s(block, "description").to_owned();
                 let image = block.get("image").filter(|image| !image.is_null()).cloned();
                 body = body
-                    .child(div().text_xs().text_color(t.accent).child(site))
+                    .child(
+                        div()
+                            .text_size(px(t.desktop_type[1][0]))
+                            .text_color(t.accent)
+                            .child(site),
+                    )
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
                     .when(!description.is_empty(), |el| {
-                        el.child(div().text_sm().text_color(t.secondary).child(description))
+                        el.child(
+                            div()
+                                .text_size(px(t.desktop_type[3][0]))
+                                .text_color(t.secondary)
+                                .child(description),
+                        )
                     })
                     .when_some(image, |el, image| {
                         el.child(self.inline_image(&image, id, cx))
@@ -3116,7 +3224,7 @@ impl MacBot {
                             .items_center()
                             .justify_center()
                             .overflow_hidden()
-                            .rounded(px(8.))
+                            .rounded(px(t.radius[2]))
                             .bg(t.elevated)
                             .child(img(image).max_h(px(72.)).object_fit(ObjectFit::Contain)),
                     );
@@ -3128,9 +3236,9 @@ impl MacBot {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .rounded(px(8.))
+                            .rounded(px(t.radius[2]))
                             .bg(t.elevated)
-                            .text_xs()
+                            .text_size(px(t.desktop_type[1][0]))
                             .text_color(t.tertiary)
                             .child(chat_tr("block.takeover.no_frame")),
                     );
@@ -3240,6 +3348,7 @@ impl MacBot {
     }
 
     fn inline_image(&mut self, file: &Value, id: &str, cx: &mut Context<Self>) -> AnyElement {
+        let t = Tokens::get(cx);
         if let Some(image) = inline_image(file, id) {
             return image;
         }
@@ -3250,9 +3359,9 @@ impl MacBot {
             return div()
                 .flex()
                 .items_center()
-                .gap_2()
-                .text_xs()
-                .text_color(Tokens::get(cx).danger)
+                .gap(px(t.space[4]))
+                .text_size(px(t.desktop_type[1][0]))
+                .text_color(t.danger)
                 .child(error)
                 .child(
                     Button::new(SharedString::from(format!("image-retry-{id}")))
@@ -3279,8 +3388,8 @@ impl MacBot {
             self.load_inline_image(file.clone(), key, cx);
         }
         div()
-            .text_xs()
-            .text_color(Tokens::get(cx).secondary)
+            .text_size(px(t.desktop_type[1][0]))
+            .text_color(t.secondary)
             .child(chat_tr("chat.image_loading"))
             .into_any_element()
     }
