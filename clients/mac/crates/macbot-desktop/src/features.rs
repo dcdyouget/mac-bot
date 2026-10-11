@@ -3817,6 +3817,7 @@ fn bot_editor(
         .child(labeled_field(
             t("bot.field.browser_mode"),
             bot_browser_picker(inputs, tokens, cx),
+            tokens,
         ))
         .child(labeled_field(t("bot.field.tools"), tool_picker, tokens))
         .child(bot_notification_toggle(data, cx))
