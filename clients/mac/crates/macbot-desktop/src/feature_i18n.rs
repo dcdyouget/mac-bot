@@ -235,6 +235,7 @@ pub fn text(key: &str) -> &'static str {
         "search.title" => "搜索",
         "search.no_results" => "没有找到相关内容",
         "search.placeholder" => "搜索消息、Bot、群、产物、定时任务",
+        "search.keys.available" => "↑↓ 选择 · ↵ 打开",
         "search.all" => "全部",
         "search.messages" => "消息",
         "search.bots" => "Bot",

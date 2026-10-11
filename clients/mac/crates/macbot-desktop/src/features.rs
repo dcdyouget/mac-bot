@@ -5875,6 +5875,7 @@ fn search_filter_button(
 fn search(
     data: &Value,
     inputs: &BTreeMap<String, Entity<InputState>>,
+    selected_result: usize,
     tokens: &Tokens,
     cx: &mut Context<FeaturePage>,
 ) -> impl IntoElement {
