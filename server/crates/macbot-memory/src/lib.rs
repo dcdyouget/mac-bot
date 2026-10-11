@@ -327,6 +327,8 @@ pub struct MemoryOperationReceipt {
     pub result: serde_json::Value,
     pub event_name: String,
     pub event_data: serde_json::Value,
+    #[serde(default)]
+    pub audit_data: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -507,6 +509,20 @@ impl SharedMemoryStore {
         Ok((store.used(target, &MemoryKind::UserPreference), USER_LIMIT))
     }
 
+    pub fn operation_receipts(&self) -> Result<Vec<(String, MemoryOperationReceipt)>, MemoryError> {
+        let store = self.inner.read().map_err(|_| MemoryError::LockPoisoned)?;
+        Ok(store
+            .operation_receipts
+            .iter()
+            .map(|(id, receipt)| (id.clone(), receipt.clone()))
+            .collect())
+    }
+
+    pub fn has_operation_receipt(&self, request_id: &str) -> Result<bool, MemoryError> {
+        let store = self.inner.read().map_err(|_| MemoryError::LockPoisoned)?;
+        Ok(store.operation_receipts.contains_key(request_id))
+    }
+
     /// Persist a user-memory mutation together with its response and event
     /// intent. A retry can recover the receipt even if the process stopped
     /// before appending the corresponding event.
@@ -520,7 +536,15 @@ impl SharedMemoryStore {
     where
         F: FnOnce(
             &mut MemoryStore,
-        ) -> Result<(serde_json::Value, String, serde_json::Value), MemoryError>,
+        ) -> Result<
+            (
+                serde_json::Value,
+                String,
+                serde_json::Value,
+                Option<serde_json::Value>,
+            ),
+            MemoryError,
+        >,
     {
         let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
         if let Some(request_id) = request_id {
@@ -535,12 +559,13 @@ impl SharedMemoryStore {
             }
         }
         let mut candidate = store.clone_without_staging();
-        let (result, event_name, event_data) = operation(&mut candidate)?;
+        let (result, event_name, event_data, audit_data) = operation(&mut candidate)?;
         let receipt = MemoryOperationReceipt {
             signature: signature.to_owned(),
             result,
             event_name,
             event_data,
+            audit_data,
         };
         if let Some(request_id) = request_id {
             candidate
@@ -688,6 +713,30 @@ impl SharedMemoryStore {
         expected_version: u64,
         updated_by: MemorySender,
     ) -> Result<UserMemoryRecord, MemoryError> {
+        self.user_update_with_source_persisted(
+            path,
+            target,
+            entry_id,
+            content,
+            expected_version,
+            updated_by,
+            None,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn user_update_with_source_persisted(
+        &self,
+        path: impl AsRef<Path>,
+        target: &MemoryTarget,
+        entry_id: &str,
+        content: String,
+        expected_version: u64,
+        updated_by: MemorySender,
+        source_chat_id: Option<String>,
+        source_message_id: Option<String>,
+    ) -> Result<UserMemoryRecord, MemoryError> {
         validate_user_content(&content)?;
         let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
         let mut candidate = store.clone_without_staging();
@@ -731,7 +780,15 @@ impl SharedMemoryStore {
             .entry(entry_id.to_owned())
             .or_default();
         metadata.version = old_record.version.saturating_add(1);
-        metadata.source = Some(old_record.source);
+        metadata.source = Some(if matches!(updated_by, MemorySender::System) {
+            UserMemorySource {
+                by: MemorySender::System,
+                chat_id: source_chat_id,
+                message_id: source_message_id,
+            }
+        } else {
+            old_record.source
+        });
         metadata.updated_by = Some(updated_by);
         // Generic memory records preserve their own provenance. User-facing
         // source and updater are carried in the metadata map above.
@@ -889,6 +946,10 @@ impl SharedMemoryStore {
 }
 
 impl MemoryStore {
+    pub fn user_profile(&self) -> Option<UserProfile> {
+        self.user_profile.clone()
+    }
+
     pub fn apply_user_create(
         &mut self,
         target: MemoryTarget,
@@ -1215,7 +1276,7 @@ impl MemoryStore {
         }
     }
 
-    fn user_records(&self, target: &MemoryTarget) -> Vec<UserMemoryRecord> {
+    pub fn user_records(&self, target: &MemoryTarget) -> Vec<UserMemoryRecord> {
         let mut entries = self
             .entries
             .values()

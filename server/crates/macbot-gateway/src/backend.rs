@@ -19,7 +19,7 @@ use crate::{
     features::{
         FeatureError, FeatureService, MaintenanceTickReport, MaintenanceUsageContext,
         MaintenanceUsageSink, ModelMaintenanceAdapter, ProfileOnboardingPrompt,
-        SharedFeatureService,
+        SharedFeatureService, UserMemoryCuratorProvider,
     },
     memory_tools::{FeatureExecutionSink, FeatureRunContext, FeatureToolRuntime},
     GatewayState, RpcBackend,
@@ -287,6 +287,22 @@ impl ComposedBackend {
             #[cfg(test)]
             recovery_notify.notify_waiters();
         });
+        let curator_inner = Arc::downgrade(&backend.inner);
+        let curator_features = Arc::downgrade(&backend.feature_service);
+        let curator_state = backend.state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let (Some(inner), Some(features)) =
+                    (curator_inner.upgrade(), curator_features.upgrade())
+                else {
+                    break;
+                };
+                run_user_curator_tick(inner, features, &curator_state).await;
+            }
+        });
         Ok(backend)
     }
 
@@ -547,6 +563,17 @@ impl ComposedBackend {
             .await
             .jobs()
             .any(|job| job.checkpoint.get("run_id").and_then(Value::as_str) == Some(run_id))
+    }
+
+    async fn run_user_curator_for_chat(&self, chat_id: &str, daily_fallback: bool) {
+        run_curator_for_chat(
+            &self.inner,
+            &self.feature_service,
+            &self.state,
+            chat_id,
+            daily_fallback,
+        )
+        .await;
     }
 
     /// Invalid target arguments cannot authorize a side effect. Retire only
@@ -2442,6 +2469,88 @@ impl ComposedBackend {
     }
 }
 
+async fn run_user_curator_tick(
+    inner: Arc<ProductionBackend>,
+    features: SharedFeatureService,
+    state: &GatewayState,
+) {
+    let chats = inner
+        .call("chat.list", json!({"limit":100}), state)
+        .await
+        .ok()
+        .and_then(|result| result.get("chats").and_then(Value::as_array).cloned())
+        .unwrap_or_default();
+    for chat in chats {
+        if let Some(chat_id) = chat.get("id").and_then(Value::as_str) {
+            run_curator_for_chat(&inner, &features, state, chat_id, true).await;
+        }
+    }
+}
+
+async fn run_curator_for_chat(
+    inner: &ProductionBackend,
+    features: &FeatureService,
+    state: &GatewayState,
+    chat_id: &str,
+    daily_fallback: bool,
+) {
+    let timezone = inner
+        .orchestrator
+        .rpc("settings.get", json!({}))
+        .await
+        .ok()
+        .and_then(|result| result.get("settings").cloned())
+        .and_then(|settings| {
+            settings
+                .get("timezone")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "UTC".into());
+    match features.recover_user_curator_pending(&timezone).await {
+        Ok(events) => {
+            for event in events {
+                state
+                    .publish_event(event.seq, &event.event, event.data)
+                    .await;
+            }
+        }
+        Err(error) => {
+            tracing::warn!(%error, "user memory curator recovery failed");
+            return;
+        }
+    }
+    let messages = match inner.load_chat_messages(chat_id) {
+        Ok(messages) => messages,
+        Err(error) => {
+            tracing::warn!(%chat_id, %error, "user memory curator could not load chat history");
+            return;
+        }
+    };
+    let now = Utc::now();
+    let batch = match features
+        .prepare_user_curator_batch(chat_id, &messages, now, daily_fallback)
+        .await
+    {
+        Ok(Some(batch)) => batch,
+        Ok(None) => return,
+        Err(error) => {
+            tracing::warn!(%chat_id, %error, "user memory curator batch preparation failed");
+            return;
+        }
+    };
+    match features.run_user_curator_batch(batch, &timezone).await {
+        Ok(events) => {
+            for event in events {
+                state
+                    .publish_event(event.seq, &event.event, event.data)
+                    .await;
+            }
+        }
+        Err(error) => tracing::warn!(%chat_id, %error, "user memory curator batch failed"),
+    }
+}
+
 async fn enqueue_steer_runtime(runtime: RuntimeExecution, result: &Value, params: &Value) {
     let message_id = result
         .get("steer")
@@ -3705,6 +3814,15 @@ impl crate::RpcBackend for ComposedBackend {
                 object.remove("dispatch");
             }
         }
+        if method == "chat.send" {
+            if let Some(chat_id) = result.pointer("/message/chat_id").and_then(Value::as_str) {
+                let scheduler = self.clone();
+                let chat_id = chat_id.to_owned();
+                tokio::spawn(async move {
+                    scheduler.run_user_curator_for_chat(&chat_id, false).await;
+                });
+            }
+        }
         if method == "settings.update" {
             self.runtime
                 .configure_feature_runtime()
@@ -4716,6 +4834,7 @@ impl RuntimeExecution {
         let maintenance_model = snapshot.as_ref().and_then(|snapshot| {
             resolve_model(snapshot, &settings, "main", ModelRole::Maintenance)
         });
+        let mut curator_provider: Option<Arc<dyn UserMemoryCuratorProvider>> = None;
         let provider = if let Some(model_ref) = maintenance_model {
             let providers = self.provider_resolver.providers.lock().await;
             let (catalog, provider) = providers
@@ -4750,19 +4869,23 @@ impl RuntimeExecution {
                 model_id: catalog.model_id.clone(),
                 routine: false,
             };
-            Some(Arc::new(
+            let adapter = Arc::new(
                 ModelMaintenanceAdapter::new(provider, catalog.model_id)
                     .with_usage_sink(Arc::new(RuntimeMaintenanceUsage {
                         usage: self.usage.clone(),
                     }))
                     .with_usage_context(context),
-            )
-                as Arc<dyn macbot_memory::AsyncMaintenanceProvider>)
+            );
+            curator_provider = Some(adapter.clone() as Arc<dyn UserMemoryCuratorProvider>);
+            Some(adapter as Arc<dyn macbot_memory::AsyncMaintenanceProvider>)
         } else {
             None
         };
         self.feature_service
             .configure_runtime(extra_dirs, provider)
+            .map_err(|error| RuntimeError::Provider(error.to_string()))?;
+        self.feature_service
+            .set_user_memory_curator_provider(curator_provider)
             .map_err(|error| RuntimeError::Provider(error.to_string()))
     }
 

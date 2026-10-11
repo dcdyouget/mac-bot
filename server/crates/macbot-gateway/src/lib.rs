@@ -3338,6 +3338,18 @@ async fn admin_status_handler(
         .and_then(|value| value.get("waiting").and_then(Value::as_array))
         .map(Vec::len);
     let browser_sessions = Some(gw.state.browser.lock().await.session_count());
+    let curator_status = fs::read(gw.state.home.join("data/memory/curator.json"))
+        .await
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .map(|snapshot| {
+            json!({
+                "pending_operations": snapshot.get("operations").and_then(Value::as_object).map_or(0, |ops| ops.len()),
+                "failures": snapshot.get("failures").cloned().unwrap_or_else(|| json!({})),
+                "last_daily_run": snapshot.get("last_daily_run").cloned().unwrap_or_else(|| json!({}))
+            })
+        })
+        .unwrap_or_else(|| json!({"pending_operations":0,"failures":{},"last_daily_run":{}}));
     Json(json!({
         "running": true,
         "setup_required": gw.setup_required().await,
@@ -3353,7 +3365,8 @@ async fn admin_status_handler(
         "bots_running": bots_running,
         "bots_waiting": bots_waiting,
         "browser_sessions": browser_sessions,
-        "browser_version": Value::Null
+        "browser_version": Value::Null,
+        "memory_curator": curator_status
     }))
     .into_response()
 }
@@ -3905,6 +3918,52 @@ mod tests {
         assert!(is_local_or_basic(remote, &HeaderMap::new(), &fresh).await);
         assert!(
             !is_local_or_basic("192.0.2.1:1234".parse().unwrap(), &HeaderMap::new(), &fresh).await
+        );
+    }
+
+    #[tokio::test]
+    async fn admin_status_reports_persisted_curator_failures_and_pending_operations() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            mock: true,
+            ..Default::default()
+        });
+        let curator_path = dir.path().join("data/memory/curator.json");
+        fs::create_dir_all(curator_path.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(
+            &curator_path,
+            serde_json::to_vec(&json!({
+                "operations":{"op-1":{"operation_id":"op-1"}},
+                "failures":{"chat-1":{"attempts":2,"last_error":"provider unavailable"}},
+                "last_daily_run":{"chat-1":"2026-10-12"}
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let response = admin_status_handler(
+            State(gw),
+            ConnectInfo("127.0.0.1:1234".parse().unwrap()),
+            HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["memory_curator"]["pending_operations"], 1);
+        assert_eq!(
+            body["memory_curator"]["failures"]["chat-1"]["last_error"],
+            "provider unavailable"
+        );
+        assert_eq!(
+            body["memory_curator"]["last_daily_run"]["chat-1"],
+            "2026-10-12"
         );
     }
 
