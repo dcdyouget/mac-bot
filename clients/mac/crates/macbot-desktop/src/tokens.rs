@@ -161,6 +161,21 @@ impl Tokens {
         ]
         .map(solid);
         let heatmap_activity = heat[1..5].try_into().unwrap_or([heat[1]; 4]);
+        let mut desktop_type = [
+            [11., 14., 400., 0.1],
+            [12., 16., 400., 0.],
+            [13., 18., 400., 0.],
+            [14., 20., 400., 0.],
+            [13., 18., 500., 0.],
+            [15., 20., 600., -0.1],
+            [17., 22., 600., -0.2],
+            [22., 28., 700., -0.3],
+            [28., 34., 700., -0.4],
+            [12., 18., 400., 0.],
+        ];
+        let message_size = crate::local_settings::message_font_size().pixels();
+        desktop_type[3][0] = message_size;
+        desktop_type[3][1] = 20. * (message_size / 14.);
         Self {
             desktop: color(0xe9e8e4, 0x0b0b0c),
             window: translucent_surface(0xfbfbfa, 0x18181a, 0xfbfbfab8, 0x18181ab3),
@@ -208,18 +223,7 @@ impl Tokens {
             avatar,
             avatar_eye: solid(0x1c1c1e),
             avatar_glasses: solid(0x1c1c1e),
-            desktop_type: [
-                [11., 14., 400., 0.1],
-                [12., 16., 400., 0.],
-                [13., 18., 400., 0.],
-                [14., 20., 400., 0.],
-                [13., 18., 500., 0.],
-                [15., 20., 600., -0.1],
-                [17., 22., 600., -0.2],
-                [22., 28., 700., -0.3],
-                [28., 34., 700., -0.4],
-                [12., 18., 400., 0.],
-            ],
+            desktop_type,
             space: [0., 2., 4., 6., 8., 12., 16., 20., 24., 32., 40., 48., 64.],
             radius: [4., 6., 8., 12., 16., 20., 16., 6., 12., 20., 12., 999.],
             motion_ms: [80, 120, 200, 320],
@@ -295,4 +299,5 @@ pub fn sync_theme(cx: &mut App) {
     theme.muted = tokens.bot;
     theme.muted_foreground = tokens.secondary;
     theme.primary = tokens.accent;
+    theme.font_size = gpui_kit::gpui::px(tokens.desktop_type[3][0]);
 }

@@ -1757,6 +1757,8 @@ impl MacBot {
             .rounded(px(t.radius[6]))
             .max_w(px(t.desktop_layout.chat_max_content))
             .bg(if user { t.bubble_out } else { t.bubble_in })
+            .text_size(px(t.desktop_type[3][0]))
+            .line_height(px(t.desktop_type[3][1]))
             .text_color(if user {
                 t.bubble_out_text
             } else {

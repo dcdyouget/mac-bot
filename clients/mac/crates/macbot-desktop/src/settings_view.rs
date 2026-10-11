@@ -91,6 +91,7 @@ pub struct SettingsView {
     rules_synced: bool,
     trace_full: bool,
     local_theme: String,
+    font_size: String,
     translucent: bool,
     sound_enabled: bool,
     notify_need_you: bool,
@@ -156,6 +157,9 @@ impl SettingsView {
             rules_synced: false,
             trace_full: false,
             local_theme: local.theme,
+            font_size: crate::local_settings::message_font_size()
+                .as_str()
+                .to_owned(),
             translucent: crate::local_settings::translucent(),
             sound_enabled: crate::local_settings::sound_enabled(),
             notify_need_you: notification_preferences.need_you,
@@ -187,6 +191,9 @@ impl SettingsView {
                 self.notify_dm_mention = preferences.dm_mention;
                 self.notify_all_group = preferences.all_group;
             }
+        }
+        if let Some(font_size) = data.get("font_size").and_then(Value::as_str) {
+            self.font_size = font_size.to_owned();
         }
         if let Some(status) = data.get("provider_test_status")
             && let Some(provider_id) = status.get("provider_id").and_then(Value::as_str)
@@ -1108,6 +1115,23 @@ impl Render for SettingsView {
             .replace("{client}", &client_version)
             .replace("{protocol}", &protocol_version)
             .replace("{server}", server_version.unwrap_or("—"));
+        let font_size_buttons = ["small", "standard", "large"].into_iter().map(|size| {
+            let selected = self.font_size == size;
+            let key = format!("settings.font_size.{size}");
+            let value = size.to_owned();
+            Button::new(format!("settings-font-size-{size}"))
+                .small()
+                .label(t(&key))
+                .when(selected, |button| button.primary())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.font_size = value.clone();
+                    cx.emit(SettingsAction::Local {
+                        key: "font_size".into(),
+                        value: Value::String(value.clone()),
+                    });
+                    cx.notify();
+                }))
+        });
         div()
             .id("settings-view")
             .flex()
@@ -1352,6 +1376,14 @@ impl Render for SettingsView {
                                         .text_color(tokens.secondary)
                                         .child(t("settings.translucent_hint")),
                                 ),
+                        ),
+                    )
+                    .child(
+                        Field::new().label(t("settings.font_size")).child(
+                            div()
+                                .flex()
+                                .gap(px(tokens.space[2]))
+                                .children(font_size_buttons),
                         ),
                     )
                     .child(

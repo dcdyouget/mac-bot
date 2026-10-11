@@ -95,6 +95,7 @@ impl MacBot {
         self.feature_view
             .update(cx, |v, cx| v.update_data(data, cx));
         let mut data = json!({"local":self.local_settings,"settings":self.state.settings,"providers":self.state.providers.values().collect::<Vec<_>>(),"models":self.state.models.values().collect::<Vec<_>>(),"hello":self.state.hello.clone(),"connected":self.connected});
+        data["font_size"] = json!(crate::local_settings::message_font_size().as_str());
         if let Some(status) = self.feature_data.get("provider_test_status") {
             data["provider_test_status"] = status.clone();
         }
@@ -752,6 +753,22 @@ impl MacBot {
                 cx.notify();
             }
             SettingsAction::Local { key, value } => {
+                if key == "font_size" {
+                    self.notice = match value
+                        .as_str()
+                        .ok_or_else(|| anyhow::anyhow!("invalid message font size"))
+                        .and_then(crate::local_settings::set_message_font_size)
+                    {
+                        Ok(_) => {
+                            crate::tokens::sync_theme(cx);
+                            tr("settings.saved").to_string()
+                        }
+                        Err(error) => error.to_string(),
+                    };
+                    self.sync_views(cx);
+                    cx.notify();
+                    return;
+                }
                 if key.starts_with("notify_") {
                     match crate::local_settings::set_notification_preference(
                         key,

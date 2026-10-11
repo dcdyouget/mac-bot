@@ -9,6 +9,7 @@ use std::{
     io::{self, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU8, Ordering},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -19,6 +20,8 @@ const TRANSLUCENCY_FILE: &str = "local-translucency.json";
 const SOUND_FILE: &str = "local-sound.json";
 const NOTIFICATION_PREFERENCES_FILE: &str = "local-notification-preferences.json";
 const MENUBAR_FILE: &str = "local-menubar.json";
+const MESSAGE_FONT_SIZE_FILE: &str = "local-message-font-size.json";
+static MESSAGE_FONT_SIZE: AtomicU8 = AtomicU8::new(1);
 const LAUNCH_AGENT_DIR: &str = "Library/LaunchAgents";
 const LAUNCH_AGENT_FILE: &str = "bot.mac.desktop.plist";
 const BUNDLE_LABEL: &str = "bot.mac.desktop";
@@ -28,6 +31,97 @@ pub struct LocalSettings {
     pub theme: String,
     pub notifications: bool,
     pub launch_at_login: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MessageFontSize {
+    Small,
+    #[default]
+    Standard,
+    Large,
+}
+
+impl MessageFontSize {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Standard => "standard",
+            Self::Large => "large",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "small" => Ok(Self::Small),
+            "standard" => Ok(Self::Standard),
+            "large" => Ok(Self::Large),
+            _ => Err(anyhow!("unknown message font size {value}")),
+        }
+    }
+
+    pub fn pixels(self) -> f32 {
+        match self {
+            Self::Small => 13.,
+            Self::Standard => 14.,
+            Self::Large => 16.,
+        }
+    }
+}
+
+/// Read the persisted message size once when the application starts. Render
+/// paths then use the in-memory value instead of reading the preference file.
+pub fn initialize_message_font_size() {
+    let value = load_message_font_size().unwrap_or_default();
+    store_message_font_size(value);
+}
+
+pub fn message_font_size() -> MessageFontSize {
+    match MESSAGE_FONT_SIZE.load(Ordering::Relaxed) {
+        0 => MessageFontSize::Small,
+        2 => MessageFontSize::Large,
+        _ => MessageFontSize::Standard,
+    }
+}
+
+pub fn set_message_font_size(value: &str) -> Result<MessageFontSize> {
+    let size = MessageFontSize::parse(value)?;
+    let path = crate::storage_paths::data_file(MESSAGE_FONT_SIZE_FILE)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("message font size setting has no parent directory"))?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create local settings directory {}", parent.display()))?;
+    set_mode(parent, 0o700)?;
+    let bytes = serde_json::to_vec(size.as_str()).context("encode message font size")?;
+    atomic_private_write(&path, &bytes)?;
+    store_message_font_size(size);
+    Ok(size)
+}
+
+fn load_message_font_size() -> Result<MessageFontSize> {
+    let path = crate::storage_paths::data_file(MESSAGE_FONT_SIZE_FILE)?;
+    match fs::read(&path) {
+        Ok(bytes) => {
+            let value: String = serde_json::from_slice(&bytes)
+                .with_context(|| format!("decode message font size {}", path.display()))?;
+            MessageFontSize::parse(&value)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(MessageFontSize::default()),
+        Err(error) => {
+            Err(error).with_context(|| format!("read message font size {}", path.display()))
+        }
+    }
+}
+
+fn store_message_font_size(size: MessageFontSize) {
+    MESSAGE_FONT_SIZE.store(
+        match size {
+            MessageFontSize::Small => 0,
+            MessageFontSize::Standard => 1,
+            MessageFontSize::Large => 2,
+        },
+        Ordering::Relaxed,
+    );
 }
 
 /// Per-category notification choices are stored separately to keep existing

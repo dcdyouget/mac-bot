@@ -27,16 +27,16 @@ use std::{cell::Cell, rc::Rc};
 
 struct StyledRoot {
     child: Entity<app::MacBot>,
-    message_type: [f32; 4],
 }
 
 impl Render for StyledRoot {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let message_type = tokens::Tokens::get(cx).desktop_type[3];
         div()
             .size_full()
-            .text_size(px(self.message_type[0]))
-            .line_height(px(self.message_type[1]))
-            .font_weight(gpui_kit::gpui::FontWeight(self.message_type[2]))
+            .text_size(px(message_type[0]))
+            .line_height(px(message_type[1]))
+            .font_weight(gpui_kit::gpui::FontWeight(message_type[2]))
             .child(self.child.clone())
     }
 }
@@ -59,6 +59,7 @@ fn main() {
     });
     application.run(move |cx| {
         gpui_kit::init(cx);
+        local_settings::initialize_message_font_size();
         #[cfg(target_os = "macos")]
         {
             match tray::Tray::install() {
@@ -144,7 +145,6 @@ fn main() {
 fn open_main_window(cx: &mut App, menu_bar_available: bool) {
     let tokens = tokens::Tokens::get(cx);
     let layout = tokens.desktop_layout;
-    let message_type = tokens.desktop_type[3];
     let bounds = Bounds::centered(
         None,
         size(px(layout.window_default[0]), px(layout.window_default[1])),
@@ -172,10 +172,7 @@ fn open_main_window(cx: &mut App, menu_bar_available: bool) {
                 }
             });
             let child = cx.new(|cx| app::MacBot::new(window, cx));
-            cx.new(|_| StyledRoot {
-                child,
-                message_type,
-            })
+            cx.new(|_| StyledRoot { child })
         },
     )
     .expect("Unable to open Mac Bot window");
