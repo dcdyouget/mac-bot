@@ -222,7 +222,8 @@ send_msg(
   artifacts?: [{title, path_or_url}],             // done 时登记产物
   options?: [string],                             // decision 时的选项
   multi?: boolean,                                // decision 时是否允许多选，默认 false
-  link_previews?: [{url, site?, title?, description?, image?: FileRef}] // 仅传入真实链接 metadata，由服务端校验后作为 link_preview 块
+  link_previews?: [{url, site?, title?, description?, image?: FileRef}], // 仅传入真实链接 metadata，由服务端校验后作为 link_preview 块
+  projects?: [{project_id, note?}]                // 提到某个群时附上群聊卡片：服务端校验项目存在且 Bot 是成员后，追加 project_card 块（context = mentioned）
 ) -> { message_id, then: "continue" | "wait" | "end" }
 ```
 
@@ -262,6 +263,8 @@ send_msg(
 5. Bot 在这个群里没有任务时，创建一个新任务。
 6. 停止：用户点 [停止]（`assignment.stop`），或者发「@编码 停一下」→ 中止 run，状态 `cancelled`，发一条系统消息。
 7. 失败任务重试：仅 `failed` assignment 可调用 `assignment.retry`；服务端保留原失败记录并创建新的子 assignment（`parent_assignment_id` 指向原任务），由既有 admission/queue 调度。`client_request_id` 对相同请求幂等；`blocked`、等待审批/问题和其他状态不允许强制重跑。
+
+- **待看消息**：群里没有 @ 任何人的用户消息，不打断正在干活的 Bot，只记为它的待看消息（delivery `queued`，计入 `pending_messages`）。Bot 调用 `send_msg(done)` 前，服务端拦下这次交付，把待看消息一次性作为一条上下文交给它（轨迹 `queue.review`，delivery 变为 `read`），Bot 据此调整后再重新交付；没有待看消息时直接交付。用户在工作详情里点「改为插话」（`message.steer`）可以让某一条立即在下一步生效。
 
 #### 5.3.5 主 Bot
 
@@ -457,7 +460,7 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 
 - **截断**：文本输出最多 2,000 行或 50 KB（bash 保留尾部，其他工具保留头部）；完整输出写入 `runs/<run_id>/`，通过 `GET /api/v1/trace/output` 读取。
 - **出错**时返回 `is_error` 结果，让模型自己修正，不抛异常。
-- **审批**：调用前按 `risk` 和规则判断（自动允许 / 先问我 / 拒绝）。需要问的，挂起 run（`wait.reason=approval`），在私聊里发审批卡片。内置的「先问我」规则包括：`sudo`、在 Home 以外执行 `rm -rf`、`git push`、浏览器里付款、`browser_eval`。
+- **审批**：两档模式，**默认自动允许**（`settings.approvals.mode = always_allow`）：只有命中「先问我」规则的操作才审批；切到「先问我」（`require`）后，所有写入、执行、外部操作都审批，命中「自动允许」规则的除外。规则可以限定到某个 Bot（`bot_id`），内置规则只读。需要问的，挂起 run（`wait.reason=approval`），在私聊里发审批卡片。内置的「先问我」规则包括：`sudo`、在 Home 以外执行 `rm -rf`、`git push`、浏览器里付款、`browser_eval`。
 - **并行**：同一条 assistant 消息里的只读调用（read、grep、find、ls、web_fetch、subagent）并行执行；写类调用按顺序执行；同一个文件的写入串行化。
 
 #### 5.10.2 工具清单

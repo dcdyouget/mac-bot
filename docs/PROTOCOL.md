@@ -370,6 +370,7 @@ interface Assignment {
   finished_at: Time | null;
   usage: UsageTotals;
   subagents_active: number;
+  pending_messages: number;    // 待看消息数：本任务所在群里、没有 @ 它、仍为 queued 的用户消息；交付前查看后归零
   steers: { message_id: Id; text: string; at: Time; applied_at: Time | null }[];
   result_message_id: Id | null;     // done / blocked 那条 send_msg 消息
   model: ModelRef;
@@ -479,6 +480,9 @@ interface Settings {
             subagent: ModelRef | "inherit"; maintenance: ModelRef | null };   // maintenance：记忆整理和压缩
   main_bot: { auto_create_project: boolean };
   approvals: { mode: "require" | "always_allow"; rules: ApprovalRule[] };
+    // mode 只有两档，默认 always_allow：
+    //   always_allow = 自动允许，只有命中「先问我」规则（含内置危险规则）的操作才审批
+    //   require      = 先问我：所有写入 / 执行 / 外部操作都审批，命中「自动允许」规则的除外
   browser: { default_mode: BrowserMode; chrome_profile: string;
              stream: { desktop: StreamQuality; mobile: StreamQuality } };
   skills: { extra_dirs: string[] };
@@ -486,7 +490,11 @@ interface Settings {
   web_search: { provider: "brave" | "tavily" | "searxng" | null; endpoint: string | null; has_key: boolean };
   push: { apns_configured: boolean };   // 只读
 }
-interface ApprovalRule { id: Id; kind: "ask_first" | "auto_allow"; text: string; created_at: Time }
+interface ApprovalRule {
+  id: Id; kind: "ask_first" | "auto_allow"; text: string; created_at: Time;
+  bot_id: Id | null;           // 作用范围：null = 所有 Bot
+  builtin: boolean;            // 内置规则（sudo、Home 外 rm -rf、git push、浏览器付款、browser_eval）：只读，不能删除
+}
 interface StreamQuality { max_width: number; quality: number; max_fps: number }
 
 interface Device {
@@ -519,6 +527,7 @@ interface TraceItem {
 | `tool.end` | `{ call_id, is_error: boolean, preview: string, details: object, truncated: boolean, full_output: FileRef\|null, duration_ms: number }` | `preview` 最多 8 KB；`details` 供界面渲染，例如 edit 的 diff、bash 的退出码、截图 |
 | `send_msg` | `{ call_id, intent: Intent, message_id: Id, chat_id: Id }` | Bot 发了一条消息，可以链接过去 |
 | `steer` | `{ message_id: Id, text: string, from: Sender }` | 插话被注入 |
+| `queue.review` | `{ message_ids: Id[], count: number }` | 交付前查看待看消息：服务端把这些消息一次性交给 Bot，随后它们的 delivery 变为 `read` |
 | `run.wait` | `{ reason: "decision"\|"blocked"\|"approval"\|"takeover", message_id: Id\|null }` | 挂起等待 |
 | `run.resume` | `{ by_message_id: Id\|null }` | 被唤醒 |
 | `compaction` | `{ reason: string, before_tokens: number, after_tokens: number }` | 开了一个新段 |
@@ -567,7 +576,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `artifact.version.get` | `{ artifact_id, version }` | `{ version: ArtifactVersion, content: string, content_encoding: "utf8"|"base64" }` |
 
 - `chat.send` 里用户可以用的 mention 只有 `bot`、`main`、`everyone`（`instruction` 必须为 null）。服务端按 PLAN 5.4 的规则路由。
-- 群聊中未 @ 任何人的用户消息会为当前 working 的 Bot 任务记录 `delivery.state = "queued"`；任务详情的「改为插话」调用 `message.steer`，服务端再次校验消息、Bot、任务和待看状态后，才把原消息排入该任务。
+- 群聊中未 @ 任何人的用户消息会为当前 working 的 Bot 任务记录 `delivery.state = "queued"`，并计入该任务的 `pending_messages`。Bot 调用 `send_msg(done)` 前，服务端先把仍为 queued 的消息一次性交给它（轨迹记录 `queue.review`，delivery 变为 `read`，`pending_messages` 归零），Bot 据此调整后再交付；任务详情的「改为插话」调用 `message.steer`，服务端再次校验消息、Bot、任务和待看状态后，才把原消息排入该任务。
 - Bot 通过 `send_msg` 登记 project Home 内普通文件产物时，服务端保存当时文件内容快照；内容未变化不增加版本。历史从新版本部署后首次登记开始，既有产物不会伪造或回填旧版本。`artifact.versions.list` 与 `artifact.version.get` 只返回已真实保存的版本，不从当前文件推测旧内容。URL、目录、越界路径、敏感文件名和超过 5 MiB 的文件不会生成可读历史版本。
 - `bot_dm` 会话是只读的，对它调用 `chat.send` 返回 `forbidden`。
 - `message.delete` 只允许删除当前用户发送的消息（`sender.kind = "user"`）；删除 Bot、系统或其他非用户消息返回 `forbidden`。对已删除消息重试仍返回 `{}`，不重复产生 `message.deleted`；删除成功时持久化事件的 data 为 `{ chat_id, message_id }`。
@@ -688,6 +697,7 @@ interface Workbench {
 | `model.upsert` | `{ ref?: ModelRef, provider_id, model_id, display_name?, context_window?, max_output?, caps?, price?, enabled? }` | `{ model: Model }` |
 | `model.delete` | `{ ref: ModelRef }` | `{}` |
 | `settings.get` | `{}` | `{ settings: Settings }` |
+| `host.permissions` | `{}` | `{ screen_recording: PermissionState, accessibility: PermissionState, full_disk_access: PermissionState, automation_chrome: PermissionState }`，`type PermissionState = "granted" \| "denied" \| "unknown"`（Bot 主机上 macbotd 进程的 macOS 系统权限，只读；客户端在「设置 → 电脑与浏览器」显示并引导去系统设置） |
 | `settings.update` | `{ patch: DeepPartial<Settings>, web_search_key?: string }` | `{ settings: Settings }`（`tools.defaults` 可部分更新；只影响之后新建的 Bot，不改已有 Bot；`push`、`web_search.has_key` 只读；`web_search_key` 写入密钥后端，空串删除，以 `web_search.provider` 为引用；不进入设置、响应、事件或日志） |
 
 ### 5.11 仪表盘

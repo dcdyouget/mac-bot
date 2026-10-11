@@ -17,11 +17,11 @@
 > v1 不做 iOS。记忆完全由服务端管理，**任何客户端都没有记忆相关的页面**。
 
 **主 agent 与 subagent 的分工**
-- 主 agent：拆任务、派 subagent、审查和合并、跑全量测试、实际打开应用验收、提交与推送。
+- 主 agent：拆任务、派 subagent、审查结果、做决定、改共享文件、提交与推送。**代码开发、编译、运行测试、启动应用、截图、调研等能交给 subagent 的工作，主 agent 一律不亲自做。**
 - subagent：**一次只负责一个模块**，只改该模块目录。任务说明里写清楚目标、要读的文档、验收标准。
 - **共享文件只由主 agent 改**：`docs/`、`design/`、`AGENTS.md`、`DECISIONS.md`、`protocol/` 的契约部分（`docs/PROTOCOL.md` 与 Rust 类型）。
 - 并行的 subagent 如果可能改到同一批文件，给它们各开一个临时 worktree（做完由主 agent 合并后删除）；只动各自目录时可以直接在主目录工作。
-- 主 agent 不能只看 subagent 的汇报：每批改动合入后，自己跑一遍相关测试，并对着 mock 实际打开看一眼。
+- 主 agent 不能只看写代码的 subagent 自己的汇报：每批改动合入后，另派一个验证 subagent 跑相关测试、对着 mock 实际打开应用并截图，主 agent 根据验证结果决定是否通过。
 
 ## 2. 分支与提交
 

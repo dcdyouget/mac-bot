@@ -549,7 +549,15 @@
 | settings.runtime.sub_global | 全局最多同时跑子代理 |
 | settings.runtime.loop_limit | Bot 之间连续往返上限 |
 | settings.tools.defaults | 新 Bot 默认开启的工具 |
-| settings.tools.auto_review | Auto Review |
+| settings.tools.approval_mode | 审批模式 |
+| settings.tools.approval_mode.auto | 自动允许 |
+| settings.tools.approval_mode.ask | 先问我 |
+| settings.tools.approval_mode.auto_hint | 自动允许：只有命中「先问我」规则的操作才需要你审批（默认） |
+| settings.tools.rule.scope_all | 所有 Bot |
+| settings.tools.rule.builtin | 内置 |
+| settings.computer.perm.granted | 已授权 |
+| settings.computer.perm.denied | 未授权 |
+| settings.computer.perm.unknown | 未知 |
 | settings.tools.rules | 规则（冲突时「先问我」优先） |
 | settings.tools.rule.ask | 先问我 |
 | settings.tools.rule.allow | 自动允许 |
