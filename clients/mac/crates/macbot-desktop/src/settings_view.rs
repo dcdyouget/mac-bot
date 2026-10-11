@@ -103,18 +103,14 @@ impl SettingsView {
             selected_provider: None,
             selected_model: None,
             provider_name: input_state(window, cx, t("provider_name")),
-            provider_url: input_state(window, cx, t("provider_url")),
-            provider_key: input_state(window, cx, t("provider_key")),
+            provider_url: input_state(window, cx, t("provider_url_placeholder")),
+            provider_key: input_state(window, cx, t("provider_key_placeholder")),
             provider_headers: textarea_state(window, cx, "{}"),
             model_id: input_state(window, cx, t("model_id")),
             model_display: input_state(window, cx, t("model_display")),
             model_context: input_state(window, cx, "32768"),
             model_max_output: input_state(window, cx, "4096"),
-            model_caps: textarea_state(
-                window,
-                cx,
-                r#"{"vision":false,"tools":true,"reasoning":false}"#,
-            ),
+            model_caps: textarea_state(window, cx, t("model_caps_placeholder")),
             model_price_in: input_state(window, cx, "0"),
             model_price_out: input_state(window, cx, "0"),
             model_price_cache_read: input_state(window, cx, "0"),
@@ -124,11 +120,11 @@ impl SettingsView {
             subagent_limit: input_state(window, cx, "4"),
             subagent_global: input_state(window, cx, "8"),
             loop_hops: input_state(window, cx, "8"),
-            default_bot: input_state(window, cx, "provider/model"),
-            default_main: input_state(window, cx, "provider/model"),
+            default_bot: input_state(window, cx, t("default_placeholder")),
+            default_main: input_state(window, cx, t("default_placeholder")),
             default_subagent: input_state(window, cx, t("default_placeholder")),
-            default_maintenance: input_state(window, cx, "provider/model"),
-            extra_dirs: textarea_state(window, cx, "/path/to/workspace"),
+            default_maintenance: input_state(window, cx, t("default_placeholder")),
+            extra_dirs: textarea_state(window, cx, t("path_placeholder")),
             browser_mode: input_state(window, cx, "headless"),
             chrome_profile: input_state(window, cx, "Default"),
             stream_max_width: input_state(window, cx, "1280"),
@@ -655,7 +651,7 @@ impl Render for SettingsView {
             .gap_2()
             .child(
                 Button::new("provider-new")
-                    .label(t("provider_new"))
+                    .label(t("settings.models.add_provider"))
                     .outline()
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.selected_provider = None;
@@ -696,7 +692,7 @@ impl Render for SettingsView {
             )
             .child(
                 Button::new("provider-test")
-                    .label(t("provider_test"))
+                    .label(t("settings.models.test"))
                     .outline()
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Some(id) = this.selected_provider.clone() {
@@ -706,7 +702,7 @@ impl Render for SettingsView {
             )
             .child(
                 Button::new("provider-refresh")
-                    .label(t("provider_refresh"))
+                    .label(t("settings.models.fetch"))
                     .outline()
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Some(id) = this.selected_provider.clone() {
@@ -742,9 +738,21 @@ impl Render for SettingsView {
             )
             .child(
                 Field::new().label(t("provider_key")).child(
-                    Input::new(&self.provider_key)
-                        .id("settings-provider-key")
-                        .mask_toggle(),
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            Input::new(&self.provider_key)
+                                .id("settings-provider-key")
+                                .mask_toggle(),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(tokens.secondary)
+                                .child(t("settings.models.keychain_hint")),
+                        ),
                 ),
             )
             .child(
@@ -997,26 +1005,46 @@ impl Render for SettingsView {
             .text_color(tokens.primary)
             .child(header(t("title"), t("subtitle"), &tokens))
             .child(section(
-                t("providers"),
+                t("settings.section.models"),
                 div()
                     .flex()
                     .flex_col()
                     .gap_2()
+                    .when(providers.is_empty(), |content| {
+                        content.child(
+                            div()
+                                .text_sm()
+                                .text_color(tokens.secondary)
+                                .child(t("provider_empty")),
+                        )
+                    })
                     .children(provider_buttons)
                     .child(provider_form),
                 &tokens,
             ))
             .child(section(
-                t("models"),
+                t("settings.section.models"),
                 div()
                     .flex()
                     .flex_col()
                     .gap_2()
+                    .when(models.is_empty(), |content| {
+                        content.child(
+                            div()
+                                .text_sm()
+                                .text_color(tokens.secondary)
+                                .child(t("model_empty")),
+                        )
+                    })
                     .children(model_buttons)
                     .child(model_form),
                 &tokens,
             ))
-            .child(section(t("runtime"), runtime_form, &tokens))
+            .child(section(
+                t("settings.section.runtime"),
+                runtime_form,
+                &tokens,
+            ))
             .child(section(
                 t("default_models"),
                 Form::vertical()
@@ -1040,9 +1068,9 @@ impl Render for SettingsView {
                     )),
                 &tokens,
             ))
-            .child(section(t("tools"), approval_form, &tokens))
+            .child(section(t("settings.section.tools"), approval_form, &tokens))
             .child(section(
-                t("browser"),
+                t("settings.section.computer"),
                 Form::vertical()
                     .child(
                         Field::new()
@@ -1101,16 +1129,23 @@ impl Render for SettingsView {
                 &tokens,
             ))
             .child(section(
-                t("general"),
+                t("settings.section.general"),
                 Form::vertical()
                     .child(
-                        Field::new().label(t("appearance")).child(
+                        Field::new().label(t("settings.appearance")).child(
                             div()
                                 .flex()
+                                .flex_col()
                                 .gap_2()
                                 .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(tokens.secondary)
+                                        .child(t("settings.theme")),
+                                )
+                                .child(
                                     Button::new("theme-system")
-                                        .label(t("theme_system"))
+                                        .label(t("settings.theme.system"))
                                         .when(self.local_theme == "system", |button| {
                                             button.primary()
                                         })
@@ -1126,7 +1161,7 @@ impl Render for SettingsView {
                                 )
                                 .child(
                                     Button::new("theme-light")
-                                        .label(t("theme_light"))
+                                        .label(t("settings.theme.light"))
                                         .when(self.local_theme == "light", |button| {
                                             button.primary()
                                         })
@@ -1142,7 +1177,7 @@ impl Render for SettingsView {
                                 )
                                 .child(
                                     Button::new("theme-dark")
-                                        .label(t("theme_dark"))
+                                        .label(t("settings.theme.dark"))
                                         .when(self.local_theme == "dark", |button| button.primary())
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.local_theme = "dark".into();
@@ -1165,7 +1200,7 @@ impl Render for SettingsView {
                                 .child(
                                     Checkbox::new("settings-translucent")
                                         .checked(self.translucent)
-                                        .label(t("translucent"))
+                                        .label(t("settings.translucent"))
                                         .on_click(cx.listener(|this, checked, _, cx| {
                                             this.translucent = *checked;
                                             cx.emit(SettingsAction::Local {
@@ -1179,12 +1214,12 @@ impl Render for SettingsView {
                                     div()
                                         .text_xs()
                                         .text_color(tokens.secondary)
-                                        .child(t("translucent_hint")),
+                                        .child(t("settings.translucent_hint")),
                                 ),
                         ),
                     )
                     .child(
-                        Field::new().label(t("language")).child(
+                        Field::new().label(t("settings.language")).child(
                             div()
                                 .text_sm()
                                 .text_color(tokens.secondary)
@@ -1195,7 +1230,7 @@ impl Render for SettingsView {
                         Field::new().label(t("notifications")).child(
                             Checkbox::new("settings-notifications")
                                 .checked(self.notifications)
-                                .label(t("notifications_enabled"))
+                                .label(t("settings.notify.enabled"))
                                 .on_click(cx.listener(|this, checked, _, cx| {
                                     this.notifications = *checked;
                                     cx.emit(SettingsAction::Local {
@@ -1207,7 +1242,7 @@ impl Render for SettingsView {
                         ),
                     )
                     .child(
-                        Field::new().label(t("sound")).child(
+                        Field::new().label(t("settings.notify.sound")).child(
                             Checkbox::new("settings-sound")
                                 .checked(self.sound_enabled)
                                 .label(t("sound_enabled"))
@@ -1222,7 +1257,7 @@ impl Render for SettingsView {
                         ),
                     )
                     .child(
-                        Field::new().label(t("launch_at_login")).child(
+                        Field::new().label(t("settings.launch_at_login")).child(
                             Checkbox::new("settings-launch-at-login")
                                 .checked(self.launch_at_login)
                                 .label(t("launch_at_login_enabled"))
@@ -1244,6 +1279,12 @@ impl Render for SettingsView {
                                 .gap_2()
                                 .child(Input::new(&self.update_url).id("settings-update-url"))
                                 .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(tokens.secondary)
+                                        .child(t("update_url_hint")),
+                                )
+                                .child(
                                     Button::new("settings-update-url-save")
                                         .label(t("update_url_save"))
                                         .outline()
@@ -1264,7 +1305,7 @@ impl Render for SettingsView {
                     .child(save_settings)
                     .child(
                         Button::new("settings-host")
-                            .label(t("host"))
+                            .label(t("settings.section.hosts"))
                             .outline()
                             .on_click(
                                 cx.listener(|_, _, _, cx| cx.emit(SettingsAction::HostConnections)),
@@ -1272,7 +1313,7 @@ impl Render for SettingsView {
                     )
                     .child(
                         Button::new("settings-update")
-                            .label(t("check_update"))
+                            .label(t("settings.about.check_update"))
                             .outline()
                             .on_click(
                                 cx.listener(|_, _, _, cx| cx.emit(SettingsAction::CheckUpdate)),
@@ -1280,7 +1321,7 @@ impl Render for SettingsView {
                     )
                     .child(div().text_sm().text_color(tokens.secondary).child(format!(
                                 "{} · v{} · {}",
-                                t("about"),
+                                t("settings.section.about"),
                                 crate::update::current_version(),
                                 std::env::var("MACBOT_UPDATE_URL")
                                     .ok()
