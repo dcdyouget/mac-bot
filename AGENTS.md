@@ -1,15 +1,14 @@
 # AGENTS.md：多 agent 并行开发约定
 
-> 本仓库由多个 AI agent 同时开发。动手之前先读完本文，再读 `docs/` 下的文档。**每类规则只有一个权威来源**（见 PLAN 第 0 章）：协议字段看 PROTOCOL.md，界面和交互看 DESIGN.md，服务端实现和开发计划看 PLAN.md。各开发线的启动 prompt 在 `docs/AGENT_PROMPTS.md`。
+> 本仓库由多个 AI agent 同时开发。动手之前先读完本文，再读 `docs/` 下的文档。**每类规则只有一个权威来源**（见 PLAN 第 0 章）：协议字段看 PROTOCOL.md，产品行为看 DESIGN.md，界面视觉、像素、文案 key 看 `design/`，服务端实现和开发计划看 PLAN.md。各开发线的启动 prompt 在 `docs/AGENT_PROMPTS.md`。
 
-## 1. 开发线和目录归属（v1：三条开发线 + 一条集成线）
+## 1. 开发线和目录归属（v1：三条开发线）
 
 | 开发线 | 负责的目录（只改这些） | 产出 |
 |--------|------------------------|------|
 | **server-mac** | `server/`、`protocol/rust/`、`protocol/schema/`、`protocol/fixtures/` | `macbotd`（守护进程 + CLI + `--mock`）、协议的 Rust 类型、JSON Schema、fixtures |
 | **client-mac** | `clients/mac/` | macOS 桌面客户端（Tauri 2：Rust 网络层与数据层 `macbot-client-core` + React/TypeScript 界面） |
 | **client-android** | `clients/mobile/` 全部、`protocol/kotlin/` | Android 客户端的全部功能（KMP 工程，v1 只有 Android target） |
-| **integrator**（集成线） | `scripts/`、`docs/progress/`；负责整理 `COORDINATION.md` | 在这台 Mac mini 上持续部署 main 分支、编写和运行端到端场景、截图存档、分派问题；**不修改其他开发线的代码** |
 
 **`clients/mobile` 的代码组织**（包名 `bot.mac.mobile`）：`shared/src/commonMain` 下分为 `core/`（网络、重连和补发、协议模型、状态、设计系统、导航、fixtures 加载）和 `feature/*`（connect、chat、trace、group、mainbot、approval、workbench、bots、settings、dashboard、skills、search、routines、computer）。**commonMain 里不要直接使用 Android API**，平台能力用 expect/actual，这样以后加 iOS 只需要增加 target 和 iosApp 外壳。
 
@@ -26,11 +25,10 @@
   git worktree add ../mac-bot-server        -b dev/server-mac
   git worktree add ../mac-bot-client-mac    -b dev/client-mac
   git worktree add ../mac-bot-client-android -b dev/client-android
-  git worktree add ../mac-bot-integrator    -b dev/integrator
   ```
 - **小步提交，频繁合入 main**（至少每完成一个可以运行的小功能合一次）：先 `git fetch && git rebase origin/main`，确认能编译、测试通过，再合入 main 并推送。
-- 提交说明的前缀：`server:`、`protocol:`、`client-mac:`、`mobile-core:`、`android:`、`mobile-<feature>:`、`integrator:`。
-- 每条开发线在自己目录的 README 里写清楚**怎么编译和运行**（命令、环境变量、产物路径），集成线据此编写部署脚本。结尾按仓库约定附上 Co-Authored-By。
+- 提交说明的前缀：`server:`、`protocol:`、`client-mac:`、`mobile-core:`、`android:`、`mobile-<feature>:`。
+- 每条开发线在自己目录的 README 里写清楚**怎么编译和运行**（命令、环境变量、产物路径）。结尾按仓库约定附上 Co-Authored-By。
 - 不要提交构建产物、密钥或 `local.properties`（见 `.gitignore`）。
 
 ## 3. 协议变更流程（最重要）
@@ -58,7 +56,7 @@
   - Rust stable，crates.io 走清华 tuna 镜像；`cargo search` 需要加 `--registry crates-io`。
   - Xcode 26.6（Tauri 打包 macOS App 需要）；Node.js（Tauri 前端构建）。
   - JDK 21、Android SDK 36、Gradle 9.8；Android 模拟器（AVD `macbot_api36`：Android 16 / API 36、arm64，已经在这台 Mac mini 上装好）。模拟器里访问 Mac 本机要用 `10.0.2.2`：mock 是 `10.0.2.2:7789`，正式服务是 `10.0.2.2:7788`（已经验证可以连通；模拟器里没有 curl，测试连通性用 `adb shell toybox nc`）。
-- **在 Mac mini 上能看到效果**：这台 Mac mini（M4，192.168.31.162）就是目标 Host。每个阶段的成果都要能部署到这台机器上运行和查看（集成线负责部署）。
+- **在 Mac mini 上能看到效果**：这台 Mac mini（M4，192.168.31.162）就是目标 Host。每条开发线都要让自己的成果能在这台机器上直接运行和查看（README 写清楚命令）。
 - **mock 优先**：客户端先基于 `protocol/fixtures` 开发；server-mac 提供 `macbotd --mock` 之后，切换到 mock；最后再连接真实服务端。
 - **测试**：
   - server：单元测试，加一个基于 mock provider 的场景测试。
@@ -67,4 +65,4 @@
 
 ## 5. 阶段与汇合点
 
-阶段划分见 PLAN 第 6 章（唯一的开发计划）：S0 契约与骨架 → S1 单 Bot 闭环 → S2 主 Bot 与群协作 → S3 技能、仪表盘、记忆 → S4 浏览器、定时任务、推送 → S5 打磨与分发。**目标是一次做完全部功能**：每完成一个阶段，在 COORDINATION.md 打卡后直接进入下一阶段；三条开发线都打卡后，由集成线在 Mac mini 上运行该阶段的联调场景。只有被阻塞时才停下来。
+阶段划分见 PLAN 第 6 章（唯一的开发计划）：S0 契约与骨架 → S1 单 Bot 闭环 → S2 主 Bot 与群协作 → S3 技能、仪表盘、记忆 → S4 浏览器、定时任务、推送 → S5 打磨与分发。**目标是一次做完全部功能**：每完成一个阶段，在 COORDINATION.md 打卡后直接进入下一阶段；只有被阻塞时才停下来。

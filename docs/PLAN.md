@@ -530,11 +530,11 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 
 ## 6. 开发计划（唯一的计划）
 
-**目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。**三条开发线加一条集成线**同时推进，归属见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
+**目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。**三条开发线**同时推进，归属见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
 
 **开发机就是目标机**：这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。**每个阶段的成果都要能在这台机器上直接运行和查看**：服务端以 LaunchAgent 方式常驻，桌面客户端打包成 .app 打开使用，Android 客户端跑在本机的 Android 模拟器里（连接 `10.0.2.2:7788`）。以后换成真机时，手机连接 `192.168.31.162:7788`。
 
-| 阶段 | server-mac | client-mac | client-android（Android 全部功能） | 联调验收 |
+| 阶段 | server-mac | client-mac | client-android（Android 全部功能） | 验收（在 Mac mini 上实际操作） |
 |------|-----------|-----------|----------------|---------|
 | **S0 契约与骨架** | protocol crate（PROTOCOL 全部类型）+ schema + fixtures + 场景；server workspace；`--mock` 实现全部方法 | 工程、client-core（连接、补发、状态）、设计 token、三栏布局、连接页；可以双击打开的 .app | KMP 工程（只有 Android target）、core（连接、补发、状态、画面连接）、设计系统、导航、androidApp 外壳、feature/connect | 桌面和 Android 模拟器都连上 mock，看到会话列表 |
 | **S1 单 Bot 闭环** | 存储、durable、模型接入、工具（文件、bash）、技能加载、私聊对话、基础压缩、运行轨迹、用量记账、鉴权、/admin、CLI、LaunchAgent | 私聊（流式）、消息块、运行轨迹（实时 + 回放）、模型与服务商设置 | feature/chat（私聊、消息块、送达状态）、feature/trace（运行轨迹、历史任务）、feature/settings | 真实服务端：桌面和手机都能和一个 Bot 私聊，Bot 能读写文件、跑命令；轨迹实时可看、可回放；kill -9 重启后能恢复 |
@@ -545,12 +545,7 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 
 **执行规则**
 - 每条线完成一个阶段后，在 `COORDINATION.md` 里打卡「Sx 完成」，然后**直接进入下一阶段**，不停下来等待。
-- **集成线（integrator）** 负责：
-  - 在这台 Mac mini 上持续部署 main 分支的最新版本：`scripts/dev/deploy.sh` 编译并安装 macbotd 的 LaunchAgent、编译桌面客户端 `.app`、启动 Android 模拟器并安装 APK。
-  - 编写并运行每个阶段的端到端场景（`scripts/e2e/<阶段>/`）。
-  - 截图存档到 `docs/progress/<阶段>/`。
-  - 把问题记录到 COORDINATION.md，交给对应的开发线。
-- 三条开发线都打卡某个阶段后，集成线在 Mac mini 上跑完该阶段的「联调验收」，并把结果写进 COORDINATION.md。
+- 跨开发线的问题记录到 COORDINATION.md，交给对应的开发线。
 - 只有被其他开发线阻塞时才停下来，并在 COORDINATION.md 里写明原因。
 
 ## 7. 开发环境（这台 Mac 上已经装好）
