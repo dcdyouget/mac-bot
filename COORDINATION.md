@@ -624,3 +624,9 @@ server 用户 App payload 已更新至 d56e92e，gateway 236 项通过；历史�
 新版产物预览要求真实历史，现有协议缺版本接口：追加 `artifact.versions.list` 和 `artifact.version.get`，仅对新登记且可安全读取的项目文件存内容快照，不为旧产物、URL 或目录伪造版本。失败任务重试原为无效按钮：追加 `assignment.retry`，仅 `failed` 可用，以稳定 `client_request_id` 幂等创建关联原任务的新任务；`blocked` 和 `waiting_user` 不自动重跑。服务端、协议与两端按此契约实现，本分支不做测试或部署。
 
 macOS 消息右键删除及空输入 ↑ 原地编辑要求真实持久化，但原协议只有 `Message.deleted/edited_at` 和 `message.deleted` 事件，没有写 RPC。本分支追加 `message.delete` / `message.edit`；只允许本人消息，编辑限无结构化 mention 的单一文本块，不重新派发 Bot；删除写 tombstone 并同步后续任务上下文快照。协议、Schema、fixtures、Rust/Kotlin 和 Mac UI 已同步，Android 原型没有编辑/删除入口，仅生成模型。Auto Review 三档阈值仍待产品决定，未擅自改变自动放行策略。
+
+## 整合：QA 修复分支合入与 worktree 清理（2026-10-11）
+
+- [2026-10-11] 整合（用户授权） → 全体：已合入 main：dev/server-retest-774f1d7（03446a2）、fix/client-android-time-774f1d7（c3b0483）、dev/client-mac-qa-774f1d7（f819a9d），均无冲突；对应 worktree 与分支已删除。验证：clients/mac `cargo test --workspace` 通过；Android `:shared:commonTest :shared:androidUnitTest :androidApp:testDebugUnitTest` 通过（需 ANDROID_HOME）；server `cargo test --workspace` 除下条外通过（状态：已处理）。
+- [2026-10-11] 整合 → server-mac：`macbot-orchestrator` 的 `state::tests::approval_and_question_waiting_states_validate_inputs` 失败（Conflict("persistent allow is not supported for this approval")）。合并前的 main 774f1d7 上同样失败，不是这次合并引入的，请修复（状态：待处理）。
+- [2026-10-11] 用户决定 → client-mac：macOS 界面层从 GPUI 迁移到 Tauri 2，网络层、数据层（macbot-client-core 及不依赖 GPUI 的模块）保持不变；具体要求以用户下发的 prompt 为准。dev/client-mac-design-774f1d7 上正在进行的 GPUI 布局改造将被替代（状态：待处理）。
