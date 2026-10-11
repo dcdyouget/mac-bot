@@ -3103,7 +3103,11 @@ async fn admin_tokens_handler(
         return response;
     }
     let Some(css) = AdminAssets::get("admin-tokens.css") else {
-        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "asset", "admin tokens missing");
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "asset",
+            "admin tokens missing",
+        );
     };
     (
         [
@@ -3199,13 +3203,29 @@ async fn admin_status_handler(
         );
     }
     let seq = gw.state.inner.read().await.seq;
-    let bot_count = gw.rpc("bot.list", json!({})).await.ok()
-        .and_then(|value| value.get("bots").and_then(Value::as_array).map(|items| items.len()));
-    let workbench = gw.rpc("workbench.get", json!({})).await.ok()
+    let bot_count = gw.rpc("bot.list", json!({})).await.ok().and_then(|value| {
+        value
+            .get("bots")
+            .and_then(Value::as_array)
+            .map(|items| items.len())
+    });
+    let workbench = gw
+        .rpc("workbench.get", json!({}))
+        .await
+        .ok()
         .and_then(|value| value.get("workbench").cloned());
-    let bots_running = workbench.as_ref().and_then(|value| value.get("bots").and_then(Value::as_array))
-        .map(|bots| bots.iter().filter(|bot| bot.get("active").and_then(Value::as_u64).unwrap_or(0) > 0).count());
-    let bots_waiting = workbench.as_ref().and_then(|value| value.get("waiting").and_then(Value::as_array)).map(Vec::len);
+    let bots_running = workbench
+        .as_ref()
+        .and_then(|value| value.get("bots").and_then(Value::as_array))
+        .map(|bots| {
+            bots.iter()
+                .filter(|bot| bot.get("active").and_then(Value::as_u64).unwrap_or(0) > 0)
+                .count()
+        });
+    let bots_waiting = workbench
+        .as_ref()
+        .and_then(|value| value.get("waiting").and_then(Value::as_array))
+        .map(Vec::len);
     let browser_sessions = Some(gw.state.browser.lock().await.session_count());
     Json(json!({
         "running": true,
@@ -3223,7 +3243,8 @@ async fn admin_status_handler(
         "bots_waiting": bots_waiting,
         "browser_sessions": browser_sessions,
         "browser_version": Value::Null
-    })).into_response()
+    }))
+    .into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -3249,17 +3270,35 @@ async fn admin_logs_handler(
     let bytes = match fs::read(path).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, "logs", &error.to_string()),
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "logs",
+                &error.to_string(),
+            )
+        }
     };
     let offset = query.after.unwrap_or(0).min(bytes.len() as u64) as usize;
     let body = if query.after.is_some() {
         bytes[offset..].to_vec()
     } else {
         let limit = query.limit.unwrap_or(200).clamp(1, 5_000);
-        let lines = bytes.split_inclusive(|byte| *byte == b'\n').collect::<Vec<_>>();
-        lines.into_iter().rev().take(limit).collect::<Vec<_>>().into_iter().rev().flatten().copied().collect()
+        let lines = bytes
+            .split_inclusive(|byte| *byte == b'\n')
+            .collect::<Vec<_>>();
+        lines
+            .into_iter()
+            .rev()
+            .take(limit)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .flatten()
+            .copied()
+            .collect()
     };
-    let mut response = ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response();
+    let mut response =
+        ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response();
     if let Ok(value) = HeaderValue::from_str(&(bytes.len() as u64).to_string()) {
         response.headers_mut().insert("x-log-offset", value);
     }
@@ -3281,7 +3320,11 @@ async fn admin_password_handler(
     if !is_local_or_basic(remote, &headers, &gw).await
         || gw.auth.verify(&payload.current_password).await != AuthState::Authorized
     {
-        return error_response(StatusCode::UNAUTHORIZED, "unauthorized", "current password is incorrect");
+        return error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "current password is incorrect",
+        );
     }
     match gw.auth.set_password(&payload.new_password).await {
         Ok(()) => Json(json!({"ok": true})).into_response(),

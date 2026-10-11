@@ -707,7 +707,13 @@ impl CollaborationTools {
     /// omitted: ExecutionEngine injects its built-in durable run_id+call_id
     /// implementation and forwards the admitted message to the group bridge.
     pub fn tools(&self) -> Vec<Arc<dyn Tool>> {
-        let mut names = vec!["web_fetch", "web_search", "routine", "question", "update_announcement"];
+        let mut names = vec![
+            "web_fetch",
+            "web_search",
+            "routine",
+            "question",
+            "update_announcement",
+        ];
         if self.identity.is_main {
             names.extend([
                 "list_bots",
@@ -795,20 +801,34 @@ impl CollaborationTools {
             }
             "update_announcement" => {
                 let mut args = args;
-                let Some(project_id) = args.get("project_id").and_then(Value::as_str)
-                    .map(str::to_owned).or_else(|| self.identity.project_id.clone()) else {
+                let Some(project_id) = args
+                    .get("project_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or_else(|| self.identity.project_id.clone())
+                else {
                     return ToolResult::error("project_id is required outside a project chat");
                 };
                 let text = match args.get("text").and_then(Value::as_str) {
                     Some(text) => text.to_owned(),
                     None => return ToolResult::error("text is required"),
                 };
-                let current = match self.rpc.call("project.get", json!({"project_id":project_id})).await {
+                let current = match self
+                    .rpc
+                    .call("project.get", json!({"project_id":project_id}))
+                    .await
+                {
                     Ok(value) => value,
                     Err(error) => return ToolResult::error(error),
                 };
-                let current_text = current.pointer("/announcement/text").and_then(Value::as_str).unwrap_or("");
-                let mode = args.get("mode").and_then(Value::as_str).unwrap_or("replace");
+                let current_text = current
+                    .pointer("/announcement/text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let mode = args
+                    .get("mode")
+                    .and_then(Value::as_str)
+                    .unwrap_or("replace");
                 let text = match mode {
                     "replace" => text,
                     "append" if current_text.is_empty() => text,
