@@ -7,6 +7,7 @@ use crate::{
 use gpui_kit::component::{
     button::*,
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
+    menu::{ContextMenuExt, PopupMenuItem},
     resizable::*,
     scroll::ScrollableElement,
     text::TextView,
@@ -211,6 +212,8 @@ pub struct MacBot {
     address: Entity<InputState>,
     password: Entity<InputState>,
     host_name: Entity<InputState>,
+    rename_name: Entity<InputState>,
+    rename_target: Option<(String, String)>,
     composer: Entity<TextareaState>,
     announcement_draft: Entity<TextareaState>,
     pending_messages: BTreeMap<String, Value>,
@@ -296,6 +299,7 @@ impl MacBot {
         let address = cx.new(|cx| InputState::new(window, cx).placeholder("127.0.0.1:7788"));
         let password = cx.new(|cx| InputState::new(window, cx).masked(true));
         let host_name = cx.new(|cx| InputState::new(window, cx).placeholder("Mac mini"));
+        let rename_name = cx.new(|cx| InputState::new(window, cx));
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder(tr("chat.placeholder"))
@@ -389,6 +393,8 @@ impl MacBot {
             address,
             password,
             host_name,
+            rename_name,
+            rename_target: None,
             composer,
             announcement_draft,
             pending_messages: BTreeMap::new(),
@@ -3205,9 +3211,28 @@ impl MacBot {
         let layout = t.desktop_layout;
         let todo = self.sidebar_todo_summary(chat);
         let id = s(chat, "id").to_owned();
+        let menu_chat_id = id.clone();
         let selected = id == self.selected_chat && self.page == "chat";
+        let kind = s(chat, "kind").to_owned();
+        let is_project = kind == "project";
+        let is_bot = kind == "bot_dm";
+        let bot_id = s(chat, "bot_id").to_owned();
+        let project_id = s(chat, "project_id").to_owned();
+        let entity = cx.entity();
         let bot = self.state.bots.get(s(chat, "bot_id"));
+        let bot_name = bot.map(|bot| s(bot, "name").to_owned()).unwrap_or_default();
+        let bot_notifications =
+            bot.is_some_and(|bot| bot["notifications"].as_bool().unwrap_or(true));
+        let project_name = self
+            .state
+            .projects
+            .get(&project_id)
+            .map(|project| s(project, "name").to_owned())
+            .unwrap_or_default();
+        let pinned = chat["pinned"].as_bool().unwrap_or(false);
+        let chat_muted = chat["muted"].as_bool().unwrap_or(false);
         let title = s(chat, "title").to_owned();
+        let menu_title = title.clone();
         let preview = self.sidebar_summary_text(chat, &todo);
         let (attention_symbol, attention_count, attention_color, attention_surface) =
             self.sidebar_attention(chat, &todo, t);
@@ -3291,6 +3316,129 @@ impl MacBot {
                         .rounded(px(2.))
                         .bg(t.warning),
                 )
+            })
+            .context_menu(move |menu, _, _| {
+                let mut menu = menu;
+                if is_project || is_bot {
+                    let pin_entity = entity.clone();
+                    let pin_chat_id = menu_chat_id.clone();
+                    let pin_bot_id = bot_id.clone();
+                    menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.pin")).on_click(
+                        move |_, _, cx| {
+                            let _ = pin_entity.update(cx, |this, cx| {
+                                if is_bot {
+                                    this.rpc(
+                                        "bot.update",
+                                        json!({"bot_id":pin_bot_id,"patch":{"pinned":!pinned}}),
+                                        cx,
+                                    );
+                                } else {
+                                    this.rpc(
+                                        "chat.set_pinned",
+                                        json!({"chat_id":pin_chat_id,"pinned":!pinned}),
+                                        cx,
+                                    );
+                                }
+                            });
+                        },
+                    ));
+
+                    let rename_entity = entity.clone();
+                    let rename_id = if is_bot { bot_id.clone() } else { project_id.clone() };
+                    let rename_kind = if is_bot { "bot" } else { "project" }.to_owned();
+                    let current_name = if is_bot {
+                        bot_name.clone()
+                    } else {
+                        if project_name.is_empty() {
+                            menu_title.clone()
+                        } else {
+                            project_name.clone()
+                        }
+                    };
+                    menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.rename")).on_click(
+                        move |_, window, cx| {
+                            let _ = rename_entity.update(cx, |this, cx| {
+                                this.rename_target = Some((rename_kind.clone(), rename_id.clone()));
+                                this.rename_name.update(cx, |input, cx| {
+                                    input.set_value(current_name.clone(), window, cx);
+                                    input.focus(window, cx);
+                                });
+                                cx.notify();
+                            });
+                        },
+                    ));
+
+                    let mute_entity = entity.clone();
+                    let mute_chat_id = menu_chat_id.clone();
+                    let mute_bot_id = bot_id.clone();
+                    let muted = if is_bot {
+                        !bot_notifications
+                    } else {
+                        chat_muted
+                    };
+                    menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.mute")).on_click(
+                        move |_, _, cx| {
+                            let _ = mute_entity.update(cx, |this, cx| {
+                                if is_bot {
+                                    this.rpc(
+                                        "bot.update",
+                                        json!({"bot_id":mute_bot_id,"patch":{"notifications":muted}}),
+                                        cx,
+                                    );
+                                } else {
+                                    this.rpc(
+                                        "chat.set_muted",
+                                        json!({"chat_id":mute_chat_id,"muted":!muted}),
+                                        cx,
+                                    );
+                                }
+                            });
+                        },
+                    ));
+                }
+                if is_project {
+                    let done_entity = entity.clone();
+                    let done_project_id = project_id.clone();
+                    menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.mark_done")).on_click(
+                        move |_, _, cx| {
+                            let _ = done_entity.update(cx, |this, cx| {
+                                this.rpc(
+                                    "project.confirm_done",
+                                    json!({"project_id":done_project_id}),
+                                    cx,
+                                );
+                            });
+                        },
+                    ));
+                    let archive_entity = entity.clone();
+                    let archive_project_id = project_id.clone();
+                    menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.archive")).on_click(
+                        move |_, _, cx| {
+                            let _ = archive_entity.update(cx, |this, cx| {
+                                this.rpc(
+                                    "project.archive",
+                                    json!({"project_id":archive_project_id}),
+                                    cx,
+                                );
+                            });
+                        },
+                    ));
+                }
+                if is_bot {
+                    let hide_entity = entity.clone();
+                    menu = menu.item(PopupMenuItem::new(tr("sidebar.menu.hide")).on_click(
+                        move |_, _, cx| {
+                            let _ = hide_entity.update(cx, |this, cx| {
+                                this.rpc(
+                                    "bot.update",
+                                    json!({"bot_id":bot_id,"patch":{"hidden":true}}),
+                                    cx,
+                                );
+                            });
+                        },
+                    ));
+                }
+                menu
             })
             .into_any_element()
     }
@@ -3647,7 +3795,21 @@ impl MacBot {
                                             cx,
                                         )
                                     }))
-                            })),
+                            }))
+                            .child(
+                                Button::new("onboarding-only-main")
+                                    .outline()
+                                    .label(tr("onboarding.template.only_main"))
+                                    .disabled(
+                                        !self.connected
+                                            || !self
+                                                .state
+                                                .chats
+                                                .values()
+                                                .any(|chat| s(chat, "kind") == "main"),
+                                    )
+                                    .on_click(cx.listener(|this, _, _, cx| this.select_main(cx))),
+                            ),
                     ),
             )
             .into_any_element()
@@ -4006,6 +4168,81 @@ impl Render for MacBot {
                         .border_r_1()
                         .border_color(t.border)
                         .child(self.sidebar(cx)),
+                )
+            })
+            .when_some(self.rename_target.clone(), |el, (kind, target_id)| {
+                el.child(
+                    div()
+                        .absolute()
+                        .top(px(0.))
+                        .right(px(0.))
+                        .bottom(px(0.))
+                        .left(px(0.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(t.overlay)
+                        .child(
+                            div()
+                                .w(px(360.))
+                                .flex()
+                                .flex_col()
+                                .gap(px(t.space[5]))
+                                .rounded(px(t.radius[8]))
+                                .p(px(t.space[6]))
+                                .bg(t.panel)
+                                .text_color(t.primary)
+                                .child(tr("sidebar.menu.rename"))
+                                .child(Input::new(&self.rename_name).id("sidebar-rename-input"))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .justify_end()
+                                        .gap(px(t.space[3]))
+                                        .child(
+                                            Button::new("sidebar-rename-cancel")
+                                                .label(tr("common.cancel"))
+                                                .outline()
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.rename_target = None;
+                                                    cx.notify();
+                                                })),
+                                        )
+                                        .child(
+                                            Button::new("sidebar-rename-save")
+                                                .primary()
+                                                .label(tr("common.save"))
+                                                .on_click(cx.listener(
+                                                    move |this, _, _, cx| {
+                                                        let name = this
+                                                            .rename_name
+                                                            .read(cx)
+                                                            .value()
+                                                            .trim()
+                                                            .to_owned();
+                                                        if name.is_empty() {
+                                                            return;
+                                                        }
+                                                        if kind == "bot" {
+                                                            this.rpc(
+                                                                "bot.update",
+                                                                json!({"bot_id":target_id,"patch":{"name":name}}),
+                                                                cx,
+                                                            );
+                                                        } else {
+                                                            this.rpc(
+                                                                "project.update",
+                                                                json!({"project_id":target_id,"patch":{"name":name}}),
+                                                                cx,
+                                                            );
+                                                        }
+                                                        this.rename_target = None;
+                                                        cx.notify();
+                                                    },
+                                                )),
+                                        ),
+                                ),
+                        ),
                 )
             })
     }

@@ -719,13 +719,22 @@ impl Render for SettingsView {
                 ),
                 ProviderTestState::Complete {
                     ok: false, error, ..
-                } => (
-                    error.as_deref().map_or_else(
-                        || t("settings.models.test_failed").to_owned(),
-                        |error| format!("{}：{error}", t("settings.models.test_failed")),
-                    ),
-                    tokens.danger,
-                ),
+                } => {
+                    let error = error.as_deref().unwrap_or_default();
+                    let invalid_key = ["401", "unauthorized", "invalid api key", "invalid key"]
+                        .iter()
+                        .any(|needle| error.to_ascii_lowercase().contains(needle));
+                    (
+                        if invalid_key {
+                            t("settings.models.key_invalid").to_owned()
+                        } else if error.is_empty() {
+                            t("settings.models.test_failed").to_owned()
+                        } else {
+                            format!("{}：{error}", t("settings.models.test_failed"))
+                        },
+                        tokens.danger,
+                    )
+                }
             });
         let model_buttons = models.iter().enumerate().map(|(index, model)| {
             let reference = model_ref(model).unwrap_or_default().to_owned();
@@ -1597,7 +1606,8 @@ impl Render for SettingsView {
                     ),
                 &tokens,
             ))
-            .child(
+            .child(section(
+                t("settings.section.about"),
                 div()
                     .flex()
                     .gap(px(tokens.space[4]))
@@ -1632,7 +1642,8 @@ impl Render for SettingsView {
                             .text_color(tokens.secondary)
                             .child(version_line),
                     ),
-            )
+                &tokens,
+            ))
     }
 }
 
