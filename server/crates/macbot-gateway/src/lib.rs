@@ -464,6 +464,9 @@ pub(crate) struct MockState {
     bots: Vec<Value>,
     chats: Vec<Value>,
     messages: HashMap<String, Vec<Value>>,
+    /// Locale is tied to the message that carried it. The mock never promotes
+    /// a connection's most recent locale into a server-wide default.
+    client_locales: HashMap<String, String>,
     projects: Vec<Value>,
     assignments: Vec<Value>,
     traces: HashMap<String, Vec<Value>>,
@@ -518,6 +521,7 @@ impl MockState {
             bots: vec![bot],
             chats: vec![chat],
             messages: HashMap::new(),
+            client_locales: HashMap::new(),
             projects: vec![],
             assignments: vec![],
             traces: HashMap::new(),
@@ -2593,6 +2597,107 @@ pub(crate) fn rpc_error(code: &str, message: &str, details: Option<Value>) -> Rp
         details,
     }
 }
+
+pub(crate) fn validate_client_locale(params: &Value) -> Result<(), RpcError> {
+    let Some(value) = params.get("client_locale") else {
+        return Ok(());
+    };
+    if value.is_null() {
+        return Ok(());
+    }
+    let locale = value.as_str().ok_or_else(|| {
+        rpc_error(
+            "invalid_params",
+            "client_locale must be a BCP 47 language tag",
+            None,
+        )
+    })?;
+    let subtags = locale.split('-').collect::<Vec<_>>();
+    let alpha = |part: &str| part.bytes().all(|byte| byte.is_ascii_alphabetic());
+    let alphanumeric = |part: &str| part.bytes().all(|byte| byte.is_ascii_alphanumeric());
+    let language = subtags.first().copied().unwrap_or_default();
+    // BCP 47 language: 2–3 alpha, 4 alpha, or 5–8 alpha. Extlang subtags
+    // are intentionally omitted: the client locale is a system language tag,
+    // and an arbitrary three-letter subtag such as `en-foo` is not registered.
+    let language_ok = locale.len() <= 63
+        && ((2..=3).contains(&language.len())
+            || language.len() == 4
+            || (5..=8).contains(&language.len()))
+        && alpha(language);
+    let mut valid = language_ok && subtags.iter().all(|part| !part.is_empty());
+    let mut index = 1;
+
+    // Optional script, followed by optional region.
+    if valid
+        && subtags
+            .get(index)
+            .is_some_and(|part| part.len() == 4 && alpha(part))
+    {
+        index += 1;
+    }
+    if valid
+        && subtags.get(index).is_some_and(|part| {
+            (part.len() == 2 && alpha(part))
+                || (part.len() == 3 && part.bytes().all(|byte| byte.is_ascii_digit()))
+        })
+    {
+        index += 1;
+    }
+
+    // Variants follow script/region and are unique case-insensitively.
+    let mut seen_variants = std::collections::HashSet::new();
+    while valid
+        && subtags.get(index).is_some_and(|part| {
+            ((5..=8).contains(&part.len())
+                || (part.len() == 4 && part.as_bytes()[0].is_ascii_digit()))
+                && alphanumeric(part)
+        })
+    {
+        valid = seen_variants.insert(subtags[index].to_ascii_lowercase());
+        index += 1;
+    }
+
+    // Extensions use a unique non-x singleton and one or more 2–8 character
+    // values. A terminal x introduces private-use subtags of length 1–8.
+    let mut seen_extensions = std::collections::HashSet::new();
+    while valid && index < subtags.len() {
+        let singleton = subtags[index];
+        if singleton.len() != 1 || !alphanumeric(singleton) {
+            break;
+        }
+        if singleton.eq_ignore_ascii_case("x") {
+            index += 1;
+            let private_start = index;
+            while index < subtags.len()
+                && (1..=8).contains(&subtags[index].len())
+                && alphanumeric(subtags[index])
+            {
+                index += 1;
+            }
+            valid = index > private_start && index == subtags.len();
+            break;
+        }
+        valid = seen_extensions.insert(singleton.to_ascii_lowercase());
+        index += 1;
+        let extension_start = index;
+        while index < subtags.len()
+            && (2..=8).contains(&subtags[index].len())
+            && alphanumeric(subtags[index])
+        {
+            index += 1;
+        }
+        valid = valid && index > extension_start;
+    }
+    valid = valid && index == subtags.len();
+    if !valid {
+        return Err(rpc_error(
+            "invalid_params",
+            "client_locale must be a BCP 47 language tag",
+            None,
+        ));
+    }
+    Ok(())
+}
 async fn file_handler(
     State(gw): State<Gateway>,
     headers: HeaderMap,
@@ -3597,6 +3702,45 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use tower::ServiceExt;
+
+    #[test]
+    fn client_locale_enforces_bcp47_subtag_order_and_lengths() {
+        for locale in [
+            "en",
+            "en-US",
+            "zh-Hans-CN",
+            "sr-Latn-RS",
+            "de-CH-1901",
+            "sl-rozaj-biske",
+            "en-a-foo",
+            "en-u-ca-gregory",
+            "en-x-a-private",
+        ] {
+            assert!(
+                validate_client_locale(&json!({"client_locale":locale})).is_ok(),
+                "{locale}"
+            );
+        }
+        for locale in [
+            "en-foo",
+            "en-USA",
+            "en-US-GB",
+            "en-US-Latn",
+            "en-a",
+            "en-a-b",
+            "en-x",
+            "en-a-foo-a-bar",
+            "en-rozaj-rozaj",
+        ] {
+            assert_eq!(
+                validate_client_locale(&json!({"client_locale":locale}))
+                    .unwrap_err()
+                    .code,
+                "invalid_params",
+                "{locale}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn unsubscribed_socket_receives_trace_cursor_in_live_and_replay() {

@@ -164,7 +164,7 @@ class MainConnectionHostIntegrationTest {
                             if (!firstConnection) socket.send(event("sync.done", buildJsonObject { put("seq", 0) }, 0))
                         }
                         "bootstrap" -> socket.send(response(frame.id(), buildJsonObject { put("seq", 0) }))
-                        "write.once" -> {
+                        "chat.send" -> {
                             if (firstConnection) {
                                 firstRequest.trySend(frame)
                                 socket.close(1001, "replay")
@@ -188,8 +188,12 @@ class MainConnectionHostIntegrationTest {
             withTimeout(5_000) { connection.status.first { it == ConnectionStatus.CONNECTED } }
             val result = withTimeout(8_000) {
                 connection.request(
-                    "write.once",
-                    buildJsonObject { put("payload", "once") },
+                    "chat.send",
+                    buildJsonObject {
+                        put("chat_id", "chat-1")
+                        put("text", "hello")
+                        put("client_locale", "zh-Hant-TW")
+                    },
                     write = true,
                 )
             }
@@ -199,6 +203,8 @@ class MainConnectionHostIntegrationTest {
             assertEquals(first.id(), second.id())
             assertEquals(first.params().string("client_request_id"), second.params().string("client_request_id"))
             assertNotNull(first.params().string("client_request_id"))
+            assertEquals("zh-Hant-TW", first.params().string("client_locale"))
+            assertEquals(first.params().string("client_locale"), second.params().string("client_locale"))
         } finally {
             connection.stop()
             scope.cancel()

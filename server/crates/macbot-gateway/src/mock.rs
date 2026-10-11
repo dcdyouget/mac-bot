@@ -2399,6 +2399,7 @@ fn chat_thread(state: &MockState, params: &Value) -> RpcResult {
 }
 
 fn send_chat(state: &mut MockState, params: &Value) -> RpcResult {
+    crate::validate_client_locale(params)?;
     let chat_id = params
         .get("chat_id")
         .and_then(Value::as_str)
@@ -2458,6 +2459,12 @@ fn send_chat(state: &mut MockState, params: &Value) -> RpcResult {
         Vec::new()
     };
     let message = json!({"id":id("msg"),"chat_id":chat_id,"seq":seq,"sender":{"kind":"user"},"created_at":created_at,"edited_at":null,"deleted":false,"reply_to":params.get("reply_to").cloned().unwrap_or(Value::Null),"thread_count":0,"mentions":mentions,"blocks":[{"type":"text","markdown":text}],"fallback_text":text,"intent":null,"assignment_id":null,"streaming":false,"delivery":delivery,"reactions":[]});
+    if let Some(locale) = params.get("client_locale").and_then(Value::as_str) {
+        state.client_locales.insert(
+            message["id"].as_str().unwrap().to_owned(),
+            locale.to_owned(),
+        );
+    }
     state
         .messages
         .entry(chat_id.clone())
@@ -4708,6 +4715,46 @@ mod contract_tests {
                 "memory.user.deleted"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn mock_chat_locale_is_scoped_to_each_message_and_not_inherited() {
+        let gateway_instance = gateway().await;
+        let first = call(
+            &gateway_instance,
+            "chat.send",
+            json!({"chat_id":"chat_main","text":"bonjour","client_locale":"fr-FR","client_request_id":"locale-fr"}),
+        )
+        .await;
+        let second = call(
+            &gateway_instance,
+            "chat.send",
+            json!({"chat_id":"chat_main","text":"hello","client_request_id":"locale-none"}),
+        )
+        .await;
+        let first_id = first["message"]["id"].as_str().unwrap();
+        let second_id = second["message"]["id"].as_str().unwrap();
+        let state = gateway_instance.state.inner.read().await;
+        assert_eq!(
+            state.client_locales.get(first_id).map(String::as_str),
+            Some("fr-FR")
+        );
+        assert!(!state.client_locales.contains_key(second_id));
+
+        let separate_gateway = gateway().await;
+        let separate = call(
+            &separate_gateway,
+            "chat.send",
+            json!({"chat_id":"chat_main","text":"hello"}),
+        )
+        .await;
+        assert!(!separate_gateway
+            .state
+            .inner
+            .read()
+            .await
+            .client_locales
+            .contains_key(separate["message"]["id"].as_str().unwrap()));
     }
 
     #[tokio::test]

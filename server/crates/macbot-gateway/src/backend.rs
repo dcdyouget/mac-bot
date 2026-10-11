@@ -67,6 +67,42 @@ fn feature_rpc_error(error: FeatureError) -> crate::RpcError {
     }
 }
 
+fn host_default_locale() -> String {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .find_map(|value| normalize_host_locale(&value))
+        .unwrap_or_else(|| "en".into())
+}
+
+fn normalize_host_locale(value: &str) -> Option<String> {
+    let base = value.split(['.', '@']).next()?.trim();
+    if base.is_empty() || matches!(base, "C" | "POSIX") {
+        return None;
+    }
+    let normalized = base.replace('_', "-");
+    crate::validate_client_locale(&json!({"client_locale":normalized}))
+        .ok()
+        .map(|_| normalized)
+}
+
+fn reply_language(
+    profile_language: Option<&str>,
+    client_locale: Option<&str>,
+    host: &str,
+) -> String {
+    profile_language
+        .map(str::trim)
+        .filter(|language| !language.is_empty())
+        .or_else(|| client_locale.filter(|locale| !locale.is_empty()))
+        .unwrap_or(host)
+        .to_owned()
+}
+
+fn reply_language_instruction(language: &str) -> String {
+    format!("本轮回复请使用 {language}。用户档案中明确设置的语言优先于客户端系统语言。")
+}
+
 #[cfg(test)]
 type StartupDispatchGate = Arc<Notify>;
 #[cfg(not(test))]
@@ -267,6 +303,25 @@ impl ComposedBackend {
         let Ok(snapshot) = self.inner.orchestrator.snapshot() else {
             return;
         };
+        let message_locales = self
+            .inner
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|operation| {
+                operation.get("method").and_then(Value::as_str) == Some("chat.send")
+            })
+            .filter_map(|operation| {
+                let message_id = operation
+                    .pointer("/result/message/id")
+                    .and_then(Value::as_str)?;
+                let locale = operation
+                    .pointer("/params/client_locale")
+                    .and_then(Value::as_str)?;
+                Some((message_id.to_owned(), locale.to_owned()))
+            })
+            .collect::<HashMap<_, _>>();
         let dm_chats = snapshot
             .get("bots")
             .and_then(Value::as_object)
@@ -403,6 +458,10 @@ impl ComposedBackend {
                     "mentions": message.get("mentions").cloned().unwrap_or_else(|| json!([])),
                     "reply_to": message.get("reply_to").cloned().unwrap_or(Value::Null)
                 });
+                let mut params = params;
+                if let Some(locale) = message_locales.get(message_id) {
+                    params["client_locale"] = json!(locale);
+                }
                 let result = json!({"message": message});
                 let Some(request) = self.request_for_chat(&params, &result).await else {
                     tracing::warn!(%chat_id, %message_id, "orphan private message has no configured model");
@@ -1203,6 +1262,7 @@ impl ComposedBackend {
                 subagent_task: None,
                 save_full_requests: false,
                 resume_message: None,
+                client_locale: None,
             };
             self.spawn_request(request);
         }
@@ -1499,22 +1559,36 @@ impl ComposedBackend {
         };
         let private = chat_kind != "project";
         let mut tools = bot_tool_allowlist(bot, bot_is_main, private, self.web_search_configured());
+        let host_timezone = self
+            .inner
+            .orchestrator
+            .rpc("settings.get", json!({}))
+            .await
+            .ok()
+            .and_then(|result| result.get("settings").cloned())
+            .and_then(|settings| {
+                settings
+                    .get("timezone")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| "UTC".to_owned());
+        let profile_language = self
+            .feature_service
+            .user_profile_language(&host_timezone)
+            .ok()
+            .flatten();
+        let client_locale = params
+            .get("client_locale")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let response_language = reply_language(
+            profile_language.as_deref(),
+            client_locale.as_deref(),
+            &host_default_locale(),
+        );
         let onboarding =
             if bot_is_main && private && assignment_id.is_none() && project_id.is_none() {
-                let host_timezone = self
-                    .inner
-                    .orchestrator
-                    .rpc("settings.get", json!({}))
-                    .await
-                    .ok()
-                    .and_then(|result| result.get("settings").cloned())
-                    .and_then(|settings| {
-                        settings
-                            .get("timezone")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                    })
-                    .unwrap_or_else(|| "UTC".to_owned());
                 self.feature_service
                     .profile_onboarding_status(&host_timezone)
                     .ok()
@@ -1554,6 +1628,10 @@ impl ComposedBackend {
             .ok();
         let mut messages =
             self.chat_model_messages(&snapshot, &chat_id, &bot_id, message_id, history.as_ref());
+        messages.insert(
+            0,
+            json!({"role":"system","content":reply_language_instruction(&response_language)}),
+        );
         if let Some(prompt) = onboarding.and_then(|status| status.prompt) {
             let content = match prompt {
                 ProfileOnboardingPrompt::Initialize => {
@@ -1592,6 +1670,7 @@ impl ComposedBackend {
             subagent_task: None,
             save_full_requests: false,
             resume_message: None,
+            client_locale,
         })
     }
 
@@ -1831,6 +1910,7 @@ impl ComposedBackend {
             subagent_task: None,
             save_full_requests: false,
             resume_message: None,
+            client_locale: None,
         })
     }
 
@@ -6316,6 +6396,7 @@ impl SubagentDispatchBridge for RuntimeSubagentDispatch {
             subagent_task: Some(request.task.clone()),
             save_full_requests: false,
             resume_message: None,
+            client_locale: None,
         };
         let outcome = self
             .runtime
@@ -7972,7 +8053,9 @@ mod model_resolution_tests {
 
 #[cfg(test)]
 mod persistence_tests {
-    use super::{ComposedBackend, ExecutionRequest, ProductionBackend, RuntimeExecution};
+    use super::{
+        host_default_locale, ComposedBackend, ExecutionRequest, ProductionBackend, RuntimeExecution,
+    };
     use crate::features::FeatureService;
     use crate::{Gateway, GatewayConfig, RpcBackend};
     use async_trait::async_trait;
@@ -8349,6 +8432,127 @@ mod persistence_tests {
                 &json!({"models":{"bot_default":model_ref,"main":null}}),
             )
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn chat_locale_is_per_message_profile_preferred_and_retry_stable() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let inner = Arc::new(ProductionBackend::open(&path).unwrap());
+        configure_recovery_model(&inner, &gateway.state, "locale").await;
+        let mut settings = inner
+            .store
+            .read_snapshot::<Value>("data/settings.json")
+            .unwrap()
+            .unwrap();
+        settings["models"]["main"] = settings["models"]["bot_default"].clone();
+        inner
+            .store
+            .write_snapshot("data/settings.json", &settings)
+            .unwrap();
+        let composed = ComposedBackend::open(inner.clone(), gateway.state.clone(), path).unwrap();
+        let host_locale = host_default_locale();
+
+        async fn send_request(
+            composed: &ComposedBackend,
+            inner: &ProductionBackend,
+            state: &crate::GatewayState,
+            locale: Option<&str>,
+            request_id: &str,
+        ) -> (Value, ExecutionRequest) {
+            let mut params = json!({
+                "chat_id":"chat_main",
+                "text":format!("locale test {request_id}"),
+                "client_request_id":request_id,
+            });
+            if let Some(locale) = locale {
+                params["client_locale"] = json!(locale);
+            }
+            let result = inner
+                .call("chat.send", params.clone(), state)
+                .await
+                .unwrap();
+            let request = composed.request_for_chat(&params, &result).await.unwrap();
+            (result, request)
+        }
+        fn system_prompt(request: &ExecutionRequest) -> String {
+            request
+                .messages
+                .iter()
+                .filter(|message| message["role"] == "system")
+                .filter_map(|message| message["content"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+
+        let (_, french) = send_request(
+            &composed,
+            &inner,
+            &gateway.state,
+            Some("fr-FR"),
+            "locale-fr",
+        )
+        .await;
+        assert_eq!(french.client_locale.as_deref(), Some("fr-FR"));
+        assert!(system_prompt(&french).contains("fr-FR"));
+
+        let (_, japanese) = send_request(
+            &composed,
+            &inner,
+            &gateway.state,
+            Some("ja-JP"),
+            "locale-ja",
+        )
+        .await;
+        assert_eq!(japanese.client_locale.as_deref(), Some("ja-JP"));
+        assert!(system_prompt(&japanese).contains("ja-JP"));
+
+        let (_, fallback) =
+            send_request(&composed, &inner, &gateway.state, None, "locale-host").await;
+        assert!(system_prompt(&fallback).contains(&host_locale));
+
+        composed.feature_service.user_memory_rpc(
+            "memory.profile.update",
+            json!({"language":"de-DE","expected_version":1,"client_request_id":"locale-profile"}),
+            "Asia/Shanghai",
+        ).unwrap();
+        let (_, profile_preferred) = send_request(
+            &composed,
+            &inner,
+            &gateway.state,
+            Some("fr-FR"),
+            "locale-profile-preferred",
+        )
+        .await;
+        assert!(system_prompt(&profile_preferred).contains("de-DE"));
+        assert!(!system_prompt(&profile_preferred).contains("fr-FR"));
+
+        let params = json!({"chat_id":"chat_main","text":"retry locale","client_locale":"es-MX","client_request_id":"locale-retry"});
+        let first = inner
+            .call("chat.send", params.clone(), &gateway.state)
+            .await
+            .unwrap();
+        let retried = inner
+            .call("chat.send", params.clone(), &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(first, retried);
+        let retry_request = composed.request_for_chat(&params, &retried).await.unwrap();
+        assert_eq!(retry_request.client_locale.as_deref(), Some("es-MX"));
+        assert!(system_prompt(&retry_request).contains("de-DE"));
+        let operations = inner
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+            .unwrap();
+        assert!(operations.iter().any(|operation| {
+            operation["method"] == "chat.send"
+                && operation["params"]["client_request_id"] == "locale-retry"
+                && operation["params"]["client_locale"] == "es-MX"
+        }));
     }
 
     fn private_run_id(message_id: &str) -> String {

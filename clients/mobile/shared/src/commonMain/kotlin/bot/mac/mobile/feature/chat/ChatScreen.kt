@@ -55,6 +55,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
+import bot.mac.mobile.core.protocol.withClientLocale
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
@@ -63,6 +64,7 @@ import bot.mac.mobile.core.protocol.generated.Approval as ApprovalWireModel
 import bot.mac.mobile.core.platform.PickedFile
 import bot.mac.mobile.core.platform.exportFile
 import bot.mac.mobile.core.platform.platformFilePicker
+import bot.mac.mobile.core.platform.platformLocaleTag
 import bot.mac.mobile.core.platform.platformScreenImageDecoder
 import bot.mac.mobile.core.platform.platformPersistentStore
 import bot.mac.mobile.core.platform.openExternalUrl
@@ -619,7 +621,7 @@ fun ChatScreen(
                                 })
                                 put("attachments", buildJsonArray { attachments.forEach { add(JsonPrimitive(it)) } })
                                 replyTo?.let { put("quote", it); put("quote_mode", quoteMode) }
-                            })
+                            }.withClientLocale(platformLocaleTag()))
                         }.onSuccess {
                             draft = ""
                             replyTo = null

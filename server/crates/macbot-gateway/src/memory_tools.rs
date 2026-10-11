@@ -1382,6 +1382,7 @@ mod tests {
             subagent_task: None,
             save_full_requests: false,
             resume_message: None,
+            client_locale: None,
         };
         let runtime = FeatureToolRuntime::for_execution(
             Arc::clone(&service),

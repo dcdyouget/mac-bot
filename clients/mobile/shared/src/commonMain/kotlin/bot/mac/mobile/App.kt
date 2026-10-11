@@ -31,6 +31,7 @@ import bot.mac.mobile.core.network.MainEvent
 import bot.mac.mobile.core.protocol.*
 import bot.mac.mobile.core.state.*
 import bot.mac.mobile.core.platform.PlatformBackHandler
+import bot.mac.mobile.core.platform.platformLocaleTag
 import bot.mac.mobile.feature.connect.ConnectScreen
 import bot.mac.mobile.feature.mainbot.MainBotScreen
 import bot.mac.mobile.feature.mainbot.FollowupScreen
@@ -216,7 +217,7 @@ import org.jetbrains.compose.resources.stringResource
                         page == "trace" -> TraceScreen(repository, target.ifBlank { null }, secondTarget.ifBlank { null }, { bot, tabId -> open("computer", bot, tabId.orEmpty()) }, onBack=back, onOpenAssignmentTrace = { open("trace", it, secondTarget) }, onSteer={assignmentId,text ->
                             val assignment=repository.state.value.assignments.firstOrNull{it.str("id")==assignmentId}
                             val hostId=repository.activeHost.value?.id
-                            if(assignment!=null && hostId!=null) scope.launch { runCatching { repository.callOnHost(hostId,"chat.send",buildSteerChatParams(assignment, text)) }.onFailure{actionError=it.message} }
+                            if(assignment!=null && hostId!=null) scope.launch { runCatching { repository.callOnHost(hostId,"chat.send",buildSteerChatParams(assignment, text, platformLocaleTag())) }.onFailure{actionError=it.message} }
                         })
                         page == "bots" -> BotsScreen(repository, { open("bot_editor", it) }, { open("bot_editor") }, back, onOpenDetail = { open("bot_detail", it) })
                         page == "bot_detail" -> BotDetailScreen(

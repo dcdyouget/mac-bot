@@ -816,6 +816,12 @@
         "chat_id": {
           "type": "string"
         },
+        "client_locale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "client_request_id": {
           "type": [
             "string",

@@ -16,10 +16,11 @@ class SteerParamsTest {
             put("origin_chat_id", "chat_origin")
         }
 
-        val params = buildSteerChatParams(assignment, "先只做邮箱登录")
+        val params = buildSteerChatParams(assignment, "先只做邮箱登录", "zh-Hans-CN")
 
         assertEquals("chat_origin", params["chat_id"]?.toString()?.trim('"'))
         assertEquals("先只做邮箱登录", params["text"]?.toString()?.trim('"'))
+        assertEquals("zh-Hans-CN", params["client_locale"]?.toString()?.trim('"'))
         assertEquals("bot_1", params.arr("mentions").first().jsonObject["bot_id"]?.toString()?.trim('"'))
     }
 }

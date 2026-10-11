@@ -8,7 +8,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Builds the protocol payload for a user steer sent to an assignment's origin chat. */
-internal fun buildSteerChatParams(assignment: JsonObject, text: String): JsonObject = buildJsonObject {
+internal fun buildSteerChatParams(assignment: JsonObject, text: String, clientLocale: String): JsonObject = buildJsonObject {
     put("chat_id", assignment.str("origin_chat_id"))
     put("text", text)
     put("mentions", buildJsonArray {
@@ -18,4 +18,5 @@ internal fun buildSteerChatParams(assignment: JsonObject, text: String): JsonObj
             put("instruction", JsonNull)
         })
     })
+    put("client_locale", clientLocale)
 }

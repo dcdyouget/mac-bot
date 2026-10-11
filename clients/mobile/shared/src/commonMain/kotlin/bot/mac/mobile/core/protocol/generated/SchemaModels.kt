@@ -930,6 +930,7 @@ object ChatReactParamsSerializer : RawModelSerializer<ChatReactParams>(::ChatRea
 data class ChatSendParams(override val raw: JsonObject) : RawProtocolModel {
     val attachments: List<String>? get() = if (raw["attachments"] == null) null else raw.arr("attachments").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val chatId: String get() = raw.str("chat_id")
+    val clientLocale: String? get() = raw.stringOrNull("client_locale")
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
     val mentions: List<Mention> get() = raw.arr("mentions").mapNotNull { (it as? JsonObject)?.let(::Mention) }
     val quote: String? get() = raw.stringOrNull("quote")

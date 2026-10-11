@@ -98,6 +98,11 @@ pub struct ExecutionRequest {
     /// User/group response that resumes a send_msg decision/blocked wait.
     #[serde(default)]
     pub resume_message: Option<String>,
+    /// Locale captured from the client request which triggered this run.
+    /// This remains internal and is retained in durable run requests for
+    /// retries and recovery.
+    #[serde(default)]
+    pub client_locale: Option<String>,
 }
 
 fn default_max_turns() -> usize {
@@ -4655,6 +4660,7 @@ mod tests {
             subagent_task: None,
             save_full_requests: false,
             resume_message: None,
+            client_locale: None,
         }
     }
 

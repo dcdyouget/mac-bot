@@ -527,6 +527,133 @@ fn pending_message(params: &Value) -> Value {
     })
 }
 
+fn normalize_bcp47_locale(locale: &str) -> Option<String> {
+    let base = locale.split(['.', '@']).next()?.trim().replace('_', "-");
+    let mut subtags = base.split('-');
+    let language = subtags.next()?;
+    if language.eq_ignore_ascii_case("c") || language.eq_ignore_ascii_case("posix") {
+        return None;
+    }
+    if !(2..=8).contains(&language.len())
+        || !language.bytes().all(|byte| byte.is_ascii_alphabetic())
+    {
+        return None;
+    }
+    let mut normalized = vec![language.to_ascii_lowercase()];
+    let mut in_extension = false;
+    let mut script_seen = false;
+    let mut region_seen = false;
+    for subtag in subtags {
+        if subtag.is_empty()
+            || subtag.len() > 8
+            || !subtag.bytes().all(|byte| byte.is_ascii_alphanumeric())
+        {
+            return None;
+        }
+        let canonical = if subtag.len() == 1 {
+            in_extension = true;
+            subtag.to_ascii_lowercase()
+        } else if in_extension {
+            subtag.to_ascii_lowercase()
+        } else if !script_seen
+            && subtag.len() == 4
+            && subtag.bytes().all(|byte| byte.is_ascii_alphabetic())
+        {
+            script_seen = true;
+            let mut chars = subtag.chars();
+            let first = chars.next()?.to_ascii_uppercase();
+            format!("{first}{}", chars.as_str().to_ascii_lowercase())
+        } else if !region_seen
+            && ((subtag.len() == 2 && subtag.bytes().all(|byte| byte.is_ascii_alphabetic()))
+                || (subtag.len() == 3 && subtag.bytes().all(|byte| byte.is_ascii_digit())))
+        {
+            region_seen = true;
+            subtag.to_ascii_uppercase()
+        } else {
+            subtag.to_ascii_lowercase()
+        };
+        normalized.push(canonical);
+    }
+    let normalized = normalized.join("-");
+    valid_bcp47_locale(&normalized).then_some(normalized)
+}
+
+fn valid_bcp47_locale(locale: &str) -> bool {
+    let subtags: Vec<_> = locale.split('-').collect();
+    let language = subtags.first().copied().unwrap_or_default();
+    let is_alpha = |part: &str| part.bytes().all(|byte| byte.is_ascii_alphabetic());
+    let is_alphanumeric = |part: &str| part.bytes().all(|byte| byte.is_ascii_alphanumeric());
+    let is_region = |part: &str| {
+        (part.len() == 2 && is_alpha(part))
+            || (part.len() == 3 && part.bytes().all(|byte| byte.is_ascii_digit()))
+    };
+    let is_variant = |part: &str| {
+        (5..=8).contains(&part.len()) && is_alphanumeric(part)
+            || part.len() == 4 && part.as_bytes()[0].is_ascii_digit() && is_alphanumeric(part)
+    };
+    let mut valid = locale.len() <= 63 && (2..=8).contains(&language.len()) && is_alpha(language);
+    let mut index = 1;
+    if valid
+        && subtags
+            .get(index)
+            .is_some_and(|part| part.len() == 4 && is_alpha(part))
+    {
+        index += 1;
+    }
+    if valid && subtags.get(index).is_some_and(|part| is_region(part)) {
+        index += 1;
+    }
+    let mut seen_variants = std::collections::HashSet::new();
+    while valid && index < subtags.len() && subtags[index].len() != 1 {
+        valid =
+            is_variant(subtags[index]) && seen_variants.insert(subtags[index].to_ascii_lowercase());
+        index += 1;
+    }
+    let mut seen_extensions = std::collections::HashSet::new();
+    while valid && index < subtags.len() {
+        let subtag = subtags[index];
+        if subtag.len() == 1 {
+            if !is_alphanumeric(subtag) {
+                valid = false;
+                break;
+            }
+            if subtag.eq_ignore_ascii_case("x") {
+                valid = index + 1 < subtags.len()
+                    && subtags[index + 1..]
+                        .iter()
+                        .all(|part| (1..=8).contains(&part.len()) && is_alphanumeric(part));
+                break;
+            }
+            valid = seen_extensions.insert(subtag.to_ascii_lowercase());
+            index += 1;
+            let values_start = index;
+            while index < subtags.len() && subtags[index].len() != 1 {
+                valid = valid
+                    && (2..=8).contains(&subtags[index].len())
+                    && is_alphanumeric(subtags[index]);
+                index += 1;
+            }
+            valid = valid && index > values_start;
+        } else {
+            valid = false;
+        }
+    }
+    valid
+}
+
+fn system_client_locale() -> Option<String> {
+    sys_locale::get_locale()
+        .as_deref()
+        .and_then(normalize_bcp47_locale)
+}
+
+fn inject_client_locale(mut params: Value, locale: Option<&str>) -> Value {
+    if let (Some(object), Some(locale)) = (params.as_object_mut(), locale) {
+        object.insert("client_locale".into(), Value::String(locale.to_owned()));
+    }
+    params
+}
+
 fn persist_local_preferences(preferences: &Value) -> Result<Value, String> {
     let mut current = local_settings::load().unwrap_or_default();
     let original_launch_at_login = current.launch_at_login;
@@ -1611,12 +1738,16 @@ async fn send_message(
             .clone()
             .ok_or_else(|| "尚未连接 Bot 主机".to_string())?;
         let request_id = Uuid::new_v4().to_string();
-        let params = json!({
-            "chat_id": chat_id,
-            "text": text,
-            "mentions": [],
-            "client_request_id": request_id,
-        });
+        let locale = system_client_locale();
+        let params = inject_client_locale(
+            json!({
+                "chat_id": chat_id,
+                "text": text,
+                "mentions": [],
+                "client_request_id": request_id,
+            }),
+            locale.as_deref(),
+        );
         data.pending_messages
             .insert(request_id.clone(), pending_message(&params));
         persist_outbox(&data);
@@ -1794,6 +1925,12 @@ async fn protocol_request(
     method: String,
     params: Value,
 ) -> Result<Value, String> {
+    let params = if method == "chat.send" {
+        let locale = system_client_locale();
+        inject_client_locale(params, locale.as_deref())
+    } else {
+        params
+    };
     let client = bridge
         .0
         .lock()
@@ -1952,7 +2089,8 @@ pub fn run() {
 mod tests {
     use super::{
         activate_trace_subscription, apply_retry_result, connection_is_current,
-        encode_screen_frame, finish_trace_unsubscribe, retain_trace_cleanup, route_trace_event,
+        encode_screen_frame, finish_trace_unsubscribe, inject_client_locale,
+        normalize_bcp47_locale, pending_message, retain_trace_cleanup, route_trace_event,
         screen_connection_payload, screen_generation_matches, skill_upload_payload,
         trace_subscription_state, trace_tauri_event, uploaded_skill_id, validate_screen_input,
         BridgeData, InvokeBody, PendingTraceCleanup, ScreenFrame, ScreenPoint, TraceScope,
@@ -1988,6 +2126,77 @@ mod tests {
         );
         assert!(uploaded_skill_id(&json!({"upload_id":"  "})).is_err());
         assert!(uploaded_skill_id(&json!({})).is_err());
+    }
+
+    #[test]
+    fn system_locale_is_normalized_to_bcp47() {
+        assert_eq!(normalize_bcp47_locale("zh_CN.UTF-8"), Some("zh-CN".into()));
+        assert_eq!(
+            normalize_bcp47_locale("zh_hans_cn"),
+            Some("zh-Hans-CN".into())
+        );
+        assert_eq!(normalize_bcp47_locale("en-US"), Some("en-US".into()));
+        assert_eq!(normalize_bcp47_locale("C.UTF-8"), None);
+        assert_eq!(normalize_bcp47_locale("en--US"), None);
+        assert_eq!(normalize_bcp47_locale("en-a"), None);
+        assert_eq!(normalize_bcp47_locale("en-a-b"), None);
+        assert_eq!(normalize_bcp47_locale("en-x"), None);
+        assert_eq!(normalize_bcp47_locale("en-a-foo-a-bar"), None);
+        assert_eq!(normalize_bcp47_locale("en-foo"), None);
+        assert_eq!(normalize_bcp47_locale("en-USA"), None);
+        assert_eq!(normalize_bcp47_locale("en-US-GB"), None);
+        assert_eq!(normalize_bcp47_locale("en-1901-1901"), None);
+        assert_eq!(normalize_bcp47_locale("en-abcde-ABCDE"), None);
+        assert_eq!(
+            normalize_bcp47_locale("en-US-1901"),
+            Some("en-US-1901".into())
+        );
+        assert_eq!(
+            normalize_bcp47_locale("de-CH-1901"),
+            Some("de-CH-1901".into())
+        );
+        assert_eq!(
+            normalize_bcp47_locale("sr-Latn-RS"),
+            Some("sr-Latn-RS".into())
+        );
+        assert_eq!(
+            normalize_bcp47_locale("en-u-ca-gregory"),
+            Some("en-u-ca-gregory".into())
+        );
+        assert_eq!(
+            normalize_bcp47_locale("en-x-private"),
+            Some("en-x-private".into())
+        );
+        assert_eq!(normalize_bcp47_locale("en-a-foo"), Some("en-a-foo".into()));
+        assert_eq!(normalize_bcp47_locale("en-u-ca"), Some("en-u-ca".into()));
+        assert_eq!(
+            normalize_bcp47_locale("en-x-a-private"),
+            Some("en-x-a-private".into())
+        );
+    }
+
+    #[test]
+    fn chat_locale_is_injected_and_persisted_with_retry_params() {
+        let params = inject_client_locale(
+            json!({"chat_id":"chat-1", "text":"hello", "client_request_id":"req-1"}),
+            Some("zh-CN"),
+        );
+        assert_eq!(params["client_locale"], "zh-CN");
+
+        let persisted = pending_message(&params);
+        let encoded = serde_json::to_vec(&persisted).unwrap();
+        let decoded: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded["retry_params"], params);
+        assert_eq!(decoded["retry_params"]["client_locale"], "zh-CN");
+    }
+
+    #[test]
+    fn injected_system_locale_replaces_stale_call_site_locale() {
+        let params = inject_client_locale(
+            json!({"client_locale":"en-US", "text":"hello"}),
+            Some("fr-CA"),
+        );
+        assert_eq!(params["client_locale"], "fr-CA");
     }
 
     #[test]

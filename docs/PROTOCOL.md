@@ -570,7 +570,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `chat.get` | `{ chat_id }` | `{ chat: Chat }` |
 | `chat.history` | `{ chat_id, before_seq?: number, after_seq?: number, limit?: number /* 默认 50，最大 100 */ }` | `{ messages: Message[], has_more: boolean }`（按 seq 升序） |
 | `chat.thread` | — | 不再使用（不做线程） |
-| `chat.send` | `{ chat_id, text: string, mentions: Mention[], quote?: Id /* 引用的消息 id */, quote_mode?: "reply"|"reference" /* 默认 reply */, attachments?: Id[] /* upload_id */ }`（`reply_to` 不再使用） | `{ message: Message }` |
+| `chat.send` | `{ chat_id, text: string, mentions: Mention[], quote?: Id /* 引用的消息 id */, quote_mode?: "reply"|"reference" /* 默认 reply */, attachments?: Id[] /* upload_id */, client_locale?: string /* BCP 47，例如 zh-CN */ }`（`reply_to` 不再使用） | `{ message: Message }` |
 | `message.delete` | `{ message_id }` | `{}`（仅允许删除 `sender.kind = "user"` 的消息；重复删除已删除消息成功且不重复发出删除事件） |
 | `message.edit` | `{ message_id, text: string }` | `{ message: Message }`（仅允许修改用户发送、`mentions = []` 且仅含一个 `text` block 的消息；`text` 不能为空） |
 | `message.steer` | `{ message_id, bot_id, assignment_id }` | `{ message: Message, assignment: Assignment }`（仅将该消息已有的未读 queued delivery 提升为插话；重复调用幂等） |
@@ -580,6 +580,8 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `chat.set_muted` | `{ chat_id, muted: boolean }` | `{ chat: Chat }` |
 | `artifact.versions.list` | `{ artifact_id, limit?: number /* 默认 20，最大 100 */, before_version?: number /* 仅返回更早版本 */ }` | `{ versions: ArtifactVersion[], has_more: boolean }`（版本号降序） |
 | `artifact.version.get` | `{ artifact_id, version }` | `{ version: ArtifactVersion, content: string, content_encoding: "utf8"|"base64" }` |
+
+`client_locale` 是该条用户消息发出时客户端的系统语言，和请求一起保存、补发；只用于 `UserProfile.language = null` 时选择由这条消息触发的 Bot 回复语言，不写入共享用户档案。旧客户端省略时使用 Host 默认语言。档案显式设置的语言始终优先。
 
 - `chat.send` 里用户可以用的 mention 只有 `bot`、`main`、`everyone`（`instruction` 必须为 null）。服务端按 PLAN 5.4 的规则路由。
 - 群聊中未 @ 任何人的用户消息会为当前 working 的 Bot 任务记录 `delivery.state = "queued"`，并计入该任务的 `pending_messages`。Bot 调用 `send_msg(done)` 前，服务端先把仍为 queued 的消息一次性交给它（轨迹记录 `queue.review`，delivery 变为 `read`，`pending_messages` 归零），Bot 据此调整后再交付；任务详情的「改为插话」调用 `message.steer`，服务端再次校验消息、Bot、任务和待看状态后，才把原消息排入该任务。

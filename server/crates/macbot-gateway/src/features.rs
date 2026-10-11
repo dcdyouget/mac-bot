@@ -348,6 +348,13 @@ impl FeatureService {
             && profile.identity.is_none())
     }
 
+    pub fn user_profile_language(&self, host_timezone: &str) -> FeatureResult<Option<String>> {
+        let profile = self
+            .shared_memory
+            .user_profile_get_or_init(&self.memory_path, host_timezone)?;
+        Ok(profile.language)
+    }
+
     /// Apply the model's completion or explicit skip from an eligible
     /// onboarding run. Ownership and actor are fixed by the gateway runtime.
     pub fn set_user_profile_onboarding(

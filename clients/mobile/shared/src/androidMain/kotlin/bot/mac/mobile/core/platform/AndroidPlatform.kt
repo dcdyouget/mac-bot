@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import java.util.Base64
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -71,6 +72,7 @@ actual fun platformCredentialStore(): CredentialStore = AndroidCredentialStore(r
 actual fun platformPersistentStore(): PersistentStore = AndroidPersistentStore(requireContext())
 actual fun platformFilePicker(): FilePicker = AndroidFilePicker()
 actual fun platformScreenImageDecoder(): ScreenImageDecoder = AndroidScreenImageDecoder()
+actual fun platformLocaleTag(): String = Locale.getDefault().toLanguageTag()
 
 // Android blur-behind APIs only blur other windows; they cannot blur surfaces
 // within this single Activity, so design tokens require the opaque fallback.

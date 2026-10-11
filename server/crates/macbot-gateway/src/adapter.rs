@@ -3099,6 +3099,9 @@ impl RpcBackend for ProductionBackend {
         if method == "ping" {
             return Ok(json!({"server_time": now()}));
         }
+        if method == "chat.send" {
+            crate::validate_client_locale(&params)?;
+        }
         // Duplicate uses a shared FeatureService and must own the writer lock
         // across Bot creation and persistence. Route it before the generic
         // lock so the state-aware helper cannot deadlock on a second lock.

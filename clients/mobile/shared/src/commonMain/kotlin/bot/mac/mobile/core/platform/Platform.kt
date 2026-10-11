@@ -48,6 +48,8 @@ expect fun platformCredentialStore(): CredentialStore
 expect fun platformPersistentStore(): PersistentStore
 expect fun platformFilePicker(): FilePicker
 expect fun platformScreenImageDecoder(): ScreenImageDecoder
+/** Returns the current system locale as a BCP 47 language tag. */
+expect fun platformLocaleTag(): String
 
 /** False when the platform cannot blur content behind surfaces in this app window. */
 expect fun platformBackdropBlurSupported(): Boolean

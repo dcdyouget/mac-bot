@@ -1524,6 +1524,8 @@ pub struct ChatSendParams {
     #[serde(default)]
     pub quote_mode: Option<QuoteMode>,
     pub attachments: Option<Vec<Id>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_locale: Option<String>,
     #[serde(flatten)]
     pub meta: WriteMeta,
 }

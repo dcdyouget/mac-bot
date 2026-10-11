@@ -8,6 +8,7 @@ import kotlin.test.assertTrue
 import io.ktor.http.URLBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import bot.mac.mobile.core.protocol.withClientLocale
 
 class NetworkPrimitivesTest {
     @Test
@@ -82,6 +83,18 @@ class NetworkPrimitivesTest {
         assertTrue(first.clientRequestId!!.matches(Regex("[0-9a-f-]{36}")))
         tracker.remove(first.id)
         assertEquals(0, tracker.size())
+    }
+
+    @Test
+    fun clientLocaleIsAttachedWithoutChangingExistingChatPayload() {
+        val params = buildJsonObject {
+            put("chat_id", "chat-1")
+            put("text", "hello")
+        }.withClientLocale("zh-Hant-TW")
+
+        assertEquals("chat-1", params.string("chat_id"))
+        assertEquals("hello", params.string("text"))
+        assertEquals("zh-Hant-TW", params.string("client_locale"))
     }
 
     @Test
