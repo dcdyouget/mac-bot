@@ -66,10 +66,10 @@ import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
-import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
+import kotlin.time.Instant
 import kotlin.math.abs
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -130,6 +130,9 @@ fun ChatScreen(
     val memberIds = chat?.arr("member_bot_ids").orEmpty().map { it.toString().trim('"') }
     val mentionCandidates = state.bots.filter { it.str("id") in memberIds || memberIds.isEmpty() }
     val groupChat = chat?.str("kind") == "project"
+    val hasWorkingProjectBots = groupChat && state.assignments.any {
+        it.str("project_id") == chat?.str("project_id") && it.str("status") == "working"
+    }
     val loadingError = stringResource(Res.string.feature_loading_error)
     val sendError = stringResource(Res.string.feature_send_error)
     val quoteOriginalUnloaded = stringResource(Res.string.feature_quote_original_unloaded)
@@ -386,6 +389,14 @@ fun ChatScreen(
                 }
             }
         }
+        if (hasWorkingProjectBots && mentionBots.isEmpty()) {
+            Text(
+                stringResource(Res.string.feature_group_message_queued_hint),
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
             IconButton(enabled = !readOnly, onClick = {
                 scope.launch {
@@ -472,9 +483,11 @@ private fun sameMessageGroup(first: JsonObject, second: JsonObject): Boolean {
     val firstSender = first.obj("sender")
     val secondSender = second.obj("sender")
     if (firstSender.str("kind") != secondSender.str("kind") || firstSender.str("bot_id") != secondSender.str("bot_id")) return false
-    val firstAt = runCatching { Instant.parse(first.str("created_at")).toEpochMilliseconds() }.getOrNull() ?: return false
-    val secondAt = runCatching { Instant.parse(second.str("created_at")).toEpochMilliseconds() }.getOrNull() ?: return false
-    return abs(firstAt - secondAt) <= 5 * 60 * 1000L
+    val zone = TimeZone.currentSystemDefault()
+    val firstInstant = runCatching { Instant.parse(first.str("created_at")) }.getOrNull() ?: return false
+    val secondInstant = runCatching { Instant.parse(second.str("created_at")) }.getOrNull() ?: return false
+    if (firstInstant.toLocalDateTime(zone).date != secondInstant.toLocalDateTime(zone).date) return false
+    return abs(firstInstant.toEpochMilliseconds() - secondInstant.toEpochMilliseconds()) <= 5 * 60 * 1000L
 }
 
 @Composable
@@ -503,8 +516,8 @@ private fun MessageTimeLabel(timestamp: String, modifier: Modifier, color: andro
             }
             stringResource(Res.string.chat_time_weekday, weekday, local.hour, local.minute)
         }
-        local.year == today.year -> stringResource(Res.string.chat_time_date, local.monthNumber, local.dayOfMonth)
-        else -> stringResource(Res.string.chat_time_date_year, local.year, local.monthNumber, local.dayOfMonth)
+        local.year == today.year -> stringResource(Res.string.chat_time_date, local.month.ordinal + 1, local.day)
+        else -> stringResource(Res.string.chat_time_date_year, local.year, local.month.ordinal + 1, local.day)
     }
     Text(label, modifier, style = MaterialTheme.typography.labelSmall, color = color)
 }

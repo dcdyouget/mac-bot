@@ -61,6 +61,7 @@
     <string name="chat_weekday_sun">周日</string>
     <string name="feature_message_view_work">查看工作详情</string>
     <string name="feature_message_quote_announcement">引用到公告</string>
+    <string name="feature_group_message_queued_hint">Bot 正在工作。未 @ 的消息会进入待看队列，不会打断当前任务。</string>
     <string name="feature_notify_needs_you">需要你处理（审批、提问、接管）</string>
     <string name="feature_notify_review">待验收</string>
     <string name="feature_notify_completion">任务完成</string>
