@@ -2,25 +2,28 @@
 
 ## Tauri + React 迁移批次 1
 
-新界面工程位于 `app/`：Tauri 2 负责窗口与 Rust bridge，React/TypeScript/Vite 负责连接页和三栏聊天界面。bridge 直接复用 `crates/macbot-client-core`，连接状态与协议事件留在 Rust；选中会话后由 `chat.history` 加载历史消息。首次连接使用地址 `127.0.0.1:7789`、密码 `dev`。客户端不启动 mock，需要先运行 `macbotd --mock --port 7789 --password dev`。连接页和聊天界面直接引用 `design/prototype/tokens.css`、`base.css`，文案通过 `app/src/i18n.ts` 的设计 key 映射。
+新界面工程位于 `app/`：Tauri 2 负责窗口与 Rust bridge，React/TypeScript/Vite 负责界面。bridge 直接复用 `crates/macbot-client-core`，连接状态和协议事件保留在 Rust。首次连接可使用 `127.0.0.1:7789`、密码 `dev`；客户端不启动 mock，需先运行 `macbotd --mock --port 7789 --password dev`。
 
 ```sh
 cd clients/mac/app
-npm install
+npm ci
 npm run dev                 # 仅启动 Vite 前端
-npm run tauri dev           # 编译 Rust bridge 并打开桌面窗口
-npm run lint
-npm run build
-npm run tauri build         # 生成 Tauri .app / .dmg 到 app/src-tauri/target/release/bundle/
+npm run tauri -- dev        # 编译 Rust bridge 并打开桌面窗口
+npm run lint                # ESLint
+npm run build               # TypeScript 检查和 Vite 前端构建
+npm run tauri -- build      # 原始 Tauri release bundle，产物位于 app/src-tauri/target/release/bundle/
+cd .. && packaging/package-tauri.sh  # 可复现打包到 dist/MacBot.app 与 dist/MacBot.dmg
 ```
 
-Tauri bundle id 仍为 `bot.mac.desktop`，并注册 `macbot://` URL scheme。此批保留原 GPUI crate、旧 `packaging/` 产线与 `macbot-client-core`；生产打包切换和旧界面删除留待后续迁移批次。
+Tauri bundle id 为 `bot.mac.desktop`，并引用 `packaging/Info.plist` 注册 `macbot://`。原始 Tauri bundle 位于 `app/src-tauri/target/release/bundle/`；`packaging/package-tauri.sh` 会将 `.app`、带 Applications 拖拽链接的压缩 `.dmg` 输出到 `clients/mac/dist/MacBot.app` 和 `clients/mac/dist/MacBot.dmg`。未配置 `CODESIGN_IDENTITY` 时使用 ad hoc 签名；设置该变量可指定 Apple 签名身份。该脚本不执行 notarization。下文的 `packaging/package.sh` 仍只包装旧 GPUI 可执行文件。
 
-批次 1.1 增加 bridge 状态订阅 ACL、选中会话后的 `chat.history` 请求及文本块 markdown/fallback 渲染；设置中可选浅色、深色或跟随系统，并切换半透明材质。Mac 窗口材质通过 `window-vibrancy` 实现，系统减少透明度时自动关闭；所选会话与外观偏好保存在本机。原生回归截图保存在 `progress/integration/`。
+当前 Tauri bridge 已依赖 `macbot-desktop-services`，连接成功后将 Host 元数据和密码写入旧格式的 `hosts.json` 与 macOS Keychain；可恢复 Host、节点状态缓存和待发消息，并提供本地偏好读写、窗口材质、Host 列表/删除/连接命令。待发消息使用稳定 request ID，连接恢复后重试。Rust 命令已注册，但 React 尚未全部切换到这些命令：现有页面的主题、材质和所选会话仍有 WebView `localStorage` 读写；菜单栏启动和更新服务也尚未在 Tauri bridge 接线。
 
-> **迁移中**：界面层正在从 GPUI 迁移到 Tauri 2 + React（用户决定，见 DECISIONS.md）。`macbot-client-core` 不变；下文的 GPUI 编译和运行说明在迁移完成前仍然可用，迁移完成后由 client-mac 开发线重写。
+旧数据兼容：Bundle ID 是 `bot.mac.desktop`；Keychain generic-password service 是 `bot.mac.desktop.host-password`，account 使用 Host ID；默认数据根为 `~/Library/Application Support/MacBot`，`MACBOT_CLIENT_DATA_DIR` 可用绝对路径覆盖。Host 元数据保存在 `hosts.json`，密码不写入该文件。Tauri 服务 bridge 复用这些相同格式与路径，因此旧 GPUI 安装保存的 Host、Keychain 密码、状态缓存、待发消息和本地偏好可由 Tauri 端读取。该兼容性来自共享存储实现；UI 尚未接线的设置项仍不会从 React 页面呈现或修改。
 
-这是独立的 Cargo workspace，包含 `macbot-client-core` 和 `macbot-desktop`。运行时界面使用 Rust + GPUI，组件只依赖与之匹配的 `gpui-kit` 0.7；协议类型通过 path 依赖引用 `../../protocol/rust`。
+以下 Cargo workspace、`packaging/run.sh` 和 `packaging/package.sh` 命令针对保留的旧 GPUI 客户端；Tauri 使用独立 Cargo workspace 和 `packaging/package-tauri.sh`。
+
+这是独立的 Cargo workspace，包含 `macbot-client-core`、旧 `macbot-desktop` 和 `macbot-desktop-services`。旧运行时界面使用 Rust + GPUI；Tauri bridge 位于独立 workspace `app/src-tauri/`。
 
 界面和交互遵循 [DESIGN.md](../../docs/DESIGN.md) 第 4 章，协议遵循 [PROTOCOL.md](../../docs/PROTOCOL.md)。编译需要 Xcode 的 Metal 工具链（本机已安装）。
 
@@ -67,7 +70,7 @@ macbotd --mock --port 7789 --password dev
 
 开发期凭据后端：默认使用 macOS Keychain。若本机开发环境无法使用 Keychain，可显式设置 `MACBOT_SECRET_BACKEND=file`；此时密码写入仓库外的 `~/Library/Application Support/MacBot/development-secrets.json`，若设置 `MACBOT_CLIENT_DATA_DIR` 则改写入该目录下的 `development-secrets.json`；文件权限 0600、父目录权限 0700，并通过原子替换更新。该开关只用于开发联调，日志、截图和 Git 产物都不得包含密码；未设置开关时不会写入该文件。
 
-## 打包和运行
+## 旧 GPUI 客户端打包和运行
 
 `packaging/package.sh` 会编译桌面 crate，并生成 `clients/mac/dist/MacBot.app` 与 `clients/mac/dist/MacBot.dmg`。DMG 同时包含 `Applications` 拖拽安装链接。debug 包使用 `debug` 配置：
 
