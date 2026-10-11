@@ -25,6 +25,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.str
@@ -41,6 +43,7 @@ import bot.mac.mobile.resources.search_message
 import bot.mac.mobile.resources.search_no_results
 import bot.mac.mobile.resources.search_routine
 import bot.mac.mobile.resources.search_title
+import bot.mac.mobile.resources.common_back
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -55,6 +58,7 @@ private enum class SearchKind { ALL, MESSAGE, CHAT, BOT, ARTIFACT, ROUTINE }
 
 @Composable
 fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Unit, onBack: () -> Unit) {
+    val backLabel = stringResource(Res.string.common_back)
     var query by remember { mutableStateOf("") }
     var kind by remember { mutableStateOf(SearchKind.ALL) }
     var results by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
@@ -91,7 +95,7 @@ fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Uni
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+            IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
             Text(stringResource(Res.string.search_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
         }
         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), singleLine = true, placeholder = { Text(stringResource(Res.string.search_hint)) })

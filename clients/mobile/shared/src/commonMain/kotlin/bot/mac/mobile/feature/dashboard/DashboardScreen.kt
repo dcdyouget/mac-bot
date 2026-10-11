@@ -38,6 +38,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -65,6 +67,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
+import bot.mac.mobile.resources.common_back
 
 private enum class HeatMode { CALENDAR, WEEK_HOUR }
 private enum class Dimension { MODEL, BOT, PROJECT }
@@ -82,6 +85,8 @@ private val Range.days: Long
 
 @Composable
 fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHost: () -> Unit = {}) {
+    val backLabel = stringResource(Res.string.common_back)
+    val refreshLabel = stringResource(Res.string.dashboard_refresh)
     var summary by remember { mutableStateOf<JsonObject?>(null) }
     var heatmap by remember { mutableStateOf<JsonObject?>(null) }
     var timeseries by remember { mutableStateOf<JsonObject?>(null) }
@@ -156,10 +161,10 @@ fun DashboardScreen(repository: MobileRepository, onBack: () -> Unit, onSelectHo
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+            IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
             Text(stringResource(Res.string.dashboard_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
             TextButton(onClick = onSelectHost) { Text(stringResource(Res.string.dashboard_host_select)) }
-            IconButton(onClick = { reload() }) { Text("↻", color = MaterialTheme.colorScheme.primary) }
+            IconButton(onClick = { reload() }, modifier = Modifier.semantics { contentDescription = refreshLabel }) { Text("↻", color = MaterialTheme.colorScheme.primary) }
         }
         HorizontalDivider()
         if (loading) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())

@@ -48,3 +48,7 @@ expect fun platformCredentialStore(): CredentialStore
 expect fun platformPersistentStore(): PersistentStore
 expect fun platformFilePicker(): FilePicker
 expect fun platformScreenImageDecoder(): ScreenImageDecoder
+
+/** Mirrors the system animation preference, including Android's reduced-motion setting. */
+@Composable
+expect fun platformAnimationsEnabled(): Boolean

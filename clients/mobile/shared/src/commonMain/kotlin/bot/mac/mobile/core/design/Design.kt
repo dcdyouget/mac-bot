@@ -18,6 +18,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import bot.mac.mobile.core.platform.platformAnimationsEnabled
 
 /** Values are generated from design/tokens.json. Keep token names aligned across clients. */
 object DesignTokens {
@@ -201,6 +202,8 @@ val LocalMobilePalette = compositionLocalOf {
     MobilePalette(Color(0xFFFBFBFA), Color(0xFFF3F3F1), Color(0xFFF7F7F5), Color(0xFFEFEFEB), Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0xFF1C1C1E), Color(0xFF6E6E73), Color(0xFFA1A1A6), Color(0xFF4A6A9B), Color(0x1F4A6A9B), Color(0xFFFFFFFF), Color(0xFF1C1C1E), Color(0xFFDDE5F0), Color(0xFF1C1C1E), Color(0xFF3E8E66), Color(0x1F3E8E66), Color(0xFFB7812C), Color(0x21B7812C), Color(0xFFB9533F), Color(0x1CB9533F), Color(0xFF7B65A8), Color(0x1F7B65A8), Color(0x1A141418), Color(0x0F141418), Color(0x0D141418))
 }
 
+val LocalSystemAnimationsEnabled = compositionLocalOf { true }
+
 private fun palette(dark: Boolean, translucent: Boolean): MobilePalette {
     val base = if (dark) DesignTokens.dark else emptyMap()
     val overlay = if (translucent) if (dark) DesignTokens.translucentDark else DesignTokens.translucentLight else emptyMap()
@@ -238,7 +241,7 @@ fun MacBotTheme(mode: String, content: @Composable () -> Unit) {
         onSecondaryContainer = p.textPrimary, outline = p.borderDefault, outlineVariant = p.borderSubtle,
         error = p.danger,
     )
-    CompositionLocalProvider(LocalMobilePalette provides p) {
+    CompositionLocalProvider(LocalMobilePalette provides p, LocalSystemAnimationsEnabled provides platformAnimationsEnabled()) {
         MaterialTheme(
             colorScheme = scheme,
             typography = androidx.compose.material3.Typography(

@@ -4,6 +4,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import bot.mac.mobile.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -25,5 +29,10 @@ fun StatusLabel(status: String, modifier: Modifier = Modifier) {
         "unread" -> Res.string.feature_status_unread
         else -> Res.string.feature_status_unknown
     }
-    Text(stringResource(resource), modifier = modifier, style = MaterialTheme.typography.labelMedium)
+    val label = stringResource(resource)
+    val announcesChanges = status.lowercase() in setOf("working", "active", "running", "waiting_user", "waiting_bot", "queued", "done", "completed", "blocked", "failed", "review", "pending")
+    Text(label, modifier = modifier.semantics {
+        stateDescription = label
+        if (announcesChanges) liveRegion = LiveRegionMode.Polite
+    }, style = MaterialTheme.typography.labelMedium)
 }

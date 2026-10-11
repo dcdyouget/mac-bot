@@ -17,6 +17,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
@@ -181,7 +183,7 @@ import org.jetbrains.compose.resources.stringResource
                 }
             ) { padding ->
                 Column(Modifier.padding(padding).imePadding()) {
-                    actionError?.let { Text(it,Modifier.fillMaxWidth().padding(8.dp),color=MaterialTheme.colorScheme.error) }
+                    actionError?.let { Text(it,Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }.padding(8.dp),color=MaterialTheme.colorScheme.error) }
                     if (hosts.isNotEmpty() && !state.connected && page != "connect") {
                         val message = when {
                             connection.error?.message?.contains("401") == true -> Res.string.host_unauthorized
@@ -190,7 +192,7 @@ import org.jetbrains.compose.resources.stringResource
                             connection.status == ConnectionStatus.CONNECTING -> Res.string.host_connecting
                             else -> Res.string.host_reconnecting
                         }
-                        Text(stringResource(message), Modifier.fillMaxWidth().background(LocalMobilePalette.current.warningSoft).clickable { open("connect") }.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = LocalMobilePalette.current.warning)
+                        Text(stringResource(message), Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }.background(LocalMobilePalette.current.warningSoft).clickable { open("connect") }.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = LocalMobilePalette.current.warning)
                     }
                     when {
                         page == "connect" || hosts.isEmpty() -> ConnectScreen(repository, back)

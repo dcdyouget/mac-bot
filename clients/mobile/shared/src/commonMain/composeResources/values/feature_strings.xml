@@ -71,6 +71,7 @@
     <string name="feature_group_message_queued_hint">Bot 正在工作。未 @ 的消息会进入待看队列，不会打断当前任务。</string>
     <string name="feature_assignment_retry">重试任务</string>
     <string name="feature_assignment_retrying">正在创建重试任务…</string>
+    <string name="feature_takeover_preview">接管画面预览</string>
     <string name="feature_notify_needs_you">需要你处理（审批、提问、接管）</string>
     <string name="feature_notify_review">待验收</string>
     <string name="feature_notify_completion">任务完成</string>

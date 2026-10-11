@@ -62,11 +62,15 @@ import bot.mac.mobile.core.platform.platformPersistentStore
 import bot.mac.mobile.core.platform.openExternalUrl
 import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.LocalMobilePalette
+import bot.mac.mobile.core.design.LocalSystemAnimationsEnabled
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import bot.mac.mobile.core.network.ScreenConnection
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
@@ -104,6 +108,7 @@ fun ChatScreen(
     showHeader: Boolean = true,
 ) {
     val state by repository.state.collectAsState()
+    val animationsEnabled = LocalSystemAnimationsEnabled.current
     val messages = state.messages[chatId].orEmpty()
     val chat = state.chats.firstOrNull { it.str("id") == chatId }
     var draft by remember(chatId) { mutableStateOf("") }
@@ -142,6 +147,8 @@ fun ChatScreen(
     val cancelQuoteLabel = stringResource(Res.string.feature_cancel_quote)
     val attachmentLabel = stringResource(Res.string.feature_attachment)
     val mentionLabel = stringResource(Res.string.feature_mention_title)
+    val backLabel = stringResource(Res.string.common_back)
+    val openGroupLabel = stringResource(Res.string.feature_open_group)
     LaunchedEffect(hostId, chatId) {
         draftLoaded = false
         draft = runCatching { platformPersistentStore().read("draft:$hostId:$chatId") }.getOrNull().orEmpty()
@@ -215,14 +222,14 @@ fun ChatScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) { Text(stringResource(Res.string.feature_back), style = MaterialTheme.typography.headlineSmall) }
+                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text(stringResource(Res.string.feature_back), style = MaterialTheme.typography.headlineSmall) }
                 Column(Modifier.weight(1f)) {
                     Text(chat?.str("title").orEmpty(), style = MaterialTheme.typography.titleLarge)
                     chat?.str("attention")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
                 }
                 chat?.str("project_id")?.takeIf { it.isNotBlank() }?.let { projectId ->
                     IconButton(onClick = { onOpenGroupInfo(projectId) }, modifier = Modifier.semantics { contentDescription = groupInfoLabel }) { Text("ⓘ") }
-                    IconButton(onClick = { onOpenProject(projectId) }) { Text("›") }
+                    IconButton(onClick = { onOpenProject(projectId) }, modifier = Modifier.semantics { contentDescription = openGroupLabel }) { Text("›") }
                 }
                 if (chat?.str("kind") in setOf("main", "direct")) {
                     TextButton(onClick = { onOpenFollowup(chatId) }) {
@@ -289,10 +296,15 @@ fun ChatScreen(
                         val index = messages.indexOfFirst { it.str("id") == quotedId }
                         if (index >= 0) {
                             scope.launch {
-                                listState.animateScrollToItem(index + if (historyHasMore) 1 else 0)
-                                highlightedMessageId = quotedId
-                                kotlinx.coroutines.delay(600)
-                                if (highlightedMessageId == quotedId) highlightedMessageId = null
+                                val targetIndex = index + if (historyHasMore) 1 else 0
+                                if (animationsEnabled) {
+                                    listState.animateScrollToItem(targetIndex)
+                                    highlightedMessageId = quotedId
+                                    kotlinx.coroutines.delay(600)
+                                    if (highlightedMessageId == quotedId) highlightedMessageId = null
+                                } else {
+                                    listState.scrollToItem(targetIndex)
+                                }
                             }
                         } else error = quoteOriginalUnloaded
                     },
@@ -1069,6 +1081,7 @@ private fun BlockView(
             when (block.str("state")) {
                 "pending" -> {
                     Text(stringResource(Res.string.feature_takeover_pending), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.tertiary)
+                    if (botId.isNotBlank()) TakeoverFramePreview(repository, botId)
                     if (botId.isNotBlank()) Button(onClick = { onTakeover(botId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
                         Text(stringResource(Res.string.feature_takeover))
                     }
@@ -1178,6 +1191,44 @@ private fun BlockView(
                 Button(onClick = { onLoopAction(root, "end") }) { Text(stringResource(Res.string.feature_loop_end)) }
             }
         }
+    }
+}
+
+@Composable
+private fun TakeoverFramePreview(repository: MobileRepository, botId: String) {
+    var image by remember(botId) { mutableStateOf<ImageBitmap?>(null) }
+    var site by remember(botId) { mutableStateOf("") }
+    val decoder = remember { platformScreenImageDecoder() }
+    val noFrame = stringResource(Res.string.computer_no_frame)
+    val previewLabel = stringResource(Res.string.feature_takeover_preview)
+    LaunchedEffect(repository, botId) {
+        val connection = runCatching {
+            repository.createScreen(botId, "low", null) { incoming ->
+                val decoded = decoder.decodeJpeg(incoming.jpeg) ?: return@createScreen
+                withContext(Dispatchers.Main.immediate) {
+                    image = decoded
+                    site = incoming.header.url
+                }
+            }
+        }.getOrNull() ?: return@LaunchedEffect
+        try {
+            connection.start().join()
+        } finally {
+            connection.stop()
+        }
+    }
+    androidx.compose.foundation.layout.Box(
+        Modifier.fillMaxWidth().height(72.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .semantics {
+                contentDescription = if (image == null) "$previewLabel, $noFrame" else "$previewLabel, ${site.ifBlank { noFrame }}"
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        val currentImage = image
+        if (currentImage == null) Text(noFrame, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        else Image(currentImage, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
     }
 }
 

@@ -34,6 +34,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.boolean
@@ -104,6 +106,7 @@ internal suspend fun publishSkillAndRefresh(repository: MobileRepository, name: 
 
 @Composable
 fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
+    val backLabel = stringResource(Res.string.common_back)
     val state by repository.state.collectAsState()
     var selectedName by remember { mutableStateOf<String?>(null) }
     var search by remember { mutableStateOf("") }
@@ -146,7 +149,7 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
                     selectedName = null
                     detail = null
                 } else onBack()
-            }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+            }, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
             Text(stringResource(Res.string.skills_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
             if (!viewingDetail) {
                 TextButton(onClick = { selectedName = null; detail = null; showEditor = true }) { Text("＋ ${stringResource(Res.string.skills_new)}") }

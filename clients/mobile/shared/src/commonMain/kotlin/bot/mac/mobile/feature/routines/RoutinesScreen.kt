@@ -40,6 +40,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.protocol.arr
@@ -276,6 +278,8 @@ private fun RoutineListScreen(
     onToggle: (JsonObject, Boolean) -> Unit,
     onRetry: () -> Unit,
 ) {
+    val backLabel = stringResource(Res.string.common_back)
+    val createLabel = stringResource(Res.string.routines_new)
     val filtered = when (filter) {
         "running" -> routines.filter { it.boolean("enabled") == true }
         "paused" -> routines.filter { it.boolean("enabled") != true }
@@ -283,9 +287,9 @@ private fun RoutineListScreen(
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+            IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
             Text(stringResource(Res.string.routines_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-            IconButton(onClick = onCreate) { Text("＋", style = MaterialTheme.typography.titleLarge) }
+            IconButton(onClick = onCreate, modifier = Modifier.semantics { contentDescription = createLabel }) { Text("＋", style = MaterialTheme.typography.titleLarge) }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("all" to Res.string.routines_filter_all, "running" to Res.string.routines_filter_running, "paused" to Res.string.routines_filter_paused).forEach { (value, label) ->
@@ -365,6 +369,7 @@ private fun RoutineDetailScreen(
     onOpenAssignment: (String) -> Unit,
     actionError: String?,
 ) {
+    val backLabel = stringResource(Res.string.common_back)
     if (!creating && routine == null) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
@@ -390,7 +395,7 @@ private fun RoutineDetailScreen(
 
     Column(Modifier.fillMaxSize().imePadding().background(MaterialTheme.colorScheme.background)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+            IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
             Text(if (creating) stringResource(Res.string.routines_new) else routine?.str("name").orEmpty(), Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.titleLarge)
             if (!creating && !editing) IconButton(onClick = onEdit) { Text(stringResource(Res.string.routines_edit), style = MaterialTheme.typography.labelLarge) }
         }

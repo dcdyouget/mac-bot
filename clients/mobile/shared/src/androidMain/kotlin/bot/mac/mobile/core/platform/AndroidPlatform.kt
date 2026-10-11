@@ -1,12 +1,24 @@
 package bot.mac.mobile.core.platform
 
 import android.content.Context
+import android.database.ContentObserver
 import android.content.Intent
 import android.content.SharedPreferences
+import android.animation.ValueAnimator
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.Cipher
@@ -59,6 +71,23 @@ actual fun platformCredentialStore(): CredentialStore = AndroidCredentialStore(r
 actual fun platformPersistentStore(): PersistentStore = AndroidPersistentStore(requireContext())
 actual fun platformFilePicker(): FilePicker = AndroidFilePicker()
 actual fun platformScreenImageDecoder(): ScreenImageDecoder = AndroidScreenImageDecoder()
+
+@Composable
+actual fun platformAnimationsEnabled(): Boolean {
+    val context = LocalContext.current
+    var enabled by remember(context) { mutableStateOf(ValueAnimator.areAnimatorsEnabled()) }
+    DisposableEffect(context) {
+        val resolver = context.contentResolver
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                enabled = ValueAnimator.areAnimatorsEnabled()
+            }
+        }
+        resolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
+        onDispose { resolver.unregisterContentObserver(observer) }
+    }
+    return enabled
+}
 
 private class AndroidCredentialStore(context: Context) : CredentialStore {
     private val prefs = context.getSharedPreferences(CREDENTIAL_PREFS, Context.MODE_PRIVATE)
