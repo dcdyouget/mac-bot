@@ -13,7 +13,7 @@
 |---|---|---|
 | `newgroup` | partial | [entry](newgroup-light.png), [form light](newgroup-form-light.png), [form dark](newgroup-form-dark.png), [selected members](newgroup-selected-light.png), [created group light](newgroup-created-light.png), [created group dark](newgroup-created-dark.png). Created a real mock group with selected members. Form exposes name, announcement and member controls; title/confirmation feedback is sparse compared with the prototype. |
 | `search` | partial | [results light](search-results-light.png), [results dark](search-results-dark.png), [Bot filter](search-bot-filter-dark.png). `mock` returns project artifacts, the review group and messages. Switching to Bot filter yields “没有找到结果” despite seeded Bots; this limits the cross-category search check. |
-| `computer` | fail | [light](computer-light.png), [dark](computer-dark.png). Bot detail opens the landscape screen/remote control view, but mock leaves it at “正在连接画面…” with `帧率 0 · 帧年龄 0 ms`; no image or takeover interaction is reached. |
+| `computer` | partial | [light](computer-light.png) shows an actual Mac Bot frame at `帧率 50`; [dark](computer-dark.png) was captured after switching to night mode and shows `帧率 0` / no received frame. Independently, the server `--mock` WebSocket path passed JPEG delivery, ack, and takeover verification. Android dark-mode / Activity recreation receive lifecycle remains to be investigated; this does not establish that the takeover UI itself was accepted. |
 | `dash` | pass | [light](dash-light.png), [dark](dash-dark.png). Mock dashboard has token/cost/request totals, 30-day selector, populated heatmap and trend graph with model/Bot/project and metric controls. |
 | `skills` | partial | [list light](skills-light.png), [list dark](skills-dark.png), [detail light](skills-detail-light.png), [detail dark](skills-detail-dark.png). Built-in and draft skills, descriptions, path, recent use and skill body render. Detail was opened from the list; search behavior was not checked. |
 | `me` | pass | [light](me-light.png), [dark](me-dark.png). Host, memory, Bot management, attention, dashboard, skills, routines and settings sections are reachable. |
@@ -26,7 +26,7 @@
 ## Remaining gaps
 
 - Android translucent material has no real blur in this build; all batch IDs fail that appearance state.
-- Computer screen needs a mock/host stream with actual frames and a tested handoff state.
+- Computer dark-mode / Activity recreation stream lifecycle needs investigation. The server mock WebSocket independently delivers JPEG frames and passes ack/takeover checks; the Android takeover UI remains unverified.
 - Search needs seeded Bot hits for the Bot filter to validate that category.
 - Memory edit/delete and Bot edit persistence need independent mutation evidence; only view controls and an unchanged memory save were checked here.
 - Skills detail rendered, but the requested search-to-detail route was not exercised.
