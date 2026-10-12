@@ -1014,6 +1014,8 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     ensure_question_approval_history_fixture(state);
     ensure_mock_user_memory(state);
     ensure_message_block_scenarios(state);
+    ensure_login_question_history_fixture(state);
+    ensure_code_dm_history_fixture(state);
     // The pending-review fixture creates its project and artifact references
     // above, so seed its files only after that fixture is present.
     seed_mock_artifact_files(state, home);
@@ -1854,6 +1856,158 @@ fn ensure_message_block_scenarios(state: &mut MockState) {
     );
 }
 
+fn ensure_login_question_history_fixture(state: &mut MockState) {
+    const CHAT_ID: &str = "chat_login";
+    const ASSIGNMENT_ID: &str = "asg_mock_waiting";
+    if !state
+        .assignments
+        .iter()
+        .any(|assignment| assignment.get("id").and_then(Value::as_str) == Some(ASSIGNMENT_ID))
+        || !state
+            .chats
+            .iter()
+            .any(|chat| chat.get("id").and_then(Value::as_str) == Some(CHAT_ID))
+    {
+        return;
+    }
+    let Some(bot_id) = state
+        .assignments
+        .iter()
+        .find(|assignment| assignment.get("id").and_then(Value::as_str) == Some(ASSIGNMENT_ID))
+        .and_then(|assignment| assignment.get("bot_id"))
+        .cloned()
+    else {
+        return;
+    };
+
+    let mut questions = extra_get(state, "questions");
+    for question in [
+        json!({
+            "id":"q_mock_login_pending","bot_id":bot_id,"assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,
+            "text":"验证邮件用哪个发件地址？","options":["noreply@app.com","support@app.com"],"multi":false,
+            "allow_free_text":false,"state":"pending","answer":null
+        }),
+        json!({
+            "id":"q_mock_login_answered","bot_id":bot_id,"assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,
+            "text":"登录失败 5 次后要锁账号吗？","options":["锁定 15 分钟","不锁，只加验证码"],"multi":false,
+            "allow_free_text":true,"state":"answered",
+            "answer":{"option_index":1,"option_indexes":[1],"text":null,"at":"2026-10-10T10:40:00Z"}
+        }),
+        json!({
+            "id":"q_mock_login_expired","bot_id":bot_id,"assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,
+            "text":"登录页要不要放「记住我」？","options":["要","不要"],"multi":false,
+            "allow_free_text":true,"state":"expired","answer":null
+        }),
+    ] {
+        if !questions
+            .iter()
+            .any(|existing| existing.get("id") == question.get("id"))
+        {
+            questions.push(question);
+        }
+    }
+    extra_set(state, "questions", questions);
+
+    if state
+        .messages
+        .get(CHAT_ID)
+        .into_iter()
+        .flatten()
+        .any(|message| {
+            message.get("id").and_then(Value::as_str) == Some("msg_mock_login_questions")
+        })
+    {
+        return;
+    }
+    let seq = next_chat_message_seq(state, CHAT_ID);
+    let message = json!({
+        "id":"msg_mock_login_questions","chat_id":CHAT_ID,"seq":seq,
+        "sender":{"kind":"bot","bot_id":bot_id},"created_at":"2026-10-10T10:39:00Z",
+        "edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,"mentions":[],
+        "blocks":[
+            {"type":"text","markdown":"登录方案有 3 个问题："},
+            {"type":"question","question_id":"q_mock_login_pending"},
+            {"type":"question","question_id":"q_mock_login_answered"},
+            {"type":"question","question_id":"q_mock_login_expired"}
+        ],
+        "fallback_text":"登录方案有 3 个问题：验证邮件发件地址、失败锁定策略和记住我。",
+        "intent":null,"assignment_id":ASSIGNMENT_ID,"streaming":false,"delivery":[],"reactions":[]
+    });
+    if let Some(chat) = state
+        .chats
+        .iter_mut()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(CHAT_ID))
+    {
+        chat["last_message"] = json!({
+            "message_id":message["id"],"sender":message["sender"],"text":message["fallback_text"],
+            "created_at":message["created_at"]
+        });
+        chat["last_seq"] = json!(seq);
+        chat["updated_at"] = message["created_at"].clone();
+    }
+    state
+        .messages
+        .entry(CHAT_ID.to_owned())
+        .or_default()
+        .push(message.clone());
+    state.emit("message.created", json!({"message":message}));
+}
+
+fn ensure_code_dm_history_fixture(state: &mut MockState) {
+    const CHAT_ID: &str = "chat_code";
+    let Some(bot_id) = state
+        .bots
+        .iter()
+        .find(|bot| bot.get("id").and_then(Value::as_str) == Some("bot_code"))
+        .map(|bot| json!(bot["id"]))
+    else {
+        return;
+    };
+    if !state
+        .chats
+        .iter()
+        .any(|chat| chat.get("id").and_then(Value::as_str) == Some(CHAT_ID))
+    {
+        return;
+    }
+    upsert_mock_message(
+        state,
+        CHAT_ID,
+        "msg_mock_code_dm_user",
+        json!({"kind":"user"}),
+        json!([{"type":"text","markdown":"登录那边的改动进展怎么样？"}]),
+        "登录那边的改动进展怎么样？".into(),
+        None,
+    );
+    upsert_mock_message(
+        state,
+        CHAT_ID,
+        "msg_mock_code_dm_reply",
+        json!({"kind":"bot","bot_id":bot_id}),
+        json!([
+            {"type":"text","markdown":"邮箱登录流程已经实现，正在跑测试。"},
+            {"type":"project_card","project_id":"prj_login","context":"mentioned","note":"我在群里负责实现登录"}
+        ]),
+        "邮箱登录流程已经实现，正在跑测试。登录功能：我在群里负责实现登录。".into(),
+        Some("asg_code"),
+    );
+
+    if extra_get(state, "approvals")
+        .iter()
+        .any(|approval| approval.get("id").and_then(Value::as_str) == Some("apr_mock_pending"))
+    {
+        upsert_mock_message(
+            state,
+            CHAT_ID,
+            "msg_mock_code_dm_approval",
+            json!({"kind":"bot","bot_id":bot_id}),
+            json!([{"type":"text","markdown":"部署前需要你确认："},{"type":"approval","approval_id":"apr_mock_pending"}]),
+            "部署前需要你确认执行发布命令。".into(),
+            Some("asg_code_web"),
+        );
+    }
+}
+
 fn upsert_mock_message(
     state: &mut MockState,
     chat_id: &str,
@@ -1930,6 +2084,8 @@ fn ensure_question_approval_history_fixture(state: &mut MockState) {
             assignment["status"] = json!("waiting_user");
             assignment["wait"] =
                 json!({"reason":"decision","message_id":"msg_mock_question_history"});
+            assignment["origin_chat_id"] = json!(CHAT_ID);
+            assignment["project_id"] = Value::Null;
             assignment["finished_at"] = Value::Null;
             state.assignments.push(assignment);
         }
@@ -4517,6 +4673,9 @@ fn question_answer(state: &mut MockState, params: &Value) -> RpcResult {
         .find(|x| x.get("id").and_then(Value::as_str) == Some(idv))
         .ok_or_else(|| rpc_error("not_found", "question not found", None))?;
     let mut item = item;
+    if item.get("state").and_then(Value::as_str) == Some("expired") {
+        return Err(rpc_error("conflict", "question has expired", None));
+    }
     item["state"] = json!("answered");
     item["answer"] = json!({
         "option_index":params.get("option_index").cloned().unwrap_or(Value::Null),
@@ -6638,6 +6797,126 @@ mod contract_tests {
     }
 
     #[tokio::test]
+    async fn mock_login_history_has_hydratable_questions_in_all_protocol_states() {
+        let gateway = gateway().await;
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_login","limit":100}),
+        )
+        .await;
+        let message = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == "msg_mock_login_questions")
+            .expect("login group has a question-card history message");
+        let ids = message["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|block| block.get("question_id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            [
+                "q_mock_login_pending",
+                "q_mock_login_answered",
+                "q_mock_login_expired"
+            ]
+        );
+
+        let listed = call(&gateway, "question.list", json!({"chat_id":"chat_login"})).await;
+        let questions = listed["questions"].as_array().unwrap();
+        assert_eq!(questions.len(), 3);
+        for (id, expected_state) in [
+            ("q_mock_login_pending", "pending"),
+            ("q_mock_login_answered", "answered"),
+            ("q_mock_login_expired", "expired"),
+        ] {
+            let question = questions
+                .iter()
+                .find(|question| question["id"] == id)
+                .expect("every history question id is hydrated by question.list");
+            assert_eq!(question["state"], expected_state);
+            let _: macbot_protocol::Question = serde_json::from_value(question.clone()).unwrap();
+        }
+
+        let expired = gateway
+            .rpc(
+                "question.answer",
+                json!({"question_id":"q_mock_login_expired","option_index":0}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(expired.code, "conflict");
+        let still_expired = call(
+            &gateway,
+            "question.list",
+            json!({"chat_id":"chat_login","state":["expired"]}),
+        )
+        .await;
+        assert_eq!(still_expired["questions"].as_array().unwrap().len(), 1);
+
+        let answered = call(
+            &gateway,
+            "question.answer",
+            json!({"question_id":"q_mock_login_pending","option_index":1}),
+        )
+        .await;
+        assert_eq!(answered["question"]["state"], "answered");
+        let answered_list = call(
+            &gateway,
+            "question.list",
+            json!({"chat_id":"chat_login","state":["answered"]}),
+        )
+        .await;
+        assert_eq!(answered_list["questions"].as_array().unwrap().len(), 2);
+
+        let projects = call(&gateway, "project.list", json!({})).await;
+        assert!(projects["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|project| project["id"] == "prj_login" && project["status"] == "done"));
+    }
+
+    #[tokio::test]
+    async fn mock_code_bot_private_chat_has_conversation_project_and_approval_cards() {
+        let gateway = gateway().await;
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_code","limit":100}),
+        )
+        .await;
+        let messages = history["messages"].as_array().unwrap();
+        assert!(messages.iter().any(|message| {
+            message["id"] == "msg_mock_code_dm_user" && message["sender"]["kind"] == "user"
+        }));
+        assert!(messages.iter().any(|message| {
+            message["id"] == "msg_mock_code_dm_reply"
+                && message["blocks"].as_array().unwrap().iter().any(|block| {
+                    block["type"] == "project_card" && block["project_id"] == "prj_login"
+                })
+        }));
+        assert!(messages.iter().any(|message| {
+            message["id"] == "msg_mock_code_dm_approval"
+                && message["blocks"].as_array().unwrap().iter().any(|block| {
+                    block["type"] == "approval" && block["approval_id"] == "apr_mock_pending"
+                })
+        }));
+        let _: Vec<macbot_protocol::Message> =
+            serde_json::from_value(history["messages"].clone()).unwrap();
+        let chat = call(&gateway, "chat.get", json!({"chat_id":"chat_code"})).await;
+        assert_eq!(chat["chat"]["kind"], "direct");
+        assert_eq!(
+            chat["chat"]["last_message"]["message_id"],
+            "msg_mock_code_dm_approval"
+        );
+    }
+
+    #[tokio::test]
     async fn mock_approval_keeps_matched_rule_text_snapshot() {
         let gateway = gateway().await;
         let created = call(&gateway, "approval.request", json!({
@@ -7526,12 +7805,6 @@ mod contract_tests {
             .as_array()
             .into_iter()
             .flatten()
-            .chain(
-                bootstrap["pending"]["questions"]
-                    .as_array()
-                    .into_iter()
-                    .flatten(),
-            )
         {
             let assignment_id = waiting["assignment_id"].as_str().unwrap();
             let bot_id = waiting["bot_id"].as_str().unwrap();
@@ -7539,6 +7812,29 @@ mod contract_tests {
             assert_eq!(
                 waiting["chat_id"].as_str(),
                 bot_dm_chats.get(bot_id).copied()
+            );
+        }
+        for question in bootstrap["pending"]["questions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let assignment_id = question["assignment_id"].as_str().unwrap();
+            let assignment = assignments["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["id"] == assignment_id)
+                .unwrap();
+            assert_eq!(question["bot_id"], assignment["bot_id"]);
+            let chat_id = question["chat_id"].as_str().unwrap();
+            assert!(
+                bot_dm_chats
+                    .get(question["bot_id"].as_str().unwrap())
+                    .copied()
+                    == Some(chat_id)
+                    || assignment["origin_chat_id"].as_str() == Some(chat_id),
+                "question must be visible in the Bot DM or the assignment origin chat"
             );
         }
 
