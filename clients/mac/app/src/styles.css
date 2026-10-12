@@ -489,6 +489,16 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .announcement-editor textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .announcement-editor-meta { display: flex; justify-content: space-between; color: var(--text-tertiary); font-size: 10px; }
 .announcement-error { padding: 7px 8px; border-radius: 7px; background: var(--warning-soft); color: var(--warning); font-size: 10px; line-height: 15px; overflow-wrap: anywhere; }
+.announcement-conflict { display: flex; flex-direction: column; gap: 7px; padding: 8px; border: 1px solid var(--warning-soft); border-radius: 8px; background: color-mix(in srgb, var(--warning-soft) 38%, var(--bg-elevated)); }
+.announcement-conflict-banner { display: flex; align-items: flex-start; gap: 6px; color: var(--warning); font-size: 10px; line-height: 15px; }
+.announcement-conflict-banner svg { flex: none; margin-top: 1px; }
+.announcement-conflict-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.announcement-conflict-compare > div { min-width: 0; }
+.announcement-conflict-compare small { color: var(--text-tertiary); font-size: 9px; }
+.announcement-conflict-compare pre { max-height: 120px; overflow: auto; margin: 3px 0 0; padding: 6px; border-radius: 5px; background: var(--bg-elevated); color: var(--text-primary); font: 10px/15px var(--font-family-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.announcement-conflict-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.announcement-conflict-actions button { min-height: 26px; padding: 0 8px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--bg-elevated); font-size: 10px; }
+.announcement-conflict-actions button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-on); }
 .announcement-editor-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .announcement-editor-actions button { min-height: 27px; padding: 0 9px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--bg-elevated); font-size: 10px; }
 .announcement-editor-actions button:last-child { border-color: var(--accent); background: var(--accent); color: var(--accent-on); }

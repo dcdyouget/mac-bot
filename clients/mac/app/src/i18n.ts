@@ -384,6 +384,8 @@ const copy = {
   'group.announcement.version': '版本 {n} · {len} / 8000 字',
   'group.announcement.save_shortcut': '⌘↵ 保存',
   'group.announcement.conflict': '{who} 刚刚也改了公告（版本 {n}）。查看差异后再保存',
+  'group.announcement.conflict.use_latest': '用最新版本',
+  'group.announcement.conflict.keep_mine': '保留我的内容',
   'group.announcement.empty': '还没有公告。点「编辑」写下这件事要做什么。',
   'group.open_home': '打开 Home',
   'group.members': '成员与状态',

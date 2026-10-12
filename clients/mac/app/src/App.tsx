@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
-import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap, Ellipsis, CornerUpLeft, Smile } from 'lucide-react'
+import { AlertCircle, AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap, Ellipsis, CornerUpLeft, Smile } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type NotificationPreferenceKey, type PendingMessage, type Question } from './types'
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SkillMessageDeliveryStatus, SkillMessageLoadedStatus, SkillMessageText, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
@@ -17,7 +17,7 @@ import { TracePage, type TraceAssignment, type TraceInFlight, type TraceItem, ty
 import { SearchPage, type SearchRequest, type SearchResponse, type SearchResult } from './components/SearchPage'
 import { ComputerPage, type ComputerConnection, type ComputerDriver, type ComputerFrame, type ComputerInput, type ComputerQuality, type ComputerTab } from './components/ComputerPage'
 import { BotPanel, type BotProject, type BotRecord } from './components/BotPanel'
-import { ArtifactPage, type ProjectArtifact } from './components/ArtifactPage'
+import { ArtifactPage, MarkdownPreview, type ProjectArtifact } from './components/ArtifactPage'
 import { SettingsDetail, type SettingsSection } from './components/SettingsDetail'
 import { GroupSettingsPage, type GroupSettingsMember } from './components/GroupSettingsPage'
 import { EmptyGroupSuggestions, WelcomeTemplates, type WelcomeTemplateRecord } from './components/WelcomeTemplates'
@@ -139,6 +139,7 @@ function App() {
   const [announcementDraft, setAnnouncementDraft] = useState('')
   const [announcementError, setAnnouncementError] = useState<string | null>(null)
   const [announcementSaving, setAnnouncementSaving] = useState(false)
+  const [announcementConflict, setAnnouncementConflict] = useState<{ current: Announcement; mine: string } | null>(null)
   const [contextPanelStack, setContextPanelStack] = useState<ContextPanelPage[]>(['context'])
   const [groupSettingsBusy, setGroupSettingsBusy] = useState(false)
   const [groupSettingsError, setGroupSettingsError] = useState<string | null>(null)
@@ -1082,6 +1083,12 @@ function App() {
   const currentProject = currentProjectId ? state.projects[currentProjectId] : undefined
   const currentProjectIdRef = useRef(currentProjectId)
   currentProjectIdRef.current = currentProjectId
+  useEffect(() => {
+    setAnnouncementConflict(null)
+    setAnnouncementEditing(false)
+    setAnnouncementSaving(false)
+    setAnnouncementError(null)
+  }, [hostScope, currentProjectId])
   const currentPendingActions = useMemo<PendingContextAction[]>(() => {
     const seen = new Set<string>()
     const actions: PendingContextAction[] = []
@@ -1791,25 +1798,66 @@ function App() {
     }
   }
 
-  async function saveAnnouncement() {
-    if (!currentProjectId || !announcement) return
+  async function saveAnnouncement(baseVersion = announcement?.version, text = announcementDraft) {
+    const projectId = currentProjectId
+    if (!projectId || !announcement) return
     const scope = hostScope
+    const isCurrentScope = () => hostScopeRef.current === scope && currentProjectIdRef.current === projectId
     setAnnouncementSaving(true)
     setAnnouncementError(null)
     try {
       const result = await invoke<{ announcement: Announcement }>('protocol_request', {
         method: 'announcement.update',
-        params: { project_id: currentProjectId, text: announcementDraft, base_version: announcement.version },
+        params: { project_id: projectId, text, base_version: baseVersion ?? announcement.version },
       })
-      if (hostScopeRef.current !== scope) return
+      if (hostScopeRef.current !== scope || currentProjectIdRef.current !== projectId) return
       setAnnouncement(result.announcement)
       setAnnouncementDraft(result.announcement.text)
+      setAnnouncementConflict(null)
       setAnnouncementEditing(false)
     } catch (error) {
-      if (hostScopeRef.current === scope) setAnnouncementError(String(error))
+      if (hostScopeRef.current !== scope || currentProjectIdRef.current !== projectId) return
+      let code = ''
+      let current: Announcement | null = null
+      try {
+        const value = typeof error === 'string' ? JSON.parse(error) as Record<string, unknown> : error as Record<string, unknown>
+        code = typeof value?.code === 'string' ? value.code : ''
+        const details = value?.details && typeof value.details === 'object' ? value.details as Record<string, unknown> : null
+        const valueCurrent = details?.current
+        if (valueCurrent && typeof valueCurrent === 'object' && typeof (valueCurrent as Announcement).version === 'number' && typeof (valueCurrent as Announcement).text === 'string') current = valueCurrent as Announcement
+      } catch { /* The bridge may return a plain error string. */ }
+      if (code === 'conflict') {
+        try {
+          const latest = await invoke<{ announcement: Announcement }>('protocol_request', { method: 'project.get', params: { project_id: projectId } })
+          if (!isCurrentScope()) return
+          current = latest.announcement
+        } catch { /* Keep current from the conflict details when a refresh is unavailable. */ }
+        if (!isCurrentScope()) return
+        if (current) {
+          setAnnouncementConflict({ current, mine: text })
+          setAnnouncementError(null)
+        } else setAnnouncementError(String(error))
+      } else setAnnouncementError(String(error))
     } finally {
-      setAnnouncementSaving(false)
+      if (isCurrentScope()) setAnnouncementSaving(false)
     }
+  }
+
+  function useLatestAnnouncement() {
+    if (!announcementConflict) return
+    setAnnouncement(announcementConflict.current)
+    setAnnouncementDraft(announcementConflict.current.text)
+    setAnnouncementConflict(null)
+    setAnnouncementEditing(false)
+  }
+
+  function retryAnnouncementWithMine() {
+    if (!announcementConflict) return
+    const conflict = announcementConflict
+    setAnnouncement(conflict.current)
+    setAnnouncementDraft(conflict.mine)
+    setAnnouncementConflict(null)
+    void saveAnnouncement(conflict.current.version, conflict.mine)
   }
 
   async function runGroupProjectAction(method: 'project.update' | 'project.add_member' | 'project.remove_member' | 'project.confirm_done' | 'project.archive' | 'project.reopen', params: Record<string, unknown>) {
@@ -2843,17 +2891,22 @@ function App() {
       </div> : <div className="panel-content"><div className="panel-empty">{announcementLoading ? t('settings.permissions.loading') : groupSettingsError ?? t('group.settings.load_failed')}</div></div> : currentChat && currentProjectId ? <div className="panel-content group-context-panel">
         <section className="follow-section" ref={announcementPanelRef}>
           <div className="section-label"><span>{t('group.announcement')}</span><span className="panel-section-meta">{announcement && t('group.announcement.meta').replace('{who}', botOrUserName(announcement.text_updated_by, state.bots)).replace('{time}', formatShortTime(announcement.text_updated_at))}</span>
-            <button className="panel-inline-action" type="button" onClick={() => { setAnnouncementDraft(announcement?.text ?? ''); setAnnouncementEditing((value) => !value); setAnnouncementError(null) }}><Edit3 size={13} />{t('group.announcement.edit')}</button>
+            <button className="panel-inline-action" type="button" onClick={() => { setAnnouncementConflict(null); setAnnouncementDraft(announcement?.text ?? ''); setAnnouncementEditing((value) => !value); setAnnouncementError(null) }}><Edit3 size={13} />{t('group.announcement.edit')}</button>
           </div>
           {announcementLoading && !announcement && <div className="panel-empty">{t('settings.permissions.loading')}</div>}
           {!announcementLoading && !announcement && <div className="panel-empty">{announcementError ?? t('group.announcement.empty')}</div>}
           {announcement && (announcementEditing ? <div className="announcement-editor">
             <div className="announcement-edit-hint">{t('group.announcement.edit_hint')}</div>
-            <textarea autoFocus value={announcementDraft} onChange={(event) => setAnnouncementDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void saveAnnouncement() } }} />
+            <textarea autoFocus value={announcementDraft} onChange={(event) => setAnnouncementDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !announcementConflict) { event.preventDefault(); void saveAnnouncement() } }} />
             <div className="announcement-editor-meta">{t('group.announcement.version').replace('{n}', String(announcement.version)).replace('{len}', String(announcementDraft.length))}<span>{t('group.announcement.save_shortcut')}</span></div>
+            {announcementConflict && <div className="announcement-conflict" role="alert">
+              <div className="announcement-conflict-banner"><AlertCircle size={14} /><span>{t('group.announcement.conflict').replace('{who}', botOrUserName(announcementConflict.current.text_updated_by, state.bots)).replace('{n}', String(announcementConflict.current.version))}</span></div>
+              <div className="announcement-conflict-compare"><div><small>{t('memory.conflict.mine')}</small><pre>{announcementConflict.mine || '—'}</pre></div><div><small>{t('memory.conflict.theirs')}</small><pre>{announcementConflict.current.text || '—'}</pre></div></div>
+              <div className="announcement-conflict-actions"><button type="button" onClick={useLatestAnnouncement}>{t('group.announcement.conflict.use_latest')}</button><button type="button" className="primary" disabled={announcementSaving} onClick={retryAnnouncementWithMine}>{t('group.announcement.conflict.keep_mine')}</button></div>
+            </div>}
             {announcementError && <div className="announcement-error" role="alert">{announcementError}</div>}
-            <div className="announcement-editor-actions"><button type="button" onClick={() => { setAnnouncementEditing(false); setAnnouncementDraft(announcement.text); setAnnouncementError(null) }}>{t('common.cancel')}</button><button type="button" disabled={announcementSaving} onClick={() => void saveAnnouncement()}>{announcementSaving ? t('host.connecting') : t('common.save')}</button></div>
-          </div> : <div className="announcement-detail">{announcement.text || t('group.announcement.empty')}</div>)}
+            <div className="announcement-editor-actions"><button type="button" onClick={() => { setAnnouncementEditing(false); setAnnouncementDraft(announcement.text); setAnnouncementConflict(null); setAnnouncementError(null) }}>{t('common.cancel')}</button><button type="button" disabled={announcementSaving || Boolean(announcementConflict)} onClick={() => void saveAnnouncement()}>{announcementSaving ? t('host.connecting') : t('common.save')}</button></div>
+          </div> : announcement.text ? <MarkdownPreview content={announcement.text} /> : <div className="announcement-detail">{t('group.announcement.empty')}</div>)}
           {typeof currentProject?.home_path === 'string' && <div className="project-home-path"><Folder size={13} /><code>{currentProject.home_path}</code><button type="button" onClick={() => void navigator.clipboard?.writeText(String(currentProject.home_path))}>{t('common.copy_path')}</button></div>}
         </section>
         <section className="follow-section"><div className="section-label">{t('group.members')}<span className="panel-section-count">{announcement?.members.length ?? 0}</span></div>
