@@ -87,6 +87,7 @@ export type BridgeState = {
   node_id: string | null
   active_host: HostRecord | null
   pending_messages: Record<string, PendingMessage>
+  typing: Record<string, boolean>
   bots: Record<string, { id: string; name?: string; is_main?: boolean; [key: string]: Json | undefined }>
   chats: Record<string, Chat>
   projects: Record<string, { id: string; name?: string; chat_id?: string; [key: string]: Json | undefined }>
@@ -103,6 +104,7 @@ export const emptyState: BridgeState = {
   node_id: null,
   active_host: null,
   pending_messages: {},
+  typing: {},
   bots: {},
   chats: {},
   projects: {},

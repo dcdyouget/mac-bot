@@ -815,3 +815,53 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+
+/* v1.2 §5 — spring entrances, press feedback, and an animated typing wave. */
+.timeline-fragment > .message-group,
+.timeline-fragment > .task-card,
+.timeline-fragment > .task-card-done-line,
+.timeline-fragment > .time-separator { animation: msgIn var(--duration-spring) var(--ease-spring-soft) both; }
+.timeline-fragment > .message-group.outgoing { animation-name: msgInOut; }
+.bot-typing-indicator { display: flex; align-items: center; gap: 8px; align-self: flex-start; margin: 6px 0 0 40px; color: var(--text-tertiary); font-size: 11px; }
+.bot-typing-dots { display: inline-flex; align-items: center; gap: 3px; height: 12px; }
+.bot-typing-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: typing-wave 1.2s var(--ease-standard) infinite; }
+.bot-typing-dots i:nth-child(2) { animation-delay: .12s; }
+.bot-typing-dots i:nth-child(3) { animation-delay: .24s; }
+.button-primary:active:not(:disabled),
+.button-secondary:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.composer-tool:active:not(:disabled),
+.send-button:active:not(:disabled),
+.message-reaction-pill:active:not(:disabled),
+.question-option:active:not(:disabled),
+.chat-row:active,
+.completed-group-row:active,
+.host-choice:active,
+.group-status-chip:active,
+.segmented-control button:active { transform: scale(.97); }
+.question-card,
+.approval-card,
+.completion-card,
+.review-card,
+.dashboard-kpi-card { transition: transform var(--duration-normal) var(--ease-spring), box-shadow var(--duration-normal) var(--ease-standard); }
+.question-card:hover,
+.approval-card:hover,
+.completion-card:hover,
+.review-card:hover,
+.dashboard-kpi-card:hover { transform: translateY(-1px); }
+.chat-entry-dialog,
+.host-dialog,
+.review-dialog { animation: popIn var(--duration-spring) var(--ease-spring) both; }
+.chat-entry-overlay,
+.host-dialog-backdrop,
+.review-dialog-backdrop { animation: fade var(--duration-normal) var(--ease-standard) both; }
+@keyframes contextPanelSpringIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes contextPanelSpringOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(24px); } }
+@media (max-width: 1099px) {
+  .app-shell > .context-panel.context-panel-open { animation: contextPanelSpringIn var(--duration-spring) var(--ease-spring-soft) both; }
+  .app-shell > .context-panel.context-panel-open.context-panel-closing { animation: contextPanelSpringOut var(--duration-spring) var(--ease-spring-soft) both; }
+}
+@keyframes typing-wave { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-4px); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

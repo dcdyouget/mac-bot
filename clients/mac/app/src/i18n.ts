@@ -88,6 +88,7 @@ const copy = {
   'nav.memory': '用户记忆',
   'nav.settings': '设置',
   'chat.main.subtitle': '主 Bot · 只协调，不干活',
+  'chat.typing': '正在输入…',
   'chat.bot.subtitle': '{label} · 工作中 {count} 个活',
   'chat.group.subtitle': '{count} 位成员',
   'chat.groups': '群',

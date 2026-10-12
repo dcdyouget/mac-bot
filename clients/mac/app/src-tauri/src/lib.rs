@@ -454,6 +454,7 @@ struct BridgeSnapshot {
     settings: Option<Value>,
     active_host: Option<HostRecord>,
     pending_messages: BTreeMap<String, Value>,
+    typing: BTreeMap<String, bool>,
 }
 
 fn map_values(values: &std::collections::BTreeMap<String, Value>) -> Map<String, Value> {
@@ -486,6 +487,7 @@ fn snapshot(data: &BridgeData) -> BridgeSnapshot {
         settings: data.state.settings.clone(),
         active_host: data.active_host.clone(),
         pending_messages: data.pending_messages.clone(),
+        typing: data.state.typing.clone(),
     }
 }
 

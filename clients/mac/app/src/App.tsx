@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
@@ -2790,7 +2790,7 @@ function App() {
           </div>}
         </div>
           : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages).map((entry, index) => <React.Fragment key={entry.message.id}>
+          {buildMessageTimeline(currentMessages).map((entry, index) => <Fragment key={entry.message.id}>
           {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
           <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} tabIndex={focusedMessageId ? (focusedMessageId === entry.message.id ? 0 : -1) : (index === 0 ? 0 : -1)} role="group" aria-label={t('chat.message.keyboard_actions')} onFocus={() => setFocusedMessageId(entry.message.id)} onKeyDown={(event) => {
             if (event.target !== event.currentTarget || messageMenu || (entry.message as Message & { deleted?: boolean }).deleted) return
@@ -2822,7 +2822,8 @@ function App() {
             }
           }} />
           </div>
-          </React.Fragment>)}
+          </Fragment>)}
+          {currentChat.bot_id && (currentChat.kind === 'main' || currentChat.kind === 'bot_dm') && state.typing[`${currentChat.id}:${currentChat.bot_id}`] && <div className="bot-typing-indicator" role="status" aria-label={t('chat.typing')}><span className="bot-typing-dots" aria-hidden="true"><i /><i /><i /></span><span>{t('chat.typing')}</span></div>}
           </div> : historyLoadingChat === currentChat.id ? <div className="message-list history-loading" aria-busy="true" />
             : currentChat.kind === 'project' || currentChat.project_id ? <EmptyGroupSuggestions
               title={t('onboarding.empty.title')}
