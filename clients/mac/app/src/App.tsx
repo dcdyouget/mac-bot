@@ -5,7 +5,7 @@ import { listen } from '@tauri-apps/api/event'
 import { AlertCircle, AtSign, Check, ChevronDown, ChevronRight, Command, Menu, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap, Ellipsis, CornerUpLeft, Smile } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type NotificationPreferenceKey, type PendingMessage, type Question } from './types'
-import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SkillMessageDeliveryStatus, SkillMessageLoadedStatus, SkillMessageText, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
+import { BlockedBlock, BotDmReferenceBlock, CompletionCard, DelegationLine, FallbackCard, FileBlock, LinkPreviewBlock, LoopPausedBlock, MessageImageBlock, ProjectCard, ProgressRow, ReviewCard, SkillMessageDeliveryStatus, SkillMessageLoadedStatus, SkillMessageText, SystemNotice, TakeoverRequestBlock, TaskCard, type ArtifactRef, type MessageFilePreview, type MessageFileRef } from './components/MessageBlocks'
 import { summarizeMarkdown } from './summaryMarkdown.mjs'
 import { WorkbenchPage } from './components/WorkbenchPage'
 import { DashboardPage } from './components/DashboardPage'
@@ -202,6 +202,7 @@ function App() {
   const [computerError, setComputerError] = useState<string | null>(null)
   const [computerRetry, setComputerRetry] = useState(0)
   const [computerFullscreen, setComputerFullscreen] = useState(false)
+  const [pendingTakeoverAction, setPendingTakeoverAction] = useState<{ botId: string; action: 'start' | 'release'; hostScope: string } | null>(null)
   const [botPanelId, setBotPanelId] = useState<string | null>(null)
   const [artifactRoute, setArtifactRoute] = useState<ArtifactRoute | null>(null)
   const [mentionBotId, setMentionBotId] = useState<string | null>(null)
@@ -817,6 +818,19 @@ function App() {
   }, [activePage, computerRoute, hostScope])
 
   useEffect(() => {
+    if (!pendingTakeoverAction) return
+    if (pendingTakeoverAction.hostScope !== hostScope) {
+      setPendingTakeoverAction(null)
+      return
+    }
+    if (computerConnection !== 'connected' || computerRoute?.botId !== pendingTakeoverAction.botId || computerRoute.hostScope !== pendingTakeoverAction.hostScope) return
+    const action = pendingTakeoverAction
+    setPendingTakeoverAction(null)
+    if (action.action === 'start') void takeOverComputer(action.botId)
+    else void releaseComputer(action.botId)
+  }, [computerConnection, computerRoute, pendingTakeoverAction, hostScope])
+
+  useEffect(() => {
     if (activePage !== 'chat' || (botPanelId && !state.bots[botPanelId])) setBotPanelId(null)
   }, [activePage, botPanelId, state.bots])
 
@@ -1230,6 +1244,38 @@ function App() {
     localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScope}`, chatId)
   }
   selectChatRef.current = selectChat
+
+  async function openApprovalInChat(chatId: string, approvalId: string) {
+    if (!chatId) return
+    const scope = hostScope
+    if (hostScopeRef.current !== scope) return
+    try {
+      const history = await invoke<{ messages?: Message[] }>('protocol_request', { method: 'chat.history', params: { chat_id: chatId, limit: 100 } })
+      if (hostScopeRef.current !== scope) return
+      const messages = history.messages ?? []
+      const target = messages.find((message) => message.blocks?.some((block) => block.type === 'approval' && block.approval_id === approvalId))
+      const cacheKey = historyCacheKey(scope, chatId)
+      setHistoryByChat((current) => ({ ...current, [cacheKey]: mergeMessages(current[cacheKey] ?? [], messages) }))
+      selectChatRef.current(chatId)
+      if (target) setDeepLinkScrollTarget({ hostScope: scope, chatId, messageId: target.id })
+    } catch (error) {
+      if (hostScopeRef.current === scope) setState((current) => ({ ...current, error: String(error) }))
+    }
+  }
+
+  const readMessageFile = useCallback(async (file: MessageFileRef): Promise<MessageFilePreview> => {
+    const scope = hostScope
+    const sourceHostId = state.active_host?.id
+    if (!sourceHostId || hostScopeRef.current !== scope) throw new Error(t('block.image.unavailable'))
+    const result = await invoke<MessageFilePreview>('read_message_file', {
+      sourceHostId,
+      root: file.root,
+      rootId: file.root_id,
+      path: file.path,
+    })
+    if (hostScopeRef.current !== scope || state.active_host?.id !== sourceHostId) throw new Error(t('block.image.host_changed'))
+    return result
+  }, [hostScope, state.active_host?.id])
 
   function updateSlashPickerFromCaret(value: string, caret: number) {
     setDraft(value)
@@ -1717,7 +1763,7 @@ function App() {
     try {
       await invoke('protocol_request', { method: 'takeover.start', params: { bot_id: botId } })
     } catch (error) {
-      if (computerRouteRef.current?.requestId === route.requestId) setComputerError(String(error))
+      if (hostScopeRef.current === route.hostScope && computerRouteRef.current?.requestId === route.requestId) setComputerError(String(error))
     }
   }
 
@@ -1728,7 +1774,7 @@ function App() {
     try {
       await invoke('protocol_request', { method: 'takeover.release', params: { bot_id: botId, ...(note ? { note } : {}) } })
     } catch (error) {
-      if (computerRouteRef.current?.requestId === route.requestId) setComputerError(String(error))
+      if (hostScopeRef.current === route.hostScope && computerRouteRef.current?.requestId === route.requestId) setComputerError(String(error))
     }
   }
 
@@ -2384,6 +2430,17 @@ function App() {
     }
   }
 
+  async function retryAssignment(assignmentId: string) {
+    const scope = hostScope
+    try {
+      const result = await invoke<{ assignment: TraceAssignment }>('protocol_request', { method: 'assignment.retry', params: { assignment_id: assignmentId, client_request_id: crypto.randomUUID() } })
+      if (hostScopeRef.current !== scope) return
+      setState((current) => ({ ...current, assignments: { ...current.assignments, [result.assignment.id]: result.assignment as unknown as Record<string, Json> } }))
+    } catch (error) {
+      if (hostScopeRef.current === scope) setState((current) => ({ ...current, error: String(error) }))
+    }
+  }
+
   async function steerTraceMessage(messageId: string) {
     const route = traceRouteRef.current
     const assignment = traceAssignment
@@ -2810,7 +2867,7 @@ function App() {
             else if (action === 'copy') { event.preventDefault(); void copyMessage(entry.message) }
           }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setFocusedMessageId(entry.message.id); setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-          <MessageBubble message={entry.message} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onReplyMessage={(message) => quoteMessage(message, 'reply')} onOpenMessageMenu={(message, x, y) => { setFocusedMessageId(message.id); setMessageMenu({ message, x, y }) }} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
+          <MessageBubble message={entry.message} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onOpenChat={selectChat} onOpenApproval={openApprovalInChat} onLoopResolve={async (rootMessageId, action) => { const scope = hostScope; if (hostScopeRef.current !== scope) return; await invoke('protocol_request', { method: 'loop.resolve', params: { root_message_id: rootMessageId, action } }); if (hostScopeRef.current !== scope) return }} onRetryAssignment={retryAssignment} onOpenBotSettings={openBotPanel} onTakeoverStart={(botId) => { setPendingTakeoverAction({ botId, action: 'start', hostScope }); openComputer(botId) }} onTakeoverRelease={(botId) => { setPendingTakeoverAction({ botId, action: 'release', hostScope }); openComputer(botId) }} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onReplyMessage={(message) => quoteMessage(message, 'reply')} onOpenMessageMenu={(message, x, y) => { setFocusedMessageId(message.id); setMessageMenu({ message, x, y }) }} onOpenComputer={openComputer} onReadMessageFile={readMessageFile} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
             const decisionScope = hostScope
             const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
             if (result.approval && hostScopeRef.current === decisionScope) {
@@ -2846,7 +2903,7 @@ function App() {
           {sendError && <div className="chat-entry-error" role="alert">{t('chat.send.failed').replace('{error}', sendError)}</div>}
           {quoteTarget && <div className="chat-composer-quote"><div><strong>{t(quoteTarget.mode === 'reply' ? 'chat.message.replying_to' : 'chat.message.quoting').replace('{sender}', quoteTarget.senderName)}</strong><span>{quoteTarget.excerpt}</span></div><button type="button" aria-label={t('chat.message.cancel_quote')} onClick={() => setQuoteTarget(null)}><X size={14} /></button></div>}
           {mentionBotId && <div className="composer-mention-chip"><AtSign size={13} />{t('chat.queue.at_now').replace('{bot}', state.bots[mentionBotId]?.name ?? t('common.bot'))}<button type="button" aria-label={t('common.close')} onClick={() => setMentionBotId(null)}>×</button></div>}
-          {queueHintVisible && <div className="chat-queue-hint"><Clock3 size={13} /><span>{t('chat.queue.hint').replace('{bots}', queueHintAssignments.map((assignment) => state.bots[String(assignment.bot_id)]?.name ?? t('common.bot')).join('、'))}</span>{queueHintAssignments.map((assignment) => <button type="button" key={String(assignment.id)} onClick={() => setMentionBotId(String(assignment.bot_id))}>{t('chat.queue.at_now').replace('{bot}', state.bots[String(assignment.bot_id)]?.name ?? t('common.bot'))}</button>)}</div>}
+          {queueHintVisible && <div className="chat-queue-hint"><Clock3 size={13} /><span>{t('chat.queue.hint').replace('{bots}', queueHintAssignments.map((assignment) => state.bots[String(assignment.bot_id)]?.name ?? t('common.bot')).join('、')).replace('{count, plural, one {它} other {它们}}', queueHintAssignments.length === 1 ? '它' : '它们')}</span>{queueHintAssignments.map((assignment) => <button type="button" key={String(assignment.id)} onClick={() => setMentionBotId(String(assignment.bot_id))}>{t('chat.queue.at_now').replace('{bot}', state.bots[String(assignment.bot_id)]?.name ?? t('common.bot'))}</button>)}</div>}
           <div className="composer-input-wrap">
             {slashPicker && <ChatSkillPicker skills={skillPickerSkills} query={slashPicker.query} selectedIndex={slashSelectedIndex} targetBotId={skillTargetBotId} targetBotName={skillTargetBotName} loading={skillsLoading || skillsDataScope !== hostScope} error={skillsDataScope === hostScope ? skillsError : null} onSelect={selectComposerSkill} onCreateSkill={createSkillFromSlash} onRetry={() => void loadSkills()} />}
             {composerSkill && <div className="chat-composer-skill-chip"><Zap size={13} /><span>/{composerSkill.name}</span><button type="button" aria-label={t('common.close')} onMouseDown={(event) => event.preventDefault()} onClick={() => setComposerSkill(null)}><X size={12} /></button></div>}
@@ -3439,6 +3496,14 @@ function BeanAvatar({ main = false, size = '32', seed = '' }: { main?: boolean; 
 
 type QuestionAnswer = { option_index?: number; option_indexes?: number[]; text?: string }
 function isArtifactRef(value: unknown): value is ArtifactRef { return Boolean(value) && typeof value === 'object' && typeof (value as ArtifactRef).artifact_id === 'string' && typeof (value as ArtifactRef).title === 'string' && typeof (value as ArtifactRef).path_or_url === 'string' }
+function isMessageFileRef(value: unknown): value is MessageFileRef {
+  if (!value || typeof value !== 'object') return false
+  const file = value as Partial<MessageFileRef>
+  return (file.root === 'project' || file.root === 'bot' || file.root === 'upload')
+    && typeof file.root_id === 'string' && typeof file.path === 'string'
+    && typeof file.name === 'string' && typeof file.mime === 'string'
+    && typeof file.size === 'number'
+}
 
 type ApprovalDecision = 'allow_once' | 'always_allow' | 'deny'
 
@@ -3484,7 +3549,7 @@ function dateLabel(date: Date) {
   return date.toLocaleDateString('zh-CN', { year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric', month: 'long', day: 'numeric' })
 }
 
-function MessageBubble({ message, skillNames, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onReact, onReplyMessage, onOpenMessageMenu, onOpenComputer, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
+function MessageBubble({ message, skillNames, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onOpenChat, onOpenApproval, onLoopResolve, onRetryAssignment, onOpenBotSettings, onTakeoverStart, onTakeoverRelease, onTaskDetail, onReact, onReplyMessage, onOpenMessageMenu, onOpenComputer, onReadMessageFile, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
   message: Message
   skillNames: string[]
   pending?: boolean
@@ -3502,11 +3567,19 @@ function MessageBubble({ message, skillNames, pending = false, senderName, sende
   chats: BridgeState['chats']
   chatTitle: string
   onOpenProject: (projectId: string, chatId?: string) => Promise<void>
+  onOpenChat: (chatId: string) => void
+  onOpenApproval: (chatId: string, approvalId: string) => void
+  onLoopResolve: (rootMessageId: string, action: 'continue' | 'end') => Promise<void>
+  onRetryAssignment: (assignmentId: string) => Promise<void>
+  onOpenBotSettings: (botId: string) => void
+  onTakeoverStart: (botId: string) => void
+  onTakeoverRelease: (botId: string) => void
   onTaskDetail: (assignmentId: string) => void
   onReact: (message: Message, emoji: string) => void
   onReplyMessage: (message: Message) => void
   onOpenMessageMenu: (message: Message, x: number, y: number) => void
   onOpenComputer: (botId: string) => void
+  onReadMessageFile: (file: MessageFileRef) => Promise<MessageFilePreview>
   onPreviewArtifact: (artifact: ArtifactRef) => void
   onConfirmProject: (projectId: string, messageId: string, blockIndex: number) => Promise<void>
   onRequestChanges: (projectId: string, messageId: string, blockIndex: number, text: string) => Promise<void>
@@ -3569,7 +3642,10 @@ function MessageBubble({ message, skillNames, pending = false, senderName, sende
             const assignmentId = typeof approval.assignment_id === 'string' ? approval.assignment_id : ''
             const projectId = typeof assignments[assignmentId]?.project_id === 'string' ? String(assignments[assignmentId]?.project_id) : ''
             const projectName = String(projects[projectId]?.name ?? chatTitle)
-            return <ApprovalCard key={`${id}-${index}`} approval={approval} projectName={projectName} reference={block.type === 'approval_ref'} onDecide={(decision) => onApprovalDecide(id, decision)} />
+            const approvalBotId = typeof approval.bot_id === 'string' ? approval.bot_id : ''
+            const approvalChatId = typeof block.chat_id === 'string' ? block.chat_id : Object.values(chats).find((chat) => chat.bot_id === approvalBotId && (chat.kind === 'direct' || chat.kind === 'bot_dm'))?.id ?? ''
+            if (block.type === 'approval_ref' && !approvalChatId) return <FallbackCard key={`${id}-${index}`} text={message.fallback_text || t('common.unsupported_block')} />
+            return <ApprovalCard key={`${id}-${index}`} approval={approval} projectName={projectName} botName={bots[approvalBotId]?.name ?? t('common.bot')} reference={block.type === 'approval_ref'} onOpenChat={() => onOpenApproval(approvalChatId, id)} onDecide={(decision) => onApprovalDecide(id, decision)} />
           }
           if (block.type === 'project_card') {
             const projectId = String(block.project_id ?? '')
@@ -3583,12 +3659,36 @@ function MessageBubble({ message, skillNames, pending = false, senderName, sende
             return assignments[assignmentId] ? <TaskCard key={index} assignment={assignments[assignmentId]} groupName={chatTitle} botName={bots[String(assignments[assignmentId].bot_id ?? '')]?.name ?? senderName} onDetail={onTaskDetail} /> : <div className="block-fallback" key={index}>{message.fallback_text || t('common.unsupported_block')}</div>
           }
           if (block.type === 'progress') return <ProgressRow key={index} text={String(block.text ?? '')} botName={senderName} />
+          if (block.type === 'blocked') {
+            const assignmentId = messageAssignmentId(message)
+            return <BlockedBlock key={index} reason={String(block.reason ?? '')} mainBotName={Object.values(bots).find((bot) => bot.is_main)?.name ?? t('common.bot')} canRetry={Boolean(assignmentId && assignments[assignmentId]?.status === 'failed')} onRetry={async () => { if (assignmentId) await onRetryAssignment(assignmentId) }} onSwitchModel={() => { const botId = message.sender?.bot_id; if (botId) onOpenBotSettings(botId) }} />
+          }
           if (block.type === 'delegation') {
             const botId = String(block.bot_id ?? '')
             const assignment = assignments[String(block.assignment_id ?? '')]
             return <DelegationLine key={index} botName={bots[botId]?.name ?? t('common.bot')} title={typeof assignment?.title === 'string' ? assignment.title : undefined} instruction={typeof assignment?.instruction === 'string' ? assignment.instruction : undefined} />
           }
           if (block.type === 'completion') return <CompletionCard key={index} block={block as Record<string, Json>} bots={bots} onPreview={onPreviewArtifact} />
+          if (block.type === 'loop_paused') return <LoopPausedBlock key={index} state={String(block.state ?? 'paused')} hops={Number(block.hops ?? 0)} onResolve={async (action) => { const rootMessageId = String(block.root_message_id ?? ''); if (!rootMessageId) throw new Error(t('common.unsupported_block')); await onLoopResolve(rootMessageId, action) }} />
+          if (block.type === 'takeover_request') {
+            const botId = String(block.bot_id ?? '')
+            const state = String(block.state ?? 'pending')
+            return <TakeoverRequestBlock key={index} reason={String(block.reason ?? '')} state={state} onStart={() => onTakeoverStart(botId)} onBack={() => onOpenComputer(botId)} onRelease={() => onTakeoverRelease(botId)} />
+          }
+          if (block.type === 'bot_dm_ref') {
+            const chatId = String(block.chat_id ?? '')
+            const recipientId = chats[chatId]?.bot_id ?? ''
+            return <BotDmReferenceBlock key={index} senderName={senderName} recipientName={bots[recipientId]?.name ?? t('common.bot')} count={Number(block.count ?? 0)} onOpen={() => chatId && onOpenChat(chatId)} />
+          }
+          if (block.type === 'link_preview') {
+            const image = isMessageFileRef(block.image) ? block.image : null
+            return <LinkPreviewBlock key={index} url={String(block.url ?? '')} site={String(block.site ?? '')} title={String(block.title ?? '')} description={typeof block.description === 'string' ? block.description : null} image={image} onReadFile={onReadMessageFile} />
+          }
+          if (block.type === 'file' || block.type === 'image') {
+            if (block.type === 'image') return <MessageImageBlock key={index} file={isMessageFileRef(block.file) ? block.file : null} onReadFile={onReadMessageFile} />
+            const file = block.file && typeof block.file === 'object' ? block.file as Record<string, Json> : {}
+            return <FileBlock key={index} file={file} />
+          }
           if (block.type === 'review_card') {
             const projectId = String(block.project_id ?? '')
             if (!projectId) return <FallbackCard key={index} text={message.fallback_text || t('common.unsupported_block')} />
@@ -3600,9 +3700,7 @@ function MessageBubble({ message, skillNames, pending = false, senderName, sende
             return <ReviewCard key={index} projectName={project?.name ?? chatTitle} state={reviewState} confirmedAt={confirmedAt} artifacts={artifacts} bots={bots} onPreview={onPreviewArtifact} onOpenProject={() => onOpenProject(projectId, targetChatId)} onConfirm={() => onConfirmProject(projectId, message.id, index)} onRequestChanges={(value) => onRequestChanges(projectId, message.id, index, value)} />
           }
           if (block.type === 'system') return <SystemNotice key={index} code={String(block.code ?? '')} text={String(block.text ?? '')} botName={senderName} />
-          const value = typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : ''
-          if (value) return <p className="message-text-block" key={index}>{value}</p>
-          return <div className="block-fallback" key={index}><Shield size={13} />{message.fallback_text || t('common.unsupported_block')}<small>{t('block.fallback.hint')}</small></div>
+          return <FallbackCard key={index} text={message.fallback_text || t('common.unsupported_block')} />
         })}</div> : hasSkillPrefix ? <SkillMessageText text={displayText} knownSkillNames={renderableSkillNames} /> : <>{displayText}</>}
         {!deleted && Boolean(message.reactions?.length) && <div className="message-reactions" aria-label={t('chat.menu.react')}>
           {message.reactions?.filter((reaction) => reaction.by.length > 0).map((reaction) => <button type="button" className={`message-reaction-pill ${userHasReaction(reaction) ? 'active' : ''}`} key={reaction.emoji} aria-label={`${reaction.emoji} ${reaction.by.length}`} onClick={() => onReact(message, reaction.emoji)}>{reaction.emoji}<span>{reaction.by.length}</span></button>)}
@@ -3612,7 +3710,8 @@ function MessageBubble({ message, skillNames, pending = false, senderName, sende
       {loadedSkills.length > 0 && <SkillMessageLoadedStatus loadedSkills={loadedSkills} bots={bots} />}
       {!hasSkillPrefix && !deleted && Boolean((message as MessageWithDelivery).delivery?.length) && <div className="message-send-status">{(message as MessageWithDelivery).delivery?.map((delivery, index) => {
         const botName = bots[delivery.bot_id ?? '']?.name ?? t('common.bot')
-        const label = delivery.state === 'queued' ? t('chat.delivery.queued_for').replace('{bot}', botName) : delivery.state === 'read' ? t('chat.delivery.queue_seen').replace('{bot}', botName) : t('chat.delivery.delivered').replace('{bot}', botName)
+        const queuedForAssignment = delivery.state === 'read' && Boolean(delivery.assignment_id)
+        const label = delivery.state === 'queued' ? t('chat.delivery.queued_for').replace('{bot}', botName) : queuedForAssignment ? t('chat.delivery.queue_seen').replace('{bot}', botName) : delivery.state === 'read' ? t('chat.delivery.read').replace('{bot}', botName) : t('chat.status.sent')
         return <span className={`skill-message-delivery skill-delivery-${delivery.state ?? 'delivered'}`} key={`${delivery.bot_id}-${delivery.assignment_id ?? ''}-${index}`}>{delivery.state === 'read' ? <Check size={11} /> : <Clock3 size={11} />}{label}</span>
       })}</div>}
       {pending && !hasSkillPrefix && <div className="message-send-status"><Clock3 size={11} />{t('chat.delivery.queued')}</div>}
@@ -3702,7 +3801,7 @@ function QuestionCard({ question, botName, onAnswer }: { question: Question; bot
   </section>
 }
 
-function ApprovalCard({ approval, projectName, reference, onDecide }: { approval: Record<string, Json>; projectName: string; reference: boolean; onDecide: (decision: ApprovalDecision) => Promise<void> }) {
+function ApprovalCard({ approval, projectName, botName, reference, onOpenChat, onDecide }: { approval: Record<string, Json>; projectName: string; botName: string; reference: boolean; onOpenChat: () => void; onDecide: (decision: ApprovalDecision) => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const state = String(approval.state ?? 'expired')
@@ -3710,7 +3809,7 @@ function ApprovalCard({ approval, projectName, reference, onDecide }: { approval
   const stateText: Record<string, string> = { allowed_once: t('block.approval.allowed_once').replace('{time}', time), always_allowed: t('block.approval.always_allowed').replace('{time}', time), denied: t('block.approval.denied').replace('{time}', time), expired: t('block.approval.expired') }
   const matchedRule = typeof approval.matched_rule_text === 'string' ? approval.matched_rule_text : ''
   const matchedRuleText = matchedRule ? (projectName ? t('block.approval.meta').replace('{project}', projectName).replace('{rule}', matchedRule) : t('block.approval.matched_rule').replace('{rule}', matchedRule)) : ''
-  if (reference) return <div className="approval-reference"><Shield size={14} /><span>{t('block.approval_ref.text').replace('{bot}', String(approval.bot_id ?? t('common.bot')))}</span><span>{stateText[state] ?? ''}</span>{matchedRuleText && <small>{matchedRuleText}</small>}</div>
+  if (reference) return <button type="button" className="approval-reference" onClick={onOpenChat}><Shield size={14} /><span>{t('block.approval_ref.text').replace('{bot}', botName)}</span><span>{stateText[state] ?? ''}</span>{matchedRuleText && <small>{matchedRuleText}</small>}<strong>{t('block.approval_ref.go')}</strong></button>
   return <section className={`approval-card approval-${state}`}>
     <div className="approval-title"><Shield size={15} /><strong>{t('block.approval.title').replace('{tool}', String(approval.tool ?? ''))}</strong><span>{stateText[state] ?? ''}</span></div>
     <code>{String(approval.summary ?? '')}</code>

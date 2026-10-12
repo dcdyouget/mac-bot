@@ -17,4 +17,3 @@
 - [x] 满配额 danger 提示按服务端用量自动显示并保持在添加按钮下方；开始添加或取消编辑不会清掉提示，`keepMine` 成功后同步 quota。
 - [x] 验证：`pnpm --config.ignore-scripts=true tsc --noEmit` 通过；`pnpm --config.ignore-scripts=true test:memory` 通过，6/6，覆盖串行 profile 保存、草稿保留、满额判断和 IME Enter 保护。默认 `pnpm tsc --noEmit` 曾触发 pnpm 安装并被仓库的 ignored build script 设置拦截，未修改依赖清单；切到 ignore-scripts 后同一 TypeScript 检查通过。
 - [ ] 本 subagent 未启动 UI 或生成截图；最终 mock 交互与五张截图由独立 QA 负责。
-

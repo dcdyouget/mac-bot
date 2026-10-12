@@ -107,6 +107,14 @@ fn validate_artifact_file_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_message_file_path(path: &str) -> Result<(), String> {
+    validate_artifact_file_path(path)?;
+    if Path::new(path).is_absolute() {
+        return Err("消息文件路径必须相对于文件根目录".into());
+    }
+    Ok(())
+}
+
 fn artifact_file_url(
     endpoint: &str,
     project_id: &str,
@@ -125,6 +133,50 @@ fn artifact_file_url(
     url.query_pairs_mut()
         .append_pair("root", "project")
         .append_pair("root_id", project_id)
+        .append_pair("path", path);
+    Ok(url.into())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FileRefRoot {
+    Project,
+    Bot,
+    Upload,
+}
+
+impl FileRefRoot {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "project" => Ok(Self::Project),
+            "bot" => Ok(Self::Bot),
+            "upload" => Ok(Self::Upload),
+            _ => Err("文件来源无效".into()),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Bot => "bot",
+            Self::Upload => "upload",
+        }
+    }
+}
+
+fn file_ref_url(
+    endpoint: &str,
+    root: FileRefRoot,
+    root_id: &str,
+    path: &str,
+) -> Result<String, String> {
+    let mut url = url::Url::parse(
+        &macbot_client_core::http_url(endpoint, "/api/v1/files")
+            .map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("文件地址无效：{error}"))?;
+    url.query_pairs_mut()
+        .append_pair("root", root.as_str())
+        .append_pair("root_id", root_id)
         .append_pair("path", path);
     Ok(url.into())
 }
@@ -3156,6 +3208,106 @@ struct ArtifactHttpContext {
     generation: u64,
 }
 
+#[derive(Clone)]
+struct MessageFileHttpContext {
+    endpoint: String,
+    password: String,
+    host_id: String,
+    root: FileRefRoot,
+    root_id: String,
+    generation: u64,
+}
+
+fn validate_message_file_scope(
+    data: &BridgeData,
+    source_host_id: &str,
+    root: FileRefRoot,
+    root_id: &str,
+) -> Result<(), String> {
+    if data.connection != "connected" {
+        return Err("请先连接 Bot 主机".into());
+    }
+    if data.active_host.as_ref().map(|host| host.id.as_str()) != Some(source_host_id) {
+        return Err("文件属于另一台 Bot 主机".into());
+    }
+    match root {
+        FileRefRoot::Project if !data.state.projects.contains_key(root_id) => {
+            Err("项目不属于当前连接的 Bot 主机".into())
+        }
+        FileRefRoot::Bot if !data.state.bots.contains_key(root_id) => {
+            Err("Bot 不属于当前连接的 Bot 主机".into())
+        }
+        FileRefRoot::Project | FileRefRoot::Bot | FileRefRoot::Upload => Ok(()),
+    }
+}
+
+fn message_file_http_context(
+    bridge: &SharedBridge,
+    source_host_id: &str,
+    root: FileRefRoot,
+    root_id: &str,
+) -> Result<MessageFileHttpContext, String> {
+    if !valid_deep_link_id(source_host_id) || !valid_deep_link_id(root_id) {
+        return Err("文件来源主机或 ID 无效".into());
+    }
+    let (host, generation) = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        validate_message_file_scope(&data, source_host_id, root, root_id)?;
+        let host = data
+            .active_host
+            .clone()
+            .ok_or_else(|| "当前连接没有已保存的主机凭证".to_string())?;
+        (host, data.connection_generation)
+    };
+    let endpoint = host
+        .addresses
+        .first()
+        .cloned()
+        .ok_or_else(|| "当前主机没有可用地址".to_string())?;
+    let password = HostStore::load()
+        .and_then(|store| store.password(&host))
+        .map_err(|error| format!("无法读取主机凭证：{error}"))?;
+    Ok(MessageFileHttpContext {
+        endpoint,
+        password,
+        host_id: host.id,
+        root,
+        root_id: root_id.to_owned(),
+        generation,
+    })
+}
+
+fn message_file_http_context_is_current(
+    data: &BridgeData,
+    context: &MessageFileHttpContext,
+) -> bool {
+    data.connection == "connected"
+        && data.connection_generation == context.generation
+        && data.active_host.as_ref().map(|host| host.id.as_str()) == Some(context.host_id.as_str())
+        && match context.root {
+            FileRefRoot::Project => data.state.projects.contains_key(&context.root_id),
+            FileRefRoot::Bot => data.state.bots.contains_key(&context.root_id),
+            FileRefRoot::Upload => true,
+        }
+}
+
+fn verify_message_file_http_context(
+    bridge: &SharedBridge,
+    context: &MessageFileHttpContext,
+) -> Result<(), String> {
+    let data = bridge
+        .0
+        .lock()
+        .map_err(|_| "客户端状态不可用".to_string())?;
+    if !message_file_http_context_is_current(&data, context) {
+        return Err("Bot 主机已切换，请重新打开图片".into());
+    }
+    Ok(())
+}
+
 fn artifact_http_context(
     bridge: &SharedBridge,
     project_id: &str,
@@ -3280,6 +3432,25 @@ async fn fetch_artifact_http(
     read_bounded_response(response, max_bytes, label).await
 }
 
+async fn fetch_message_file_http(
+    context: &MessageFileHttpContext,
+    path: &str,
+) -> Result<(Vec<u8>, String), String> {
+    let url = file_ref_url(&context.endpoint, context.root, &context.root_id, path)?;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(url)
+        .bearer_auth(&context.password)
+        .send()
+        .await
+        .map_err(|error| format!("读取图片失败：{error}"))?;
+    read_bounded_response(response, MAX_ARTIFACT_PREVIEW_BYTES, "图片").await
+}
+
 fn artifact_file_preview(body: Vec<u8>, mime: String) -> Value {
     let size = body.len();
     let essence = mime
@@ -3352,6 +3523,25 @@ async fn read_artifact_file(
     let (body, mime) =
         fetch_artifact_http(&context, &path, false, MAX_ARTIFACT_PREVIEW_BYTES, "文件").await?;
     verify_artifact_http_context(&bridge, &context)?;
+    Ok(artifact_file_preview(body, mime))
+}
+
+#[tauri::command]
+async fn read_message_file(
+    bridge: State<'_, SharedBridge>,
+    source_host_id: String,
+    root: String,
+    root_id: String,
+    path: String,
+) -> Result<Value, String> {
+    let root = FileRefRoot::parse(&root)?;
+    if !valid_deep_link_id(&root_id) {
+        return Err("文件 ID 无效".into());
+    }
+    validate_message_file_path(&path)?;
+    let context = message_file_http_context(&bridge, &source_host_id, root, &root_id)?;
+    let (body, mime) = fetch_message_file_http(&context, &path).await?;
+    verify_message_file_http_context(&bridge, &context)?;
     Ok(artifact_file_preview(body, mime))
 }
 
@@ -3723,6 +3913,7 @@ pub fn run() {
             upload_chat_attachment,
             list_artifact_directory,
             read_artifact_file,
+            read_message_file,
             pick_and_upload_home_attachment,
             capture_and_upload_screenshot,
             trace_subscribe,
@@ -3771,16 +3962,18 @@ mod tests {
         authorized_project_home, chat_attachment_payload, clear_negotiated_versions,
         close_window_action, connection_is_current, diagnostics_text, drain_pending_deep_links,
         encode_screen_frame, enqueue_message_deep_link, expand_home_path, fetch_artifact_http,
-        finish_trace_unsubscribe, inject_client_locale, memory_protocol_event_payload,
-        negotiated_versions, normalize_bcp47_locale, notification_preference_storage_key,
-        parse_message_deep_link, pending_message, redact_endpoint, resolve_home_attachment_path,
+        fetch_message_file_http, file_ref_url, finish_trace_unsubscribe, inject_client_locale,
+        memory_protocol_event_payload, message_file_http_context_is_current, negotiated_versions,
+        normalize_bcp47_locale, notification_preference_storage_key, parse_message_deep_link,
+        pending_message, redact_endpoint, resolve_home_attachment_path,
         resolve_project_artifact_path, retain_trace_cleanup, route_trace_event,
         screen_connection_payload, screen_generation_matches, should_reopen_main_window,
         skill_upload_payload, snapshot, system_settings_url, trace_subscription_state,
         trace_tauri_event, tray_menu_copy, update_check_result, uploaded_chat_attachment,
-        uploaded_skill_id, validate_artifact_file_path, validate_screen_input, write_diagnostics,
-        ArtifactHttpContext, BridgeData, CloseWindowAction, DeepLinkDispatch, HostRecord,
-        InvokeBody, MessageDeepLink, PendingTraceCleanup, ScreenFrame, ScreenPoint,
+        uploaded_skill_id, validate_artifact_file_path, validate_message_file_path,
+        validate_message_file_scope, validate_screen_input, write_diagnostics, ArtifactHttpContext,
+        BridgeData, CloseWindowAction, DeepLinkDispatch, FileRefRoot, HostRecord, InvokeBody,
+        MessageDeepLink, MessageFileHttpContext, PendingTraceCleanup, ScreenFrame, ScreenPoint,
         SystemPermission, TraceScope, TraceSubscription, TrayMenuCopy, UpdateStatus,
         MAX_ARTIFACT_DIRECTORY_ENTRIES, MAX_ARTIFACT_LIST_BYTES, MAX_ARTIFACT_PREVIEW_BYTES,
         MAX_BUFFERED_TRACE_BYTES, MAX_PENDING_DEEP_LINKS, MAX_SCREEN_JPEG_BYTES,
@@ -4227,6 +4420,126 @@ mod tests {
         assert!(artifact_http_context_is_current(&data, &context));
         data.connection_generation += 1;
         assert!(!artifact_http_context_is_current(&data, &context));
+    }
+
+    #[test]
+    fn message_file_url_uses_fixed_files_route_and_encodes_file_ref_values() {
+        let url = file_ref_url(
+            "wss://example.test:7788/ws",
+            FileRefRoot::Bot,
+            "bot:one",
+            "images/a b.png",
+        )
+        .unwrap();
+        let parsed = url::Url::parse(&url).unwrap();
+        assert_eq!(parsed.scheme(), "https");
+        assert_eq!(parsed.path(), "/api/v1/files");
+        let query = parsed
+            .query_pairs()
+            .into_owned()
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(query.get("root").map(String::as_str), Some("bot"));
+        assert_eq!(query.get("root_id").map(String::as_str), Some("bot:one"));
+        assert_eq!(
+            query.get("path").map(String::as_str),
+            Some("images/a b.png")
+        );
+        assert!(FileRefRoot::parse("https://attacker.invalid/file.png").is_err());
+        assert!(validate_message_file_path("images/preview.png").is_ok());
+        assert!(validate_message_file_path("/tmp/outside.png").is_err());
+        assert!(validate_message_file_path("../outside.png").is_err());
+        assert_eq!(MAX_ARTIFACT_PREVIEW_BYTES, 5 * 1024 * 1024);
+    }
+
+    #[test]
+    fn message_file_scope_binds_root_and_source_host() {
+        let mut data = BridgeData {
+            connection: "connected",
+            connection_generation: 12,
+            active_host: Some(HostRecord {
+                id: "host-1".into(),
+                name: "Host 1".into(),
+                node_id: None,
+                addresses: vec!["127.0.0.1:7789".into()],
+                last_seq: 0,
+                device_id: "device".into(),
+            }),
+            ..BridgeData::default()
+        };
+        data.state.projects.insert("project-1".into(), json!({}));
+        data.state.bots.insert("bot-1".into(), json!({}));
+        assert!(
+            validate_message_file_scope(&data, "host-1", FileRefRoot::Project, "project-1").is_ok()
+        );
+        assert!(
+            validate_message_file_scope(&data, "host-2", FileRefRoot::Project, "project-1")
+                .is_err()
+        );
+        assert!(validate_message_file_scope(
+            &data,
+            "host-1",
+            FileRefRoot::Project,
+            "other-project"
+        )
+        .is_err());
+        assert!(validate_message_file_scope(&data, "host-1", FileRefRoot::Bot, "bot-1").is_ok());
+        assert!(
+            validate_message_file_scope(&data, "host-1", FileRefRoot::Bot, "other-bot").is_err()
+        );
+        assert!(validate_message_file_scope(&data, "host-1", FileRefRoot::Upload, "upl-1").is_ok());
+
+        let context = MessageFileHttpContext {
+            endpoint: "https://host-1".into(),
+            password: "secret".into(),
+            host_id: "host-1".into(),
+            root: FileRefRoot::Project,
+            root_id: "project-1".into(),
+            generation: 12,
+        };
+        assert!(message_file_http_context_is_current(&data, &context));
+        data.connection_generation += 1;
+        assert!(!message_file_http_context_is_current(&data, &context));
+    }
+
+    #[test]
+    fn message_file_fetch_uses_current_host_bearer_and_protocol_file_route() {
+        let (endpoint, server) = mock_files_http(vec![0x89, b'P', b'N', b'G'], "image/png");
+        let context = MessageFileHttpContext {
+            endpoint,
+            password: "host-secret".into(),
+            host_id: "host-1".into(),
+            root: FileRefRoot::Upload,
+            root_id: "upl-1".into(),
+            generation: 5,
+        };
+        let (body, mime) =
+            tauri::async_runtime::block_on(fetch_message_file_http(&context, "upl-1/preview.png"))
+                .unwrap();
+        assert_eq!(body, [0x89, b'P', b'N', b'G']);
+        assert!(mime.starts_with("image/png"));
+        let request = server.join().unwrap();
+        let target = request
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap();
+        let parsed = url::Url::parse(&format!("http://localhost{target}")).unwrap();
+        let query = parsed
+            .query_pairs()
+            .into_owned()
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(parsed.path(), "/api/v1/files");
+        assert_eq!(query.get("root").map(String::as_str), Some("upload"));
+        assert_eq!(query.get("root_id").map(String::as_str), Some("upl-1"));
+        assert_eq!(
+            query.get("path").map(String::as_str),
+            Some("upl-1/preview.png")
+        );
+        assert!(request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("authorization: Bearer host-secret")));
     }
 
     #[test]

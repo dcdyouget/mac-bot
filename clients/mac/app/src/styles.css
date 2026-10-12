@@ -124,6 +124,41 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .task-card-done-line > svg { flex: none; color: var(--success); }
 .task-card-done-line .task-detail-button { margin-left: 2px; }
 .message-blocks { display: flex; flex-direction: column; gap: 9px; min-width: 280px; }
+.protocol-status-block { display: flex; width: 100%; box-sizing: border-box; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--bg-elevated); color: var(--text-secondary); text-align: left; font: inherit; }
+button.protocol-status-block { cursor: pointer; }
+button.protocol-status-block:hover { border-color: var(--accent); background: var(--accent-soft); }
+.protocol-status-block > svg:first-child { flex: none; color: var(--warning); }
+.protocol-status-block > span { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; font-size: 11px; }
+.protocol-status-block small { color: var(--text-tertiary); font-size: 10px; }
+.protocol-link-preview { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--bg-elevated); color: var(--text-primary); text-decoration: none; }
+.protocol-link-preview:hover { border-color: var(--accent); background: var(--accent-soft); }
+.protocol-link-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.protocol-link-copy small, .protocol-link-copy code { overflow: hidden; color: var(--text-tertiary); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.protocol-link-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.protocol-link-copy > span { overflow: hidden; color: var(--text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.protocol-link-copy code { display: flex; align-items: center; gap: 4px; }
+.protocol-link-preview-thumb { display: flex; width: 56px; height: 56px; flex: none; flex-direction: column; align-items: center; justify-content: center; gap: 3px; overflow: hidden; border-radius: 6px; background: var(--bg-sidebar); color: var(--text-tertiary); }
+.protocol-link-preview-thumb small { max-width: 52px; overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.protocol-link-preview-thumb img { width: 56px; height: 56px; border-radius: 5px; object-fit: cover; }
+.protocol-link-image-inner { display: flex; width: 56px; height: 56px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; overflow: hidden; }
+.protocol-link-image-inner small { max-width: 52px; overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.protocol-image-wrap { width: 100%; }
+.protocol-image-button { display: block; width: 100%; max-height: 240px; padding: 0; overflow: hidden; border: 0; border-radius: 12px; background: transparent; cursor: zoom-in; }
+.protocol-image-button img { display: block; width: 100%; max-height: 240px; object-fit: contain; }
+.protocol-image-loading { display: flex; min-height: 72px; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--border-subtle); border-radius: 10px; color: var(--text-tertiary); font-size: 11px; }
+.protocol-image-viewer { position: fixed; z-index: 1000; inset: 0; display: flex; align-items: center; justify-content: center; padding: 48px; background: rgb(0 0 0 / 78%); }
+.protocol-image-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.protocol-image-close { position: absolute; top: 16px; right: 16px; padding: 7px 10px; border: 1px solid rgb(255 255 255 / 24%); border-radius: 8px; background: rgb(0 0 0 / 40%); color: white; cursor: pointer; }
+.protocol-file-block { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 7px 9px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-elevated); color: var(--text-secondary); }
+.protocol-file-block > svg { flex: none; color: var(--accent); }
+.protocol-file-block > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.protocol-file-block strong { overflow: hidden; color: var(--text-primary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.protocol-file-block small { color: var(--text-tertiary); font-size: 9px; }
+.protocol-blocked { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border: 1px solid var(--danger); border-radius: 9px; background: var(--danger-soft); color: var(--text-secondary); }
+.protocol-blocked header, .protocol-blocked footer { display: flex; align-items: center; gap: 7px; }
+.protocol-blocked header { color: var(--danger); font-size: 11px; }
+.protocol-blocked p, .protocol-blocked small { margin: 0; font-size: 10px; }
+.protocol-blocked footer { margin-top: 2px; }
 .message-text-block { margin: 0; white-space: pre-wrap; }
 .skill-message-line { white-space: pre-wrap; }
 .skill-message-chip { display: inline-flex; align-items: center; gap: 4px; height: 22px; margin-right: 5px; padding: 0 6px; vertical-align: -4px; border-radius: 6px; color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); font: 500 12px var(--font-family-mono); }
@@ -174,6 +209,8 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .approval-action.deny { color: var(--danger); }
 .approval-error { color: var(--danger) !important; }
 .approval-reference { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px; border-radius: 8px; background: var(--warning-soft); color: var(--warning); font-size: 11px; }
+.approval-reference { width: 100%; border: 0; text-align: left; cursor: pointer; }
+.approval-reference > strong { margin-left: auto; font-size: 10px; font-weight: 500; }
 .approval-reference small { width: 100%; color: var(--text-secondary); }
 .project-card-wrap { min-width: 320px; }
 .project-card, .review-card, .completion-card { min-width: 320px; padding: 12px; border: 1px solid var(--border-default); border-radius: 12px; background: color-mix(in srgb, var(--bg-window) 82%, transparent); color: var(--text-primary); text-align: left; white-space: normal; }
