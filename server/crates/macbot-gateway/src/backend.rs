@@ -737,7 +737,6 @@ impl ComposedBackend {
             let assignment_id = request.assignment_id.clone();
             let run_id = request.run_id.clone();
             self.mark_waiting(assignment_id.as_deref(), &request.run_id, true);
-            let _ = self.feature_service.begin_memory_run(&request.run_id);
             let continuation = engine.reject_invalid_pending_tool(request, &call_id).await;
             if let Ok(mut active) = self.active_runs.lock() {
                 active.remove(&active_key);
@@ -4715,7 +4714,7 @@ fn bot_tool_allowlist(
 /// runtime-owned bridge supplies the broader, still membership-filtered view
 /// without weakening the feature service's write authorization.
 struct ProjectFindToolBridge {
-    service: Arc<FeatureService>,
+    runtime: FeatureToolRuntime,
     visible_project_ids: Vec<String>,
 }
 
@@ -4733,7 +4732,10 @@ impl Tool for ProjectFindToolBridge {
         json!({
             "type":"object",
             "required":["query"],
-            "properties":{"query":{"type":"string"}}
+            "properties":{
+                "query":{"type":"string"},
+                "project_id":{"type":"string","description":"Optional id from a returned project result to load its memory into the current private chat."}
+            }
         })
     }
 
@@ -4749,22 +4751,59 @@ impl Tool for ProjectFindToolBridge {
         let Some(query) = query else {
             return ToolResult::error("query is required");
         };
-        match self.service.project_find(query) {
-            Ok(projects) => {
-                let projects = projects
-                    .into_iter()
-                    .filter(|project| self.visible_project_ids.iter().any(|id| id == &project.id))
-                    .collect::<Vec<_>>();
-                let details = json!({"projects": projects});
-                ToolResult {
-                    content: vec![Part::Text {
-                        text: details.to_string(),
-                    }],
-                    details,
-                    is_error: false,
+        let result = (|| -> Result<Value, FeatureError> {
+            let bot_id = self.runtime.run.actor.bot_id().ok_or_else(|| {
+                FeatureError::NotAllowed("project search requires a Bot actor".into())
+            })?;
+            let user_id = self
+                .runtime
+                .run
+                .access
+                .user_id
+                .clone()
+                .unwrap_or_else(|| "local-user".into());
+            let mut projects: Vec<ProjectRecord> = Vec::new();
+            for project_id in &self.visible_project_ids {
+                let access = MemoryAccess::group_for_user(
+                    user_id.clone(),
+                    project_id.clone(),
+                    vec![bot_id.to_owned()],
+                );
+                for project in self.runtime.service.project_find_for_access(
+                    &self.runtime.run.actor,
+                    &access,
+                    query,
+                )? {
+                    if !projects.iter().any(|found| found.id == project.id) {
+                        projects.push(project);
+                    }
                 }
             }
-            Err(error) => ToolResult::error(error),
+            let selected = args.get("project_id").and_then(Value::as_str);
+            if let Some(project_id) = selected {
+                if !projects.iter().any(|project| project.id == project_id) {
+                    return Err(FeatureError::NotAllowed(
+                        "project id must be selected from authorized project_find results".into(),
+                    ));
+                }
+                if !self.runtime.run.private {
+                    return Err(FeatureError::NotAllowed(
+                        "project memory can only be loaded into a private chat".into(),
+                    ));
+                }
+                self.runtime.select_project_id(project_id.to_owned())?;
+            }
+            Ok(json!({"projects":projects,"selected_project_id":selected}))
+        })();
+        match result {
+            Ok(details) => ToolResult {
+                content: vec![Part::Text {
+                    text: details.to_string(),
+                }],
+                details,
+                is_error: false,
+            },
+            Err(error) => ToolResult::error(error.to_string()),
         }
     }
 }
@@ -4916,10 +4955,6 @@ impl RuntimeExecution {
     pub async fn run(&self, request: ExecutionRequest) -> Result<ExecutionOutcome, RuntimeError> {
         self.configure_feature_runtime().await?;
         self.persist_request(&request)?;
-        // Start the staged memory transaction before model/tool execution.
-        // A duplicate durable run may already own the transaction after a
-        // crash, which is safe to leave untouched.
-        let _ = self.feature_service.begin_memory_run(&request.run_id);
         Ok(self
             .configured_engine_for(&request)
             .await?
@@ -5328,7 +5363,6 @@ impl RuntimeExecution {
                 }
             }
             let assignment_id = request.assignment_id.clone();
-            let _ = self.feature_service.begin_memory_run(&request.run_id);
             let outcome = self
                 .configured_engine_for(&request)
                 .await?
@@ -5455,7 +5489,6 @@ impl RuntimeExecution {
                 continue;
             }
             let assignment = request.assignment_id.clone();
-            let _ = self.feature_service.begin_memory_run(&request.run_id);
             let outcome = self
                 .configured_engine_for(&request)
                 .await?
@@ -5725,7 +5758,6 @@ impl RuntimeExecution {
                 continue;
             }
             let assignment = request.assignment_id.clone();
-            let _ = self.feature_service.begin_memory_run(&request.run_id);
             let outcome = match continuation {
                 WaitingContinuation::Question(answer) => {
                     self.configured_engine_for(&request)
@@ -5994,7 +6026,7 @@ impl RuntimeExecution {
 
     fn feature_access(&self, request: &ExecutionRequest) -> MemoryAccess {
         let Some(project_id) = request.project_id.as_deref() else {
-            return MemoryAccess::user("user");
+            return MemoryAccess::user("local-user");
         };
         let members = self
             .backend
@@ -6021,7 +6053,7 @@ impl RuntimeExecution {
                     })
             })
             .unwrap_or_default();
-        MemoryAccess::group_for_user("user", project_id.to_owned(), members)
+        MemoryAccess::group_for_user("local-user", project_id.to_owned(), members)
     }
 
     fn visible_project_ids(&self, request: &ExecutionRequest, is_main: bool) -> Vec<String> {
@@ -6243,6 +6275,17 @@ impl RuntimeExecution {
                 .tools
                 .as_ref()
                 .is_some_and(|tools| tools.iter().any(|tool| tool == "set_user_profile"));
+        context.host_timezone = self
+            .store
+            .read_snapshot::<Value>("data/settings.json")
+            .ok()
+            .flatten()
+            .and_then(|settings| {
+                settings
+                    .get("timezone")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
         context.access = self.feature_access(request);
         context.recent_context = request
             .messages
@@ -6301,7 +6344,7 @@ impl RuntimeExecution {
         tools.extend(feature_runtime.tools());
         if !is_main {
             tools.push(Arc::new(ProjectFindToolBridge {
-                service: self.feature_service.clone(),
+                runtime: feature_runtime.clone(),
                 visible_project_ids: self.visible_project_ids(request, is_main),
             }));
         }
