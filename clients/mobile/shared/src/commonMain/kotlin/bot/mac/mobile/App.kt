@@ -49,7 +49,7 @@ import bot.mac.mobile.feature.bots.*
 import bot.mac.mobile.feature.settings.SettingsScreen
 import bot.mac.mobile.feature.memory.MemoryScreen
 import bot.mac.mobile.feature.memory.MemoryEntryEditorScreen
-import bot.mac.mobile.feature.memory.MemoryProfileEditorScreen
+import bot.mac.mobile.feature.memory.MemoryProfileEditScreen
 import bot.mac.mobile.feature.approval.ApprovalScreen
 import bot.mac.mobile.feature.dashboard.DashboardScreen
 import bot.mac.mobile.feature.skills.SkillsScreen
@@ -328,9 +328,9 @@ import org.jetbrains.compose.resources.stringResource
                         )
                         page == "bot_editor" -> BotEditorScreen(repository, target.ifBlank { null }, { open("bots") }, back)
                         page == "settings" -> SettingsScreen(repository, back)
-                        page == "memory" -> MemoryScreen(repository, back, { open("memory_edit", it) }, { open("memory_profile", it) }, { chatId, messageId -> openChat(chatId, messageId) })
+                        page == "memory" -> MemoryScreen(repository, back, { open("memory_edit", it) }, { open("profile_edit", it) }, { chatId, messageId -> openChat(chatId, messageId) })
                         page == "memory_edit" -> MemoryEntryEditorScreen(repository, target, back) { chatId, messageId -> openChat(chatId, messageId) }
-                        page == "memory_profile" -> MemoryProfileEditorScreen(repository, target, back)
+                        page == "profile_edit" -> MemoryProfileEditScreen(repository, target, back)
                         page == "approvals" -> ApprovalScreen(repository, back, target.ifBlank { null })
                         page == "file" -> FilePreview(repository, target, secondTarget, back)
                         page == "dashboard" -> DashboardScreen(repository, back, { open("connect") })
