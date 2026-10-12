@@ -1079,8 +1079,6 @@ internal fun ChatMessageRow(
     }
     val haptics = LocalHapticFeedback.current
     val clipboard = LocalClipboardManager.current
-    val previousQuestionLabel = stringResource(Res.string.feature_question_previous)
-    val nextQuestionLabel = stringResource(Res.string.feature_question_next)
     val swipeThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
     var didSwipeReply by remember(messageIdentity) { mutableStateOf(false) }
     var exactTimeOffsetPx by remember(messageIdentity) { mutableStateOf(0f) }
@@ -1275,88 +1273,34 @@ internal fun ChatMessageRow(
                 if (unknown) Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp), border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault)) {
                     Text("⚠ ${fallback.ifBlank { stringResource(Res.string.feature_unknown_block) }} · ${stringResource(Res.string.feature_update_client)}", Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall)
                 }
-                val questionBlocks = blocks.mapNotNull { it as? JsonObject }.filter { it.str("type") == "question" }
-                val questionIds = questionBlocks.map { it.str("question_id") }
-                var selectedQuestion by remember(message.str("id"), questionIds) {
-                    mutableStateOf(questionBlocks.indexOfFirst { block ->
-                        state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "pending"
-                    }.coerceAtLeast(0))
-                }
-                LaunchedEffect(questionIds, state.questions.map { it.str("id") to it.str("state") }) {
-                    if (questionBlocks.isNotEmpty() && state.questions.firstOrNull { it.str("id") == questionIds.getOrNull(selectedQuestion) }?.str("state") == "answered") {
-                        val nextPending = questionBlocks.indexOfFirst { block ->
-                            state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "pending"
-                        }
-                        if (nextPending >= 0) selectedQuestion = nextPending
-                    }
-                }
-                if (questionBlocks.size > 1) {
-                    val answered = questionBlocks.count { block -> state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "answered" }
-                    val swipeThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 48.dp.toPx() }
-                    Box(
-                        Modifier.fillMaxWidth().pointerInput(questionBlocks.size, swipeThreshold) {
-                            var drag = 0f
-                            detectHorizontalDragGestures(
-                                onHorizontalDrag = { change, amount -> drag += amount; change.consume() },
-                                onDragEnd = {
-                                    when {
-                                        drag <= -swipeThreshold -> selectedQuestion = (selectedQuestion + 1).coerceAtMost(questionBlocks.lastIndex)
-                                        drag >= swipeThreshold -> selectedQuestion = (selectedQuestion - 1).coerceAtLeast(0)
-                                    }
-                                    drag = 0f
-                                },
-                                onDragCancel = { drag = 0f },
+                groupAdjacentQuestions(displayBlocks.mapNotNull { it as? JsonObject }).forEach { blockRun ->
+                    val block = blockRun.first()
+                    if (block.str("type") == "question" && blockRun.size > 1) {
+                            MessageQuestionDeck(
+                                messageId = message.str("id"),
+                                questionBlocks = blockRun,
+                                state = state,
+                                onApproval = onApproval,
+                                onQuestion = onQuestion,
+                                onPreviewFile = onPreviewFile,
+                                onExportFile = onExportFile,
+                                filePreviews = filePreviews,
+                                imagePreviews = imagePreviews,
+                                onOpenTrace = onOpenTrace,
+                                onOpenProject = onOpenProject,
+                                onProjectAction = onProjectAction,
+                                onOpenScreen = onOpenScreen,
+                                onOpenChat = onOpenChat,
+                                onLoopAction = onLoopAction,
+                                onTakeover = onTakeover,
+                                onReleaseTakeover = onReleaseTakeover,
+                                onOpenArtifact = onOpenArtifact,
+                                artifactProjectId = artifactProjectId,
+                                repository = repository,
                             )
-                        },
-                    ) {
-                        val pendingAfter = (selectedQuestion + 1 until questionBlocks.size).count { index ->
-                            state.questions.firstOrNull { it.str("id") == questionIds[index] }?.str("state") == "pending"
-                        }.coerceAtMost(2)
-                        repeat(pendingAfter) { layer ->
-                            Surface(
-                                Modifier.fillMaxWidth().padding(horizontal = ((layer + 1) * 8).dp).offset(y = ((layer + 1) * 8).dp).height(148.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (layer == 0) palette.panel else palette.panel.copy(alpha = .78f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault),
-                            ) { }
-                        }
-                        Column(Modifier.fillMaxWidth().background(palette.panel, RoundedCornerShape(12.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            if (answered == questionBlocks.size) stringResource(Res.string.feature_question_stack_answered, questionBlocks.size)
-                            else stringResource(Res.string.feature_question_stack_title, questionBlocks.size, selectedQuestion + 1, answered),
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(enabled = selectedQuestion > 0, onClick = { selectedQuestion-- }, modifier = Modifier.semantics { contentDescription = previousQuestionLabel }) { LucideIcon(LucideIconKind.ChevronLeft, Modifier.size(18.dp)) }
-                            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                                questionBlocks.forEachIndexed { index, block ->
-                                    val status = state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state")
-                                    val tabLabel = stringResource(Res.string.block_question_tab, index + 1)
-                                    TextButton(onClick = { selectedQuestion = index }, modifier = Modifier.semantics {
-                                        contentDescription = tabLabel
-                                    }) {
-                                        Text(if (answered == questionBlocks.size) "✓ $tabLabel" else if (status == "answered") "✓ ${index + 1}" else (index + 1).toString())
-                                    }
-                                }
-                            }
-                            TextButton(enabled = selectedQuestion < questionBlocks.lastIndex, onClick = { selectedQuestion++ }, modifier = Modifier.semantics { contentDescription = nextQuestionLabel }) { LucideIcon(LucideIconKind.ChevronRight, Modifier.size(18.dp)) }
-                        }
-                        questionBlocks.getOrNull(selectedQuestion)?.let { block ->
-                            BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
+                    } else {
+                        BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
                             onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
-                        }
-                    }
-                    }
-                }
-                var questionStackRendered = false
-                displayBlocks.forEach { element ->
-                    (element as? JsonObject)?.let { block ->
-                        if (block.str("type") == "question" && questionBlocks.size > 1) {
-                            if (!questionStackRendered) questionStackRendered = true
-                        } else {
-                            BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
-                                onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
-                        }
                     }
                 }
                 if (assignmentId.isNotBlank()) {
@@ -1414,6 +1358,104 @@ internal fun ChatMessageRow(
                             .onFailure { messageActionError = true }
                     }
                 }) { Text(stringResource(Res.string.chat_menu_delete), color = MaterialTheme.colorScheme.error) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageQuestionDeck(
+    messageId: String,
+    questionBlocks: List<JsonObject>,
+    state: MobileState,
+    onApproval: (String, String) -> Unit,
+    onQuestion: (String, Int?, List<Int>?, String?) -> Unit,
+    onPreviewFile: (JsonObject) -> Unit,
+    onExportFile: (JsonObject) -> Unit,
+    filePreviews: Map<String, String>,
+    imagePreviews: Map<String, ImageBitmap>,
+    onOpenTrace: (String?, String?) -> Unit,
+    onOpenProject: (String) -> Unit,
+    onProjectAction: (String, String) -> Unit,
+    onOpenScreen: (String, String?) -> Unit,
+    onOpenChat: (String) -> Unit,
+    onLoopAction: (String, String) -> Unit,
+    onTakeover: (String) -> Unit,
+    onReleaseTakeover: (String) -> Unit,
+    onOpenArtifact: (String, String, String?) -> Unit,
+    artifactProjectId: String?,
+    repository: MobileRepository,
+) {
+    val palette = LocalMobilePalette.current
+    val previousQuestionLabel = stringResource(Res.string.feature_question_previous)
+    val nextQuestionLabel = stringResource(Res.string.feature_question_next)
+    val questionIds = questionBlocks.map { it.str("question_id") }
+    var selectedQuestion by remember(messageId, questionIds) {
+        mutableStateOf(questionBlocks.indexOfFirst { block ->
+            state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "pending"
+        }.coerceAtLeast(0))
+    }
+    LaunchedEffect(questionIds, state.questions.map { it.str("id") to it.str("state") }) {
+        if (state.questions.firstOrNull { it.str("id") == questionIds.getOrNull(selectedQuestion) }?.str("state") == "answered") {
+            val nextPending = questionBlocks.indexOfFirst { block ->
+                state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "pending"
+            }
+            if (nextPending >= 0) selectedQuestion = nextPending
+        }
+    }
+    val answered = questionBlocks.count { block ->
+        state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "answered"
+    }
+    val swipeThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 48.dp.toPx() }
+    Box(
+        Modifier.fillMaxWidth().pointerInput(questionIds, swipeThreshold) {
+            var drag = 0f
+            detectHorizontalDragGestures(
+                onHorizontalDrag = { change, amount -> drag += amount; change.consume() },
+                onDragEnd = {
+                    when {
+                        drag <= -swipeThreshold -> selectedQuestion = (selectedQuestion + 1).coerceAtMost(questionBlocks.lastIndex)
+                        drag >= swipeThreshold -> selectedQuestion = (selectedQuestion - 1).coerceAtLeast(0)
+                    }
+                    drag = 0f
+                },
+                onDragCancel = { drag = 0f },
+            )
+        },
+    ) {
+        val pendingAfter = (selectedQuestion + 1 until questionBlocks.size).count { index ->
+            state.questions.firstOrNull { it.str("id") == questionIds[index] }?.str("state") == "pending"
+        }.coerceAtMost(2)
+        repeat(pendingAfter) { layer ->
+            Surface(
+                Modifier.fillMaxWidth().padding(horizontal = ((layer + 1) * 8).dp).offset(y = ((layer + 1) * 8).dp).height(148.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = if (layer == 0) palette.panel else palette.panel.copy(alpha = .78f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault),
+            ) { }
+        }
+        Column(Modifier.fillMaxWidth().background(palette.panel, RoundedCornerShape(12.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                if (answered == questionBlocks.size) stringResource(Res.string.feature_question_stack_answered, questionBlocks.size)
+                else stringResource(Res.string.feature_question_stack_title, questionBlocks.size, selectedQuestion + 1, answered),
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(enabled = selectedQuestion > 0, onClick = { selectedQuestion-- }, modifier = Modifier.semantics { contentDescription = previousQuestionLabel }) { LucideIcon(LucideIconKind.ChevronLeft, Modifier.size(18.dp)) }
+                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    questionBlocks.forEachIndexed { index, block ->
+                        val status = state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state")
+                        val tabLabel = stringResource(Res.string.block_question_tab, index + 1)
+                        TextButton(onClick = { selectedQuestion = index }, modifier = Modifier.semantics { contentDescription = tabLabel }) {
+                            Text(if (answered == questionBlocks.size) "✓ $tabLabel" else if (status == "answered") "✓ ${index + 1}" else (index + 1).toString())
+                        }
+                    }
+                }
+                TextButton(enabled = selectedQuestion < questionBlocks.lastIndex, onClick = { selectedQuestion++ }, modifier = Modifier.semantics { contentDescription = nextQuestionLabel }) { LucideIcon(LucideIconKind.ChevronRight, Modifier.size(18.dp)) }
+            }
+            questionBlocks.getOrNull(selectedQuestion)?.let { block ->
+                BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
+                    onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
             }
         }
     }
