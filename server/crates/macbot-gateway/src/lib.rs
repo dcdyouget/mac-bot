@@ -4927,6 +4927,49 @@ mod tests {
             .contains("版本 2：仅做邮箱登录"));
         assert!(!dir.path().join("projects/old-login").exists());
 
+        let review_file = gw
+            .router()
+            .clone()
+            .oneshot(
+                http::Request::builder()
+                    .uri("/api/v1/files?root=project&root_id=prj_mock_review&path=docs%2Fbrief.md")
+                    .header("authorization", "Bearer dev")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(review_file.status(), StatusCode::OK);
+        let review_file_bytes = axum::body::to_bytes(review_file.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(String::from_utf8(review_file_bytes.to_vec())
+            .unwrap()
+            .contains("Mock 待验收项目"));
+
+        let review_dir = gw
+            .router()
+            .clone()
+            .oneshot(
+                http::Request::builder()
+                    .uri("/api/v1/files/list?root=project&root_id=prj_mock_review&path=src")
+                    .header("authorization", "Bearer dev")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(review_dir.status(), StatusCode::OK);
+        let review_dir_bytes = axum::body::to_bytes(review_dir.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let review_dir_result: Value = serde_json::from_slice(&review_dir_bytes).unwrap();
+        assert!(review_dir_result["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["name"] == "main.rs" && entry["is_dir"] == false }));
+
         let response = gw
             .router()
             .oneshot(

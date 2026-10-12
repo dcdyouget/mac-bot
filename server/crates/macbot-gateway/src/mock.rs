@@ -924,7 +924,6 @@ fn mock_lexically_normalize(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
-    seed_mock_artifact_files(state, home);
     if !state.settings.get("tools").is_some_and(Value::is_object) {
         state.settings["tools"] = json!({});
     }
@@ -1019,6 +1018,10 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     ensure_mock_user_memory(state);
     ensure_message_block_scenarios(state);
     ensure_mock_artifact_history(state);
+    // The pending-review fixture creates its project and artifact references
+    // above, so seed its files only after that fixture is present.
+    seed_mock_artifact_files(state, home);
+    ensure_mock_routines(state);
 }
 
 fn seed_mock_artifact_files(state: &MockState, home: &std::path::Path) {
@@ -1046,23 +1049,152 @@ fn seed_mock_artifact_files(state: &MockState, home: &std::path::Path) {
         ),
     ];
     for (path, contents) in files {
-        let Some(parent) = path.parent() else {
-            continue;
-        };
-        if std::fs::create_dir_all(parent).is_err() {
-            continue;
-        }
-        // Mock startup may run repeatedly. Only create missing files so an
-        // existing project artifact or user edit is never replaced.
-        let Ok(mut file) = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-        else {
-            continue;
-        };
-        let _ = std::io::Write::write_all(&mut file, contents.as_bytes());
+        seed_mock_file(&path, contents);
     }
+
+    let review_slug = state
+        .projects
+        .iter()
+        .find(|project| project.get("id").and_then(Value::as_str) == Some("prj_mock_review"))
+        .and_then(|project| project.get("slug"))
+        .and_then(Value::as_str)
+        .filter(|slug| {
+            let mut components = std::path::Path::new(slug).components();
+            matches!(components.next(), Some(std::path::Component::Normal(_)))
+                && components.next().is_none()
+        })
+        .unwrap_or("mock-review");
+    let review_dir = home.join("projects").join(review_slug);
+    let review_files = [
+        (
+            review_dir.join("docs/brief.md"),
+            "# 项目说明\n\nMock 待验收项目：交付示例文件，用于验证项目目录和文件预览。\n",
+        ),
+        (
+            review_dir.join("src/main.rs"),
+            "fn main() {\n    println!(\"mock review artifact\");\n}\n",
+        ),
+        (
+            review_dir.join("reports/acceptance.md"),
+            "# 验收报告\n\nMock 场景示例：项目说明、实现代码和验收报告均已交付。\n",
+        ),
+    ];
+    for (path, contents) in review_files {
+        seed_mock_file(&path, contents);
+    }
+}
+
+fn seed_mock_file(path: &std::path::Path, contents: &str) {
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    // Mock startup may run repeatedly. Only create missing files so an
+    // existing project artifact or user edit is never replaced.
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    else {
+        return;
+    };
+    let _ = std::io::Write::write_all(&mut file, contents.as_bytes());
+}
+
+fn ensure_mock_routines(state: &mut MockState) {
+    if !extra_get(state, "mock_routines_seeded").is_empty() {
+        return;
+    }
+    if !extra_get(state, "routines").is_empty() {
+        extra_set(state, "mock_routines_seeded", vec![json!({"seeded":true})]);
+        return;
+    }
+
+    let now = Utc::now();
+    let at = |minutes_ago: i64| {
+        (now - Duration::minutes(minutes_ago)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    };
+    let first_started = at(8);
+    let first_finished = at(6);
+    let second_started = at(5 * 24 * 60 + 55);
+    let second_finished = at(5 * 24 * 60 + 53);
+    let third_started = at(6 * 24 * 60 + 50);
+    let third_finished = at(6 * 24 * 60 + 49);
+    let next_weekday = next_mock_routine_run(now, 1, true);
+    let next_daily = next_mock_routine_run(now, 1, false);
+
+    let routines = vec![
+        json!({
+            "id":"rtn_mock_x_scout", "bot_id":"bot_test", "project_id":null,
+            "name":"每日 X 科技侦察",
+            "instructions":"浏览 X 时间线，挑出 3 条科技新闻，每条用两句话总结，并附上原链接。",
+            "schedules":[{"cron":"0 9 * * 1-5","label":"工作日 09:00"}],
+            "timezone":"Asia/Shanghai", "enabled":true, "next_run_at":next_weekday,
+            "last_run":{
+                "id":"rrn_mock_x_scout_today", "routine_id":"rtn_mock_x_scout",
+                "assignment_id":null, "trigger":"schedule", "status":"done",
+                "started_at":first_started, "finished_at":first_finished, "error":null
+            },
+            "created_at":at(7 * 24 * 60), "updated_at":at(0)
+        }),
+        json!({
+            "id":"rtn_mock_morning_brief", "bot_id":"bot_main", "project_id":null,
+            "name":"晨报", "instructions":"汇总今天需要关注的会话和待处理事项。",
+            "schedules":[{"cron":"0 9 * * *","label":"每天 09:00"}],
+            "timezone":"Asia/Shanghai", "enabled":true, "next_run_at":next_daily,
+            "last_run":null, "created_at":at(14 * 24 * 60), "updated_at":at(0)
+        }),
+        json!({
+            "id":"rtn_mock_weekly_summary", "bot_id":"bot_product", "project_id":null,
+            "name":"周报汇总", "instructions":"整理本周项目进展和下周待办。",
+            "schedules":[{"cron":"0 18 * * 5","label":"周五 18:00"}],
+            "timezone":"Asia/Shanghai", "enabled":false, "next_run_at":null,
+            "last_run":{
+                "id":"rrn_mock_weekly_summary", "routine_id":"rtn_mock_weekly_summary",
+                "assignment_id":null, "trigger":"schedule", "status":"failed",
+                "started_at":third_started, "finished_at":third_finished, "error":"示例：登录失效"
+            },
+            "created_at":at(21 * 24 * 60), "updated_at":at(0)
+        }),
+    ];
+    let runs = vec![
+        json!({
+            "id":"rrn_mock_x_scout_today", "routine_id":"rtn_mock_x_scout",
+            "assignment_id":null, "trigger":"schedule", "status":"done",
+            "started_at":first_started, "finished_at":first_finished, "error":null
+        }),
+        json!({
+            "id":"rrn_mock_x_scout_20261007", "routine_id":"rtn_mock_x_scout",
+            "assignment_id":null, "trigger":"schedule", "status":"done",
+            "started_at":second_started, "finished_at":second_finished, "error":null
+        }),
+        json!({
+            "id":"rrn_mock_x_scout_20261006", "routine_id":"rtn_mock_x_scout",
+            "assignment_id":null, "trigger":"schedule", "status":"failed",
+            "started_at":third_started, "finished_at":third_finished, "error":"登录失效"
+        }),
+    ];
+    extra_set(state, "routines", routines);
+    extra_set(state, "routine_runs", runs);
+    extra_set(state, "mock_routines_seeded", vec![json!({"seeded":true})]);
+}
+
+fn next_mock_routine_run(now: DateTime<Utc>, hour_utc: u32, weekdays_only: bool) -> String {
+    let mut next = now
+        .date_naive()
+        .and_hms_opt(hour_utc, 0, 0)
+        .expect("valid mock routine time")
+        .and_utc();
+    loop {
+        let is_weekend = matches!(next.weekday(), chrono::Weekday::Sat | chrono::Weekday::Sun);
+        if next > now && (!weekdays_only || !is_weekend) {
+            break;
+        }
+        next += Duration::days(1);
+    }
+    next.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 fn ensure_mock_user_memory(state: &mut MockState) {
@@ -6373,6 +6505,47 @@ mod contract_tests {
         )
         .await;
         let _: Model = serde_json::from_value(model["model"].clone()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mock_routines_seed_three_design_examples_and_run_history_once() {
+        let gateway = gateway().await;
+        let _ = call(&gateway, "bootstrap", json!({})).await;
+
+        let listed = call(&gateway, "routine.list", json!({})).await;
+        let routines = listed["routines"].as_array().unwrap();
+        assert_eq!(routines.len(), 3);
+        for routine in routines {
+            let _: Routine = serde_json::from_value(routine.clone()).unwrap();
+        }
+        assert_eq!(routines[0]["name"], "每日 X 科技侦察");
+        assert_eq!(routines[0]["schedules"][0]["label"], "工作日 09:00");
+        assert_eq!(routines[0]["last_run"]["status"], "done");
+        assert_eq!(routines[2]["name"], "周报汇总");
+        assert_eq!(routines[2]["enabled"], false);
+
+        let runs = call(
+            &gateway,
+            "routine.runs",
+            json!({"routine_id":"rtn_mock_x_scout"}),
+        )
+        .await;
+        let run_rows = runs["runs"].as_array().unwrap();
+        assert_eq!(run_rows.len(), 3);
+        for run in run_rows {
+            let _: RoutineRun = serde_json::from_value(run.clone()).unwrap();
+        }
+
+        // The mock default is seeded once. Repeated reads keep it stable and
+        // do not duplicate rows or recreate routines after a user deletes them.
+        let _ = call(
+            &gateway,
+            "routine.delete",
+            json!({"routine_id":"rtn_mock_weekly_summary"}),
+        )
+        .await;
+        let listed_again = call(&gateway, "routine.list", json!({})).await;
+        assert_eq!(listed_again["routines"].as_array().unwrap().len(), 2);
     }
 
     #[tokio::test]
