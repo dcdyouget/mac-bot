@@ -22,3 +22,9 @@
 - 已有：`app/src/App.tsx:870` 从任务详情读取 `Assignment.pending_messages`，按消息 `delivery.state = queued` 收集完整消息列表；`app/src/components/TracePage.tsx:193` 展示列表、已查看状态及「改为插话」；轨迹 `queue.review` 事件已格式化。
 - 已有：工作台任务标题显示待看数量（`app/src/App.tsx:2911`），任务详情调用 `message.steer`，并保留服务端 assignment/message 更新。
 - 补齐：群聊输入栏在存在工作中 Bot 且草稿没有 @ 提及时显示待看提示；每个 Bot 的快捷按钮设置立即生效提及。消息送达状态现依据各条 `delivery` 展示 queued / delivered / read；群状态 chip 展示 `pending_messages` 数量。
+
+## §5 回复、引用与消息菜单
+
+- 已实现：`app/src/App.tsx:2710` 为消息时间线提供上下选择和 R/Q/⌘C 操作；`messageActions.model.ts` 在输入区、组合键和 IME 场景间过滤快捷键，并构造 `quote`、`quote_mode` 与回复目标 Bot mention。
+- 已实现：`app/src/components/ChatEntry.tsx:56` 的右键菜单包括表情、回复、引用、复制文字、引用到公告、查看工作详情、复制消息链接；仅用户消息追加删除。菜单支持 Escape 与方向键导航。
+- 已实现：输入框上方回复/引用条可取消，发送时调用协议 `chat.send.quote` / `quote_mode`，不创建线程。
