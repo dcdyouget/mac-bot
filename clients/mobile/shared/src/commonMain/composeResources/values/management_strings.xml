@@ -12,4 +12,5 @@
     <string name="approval_rule_kind_ask">先问我</string>
     <string name="approval_rule_kind_allow">自动允许</string>
     <string name="approval_save_failed">保存审批设置失败，请重试</string>
+    <string name="settings_notify_sound_hint">所有通知共用「啵啵 · 气泡」提示音</string>
 </resources>

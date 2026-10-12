@@ -27,6 +27,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.generated.HostPermissionsResult
@@ -156,6 +158,7 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
                     notificationSound = it
                     scope.launch { clientRepository?.setNotificationSound(it) }
                 }
+                Text(stringResource(Res.string.settings_notify_sound_hint), Modifier.padding(start = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 SettingSwitch(stringResource(Res.string.bot_field_notifications), notifications) {
                     notifications = it
                     scope.launch { clientRepository?.setNotifications(it) }
@@ -438,7 +441,7 @@ private fun PermissionStatusRow(label: String, state: String) {
 private fun SettingSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = onChange, modifier = Modifier.semantics { contentDescription = label })
     }
 }
 
