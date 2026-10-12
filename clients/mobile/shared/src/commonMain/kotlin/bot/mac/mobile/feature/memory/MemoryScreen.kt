@@ -129,7 +129,10 @@ fun MemoryScreen(
                 item {
                     Text(stringResource(Res.string.memory_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                item { ProfileCard(state.userProfile, onOpenProfileField) }
+                item {
+                    if (!loaded) ProfileSkeleton()
+                    else ProfileCard(repository, hostId, state.userProfile)
+                }
                 if (state.memoryQuota.isNotEmpty()) item { QuotaCard(state.memoryQuota) }
                 item {
                     OutlinedTextField(
@@ -191,36 +194,135 @@ fun MemoryScreen(
 }
 
 @Composable
-private fun ProfileCard(profile: JsonObject, onOpenField: (String) -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp)).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Text(stringResource(Res.string.memory_profile_title), style = MaterialTheme.typography.titleMedium)
-        ProfileRow(stringResource(Res.string.memory_profile_name), profile.str("name").ifBlank { "—" }) { onOpenField("name") }
-        ProfileRow(
-            stringResource(Res.string.memory_profile_language),
-            profile.str("language").ifBlank { stringResource(Res.string.memory_profile_language_system) },
-        ) { onOpenField("language") }
-        ProfileRow(stringResource(Res.string.memory_profile_identity), profile.str("identity").ifBlank { "—" }) { onOpenField("identity") }
-        ProfileRow(
-            stringResource(Res.string.memory_profile_timezone),
-            stringResource(Res.string.memory_profile_timezone_value, profile.str("timezone").ifBlank { "—" }),
-            enabled = false,
-        ) {}
+private fun ProfileSkeleton() {
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.width(92.dp).height(18.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp)))
+        repeat(4) { Box(Modifier.fillMaxWidth().height(36.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f), RoundedCornerShape(5.dp))) }
     }
 }
 
 @Composable
-private fun ProfileRow(label: String, value: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier).padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, Modifier.width(88.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        if (enabled) Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun ProfileCard(repository: MobileRepository, hostId: String, profile: JsonObject) {
+    val scope = rememberCoroutineScope()
+    val palette = LocalMobilePalette.current
+    val version = profile.long("version")
+    var editState by remember(hostId) { mutableStateOf(MemoryProfileEditState(profile)) }
+    var requestInFlight by remember(hostId) { mutableStateOf(false) }
+    val saveMutex = remember(hostId) { Mutex() }
+    val conflict = editState.conflict
+    var error by remember(hostId) { mutableStateOf<String?>(null) }
+    var savedField by remember(hostId) { mutableStateOf<String?>(null) }
+    var savedGeneration by remember(hostId) { mutableStateOf(0) }
+    var expandedLanguage by remember { mutableStateOf(false) }
+    val loadingError = stringResource(Res.string.feature_loading_error)
+
+    LaunchedEffect(version, requestInFlight) {
+        editState = editState.receiveRemote(profile, requestInFlight)
     }
+    fun showSaved(field: String) {
+        savedField = field
+        val generation = ++savedGeneration
+        scope.launch {
+            delay(1_600)
+            if (savedGeneration == generation && savedField == field) savedField = null
+        }
+    }
+    fun save(field: String, submitted: String) {
+        if (profile.isEmpty()) return
+        scope.launch {
+            saveMutex.withLock {
+                if (!editState.isCurrentSubmission(field, submitted)) return@withLock
+                val value = submitted.trim().takeIf(String::isNotBlank)
+                if ((value ?: "") == editState.base.str(field)) return@withLock
+                requestInFlight = true
+                error = null
+                runCatching {
+                    repository.callOnHost(hostId, "memory.profile.update", profileUpdateParams(field, value, editState.expectedVersion))
+                }.onSuccess {
+                    val updated = editState.saveSucceeded(it.obj("profile"), field, submitted)
+                    editState = updated
+                    if (updated.drafts[field].orEmpty() == updated.base.str(field)) showSaved(field)
+                    else savedField = null
+                }.onFailure { failure ->
+                    val remote = (failure as? NetworkError)?.details?.obj("details")?.obj("current")
+                    if ((failure as? NetworkError)?.code == "conflict" && remote != null) editState = editState.copy(conflict = remote)
+                    else error = loadingError
+                }
+                requestInFlight = false
+            }
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      conflict?.let { remote ->
+        Surface(Modifier.fillMaxWidth(), color = palette.warning.copy(alpha = 0.14f), shape = RoundedCornerShape(10.dp)) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(Res.string.memory_profile_conflict_banner, remote.long("version")), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = palette.warning)
+                TextButton(onClick = {
+                    scope.launch { runCatching { repository.callOnHost(hostId, "memory.profile.get") }.onSuccess {
+                        val fresh = it.obj("profile"); editState = editState.useRemote(fresh)
+                    }.onFailure { error = loadingError } }
+                }) { Text(stringResource(Res.string.memory_profile_conflict_reload), color = palette.warning) }
+            }
+        }
+      }
+      Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+      ) {
+        Text(stringResource(Res.string.memory_profile_title), style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp), fontWeight = FontWeight.SemiBold)
+        ProfileInlineField(
+            label = stringResource(Res.string.memory_profile_name), value = editState.drafts["name"].orEmpty(), placeholder = stringResource(Res.string.memory_profile_name_placeholder),
+            maxLength = 20, saved = savedField == "name", onValueChange = { savedField = null; editState = editState.edit("name", it) }, onSave = { save("name", it) },
+        )
+        Row(Modifier.fillMaxWidth().heightIn(min = 42.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(Res.string.memory_profile_language), Modifier.width(68.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(Modifier.weight(1f)) {
+                val language = editState.drafts["language"].orEmpty()
+                val languageLabel = when (language) {
+                    "zh-CN" -> stringResource(Res.string.memory_profile_language_zh)
+                    "en-US" -> stringResource(Res.string.memory_profile_language_en)
+                    "ja-JP" -> stringResource(Res.string.memory_profile_language_ja)
+                    "ko-KR" -> stringResource(Res.string.memory_profile_language_ko)
+                    else -> language.ifBlank { stringResource(Res.string.memory_profile_language_system_option) }
+                }
+                Text(languageLabel, Modifier.fillMaxWidth().clickable { expandedLanguage = true }.padding(vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                DropdownMenu(expanded = expandedLanguage, onDismissRequest = { expandedLanguage = false }) {
+                    listOf(null to stringResource(Res.string.memory_profile_language_system_option), "zh-CN" to stringResource(Res.string.memory_profile_language_zh), "en-US" to stringResource(Res.string.memory_profile_language_en), "ja-JP" to stringResource(Res.string.memory_profile_language_ja), "ko-KR" to stringResource(Res.string.memory_profile_language_ko)).forEach { (tag, label) ->
+                    DropdownMenuItem(text = { Text(label) }, onClick = { expandedLanguage = false; editState = editState.edit("language", tag.orEmpty()); savedField = null; save("language", tag.orEmpty()) })
+                    }
+                }
+            }
+            if (savedField == "language") SaveCheck(palette.accent)
+        }
+        ProfileInlineField(
+            label = stringResource(Res.string.memory_profile_identity), value = editState.drafts["identity"].orEmpty(), placeholder = stringResource(Res.string.memory_profile_identity_placeholder),
+            maxLength = 100, saved = savedField == "identity", onValueChange = { savedField = null; editState = editState.edit("identity", it) }, onSave = { save("identity", it) },
+        )
+        Row(Modifier.fillMaxWidth().heightIn(min = 38.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(Res.string.memory_profile_timezone), Modifier.width(68.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(Res.string.memory_profile_timezone_readonly, profile.str("timezone").ifBlank { "—" }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+      }
+    }
+}
+
+@Composable
+private fun ProfileInlineField(label: String, value: String, placeholder: String, maxLength: Int, saved: Boolean, onValueChange: (String) -> Unit, onSave: (String) -> Unit) {
+    val palette = LocalMobilePalette.current
+    Row(Modifier.fillMaxWidth().heightIn(min = 42.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.width(68.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedTextField(value = value, onValueChange = { if (it.unicodeScalarCount() <= maxLength) onValueChange(it) }, modifier = Modifier.weight(1f).onFocusChanged { if (!it.isFocused) onSave(value) }, placeholder = { Text(placeholder, style = MaterialTheme.typography.bodySmall) }, singleLine = true, textStyle = MaterialTheme.typography.bodyMedium, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { onSave(value) }),)
+        if (saved) SaveCheck(palette.accent)
+    }
+}
+
+@Composable
+private fun SaveCheck(color: androidx.compose.ui.graphics.Color) {
+    var visible by remember { mutableStateOf(false) }
+    val savedLabel = stringResource(Res.string.memory_profile_save_success)
+    LaunchedEffect(Unit) { visible = true }
+    androidx.compose.animation.AnimatedVisibility(visible = visible) { Text("✓", Modifier.padding(start = 6.dp).semantics { contentDescription = savedLabel }, color = color, style = MaterialTheme.typography.labelMedium) }
 }
 
 @Composable
@@ -260,20 +362,15 @@ private fun MemoryEntryRow(
     var offsetX by remember(entry.str("id")) { mutableStateOf(0f) }
     val source = entry.obj("source")
     val sender = source.obj("by")
-    val chatTitle = chats.firstOrNull { it.str("id") == source.str("chat_id") }?.str("title")
-        ?: chats.firstOrNull { it.str("id") == source.str("chat_id") }?.str("name").orEmpty()
+    val sourceChat = chats.firstOrNull { it.str("id") == source.str("chat_id") }
+    val chatTitle = sourceChat?.str("title").orEmpty().ifBlank { sourceChat?.str("name").orEmpty() }
     val botName = bots.firstOrNull { it.str("id") == sender.str("bot_id") }?.str("name") ?: sender.str("bot_id")
-    val date = entry.str("created_at").substringBefore('T').ifBlank { entry.str("created_at") }
+    val date = formatMemoryTimestamp(entry.str("updated_at"))
     val sourceLabel = when (sender.str("kind")) {
         "user" -> stringResource(Res.string.memory_source_user)
         "system" -> stringResource(Res.string.memory_source_curator)
         "bot" -> stringResource(Res.string.memory_source_bot, botName)
         else -> stringResource(Res.string.memory_source_curator)
-    }
-    val detail = when {
-        sender.str("kind") == "user" -> date
-        chatTitle.isNotBlank() -> stringResource(Res.string.memory_source_detail, chatTitle, date)
-        else -> date
     }
     val sourceChatId = source.str("chat_id")
     val sourceMessageId = source.str("message_id")
@@ -301,26 +398,40 @@ private fun MemoryEntryRow(
             .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(highlightMemoryText(entry.str("content"), query, MaterialTheme.colorScheme.primary), style = MaterialTheme.typography.bodyLarge, lineHeight = 23.sp)
             Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(sourceLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (detail.isNotBlank()) {
-                    Text(" · $detail", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                when (sender.str("kind")) {
+                    "system" -> SparklesIcon(MaterialTheme.colorScheme.primary)
+                    "bot" -> {
+                        val bot = bots.firstOrNull { it.str("id") == sender.str("bot_id") }
+                        Box(Modifier.padding(end = 4.dp).size(16.dp)) { BotAvatar(repository, bot, main = bot?.get("is_main")?.toString() == "true", size = 16.dp) }
+                    }
                 }
-                if (sourceChatId.isNotBlank() && sourceMessageId.isNotBlank()) {
-                    Text(
-                        stringResource(Res.string.memory_source_open),
-                        Modifier.padding(start = 8.dp).clickable { onOpenSource(sourceChatId, sourceMessageId) },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                    )
+                Text(sourceLabel, style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                if (sender.str("kind") != "user") {
+                    if (chatTitle.isNotBlank() && sourceChatId.isNotBlank() && sourceMessageId.isNotBlank()) {
+                        Text(" · $chatTitle", Modifier.weight(1f).clickable { onOpenSource(sourceChatId, sourceMessageId) }, style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    } else if (chatTitle.isNotBlank()) Text(" · $chatTitle", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    if (date.isNotBlank()) Text(" · $date", style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
             }
         }
-        Text("›", Modifier.padding(start = 8.dp).align(Alignment.CenterVertically), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("›", Modifier.padding(start = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun SparklesIcon(color: androidx.compose.ui.graphics.Color) {
+    Canvas(Modifier.padding(end = 4.dp).size(16.dp)) {
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = size.minDimension / 12f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        val center = androidx.compose.ui.geometry.Offset(size.width * 0.52f, size.height * 0.48f)
+        drawLine(color, androidx.compose.ui.geometry.Offset(center.x, size.height * 0.02f), androidx.compose.ui.geometry.Offset(center.x, size.height * 0.94f), stroke.width, stroke.cap)
+        drawLine(color, androidx.compose.ui.geometry.Offset(size.width * 0.06f, center.y), androidx.compose.ui.geometry.Offset(size.width * 0.98f, center.y), stroke.width, stroke.cap)
+        drawLine(color, androidx.compose.ui.geometry.Offset(size.width * 0.81f, size.height * 0.67f), androidx.compose.ui.geometry.Offset(size.width * 0.81f, size.height * 0.98f), stroke.width, stroke.cap)
+        drawLine(color, androidx.compose.ui.geometry.Offset(size.width * 0.66f, size.height * 0.82f), androidx.compose.ui.geometry.Offset(size.width * 0.96f, size.height * 0.82f), stroke.width, stroke.cap)
     }
 }
 
@@ -424,7 +535,7 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                Button(onClick = { deleting = true }, enabled = !deleting, modifier = Modifier.fillMaxWidth().padding(top = 18.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
+                Button(onClick = { deleting = true }, enabled = !saving, modifier = Modifier.fillMaxWidth().padding(top = 18.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
                     Text(stringResource(Res.string.memory_delete_entry))
                 }
             }
@@ -442,6 +553,8 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
                 TextButton(onClick = {
                     deleting = false
                     scope.launch {
+                        if (saving) return@launch
+                        saving = true
                         runCatching { repository.callOnHost(hostId, "memory.user.delete", buildJsonObject { put("entry_id", entryId); put("expected_version", baseVersion) }) }
                             .onSuccess {
                                 val result = scope.async { snackbar.showSnackbar(deletedText, undoText, withDismissAction = true, duration = SnackbarDuration.Indefinite) }
@@ -451,9 +564,11 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
                                     runCatching { repository.callOnHost(hostId, "memory.user.create", buildJsonObject { put("content", content) }) }
                                         .onFailure { error = if ((it as? NetworkError)?.code == "quota_full") quotaError else loadingError }
                                 }
+                                saving = false
                                 onBack()
                             }
                             .onFailure { failure ->
+                                saving = false
                                 val remote = (failure as? NetworkError)?.details?.obj("details")?.obj("current")
                                 if ((failure as? NetworkError)?.code == "conflict" && remote != null) deleteConflict = remote
                                 else error = if ((failure as? NetworkError)?.code == "conflict") conflictError else loadingError
@@ -565,13 +680,13 @@ fun MemoryProfileEditorScreen(repository: MobileRepository, field: String, onBac
             OutlinedTextField(
                 value = value,
                 onValueChange = {
-                    if (it.length <= maxLength) {
+                    if (it.unicodeScalarCount() <= maxLength) {
                         value = it
                         if (field == "language") useSystem = false
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(when (field) { "name" -> Res.string.memory_profile_name_hint; "identity" -> Res.string.memory_profile_identity_hint; else -> Res.string.memory_profile_language })) },
+                label = { Text(stringResource(when (field) { "name" -> Res.string.memory_profile_name_placeholder; "identity" -> Res.string.memory_profile_identity_placeholder; else -> Res.string.memory_profile_language })) },
                 minLines = if (field == "identity") 3 else 1,
                 maxLines = if (field == "identity") 4 else 1,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
@@ -579,7 +694,7 @@ fun MemoryProfileEditorScreen(repository: MobileRepository, field: String, onBac
             if (field == "language") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = useSystem, onCheckedChange = { useSystem = it })
-                    Text(stringResource(Res.string.memory_profile_language_system), Modifier.clickable { useSystem = !useSystem })
+                    Text(stringResource(Res.string.memory_profile_language_system_option), Modifier.clickable { useSystem = !useSystem })
                 }
             }
             Text(stringResource(Res.string.memory_profile_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -592,7 +707,7 @@ fun MemoryProfileEditorScreen(repository: MobileRepository, field: String, onBac
             title = { Text(stringResource(Res.string.memory_conflict_title)) },
             text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(Res.string.memory_conflict, stringResource(Res.string.memory_profile_title), remote.long("version")))
-                Text(remote.str(field).ifBlank { stringResource(Res.string.memory_profile_language_system) })
+                Text(remote.str(field).ifBlank { stringResource(Res.string.memory_profile_language_system_option) })
             } },
             confirmButton = { TextButton(onClick = { val version = remote.long("version"); conflict = null; save(version) }) { Text(stringResource(Res.string.memory_conflict_mine)) } },
             dismissButton = { TextButton(onClick = { value = remote.str(field); useSystem = field == "language" && value.isBlank(); baseVersion = remote.long("version"); conflict = null }) { Text(stringResource(Res.string.memory_conflict_theirs)) } },
@@ -606,7 +721,7 @@ private fun memoryEntrySourceText(entry: JsonObject, chats: List<JsonObject>, bo
     val sender = source.obj("by")
     val chat = chats.firstOrNull { it.str("id") == source.str("chat_id") }
     val title = chat?.str("title").orEmpty().ifBlank { chat?.str("name").orEmpty() }
-    val date = entry.str("created_at").substringBefore('T')
+    val date = formatMemoryTimestamp(entry.str("updated_at"))
     val origin = when (sender.str("kind")) {
         "user" -> stringResource(Res.string.memory_source_user)
         "bot" -> stringResource(Res.string.memory_source_bot, bots.firstOrNull { it.str("id") == sender.str("bot_id") }?.str("name") ?: sender.str("bot_id"))
