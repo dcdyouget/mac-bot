@@ -583,7 +583,7 @@ private fun chatAttentionRank(chat: JsonObject, state: MobileState): Int = when 
         FontScaleToolbar { Text(stringResource(Res.string.nav_tab_me),Modifier.padding(24.dp),style=MaterialTheme.typography.headlineSmall) }
         Text(stringResource(Res.string.mine_subtitle),Modifier.padding(horizontal=24.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(16.dp)) {
-            items(listOf("connect" to Res.string.nav_hosts,"memory" to Res.string.memory_title,"bots" to Res.string.nav_bots_manage,"approvals" to Res.string.nav_approval,"dashboard" to Res.string.nav_dashboard,"skills" to Res.string.nav_skills,"routines" to Res.string.nav_routines,"settings" to Res.string.nav_settings)) { (route,label)->
+            items(listOf("routines" to Res.string.nav_routines,"memory" to Res.string.memory_title,"connect" to Res.string.nav_hosts,"bots" to Res.string.nav_bots_manage,"approvals" to Res.string.nav_approval,"dashboard" to Res.string.nav_dashboard,"skills" to Res.string.nav_skills,"settings" to Res.string.nav_settings)) { (route,label)->
                 ListItem(
                     headlineContent={Text(stringResource(label))},
                     trailingContent={if (route == "memory" && state.memoryQuota.isNotEmpty()) Text("${state.memoryQuota.long("used_chars")} / ${state.memoryQuota.long("limit_chars")}") else Text("›")},
