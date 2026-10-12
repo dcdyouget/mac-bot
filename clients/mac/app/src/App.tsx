@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
-import { AlertCircle, AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap, Ellipsis, CornerUpLeft, Smile } from 'lucide-react'
+import { AlertCircle, AtSign, Check, ChevronDown, ChevronRight, Command, Menu, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap, Ellipsis, CornerUpLeft, Smile } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type NotificationPreferenceKey, type PendingMessage, type Question } from './types'
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SkillMessageDeliveryStatus, SkillMessageLoadedStatus, SkillMessageText, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
@@ -160,6 +160,7 @@ function App() {
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
   const [selectedChat, setSelectedChat] = useState('')
+  const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false)
   const [completedGroupsExpanded, setCompletedGroupsExpanded] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [groupCreating, setGroupCreating] = useState(false)
@@ -408,14 +409,29 @@ function App() {
   }, [showConnect])
 
   useEffect(() => {
+    const handleLayoutShortcuts = (event: KeyboardEvent) => {
+      if (!event.metaKey || event.ctrlKey || event.altKey || event.key !== '\\' || showConnect) return
+      event.preventDefault()
+      if (event.shiftKey) {
+        if (contextPanelOpen) closeContextPanel()
+        else openContextPanel()
+      } else if (window.innerWidth < 820) setSidebarOverlayOpen((open) => !open)
+    }
+    window.addEventListener('keydown', handleLayoutShortcuts)
+    return () => window.removeEventListener('keydown', handleLayoutShortcuts)
+  }, [showConnect, contextPanelOpen, openContextPanel, closeContextPanel])
+
+  useEffect(() => {
     const handlePanelEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || !contextPanelOpen || showSearch || showSettings) return
+      if (event.key !== 'Escape') return
+      if (sidebarOverlayOpen) { setSidebarOverlayOpen(false); return }
+      if (!contextPanelOpen || showSearch || showSettings) return
       if (window.innerWidth < 1100) { closeContextPanel(); return }
       if (contextPanelStack.length > 1) popContextPanelPage()
     }
     window.addEventListener('keydown', handlePanelEscape)
     return () => window.removeEventListener('keydown', handlePanelEscape)
-  }, [contextPanelOpen, contextPanelStack.length, showSearch, showSettings, closeContextPanel])
+  }, [sidebarOverlayOpen, contextPanelOpen, contextPanelStack.length, showSearch, showSettings, closeContextPanel])
 
   useEffect(() => {
     const root = document.documentElement
@@ -1077,6 +1093,22 @@ function App() {
   const configuredTaskLimit = Number(state.bots[String(currentChat?.bot_id ?? '')]?.max_parallel ?? 3)
   const currentBotTaskLimit = Number.isFinite(configuredTaskLimit) ? Math.max(1, Math.min(8, configuredTaskLimit)) : 3
   const currentApprovals = (Object.values({ ...state.approvals, ...historyApprovals[hostScope] }) as Record<string, Json>[]).filter((approval) => approval.state === 'pending')
+  const approvalChatTargets = new Map<string, Record<string, Json>[]>()
+  for (const approval of currentApprovals) {
+    const targetIds = new Set<string>()
+    if (typeof approval.chat_id === 'string') targetIds.add(approval.chat_id)
+    const assignmentId = typeof approval.assignment_id === 'string' ? approval.assignment_id : ''
+    const assignment = assignmentId ? state.assignments[assignmentId] : undefined
+    const projectId = typeof approval.project_id === 'string' ? approval.project_id : typeof assignment?.project_id === 'string' ? assignment.project_id : ''
+    if (projectId) for (const chat of Object.values(state.chats)) if (chat.project_id === projectId) targetIds.add(chat.id)
+    for (const targetId of targetIds) approvalChatTargets.set(targetId, [...(approvalChatTargets.get(targetId) ?? []), approval])
+  }
+  const sidebarApproval = (chatId: string) => {
+    const approvals = approvalChatTargets.get(chatId) ?? []
+    if (!approvals.length) return undefined
+    const summary = String(approvals[0].summary ?? approvals[0].tool ?? t('follow.pending_approval'))
+    return { label: t('sidebar.approval_line').replace('{summary}', summary), count: approvals.length }
+  }
   const currentQuestions = useMemo(() => ({ ...state.questions, ...historyQuestions[hostScope] }), [state.questions, historyQuestions, hostScope])
   const currentApprovalRecords = { ...state.approvals, ...historyApprovals[hostScope] }
   const currentProjectId = typeof currentChat?.project_id === 'string' ? currentChat.project_id : null
@@ -1181,6 +1213,7 @@ function App() {
 
   function selectChat(chatId: string) {
     setSelectedChat(chatId)
+    setSidebarOverlayOpen(false)
     setActivePage('chat')
     setQuoteTarget(null)
     setMessageMenu(null)
@@ -2671,7 +2704,9 @@ function App() {
 
   return <main className={`app-shell${showSettings ? ' settings-open' : ''}`}>
     {deepLinkNotice && <div className="deep-link-notice" role="alert"><span>{deepLinkNotice}</span><button type="button" aria-label={t('common.close')} onClick={() => setDeepLinkNotice(null)}><X size={14} /></button></div>}
-    <aside className="sidebar glass-sidebar">
+    <button type="button" className="icon-button sidebar-overlay-toggle global-sidebar-toggle" aria-label={t(sidebarOverlayOpen ? 'sidebar.close' : 'sidebar.open')} aria-expanded={sidebarOverlayOpen} onClick={() => setSidebarOverlayOpen((open) => !open)}><Menu size={17} /></button>
+    {sidebarOverlayOpen && <button type="button" className="sidebar-overlay-scrim" aria-label={t('sidebar.close')} onClick={() => setSidebarOverlayOpen(false)} />}
+    <aside className={`sidebar glass-sidebar${sidebarOverlayOpen ? ' sidebar-overlay-open' : ''}`}>
       <div className="sidebar-head drag-region">
         <button className="host-switch" aria-expanded={hostMenuOpen} onClick={() => setHostMenuOpen((open) => !open)}><span className={`status-dot ${state.connection}`} />{state.active_host?.name ?? hostName}<ChevronDown size={14} /></button>
         <button className="icon-button" aria-label={t('chat.group.create')} title={t('chat.group.create')} disabled={state.connection !== 'connected'} onClick={() => { setGroupCreateError(null); setCreateGroupOpen(true) }}><Plus size={17} /></button>
@@ -2688,10 +2723,10 @@ function App() {
       <button type="button" className="search-entry" onClick={() => setShowSearch(true)} aria-label={t('sidebar.search.placeholder')}><Search size={14} /><span className="grow">{t('sidebar.search.placeholder')}</span><kbd>⌘K</kbd></button>
       <div className="sidebar-scroll">
         <div className="nav-section"><div className="section-label">{t('sidebar.main_bot.tag')}</div>
-          {mainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} onDetails={() => openBotPanel(chat.bot_id ?? mainBot?.id ?? '')} detailsLabel={t('bot.action.settings')} main />)}
+          {mainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} approval={sidebarApproval(chat.id)} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} onDetails={() => openBotPanel(chat.bot_id ?? mainBot?.id ?? '')} detailsLabel={t('bot.action.settings')} main />)}
         </div>
         <div className="nav-section"><div className="section-label">{t('sidebar.section.groups').replace('{count}', String(sidebarGroups.active.length))}</div>
-          {sidebarGroups.active.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
+          {sidebarGroups.active.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" approval={sidebarApproval(chat.id)} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
           {groups.length === 0 && <div className="nav-empty">{t('sidebar.empty_groups')}</div>}
           {sidebarGroups.done.length > 0 && <>
             <button type="button" className="completed-groups-toggle" aria-expanded={completedGroupsExpanded} onClick={() => setCompletedGroupsExpanded((expanded) => !expanded)}>
@@ -2707,7 +2742,7 @@ function App() {
           </button>}
         </div>
         <div className="nav-section"><div className="section-label">{t('sidebar.section.bots').replace('{count}', String(botChats.length))}</div>
-          {botChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} onDetails={() => openBotPanel(chat.bot_id ?? '')} detailsLabel={t('bot.action.settings')} />)}
+          {botChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" approval={sidebarApproval(chat.id)} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} onDetails={() => openBotPanel(chat.bot_id ?? '')} detailsLabel={t('bot.action.settings')} />)}
         </div>
       </div>
       <nav className="sidebar-footer">
@@ -3375,11 +3410,12 @@ function GeneralSettings({ themeMode, translucent, reducedTransparency, preferen
   </section>
 }
 
-function ChatRow(props: { title: string; subtitle: string; selected: boolean; main?: boolean; onClick: () => void; onDetails?: () => void; detailsLabel?: string }) {
+function ChatRow(props: { title: string; subtitle: string; approval?: { label: string; count: number }; selected: boolean; main?: boolean; onClick: () => void; onDetails?: () => void; detailsLabel?: string }) {
   return <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-    <button className={`chat-row ${props.selected ? 'selected' : ''}`} style={{ minWidth: 0, flex: 1, width: 'auto', paddingRight: props.onDetails ? 40 : undefined }} onClick={props.onClick}>
+    <button className={`chat-row ${props.selected ? 'selected' : ''}${props.approval ? ' has-approval' : ''}`} style={{ minWidth: 0, flex: 1, width: 'auto', paddingRight: props.onDetails ? 40 : undefined }} onClick={props.onClick}>
       <BeanAvatar main={props.main} size="40" seed={props.title} />
-      <span className="chat-row-text"><strong>{props.title}</strong>{props.subtitle && <small>{props.subtitle}</small>}</span>
+      <span className="chat-row-text"><strong>{props.title}</strong>{props.approval ? <small className="chat-row-approval">{props.approval.label}</small> : props.subtitle && <small>{props.subtitle}</small>}</span>
+      {props.approval && <span className="chat-row-approval-badge" aria-label={props.approval.label}>{props.approval.count}</span>}
       {props.selected && <ChevronRight size={14} className="row-chevron" />}
     </button>
     {props.onDetails && <button type="button" className="icon-button" style={{ flex: 'none', width: 26, height: 26, margin: '0 4px 0 -34px', background: 'var(--bg-sidebar)', zIndex: 1 }} aria-label={props.detailsLabel ?? t('bot.action.settings')} title={props.detailsLabel ?? t('bot.action.settings')} onClick={props.onDetails}><Settings size={13} /></button>}

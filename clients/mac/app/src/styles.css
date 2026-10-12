@@ -48,6 +48,7 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .chat-row { width: 100%; height: 60px; display: flex; align-items: center; gap: 10px; padding: 0 8px; border: 0; border-radius: 9px; background: transparent; text-align: left; }
 .chat-row:hover { background: var(--bg-hover); }
 .chat-row.selected { background: var(--bg-active); }
+.chat-row.has-approval { box-shadow: inset 2px 0 var(--warning); }
 .avatar { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 50%; background: var(--avatar-2); color: #fff; font-weight: 600; }
 .bean-avatar { display: inline-block; }
 .chat-row .avatar { width: 40px; height: 40px; }
@@ -57,6 +58,8 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .chat-row-text { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
 .chat-row-text strong { overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .chat-row-text small { color: var(--text-tertiary); font-size: 11px; }
+.chat-row-text small.chat-row-approval { overflow: hidden; color: var(--warning); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-row-approval-badge { display: grid; min-width: 16px; height: 16px; flex: none; place-items: center; padding: 0 3px; border-radius: 9px; background: var(--warning-soft); color: var(--warning); font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .row-chevron { color: var(--text-tertiary); }
 .nav-empty { padding: 4px 8px 8px; color: var(--text-tertiary); font-size: 12px; }
 .completed-groups-toggle { display: flex; width: 100%; height: 28px; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 6px; color: var(--text-secondary); background: transparent; font: 500 11px var(--font-family-ui); text-align: left; cursor: pointer; }
@@ -560,12 +563,10 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 }
 
 @media (max-width: 1200px) {
-  .app-shell { --sidebar-width: 220px; }
   .dashboard-kpi-card > strong { font-size: 17px; }
   .desktop-page-scroll { padding-right: 14px; padding-left: 14px; }
 }
 @media (max-width: 1000px) {
-  .app-shell { --sidebar-width: 200px; }
   .workbench-task-row { grid-template-columns: 18px minmax(110px, 1fr) auto auto; }
   .workbench-task-data, .workbench-task-model { display: none; }
   .workbench-action { min-height: 24px; padding: 0 5px; }
@@ -575,12 +576,19 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
   .dashboard-series-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; }
 }
 @media (max-width: 860px) {
-  .app-shell { --sidebar-width: 176px; }
   .desktop-page-toolbar { align-items: flex-start; flex-direction: column; justify-content: center; gap: 5px; padding-top: 6px; padding-bottom: 6px; }
   .workbench-toolbar-controls, .dashboard-toolbar-controls { width: 100%; justify-content: space-between; }
   .dashboard-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-series-controls { flex-wrap: wrap; }
   .workbench-waiting-banners { grid-template-columns: minmax(0, 1fr); }
+}
+.sidebar-overlay-scrim { display: none; }
+.sidebar-overlay-toggle { display: none; }
+@media (max-width: 819px) {
+  .sidebar-overlay-scrim { position: absolute; z-index: 9; inset: 0; display: block; border: 0; background: color-mix(in srgb, var(--bg-window) 20%, transparent); }
+  .app-shell > .sidebar { position: absolute; z-index: 10; inset: 0 auto 0 0; display: none; width: min(260px, calc(100vw - 48px)); box-shadow: var(--elevation-4); }
+  .app-shell > .sidebar.sidebar-overlay-open { display: flex; animation: context-panel-enter 200ms var(--ease-standard) both; }
+  .app-shell > .global-sidebar-toggle { position: absolute; z-index: 11; top: 10px; left: 10px; display: inline-flex; background: var(--bg-elevated); box-shadow: var(--elevation-1); }
 }
 
 @keyframes context-panel-enter {
