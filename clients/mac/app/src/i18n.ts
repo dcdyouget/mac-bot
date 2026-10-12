@@ -350,7 +350,7 @@ const copy = {
   'settings.about.update_unavailable': '当前没有可用的自动更新服务；请查看发布页。',
   'settings.about.actions_unavailable': '检查更新与导出诊断需要桌面原生服务支持，目前不可用。',
   'settings.section.general': '通用',
-  'settings.section.memory': '用户记忆',
+  'settings.section.memory': '记忆',
   'settings.section.models': '模型与服务商',
   'settings.section.runtime': '运行时',
   'settings.section.tools': '工具与审批',
