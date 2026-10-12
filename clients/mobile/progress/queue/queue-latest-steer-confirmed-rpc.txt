@@ -1,0 +1,10 @@
+Host: 644b8599-c7b9-4b4e-a5e6-efe64a274bc9
+chat_id: chat_login
+message_id: msg_01a12d8c-805d-70c1-8f6a-bc27b5fbe79d
+text: steerconfirm
+assignment_id: asg_mock_working
+assignment_status: working
+pending_messages: 1
+steer_applied_at: None
+message_delivery: [{"assignment_id": "asg_mock_working", "at": "2026-10-12T00:39:05.053Z", "bot_id": "bot_code", "state": "queued"}]
+steer_record: {"applied_at": null, "at": "2026-10-12T00:39:56.610Z", "message_id": "msg_01a12d8c-805d-70c1-8f6a-bc27b5fbe79d", "text": "steerconfirm"}

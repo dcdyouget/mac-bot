@@ -152,6 +152,8 @@ pub struct Message {
     pub id: Id,
     pub chat_id: Id,
     pub sender: String,
+    #[serde(default)]
+    pub deleted: bool,
     pub created_at: String,
     pub text: String,
     pub intent: Option<String>,

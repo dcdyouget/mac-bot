@@ -635,6 +635,7 @@
     <string name="trace_queue_title">待看消息</string>
     <string name="trace_queue_hint">没有 @ %1$s 的消息不会打断它，交付前会一起查看。点「改为插话」可以让某一条在下一步就生效。</string>
     <string name="trace_queue_to_steer">改为插话</string>
+    <string name="trace_queue_steered">已插话 · 等待 Bot 下一步</string>
     <string name="trace_queue_seen">已查看</string>
     <string name="trace_item_queue_review">交付前查看新消息 %1$d 条</string>
     <string name="workbench_queued_msgs">待看 %1$d</string>

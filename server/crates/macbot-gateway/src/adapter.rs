@@ -168,6 +168,99 @@ fn read_operation_log(store: &Store) -> Result<Vec<Value>, AdapterError> {
     Ok(operations)
 }
 
+/// Older orchestrator snapshots did not persist `Message.deleted`. Chat
+/// message logs do, so restore the authoritative user tombstones before the
+/// backend accepts RPCs; otherwise a queued message could be promoted after
+/// an upgrade/restart.
+fn restore_deleted_user_chat_tombstones(
+    store: &Store,
+    orchestrator: &Orchestrator,
+) -> Result<bool, AdapterError> {
+    let chats_root = store.root().join("data/chats");
+    let entries = match fs::read_dir(&chats_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(macbot_store::StoreError::Io(error).into()),
+    };
+    let snapshot = orchestrator
+        .snapshot()
+        .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+    let messages = snapshot.get("messages").and_then(Value::as_object);
+    let mut seen = HashSet::new();
+    let mut migrated = false;
+    for entry in entries {
+        let entry = entry.map_err(macbot_store::StoreError::Io)?;
+        if !entry
+            .file_type()
+            .map_err(macbot_store::StoreError::Io)?
+            .is_dir()
+        {
+            continue;
+        }
+        let path = entry.path().join("messages.jsonl");
+        let file = match fs::File::open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(macbot_store::StoreError::Io(error).into()),
+        };
+        for tombstone in read_tombstones_compatibly(file, &path)? {
+            if tombstone.get("deleted").and_then(Value::as_bool) != Some(true)
+                || tombstone.pointer("/sender/kind").and_then(Value::as_str) != Some("user")
+            {
+                continue;
+            }
+            let Some(chat_id) = tombstone.get("chat_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(message_id) = tombstone.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let key = (chat_id.to_owned(), message_id.to_owned());
+            let Some(stored_message) = messages.and_then(|messages| messages.get(message_id))
+            else {
+                continue;
+            };
+            if !seen.insert(key)
+                || stored_message.get("chat_id").and_then(Value::as_str) != Some(chat_id)
+                || stored_message.get("sender").and_then(Value::as_str) != Some("user")
+            {
+                continue;
+            }
+            orchestrator
+                .redact_user_message(message_id)
+                .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+            migrated = true;
+        }
+    }
+    Ok(migrated)
+}
+
+fn read_tombstones_compatibly(file: fs::File, path: &Path) -> Result<Vec<Value>, AdapterError> {
+    let mut values = Vec::new();
+    for (index, line) in BufReader::new(file).lines().enumerate() {
+        let line_number = index + 1;
+        let line = line.map_err(macbot_store::StoreError::Io)?;
+        match serde_json::from_str::<Value>(&line) {
+            Ok(value) => values.push(value),
+            Err(error) => tracing::warn!(
+                path = %path.display(),
+                line = line_number,
+                %error,
+                "skipping malformed legacy chat row during tombstone migration"
+            ),
+        }
+    }
+    Ok(values)
+}
+
+fn read_jsonl_values_lossy(file: fs::File) -> Vec<Value> {
+    BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct ProductionBackend {
     pub orchestrator: Orchestrator,
@@ -288,6 +381,8 @@ impl ProductionBackend {
                     .get("approvals")
                     .cloned();
         }
+        let deleted_user_messages_migrated =
+            restore_deleted_user_chat_tombstones(&store, &orchestrator)?;
         if let Some(mut settings) = store.read_snapshot::<Value>("data/settings.json")? {
             let tool_defaults = ensure_settings_tool_defaults(&mut settings)
                 .map_err(AdapterError::OrchestratorSnapshot)?;
@@ -334,12 +429,17 @@ impl ProductionBackend {
             idempotency: Arc::new(Mutex::new(idempotency)),
             startup_repair_events: Arc::new(StdMutex::new(None)),
         };
-        if terminal_approvals_migrated {
-            // Constructor-only: persist normalized terminal approvals before
-            // any request or runtime writer can observe restored state.
+        if terminal_approvals_migrated || deleted_user_messages_migrated {
+            // Constructor-only: persist snapshot migrations before any
+            // request or runtime writer can observe restored state.
             backend
                 .persist_orchestrator_locked(json!({
-                    "method":"approval.terminal_recovery","status":"done","result":{}
+                    "method":"startup.snapshot_migration",
+                    "params":{
+                        "terminal_approvals":terminal_approvals_migrated,
+                        "deleted_user_messages":deleted_user_messages_migrated
+                    },
+                    "status":"done","result":{}
                 }))
                 .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
         }
@@ -607,8 +707,12 @@ impl ProductionBackend {
             for entry in entries {
                 let entry = entry.map_err(|error| AdapterError::Store(error.into()))?;
                 let path = entry.path().join("messages.jsonl");
-                let messages =
-                    store.read_jsonl::<Value>(path.strip_prefix(store.root()).unwrap_or(&path))?;
+                let file = match fs::File::open(&path) {
+                    Ok(file) => file,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(AdapterError::Store(error.into())),
+                };
+                let messages = read_jsonl_values_lossy(file);
                 for message in messages {
                     if let Some(chat_id) = message.get("chat_id").and_then(Value::as_str) {
                         chats.entry(chat_id.to_owned()).or_default().push(message);
@@ -3064,17 +3168,19 @@ impl ProductionBackend {
             .load_chat_messages(chat_id)?
             .into_iter()
             .filter(|message| {
-                message
-                    .get("delivery")
-                    .and_then(Value::as_array)
-                    .is_some_and(|deliveries| {
-                        deliveries.iter().any(|delivery| {
-                            delivery.get("bot_id").and_then(Value::as_str) == Some(bot_id)
-                                && delivery.get("assignment_id").and_then(Value::as_str)
-                                    == Some(assignment_id)
-                                && delivery.get("state").and_then(Value::as_str) == Some("queued")
+                message.get("deleted").and_then(Value::as_bool) != Some(true)
+                    && message
+                        .get("delivery")
+                        .and_then(Value::as_array)
+                        .is_some_and(|deliveries| {
+                            deliveries.iter().any(|delivery| {
+                                delivery.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                                    && delivery.get("assignment_id").and_then(Value::as_str)
+                                        == Some(assignment_id)
+                                    && delivery.get("state").and_then(Value::as_str)
+                                        == Some("queued")
+                            })
                         })
-                    })
             })
             .collect::<Vec<_>>();
         if queued.is_empty() {
@@ -3321,34 +3427,14 @@ impl RpcBackend for ProductionBackend {
             "artifact.versions.list" => self.artifact_versions_list(&params)?,
             "artifact.version.get" => self.artifact_version_get(&params)?,
             "chat.mark_read" => self.chat_mark_read(&params).await?,
-            "message.steer" => {
-                let message_id = required_text(&params, "message_id")?;
-                let (chat_id, message) = self.find_chat_message(&message_id)?;
-                let seq = message
-                    .get("seq")
-                    .and_then(Value::as_u64)
-                    .ok_or_else(|| RpcError {
-                        code: "internal".into(),
-                        message: "queued message has no sequence number".into(),
-                        details: None,
-                    })?;
-                let last_read_seq = self
-                    .read_chat_overlay(&chat_id)?
-                    .get("last_read_seq")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                if seq <= last_read_seq {
-                    return Err(RpcError {
-                        code: "conflict".into(),
-                        message: "message is no longer unread".into(),
-                        details: None,
-                    });
-                }
-                self.orchestrator
-                    .rpc(method, params.clone())
-                    .await
-                    .map_err(Self::error)?
-            }
+            // Whether a Bot still needs this message is represented by the
+            // assignment-scoped delivery state, not the user's chat read cursor.
+            // The orchestrator validates the exact queued delivery and task.
+            "message.steer" => self
+                .orchestrator
+                .rpc(method, params.clone())
+                .await
+                .map_err(Self::error)?,
             "chat.react" => self.chat_react(&params).await?,
             "chat.set_pinned" => self.chat_set_flag(&params, "pinned").await?,
             "chat.set_muted" => self.chat_set_flag(&params, "muted").await?,
@@ -13987,6 +14073,419 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn queued_message_can_be_steered_after_chat_is_marked_read() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Queued worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"Read cursor steer","member_bot_ids":[bot["bot"]["id"]]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "bot_id":bot["bot"]["id"],
+                    "project_id":project["project"]["id"],
+                    "origin_chat_id":project["chat"]["id"],
+                    "title":"Working task",
+                    "instruction":"Keep working",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment_id = assignment["id"].as_str().unwrap().to_owned();
+        let queued = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":project["chat"]["id"],
+                    "text":"请把这条消息作为插话处理",
+                    "mentions":[],
+                    "client_request_id":"read-cursor-queued-send"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["message"]
+            .clone();
+        assert_eq!(queued["delivery"][0]["state"], "queued");
+
+        backend
+            .call(
+                "chat.mark_read",
+                json!({"chat_id":project["chat"]["id"],"seq":queued["seq"]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let promoted = backend
+            .call(
+                "message.steer",
+                json!({
+                    "message_id":queued["id"],
+                    "bot_id":bot["bot"]["id"],
+                    "assignment_id":assignment_id,
+                    "client_request_id":"read-cursor-steer"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(promoted["message"]["id"], queued["id"]);
+        assert_eq!(promoted["message"]["delivery"][0]["state"], "queued");
+        assert_eq!(
+            promoted["assignment"]["steers"][0]["message_id"],
+            queued["id"]
+        );
+
+        backend
+            .execution_update_steer_delivery(
+                &gateway.state,
+                queued["id"].as_str().unwrap(),
+                &json!({
+                    "bot_id":bot["bot"]["id"],
+                    "assignment_id":assignment_id,
+                    "state":"read"
+                }),
+            )
+            .await
+            .unwrap();
+        let replay = backend
+            .call(
+                "message.steer",
+                json!({
+                    "message_id":queued["id"],
+                    "bot_id":bot["bot"]["id"],
+                    "assignment_id":assignment_id
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(replay["message"]["delivery"][0]["state"], "read");
+        assert_eq!(replay["assignment"]["steers"].as_array().unwrap().len(), 1);
+
+        // A different queued message whose assignment delivery was already
+        // consumed must still be rejected, regardless of the chat read cursor.
+        let consumed = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":project["chat"]["id"],
+                    "text":"这条已被消费",
+                    "mentions":[],
+                    "client_request_id":"read-cursor-consumed-send"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["message"]
+            .clone();
+        let mut snapshot = backend.orchestrator.snapshot().unwrap();
+        snapshot["messages"][consumed["id"].as_str().unwrap()]["delivery"][0]["state"] =
+            json!("read");
+        backend.orchestrator.restore(snapshot).unwrap();
+        let error = backend
+            .call(
+                "message.steer",
+                json!({
+                    "message_id":consumed["id"],
+                    "bot_id":bot["bot"]["id"],
+                    "assignment_id":assignment_id,
+                    "client_request_id":"read-cursor-consumed-steer"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "conflict");
+        assert_eq!(
+            error.message,
+            "conflict: message is not waiting for this Bot"
+        );
+
+        let deleted = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":project["chat"]["id"],
+                    "text":"这条消息被删除",
+                    "mentions":[],
+                    "client_request_id":"read-cursor-deleted-send"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["message"]
+            .clone();
+        backend
+            .call(
+                "message.delete",
+                json!({"message_id":deleted["id"]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let error = backend
+            .call(
+                "message.steer",
+                json!({
+                    "message_id":deleted["id"],
+                    "bot_id":bot["bot"]["id"],
+                    "assignment_id":assignment_id
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "conflict");
+
+        backend
+            .orchestrator
+            .finish_assignment(&assignment_id, "done")
+            .unwrap();
+        let completed_retry = backend
+            .call(
+                "message.steer",
+                json!({
+                    "message_id":queued["id"],
+                    "bot_id":bot["bot"]["id"],
+                    "assignment_id":assignment_id
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(completed_retry["assignment"]["status"], "done");
+        assert_eq!(completed_retry["message"]["delivery"][0]["state"], "read");
+
+        let mut cancelled_snapshot = backend.orchestrator.snapshot().unwrap();
+        cancelled_snapshot["assignments"][&assignment_id]["status"] = json!("cancelled");
+        backend.orchestrator.restore(cancelled_snapshot).unwrap();
+        let cancelled_retry = backend
+            .call(
+                "message.steer",
+                json!({
+                    "message_id":queued["id"],
+                    "bot_id":bot["bot"]["id"],
+                    "assignment_id":assignment_id
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(cancelled_retry["assignment"]["status"], "cancelled");
+        assert_eq!(cancelled_retry["message"]["delivery"][0]["state"], "read");
+    }
+
+    #[tokio::test]
+    async fn startup_restores_deleted_queue_tombstone_from_legacy_chat_log() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Legacy tombstone worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"Legacy tombstone","member_bot_ids":[bot["bot"]["id"]]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "bot_id":bot["bot"]["id"],
+                    "project_id":project["project"]["id"],
+                    "origin_chat_id":project["chat"]["id"],
+                    "title":"Working task",
+                    "instruction":"Keep working",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let queued = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":project["chat"]["id"],
+                    "text":"deleted before upgrade",
+                    "mentions":[],
+                    "client_request_id":"legacy-tombstone-queued"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["message"]
+            .clone();
+        backend
+            .call(
+                "message.delete",
+                json!({"message_id":queued["id"]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+
+        // Emulate a pre-migration orchestrator snapshot: it has the redacted
+        // message but no `deleted` bit, while the chat log retains its tombstone.
+        let message_id = queued["id"].as_str().unwrap();
+        let mut legacy_snapshot = backend.orchestrator.snapshot().unwrap();
+        legacy_snapshot["messages"][message_id]
+            .as_object_mut()
+            .unwrap()
+            .remove("deleted");
+        let mut unrelated_bot_message = legacy_snapshot["messages"][message_id].clone();
+        unrelated_bot_message["id"] = json!("msg-unrelated-bot");
+        unrelated_bot_message["chat_id"] = project["chat"]["id"].clone();
+        unrelated_bot_message["sender"] = json!("bot");
+        unrelated_bot_message["deleted"] = json!(false);
+        unrelated_bot_message["delivery"] = json!([]);
+        unrelated_bot_message["assignment_id"] = Value::Null;
+        legacy_snapshot["messages"]["msg-unrelated-bot"] = unrelated_bot_message;
+        let mut unrelated_user_message = legacy_snapshot["messages"][message_id].clone();
+        unrelated_user_message["id"] = json!("msg-unrelated-user");
+        unrelated_user_message["chat_id"] = json!("chat_unrelated");
+        unrelated_user_message["deleted"] = json!(false);
+        unrelated_user_message["delivery"] = json!([]);
+        unrelated_user_message["assignment_id"] = Value::Null;
+        legacy_snapshot["messages"]["msg-unrelated-user"] = unrelated_user_message;
+        backend
+            .store
+            .write_snapshot("data/orchestrator/state.json", &legacy_snapshot)
+            .unwrap();
+        let unrelated_chat_log = home.path().join("data/chats/chat_unrelated/messages.jsonl");
+        fs::create_dir_all(unrelated_chat_log.parent().unwrap()).unwrap();
+        let mut chat_log_file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(unrelated_chat_log)
+            .unwrap();
+        use std::io::Write as _;
+        writeln!(
+            chat_log_file,
+            "{}",
+            json!({
+                "sender":{"kind":"user","user_id":"user"},
+                "deleted":true
+            })
+        )
+        .unwrap();
+        writeln!(
+            chat_log_file,
+            "{}",
+            json!({
+                "id":"msg-unrelated-bot",
+                "chat_id":project["chat"]["id"],
+                "sender":{"kind":"user","user_id":"user"},
+                "deleted":true
+            })
+        )
+        .unwrap();
+        writeln!(
+            chat_log_file,
+            "{}",
+            json!({
+                "id":"msg-unrelated-user",
+                "chat_id":project["chat"]["id"],
+                "sender":{"kind":"user","user_id":"user"},
+                "deleted":true
+            })
+        )
+        .unwrap();
+        chat_log_file.flush().unwrap();
+        fs::remove_file(home.path().join("data/orchestrator/operations.jsonl")).unwrap();
+        drop(backend);
+
+        let reopened = ProductionBackend::open(home.path()).unwrap();
+        assert_eq!(
+            reopened.orchestrator.snapshot().unwrap()["messages"][message_id]["deleted"],
+            true
+        );
+        assert_eq!(
+            reopened.orchestrator.snapshot().unwrap()["messages"]["msg-unrelated-bot"]["deleted"],
+            false,
+            "a tombstone with a mismatched chat and non-user snapshot row must be ignored"
+        );
+        assert_eq!(
+            reopened.orchestrator.snapshot().unwrap()["messages"]["msg-unrelated-user"]["deleted"],
+            false,
+            "a tombstone must match both chat and message IDs"
+        );
+        assert_eq!(
+            reopened.orchestrator.snapshot().unwrap()["assignments"]
+                [assignment["id"].as_str().unwrap()]["pending_messages"],
+            0,
+            "restoring a legacy tombstone must exclude it from pending count"
+        );
+        let error = reopened
+            .call(
+                "message.steer",
+                json!({
+                    "message_id":message_id,
+                    "bot_id":bot["bot"]["id"],
+                    "assignment_id":assignment["id"]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "conflict");
+    }
+
+    #[test]
+    fn startup_fails_when_legacy_chat_log_has_io_error_during_tombstone_migration() {
+        let home = tempdir().unwrap();
+        let unreadable_log = home
+            .path()
+            .join("data/chats/chat_with_io_error/messages.jsonl");
+        // A directory at the JSONL path deterministically causes open or line
+        // reading to fail with an I/O error, including with elevated
+        // filesystem permissions.
+        fs::create_dir_all(&unreadable_log).unwrap();
+
+        let error = match ProductionBackend::open(home.path()) {
+            Ok(_) => panic!("startup unexpectedly accepted an unreadable chat log"),
+            Err(error) => error,
+        };
+        assert!(
+            matches!(error, AdapterError::Store(macbot_store::StoreError::Io(_))),
+            "expected startup to fail closed on a chat-log I/O error, got {error:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn send_msg_done_reviews_queued_messages_before_creating_delivery() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
@@ -14040,6 +14539,34 @@ mod tests {
             .clone();
         assert_eq!(queued["delivery"][0]["state"], "queued");
 
+        let deleted = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":project["chat"]["id"],
+                    "text":"删除后不应进入 queue review",
+                    "mentions":[]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["message"]
+            .clone();
+        backend
+            .call(
+                "message.delete",
+                json!({"message_id":deleted["id"]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            backend.orchestrator.snapshot().unwrap()["assignments"]
+                [assignment["id"].as_str().unwrap()]["pending_messages"],
+            1,
+            "deleting one of two queued messages decrements pending count"
+        );
+
         let envelope = json!({
             "receipt":{"run_id":"queue-review-run","call_id":"queue-review-call"},
             "message":{
@@ -14056,6 +14583,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(review["_queue_review"]["message_ids"][0], queued["id"]);
+        assert_eq!(
+            review["_queue_review"]["message_ids"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_ne!(review["_queue_review"]["message_ids"][0], deleted["id"]);
         assert_eq!(
             review["_queue_review"]["messages"][0]["delivery"][0]["state"],
             "read"

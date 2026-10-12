@@ -68,6 +68,8 @@ fun TraceScreen(
     onBack: () -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
+    val activeHost by repository.activeHost.collectAsState()
+    val activeHostId = activeHost?.id.orEmpty()
     val streamKey = assignmentId ?: chatId ?: ""
     val items = state.traces[streamKey].orEmpty()
     var filter by remember { mutableStateOf<TraceFilter?>(null) }
@@ -86,10 +88,11 @@ fun TraceScreen(
     var collapsedRuns by remember { mutableStateOf(emptySet<String>()) }
     var steerText by remember { mutableStateOf("") }
     var retryingAssignment by remember(assignmentId) { mutableStateOf(false) }
-    var queuedLoading by remember { mutableStateOf(false) }
-    var queuedError by remember { mutableStateOf<String?>(null) }
-    var steering by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var staleSteers by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var queuedLoading by remember(activeHostId, assignmentId) { mutableStateOf(false) }
+    var queuedError by remember(activeHostId, assignmentId) { mutableStateOf<String?>(null) }
+    var steering by remember(activeHostId, assignmentId) { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmedSteeredMessageIds by remember(activeHostId, assignmentId) { mutableStateOf<Set<String>>(emptySet()) }
+    var staleSteers by remember(activeHostId, assignmentId) { mutableStateOf<Set<String>>(emptySet()) }
     val fragments = state.traceFragments.filterKeys { it.startsWith("${stream ?: streamKey}:") }
     val scope = rememberCoroutineScope()
     val activeFilter = filter
@@ -101,21 +104,14 @@ fun TraceScreen(
     val currentBotLabel = currentBotName.ifBlank { stringResource(Res.string.search_filter_bots) }
     val currentTitle = currentAssignment?.str("title").orEmpty().ifBlank { stringResource(Res.string.feature_task) }
     val assignmentProjectId = currentAssignment?.str("project_id").orEmpty()
-    val assignmentChat = state.chats.firstOrNull { it.str("project_id") == assignmentProjectId && assignmentProjectId.isNotBlank() }
+    val assignmentChat = assignmentChatFor(currentAssignment, state.chats)
     val assignmentChatId = assignmentChat?.str("id").orEmpty()
-    val queuedMessages = state.messages[assignmentChatId].orEmpty()
-        .filter { it.str("assignment_id") == assignmentId }
-        .flatMap { message ->
-            message.arr("delivery").mapNotNull { it as? JsonObject }
-                .filter { it.str("state") == "queued" && it.str("bot_id").isNotBlank() }
-                .map { delivery ->
-                    val key = "${message.str("id")}:${delivery.str("bot_id")}:$assignmentId"
-                    val lastRead = assignmentChat?.long("last_read_seq") ?: Long.MAX_VALUE
-                    QueuedSteer(message, delivery, key, message.long("seq") <= lastRead)
-                }
-        }
-        .distinctBy { it.key }
-        .sortedBy { it.message.long("seq") }
+    val queuedMessages = queuedSteerMessages(
+        messages = state.messages[assignmentChatId].orEmpty(),
+        assignmentId = assignmentId.orEmpty(),
+        botId = currentBotId,
+    )
+    val steeredMessageIds = assignmentSteeredMessageIds(currentAssignment) + confirmedSteeredMessageIds
     val traceListState = rememberLazyListState()
 
     LaunchedEffect(items.size, followLatest) {
@@ -124,19 +120,21 @@ fun TraceScreen(
 
     // chat.history populates the repository cache used below; chat.list handles a
     // trace opened before the chat list has arrived in the initial snapshot.
-    LaunchedEffect(assignmentId, state.connected, assignmentChatId, assignmentProjectId) {
-        if (assignmentId.isNullOrBlank() || !state.connected) return@LaunchedEffect
+    LaunchedEffect(activeHostId, assignmentId, state.connected, assignmentChatId, assignmentProjectId) {
+        if (activeHostId.isBlank() || assignmentId.isNullOrBlank() || !state.connected) return@LaunchedEffect
         queuedLoading = true
         queuedError = null
         try {
             if (assignmentChatId.isBlank()) {
-                if (assignmentProjectId.isNotBlank()) repository.call("chat.list", buildJsonObject {})
+                if (assignmentProjectId.isNotBlank()) repository.callOnHost(activeHostId, "chat.list", buildJsonObject {})
             } else {
-                repository.call("chat.history", buildJsonObject {
+                repository.callOnHost(activeHostId, "chat.history", buildJsonObject {
                     put("chat_id", assignmentChatId)
                     put("limit", 100)
                 })
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (failure: Throwable) {
             queuedError = failure.message
         } finally {
@@ -265,25 +263,35 @@ fun TraceScreen(
                     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(10.dp)) {
                         Text(botName, style = MaterialTheme.typography.labelLarge)
                         Text(queued.message.str("fallback_text").ifBlank { stringResource(Res.string.feature_task) }, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                        if (queued.read || queued.key in staleSteers) {
+                        if (queued.key in staleSteers) {
                             Text(stringResource(Res.string.feature_trace_steer_stale), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        } else if (queued.message.str("id") in steeredMessageIds) {
+                            Text(stringResource(Res.string.trace_queue_steered), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                         } else {
                             Button(
                                 enabled = state.connected && queued.key !in steering,
                                 onClick = {
                                     steering = steering + queued.key
+                                    val requestHostId = activeHostId
                                     scope.launch {
-                                        runCatching {
-                                            repository.call("message.steer", buildJsonObject {
+                                        try {
+                                            val result = repository.callOnHost(requestHostId, "message.steer", buildJsonObject {
                                                 put("message_id", queued.message.str("id"))
                                                 put("bot_id", queued.delivery.str("bot_id"))
                                                 put("assignment_id", assignmentId)
                                             })
-                                        }.onFailure { failure ->
+                                            val returnedSteers = assignmentSteeredMessageIds(result.obj("assignment"))
+                                            if (queued.message.str("id") in returnedSteers) {
+                                                confirmedSteeredMessageIds = confirmedSteeredMessageIds + queued.message.str("id")
+                                            }
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (failure: Throwable) {
                                             if ((failure as? NetworkError)?.code == "conflict") staleSteers = staleSteers + queued.key
                                             else queuedError = failure.message ?: ""
+                                        } finally {
+                                            steering = steering - queued.key
                                         }
-                                        steering = steering - queued.key
                                     }
                                 },
                             ) {
@@ -384,13 +392,6 @@ fun TraceScreen(
         }
     }
 }
-
-private data class QueuedSteer(
-    val message: JsonObject,
-    val delivery: JsonObject,
-    val key: String,
-    val read: Boolean,
-)
 
 private enum class TraceFilter {
     ALL, MODEL, TOOL, MESSAGE, WAIT;

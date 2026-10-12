@@ -365,11 +365,13 @@ impl Orchestrator {
                     .messages
                     .values()
                     .filter(|message| {
-                        message.delivery.iter().any(|delivery| {
-                            delivery.bot_id == assignment.bot_id
-                                && delivery.assignment_id.as_deref() == Some(assignment.id.as_str())
-                                && delivery.state == "queued"
-                        })
+                        !message.deleted
+                            && message.delivery.iter().any(|delivery| {
+                                delivery.bot_id == assignment.bot_id
+                                    && delivery.assignment_id.as_deref()
+                                        == Some(assignment.id.as_str())
+                                    && delivery.state == "queued"
+                            })
                     })
                     .count();
                 (assignment.id.clone(), count)
@@ -2097,6 +2099,7 @@ impl Inner {
             id: new_id(),
             chat_id,
             sender: "user".into(),
+            deleted: false,
             created_at: timestamp.clone(),
             text: text.clone(),
             intent: None,
@@ -2286,6 +2289,7 @@ impl Inner {
                     id: message_id.clone(),
                     chat_id: assignment.origin_chat_id.clone(),
                     sender: "system".into(),
+                    deleted: false,
                     created_at: created_at.clone(),
                     text: text.clone(),
                     intent: None,
@@ -2675,19 +2679,39 @@ impl Inner {
     }
 
     fn redact_user_message(&mut self, message_id: &str) -> Result<Message> {
-        let message = self
-            .messages
-            .get_mut(message_id)
-            .ok_or_else(|| OrchestratorError::NotFound(format!("message {message_id}")))?;
-        if message.sender != "user" {
-            return Err(OrchestratorError::Forbidden(
-                "only user messages can be redacted".into(),
-            ));
+        let (message, queued_deliveries) = {
+            let message = self
+                .messages
+                .get_mut(message_id)
+                .ok_or_else(|| OrchestratorError::NotFound(format!("message {message_id}")))?;
+            if message.sender != "user" {
+                return Err(OrchestratorError::Forbidden(
+                    "only user messages can be redacted".into(),
+                ));
+            }
+            let was_deleted = message.deleted;
+            message.text.clear();
+            message.fallback_text.clear();
+            message.mentions.clear();
+            message.deleted = true;
+            let queued_deliveries = if was_deleted {
+                Vec::new()
+            } else {
+                message
+                    .delivery
+                    .iter()
+                    .filter(|delivery| delivery.state == "queued")
+                    .filter_map(|delivery| delivery.assignment_id.clone())
+                    .collect()
+            };
+            (message.clone(), queued_deliveries)
+        };
+        for assignment_id in queued_deliveries {
+            if let Some(assignment) = self.assignments.get_mut(&assignment_id) {
+                assignment.pending_messages = assignment.pending_messages.saturating_sub(1);
+            }
         }
-        message.text.clear();
-        message.fallback_text.clear();
-        message.mentions.clear();
-        Ok(message.clone())
+        Ok(message)
     }
 
     fn send_msg_with_multi(&mut self, req: SendMessageRequest, multi: bool) -> Result<Message> {
@@ -2822,18 +2846,6 @@ impl Inner {
         for delivery in &queued_deliveries {
             if let Some(assignment_id) = delivery.assignment_id.as_deref() {
                 if let Some(assignment) = self.assignments.get_mut(assignment_id) {
-                    assignment.steers.push(Steer {
-                        message_id: msg_id.clone(),
-                        text: req.text.clone(),
-                        at: sent_at.clone(),
-                        applied_at: None,
-                    });
-                }
-            }
-        }
-        for delivery in &queued_deliveries {
-            if let Some(assignment_id) = delivery.assignment_id.as_deref() {
-                if let Some(assignment) = self.assignments.get_mut(assignment_id) {
                     assignment.pending_messages = assignment.pending_messages.saturating_add(1);
                 }
             }
@@ -2842,6 +2854,7 @@ impl Inner {
             id: msg_id.clone(),
             chat_id: req.chat_id.clone(),
             sender: req.bot_id.clone(),
+            deleted: false,
             created_at: sent_at,
             text: req.text.clone(),
             intent: Some(req.intent.clone()),
@@ -3156,6 +3169,7 @@ impl Inner {
             id: message_id.clone(),
             chat_id,
             sender: "system".into(),
+            deleted: false,
             created_at: now(),
             text: text.clone(),
             intent: Some("task_stopped".into()),
@@ -3299,6 +3313,11 @@ impl Inner {
                 "only a user message can be changed into a steer".into(),
             ));
         }
+        if message.deleted {
+            return Err(OrchestratorError::Conflict(
+                "deleted messages cannot be changed into a steer".into(),
+            ));
+        }
         if !message.mentions.is_empty() {
             return Err(OrchestratorError::Conflict(
                 "addressed messages cannot be promoted from the waiting queue".into(),
@@ -3314,37 +3333,39 @@ impl Inner {
             .steers
             .iter()
             .any(|steer| steer.message_id == message_id);
-        if !already_promoted {
-            let queued = message.delivery.iter().any(|delivery| {
-                delivery.bot_id == bot_id
-                    && delivery.assignment_id.as_deref() == Some(assignment_id)
-                    && delivery.state == "queued"
-            });
-            if !queued {
-                return Err(OrchestratorError::Conflict(
-                    "message is not waiting for this Bot".into(),
-                ));
-            }
-            if assignment.status != "working" {
-                return Err(OrchestratorError::Conflict(
-                    "Bot task is no longer working".into(),
-                ));
-            }
-            let delivery = self.queue_steer_for_assignment(
-                SteerRequest {
-                    bot_id: bot_id.to_owned(),
-                    project_id: assignment.project_id.clone(),
-                    chat_id: assignment.origin_chat_id.clone(),
-                    text: message.text.clone(),
-                    message_id: Some(message_id.to_owned()),
-                },
-                Some(assignment_id),
-            )?;
-            if delivery.assignment_id.as_deref() != Some(assignment_id) {
-                return Err(OrchestratorError::Conflict(
-                    "Bot task is no longer available".into(),
-                ));
-            }
+        if already_promoted {
+            let message = self.messages.get(message_id).cloned().unwrap_or(message);
+            return Ok(json!({"assignment":assignment,"message":message}));
+        }
+        if assignment.status != "working" {
+            return Err(OrchestratorError::Conflict(
+                "Bot task is no longer working".into(),
+            ));
+        }
+        let queued = message.delivery.iter().any(|delivery| {
+            delivery.bot_id == bot_id
+                && delivery.assignment_id.as_deref() == Some(assignment_id)
+                && delivery.state == "queued"
+        });
+        if !queued {
+            return Err(OrchestratorError::Conflict(
+                "message is not waiting for this Bot".into(),
+            ));
+        }
+        let delivery = self.queue_steer_for_assignment(
+            SteerRequest {
+                bot_id: bot_id.to_owned(),
+                project_id: assignment.project_id.clone(),
+                chat_id: assignment.origin_chat_id.clone(),
+                text: message.text.clone(),
+                message_id: Some(message_id.to_owned()),
+            },
+            Some(assignment_id),
+        )?;
+        if delivery.assignment_id.as_deref() != Some(assignment_id) {
+            return Err(OrchestratorError::Conflict(
+                "Bot task is no longer available".into(),
+            ));
         }
         let assignment = self.assignment(assignment_id)?.clone();
         let message = self.messages.get(message_id).cloned().unwrap_or(message);
@@ -3386,14 +3407,20 @@ impl Inner {
             )));
         }
         let bot_id = self.assignment(assignment_id)?.bot_id.clone();
-        if !self
+        let has_delivery = self.messages.get(message_id).is_some_and(|message| {
+            message.delivery.iter().any(|delivery| {
+                delivery.bot_id == bot_id
+                    && delivery.assignment_id.as_deref() == Some(assignment_id)
+            })
+        });
+        let has_steer = self
             .assignment(assignment_id)?
             .steers
             .iter()
-            .any(|steer| steer.message_id == message_id)
-        {
+            .any(|steer| steer.message_id == message_id);
+        if !has_delivery && !has_steer {
             return Err(OrchestratorError::NotFound(format!(
-                "steer {message_id} for assignment {assignment_id}"
+                "delivery {message_id} for assignment {assignment_id}"
             )));
         }
         let previous = self.messages.get(message_id).and_then(|message| {

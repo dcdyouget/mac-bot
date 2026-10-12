@@ -1,0 +1,4 @@
+Mock: latest macbotd binary (rebuilt after server_pending freeze), port 17902, isolated home /tmp/macbot-queue-final-20261012; temporary API 36 AVD via adb reverse 127.0.0.1:17902; Host QueueFix (b8f4a999-af3a-46ab-82c8-c2debf6bc82d). App data was cleared before this final pass to avoid stale host cache.
+Sent a user message without @ in chat_login. UI showed it as queued and task detail rendered it under “待看消息” with “改为插话”.
+chat_login message msg_01a12d7c-504b-7393-82e6-29a99b309ea6: top-level assignment_id=null; delivery assignment_id=asg_mock_working, bot_id=bot_code, state=queued; seq=18.
+After tapping “改为插话”, persisted host snapshot assignment asg_mock_working had steers=[{message_id: msg_01a12d7c-504b-7393-82e6-29a99b309ea6, text: queue-final-no-\nqf12, applied_at: null}], pending_messages=1. Delivery remains queued until runner consumes the steer, so the queue card remains visible. No trace steer event exists yet because the mock runner has not consumed it.

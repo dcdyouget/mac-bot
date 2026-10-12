@@ -576,7 +576,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 | `chat.send` | `{ chat_id, text: string, mentions: Mention[], quote?: Id /* 引用的消息 id */, quote_mode?: "reply"|"reference" /* 默认 reply */, attachments?: Id[] /* upload_id */, client_locale?: string /* BCP 47，例如 zh-CN */ }`（`reply_to` 不再使用） | `{ message: Message }` |
 | `message.delete` | `{ message_id }` | `{}`（仅允许删除 `sender.kind = "user"` 的消息；重复删除已删除消息成功且不重复发出删除事件） |
 | `message.edit` | `{ message_id, text: string }` | `{ message: Message }`（仅允许修改用户发送、`mentions = []` 且仅含一个 `text` block 的消息；`text` 不能为空） |
-| `message.steer` | `{ message_id, bot_id, assignment_id }` | `{ message: Message, assignment: Assignment }`（仅将该消息已有的未读 queued delivery 提升为插话；重复调用幂等） |
+| `message.steer` | `{ message_id, bot_id, assignment_id }` | `{ message: Message, assignment: Assignment }`（仅将该任务对应、仍为 queued 的 delivery 提升为插话；重复调用幂等） |
 | `chat.mark_read` | `{ chat_id, seq: number }` | `{}` |
 | `chat.react` | `{ message_id, emoji: string, on: boolean }` | `{ message: Message }` |
 | `chat.set_pinned` | `{ chat_id, pinned: boolean }` | `{ chat: Chat }` |
@@ -588,6 +588,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 
 - `chat.send` 里用户可以用的 mention 只有 `bot`、`main`、`everyone`（`instruction` 必须为 null）。服务端按 PLAN 5.4 的规则路由。
 - 群聊中未 @ 任何人的用户消息会为当前 working 的 Bot 任务记录 `delivery.state = "queued"`，并计入该任务的 `pending_messages`。Bot 调用 `send_msg(done)` 前，服务端先把仍为 queued 的消息一次性交给它（轨迹记录 `queue.review`，delivery 变为 `read`，`pending_messages` 归零），Bot 据此调整后再交付；任务详情的「改为插话」调用 `message.steer`，服务端再次校验消息、Bot、任务和待看状态后，才把原消息排入该任务。
+- `chat.last_read_seq` 记录用户阅读聊天的进度，不表示 Bot 已消费 queued delivery；即使用户已打开群聊，仍为 queued 的待看消息也可以「改为插话」。
 - Bot 通过 `send_msg` 登记 project Home 内普通文件产物时，服务端保存当时文件内容快照；内容未变化不增加版本。历史从新版本部署后首次登记开始，既有产物不会伪造或回填旧版本。`artifact.versions.list` 与 `artifact.version.get` 只返回已真实保存的版本，不从当前文件推测旧内容。URL、目录、越界路径、敏感文件名和超过 5 MiB 的文件不会生成可读历史版本。
 - `bot_dm` 会话是只读的，对它调用 `chat.send` 返回 `forbidden`。
 - `message.delete` 只允许删除当前用户发送的消息（`sender.kind = "user"`）；删除 Bot、系统或其他非用户消息返回 `forbidden`。对已删除消息重试仍返回 `{}`，不重复产生 `message.deleted`；删除成功时持久化事件的 data 为 `{ chat_id, message_id }`。

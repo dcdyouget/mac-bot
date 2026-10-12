@@ -233,6 +233,7 @@
 | trace.queue.title | 待看消息 |
 | trace.queue.hint | 没有 @ {bot} 的消息不会打断它，交付前会一起查看。点「改为插话」可以让某一条在下一步就生效。 |
 | trace.queue.to_steer | 改为插话 |
+| trace.queue.steered | 已插话 · 等待 Bot 下一步 |
 | trace.queue.seen | 已查看 |
 | trace.item.queue_review | 交付前查看新消息 {count} 条 |
 | workbench.queued_msgs | 待看 {count} |

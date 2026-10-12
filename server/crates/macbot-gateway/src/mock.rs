@@ -3111,6 +3111,7 @@ fn message_steer(state: &mut MockState, params: &Value) -> RpcResult {
         ));
     }
 
+    let assignment = &mut state.assignments[assignment_index];
     let already_promoted = assignment
         .get("steers")
         .and_then(Value::as_array)
@@ -3125,18 +3126,12 @@ fn message_steer(state: &mut MockState, params: &Value) -> RpcResult {
         return Ok(json!({"message":message,"assignment":assignment}));
     }
 
-    let seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
-    let last_read_seq = state
-        .chats
-        .iter()
-        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(&chat_id))
-        .and_then(|chat| chat.get("last_read_seq"))
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    if seq <= last_read_seq {
-        return Err(rpc_error("conflict", "message is no longer unread", None));
+    if assignment.get("status").and_then(Value::as_str) != Some("working") {
+        return Err(rpc_error("conflict", "Bot task is no longer working", None));
     }
 
+    // The user's chat read cursor is independent from a Bot task's queued
+    // delivery. The assignment-scoped queued state below is authoritative.
     let delivery_is_queued = message
         .get("delivery")
         .and_then(Value::as_array)
@@ -3153,11 +3148,6 @@ fn message_steer(state: &mut MockState, params: &Value) -> RpcResult {
             "message is not waiting for this Bot",
             None,
         ));
-    }
-
-    let assignment = &mut state.assignments[assignment_index];
-    if assignment.get("status").and_then(Value::as_str) != Some("working") {
-        return Err(rpc_error("conflict", "Bot task is no longer working", None));
     }
 
     let steers = assignment
@@ -6463,6 +6453,15 @@ mod contract_tests {
             assert_eq!(assignment["assignment"]["pending_messages"], 2);
         }
 
+        // Opening the chat advances the human read cursor, but the Bot still
+        // has a queued delivery and must be allowed to promote it.
+        call(
+            &gateway,
+            "chat.mark_read",
+            json!({"chat_id":"chat_login","seq":message["seq"]}),
+        )
+        .await;
+
         let mut steer_events = gateway.state.events.subscribe();
         let steer_params = json!({
             "message_id":message["id"],
@@ -6558,6 +6557,148 @@ mod contract_tests {
         )
         .await;
         assert_eq!(after_reconnect["assignment"]["pending_messages"], 2);
+
+        // An explicitly promoted steer remains idempotent after the Bot has
+        // consumed its delivery, and the retry returns the current delivery.
+        {
+            let mut state = gateway.state.inner.write().await;
+            let message = state
+                .messages
+                .get_mut("chat_login")
+                .unwrap()
+                .iter_mut()
+                .find(|row| row["id"] == message["id"])
+                .unwrap();
+            message["delivery"][0]["state"] = json!("read");
+            state
+                .assignments
+                .iter_mut()
+                .find(|assignment| assignment["id"] == "asg_mock_working")
+                .unwrap()["pending_messages"] = json!(1);
+        }
+        let replay = call(
+            &gateway,
+            "message.steer",
+            json!({
+                "message_id":message["id"],
+                "bot_id":"bot_code",
+                "assignment_id":"asg_mock_working"
+            }),
+        )
+        .await;
+        assert_eq!(
+            replay["message"]["delivery"][0]["state"], "read",
+            "retries return the current state"
+        );
+        assert_eq!(replay["assignment"]["steers"].as_array().unwrap().len(), 1);
+        gateway
+            .state
+            .inner
+            .write()
+            .await
+            .assignments
+            .iter_mut()
+            .find(|assignment| assignment["id"] == "asg_mock_working")
+            .unwrap()["status"] = json!("done");
+        let completed_replay = call(
+            &gateway,
+            "message.steer",
+            json!({
+                "message_id":message["id"],
+                "bot_id":"bot_code",
+                "assignment_id":"asg_mock_working"
+            }),
+        )
+        .await;
+        assert_eq!(completed_replay["assignment"]["status"], "done");
+        assert_eq!(completed_replay["message"]["delivery"][0]["state"], "read");
+        gateway
+            .state
+            .inner
+            .write()
+            .await
+            .assignments
+            .iter_mut()
+            .find(|assignment| assignment["id"] == "asg_mock_working")
+            .unwrap()["status"] = json!("cancelled");
+        let cancelled_replay = call(
+            &gateway,
+            "message.steer",
+            json!({
+                "message_id":message["id"],
+                "bot_id":"bot_code",
+                "assignment_id":"asg_mock_working"
+            }),
+        )
+        .await;
+        assert_eq!(cancelled_replay["assignment"]["status"], "cancelled");
+        assert_eq!(cancelled_replay["message"]["delivery"][0]["state"], "read");
+    }
+
+    #[tokio::test]
+    async fn mock_steer_rejects_a_delivery_already_consumed_by_the_bot() {
+        let gateway = gateway().await;
+        let sent = call(
+            &gateway,
+            "chat.send",
+            json!({
+                "chat_id":"chat_login",
+                "text":"这条待看消息随后被 Bot 消费",
+                "mentions":[],
+                "client_request_id":"mock-consumed-queued-message"
+            }),
+        )
+        .await;
+        let message_id = sent["message"]["id"].as_str().unwrap().to_owned();
+        let seq = sent["message"]["seq"].as_u64().unwrap();
+        call(
+            &gateway,
+            "chat.mark_read",
+            json!({"chat_id":"chat_login","seq":seq}),
+        )
+        .await;
+
+        // Simulate the Bot's delivery transition while leaving the task active.
+        {
+            let mut state = gateway.state.inner.write().await;
+            let message = state
+                .messages
+                .get_mut("chat_login")
+                .unwrap()
+                .iter_mut()
+                .find(|message| message["id"] == message_id)
+                .unwrap();
+            message["delivery"][0]["state"] = json!("read");
+            state
+                .assignments
+                .iter_mut()
+                .find(|assignment| assignment["id"] == "asg_mock_working")
+                .unwrap()["pending_messages"] = json!(0);
+        }
+
+        let error = gateway
+            .rpc(
+                "message.steer",
+                json!({
+                    "message_id":message_id,
+                    "bot_id":"bot_code",
+                    "assignment_id":"asg_mock_working",
+                    "client_request_id":"mock-consumed-steer"
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "conflict");
+        assert_eq!(error.message, "message is not waiting for this Bot");
+        let assignment = call(
+            &gateway,
+            "assignment.get",
+            json!({"assignment_id":"asg_mock_working"}),
+        )
+        .await["assignment"]
+            .clone();
+        assert_eq!(assignment["pending_messages"], 0);
+        assert!(assignment["steers"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
