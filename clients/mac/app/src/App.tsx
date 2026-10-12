@@ -3425,7 +3425,7 @@ function ChatRow(props: { title: string; subtitle: string; approval?: { label: s
 function BeanAvatar({ main = false, size = '32', seed = '' }: { main?: boolean; size?: '32' | '40' | '64' | '72' | '96'; seed?: string }) {
   const color = (Array.from(seed).reduce((sum, char) => sum + char.charCodeAt(0), 0) % 6) + 1
   return <div className={`av s${size} bean-avatar`} style={{ '--c': `var(--avatar-${main ? 0 : color})` } as React.CSSProperties}>
-    {main && <svg className="glasses" viewBox="0 0 100 100" aria-hidden="true"><rect x="18" y="36" width="27" height="22" rx="7"/><rect x="55" y="36" width="27" height="22" rx="7"/><path d="M45 45h10M18 43l-7-3M82 43l7-3"/></svg>}
+    {main && <svg className="glasses" viewBox="0 0 100 100" aria-hidden="true"><rect x="24" y="37" width="25" height="22" rx="7"/><rect x="51" y="37" width="25" height="22" rx="7"/><path d="M49 45q1-2 2 0M24 44 12 41M76 44l12-3"/></svg>}
   </div>
 }
 

@@ -429,7 +429,7 @@ export function BotPanel(props: Props) {
 function Avatar({ bot, size }: { bot: BotRecord; size: number }) {
   const avatar = bot.avatar
   const style: CSSProperties = { width: size, height: size, background: `var(--avatar-${Number.isInteger(avatar?.color) ? avatar?.color : 0})` }
-  return <span className={`bot-panel-avatar ${bot.is_main ? 'main' : ''}`} style={style} aria-hidden="true">{avatar?.kind === 'emoji' && avatar.emoji ? avatar.emoji : Array.from(bot.name || 'B')[0]}</span>
+  return <span className={`bot-panel-avatar ${bot.is_main ? 'main' : ''}`} style={style} aria-hidden="true">{avatar?.kind === 'emoji' && avatar.emoji ? avatar.emoji : Array.from(bot.name || 'B')[0]}{bot.is_main && <svg className="bot-panel-glasses" viewBox="0 0 100 100"><rect x="24" y="37" width="25" height="22" rx="7"/><rect x="51" y="37" width="25" height="22" rx="7"/><path d="M49 45q1-2 2 0M24 44 12 41M76 44l12-3"/></svg>}</span>
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
