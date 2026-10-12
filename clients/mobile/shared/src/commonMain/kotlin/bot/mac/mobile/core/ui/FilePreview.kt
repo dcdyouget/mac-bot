@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import kotlin.io.encoding.Base64
 
 private enum class PreviewTab { Preview, Source, History }
@@ -36,9 +37,19 @@ private enum class PreviewTab { Preview, Source, History }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilePreview(repository: MobileRepository, rootId: String, initialPath: String, onBack: () -> Unit) {
+    val activeHost by repository.activeHost.collectAsState()
+    val scopeKey = filePreviewScopeKey(activeHost?.id, rootId, initialPath)
+    key(scopeKey) {
+        FilePreviewContent(repository, rootId, initialPath, onBack)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FilePreviewContent(repository: MobileRepository, rootId: String, initialPath: String, onBack: () -> Unit) {
     var path by remember(initialPath) { mutableStateOf(initialPath) }
     var content by remember { mutableStateOf<ByteArray?>(null) }
-    var entries by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
+    var entries by remember { mutableStateOf<List<FilePreviewEntry>>(emptyList()) }
     var modifiedAt by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -56,6 +67,16 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
     val copiedMessage = stringResource(Res.string.file_preview_copied)
     val failedMessage = stringResource(Res.string.file_preview_action_failed)
     val exportLabel = stringResource(Res.string.file_save)
+    val navigateBack = {
+        val parentPath = parentFilePath(path)
+        if (parentPath == null) {
+            onBack()
+        } else {
+            path = parentPath
+            selectedTab = PreviewTab.Preview
+        }
+    }
+    PlatformBackHandler(onBack = navigateBack)
 
     LaunchedEffect(rootId, path) {
         loading = true
@@ -75,7 +96,7 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
                 runCatching {
                     protocolJson.parseToJsonElement(
                         repository.fetchText("/api/v1/files/list", params),
-                    ).jsonObject.objects("entries")
+                    ).jsonObject.arr("entries").let { parseFilePreviewEntries(path, it) }
                 }.onSuccess { values ->
                     entries = values
                     error = if (values.isEmpty()) fileError.message else null
@@ -89,9 +110,9 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
                             "/api/v1/files/list",
                             mapOf("root" to "project", "root_id" to rootId, "path" to parentPath),
                         ),
-                    ).jsonObject.objects("entries")
+                    ).jsonObject.arr("entries").let { parseFilePreviewEntries(parentPath, it) }
                 }.onSuccess { values ->
-                    modifiedAt = values.firstOrNull { it.str("path") == path }?.str("modified_at").orEmpty()
+                    modifiedAt = values.firstOrNull { it.path == path }?.modifiedAt.orEmpty()
                 }
             }
             loading = false
@@ -197,7 +218,7 @@ fun FilePreview(repository: MobileRepository, rootId: String, initialPath: Strin
                     }
                 },
                 navigationIcon = {
-                    TextButton(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
+                    TextButton(onClick = navigateBack) { Text(stringResource(Res.string.common_back)) }
                 },
                 actions = {
                     Text(
@@ -397,17 +418,17 @@ private fun PreviewContent(
     bytes: ByteArray?,
     image: androidx.compose.ui.graphics.ImageBitmap?,
     isText: Boolean,
-    entries: List<JsonObject>,
+    entries: List<FilePreviewEntry>,
     onOpen: (String) -> Unit,
 ) {
     if (entries.isNotEmpty()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-            items(entries, key = { it.str("path") }) { entry ->
+            items(entries, key = { it.key }) { entry ->
                 ListItem(
-                    headlineContent = { Text(entry.str("name"), maxLines = 1) },
-                    supportingContent = { if (!entry.boolean("is_dir")) Text(entry.str("size")) },
-                    trailingContent = { Text(if (entry.boolean("is_dir")) "›" else "▤") },
-                    modifier = Modifier.clickable { onOpen(entry.str("path")) },
+                    headlineContent = { Text(entry.name, maxLines = 1) },
+                    supportingContent = { if (!entry.isDirectory) Text(entry.size.toString()) },
+                    trailingContent = { Text(if (entry.isDirectory) "›" else "▤") },
+                    modifier = Modifier.clickable { onOpen(entry.path) },
                 )
             }
         }
