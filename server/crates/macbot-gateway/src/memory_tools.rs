@@ -368,6 +368,30 @@ impl FeatureExecutionSink {
             .collect()
     }
 
+    async fn record_context_write_failure(
+        &self,
+        request: &crate::execution::ExecutionRequest,
+        error: macbot_memory::MemoryError,
+    ) -> Value {
+        let call_id = format!("memory-context-{}", uuid::Uuid::new_v4());
+        let result = into_memory_result(Err(FeatureError::Memory(error)));
+        let payload = result.details;
+        self.delegate
+            .emit(crate::execution::ExecutionEvent {
+                event: "memory.failed".into(),
+                data: json!({
+                    "run_id": request.run_id,
+                    "bot_id": request.bot_id,
+                    "call_id": call_id,
+                    "stage": "snapshot_cache_put",
+                    "result": payload,
+                }),
+                persistent: true,
+            })
+            .await;
+        json!({"call_id":call_id,"result":payload})
+    }
+
     fn context_request(&self, request: &crate::execution::ExecutionRequest) -> ContextRequest {
         let kind = if request.private {
             macbot_memory::ConversationKind::Private
@@ -524,6 +548,7 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
                 .map_err(|error| error.to_string())?,
         };
         let mut cache_key = format!("{thread_id}:{segment_id}");
+        let mut context_write_errors = Vec::new();
         let mut context_request = self.context_request(request);
         context_request.previous_snapshot = self
             .runtime
@@ -536,11 +561,14 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
             .runtime
             .context(&context_request)
             .map_err(|error| error.to_string())?;
-        self.runtime
+        if let Err(error) = self
+            .runtime
             .service
             .shared_memory
             .snapshot_cache_put(cache_key.clone(), package.snapshot.clone())
-            .map_err(|error| error.to_string())?;
+        {
+            context_write_errors.push(self.record_context_write_failure(request, error).await);
+        }
 
         let segment_highwater = self
             .runtime
@@ -684,11 +712,14 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
                 .runtime
                 .context(&context_request)
                 .map_err(|error| error.to_string())?;
-            self.runtime
+            if let Err(error) = self
+                .runtime
                 .service
                 .shared_memory
                 .snapshot_cache_put(cache_key, package.snapshot.clone())
-                .map_err(|error| error.to_string())?;
+            {
+                context_write_errors.push(self.record_context_write_failure(request, error).await);
+            }
             compaction_summary = Some(summary);
         }
         let (system_a, system_b) = prompt_blocks(
@@ -716,7 +747,8 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
                 {"level":3,"content":system_b}
             ],
             "memory_update":output_update,
-            "compaction_summary":compaction_summary
+            "compaction_summary":compaction_summary,
+            "memory_errors":context_write_errors
         })))
     }
 
@@ -1673,6 +1705,10 @@ mod tests {
     use crate::execution::ExecutionSink;
     use chrono::Utc;
     use macbot_memory::{ConversationKind, MemoryScope};
+    use macbot_providers::{Completion, ModelEvent, ModelProvider, ModelRequest, ToolCall};
+    use macbot_tools::{Risk, Tool, ToolContext, ToolResult};
+    use std::fs;
+    use std::path::PathBuf;
     use std::sync::Mutex as StdMutex;
     use tempfile::tempdir;
 
@@ -2285,6 +2321,93 @@ mod tests {
         async fn approval_required(&self, _: Value) {}
     }
 
+    struct DurableEventSink {
+        store: macbot_store::Store,
+    }
+
+    #[async_trait]
+    impl crate::execution::ExecutionSink for DurableEventSink {
+        async fn emit(&self, event: crate::execution::ExecutionEvent) {
+            if event.persistent {
+                self.store.append_event(event.event, event.data).unwrap();
+            }
+        }
+
+        async fn send_group_message(&self, message: Value) -> Result<Value, String> {
+            Ok(message)
+        }
+
+        async fn validate_send_msg_target(&self, _: &Value) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn approval_required(&self, _: Value) {}
+    }
+
+    struct SnapshotFailureProvider {
+        requests: Arc<StdMutex<Vec<ModelRequest>>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for SnapshotFailureProvider {
+        async fn stream(
+            &self,
+            request: ModelRequest,
+            _: tokio::sync::mpsc::Sender<ModelEvent>,
+        ) -> macbot_providers::Result<Completion> {
+            let mut requests = self.requests.lock().unwrap();
+            let first_request = requests.is_empty();
+            requests.push(request);
+            Ok(if first_request {
+                Completion {
+                    tool_calls: vec![ToolCall {
+                        call_id: "break-memory-state".into(),
+                        name: "break_memory_state".into(),
+                        args: json!({}),
+                    }],
+                    stop_reason: "tool_calls".into(),
+                    ..Default::default()
+                }
+            } else {
+                Completion {
+                    text: "continued after memory error".into(),
+                    stop_reason: "stop".into(),
+                    ..Default::default()
+                }
+            })
+        }
+    }
+
+    struct BreakMemoryStateTool {
+        path: PathBuf,
+    }
+
+    #[async_trait]
+    impl Tool for BreakMemoryStateTool {
+        fn name(&self) -> &str {
+            "break_memory_state"
+        }
+
+        fn description(&self) -> &str {
+            "Inject a persistent memory state write failure for the regression test."
+        }
+
+        fn schema(&self) -> Value {
+            json!({"type":"object","properties":{}})
+        }
+
+        fn risk(&self, _: &Value) -> Risk {
+            Risk::Read
+        }
+
+        async fn call(&self, _: &ToolContext, _: Value) -> ToolResult {
+            match fs::create_dir(&self.path) {
+                Ok(()) => ToolResult::text("injected persistent memory state failure"),
+                Err(error) => ToolResult::error(error),
+            }
+        }
+    }
+
     struct OrderedMaintenance {
         calls: Arc<StdMutex<Vec<String>>>,
         summarized: Arc<StdMutex<String>>,
@@ -2385,6 +2508,125 @@ mod tests {
         assert!(!summarized.lock().unwrap().contains(&"z".repeat(241)));
         assert!(context["compaction_summary"].as_str().is_some());
         assert_eq!(context["system_blocks"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn persistent_snapshot_write_failure_is_returned_and_persisted() {
+        let directory = tempdir().unwrap();
+        let home = directory.path();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        let delegate = Arc::new(DurableEventSink {
+            store: service.shared_store.clone(),
+        });
+        let mut run = FeatureRunContext::bot("bot-a", "user-a");
+        run.run_id = Some("snapshot-io-run".into());
+        run.chat_id = Some("snapshot-io-chat".into());
+        run.session_id = Some("snapshot-io-chat".into());
+        let sink =
+            FeatureExecutionSink::new(delegate, FeatureToolRuntime::new(service.clone(), run));
+        let requests = Arc::new(StdMutex::new(Vec::new()));
+        let request = crate::execution::ExecutionRequest {
+            run_id: "snapshot-io-run".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "snapshot-io-chat".into(),
+            bot_id: "bot-a".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "continue after memory storage failure".into(),
+            messages: vec![json!({"role":"user","content":"continue"})],
+            max_turns: 2,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        let runtime = FeatureToolRuntime::for_execution(
+            service.clone(),
+            &request,
+            MemoryAccess::default(),
+            false,
+        );
+        let mut tools = runtime.tools();
+        tools.push(Arc::new(BreakMemoryStateTool {
+            path: home.join("data/memory/state.tmp"),
+        }));
+        let engine = crate::execution::ExecutionEngine::new(
+            service.shared_store.clone(),
+            Arc::new(SnapshotFailureProvider {
+                requests: requests.clone(),
+            }),
+            tools,
+            Arc::new(sink),
+            home,
+        )
+        .unwrap();
+        let outcome = engine.run(request.clone()).await.unwrap();
+        assert_eq!(outcome.status, "done");
+
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        let messages = &requests[1].messages;
+        let assistant = messages
+            .iter()
+            .find(|message| {
+                message["role"] == "assistant"
+                    && message["tool_calls"][0]["function"]["arguments"]
+                        .as_str()
+                        .is_some_and(|args| args.contains("snapshot_cache_put"))
+            })
+            .unwrap();
+        let call_id = assistant["tool_calls"][0]["id"].as_str().unwrap();
+        assert!(call_id.starts_with("memory-context-"));
+        assert_eq!(
+            assistant["tool_calls"][0]["function"]["arguments"],
+            "{\"_gateway_context_error\":\"snapshot_cache_put\"}"
+        );
+        let tool_result = messages
+            .iter()
+            .find(|message| message["role"] == "tool" && message["tool_call_id"] == call_id)
+            .unwrap();
+        assert_eq!(tool_result["is_error"], true);
+        let payload: Value =
+            serde_json::from_str(tool_result["content"].as_str().unwrap()).unwrap();
+        assert_eq!(payload["ok"], false);
+        assert_eq!(payload["code"], "invalid");
+        assert!(payload["message"].as_str().unwrap().contains("I/O error"));
+
+        let events = service.shared_store.events_since(0).unwrap();
+        let failed = events
+            .iter()
+            .filter(|event| {
+                event.event == "memory.failed" && event.data["stage"] == "snapshot_cache_put"
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].data["call_id"], call_id);
+        assert_eq!(failed[0].data["result"], payload);
+        let run_end = events
+            .iter()
+            .find(|event| {
+                event.event == "trace.item"
+                    && event.data.pointer("/item/type").and_then(Value::as_str) == Some("run.end")
+            })
+            .unwrap();
+        assert_eq!(
+            run_end.data.pointer("/item/data/status"),
+            Some(&json!("done"))
+        );
+        let seqs = events.iter().map(|event| event.seq).collect::<HashSet<_>>();
+        assert_eq!(seqs.len(), events.len());
     }
 
     #[tokio::test]
