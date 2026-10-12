@@ -943,6 +943,8 @@
     <string name="memory_profile_conflict_banner">档案版本不一致（版本 %1$d），重新加载</string>
     <string name="memory_profile_conflict_reload">重新加载</string>
     <string name="memory_profile_save_success">已保存</string>
+    <string name="memory_profile_save_action">保存</string>
+    <string name="memory_profile_character_count">%1$d / %2$d 字</string>
     <string name="memory_source_curator">记忆整理 根据</string>
     <string name="memory_usage">用量</string>
     <string name="memory_usage_value">%1$d / %2$d 字</string>

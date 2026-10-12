@@ -1,7 +1,9 @@
 package bot.mac.mobile.feature.memory
 
 import bot.mac.mobile.core.protocol.long
+import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.state.MobileRepository
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
@@ -42,3 +44,19 @@ internal fun profileUpdateParams(field: String, value: String?, expectedVersion:
     put("expected_version", expectedVersion)
     if (value == null) put(field, JsonNull) else put(field, value)
 }
+
+internal fun profileFieldMaxLength(field: String): Int? = when (field) {
+    "name" -> 20
+    "identity" -> 100
+    else -> null
+}
+
+internal fun isProfileField(field: String): Boolean = field in MemoryProfileEditState.profileFields
+
+internal suspend fun saveProfileField(
+    repository: MobileRepository,
+    hostId: String,
+    field: String,
+    value: String?,
+    expectedVersion: Long,
+): JsonObject = repository.callOnHost(hostId, "memory.profile.update", profileUpdateParams(field, value, expectedVersion)).obj("profile")

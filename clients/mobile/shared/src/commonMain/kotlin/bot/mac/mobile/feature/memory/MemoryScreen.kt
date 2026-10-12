@@ -8,19 +8,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -35,11 +32,7 @@ import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.datetime.Instant
@@ -131,7 +124,7 @@ fun MemoryScreen(
                 }
                 item {
                     if (!loaded) ProfileSkeleton()
-                    else ProfileCard(repository, hostId, state.userProfile)
+                    else ProfileCard(state.userProfile, onOpenProfileField)
                 }
                 if (state.memoryQuota.isNotEmpty()) item { QuotaCard(state.memoryQuota) }
                 item {
@@ -202,123 +195,51 @@ private fun ProfileSkeleton() {
 }
 
 @Composable
-private fun ProfileCard(repository: MobileRepository, hostId: String, profile: JsonObject) {
-    val scope = rememberCoroutineScope()
-    val palette = LocalMobilePalette.current
-    val version = profile.long("version")
-    var editState by remember(hostId) { mutableStateOf(MemoryProfileEditState(profile)) }
-    var requestInFlight by remember(hostId) { mutableStateOf(false) }
-    val saveMutex = remember(hostId) { Mutex() }
-    val conflict = editState.conflict
-    var error by remember(hostId) { mutableStateOf<String?>(null) }
-    var savedField by remember(hostId) { mutableStateOf<String?>(null) }
-    var savedGeneration by remember(hostId) { mutableStateOf(0) }
-    var expandedLanguage by remember { mutableStateOf(false) }
-    val loadingError = stringResource(Res.string.feature_loading_error)
-
-    LaunchedEffect(version, requestInFlight) {
-        editState = editState.receiveRemote(profile, requestInFlight)
-    }
-    fun showSaved(field: String) {
-        savedField = field
-        val generation = ++savedGeneration
-        scope.launch {
-            delay(1_600)
-            if (savedGeneration == generation && savedField == field) savedField = null
-        }
-    }
-    fun save(field: String, submitted: String) {
-        if (profile.isEmpty()) return
-        scope.launch {
-            saveMutex.withLock {
-                if (!editState.isCurrentSubmission(field, submitted)) return@withLock
-                val value = submitted.trim().takeIf(String::isNotBlank)
-                if ((value ?: "") == editState.base.str(field)) return@withLock
-                requestInFlight = true
-                error = null
-                runCatching {
-                    repository.callOnHost(hostId, "memory.profile.update", profileUpdateParams(field, value, editState.expectedVersion))
-                }.onSuccess {
-                    val updated = editState.saveSucceeded(it.obj("profile"), field, submitted)
-                    editState = updated
-                    if (updated.drafts[field].orEmpty() == updated.base.str(field)) showSaved(field)
-                    else savedField = null
-                }.onFailure { failure ->
-                    val remote = (failure as? NetworkError)?.details?.obj("details")?.obj("current")
-                    if ((failure as? NetworkError)?.code == "conflict" && remote != null) editState = editState.copy(conflict = remote)
-                    else error = loadingError
-                }
-                requestInFlight = false
-            }
-        }
-    }
+private fun ProfileCard(profile: JsonObject, onOpenProfileField: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      conflict?.let { remote ->
-        Surface(Modifier.fillMaxWidth(), color = palette.warning.copy(alpha = 0.14f), shape = RoundedCornerShape(10.dp)) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(Res.string.memory_profile_conflict_banner, remote.long("version")), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = palette.warning)
-                TextButton(onClick = {
-                    scope.launch { runCatching { repository.callOnHost(hostId, "memory.profile.get") }.onSuccess {
-                        val fresh = it.obj("profile"); editState = editState.useRemote(fresh)
-                    }.onFailure { error = loadingError } }
-                }) { Text(stringResource(Res.string.memory_profile_conflict_reload), color = palette.warning) }
-            }
-        }
-      }
       Column(
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp),
       ) {
         Text(stringResource(Res.string.memory_profile_title), style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp), fontWeight = FontWeight.SemiBold)
-        ProfileInlineField(
-            label = stringResource(Res.string.memory_profile_name), value = editState.drafts["name"].orEmpty(), placeholder = stringResource(Res.string.memory_profile_name_placeholder),
-            maxLength = 20, saved = savedField == "name", onValueChange = { savedField = null; editState = editState.edit("name", it) }, onSave = { save("name", it) },
-        )
-        Row(Modifier.fillMaxWidth().heightIn(min = 42.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(Res.string.memory_profile_language), Modifier.width(68.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Box(Modifier.weight(1f)) {
-                val language = editState.drafts["language"].orEmpty()
-                val languageLabel = when (language) {
-                    "zh-CN" -> stringResource(Res.string.memory_profile_language_zh)
-                    "en-US" -> stringResource(Res.string.memory_profile_language_en)
-                    "ja-JP" -> stringResource(Res.string.memory_profile_language_ja)
-                    "ko-KR" -> stringResource(Res.string.memory_profile_language_ko)
-                    else -> language.ifBlank { stringResource(Res.string.memory_profile_language_system_option) }
-                }
-                Text(languageLabel, Modifier.fillMaxWidth().clickable { expandedLanguage = true }.padding(vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
-                DropdownMenu(expanded = expandedLanguage, onDismissRequest = { expandedLanguage = false }) {
-                    listOf(null to stringResource(Res.string.memory_profile_language_system_option), "zh-CN" to stringResource(Res.string.memory_profile_language_zh), "en-US" to stringResource(Res.string.memory_profile_language_en), "ja-JP" to stringResource(Res.string.memory_profile_language_ja), "ko-KR" to stringResource(Res.string.memory_profile_language_ko)).forEach { (tag, label) ->
-                    DropdownMenuItem(text = { Text(label) }, onClick = { expandedLanguage = false; editState = editState.edit("language", tag.orEmpty()); savedField = null; save("language", tag.orEmpty()) })
-                    }
-                }
-            }
-            if (savedField == "language") SaveCheck(palette.accent)
+        ProfileReadOnlyField("name", stringResource(Res.string.memory_profile_name), profile.str("name"), stringResource(Res.string.memory_profile_name_placeholder), onOpenProfileField)
+        val languageLabel = when (profile.str("language")) {
+            "zh-CN" -> stringResource(Res.string.memory_profile_language_zh)
+            "en-US" -> stringResource(Res.string.memory_profile_language_en)
+            "ja-JP" -> stringResource(Res.string.memory_profile_language_ja)
+            "ko-KR" -> stringResource(Res.string.memory_profile_language_ko)
+            else -> profile.str("language").ifBlank { stringResource(Res.string.memory_profile_language_system_option) }
         }
-        ProfileInlineField(
-            label = stringResource(Res.string.memory_profile_identity), value = editState.drafts["identity"].orEmpty(), placeholder = stringResource(Res.string.memory_profile_identity_placeholder),
-            maxLength = 100, saved = savedField == "identity", onValueChange = { savedField = null; editState = editState.edit("identity", it) }, onSave = { save("identity", it) },
-        )
+        ProfileReadOnlyField("language", stringResource(Res.string.memory_profile_language), languageLabel, null, onOpenProfileField)
+        ProfileReadOnlyField("identity", stringResource(Res.string.memory_profile_identity), profile.str("identity"), stringResource(Res.string.memory_profile_identity_placeholder), onOpenProfileField)
         Row(Modifier.fillMaxWidth().heightIn(min = 38.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(Res.string.memory_profile_timezone), Modifier.width(68.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(stringResource(Res.string.memory_profile_timezone_readonly, profile.str("timezone").ifBlank { "—" }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
       }
     }
 }
 
 @Composable
-private fun ProfileInlineField(label: String, value: String, placeholder: String, maxLength: Int, saved: Boolean, onValueChange: (String) -> Unit, onSave: (String) -> Unit) {
-    val palette = LocalMobilePalette.current
-    Row(Modifier.fillMaxWidth().heightIn(min = 42.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun ProfileReadOnlyField(field: String, label: String, value: String, emptyText: String?, onOpen: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onOpen(field) }.padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(label, Modifier.width(68.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedTextField(value = value, onValueChange = { if (it.unicodeScalarCount() <= maxLength) onValueChange(it) }, modifier = Modifier.weight(1f).onFocusChanged { if (!it.isFocused) onSave(value) }, placeholder = { Text(placeholder, style = MaterialTheme.typography.bodySmall) }, singleLine = true, textStyle = MaterialTheme.typography.bodyMedium, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { onSave(value) }),)
-        if (saved) SaveCheck(palette.accent)
+        Text(
+            value.ifBlank { emptyText.orEmpty() },
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (value.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+        Text("›", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun SaveCheck(color: androidx.compose.ui.graphics.Color) {
+internal fun SaveCheck(color: androidx.compose.ui.graphics.Color) {
     var visible by remember { mutableStateOf(false) }
     val savedLabel = stringResource(Res.string.memory_profile_save_success)
     LaunchedEffect(Unit) { visible = true }
@@ -623,94 +544,6 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
                     deleteConflict = null
                 }) { Text(conflictKeepLatest) }
             },
-        )
-    }
-}
-
-@Composable
-fun MemoryProfileEditorScreen(repository: MobileRepository, field: String, onBack: () -> Unit) {
-    val hostId = repository.activeHost.collectAsState().value?.id.orEmpty()
-    val scope = rememberCoroutineScope()
-    val maxLength = when (field) { "name" -> 20; "language" -> 35; else -> 100 }
-    var value by rememberSaveable(hostId, field) { mutableStateOf("") }
-    var useSystem by rememberSaveable(hostId, field) { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var conflict by remember { mutableStateOf<JsonObject?>(null) }
-    var baseVersion by rememberSaveable(hostId, field) { mutableStateOf(0L) }
-    var profileLoaded by rememberSaveable(hostId, field) { mutableStateOf(false) }
-    val loadingError = stringResource(Res.string.feature_loading_error)
-    LaunchedEffect(hostId, field) {
-        runCatching {
-            val result = repository.callOnHost(hostId, "memory.profile.get")
-            val current = result.obj("profile")
-            value = current.str(field)
-            useSystem = field == "language" && value.isBlank()
-            baseVersion = current.long("version")
-            profileLoaded = true
-        }.onFailure { error = loadingError }
-    }
-    val label = stringResource(when (field) {
-        "name" -> Res.string.memory_profile_name
-        "language" -> Res.string.memory_profile_language
-        else -> Res.string.memory_profile_identity
-    })
-    fun save(expectedVersion: Long = baseVersion) {
-        scope.launch {
-            runCatching {
-                repository.callOnHost(hostId, "memory.profile.update", buildJsonObject {
-                    put("expected_version", expectedVersion)
-                    put(field, if (field == "language" && useSystem) JsonNull else value.trim().takeIf(String::isNotBlank)?.let(::JsonPrimitive) ?: JsonNull)
-                })
-            }.onSuccess { onBack() }.onFailure { failure ->
-                val remote = (failure as? NetworkError)?.details?.obj("details")?.obj("current")
-                if ((failure as? NetworkError)?.code == "conflict" && remote != null) conflict = remote
-                else error = loadingError
-            }
-        }
-    }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding()) {
-        FontScaleToolbar {
-            Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
-                Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { save() }, enabled = profileLoaded) { Text("✓", style = MaterialTheme.typography.titleLarge) }
-            }
-        }
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(
-                value = value,
-                onValueChange = {
-                    if (it.unicodeScalarCount() <= maxLength) {
-                        value = it
-                        if (field == "language") useSystem = false
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(when (field) { "name" -> Res.string.memory_profile_name_placeholder; "identity" -> Res.string.memory_profile_identity_placeholder; else -> Res.string.memory_profile_language })) },
-                minLines = if (field == "identity") 3 else 1,
-                maxLines = if (field == "identity") 4 else 1,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            )
-            if (field == "language") {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = useSystem, onCheckedChange = { useSystem = it })
-                    Text(stringResource(Res.string.memory_profile_language_system_option), Modifier.clickable { useSystem = !useSystem })
-                }
-            }
-            Text(stringResource(Res.string.memory_profile_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        }
-    }
-    conflict?.let { remote ->
-        AlertDialog(
-            onDismissRequest = { conflict = null },
-            title = { Text(stringResource(Res.string.memory_conflict_title)) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(Res.string.memory_conflict, stringResource(Res.string.memory_profile_title), remote.long("version")))
-                Text(remote.str(field).ifBlank { stringResource(Res.string.memory_profile_language_system_option) })
-            } },
-            confirmButton = { TextButton(onClick = { val version = remote.long("version"); conflict = null; save(version) }) { Text(stringResource(Res.string.memory_conflict_mine)) } },
-            dismissButton = { TextButton(onClick = { value = remote.str(field); useSystem = field == "language" && value.isBlank(); baseVersion = remote.long("version"); conflict = null }) { Text(stringResource(Res.string.memory_conflict_theirs)) } },
         )
     }
 }
